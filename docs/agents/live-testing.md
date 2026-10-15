@@ -304,3 +304,23 @@ and unavailable GPU categories must be reported separately.
 
 Developer client builds include the default `acceptance` feature. Packaging opts out explicitly;
 use a developer build for acceptance evidence, even when testing with the release profile.
+
+## Packet capture
+
+The client keeps the last 4,096 packet headers of its sessions in both directions (ID, length,
+the time the client read it and whether ingress accepted, skipped or failed the packet) and up
+to four raw bodies of each rejected packet ID, 1 MiB in total, from the latest session that
+rejected one. Nothing is written until a crash report asks for them.
+
+Set `CINNABAR_PACKET_CAPTURE=1` to record each session in full to
+`logs/packets-<session start unix ms>.cnbrcap`, or set it to a file path. An existing file is
+never replaced; the start time is added to the name instead. The capture uses the v2 format that
+`tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
+when the client read each batch, which trails socket arrival while ingress is backlogged. It
+stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
+slowing the network thread. Session teardown finishes the file, waiting at most 2 s; a crash
+loses at most the queued packets and 64 KiB of written ones and leaves a capture that
+`bedrock-replay` reports as truncated. Login, handshake and resource-pack offer packets are left
+out of captures and rejected-body samples, keeping only their ring header, so neither holds
+credentials or content keys; captures still hold chat and world data, so keep them outside git
+and delete them after use.

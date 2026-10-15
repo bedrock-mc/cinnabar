@@ -14,7 +14,25 @@ use tokio::time::Instant;
 pub struct Burst {
     pub packets: Range<usize>,
     pub bytes: usize,
+    /// When the burst is sent, from the handoff.
+    pub due: Duration,
 }
+
+/// When each burst is sent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Schedule {
+    /// Bursts `interval` apart from the handoff on.
+    Fixed(Duration),
+    /// Each burst when its first packet was originally received, counted from StartGame's.
+    /// Packets received within [`ORIGINAL_TIMING_RESOLUTION`] of a burst's first packet join
+    /// it, within the burst limits. The client records a packet when its session read the
+    /// batch from the core, which trails socket arrival while its ingress is backlogged, so
+    /// this replays the original client's read pace, slowdowns included.
+    Original,
+}
+
+/// How close in recorded arrival time packets must be to share an original-timing burst.
+pub const ORIGINAL_TIMING_RESOLUTION: Duration = Duration::from_millis(1);
 
 #[derive(Default, Serialize)]
 pub struct ReplayResult {
@@ -33,8 +51,14 @@ pub struct BurstSample {
     pub flushed_ms: f64,
 }
 
-/// Keeps startup through StartGame in one handoff, then applies the play burst limits.
-pub fn plan_bursts(packets: &[CapturedPacket], count: usize, bytes: usize) -> Result<Vec<Burst>> {
+/// Keeps startup through StartGame in one handoff, then applies the play burst limits and the
+/// schedule.
+pub fn plan_bursts(
+    packets: &[CapturedPacket],
+    count: usize,
+    bytes: usize,
+    schedule: Schedule,
+) -> Result<Vec<Burst>> {
     ensure!(
         count > 0 && bytes > 0,
         "burst packet and byte limits must be positive"
@@ -43,12 +67,23 @@ pub fn plan_bursts(packets: &[CapturedPacket], count: usize, bytes: usize) -> Re
         .iter()
         .position(|packet| packet.kind == CapturedPacketKind::StartGame)
         .ok_or_else(|| anyhow::anyhow!("replay has no StartGame"))?;
+    let start_elapsed = match schedule {
+        Schedule::Fixed(_) => Duration::ZERO,
+        Schedule::Original => {
+            ensure!(
+                packets.iter().all(|packet| packet.elapsed.is_some()),
+                "original timing needs a capture with recorded times (v2)"
+            );
+            packets[start].elapsed.unwrap_or_default()
+        }
+    };
     let mut result = vec![Burst {
         packets: 0..start + 1,
         bytes: packets[..=start]
             .iter()
             .map(|packet| packet.wire.len())
             .sum(),
+        due: Duration::ZERO,
     }];
     for (index, packet) in packets.iter().enumerate().skip(start + 1) {
         ensure!(
@@ -56,13 +91,27 @@ pub fn plan_bursts(packets: &[CapturedPacket], count: usize, bytes: usize) -> Re
             "record {} exceeds the burst byte limit",
             packet.record
         );
+        let last = result.last().unwrap();
+        let arrived = packet.elapsed.unwrap_or_default();
+        let later = schedule == Schedule::Original
+            && arrived.saturating_sub(packets[last.packets.start].elapsed.unwrap_or_default())
+                >= ORIGINAL_TIMING_RESOLUTION;
         if result.len() == 1
-            || result.last().unwrap().packets.len() == count
-            || result.last().unwrap().bytes + packet.wire.len() > bytes
+            || later
+            || last.packets.len() == count
+            || last.bytes + packet.wire.len() > bytes
         {
+            let due = match schedule {
+                Schedule::Fixed(interval) => interval.checked_mul(u32::try_from(result.len())?),
+                // Arrival times never run backwards, but a schedule must not either.
+                Schedule::Original => Some(arrived.saturating_sub(start_elapsed).max(last.due)),
+            }
+            .filter(|due| due.as_nanos() <= i64::MAX as u128)
+            .ok_or_else(|| anyhow::anyhow!("burst schedule exceeds the duration range"))?;
             result.push(Burst {
                 packets: index..index,
                 bytes: 0,
+                due,
             });
         }
         let burst = result.last_mut().unwrap();
@@ -72,12 +121,11 @@ pub fn plan_bursts(packets: &[CapturedPacket], count: usize, bytes: usize) -> Re
     Ok(result)
 }
 
-/// Flushes each scheduled burst and records only successful writes in the byte witness.
+/// Flushes each burst at its due time and records only successful writes in the byte witness.
 pub async fn replay_bursts<S>(
     sink: &mut S,
     packets: &[CapturedPacket],
     bursts: &[Burst],
-    interval: Duration,
     handoff: SessionHandoff,
     archives: &[Bytes],
     result: &mut ReplayResult,
@@ -87,18 +135,11 @@ where
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     result.bursts = Some(Vec::with_capacity(bursts.len()));
-    let total = interval
-        .as_nanos()
-        .checked_mul(bursts.len().saturating_sub(1) as u128);
-    ensure!(
-        total.is_some_and(|total| total <= i64::MAX as u128),
-        "burst schedule exceeds the duration range"
-    );
     let mut handoff = Some(handoff);
     let mut digest = Sha256::new();
     let started = Instant::now();
-    for (index, burst) in bursts.iter().enumerate() {
-        let due = Duration::from_nanos((interval.as_nanos() * index as u128) as u64);
+    for burst in bursts {
+        let due = burst.due;
         tokio::time::sleep_until(started + due).await;
         let wire: Vec<_> = packets[burst.packets.clone()]
             .iter()

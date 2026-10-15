@@ -227,6 +227,7 @@ async fn check_handed_off_packs(cached: bool) {
         Some(ClientBlobCache::default()),
         None,
         &settings,
+        None,
     );
     let (joined, mut core) = tokio::join!(join, core);
     let (mut session, game_data) = joined.expect("join");
@@ -317,7 +318,8 @@ async fn a_startup_longer_than_one_batch_still_joins() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            None,
         ),
         core
     );
@@ -348,7 +350,8 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            None,
         ),
         core
     );
@@ -384,7 +387,8 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            None,
         ),
         core
     );
@@ -427,6 +431,7 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         None,
         None,
         &settings,
+        None,
     );
     let (result, _core) = tokio::join!(join, core);
     match result {

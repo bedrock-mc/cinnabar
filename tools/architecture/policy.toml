@@ -921,6 +921,12 @@ literal = "CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY"
 kind = "harness_only"
 producer = "scripts/acceptance.ps1"
 
+[[markers]]
+literal = "CINNABAR_PACKET_CAPTURE"
+kind = "environment_variable"
+producer = "crates/client-session/src/markers.rs"
+consumer = "app/src/runtime/network/session.rs"
+
 # Gameplay consumes shell observations instead of the menu owner.
 [[module_boundaries]]
 path = "app/src/block_selection"

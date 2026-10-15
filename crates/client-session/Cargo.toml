@@ -25,6 +25,7 @@ world = { path = "../world" }
 protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
 tracing-subscriber.workspace = true
+tempfile = "3"
 uuid.workspace = true
 
 [lints]

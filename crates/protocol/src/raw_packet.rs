@@ -9,6 +9,7 @@ use bytes::Bytes;
 
 use crate::codec::SessionFailure;
 use crate::packet::GameHeader;
+use crate::packet_tap::PacketRecordId;
 use crate::{Packet, SessionError};
 
 /// Most packets one batch may hold.
@@ -22,6 +23,8 @@ pub(crate) struct RawPacket {
     body: Bytes,
     inner_frame: Bytes,
     backing_len: usize, // bytes of the batch allocation this entry shares
+    /// The packet tap's handle, set when the transport splits the entry from its batch.
+    pub(crate) record: Option<PacketRecordId>,
 }
 
 impl RawPacket {
@@ -69,6 +72,7 @@ impl RawPacket {
             body: inner_frame.slice(body_start..),
             backing_len: inner_frame.len(),
             inner_frame,
+            record: self.record,
         }
     }
 
@@ -168,6 +172,7 @@ fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, Se
         body: frame.body(),
         inner_frame: frame.frame().clone(),
         backing_len,
+        record: None,
     })
 }
 

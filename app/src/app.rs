@@ -644,6 +644,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             login_settings: crate::session::login_settings(&menu, None),
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
+            log_dir: menu.layout().log_dir(),
         })
         .context("spawn Bedrock network worker")
         {
