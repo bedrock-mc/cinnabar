@@ -23,6 +23,7 @@ permissions:
 
 env:
   WRANGLER_VERSION: '4.151.0'
+  WEBSITE_URL: 'https://cinnabar.cinnabar-api.workers.dev'
 
 concurrency:
   group: website-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
@@ -74,11 +75,8 @@ jobs:
         working-directory: website
         run: |
           set -euo pipefail
-          # Share the destination with the old domain's permanent redirect.
-          site_url="$(awk '$1 == "redir" { sub(/\{uri\}$/, "", $2); print $2 }' deploy/Caddyfile)"
-          test -n "$site_url"
           while IFS= read -r -d '' file; do
-            curl --fail --location --retry 3 "$site_url/${file#dist/}?release=$GITHUB_SHA" \
+            curl --fail --location --retry 3 "$WEBSITE_URL/${file#dist/}?release=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/served"
             cmp "$file" "$RUNNER_TEMP/served"
           done < <(find dist -type f -print0)
