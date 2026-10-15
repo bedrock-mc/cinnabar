@@ -21,7 +21,7 @@ const (
 	UDPRead       = 'U' // t, bytes, first byte
 	UDPWrite      = 'W' // t, bytes, first byte
 	Message       = 'M' // RakNet message: arrival, decoded (next read began), bytes
-	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, written; packet IDs
+	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, write began, written; packet IDs
 	Outbound      = 'O' // client frame upstream: conn, seq, read, handed to RakNet; packet IDs
 	StackLatency  = 'L' // NetworkStackLatency: direction (0 in, 1 out), t, timestamp field
 	RoundTrip     = 'R' // t, RakNet RTT in ns
@@ -42,7 +42,7 @@ type Trace struct {
 
 type record struct {
 	kind   byte
-	values [4]int64
+	values [5]int64
 	ids    []uint32
 }
 
@@ -89,13 +89,13 @@ func (trace *Trace) Now() int64 { return trace.anchorUnix + int64(time.Since(tra
 func (trace *Trace) NextConn() int64 { return trace.conns.Add(1) }
 
 // Record queues an event without blocking; a full queue drops it and counts the drop.
-func (trace *Trace) Record(kind byte, a, b, c, d int64) {
-	trace.enqueue(record{kind: kind, values: [4]int64{a, b, c, d}})
+func (trace *Trace) Record(kind byte, a, b, c, d, e int64) {
+	trace.enqueue(record{kind: kind, values: [5]int64{a, b, c, d, e}})
 }
 
 // RecordIDs is Record with a packet ID list, which it copies.
-func (trace *Trace) RecordIDs(kind byte, a, b, c, d int64, ids []uint32) {
-	trace.enqueue(record{kind: kind, values: [4]int64{a, b, c, d}, ids: append([]uint32(nil), ids...)})
+func (trace *Trace) RecordIDs(kind byte, a, b, c, d, e int64, ids []uint32) {
+	trace.enqueue(record{kind: kind, values: [5]int64{a, b, c, d, e}, ids: append([]uint32(nil), ids...)})
 }
 
 func (trace *Trace) enqueue(value record) {
@@ -147,7 +147,7 @@ func (trace *Trace) write(file *os.File, role string) {
 	}
 }
 
-// appendRecord formats `kind v0 v1 v2 v3[ id,id...]` and a newline.
+// appendRecord formats `kind v0 v1 v2 v3 v4[ id,id...]` and a newline.
 func appendRecord(line []byte, value record) []byte {
 	line = append(line, value.kind)
 	for _, field := range value.values {

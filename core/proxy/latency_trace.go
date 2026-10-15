@@ -34,7 +34,7 @@ type tracedDatagrams struct {
 func (conn *tracedDatagrams) Read(b []byte) (int, error) {
 	n, err := conn.Conn.Read(b)
 	if n > 0 {
-		conn.trace.Record(latencytrace.UDPRead, conn.trace.Now(), int64(n), int64(b[0]), 0)
+		conn.trace.Record(latencytrace.UDPRead, conn.trace.Now(), int64(n), int64(b[0]), 0, 0)
 	}
 	return n, err
 }
@@ -42,7 +42,7 @@ func (conn *tracedDatagrams) Read(b []byte) (int, error) {
 func (conn *tracedDatagrams) Write(b []byte) (int, error) {
 	n, err := conn.Conn.Write(b)
 	if n > 0 {
-		conn.trace.Record(latencytrace.UDPWrite, conn.trace.Now(), int64(n), int64(b[0]), 0)
+		conn.trace.Record(latencytrace.UDPWrite, conn.trace.Now(), int64(n), int64(b[0]), 0, 0)
 	}
 	return n, err
 }
@@ -68,7 +68,7 @@ func traceRakNet(conn net.Conn) net.Conn {
 
 func (conn *tracedRakNet) ReadPacket() ([]byte, error) {
 	if conn.arrived != 0 {
-		conn.trace.Record(latencytrace.Message, conn.arrived, conn.trace.Now(), conn.size, 0)
+		conn.trace.Record(latencytrace.Message, conn.arrived, conn.trace.Now(), conn.size, 0, 0)
 		conn.arrived = 0
 	}
 	b, err := conn.Conn.ReadPacket()
@@ -122,7 +122,7 @@ func (relay *relayTrace) read(batch []minecraft.RawPacket, readAt int64, destina
 		return
 	}
 	for _, timestamp := range relay.latencies {
-		relay.trace.Record(latencytrace.StackLatency, 0, readAt, timestamp, 0)
+		relay.trace.Record(latencytrace.StackLatency, 0, readAt, timestamp, 0, 0)
 	}
 	if session, ok := destination.(*sessionConn); ok {
 		session.traceBatchRead(readAt)
@@ -130,7 +130,7 @@ func (relay *relayTrace) read(batch []minecraft.RawPacket, readAt int64, destina
 	if relay.rtt != nil && readAt-relay.rttAt >= int64(traceRoundTripInterval) {
 		relay.rttAt = readAt
 		if rtt := sampleRoundTrip(relay.rtt); rtt > 0 {
-			relay.trace.Record(latencytrace.RoundTrip, readAt, int64(rtt), 0, 0)
+			relay.trace.Record(latencytrace.RoundTrip, readAt, int64(rtt), 0, 0, 0)
 		}
 	}
 }
@@ -142,9 +142,9 @@ func (relay *relayTrace) forwarded() {
 	}
 	now := relay.trace.Now()
 	relay.seq++
-	relay.trace.RecordIDs(latencytrace.Outbound, relay.conn, relay.seq, relay.readAt, now, relay.ids)
+	relay.trace.RecordIDs(latencytrace.Outbound, relay.conn, relay.seq, relay.readAt, now, 0, relay.ids)
 	for _, timestamp := range relay.latencies {
-		relay.trace.Record(latencytrace.StackLatency, 1, now, timestamp, 0)
+		relay.trace.Record(latencytrace.StackLatency, 1, now, timestamp, 0, 0)
 	}
 }
 

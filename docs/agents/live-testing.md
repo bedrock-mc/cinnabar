@@ -340,3 +340,15 @@ loses at most the queued packets and 64 KiB of written ones and leaves a capture
 out of captures and rejected-body samples, keeping only their ring header, so neither holds
 credentials or content keys; captures still hold chat and world data, so keep them outside git
 and delete them after use.
+
+## Packet latency trace
+
+Set `CINNABAR_LATENCY_TRACE` to an existing directory before launching the client; it and its core
+each write `<role>-<pid>.trace` there. Both stamp events with Unix nanoseconds read once at
+startup plus monotonic time since, so the files join on one clock. Inbound, they follow each
+packet from its UDP datagram, RakNet message and relay batch through the bridge frame, world
+ingress sequencing, the app's drain and commit, to the frame handoff and the presented frame;
+outbound, from the frame's time sample through the PlayerAuthInput send, frame flush and bridge
+write to the core's RakNet hand-off and UDP send. Event kinds and fields are listed in
+`crates/bridge/src/latency_trace.rs` and `core/internal/latencytrace`. Traces hold packet IDs and
+timings only, no packet bodies.

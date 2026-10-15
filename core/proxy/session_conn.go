@@ -234,10 +234,14 @@ func (session *sessionConn) flushLocked() error {
 	if len(session.pending) == 0 {
 		return nil
 	}
+	var began int64
+	if session.trace != nil {
+		began = session.trace.Now()
+	}
 	_, err := session.conn.Write(session.pending)
 	if session.trace != nil {
 		session.traceFrames++
-		session.trace.RecordIDs(latencytrace.Inbound, session.traceConn, session.traceFrames, session.traceRead, session.trace.Now(), session.traceIDs)
+		session.trace.RecordIDs(latencytrace.Inbound, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now(), session.traceIDs)
 		session.traceIDs, session.traceRead = session.traceIDs[:0], 0
 	}
 	// Write has returned, so the buffer is reused unless one large batch grew it.
