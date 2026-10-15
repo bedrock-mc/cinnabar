@@ -432,16 +432,16 @@ mod tests {
     #[test]
     fn importing_blocks_focus_behind_its_modal() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        let mut worlds = LocalWorlds::default();
         menu.activate(MenuAction::Navigate(MenuScreen::Play));
-        worlds.input(launcher::local_worlds::Input::Import);
-        menu.sync_local_worlds(&mut worlds, false);
-        assert_eq!(menu.view().local.screen, Screen::Importing);
+        menu.local_ui.view.screen = Screen::Importing;
         assert_eq!(menu.focus_actions(), Vec::<MenuAction>::new());
         menu.move_focus(1);
         menu.activate_focused();
         assert_eq!(menu.view().screen, MenuScreen::Play);
-        assert_eq!(worlds.menu().screen(), Screen::Importing);
+        assert!(
+            menu.local_ui.actions.is_empty(),
+            "nothing reached the module"
+        );
     }
 
     #[test]

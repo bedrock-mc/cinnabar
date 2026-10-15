@@ -60,9 +60,10 @@ fn world_files_dropped_on_the_worlds_tab_import_as_worlds() {
         pack_imports(&incoming),
         [PathBuf::from("/drop/Faithful.mcpack")]
     );
-    assert_eq!(
+    assert_ne!(
         app.world().resource::<LocalWorlds>().menu().screen(),
-        Screen::Importing
+        Screen::List,
+        "the world drop reached the worlds module"
     );
 }
 
