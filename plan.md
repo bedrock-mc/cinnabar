@@ -694,6 +694,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Ordinary world leaves retain their alpha cutoff and opaque output under MSAA, so fractional
+  distant mip alpha does not leave background samples visible through a dense canopy.
 - Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
   interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
   and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart
