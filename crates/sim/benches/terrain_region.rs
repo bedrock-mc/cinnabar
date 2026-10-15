@@ -1,9 +1,4 @@
 //! Host-side terrain region construction over mixed terrain.
-#![expect(
-    clippy::print_stderr,
-    reason = "the benchmark reports allocation counts per case on stderr"
-)]
-
 #[path = "terrain_region/fixture.rs"]
 mod fixture;
 

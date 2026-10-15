@@ -224,6 +224,15 @@ pub fn fixture_tap() -> Arc<dyn PacketTap> {
     session_tap(None).0
 }
 
+/// Waits until [`global`]'s rejected-packet samples are on disk, for fixtures that crash right
+/// after rejecting a packet; production accepts losing samples the writer had not reached.
+#[cfg(any(test, feature = "test-support"))]
+pub fn fixture_flush_samples() {
+    if let Some(writer) = global().samples_writer.get() {
+        writer.flush();
+    }
+}
+
 /// One session's [`PacketTap`]: headers go to a [`PacketLog`], and packets to its capture.
 pub(crate) struct SessionTap<'log> {
     log: &'log PacketLog,

@@ -342,6 +342,7 @@ impl Console {
                     "session files already attached",
                 ));
             }
+            #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix follows on signal"))]
             let mut log = SessionLog::open(
                 Family::new(files.dir, files.stem, "log"),
                 files.retention,

@@ -224,6 +224,7 @@ fn record_traffic() {
         packet,
         PacketBody::whole(&body),
     );
+    client_session::packet_log::fixture_flush_samples();
 }
 
 /// Another process connects to the monitor beside the client and claims a panic, a failure

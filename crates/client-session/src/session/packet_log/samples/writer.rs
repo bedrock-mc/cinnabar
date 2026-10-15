@@ -40,7 +40,7 @@ impl SampleWriter {
     }
 
     /// Waits for a persisted snapshot in tests without relying on filesystem timing.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn flush(&self) {
         let (done, finished) = bounded(1);
         self.wake
