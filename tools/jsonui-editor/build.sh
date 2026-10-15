@@ -22,7 +22,8 @@ if [[ "$installed" != "$pinned" ]]; then
     exit 1
 fi
 
-"$cargo" build --locked --release -p jsonui-editor --lib --target wasm32-unknown-unknown \
+# WebAssembly does not use the native release symbol sidecars.
+CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off "$cargo" build --locked --release -p jsonui-editor --lib --target wasm32-unknown-unknown \
     --manifest-path "$repo/Cargo.toml"
 target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 
