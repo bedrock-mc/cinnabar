@@ -330,7 +330,7 @@ impl LocalPhysicsController {
             retained.processed.sneaking = frame_input.sneaking;
             retained.processed.sprinting = frame_input.sprinting;
             retained.processed.mode = frame_input.mode;
-            retained.processed.spin_started = frame_input.riptide_level > 0
+            retained.processed.spin_started = frame_input.riptide.is_some()
                 && frame_input.mode != sim::MovementMode::Riding
                 && !frame_input.spectator;
             retained.processed.spinning = self

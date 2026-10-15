@@ -6484,7 +6484,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
-  additive level-dependent launch, retained spin lifetime and start/stop input flags.
+  additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
+  Discarding an unsent release cancels its pending and replayed launch. Impulses beyond the
+  collision-query budget are skipped and logged instead of stalling prediction; this safety
+  bound is a known divergence for unsupported enchantment levels.
   Riptide parity remains incomplete: positional rain temperature, precise rain occlusion,
   actor-hit termination, server spin metadata, launch audio and integrated acceptance remain open.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed

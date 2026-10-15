@@ -15,6 +15,7 @@ mod controller_frame;
 mod correction;
 mod dimension_wait;
 mod prediction_corrections;
+mod riptide;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
@@ -259,7 +260,7 @@ pub struct LocalPhysicsController {
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
     /// One admitted release waiting for a successful movement tick.
-    riptide_pending: Option<u8>,
+    riptide_pending: Option<sim::RiptideLaunch>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -474,13 +475,6 @@ impl LocalPhysicsController {
         }
     }
 
-    /// Retains a released Riptide use until prediction can complete its launch tick.
-    pub fn request_riptide(&mut self, level: u8) {
-        if level > 0 && self.is_active() {
-            self.riptide_pending = Some(level);
-        }
-    }
-
     /// Whether the retained simulation is ordinary walking outside liquids.
     pub fn jump_pulse_eligible(&self) -> bool {
         self.is_active()
@@ -561,7 +555,7 @@ impl LocalPhysicsController {
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
-            input.riptide_level = self.riptide_pending.unwrap_or(0);
+            input.riptide = self.riptide_pending;
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -737,7 +731,7 @@ impl LocalPhysicsController {
                     );
                     processed.mode = input.mode;
                     processed.spinning = state.spin_attack_ticks.is_some();
-                    processed.spin_started = input.riptide_level > 0
+                    processed.spin_started = input.riptide.is_some()
                         && input.mode != sim::MovementMode::Riding
                         && !input.spectator;
                     processed.ride = context.mode_intent.ride;

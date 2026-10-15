@@ -22,7 +22,7 @@ pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayRe
 pub use simulator::{
     AxisCollisions, ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS,
     MAX_BLOCK_SAMPLES_PER_TICK, MAX_SAFE_LIQUID_VELOCITY, MovementEffects, MovementEnvironment,
-    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, ProcessedControls,
+    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, ProcessedControls, RiptideLaunch,
     SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TickResult, VerticalPhysics, pose_fits,
     sample_liquid_submersion, sample_water_head,
 };

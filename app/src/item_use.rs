@@ -222,7 +222,7 @@ pub(crate) fn produce_item_use(
     if let Some(level) = runtime.take_riptide_launch()
         && let Some(physics) = context.physics.as_deref_mut()
     {
-        physics.request_riptide(level);
+        riptide::request_launch(level, physics, &mut movement, &view);
     }
     if let Some((slot, revision, change)) = runtime.take_inventory_change() {
         player_runtime

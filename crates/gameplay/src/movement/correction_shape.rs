@@ -264,6 +264,13 @@ pub fn reconcile_physics_anchor(
         };
         let mut candidate_physics = physics.clone();
         let mut candidate_ticker = ticker.clone();
+        if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
+            && let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick()
+        {
+            candidate_physics
+                .discard_riptide_release_after(tick, world)
+                .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+        }
         let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
         let plan = candidate_physics
             .apply_correction(
@@ -346,6 +353,11 @@ pub fn reconcile_timeline_rewind(
     }
     let mut candidate_physics = physics.clone();
     let mut candidate_ticker = ticker.clone();
+    if let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick() {
+        candidate_physics
+            .discard_riptide_release_after(tick, world)
+            .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+    }
     let plan = candidate_physics
         .replay_retained_from(tick, world)
         .map_err(|error| match error {

@@ -45,8 +45,7 @@ fn a_grounded_spin_ends_on_its_sixth_tick() {
         .tick(
             &mut player,
             MovementInput {
-                riptide_level: 3,
-                pitch_degrees: 30.0,
+                riptide: sim::RiptideLaunch::new(3, [30.0, 0.0]),
                 ..Default::default()
             },
             &Floor,
@@ -74,7 +73,7 @@ fn a_side_collision_ends_the_spin_on_the_launch_tick() {
         .tick(
             &mut player,
             MovementInput {
-                riptide_level: 3,
+                riptide: sim::RiptideLaunch::new(3, [0.0; 2]),
                 ..Default::default()
             },
             &Wall,
@@ -93,7 +92,7 @@ fn riding_and_spectator_requests_do_not_start_a_spin() {
             .tick(
                 &mut player,
                 MovementInput {
-                    riptide_level: 3,
+                    riptide: sim::RiptideLaunch::new(3, [0.0; 2]),
                     mode,
                     spectator,
                     ..Default::default()
@@ -115,7 +114,7 @@ fn released_riptide_adds_the_level_impulse_before_travel() {
             .tick(
                 &mut player,
                 MovementInput {
-                    riptide_level: level,
+                    riptide: sim::RiptideLaunch::new(level, [0.0; 2]),
                     ..MovementInput::default()
                 },
                 &Air,
@@ -133,7 +132,7 @@ fn spin_ends_after_twenty_ticks_without_repeating_the_impulse() {
     sim.tick(
         &mut player,
         MovementInput {
-            riptide_level: 3,
+            riptide: sim::RiptideLaunch::new(3, [0.0; 2]),
             ..Default::default()
         },
         &Air,
@@ -148,4 +147,48 @@ fn spin_ends_after_twenty_ticks_without_repeating_the_impulse() {
     sim.tick(&mut player, MovementInput::default(), &Air)
         .unwrap();
     assert_eq!(player.spin_attack_ticks, None);
+}
+
+#[test]
+fn unsupported_riptide_does_not_fail_a_tick() {
+    let mut player = PlayerState::new(Vec3::new(0.0, 64.0, 0.0));
+    let result = Simulator::default().tick(
+        &mut player,
+        MovementInput {
+            riptide: sim::RiptideLaunch::new(u8::MAX, [0.0; 2]),
+            ..Default::default()
+        },
+        &Air,
+    );
+    assert!(
+        result.is_ok(),
+        "unsupported launch must leave ordinary movement available: {result:?}"
+    );
+    assert_eq!(player.tick, 1);
+    assert_eq!(player.spin_attack_ticks, None);
+    assert_eq!(player.movement.z, 0.0);
+}
+
+#[test]
+fn serialized_riptide_cannot_bypass_the_query_budget() {
+    let mut value = serde_json::to_value(MovementInput::default()).unwrap();
+    value["riptide"] = serde_json::json!({ "level": u8::MAX, "rotation": [0.0, 0.0] });
+    let input = serde_json::from_value(value).unwrap();
+    let mut player = PlayerState::new(Vec3::new(0.0, 64.0, 0.0));
+    Simulator::default().tick(&mut player, input, &Air).unwrap();
+    assert_eq!(player.tick, 1);
+    assert_eq!(player.movement.z, 0.0);
+    assert_eq!(player.spin_attack_ticks, None);
+}
+
+#[test]
+fn supported_levels_above_three_keep_their_unclamped_impulse() {
+    let mut player = PlayerState::new(Vec3::new(0.0, 64.0, 0.0));
+    let input = MovementInput {
+        riptide: sim::RiptideLaunch::new(4, [0.0; 2]),
+        ..Default::default()
+    };
+    Simulator::default().tick(&mut player, input, &Air).unwrap();
+    assert_eq!(player.movement.z, 3.75);
+    assert_eq!(player.spin_attack_ticks, Some(1));
 }

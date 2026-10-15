@@ -73,6 +73,7 @@ pub(super) struct HeldRelease {
     tick: u64,
     packets: Vec<Packet>,
     facing_sent: bool,
+    riptide: bool,
 }
 
 /// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
@@ -422,7 +423,30 @@ impl MovementTicker {
             tick,
             packets,
             facing_sent: false,
+            riptide: false,
         });
+    }
+
+    /// Binds a predicted launch to its held release, so discarding the fence cancels both.
+    pub fn request_riptide(
+        &mut self,
+        physics: &mut super::LocalPhysicsController,
+        level: u8,
+        rotation: [f32; 2],
+    ) {
+        if physics.request_riptide(level, rotation)
+            && let Some(held) = self.held_release.as_mut()
+        {
+            held.riptide = true;
+        }
+    }
+
+    /// Returns the launch boundary that a correction will discard with its unsent facing.
+    pub(super) fn unconfirmed_riptide_release_tick(&self) -> Option<u64> {
+        self.held_release
+            .as_ref()
+            .filter(|held| held.riptide && !held.facing_sent)
+            .map(|held| held.tick)
     }
 
     /// Whether a held release still waits; later uses must not overtake it.

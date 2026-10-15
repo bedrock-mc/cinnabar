@@ -10,6 +10,7 @@ mod mode;
 #[cfg(test)]
 mod numeric_tests;
 mod riptide;
+pub use riptide::RiptideLaunch;
 mod scaffolding;
 mod spectator;
 mod state;
@@ -192,19 +193,21 @@ impl Simulator {
             next.hitbox_height(input),
             input.liquid_contact_height,
         )?;
-        let shallow_water =
-            if input.riptide_level > 0 && next.on_ground && sampled.movement.in_water {
-                let head = water::sample_water_head(
-                    world,
-                    next.position,
-                    input.liquid_attach_height.unwrap_or(crate::PLAYER_HEIGHT),
-                )?;
-                sampled.identity = sampled.identity.merge(&head.identity)?;
-                sampled.block_samples += 1;
-                !head.value
-            } else {
-                false
-            };
+        let shallow_water = if input.riptide.is_some_and(RiptideLaunch::is_supported)
+            && next.on_ground
+            && sampled.movement.in_water
+        {
+            let head = water::sample_water_head(
+                world,
+                next.position,
+                input.liquid_attach_height.unwrap_or(crate::PLAYER_HEIGHT),
+            )?;
+            sampled.identity = sampled.identity.merge(&head.identity)?;
+            sampled.block_samples += 1;
+            !head.value
+        } else {
+            false
+        };
         riptide::launch(&mut next, input, shallow_water);
         if input.mode != MovementMode::Riding
             && input

@@ -256,3 +256,165 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     assert!(!ticker.has_held_release());
     assert_eq!(view.rotation(), rotation);
 }
+
+/// Empty terrain supplies stable collision identity for release and correction tests.
+struct RiptideWorld;
+
+impl sim::CollisionWorld for RiptideWorld {
+    fn collision_boxes(
+        &self,
+        _: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+}
+
+#[test]
+fn discarded_riptide_release_cancels_pending_and_replayed_launch() {
+    use gameplay::movement::{
+        LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
+        reconcile_candidate_physics_correction,
+    };
+    for (predicted_ticks, corrected_tick, facing_written) in [
+        (0, 110, false),
+        (2, 110, false),
+        (2, 112, false),
+        (2, 110, true),
+    ] {
+        let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+        let origin = [0.0, 65.620_01, 0.0];
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position(origin, 100, false);
+        let mut ticker = MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
+        ticker.reset(7, 100, origin);
+        ticker.set_source(MovementSource::Physics);
+        let mut runtime = ItemUseRuntime::default();
+        let mut swings = SwingTracker::default();
+        let mut view = client_presentation::local_player::LocalViewPose::default();
+        let trident = |tick, held| UseFrame {
+            held,
+            riptide: Some(gameplay::item_use::RiptideUse {
+                level: 3,
+                wet: true,
+                mounted: false,
+                usable: true,
+            }),
+            air_use: classify("minecraft:trident", false, 0, None),
+            ..use_frame(tick)
+        };
+        let mut anchors = std::collections::BTreeMap::new();
+        for tick in 101..=111 {
+            let frame = physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                &RiptideWorld,
+            );
+            let sample = frame.samples.into_iter().next().unwrap();
+            anchors.insert(tick, sample.position);
+            ticker.enqueue_completed_physics(sample).unwrap();
+            if tick == 101 {
+                runtime.observe_press(true);
+                super::admit_with_action_aim(
+                    &mut runtime,
+                    &mut swings,
+                    &mut ticker,
+                    &mut view,
+                    &trident(tick, true),
+                    42,
+                    6,
+                    None,
+                    &network,
+                );
+            }
+        }
+        super::admit_with_action_aim(
+            &mut runtime,
+            &mut swings,
+            &mut ticker,
+            &mut view,
+            &trident(111, false),
+            42,
+            6,
+            None,
+            &network,
+        );
+        assert!(ticker.has_held_release());
+        let level = runtime.take_riptide_launch().unwrap();
+        super::riptide::request_launch(level, &mut physics, &mut ticker, &view);
+        if facing_written {
+            let mut written = Vec::new();
+            gameplay::movement::flush_player_auth_inputs_guarded(
+                &mut ticker,
+                11,
+                Some(evidence()),
+                |identity, packet, guard| {
+                    written.push(identity);
+                    network.send_physics_packet(identity, packet, guard)
+                },
+            )
+            .unwrap();
+            assert_eq!(written.len(), 11);
+            for identity in written {
+                assert!(ticker.acknowledge_physics_send(identity));
+            }
+        }
+        captured.drain();
+        for _ in 0..predicted_ticks {
+            let frame = physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                &RiptideWorld,
+            );
+            let sample = frame.samples.into_iter().next().unwrap();
+            anchors.insert(sample.tick, sample.position);
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+        // Corrections may carry a tick later than the discarded release's facing.
+        let mut anchor = anchors[&corrected_tick];
+        anchor[0] += 0.25;
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            anchor,
+            corrected_tick,
+            false,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            &RiptideWorld,
+        )
+        .unwrap();
+        assert_eq!(ticker.has_held_release(), facing_written);
+        if facing_written {
+            ticker.send_held_release(|packets| network.send_inventory_packets(packets));
+        } else {
+            ticker.send_held_release(|_| panic!("a discarded release must never be sent"));
+        }
+        let next = physics.advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &RiptideWorld,
+        );
+        ticker
+            .enqueue_completed_physics(next.samples[0].clone())
+            .unwrap();
+        assert_eq!(
+            physics.state().unwrap().spin_attack_ticks.is_some(),
+            facing_written,
+            "release lifetime differs after correction with {predicted_ticks} predicted ticks"
+        );
+        let state = physics.state().unwrap();
+        assert_eq!(
+            state.velocity.x != 0.0 || state.velocity.z != 0.0,
+            facing_written
+        );
+        assert_eq!(
+            ticker
+                .pending_snapshots()
+                .iter()
+                .any(|sample| sample.flags.bits()
+                    & protocol::PlayerInputFlags::START_SPIN_ATTACK.bits()
+                    != 0),
+            facing_written
+        );
+        assert_eq!(captured.drain().len(), usize::from(facing_written));
+    }
+}

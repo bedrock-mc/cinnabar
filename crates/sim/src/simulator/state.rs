@@ -53,7 +53,9 @@ pub(super) struct CollisionShape {
 impl PlayerState {
     /// Uses the compact collision pose throughout a spin attack.
     pub(super) fn hitbox_height(&self, input: super::MovementInput) -> f64 {
-        let launching = input.riptide_level > 0
+        let launching = input
+            .riptide
+            .is_some_and(super::RiptideLaunch::is_supported)
             && input.mode != super::MovementMode::Riding
             && !input.spectator;
         if self.spin_attack_ticks.is_some() || launching {

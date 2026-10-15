@@ -2,18 +2,49 @@
 
 use super::{MovementInput, MovementMode, PlayerState};
 use crate::math::{MIN_DIRECTION_LENGTH, minecraft_cos, minecraft_sin};
+use serde::{Deserialize, Serialize};
+
+/// A released trident's level and `[pitch, yaw]` in degrees.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RiptideLaunch {
+    level: u8,
+    rotation: [f32; 2],
+}
+
+impl RiptideLaunch {
+    /// Retains finite facing and a level whose impulse fits the collision-query budget.
+    pub fn new(level: u8, rotation: [f32; 2]) -> Option<Self> {
+        let launch = Self { level, rotation };
+        launch.is_supported().then_some(launch)
+    }
+
+    /// Rejects unsupported releases even when deserialization bypassed the constructor.
+    pub(super) fn is_supported(self) -> bool {
+        self.level > 0
+            && self.rotation.into_iter().all(f32::is_finite)
+            && f64::from(self.speed()) <= crate::MAX_COLLISION_QUERY_EXTENT - crate::PLAYER_HEIGHT
+    }
+
+    /// Returns the additive impulse magnitude before ground and water adjustment.
+    fn speed(self) -> f32 {
+        (f32::from(self.level) + 1.0) * 0.25 * 3.0
+    }
+}
 
 /// Starts a released trident's spin and adds its impulse when movement is allowed.
 pub(super) fn launch(state: &mut PlayerState, input: MovementInput, shallow_water: bool) {
-    if input.riptide_level == 0 || input.mode == MovementMode::Riding || input.spectator {
+    let Some(launch) = input.riptide.filter(|launch| launch.is_supported()) else {
+        return;
+    };
+    if input.mode == MovementMode::Riding || input.spectator {
         return;
     }
     state.spin_attack_ticks = Some(0);
     if input.immobile {
         return;
     }
-    let yaw = (input.yaw_degrees as f32).to_radians();
-    let pitch = (input.pitch_degrees as f32).to_radians();
+    let [pitch, yaw] = launch.rotation.map(f32::to_radians);
     let sin = |angle: f32| minecraft_sin(f64::from(angle)) as f32;
     let cos = |angle: f32| minecraft_cos(f64::from(angle)) as f32;
     let x = -sin(yaw) * cos(pitch);
@@ -25,7 +56,7 @@ pub(super) fn launch(state: &mut PlayerState, input: MovementInput, shallow_wate
     } else {
         [0.0; 3]
     };
-    let speed = (f32::from(input.riptide_level) + 1.0) * 0.25 * 3.0;
+    let speed = launch.speed();
     let mut vertical = speed * y;
     if state.on_ground {
         vertical = if shallow_water {
