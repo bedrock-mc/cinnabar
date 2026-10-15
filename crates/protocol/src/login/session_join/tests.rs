@@ -587,8 +587,9 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
         let settings = LoginSettings::default();
         let tap = Arc::new(RecordingTap::default());
         let expected = packet_bytes(&invalid);
-        let mut body = expected.clone();
-        wire::Reader::new(&mut body).read_var_u32().unwrap();
+        let mut reader = wire::Reader::new(&expected);
+        let packet_id = reader.read_var_u32().unwrap();
+        let body = &expected[reader.position()..];
         let core = async {
             let mut core = FakeCore::accept(&listener).await;
             core.receive().await;
@@ -617,7 +618,8 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
             if matches!(error.0, SessionFailure::UnexpectedStartup(_))));
         assert!(
             tap.events().iter().any(|event| matches!(event,
-                TapEvent::Reject(_, _, PacketOutcome::Failed, rejected) if rejected == body.as_ref()
+                TapEvent::Reject(_, id, PacketOutcome::Failed, rejected)
+                    if *id == packet_id && rejected.as_slice() == body
             )),
             "{name} lost its rejection evidence"
         );
