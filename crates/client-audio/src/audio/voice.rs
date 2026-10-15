@@ -95,6 +95,11 @@ impl VoiceSource {
         }
     }
 
+    /// Whether a staged source can retire without advancing its sample position.
+    pub(super) fn cancelled(&self) -> bool {
+        self.shared.cancel.load(Ordering::Acquire)
+    }
+
     fn sample(&self, frame: usize, channel: usize) -> f32 {
         let channels = usize::from(self.pcm.channels);
         let frames = self.pcm.frames();

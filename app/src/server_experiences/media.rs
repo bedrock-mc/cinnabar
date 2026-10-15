@@ -300,6 +300,13 @@ impl Media {
         muted: bool,
         local_us: u64,
     ) {
+        // Preserve decoded PCM while the default output is still opening.
+        if device
+            .as_deref_mut()
+            .is_some_and(|device| device.is_opening())
+        {
+            return;
+        }
         for slot in self.players.values_mut() {
             let active = !slot.player.playback().stopped && !slot.player.ended();
             let generation = slot.player.decoder_generation();

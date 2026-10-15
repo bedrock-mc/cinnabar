@@ -7156,6 +7156,12 @@ particle inputs without depending on `client-presentation` or `render`.
 The existing sound and camera regressions remain in their owning crates and app
 integration tests. This move does not close audio parity or performance gates.
 
+**Audio output opening:** Frame systems poll the output worker and retain admitted
+sources within the existing voice limits until a transport is ready. Stops,
+session resets and failed opens still retire waiting work. Channel-controlled
+regressions are in place; final-revision verification and native first-sound
+frame timing remain incomplete.
+
 **Sound-bank loading:** First-use lookups queue file descriptors; the existing
 workers read and decode the sounds. Loading queues up to four finite sounds each
 for UI, footsteps and interactions, with a 1 MiB input limit. Generation checks,

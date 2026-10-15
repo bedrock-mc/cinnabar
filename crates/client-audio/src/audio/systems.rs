@@ -678,15 +678,7 @@ pub fn pump_audio(
 ) {
     engine.poll_server();
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
-    let Some(device) = device.as_mut() else {
-        return;
-    };
-    for source in sources {
-        if !device.play_source(source) {
-            engine.stats.backend_failed += 1;
-            break;
-        }
-    }
+    engine.submit_sources(sources, device.as_deref_mut());
 }
 
 #[cfg(test)]
@@ -996,3 +988,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod open_tests;
