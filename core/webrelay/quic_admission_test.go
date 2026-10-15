@@ -252,7 +252,7 @@ func TestWebTransportCannotOpenASecondSessionOnOneConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	control := &transportConn{Stream: stream, session: session}
-	if err := writeJSON(control, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl,
+	if err := writeJSON(context.Background(), control, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl,
 		Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
 		t.Fatal(err)
 	}
