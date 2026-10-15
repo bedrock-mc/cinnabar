@@ -99,7 +99,7 @@ fn builtin_java_hud_keeps_single_and_wrapped_chat_rows_nine_pixels_high() {
                         env,
                         &Default::default(),
                     )?;
-                    drawn = render.nodes.clone();
+                    drawn = render.nodes.to_vec();
                     Some(render)
                 },
             )

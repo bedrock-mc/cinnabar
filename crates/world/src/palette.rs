@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+mod edits;
+use edits::PaletteEdits;
+
 /// Number of block positions in a 16×16×16 sub-chunk.
 pub const BLOCKS_PER_SUB_CHUNK: usize = SUB_CHUNK_SIDE * SUB_CHUNK_SIDE * SUB_CHUNK_SIDE;
 /// Block positions along each sub-chunk axis.
@@ -56,25 +59,31 @@ impl Palette {
 /// into a 4,096-element per-block array.
 #[derive(Debug, Clone)]
 pub struct PalettedStorage {
+    /// Physical packing width; edited snapshots expose the minimal logical width instead.
     bits_per_index: u8,
     words: Box<[u32]>,
+    /// The sole logical palette, always in canonical survivor/insertion order after an edit.
     palette: Palette,
-    usage: Option<PaletteUsage>,
+    edits: Option<PaletteEdits>,
+    #[cfg(test)]
+    work: std::sync::Arc<EditWork>,
 }
 
-/// Derived counts are owned by each snapshot and never participate in storage equality.
-#[derive(Debug, Clone)]
-struct PaletteUsage {
-    counts: Box<[u16]>,
-    canonical: bool,
+/// Test-only work counts follow a snapshot lineage through production preparation.
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct EditWork {
+    scanned_cells: std::sync::atomic::AtomicUsize,
+    packed_cells: std::sync::atomic::AtomicUsize,
+    materializations: std::sync::atomic::AtomicUsize,
 }
 
 impl PartialEq for PalettedStorage {
     /// Compares the exact packed representation independently of retained bookkeeping.
     fn eq(&self, other: &Self) -> bool {
-        self.bits_per_index == other.bits_per_index
-            && self.words == other.words
+        self.bits_per_index() == other.bits_per_index()
             && self.palette == other.palette
+            && self.words() == other.words()
     }
 }
 impl Eq for PalettedStorage {}
@@ -86,20 +95,99 @@ impl PalettedStorage {
             bits_per_index,
             words: words.into_boxed_slice(),
             palette: Palette::new(palette),
-            usage: None,
+            edits: None,
+            #[cfg(test)]
+            work: Default::default(),
         }
+    }
+
+    /// Maximum heap payload of decoded or edited storage, including a lazy canonical cache.
+    /// Excludes this struct and allocator overhead; shared cached words are charged in full.
+    pub const MAX_RETAINED_HEAP_BYTES: usize = word_count(SUPPORTED_BITS[SUPPORTED_BITS.len() - 1])
+        * std::mem::size_of::<u32>()
+        + BLOCKS_PER_SUB_CHUNK
+            * (std::mem::size_of::<u32>() + std::mem::size_of::<edits::PaletteSlot>())
+        + canonical_heap_bytes(word_count(SUPPORTED_BITS[SUPPORTED_BITS.len() - 1]));
+
+    /// Heap payload currently retained, including physical words, dead slots and cached words.
+    /// Does not materialize canonical words. Shared cache payload/control words are counted in
+    /// full per snapshot; this struct and allocator bookkeeping are excluded.
+    #[must_use]
+    pub fn retained_heap_bytes(&self) -> usize {
+        self.working_heap_bytes()
+            + self.edits.as_ref().map_or(0, |edits| {
+                edits
+                    .canonical_words
+                    .get()
+                    .map_or(0, |words| canonical_heap_bytes(words.len()))
+            })
+    }
+
+    /// Bounds heap retention even if another reader materializes words before a snapshot clone.
+    /// Reserves the possible canonical cache without creating it, so admission remains stable
+    /// across concurrent observation. Shared cache allocations are conservatively charged in full.
+    #[must_use]
+    pub fn retained_heap_bytes_bound(&self) -> usize {
+        self.working_heap_bytes()
+            + self.edits.as_ref().map_or(0, |edits| {
+                if edits.direct {
+                    0
+                } else {
+                    canonical_heap_bytes(word_count(self.bits_per_index()))
+                }
+            })
+    }
+
+    /// Counts the exclusively owned allocations copied by Clone without reading canonical words.
+    fn working_heap_bytes(&self) -> usize {
+        std::mem::size_of_val(self.words.as_ref())
+            + std::mem::size_of_val(self.palette.values.as_ref())
+            + self
+                .edits
+                .as_ref()
+                .map_or(0, |edits| std::mem::size_of_val(edits.slots.as_ref()))
     }
 
     /// Number of bits occupied by each packed palette index.
     #[must_use]
     pub fn bits_per_index(&self) -> u8 {
-        self.bits_per_index
+        if self.edits.is_some() {
+            bits_for_palette_len(self.palette.len())
+        } else {
+            self.bits_per_index
+        }
     }
 
     /// Packed little-endian words in Dragonfly/Bedrock layout.
     #[must_use]
     pub fn words(&self) -> &[u32] {
-        &self.words
+        match &self.edits {
+            Some(edits) if !edits.direct => edits.canonical_words.get_or_init(|| {
+                #[cfg(test)]
+                self.work
+                    .materializations
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let bits = self.bits_per_index();
+                if bits == 0 {
+                    return std::sync::Arc::from([]);
+                }
+                #[cfg(test)]
+                self.work
+                    .packed_cells
+                    .fetch_add(BLOCKS_PER_SUB_CHUNK, std::sync::atomic::Ordering::Relaxed);
+                let mut words = vec![0; word_count(bits)];
+                for linear in 0..BLOCKS_PER_SUB_CHUNK {
+                    write_palette_index(
+                        &mut words,
+                        bits,
+                        linear,
+                        self.palette_index(linear).unwrap(),
+                    );
+                }
+                words.into()
+            }),
+            _ => &self.words,
+        }
     }
 
     /// Alias for [`Self::words`] that makes the representation explicit.
@@ -117,7 +205,7 @@ impl PalettedStorage {
     /// Returns true when all 4,096 positions reference one palette value.
     #[must_use]
     pub fn is_uniform(&self) -> bool {
-        self.bits_per_index == 0
+        self.bits_per_index() == 0
     }
 
     /// Returns the single value held by a uniform storage.
@@ -139,6 +227,14 @@ impl PalettedStorage {
     /// Writes every block's palette index into `out`, indexed `x << 8 | z << 4 | y`;
     /// [`u32::MAX`] marks a block whose packed word is missing from a malformed storage.
     pub fn palette_indices(&self, out: &mut [u32; BLOCKS_PER_SUB_CHUNK]) {
+        if self.edits.is_some() {
+            for (linear, value) in out.iter_mut().enumerate() {
+                *value = self
+                    .palette_index(linear)
+                    .map_or(u32::MAX, |index| index as u32);
+            }
+            return;
+        }
         if self.bits_per_index == 0 {
             out.fill(0);
             return;
@@ -167,6 +263,15 @@ impl PalettedStorage {
     /// Panics when `x` or `z` is not below [`SUB_CHUNK_SIDE`].
     pub fn column_palette_indices(&self, x: u8, z: u8, out: &mut [u16; SUB_CHUNK_SIDE]) {
         assert!(usize::from(x) < SUB_CHUNK_SIDE && usize::from(z) < SUB_CHUNK_SIDE);
+        if self.edits.is_some() {
+            let first = (usize::from(x) << 8) | (usize::from(z) << 4);
+            for (y, value) in out.iter_mut().enumerate() {
+                *value = self
+                    .palette_index(first + y)
+                    .map_or(u16::MAX, |index| index as u16);
+            }
+            return;
+        }
         if self.bits_per_index == 0 {
             out.fill(0);
             return;
@@ -188,7 +293,21 @@ impl PalettedStorage {
         }
     }
 
+    /// Resolves a physical slot into the currently exposed logical palette.
     pub(crate) fn palette_index(&self, linear: usize) -> Option<usize> {
+        let slot = self.physical_index(linear)?;
+        match &self.edits {
+            Some(edits) => edits
+                .slots
+                .get(slot)
+                .filter(|slot| slot.count != 0)
+                .map(|slot| usize::from(slot.palette_index)),
+            None => Some(slot),
+        }
+    }
+
+    /// Reads the stable packed slot without forcing canonical word materialization.
+    fn physical_index(&self, linear: usize) -> Option<usize> {
         if linear >= BLOCKS_PER_SUB_CHUNK {
             return None;
         }
@@ -205,10 +324,16 @@ impl PalettedStorage {
     }
 
     pub(crate) fn zero_indices_at_or_above(&mut self, palette_len: usize) {
+        // Decoder repair normally precedes edits; also preserve its contract on an edited snapshot.
+        if self.edits.is_some() {
+            let bits = self.bits_per_index();
+            self.words = self.words().into();
+            self.bits_per_index = bits;
+            self.edits = None;
+        }
         if self.bits_per_index == 0 || palette_len >= 1_usize << self.bits_per_index {
             return;
         }
-        self.usage = None;
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
             if self
                 .palette_index(linear)
@@ -223,8 +348,8 @@ impl PalettedStorage {
         Self::new(0, Vec::new(), vec![runtime_id])
     }
 
-    /// Patches one word when all existing indices remain canonical, otherwise rebuilds.
-    /// Both paths produce the exact representation of [`Self::apply_runtime_updates`].
+    /// Patches stable physical slots and defers canonical repacking until words are observed.
+    /// Noncanonical decoded input uses the preserved batch normalizer after its first real edit.
     pub(crate) fn apply_runtime_update(&mut self, linear: usize, runtime_id: u32) -> bool {
         let Some(updated_index) = self
             .palette_index(linear)
@@ -235,36 +360,14 @@ impl PalettedStorage {
         if self.palette.values[updated_index] == runtime_id {
             return false;
         }
-        if self.bits_per_index == 0 {
-            return self.apply_runtime_updates(&[(linear, runtime_id)]);
+        if self.edits.is_none() {
+            let Some(counts) = self.canonical_counts() else {
+                return self.apply_runtime_updates(&[(linear, runtime_id)]);
+            };
+            self.edits = Some(PaletteEdits::new(counts));
         }
-        if self.usage.is_none() {
-            self.usage = Some(self.count_usage());
-        }
-        let usage = self.usage.as_mut().expect("initialized palette usage");
-        if usage.canonical && usage.counts[updated_index] > 1 {
-            let destination = self.palette.values.iter().position(|&id| id == runtime_id);
-            let destination = destination.or_else(|| {
-                let index = self.palette.len();
-                if bits_for_palette_len(index + 1) != self.bits_per_index {
-                    return None;
-                }
-                let mut values = self.palette.values.to_vec();
-                values.push(runtime_id);
-                self.palette.values = values.into_boxed_slice();
-                let mut counts = usage.counts.to_vec();
-                counts.push(0);
-                usage.counts = counts.into_boxed_slice();
-                Some(index)
-            });
-            if let Some(destination) = destination {
-                write_palette_index(&mut self.words, self.bits_per_index, linear, destination);
-                usage.counts[updated_index] -= 1;
-                usage.counts[destination] += 1;
-                return true;
-            }
-        }
-        self.apply_runtime_updates(&[(linear, runtime_id)])
+        self.patch_edit(linear, runtime_id);
+        true
     }
 
     /// Applies a whole layer's final mutations with one palette-map build and
@@ -277,6 +380,10 @@ impl PalettedStorage {
 
         let mut changed = false;
         let mut used_values = HashSet::with_capacity(self.palette.len().min(BLOCKS_PER_SUB_CHUNK));
+        #[cfg(test)]
+        self.work
+            .scanned_cells
+            .fetch_add(BLOCKS_PER_SUB_CHUNK, std::sync::atomic::Ordering::Relaxed);
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
             let current = self
                 .palette_index(linear)
@@ -310,6 +417,10 @@ impl PalettedStorage {
         let bits_per_index = bits_for_palette_len(values.len());
         let mut words = vec![0; word_count(bits_per_index)];
         let mut counts = vec![0_u16; values.len()];
+        #[cfg(test)]
+        self.work
+            .packed_cells
+            .fetch_add(BLOCKS_PER_SUB_CHUNK, std::sync::atomic::Ordering::Relaxed);
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
             let current = self
                 .palette_index(linear)
@@ -323,15 +434,24 @@ impl PalettedStorage {
         self.bits_per_index = bits_per_index;
         self.words = words.into_boxed_slice();
         self.palette.values = values.into_boxed_slice();
-        self.usage = Some(PaletteUsage {
-            canonical: counts.iter().all(|&count| count != 0),
-            counts: counts.into_boxed_slice(),
-        });
+        self.edits = counts
+            .iter()
+            .all(|&count| count != 0)
+            .then(|| PaletteEdits::new(counts));
         true
     }
 
-    /// Counts valid cells once and checks whether a word patch could preserve canonical output.
-    fn count_usage(&self) -> PaletteUsage {
+    /// Counts valid cells once and admits only an exact canonical representation to stable slots.
+    fn canonical_counts(&self) -> Option<Vec<u16>> {
+        debug_assert!(self.edits.is_none());
+        if self.bits_per_index == 0 {
+            return (self.palette.len() == 1 && self.words.is_empty())
+                .then(|| vec![BLOCKS_PER_SUB_CHUNK as u16]);
+        }
+        #[cfg(test)]
+        self.work
+            .scanned_cells
+            .fetch_add(BLOCKS_PER_SUB_CHUNK, std::sync::atomic::Ordering::Relaxed);
         let mut counts = vec![0_u16; self.palette.len()];
         let mut valid = true;
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
@@ -356,10 +476,7 @@ impl PalettedStorage {
                 == self.palette.len()
             && bits_for_palette_len(self.palette.len()) == self.bits_per_index
             && self.has_zero_padding();
-        PaletteUsage {
-            counts: counts.into_boxed_slice(),
-            canonical,
-        }
+        canonical.then_some(counts)
     }
 
     /// Requires the exact word count and zero bits outside the valid packed cell slots.
@@ -379,8 +496,16 @@ impl PalettedStorage {
         })
     }
 
+    /// Uses the live palette after edits; untouched decoded storage keeps its lenient lookup.
     pub(crate) fn contains_only(&self, runtime_id: u32) -> bool {
+        if self.edits.is_some() {
+            return self.palette.values.as_ref() == [runtime_id];
+        }
         (0..BLOCKS_PER_SUB_CHUNK).all(|linear| {
+            #[cfg(test)]
+            self.work
+                .scanned_cells
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.palette_index(linear)
                 .and_then(|index| self.palette.get(index))
                 == Some(runtime_id)
@@ -388,11 +513,17 @@ impl PalettedStorage {
     }
 }
 
-pub(crate) fn word_count(bits_per_index: u8) -> usize {
+/// Charges a cached word Arc's payload, two counters and trailing alignment padding.
+const fn canonical_heap_bytes(words: usize) -> usize {
+    (words * std::mem::size_of::<u32>() + 2 * std::mem::size_of::<usize>())
+        .next_multiple_of(std::mem::align_of::<usize>())
+}
+
+pub(crate) const fn word_count(bits_per_index: u8) -> usize {
     if bits_per_index == 0 {
         return 0;
     }
-    let values_per_word = 32 / usize::from(bits_per_index);
+    let values_per_word = 32 / bits_per_index as usize;
     BLOCKS_PER_SUB_CHUNK.div_ceil(values_per_word)
 }
 

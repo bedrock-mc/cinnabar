@@ -75,6 +75,7 @@ fn render_world_text(
     )
     .expect("HUD renders")
     .nodes
+    .to_vec()
 }
 
 #[test]

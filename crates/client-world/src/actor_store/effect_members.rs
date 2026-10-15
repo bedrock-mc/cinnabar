@@ -14,7 +14,7 @@ pub(super) struct EffectMembers {
     pub crystals: BTreeSet<u64>,
     pub dragons: BTreeSet<u64>,
     pub paintings: BTreeSet<u64>,
-    pub collidable: BTreeSet<u64>,
+    pub collidable: super::colliders::ActorColliders,
     /// Streamed bed positions for actors currently sleeping in a known bed.
     pub sleepers: BTreeMap<u64, [i32; 3]>,
 }
@@ -32,7 +32,7 @@ impl EffectMembers {
         if previous != bed {
             actor.status.sleep_rotation = None;
         }
-        set(&mut self.collidable, runtime, actor.is_collidable());
+        self.collidable.update(actor);
         set(
             &mut self.paintings,
             runtime,
@@ -72,7 +72,7 @@ impl EffectMembers {
         self.crystals.remove(&runtime);
         self.dragons.remove(&runtime);
         self.paintings.remove(&runtime);
-        self.collidable.remove(&runtime);
+        self.collidable.remove(runtime);
         self.sleepers.remove(&runtime);
     }
 }

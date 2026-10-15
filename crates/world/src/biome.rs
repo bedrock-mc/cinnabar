@@ -39,6 +39,21 @@ impl BiomeIds for RawBiomeIds {
 pub struct BiomeStorage(PalettedStorage);
 
 impl BiomeStorage {
+    /// Maximum retained heap payload under the shared packed-storage representation.
+    pub const MAX_RETAINED_HEAP_BYTES: usize = PalettedStorage::MAX_RETAINED_HEAP_BYTES;
+
+    /// Current owned/shared heap payload, without canonicalizing or deduplicating shared data.
+    #[must_use]
+    pub fn retained_heap_bytes(&self) -> usize {
+        self.0.retained_heap_bytes()
+    }
+
+    /// Conservative heap reservation, including any concurrently materialized canonical cache.
+    #[must_use]
+    pub fn retained_heap_bytes_bound(&self) -> usize {
+        self.0.retained_heap_bytes_bound()
+    }
+
     /// Number of bits occupied by each packed palette index.
     #[must_use]
     pub fn bits_per_index(&self) -> u8 {

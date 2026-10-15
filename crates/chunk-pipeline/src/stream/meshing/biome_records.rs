@@ -109,8 +109,8 @@ impl BiomeRecordCache {
                         (size_of::<BiomeStorage>()
                             + size_of::<Arc<BiomeStorage>>()
                             + size_of::<SlotIdentity>()
-                            + size_of_val(source.packed_words())
-                            + size_of_val(source.palette().values())) as u64
+                            + 2 * size_of::<usize>()
+                            + source.retained_heap_bytes_bound()) as u64
                     })
                     .sum::<u64>()
                 + size_of::<Entry>() as u64
