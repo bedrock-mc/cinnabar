@@ -167,6 +167,51 @@ pub(crate) mod unix {
         }
     }
 
+    /// Frames read ahead come out of `recv` in order, and reading ahead stops at the byte bound
+    /// and at a terminal message without consuming anything after it.
+    #[tokio::test]
+    async fn read_ahead_keeps_order_and_stops_at_its_bound_and_the_terminal() {
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("read-ahead", &[]).await;
+        let time = |time| {
+            batch_frame(&[Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })])
+            .unwrap()
+        };
+        for frame in [time(1), time(2)] {
+            write_frame(peer, &frame).await;
+        }
+        transport.read_ahead(1).await;
+        assert_eq!(transport.ahead.len(), 1, "the bound stops the read-ahead");
+        let mut transfer = vec![5u8];
+        transfer.extend_from_slice(
+            br#"{"address":"play.example.test","port":19134,"reload_world":false}"#,
+        );
+        write_frame(peer, &transfer).await;
+        write_frame(peer, &time(3)).await;
+        transport.read_ahead(usize::MAX).await;
+        assert_eq!(transport.ahead.len(), 3, "the terminal ends the read-ahead");
+
+        let mut times = Vec::new();
+        for _ in 0..2 {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("both packets precede the terminal")
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("only the written packets arrive")
+            };
+            times.push(time.time.0);
+        }
+        assert_eq!(times, [1, 2]);
+        assert!(matches!(
+            transport.recv().await.unwrap(),
+            Inbound::Terminal(Terminal::Transfer(_))
+        ));
+        assert_eq!(transport.ahead_bytes, 0);
+    }
+
     /// A setup message after the handoff is a malformed session, not a packet.
     #[tokio::test]
     async fn setup_messages_after_the_handoff_are_rejected() {

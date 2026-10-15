@@ -138,6 +138,7 @@ pub struct BlockEntityFacts {
     states: Box<[Option<BlockEntityState>]>,
     registry_sha256: [u8; 32],
     hashes: HashMap<u32, u32>,
+    blocks: HashMap<Box<str>, usize>,
 }
 
 impl BlockEntityFacts {
@@ -203,8 +204,15 @@ impl BlockEntityFacts {
             .iter()
             .map(|state| (state.network_hash, state.sequential_id))
             .collect();
+        let mut blocks = HashMap::new();
+        for (index, entry) in payload.entries.iter().enumerate() {
+            for name in &entry.backing_blocks {
+                blocks.entry(name.clone().into_boxed_str()).or_insert(index);
+            }
+        }
         Ok(Self {
             hashes,
+            blocks,
             payload,
             states: states.into(),
             registry_sha256: hash,
@@ -220,12 +228,11 @@ impl BlockEntityFacts {
             .map(|i| &self.payload.entries[i])
     }
 
-    /// Resolves a pinned block identity once when compiling inventory artwork.
+    /// Resolves an admitted block identity without scanning the route table.
     pub fn by_block_identifier(&self, identifier: &str) -> Option<&BlockEntityEntry> {
-        self.payload
-            .entries
-            .iter()
-            .find(|entry| entry.backing_blocks.iter().any(|name| name == identifier))
+        self.blocks
+            .get(identifier)
+            .map(|&index| &self.payload.entries[index])
     }
 
     /// Returns a backing route in one numeric array lookup.

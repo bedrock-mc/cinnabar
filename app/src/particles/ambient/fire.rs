@@ -46,10 +46,10 @@ impl AmbientParticles {
                 neighbors[face as usize] = neighbor.flags();
             }
             if face == BlockFace::Down {
-                below_is_campfire = matches!(
-                    collisions.block_identifier(mode, id),
-                    Some("minecraft:campfire" | "minecraft:soul_campfire")
-                );
+                below_is_campfire = collisions
+                    .block_facts(mode, id)
+                    .traits
+                    .contains(assets::registry::BlockTraits::CAMPFIRE);
             }
         }
         emit_fire_smoke(

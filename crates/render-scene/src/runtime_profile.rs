@@ -106,10 +106,12 @@ pub enum RuntimeStage {
     GpuModPass7,
     GpuModPrimitives,
     GpuFarTerrain,
+    /// CPU time from submission admission to its completion callback, including queue and poll delay.
+    GpuFrameCompletionLatency,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 77] = [
+    pub const ALL: [Self; 78] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -187,10 +189,11 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuFrameCompletionLatency,
     ];
 
-    /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 35] = [
+    /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
+    pub const GPU: [Self; 36] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -226,6 +229,7 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuFrameCompletionLatency,
     ];
 
     /// Owned UI passes separated from the enclosing UI node when explicitly requested.
@@ -306,6 +310,7 @@ impl RuntimeStage {
             Self::InputPacingWait => "input_pacing_wait",
             Self::FramePacingLateness => "frame_pacing_lateness",
             Self::GpuFrame => "gpu_frame",
+            Self::GpuFrameCompletionLatency => "gpu_frame_completion_latency",
             Self::GpuShadows => "gpu_shadows",
             Self::GpuOpaque => "gpu_opaque",
             Self::GpuTransparent => "gpu_transparent",
@@ -547,10 +552,12 @@ impl RuntimeStageProfiler {
                 trace.slow_frame(event);
             }
         }
-        if frame
-            .iter()
-            .any(|(stage, _)| stage != RuntimeStage::GpuFrame)
-        {
+        if frame.iter().any(|(stage, _)| {
+            !matches!(
+                stage,
+                RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency
+            )
+        }) {
             *self
                 .state
                 .latest_gpu

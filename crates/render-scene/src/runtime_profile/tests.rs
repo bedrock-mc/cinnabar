@@ -69,9 +69,19 @@ fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
     let whole = crate::gpu_times::decode_spans([(RuntimeStage::GpuFrame, 10, 50)], 1.0, true);
     profiler.record_gpu_frame(&whole);
     assert_eq!(profiler.latest_pass_frame(), Some(frame));
+    let latency = crate::GpuFrameTimes::completion_latency(Duration::from_millis(100));
+    profiler.record_gpu_frame(&latency);
+    assert_eq!(profiler.latest_pass_frame(), Some(frame));
     let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
     assert_eq!(snapshot.samples[RuntimeStage::GpuOpaque as usize].count, 1);
     assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 2);
+    assert_eq!(
+        snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize].count,
+        1
+    );
+    assert_eq!(latency.get(RuntimeStage::GpuFrame), None);
+    assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
+    assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
 }
 
 #[test]

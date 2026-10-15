@@ -13,6 +13,8 @@ enum Kind {
     Items,
     BlockEntities,
     Events,
+    Identities,
+    Presentation,
     All,
 }
 #[derive(Parser)]
@@ -94,6 +96,28 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    if matches!(args.kind, Kind::Identities) {
+        registry_policy::identities::write(&args.out)?;
+        if args.check {
+            compare(
+                &args.out,
+                &args.root.join(registry_policy::identities::GENERATED_PATH),
+            )?;
+        }
+        return Ok(());
+    }
+    if matches!(args.kind, Kind::Presentation) {
+        registry_policy::presentation::write(&args.out)?;
+        if args.check {
+            compare(
+                &args.out,
+                &args
+                    .root
+                    .join(registry_policy::presentation::GENERATED_PATH),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::Events) {
         registry_policy::events::write(&args.out)?;
         if args.check {
@@ -106,7 +130,7 @@ fn main() -> Result<()> {
     }
     let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
-        Kind::Entities => unreachable!(),
+        Kind::Entities | Kind::Identities | Kind::Presentation => unreachable!(),
         Kind::Blocks => registry_policy::blocks(
             &args.root,
             &facts,
@@ -272,6 +296,12 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         serde_json::to_string_pretty(&target)? + "\n",
     )?;
     registry_policy::events::write(&args.out.join(registry_policy::events::GENERATED_PATH))?;
+    registry_policy::identities::write(
+        &args.out.join(registry_policy::identities::GENERATED_PATH),
+    )?;
+    registry_policy::presentation::write(
+        &args.out.join(registry_policy::presentation::GENERATED_PATH),
+    )?;
     if args.check {
         for path in [
             &target_path,
@@ -279,6 +309,8 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             &entity_expansion,
             &block_entities,
             &PathBuf::from(registry_policy::events::GENERATED_PATH),
+            &PathBuf::from(registry_policy::identities::GENERATED_PATH),
+            &PathBuf::from(registry_policy::presentation::GENERATED_PATH),
             &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
             &PathBuf::from(assets::facts::BLOCK_PLACEMENT_SOURCE_PATH),
             &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),

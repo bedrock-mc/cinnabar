@@ -23,7 +23,9 @@ pub struct BlockPresentationState {
 impl BlockPresentationState {
     /// Decodes supported facts while keeping missing or malformed values unknown.
     pub fn decode(identifier: &str, canonical: &str) -> Self {
-        if identifier != "minecraft:crafter" && identifier != crate::NETHER_PORTAL_IDENTIFIER {
+        if identifier != crate::facts::VanillaBlock::Crafter.identifier()
+            && identifier != crate::NETHER_PORTAL_IDENTIFIER
+        {
             return Self::default();
         }
         let states = serde_json::from_str::<serde_json::Value>(canonical).ok();
@@ -31,7 +33,7 @@ impl BlockPresentationState {
             let raw = states.as_ref()?.get(name)?;
             Some(raw.get("value").unwrap_or(raw))
         };
-        if identifier == "minecraft:crafter" {
+        if identifier == crate::facts::VanillaBlock::Crafter.identifier() {
             Self {
                 crafter_triggered: value("triggered_bit").and_then(|value| {
                     value
@@ -67,7 +69,7 @@ impl BlockPresentationStates {
     pub fn from_records(records: &[RegistryRecord]) -> Self {
         let mut result = Self::default();
         for record in records {
-            if record.name.as_ref() != "minecraft:crafter"
+            if record.name.as_ref() != crate::facts::VanillaBlock::Crafter.identifier()
                 && record.name.as_ref() != crate::NETHER_PORTAL_IDENTIFIER
             {
                 continue;

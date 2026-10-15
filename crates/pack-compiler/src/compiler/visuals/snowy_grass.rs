@@ -1,5 +1,6 @@
 use super::super::{Descriptor, PackSources, RegistryRecord};
 use super::context::RuleInputs;
+use assets::facts::pack::PackTexture as T;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 use assets::{
     BLOCK_VISUAL_VARIANT_COVERED_GRASS, BLOCK_VISUAL_VARIANT_SNOW_COVER, BlockVisual,
@@ -10,22 +11,21 @@ use assets::{
 // when snow sits above.
 // The samples' flattened grass_side retains only its newer overlay entry, but
 // its mycelium_side array still exposes the same literal snowy sprite.
-const GRASS_SIDE_KEY: &str = "grass_side";
 
 pub(in crate::compiler) fn material_descriptor(
     pack: &PackSources,
 ) -> Option<(Descriptor, Box<str>)> {
     let native_side = pack
         .terrain
-        .get_clamped_carried_variant(GRASS_SIDE_KEY, usize::MAX)
+        .get_clamped_carried_variant(T::GrassSide.key(), usize::MAX)
         .filter(|(path, overlay, _)| *path == SNOWED_GRASS_SIDE_TEXTURE && overlay.is_none())
-        .map(|(path, _, variant)| (path, GRASS_SIDE_KEY, variant));
+        .map(|(path, _, variant)| (path, T::GrassSide.key(), variant));
     let (path, key, state_variant) = native_side.or_else(|| {
         pack.terrain
-            .get_exact_pair_no_tint("mycelium_side")
+            .get_exact_pair_no_tint(T::MyceliumSide.key())
             .map(|paths| paths[1])
             .filter(|path| *path == SNOWED_GRASS_SIDE_TEXTURE)
-            .map(|path| (path, "mycelium_side", 1))
+            .map(|path| (path, T::MyceliumSide.key(), 1))
     })?;
     Some((
         Descriptor {

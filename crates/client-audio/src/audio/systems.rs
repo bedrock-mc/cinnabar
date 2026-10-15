@@ -23,7 +23,7 @@ use super::{
     settings::AudioSettings,
 };
 
-const PLAYER: &str = "minecraft:player";
+const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
 const FEET_PROBE_BELOW: f64 = 0.2;
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
 
@@ -299,7 +299,9 @@ fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent)
         )
     } else if name == client_world::ROCKET_LAUNCH_EVENT
         && (level.actor_identifier.is_empty()
-            || level.actor_identifier.as_ref() == client_world::FIREWORK_ROCKET_IDENTIFIER)
+            || assets::facts::entity::NativeEntityClass::FireworksRocket
+                .identifier()
+                .is_some_and(|identifier| level.actor_identifier.as_ref() == identifier))
     {
         engine.admit_echo(
             EchoOrigin::Packet,
