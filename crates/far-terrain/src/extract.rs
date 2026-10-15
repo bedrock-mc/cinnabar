@@ -11,16 +11,19 @@ use assets::{
 use world::{BLOCKS_PER_SUB_CHUNK, BiomeStorage, Chunk, SubChunk};
 
 use crate::{
-    ColumnSummary, SurfaceCell, SurfaceColours,
+    ColumnSummary, SurfaceCell, SurfaceColours, SurfaceSlice,
     config::{MAX_WATER_SCAN_DEPTH, WATER_DEPTH_TRANSMITTANCE, WATER_SURFACE_OPACITY},
     summary::{COLUMN_CELLS, COLUMN_SIDE},
 };
 
+/// Block layers that can contribute to a surface, including water above a base layer.
+pub(crate) const SURFACE_LAYERS: usize = 2;
+
 /// Shared, immutable sections and biomes of one column, taken without copying block data.
 #[derive(Clone, Debug)]
 pub struct ColumnSnapshot {
-    sections: Arc<BTreeMap<i32, Arc<SubChunk>>>,
-    biomes: Vec<(i32, Arc<BiomeStorage>)>,
+    pub(crate) sections: Arc<BTreeMap<i32, Arc<SubChunk>>>,
+    pub(crate) biomes: Vec<(i32, Arc<BiomeStorage>)>,
 }
 
 impl ColumnSnapshot {
@@ -33,6 +36,7 @@ impl ColumnSnapshot {
         Self { sections, biomes }
     }
 
+    /// Captures shared terrain and biome allocations without copying their storage.
     #[must_use]
     pub fn of(chunk: &Chunk) -> Self {
         let sections = chunk.shared_sub_chunks();
@@ -43,7 +47,8 @@ impl ColumnSnapshot {
         Self { sections, biomes }
     }
 
-    fn biome(&self, y: i32) -> Option<&BiomeStorage> {
+    /// Returns the captured biome storage for one absolute section.
+    pub(crate) fn biome(&self, y: i32) -> Option<&BiomeStorage> {
         self.biomes
             .iter()
             .find(|(section, _)| *section == y)
@@ -138,16 +143,65 @@ impl SurfaceContext {
 /// Summarises the highest visible block of every cell, looking through water to its floor.
 #[must_use]
 pub fn summarise_column(context: &SurfaceContext, column: &ColumnSnapshot) -> ColumnSummary {
-    let mut summary = ColumnSummary::default();
-    let mut scans = [Scan::Searching; COLUMN_CELLS];
-    let mut remaining = COLUMN_CELLS;
-    let mut indices = [[0_u32; BLOCKS_PER_SUB_CHUNK]; 2];
-    for (&section_y, section) in column.sections.iter().rev() {
-        if remaining == 0 {
+    let mut scan = SurfaceScan::default();
+    for (&y, section) in column.sections.iter().rev() {
+        if scan.is_complete() {
             break;
         }
-        let storages = section.storages();
-        let classes: [Vec<Class>; 2] = std::array::from_fn(|layer| {
+        scan.section(context, y, section.storages(), column.biome(y));
+    }
+    scan.finish()
+}
+
+/// Resumable top-down extraction; water is finalised only after the last section.
+pub struct SurfaceScan {
+    summary: ColumnSummary,
+    scans: [Scan; COLUMN_CELLS],
+    remaining: usize,
+    indices: [[u32; BLOCKS_PER_SUB_CHUNK]; SURFACE_LAYERS],
+}
+
+impl Default for SurfaceScan {
+    fn default() -> Self {
+        Self {
+            summary: ColumnSummary::default(),
+            scans: [Scan::Searching; COLUMN_CELLS],
+            remaining: COLUMN_CELLS,
+            indices: [[0; BLOCKS_PER_SUB_CHUNK]; SURFACE_LAYERS],
+        }
+    }
+}
+
+impl SurfaceScan {
+    /// True when deeper sections cannot affect any cell.
+    pub fn is_complete(&self) -> bool {
+        self.remaining == 0
+    }
+
+    /// Applies a bounded, owned slice in descending section order.
+    pub fn apply(&mut self, context: &SurfaceContext, slice: &SurfaceSlice) {
+        for section in slice.sections.iter() {
+            if self.is_complete() {
+                break;
+            }
+            self.section(
+                context,
+                section.y,
+                &section.storages,
+                section.biome.as_ref(),
+            );
+        }
+    }
+
+    /// Applies one section using the same classification and scan order as full extraction.
+    fn section(
+        &mut self,
+        context: &SurfaceContext,
+        section_y: i32,
+        storages: &[world::PalettedStorage],
+        biome: Option<&BiomeStorage>,
+    ) {
+        let classes: [Vec<Class>; SURFACE_LAYERS] = std::array::from_fn(|layer| {
             storages.get(layer).map_or_else(Vec::new, |storage| {
                 storage
                     .palette()
@@ -159,19 +213,18 @@ pub fn summarise_column(context: &SurfaceContext, column: &ColumnSnapshot) -> Co
         });
         let sees_through = |layer: &Vec<Class>| layer.iter().all(|class| *class == Class::Through);
         if sees_through(&classes[0]) && sees_through(&classes[1]) {
-            continue;
+            return;
         }
-        for (layer, storage) in storages.iter().take(2).enumerate() {
-            storage.palette_indices(&mut indices[layer]);
+        for (layer, storage) in storages.iter().take(SURFACE_LAYERS).enumerate() {
+            storage.palette_indices(&mut self.indices[layer]);
         }
-        let biome = column.biome(section_y);
         let class_at = |layer: usize, linear: usize| {
             classes[layer]
-                .get(indices[layer][linear] as usize)
+                .get(self.indices[layer][linear] as usize)
                 .copied()
                 .unwrap_or(Class::Through)
         };
-        for (index, scan) in scans.iter_mut().enumerate() {
+        for (index, scan) in self.scans.iter_mut().enumerate() {
             if matches!(scan, Scan::Done) {
                 continue;
             }
@@ -225,20 +278,24 @@ pub fn summarise_column(context: &SurfaceContext, column: &ColumnSnapshot) -> Co
                     }
                 };
                 if let Some(cell) = finished {
-                    summary.cells_mut()[index] = cell;
+                    self.summary.cells_mut()[index] = cell;
                     *scan = Scan::Done;
-                    remaining -= 1;
+                    self.remaining -= 1;
                     break;
                 }
             }
         }
     }
-    for (index, scan) in scans.into_iter().enumerate() {
-        if let Scan::Water { top, rgb, depth } = scan {
-            summary.cells_mut()[index] = open_water(top, rgb, depth);
+
+    /// Finishes water with no visible floor after the source has been exhausted.
+    pub fn finish(mut self) -> ColumnSummary {
+        for (index, scan) in self.scans.into_iter().enumerate() {
+            if let Scan::Water { top, rgb, depth } = scan {
+                self.summary.cells_mut()[index] = open_water(top, rgb, depth);
+            }
         }
+        self.summary
     }
-    summary
 }
 
 fn solid_rgb(

@@ -27,12 +27,13 @@ const MIN_WORLD_THREADS: usize = 3;
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
 
-/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
+/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light and summaries trail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {
     Mesh,
     Decode,
     Light,
+    Summary,
 }
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
@@ -69,6 +70,7 @@ struct Queues {
     mesh: Queue,
     decode: Queue,
     light: Queue,
+    summary: Queue,
     shutdown: bool,
     #[cfg(target_arch = "wasm32")]
     observed_at: Moment,
@@ -81,6 +83,7 @@ impl Queues {
             Lane::Mesh => &mut self.mesh,
             Lane::Decode => &mut self.decode,
             Lane::Light => &mut self.light,
+            Lane::Summary => &mut self.summary,
         };
         queue.push_back((queued_at, job));
     }
@@ -107,7 +110,9 @@ impl Queues {
         } else {
             &mut self.mesh
         };
-        lane.pop_front().map(|(_, job)| job)
+        lane.pop_front()
+            .or_else(|| background.then(|| self.summary.pop_front()).flatten())
+            .map(|(_, job)| job)
     }
 }
 
@@ -232,8 +237,8 @@ impl WorldPool {
         self.shared
             .lock()
             .push(lane, queued_at, Box::new(move |_| job()));
-        // A foreground waiter cannot take light, so light wakes everyone.
-        if lane == Lane::Light {
+        // Background-only lanes must wake an eligible worker even if a foreground one waits.
+        if matches!(lane, Lane::Light | Lane::Summary) {
             self.shared.ready.notify_all();
         } else {
             self.shared.ready.notify_one();

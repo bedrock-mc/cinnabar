@@ -183,3 +183,105 @@ fn surface_seasonal_leaves_use_their_exposed_material() {
     let cell = summarise_column(&context(), &column([(0, canopy)])).cell(4, 4);
     assert_eq!((cell.height, cell.rgb), (1, SAND_RGB));
 }
+
+/// Sliced extraction preserves synchronous bytes for tinted ground, plants, models and water.
+#[test]
+fn bounded_slices_match_full_extraction() {
+    use far_terrain::{SurfaceScan, SurfaceSlice};
+    let context = context();
+    let source = column((-16..16).map(|section_y| {
+        (
+            section_y,
+            section(move |x, y, z| {
+                if section_y == -16 {
+                    [if x % 2 == 0 { GRASS } else { SAND }, AIR]
+                } else if section_y == -15 && x < 8 {
+                    [WATER, AIR]
+                } else if section_y == -14 && y == 0 && z < 3 {
+                    [SLAB, AIR]
+                } else {
+                    [AIR, AIR]
+                }
+            }),
+        )
+    }));
+    let expected = summarise_column(&context, &source).encode();
+    let mut scan = SurfaceScan::default();
+    let mut cursor = None;
+    let mut steps = 0;
+    loop {
+        let slice = source.surface_slice(cursor, SurfaceSlice::MIN_BYTES);
+        assert!(slice.retained_bytes() <= SurfaceSlice::MIN_BYTES);
+        scan.apply(&context, &slice);
+        steps += 1;
+        cursor = slice.next();
+        if cursor.is_none() || scan.is_complete() {
+            break;
+        }
+        assert!(steps < 64);
+    }
+    assert_eq!(scan.finish().encode(), expected);
+}
+
+/// A copied slice owns only visible block layers and biomes, independent of source mutation.
+#[test]
+fn surface_slice_does_not_retain_the_source_sections() {
+    use far_terrain::{ColumnSnapshot, SurfaceScan, SurfaceSlice};
+    use std::{collections::BTreeMap, sync::Arc};
+    let ground = section(|_, _, _| [GRASS, AIR]);
+    let weak = Arc::downgrade(&ground);
+    let source = ColumnSnapshot::new(Arc::new(BTreeMap::from([(0, ground)])), Vec::new());
+    let expected = summarise_column(&context(), &source).encode();
+    let slice = source.surface_slice(None, SurfaceSlice::MIN_BYTES);
+    drop(source);
+    assert!(weak.upgrade().is_none());
+    let mut scan = SurfaceScan::default();
+    scan.apply(&context(), &slice);
+    assert_eq!(scan.finish().encode(), expected);
+}
+
+/// The minimum slice fits the decoder's maximum palette and packed word sizes.
+#[test]
+fn largest_decoded_surface_section_fits_the_minimum_slice() {
+    use far_terrain::{ColumnSnapshot, SurfaceSlice};
+    use std::{collections::BTreeMap, sync::Arc};
+    use world::{
+        BLOCKS_PER_SUB_CHUNK, DecodedBiomeColumn, MAX_PALETTE_ENTRIES, RawBiomeIds, RawBlockIds,
+        SubChunk,
+    };
+
+    /// Encodes the non-negative signed varints used by the storage decoder.
+    fn varint(out: &mut Vec<u8>, value: usize) {
+        let mut value = (value as u32) << 1;
+        while value >= 128 {
+            out.push((value as u8) | 128);
+            value >>= 7;
+        }
+        out.push(value as u8);
+    }
+
+    let mut storage = vec![33]; // Sixteen-bit network indices: two blocks per word.
+    storage.resize(1 + BLOCKS_PER_SUB_CHUNK / 2 * std::mem::size_of::<u32>(), 0);
+    varint(&mut storage, MAX_PALETTE_ENTRIES);
+    for _ in 0..MAX_PALETTE_ENTRIES {
+        varint(&mut storage, AIR as usize);
+    }
+    let mut blocks = vec![9, 2, 0];
+    blocks.extend_from_slice(&storage);
+    blocks.extend_from_slice(&storage);
+    let section = Arc::new(SubChunk::decode(&blocks, &RawBlockIds { air: AIR }));
+    let biome = DecodedBiomeColumn::decode(0, 1, &storage, &RawBiomeIds { default_biome: 0 });
+    let source = ColumnSnapshot::new(
+        Arc::new(BTreeMap::from([(0, section)])),
+        vec![(0, biome.storage(0).unwrap())],
+    );
+    let slice = source.surface_slice(None, SurfaceSlice::MIN_BYTES);
+    assert!(slice.retained_bytes() <= SurfaceSlice::MIN_BYTES);
+    assert!(slice.next().is_none());
+    let mut scan = far_terrain::SurfaceScan::default();
+    scan.apply(&context(), &slice);
+    assert_eq!(
+        scan.finish().encode(),
+        summarise_column(&context(), &source).encode()
+    );
+}

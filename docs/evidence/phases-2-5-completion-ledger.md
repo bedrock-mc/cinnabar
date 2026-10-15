@@ -43,6 +43,11 @@ Flight, remote movement/reset, local catch-up and authored-rotation regressions 
 compiled or executed. Rendered-frame validation and the exact Bedrock flap calculation remain
 incomplete. This change closes no parity or performance gate.
 
+Far-summary extraction now has global copied-work admission, a background lane and an
+explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
+sources. Regression fixtures are written but unrun; output, transfer timing and hardware
+performance qualification remain incomplete. No phase or performance gate closes here.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |

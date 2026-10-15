@@ -1,0 +1,375 @@
+use std::sync::Mutex;
+
+use super::{
+    admission::{Admission, JOB_OVERHEAD, Policy},
+    producer::{Executor, Job},
+    *,
+};
+
+#[derive(Clone, Default)]
+struct Manual(Arc<Mutex<VecDeque<Job>>>);
+
+impl Manual {
+    /// Holds accepted work until a test explicitly executes or rejects it.
+    fn executor(&self) -> Executor {
+        let pending = Arc::clone(&self.0);
+        Arc::new(move |job| pending.lock().unwrap().push_back(job))
+    }
+
+    /// Executes the oldest accepted job after releasing the manual queue lock.
+    fn run(&self) -> bool {
+        let job = self.0.lock().unwrap().pop_front();
+        if let Some(job) = job {
+            job();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Observes accepted closures independently from retained source backlog.
+    fn len(&self) -> usize {
+        self.0.lock().unwrap().len()
+    }
+}
+
+/// Uses one admission owner across every manual inbox in a fixture.
+fn owner(jobs: usize) -> Arc<Admission> {
+    let slice_bytes = far_terrain::SurfaceSlice::MIN_BYTES;
+    Arc::new(Admission::new(Policy {
+        jobs,
+        bytes: jobs * (slice_bytes + JOB_OVERHEAD),
+        slice_bytes,
+    }))
+}
+
+/// Attaches a new active or retiring inbox to the fixture's shared owner and executor.
+fn inbox(owner: &Arc<Admission>, manual: &Manual) -> FarSummaryInbox {
+    FarSummaryInbox::new(Producer::new(Arc::clone(owner), manual.executor()))
+}
+
+/// Captures registry handles exactly as an owner stream does, with replaceable asset identity.
+fn context(assets: &Arc<RuntimeAssets>) -> PendingContext {
+    let tints = Arc::new(assets.biome_assets().resolve_live(&[]).unwrap());
+    PendingContext {
+        prepared: PreparedAssets::shared(Arc::clone(assets)),
+        air: 0,
+        assets: Arc::clone(assets),
+        mode: NetworkIdMode::Sequential,
+        tints,
+        default_biome: 0,
+    }
+}
+
+/// Builds immutable uniform sections without any session or wire-cache dependency.
+fn snapshot(id: u8, count: i32) -> ColumnSnapshot {
+    let section = Arc::new(SubChunk::decode(
+        &[9, 1, 0, 1, id << 1],
+        &world::RawBlockIds { air: 0 },
+    ));
+    ColumnSnapshot::new(
+        Arc::new((0..count).map(|y| (y, Arc::clone(&section))).collect()),
+        Vec::new(),
+    )
+}
+
+/// Keeps every summary visible to the fixture while all inboxes make bounded progress.
+fn settle(
+    inboxes: &mut [FarSummaryInbox],
+    manual: &Manual,
+    owner: &Admission,
+) -> Vec<FarColumnSummary> {
+    let mut out = Vec::new();
+    for _ in 0..40_000 {
+        for inbox in inboxes.iter_mut() {
+            inbox.drain(&mut out);
+        }
+        let usage = owner.usage();
+        assert!(usage.jobs <= owner.policy().jobs);
+        assert!(usage.bytes <= owner.policy().bytes);
+        if inboxes.iter().all(FarSummaryInbox::is_idle) {
+            assert_eq!(owner.usage().jobs, 0);
+            return out;
+        }
+        manual.run();
+    }
+    panic!("finite source backlog did not drain");
+}
+
+/// Thousands of retired sources never become thousands of worker closures or uncharged results.
+#[test]
+fn active_and_retired_feeds_share_one_job_and_byte_ceiling() {
+    let owner = owner(4);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let mut feeds: Vec<_> = (0..5).map(|_| inbox(&owner, &manual)).collect();
+    for (session, feed) in feeds.iter_mut().enumerate() {
+        let count = if session == 2 { 4096 } else { 17 };
+        for x in 0..count {
+            feed.enqueue(
+                ChunkKey::new(session as i32, x, 0),
+                snapshot(0, 1 + x % 3),
+                context(&assets),
+            );
+        }
+        feed.pump();
+    }
+    assert_eq!(
+        manual.len(),
+        1,
+        "one shared preparation, no waiting consumers on workers"
+    );
+    assert!(feeds.iter().all(|feed| !feed.is_idle()));
+    assert!(feeds[2].producer.source_bytes() > owner.usage().bytes);
+    manual.run();
+    for feed in &mut feeds {
+        feed.pump();
+    }
+    assert_eq!(manual.len(), 4);
+    let sources: usize = feeds.iter().map(|feed| feed.producer.sources.len()).sum();
+    assert_eq!(sources, 4096 + 4 * 17);
+    let out = settle(&mut feeds, &manual, &owner);
+    assert_eq!(out.len(), sources);
+    assert_eq!(
+        out.iter()
+            .map(|summary| summary.column)
+            .collect::<HashSet<_>>()
+            .len(),
+        sources
+    );
+}
+
+/// Byte denial leaves the final source intact; mixed copied sizes reuse the same capacity.
+#[test]
+fn byte_pressure_defers_sources_and_delivery_retains_its_reservation() {
+    let owner = owner(4);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let mut feeds = [inbox(&owner, &manual), inbox(&owner, &manual)];
+    feeds[0].enqueue(ChunkKey::new(0, 1, 0), snapshot(0, 1), context(&assets));
+    feeds[0].pump();
+    manual.run();
+    let held = owner
+        .acquire(3 * (owner.slice_bytes() + JOB_OVERHEAD))
+        .unwrap();
+    feeds[0].pump();
+    manual.run();
+    let before = owner.usage();
+    assert_eq!(before.jobs, 2);
+    feeds[1].enqueue(ChunkKey::new(1, 1, 0), snapshot(0, 3), context(&assets));
+    // Fill the remaining bytes, while leaving spare job-count capacity.
+    let spare = owner.policy().bytes - before.bytes;
+    let bytes = owner.acquire(spare).unwrap();
+    feeds[1].pump();
+    assert_eq!(manual.len(), 0);
+    assert_eq!(feeds[1].producer.sources.len(), 1);
+    let mut out = Vec::new();
+    feeds[0].drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    assert!(out.is_empty());
+    assert!(feeds[0].has_finished());
+    assert_eq!(owner.usage().jobs, 3);
+    drop(bytes);
+    drop(held);
+    feeds[0].drain(&mut out);
+    assert_eq!(out.len(), 1);
+    let rest = settle(&mut feeds, &manual, &owner);
+    assert_eq!(rest.len(), 1);
+}
+
+/// An oversized raw column advances by bounded section copies, including through a deadline drain.
+#[test]
+fn tall_retired_source_progresses_without_retaining_it_in_a_worker() {
+    let owner = owner(1);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    // Uniform air forces the scanner to visit every section instead of stopping at a solid top.
+    let source = snapshot(0, 4096);
+    let mut feeds = [inbox(&owner, &manual)];
+    for x in 0..3 {
+        feeds[0].enqueue(ChunkKey::new(0, x, 0), source.clone(), context(&assets));
+    }
+    assert!(feeds[0].producer.source_bytes() > owner.slice_bytes());
+    let mut out = Vec::new();
+    feeds[0].drain_waiting(&mut out, Instant::now());
+    assert!(!feeds[0].is_idle());
+    assert!(out.is_empty());
+    let out = settle(&mut feeds, &manual, &owner);
+    assert_eq!(out.len(), 3);
+    assert!(out.iter().all(|finished| {
+        far_terrain::ColumnSummary::decode(&finished.summary.bytes)
+            .unwrap()
+            .is_empty()
+    }));
+}
+
+/// A resend replaces a denied source, while already-issued older output remains stale work.
+#[test]
+fn duplicate_sources_and_reverse_completions_deliver_only_the_latest() {
+    let owner = owner(4);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let mut feed = inbox(&owner, &manual);
+    let column = ChunkKey::new(0, 3, 0);
+    feed.enqueue(column, snapshot(1, 1), context(&assets));
+    feed.enqueue(column, snapshot(2, 1), context(&assets));
+    assert_eq!(feed.producer.sources.len(), 1);
+    feed.pump();
+    manual.run();
+    feed.pump();
+    feed.enqueue(column, snapshot(0, 1), context(&assets));
+    let generation = feed.issued_generation();
+    feed.pump();
+    let newest = manual.0.lock().unwrap().pop_back().unwrap();
+    newest();
+    manual.run();
+    let mut out = Vec::new();
+    feed.drain_budgeted(&mut out, &mut SummaryBudget::new(1, usize::MAX));
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].generation, generation);
+    assert!(!feed.is_idle(), "stale output still consumes delivery work");
+    feed.drain(&mut out);
+    assert_eq!(out.len(), 1);
+    assert!(feed.is_idle());
+    assert!(
+        far_terrain::ColumnSummary::decode(&out[0].summary.bytes)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(owner.usage().jobs, 0);
+}
+
+/// Rejected closures return capacity and retry from the original immutable source.
+#[test]
+fn cancelled_work_and_disconnected_receivers_release_permits() {
+    let owner = owner(2);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let mut feeds = [inbox(&owner, &manual)];
+    feeds[0].enqueue(ChunkKey::new(0, 0, 0), snapshot(1, 1), context(&assets));
+    feeds[0].pump();
+    manual.run();
+    feeds[0].pump();
+    let cancelled = manual.0.lock().unwrap().pop_front().unwrap();
+    assert_eq!(owner.usage().jobs, 1);
+    drop(cancelled);
+    assert_eq!(owner.usage().jobs, 0);
+    assert_eq!(settle(&mut feeds, &manual, &owner).len(), 1);
+    let mut disconnected = inbox(&owner, &manual);
+    disconnected.enqueue(ChunkKey::new(0, 1, 0), snapshot(2, 1), context(&assets));
+    disconnected.pump();
+    manual.run();
+    disconnected.pump();
+    drop(disconnected);
+    while manual.run() {}
+    assert_eq!(owner.usage().jobs, 0);
+}
+
+/// Each retained asset allocation prepares once, including simultaneous dimensions and replacement.
+#[test]
+fn preparation_is_shared_nonblocking_and_invalidated_by_asset_identity() {
+    let owner = owner(4);
+    let manual = Manual::default();
+    let old = Arc::new(RuntimeAssets::diagnostic());
+    let replacement = Arc::new(RuntimeAssets::diagnostic());
+    let mut feeds = [inbox(&owner, &manual), inbox(&owner, &manual)];
+    for (dimension, feed) in feeds.iter_mut().enumerate() {
+        feed.enqueue(
+            ChunkKey::new(dimension as i32, 0, 0),
+            snapshot(0, 1),
+            context(&old),
+        );
+        feed.pump();
+    }
+    assert_eq!(manual.len(), 1);
+    assert!(PreparedAssets::shared(Arc::clone(&old)).colours().is_none());
+    manual.run();
+    let prepared = PreparedAssets::shared(Arc::clone(&old));
+    assert_eq!(
+        prepared.colours().unwrap().as_ref(),
+        &SurfaceColours::new(&old)
+    );
+    feeds[0].enqueue(
+        ChunkKey::new(0, 1, 0),
+        snapshot(0, 1),
+        context(&replacement),
+    );
+    feeds[0].pump();
+    assert!(
+        PreparedAssets::shared(Arc::clone(&replacement))
+            .colours()
+            .is_none()
+    );
+    let out = settle(&mut feeds, &manual, &owner);
+    assert_eq!(out.len(), 3);
+    assert_eq!(
+        out.iter()
+            .map(|summary| summary.summary.hash)
+            .collect::<HashSet<_>>()
+            .len(),
+        1
+    );
+}
+
+/// Dropping a stream's inbox releases raw sources, while admitted copies retain valid context.
+#[test]
+fn source_and_registry_lifetimes_follow_delivery_and_cancellation() {
+    let owner = owner(2);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let weak_assets = Arc::downgrade(&assets);
+    let source = snapshot(1, 1);
+    let mut feed = inbox(&owner, &manual);
+    feed.enqueue(ChunkKey::new(0, 0, 0), source, context(&assets));
+    drop(assets);
+    feed.pump();
+    manual.run();
+    feed.pump();
+    drop(feed);
+    assert!(
+        weak_assets.upgrade().is_some(),
+        "admitted work retains the old registry"
+    );
+    while manual.run() {}
+    assert!(weak_assets.upgrade().is_none());
+    assert_eq!(owner.usage().jobs, 0);
+}
+
+/// Interleaved dimensions retain their own air, network mode and biome routing.
+#[test]
+fn interleaved_contexts_match_their_synchronous_builder() {
+    let owner = owner(4);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let source = snapshot(1, 1);
+    let mut feeds = [inbox(&owner, &manual), inbox(&owner, &manual)];
+    let mut expected = HashMap::new();
+    for (dimension, feed) in feeds.iter_mut().enumerate() {
+        let mut captured = context(&assets);
+        captured.air = dimension as u32;
+        captured.mode = if dimension == 0 {
+            NetworkIdMode::Sequential
+        } else {
+            NetworkIdMode::Hashed
+        };
+        captured.default_biome = dimension as u32 + 7;
+        let synchronous = SurfaceContext {
+            air: captured.air,
+            assets: Arc::clone(&captured.assets),
+            mode: captured.mode,
+            colours: Arc::new(SurfaceColours::new(&assets)),
+            tints: Arc::clone(&captured.tints),
+            default_biome: captured.default_biome,
+        };
+        let column = ChunkKey::new(dimension as i32, 0, 0);
+        expected.insert(
+            column,
+            far_terrain::summarise_column(&synchronous, &source).encode(),
+        );
+        feed.enqueue(column, source.clone(), captured);
+    }
+    let out = settle(&mut feeds, &manual, &owner);
+    assert_eq!(out.len(), 2);
+    for finished in out {
+        assert_eq!(finished.summary, expected[&finished.column]);
+    }
+}
