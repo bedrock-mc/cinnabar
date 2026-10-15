@@ -102,7 +102,7 @@ impl IconBlocks {
                 return false;
             };
             let value = |key: &str| state.get(key).and_then(|entry| entry.get("value")).cloned();
-            value("wall_post_bit") == Some(1.into())
+            value(assets::facts::BlockProperty::WallPostBit.name()) == Some(1.into())
                 && ["east", "west"].iter().all(|side| {
                     value(&format!("wall_connection_type_{side}")) == Some("short".into())
                 })

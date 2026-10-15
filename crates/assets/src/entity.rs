@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+mod engine_variables;
 mod geometry;
+pub use engine_variables::EngineVariable;
 pub mod interactions;
 pub mod item_use;
 mod molang_program;

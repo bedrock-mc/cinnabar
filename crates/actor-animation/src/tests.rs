@@ -802,10 +802,18 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
     let mut context = ActorTickContext::default();
     context.armor[4] = Some(WornArmor {
         item: "minecraft:golden_horse_armor".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:golden_horse_armor")
+            .unwrap(),
         dye_rgb: None,
     });
     context.armor[0] = Some(WornArmor {
         item: "minecraft:leather_helmet".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:leather_helmet")
+            .unwrap(),
         dye_rgb: Some(0x00FF_0000),
     });
     let number = |name: &str, arguments: &[f32]| {
@@ -936,6 +944,10 @@ fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_tick_displacement()
     let mut context = ActorTickContext::default();
     context.armor[1] = Some(WornArmor {
         item: "minecraft:elytra".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:elytra")
+            .unwrap(),
         dye_rgb: None,
     });
     let input = ActorTickInput {

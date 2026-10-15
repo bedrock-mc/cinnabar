@@ -16,15 +16,18 @@ impl UiRuntime {
             return Some(food);
         }
         let catalog = self.food_catalog.as_ref()?;
-        let legacy = match identifier {
-            "minecraft:enchanted_golden_apple" => "minecraft:appleEnchanted",
-            "minecraft:cooked_mutton" => "minecraft:muttonCooked",
-            "minecraft:mutton" => "minecraft:muttonRaw",
-            "minecraft:tropical_fish" => "minecraft:clownfish",
-            "minecraft:cod" => "minecraft:fish",
-            "minecraft:cooked_cod" => "minecraft:cooked_fish",
-            _ => identifier,
-        };
+        let facts = assets::facts::ItemFacts::builtin().ok()?;
+        let legacy = facts
+            .by_identifier(identifier)
+            .and_then(|fact| fact.use_profile)
+            .and_then(|index| facts.use_profile(index))
+            .and_then(|profile| match profile {
+                assets::item_use::ItemUseProfile::Provisional { duration_alias, .. } => {
+                    duration_alias.as_deref()
+                }
+                assets::item_use::ItemUseProfile::Unresolved => None,
+            })
+            .unwrap_or(identifier);
         let food = catalog
             .item_food(identifier)
             .or_else(|| catalog.item_food(legacy))?;
@@ -35,6 +38,34 @@ impl UiRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn facts_migration_compiled_food_aliases_preserve_the_previous_lookup_over_retail_items() {
+        let facts = assets::facts::ItemFacts::builtin().unwrap();
+        for record in &facts.payload().records {
+            let expected = match record.identifier.as_ref() {
+                "minecraft:enchanted_golden_apple" => "minecraft:appleEnchanted",
+                "minecraft:cooked_mutton" => "minecraft:muttonCooked",
+                "minecraft:mutton" => "minecraft:muttonRaw",
+                "minecraft:tropical_fish" => "minecraft:clownfish",
+                "minecraft:cod" => "minecraft:fish",
+                "minecraft:cooked_cod" => "minecraft:cooked_fish",
+                other => other,
+            };
+            let actual = record
+                .fact
+                .use_profile
+                .and_then(|index| facts.use_profile(index))
+                .and_then(|profile| match profile {
+                    assets::item_use::ItemUseProfile::Provisional { duration_alias, .. } => {
+                        duration_alias.as_deref()
+                    }
+                    assets::item_use::ItemUseProfile::Unresolved => None,
+                })
+                .unwrap_or(&record.identifier);
+            assert_eq!(actual, expected, "{}", record.identifier);
+        }
+    }
     #[test]
     fn pinned_food_survives_sessions_and_explicit_server_food_wins() {
         let food = assets::CompiledItemFood {

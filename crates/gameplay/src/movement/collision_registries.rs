@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
-use assets::RegistryRecord;
 use assets::block_shapes::COLLISION_COORDINATE_SCALE;
+use assets::{RegistryRecord, facts::block::RESERVED_BLOCK_NAME};
 use sim::{
     Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, RegistryError, Vec3,
 };
@@ -16,9 +16,6 @@ mod multipart;
 mod selection;
 mod session_palette;
 mod tags;
-
-/// Registry records whose names the carrier deliberately withholds.
-const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 
 /// Interaction facts shared by both runtime identity spaces.
 #[derive(Debug, Clone)]
@@ -291,7 +288,7 @@ impl PhysicsCollisionRegistries {
                     registry.set_air_runtime_id(id);
                 }
             }
-            if record.name.as_ref() != RESERVED_RECORD_NAME {
+            if record.name.as_ref() != RESERVED_BLOCK_NAME {
                 let key = protocol::block_name_sort_key(&record.name);
                 max_vanilla_sort_key = max_vanilla_sort_key.max(key);
                 if vanilla_runs

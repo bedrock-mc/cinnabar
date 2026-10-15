@@ -4,7 +4,7 @@ use assets::{BlockFace, BlockFlags};
 
 use super::AmbientRandom;
 
-pub const FIRE_SMOKE_EFFECT: &str = "minecraft:basic_smoke_particle";
+pub const FIRE_SMOKE_EFFECT: &str = assets::facts::ParticleEffect::BasicSmokeParticle.identifier();
 const SUPPORTED_SMOKE_COUNT: usize = 3;
 const ATTACHED_SMOKE_COUNT: usize = 2;
 const ATTACHMENT_INSET: f32 = 0.1;

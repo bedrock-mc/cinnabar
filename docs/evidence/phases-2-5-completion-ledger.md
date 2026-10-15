@@ -306,6 +306,11 @@ occlusion share rounded intercept distances. CI verification remains pending.
 
 ## P5.7-PARITY-PERF
 
+Cloud preparation skips hidden geometry, prefetches finite windows on workers and
+retains GPU storage. Regression coverage checks admission frames, exact records,
+bounded caching and buffer reuse. Cold and missed windows still wait for geometry;
+hardware frame-time and capture acceptance remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Bamboo geometry, column transforms, sampling and overlay consumers covered; wider parity and performance work remains open |

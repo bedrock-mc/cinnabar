@@ -5,8 +5,8 @@ use particles::{ParticleSystem, SpawnRequest};
 
 use super::AmbientParticles;
 
-const NORTH_SOUTH: &str = "minecraft:portal_north_south";
-const EAST_WEST: &str = "minecraft:portal_east_west";
+const NORTH_SOUTH: &str = assets::facts::ParticleEffect::PortalNorthSouth.identifier();
+const EAST_WEST: &str = assets::facts::ParticleEffect::PortalEastWest.identifier();
 const PARTICLES_PER_CALLBACK: f32 = 40.0;
 
 pub(super) fn effects_present(system: &ParticleSystem) -> bool {

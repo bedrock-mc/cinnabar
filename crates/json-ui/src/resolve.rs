@@ -12,7 +12,7 @@ use crate::env::{Env, evaluate, substitute};
 use crate::merge::{Layering, flatten_def, flatten_properties, inherit};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
-const MAX_DEPTH: usize = 256;
+pub(crate) const MAX_DEPTH: usize = 256;
 /// Property recording the `$vars` a factory's or grid's created controls see.
 pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
 /// A digest of [`FACTORY_SCOPE`], so equal scopes are recognised without comparing.

@@ -110,7 +110,12 @@ impl MaterialStates {
             let Some(definition) = self.definitions.get(name) else {
                 enabled = match name {
                     "armor_leather" | "armor_leather_enchanted" => Some(true),
-                    "armor" | "armor_enchanted" | "elytra" => Some(false),
+                    "armor" | "armor_enchanted" => Some(false),
+                    _ if assets::facts::pack::rules().material(name)
+                        == Some(assets::facts::pack::MaterialKind::UnmaskedArmor) =>
+                    {
+                        Some(false)
+                    }
                     _ => builtin(name).map(|_| false),
                 };
                 break;
@@ -201,40 +206,29 @@ fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
 }
 
+/// Resolves supported native material bases before authored overrides.
 fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
+    if let Some(state) = assets::facts::pack::rules().material_state(name) {
+        return Some(state);
+    }
     let mut state = EntityRenderMaterialState::default();
     match name {
         "entity" => {}
         "entity_static" => state.disable_overlay = true,
         "entity_nocull" => state.cull = false,
-        "entity_alphatest" | "skeleton" => {
-            state.alpha_test = true;
-            state.cull = false;
-        }
         "entity_alphatest_one_sided" => state.alpha_test = true,
         "entity_emissive" => state.emissive = true,
-        "entity_emissive_alpha" | "entity_emissive_alpha_one_sided" => {
+        "entity_emissive_alpha" => {
             state.emissive = true;
             state.alpha_test = true;
-            state.cull = name.ends_with("_one_sided");
-        }
-        "experience_orb" => state.alpha_test = true,
-        "entity_alphablend" | "entity_alphablend_nocolor" | "player_spectator" | "slime_outer" => {
-            state.blend = true;
-        }
-        "breeze_wind" => {
-            state.alpha_test = true;
-            state.blend = true;
             state.cull = false;
-            state.depth_write = false;
-            state.disable_overlay = true;
         }
-        "charged_creeper" => {
+        "entity_emissive_alpha_one_sided" => {
+            state.emissive = true;
             state.alpha_test = true;
-            state.cull = false;
+        }
+        "entity_alphablend" | "entity_alphablend_nocolor" => {
             state.blend = true;
-            state.additive = true;
-            state.disable_overlay = true;
         }
         _ => return None,
     }

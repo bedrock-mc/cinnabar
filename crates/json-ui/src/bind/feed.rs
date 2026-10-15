@@ -290,7 +290,7 @@ impl<'a> Binder<'a> {
 }
 
 /// The `$vars` a factory or grid's created controls resolve with.
-fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
+pub(crate) fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
     match control.properties.get(crate::resolve::FACTORY_SCOPE) {
         Some(Value::Object(vars)) => vars
             .iter()
@@ -345,7 +345,7 @@ pub(super) fn collection_name(control: &ResolvedControl) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
-pub(super) fn is_collection_factory(control: &ResolvedControl) -> bool {
+pub(crate) fn is_collection_factory(control: &ResolvedControl) -> bool {
     control.factory.is_some()
         && (collection_name(control).is_some()
             || control.control_type.as_deref() == Some("collection_panel"))

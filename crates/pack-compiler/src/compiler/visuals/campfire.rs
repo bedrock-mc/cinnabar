@@ -330,15 +330,19 @@ fn pose(record: &RegistryRecord) -> Option<(bool, u8)> {
     if state.len() != 2 {
         return None;
     }
-    let extinguished = super::state::exact_tagged_byte(state.get("extinguished")?, 1)? != 0;
-    let facing =
-        match super::state::exact_tagged_string(state.get("minecraft:cardinal_direction")?)? {
-            "north" => 0,
-            "west" => 1,
-            "south" => 2,
-            "east" => 3,
-            _ => return None,
-        };
+    let extinguished = super::state::exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::Extinguished.name())?,
+        1,
+    )? != 0;
+    let facing = match super::state::exact_tagged_string(
+        state.get(assets::facts::BlockProperty::MinecraftCardinalDirection.name())?,
+    )? {
+        "north" => 0,
+        "west" => 1,
+        "south" => 2,
+        "east" => 3,
+        _ => return None,
+    };
     Some((extinguished, facing))
 }
 

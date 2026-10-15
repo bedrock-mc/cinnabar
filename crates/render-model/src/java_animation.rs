@@ -518,17 +518,6 @@ pub fn java_cape_bone(input: &JavaCapeInput, pivot: Vec3) -> (Quat, Vec3) {
     (rotation, hinge + rotation * (pivot - hinge))
 }
 
-/// Items Java draws upright in the hand.
-#[must_use]
-pub fn is_java_tool(identifier: &str) -> bool {
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    ["_sword", "_pickaxe", "_axe", "_shovel", "_hoe"]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
-        || matches!(name, "stick" | "bone")
-        || crate::equipment::is_rod(name)
-}
-
 /// Swords, which Java blocks with.
 #[must_use]
 pub fn is_java_sword(identifier: &str) -> bool {

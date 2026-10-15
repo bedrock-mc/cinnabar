@@ -1,5 +1,6 @@
 //! Completes spear pose inputs when the player definition only supplies their consuming clips.
 
+use assets::entity::EngineVariable as V;
 use assets::{MolangEaseCurve as Curve, MolangEaseMode as Mode, MolangFunction, MolangOp};
 use protocol_ids::ActorFlag;
 
@@ -35,74 +36,70 @@ struct SpearPose {
 }
 
 const VARIABLES: &[(&str, PoseValue)] = &[
-    ("variable.melee_spear_equipped", |pose| pose.equipped),
-    ("variable.tp_melee_spear_base_arm_rotation_x", |pose| {
+    (V::MeleeSpearEquipped.name(), |pose| pose.equipped),
+    (V::TpMeleeSpearBaseArmRotationX.name(), |pose| {
         pose.base_arm_x
     }),
-    ("variable.fp_melee_spear_use_item_position_x", |pose| {
+    (V::FpMeleeSpearUseItemPositionX.name(), |pose| {
         pose.fp_use.position[0]
     }),
-    ("variable.fp_melee_spear_use_item_position_y", |pose| {
+    (V::FpMeleeSpearUseItemPositionY.name(), |pose| {
         pose.fp_use.position[1]
     }),
-    ("variable.fp_melee_spear_use_item_position_z", |pose| {
+    (V::FpMeleeSpearUseItemPositionZ.name(), |pose| {
         pose.fp_use.position[2]
     }),
-    ("variable.fp_melee_spear_use_item_rotation_y", |pose| {
+    (V::FpMeleeSpearUseItemRotationY.name(), |pose| {
         pose.fp_use.rotation_y
     }),
-    ("variable.fp_melee_spear_use_item_rotation_z", |pose| {
+    (V::FpMeleeSpearUseItemRotationZ.name(), |pose| {
         pose.fp_use.rotation_z
     }),
-    (
-        "variable.fp_melee_spear_use_attachable_rotation_z",
-        |pose| pose.fp_use.attachable_rotation_z,
-    ),
-    ("variable.fp_melee_spear_attack_item_position_x", |pose| {
+    (V::FpMeleeSpearUseAttachableRotationZ.name(), |pose| {
+        pose.fp_use.attachable_rotation_z
+    }),
+    (V::FpMeleeSpearAttackItemPositionX.name(), |pose| {
         pose.fp_attack.position[0]
     }),
-    ("variable.fp_melee_spear_attack_item_position_y", |pose| {
+    (V::FpMeleeSpearAttackItemPositionY.name(), |pose| {
         pose.fp_attack.position[1]
     }),
-    ("variable.fp_melee_spear_attack_item_position_z", |pose| {
+    (V::FpMeleeSpearAttackItemPositionZ.name(), |pose| {
         pose.fp_attack.position[2]
     }),
-    ("variable.fp_melee_spear_attack_item_rotation_y", |pose| {
+    (V::FpMeleeSpearAttackItemRotationY.name(), |pose| {
         pose.fp_attack.rotation_y
     }),
-    ("variable.fp_melee_spear_attack_item_rotation_z", |pose| {
+    (V::FpMeleeSpearAttackItemRotationZ.name(), |pose| {
         pose.fp_attack.rotation_z
     }),
-    (
-        "variable.fp_melee_spear_attack_attachable_rotation_z",
-        |pose| pose.fp_attack.attachable_rotation_z,
-    ),
-    ("variable.tp_melee_spear_use_arm_rotation_x", |pose| {
+    (V::FpMeleeSpearAttackAttachableRotationZ.name(), |pose| {
+        pose.fp_attack.attachable_rotation_z
+    }),
+    (V::TpMeleeSpearUseArmRotationX.name(), |pose| {
         pose.tp_use_arm[0]
     }),
-    ("variable.tp_melee_spear_use_arm_rotation_y", |pose| {
+    (V::TpMeleeSpearUseArmRotationY.name(), |pose| {
         pose.tp_use_arm[1]
     }),
-    ("variable.tp_melee_spear_use_arm_rotation_z", |pose| {
+    (V::TpMeleeSpearUseArmRotationZ.name(), |pose| {
         pose.tp_use_arm[2]
     }),
-    ("variable.tp_melee_spear_use_item_rotation_x", |pose| {
+    (V::TpMeleeSpearUseItemRotationX.name(), |pose| {
         pose.tp_use_item_x
     }),
-    (
-        "variable.tp_melee_spear_use_attachable_rotation_z",
-        |pose| pose.tp_use_attachable_z,
-    ),
-    ("variable.tp_melee_spear_attack_arm_rotation_x", |pose| {
+    (V::TpMeleeSpearUseAttachableRotationZ.name(), |pose| {
+        pose.tp_use_attachable_z
+    }),
+    (V::TpMeleeSpearAttackArmRotationX.name(), |pose| {
         pose.tp_attack_arm_x
     }),
-    ("variable.tp_melee_spear_attack_item_rotation_x", |pose| {
+    (V::TpMeleeSpearAttackItemRotationX.name(), |pose| {
         pose.tp_attack_item_x
     }),
-    (
-        "variable.tp_melee_spear_attack_attachable_position_z",
-        |pose| pose.tp_attack_attachable_z,
-    ),
+    (V::TpMeleeSpearAttackAttachablePositionZ.name(), |pose| {
+        pose.tp_attack_attachable_z
+    }),
 ];
 
 impl Slots {

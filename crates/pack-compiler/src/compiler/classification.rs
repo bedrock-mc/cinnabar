@@ -251,7 +251,12 @@ pub(in crate::compiler) fn liquid_material_flags(record: &RegistryRecord) -> u32
 
 pub(in crate::compiler) fn cross_texture_face(record: &RegistryRecord) -> BlockFace {
     if block_render_fact(&record.name).kind == R::BerryBush {
-        return match canonical_state_u32(&record.canonical_state, "growth").unwrap_or(0) {
+        return match canonical_state_u32(
+            &record.canonical_state,
+            assets::facts::BlockProperty::Growth.name(),
+        )
+        .unwrap_or(0)
+        {
             0 => BlockFace::Down,
             1 => BlockFace::Up,
             2 => BlockFace::North,
@@ -260,7 +265,11 @@ pub(in crate::compiler) fn cross_texture_face(record: &RegistryRecord) -> BlockF
             _ => BlockFace::East,
         };
     }
-    if canonical_state_u32(&record.canonical_state, "upper_block_bit") == Some(1) {
+    if canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::UpperBlockBit.name(),
+    ) == Some(1)
+    {
         BlockFace::Up
     } else {
         BlockFace::Down
@@ -294,7 +303,12 @@ pub(in crate::compiler) fn canonical_state_str(state: &str, property: &str) -> O
 pub(in crate::compiler) fn aquatic_cross_faces(record: &RegistryRecord) -> Option<[BlockFace; 2]> {
     match block_render_fact(&record.name).kind {
         R::Seagrass => {
-            match canonical_state_str(&record.canonical_state, "sea_grass_type")?.as_ref() {
+            match canonical_state_str(
+                &record.canonical_state,
+                assets::facts::BlockProperty::SeaGrassType.name(),
+            )?
+            .as_ref()
+            {
                 "default" => Some([BlockFace::Up, BlockFace::Up]),
                 "double_bot" => Some([BlockFace::Down, BlockFace::South]),
                 "double_top" => Some([BlockFace::East, BlockFace::West]),
