@@ -65,7 +65,8 @@ func readJSON(conn net.Conn, value any) error {
 }
 
 // writeJSON bounds every control response and the time spent writing it.
-func writeJSON(conn net.Conn, value any) error {
+// It checks ctx after arming its deadline, which can overwrite the immediate deadline cancellation sets.
+func writeJSON(ctx context.Context, conn net.Conn, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -77,6 +78,9 @@ func writeJSON(conn net.Conn, value any) error {
 	binary.BigEndian.PutUint32(frame, uint32(len(data)))
 	copy(frame[4:], data)
 	if err := conn.SetWriteDeadline(time.Now().Add(helloTimeout)); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	for len(frame) > 0 {
@@ -161,11 +165,11 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 		}
 	}()
 	defer func() { cancel(); _ = conn.SetDeadline(time.Now()); <-readerDone }()
-	if writeJSON(conn, relay.welcome(session, false, time.Now())) != nil {
+	if writeJSON(ctx, conn, relay.welcome(session, false, time.Now())) != nil {
 		return
 	}
 	state, changed := session.Auth()
-	if writeJSON(conn, controlEvent{Type: bridgecontract.RelayEventAccount, Account: &state}) != nil {
+	if writeJSON(ctx, conn, controlEvent{Type: bridgecontract.RelayEventAccount, Account: &state}) != nil {
 		return
 	}
 	_, connectChanged := session.Connect()
@@ -196,7 +200,7 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 			event = relay.welcome(session, true, time.Now())
 			event.Type = bridgecontract.RelayEventPing
 		}
-		if ctx.Err() != nil || writeJSON(conn, event) != nil {
+		if writeJSON(ctx, conn, event) != nil {
 			return
 		}
 	}

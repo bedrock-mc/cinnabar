@@ -281,7 +281,7 @@ func TestWebSocketUsesHelloAndBoundsControlMessages(t *testing.T) {
 	}
 	defer socket.CloseNow()
 	conn := websocket.NetConn(ctx, socket, websocket.MessageBinary)
-	if err = writeJSON(conn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
+	if err = writeJSON(context.Background(), conn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
 		t.Fatal(err)
 	}
 	var welcome, account controlEvent
@@ -301,7 +301,7 @@ func TestWebSocketUsesHelloAndBoundsControlMessages(t *testing.T) {
 	}
 	defer playSocket.CloseNow()
 	play := websocket.NetConn(ctx, playSocket, websocket.MessageBinary)
-	if err = writeJSON(play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation, Resume: welcome.Resume}); err != nil {
+	if err = writeJSON(context.Background(), play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation, Resume: welcome.Resume}); err != nil {
 		t.Fatal(err)
 	}
 	_ = play.SetReadDeadline(time.Now().Add(helloTimeout))
@@ -397,7 +397,7 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	controlConn := &transportConn{Stream: controlStream, session: session}
-	if err = writeJSON(controlConn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
+	if err = writeJSON(context.Background(), controlConn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
 		t.Fatal(err)
 	}
 	_ = controlConn.SetReadDeadline(time.Now().Add(helloTimeout))
@@ -416,7 +416,7 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	play := &transportConn{Stream: stream, session: session}
-	if err = writeJSON(play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation}); err != nil {
+	if err = writeJSON(context.Background(), play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation}); err != nil {
 		t.Fatal(err)
 	}
 	_ = play.SetReadDeadline(time.Now().Add(helloTimeout))

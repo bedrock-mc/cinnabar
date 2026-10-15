@@ -17,6 +17,7 @@ pub(super) struct ControllerFrame {
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
+    pub server_sprinting: Option<bool>,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,
@@ -43,6 +44,9 @@ impl ControllerFrame {
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
         let previous_sprinting = input.sprinting;
+        if let Some(sprinting) = self.server_sprinting {
+            modes.restore_controls(sprinting, modes.sneaking());
+        }
         self.grounded_before_tick = state.on_ground;
         self.jump_repeated = !input.immobile
             && !self.jump_edge

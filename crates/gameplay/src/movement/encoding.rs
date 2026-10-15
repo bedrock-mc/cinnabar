@@ -81,7 +81,8 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
             PlayerInputFlags::STOP_SNEAKING
         };
     }
-    if sample.processed.sprinting != previous.sprinting {
+    let previous_sprinting = sample.input.server_sprinting.unwrap_or(previous.sprinting);
+    if sample.processed.sprinting != previous_sprinting {
         flags |= if sample.processed.sprinting {
             PlayerInputFlags::START_SPRINTING
         } else {
