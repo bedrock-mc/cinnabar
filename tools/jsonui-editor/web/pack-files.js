@@ -25,8 +25,8 @@ export async function supplyFiles(editor, layers, wanted) {
     const file = files?.get(path);
     if (!file) continue;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    // Another request may have supplied this file while its bytes were being read.
-    if (files.get(path) !== file) continue;
+    // Ignore reads completed after the pending handle or its layer was replaced.
+    if (layers[layer]?.files !== files || files.get(path) !== file) continue;
     editor.supply(layer, path, bytes);
     files.delete(path);
     supplied++;
@@ -37,6 +37,8 @@ export async function supplyFiles(editor, layers, wanted) {
 /** Load remaining folder bytes only for a full export of a confirmed owned layer. */
 export async function supplyExportFiles(editor, layers, request) {
   if (request.mode !== "full" || !request.own_layer) return;
-  const paths = [...(layers[request.layer]?.files.keys() ?? [])];
+  const selected = layers[request.layer];
+  const paths = [...(selected?.files.keys() ?? [])];
   await supplyFiles(editor, layers, paths.map((path) => [request.layer, path]));
+  if (layers[request.layer] !== selected) throw new Error("The selected layer changed. Choose it again before exporting.");
 }

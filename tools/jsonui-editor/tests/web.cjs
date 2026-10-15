@@ -192,3 +192,24 @@ test("a concurrent lazy read cannot overwrite bytes edited after the first suppl
   await second;
   assert.equal(new TextDecoder().decode(app.state.editor.loaded.get("ui/screen.json")), "edited");
 });
+
+test("removing the selected layer during a read prevents supplying or exporting another layer", async () => {
+  const app = await host();
+  app.state.editor = editor();
+  let finish;
+  await app.addLayer("Pack", [
+    ["Pack/manifest.json", file("{}")],
+    ["Pack/ui/unused.json", { arrayBuffer: () => new Promise((resolve) => { finish = resolve; }) }],
+  ]);
+  app.setupExport();
+  app.node("export-mode").value = "full";
+  app.node("export-layer").value = "0";
+  app.node("export-own").checked = true;
+  const submitting = app.node("export-form").onsubmit({ preventDefault() {} });
+  app.state.layers.splice(0, 1, { name: "Other", files: new Map() });
+  finish(new TextEncoder().encode("unused").buffer);
+  await submitting;
+  assert.equal(app.state.editor.loaded.has("ui/unused.json"), false);
+  assert.equal(app.state.editor.exported, undefined);
+  assert.match(app.node("export-status").textContent, /selected layer changed/);
+});
