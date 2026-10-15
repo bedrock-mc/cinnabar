@@ -242,6 +242,7 @@ fn player_motion(world: &World) -> Option<Value> {
         },
         "selected_item": selected_item,
         "on_ground": state.map(|state| state.on_ground),
+        "spin_attack_ticks": state.and_then(|state| state.spin_attack_ticks),
         "tick": state.map(|state| state.tick),
         "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),
         "jump_delay": state.map(|state| state.jump_delay),
@@ -311,6 +312,8 @@ pub(super) fn snapshot(world: &World) -> Value {
         "health": health,
         "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
+        "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
+            .map(|settings| format!("{:?}", settings.perspective())),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
             "loaded_columns": stream.loaded_column_count(),

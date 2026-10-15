@@ -147,13 +147,18 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
                 && self.player.max.z > bounds.min.z
                 && self.player.min.z < bounds.max.z;
             if !solid_top && let Some(block) = collider.block {
-                let sample = self.inner.block_physics(block)?;
-                identity = identity.merge(&sample.identity)?;
-                if sample
-                    .layers
-                    .iter()
-                    .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING))
-                {
+                let has_scaffolding = match collider.cell_has_scaffolding {
+                    Some(value) => value,
+                    None => {
+                        let sample = self.inner.block_physics(block)?;
+                        identity = identity.merge(&sample.identity)?;
+                        sample
+                            .layers
+                            .iter()
+                            .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING))
+                    }
+                };
+                if has_scaffolding {
                     continue;
                 }
             }
@@ -178,6 +183,10 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
 }
 
 #[cfg(test)]
+#[path = "scaffolding_tests.rs"]
+mod tests;
+
+#[cfg(test)]
 mod review_tests {
     use super::*;
     struct Conflicting;
@@ -197,6 +206,7 @@ mod review_tests {
                     aabb: Aabb::new(crate::Vec3::ZERO, crate::Vec3::ONE),
                     block: Some([0; 3]),
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 },
             ]))
         }

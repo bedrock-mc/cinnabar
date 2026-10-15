@@ -160,6 +160,7 @@ impl CollisionWorld for ScaffoldWorld {
                     aabb: unit(block),
                     block: Some(block),
                     runtime_id: Some(1),
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
         ))

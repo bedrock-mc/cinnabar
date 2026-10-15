@@ -312,6 +312,7 @@ impl CollisionWorld for ScenarioWorld {
                     aabb,
                     block: Some(self.origin),
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
             identity: boxes.identity,

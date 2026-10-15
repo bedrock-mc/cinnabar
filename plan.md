@@ -9,6 +9,15 @@ Regression tests cover cancellation, replacement, palette modes, immutable bases
 identity storage. Incomplete: compilation, executed tests, join captures and performance
 measurements remain pending. No parity or hardware performance gate closes here.
 
+## Shared menu list snapshots
+
+Menu views share saved servers, featured cards, realms, friends and local worlds with their
+semantic owners. Vector edits detach retained views, and equal feed deliveries preserve the
+current list storage. Interaction state and service details still publish independently.
+Incomplete: behavioral and copy-count regressions are written but unrun. Compilation,
+rendered comparisons and measured menu publication cost remain pending; no performance or
+output-parity gate closes here. Form texture-dependency caching remains separate.
+
 ## Sleeper-only bed sampling
 
 Actor ingress retains sleeping actors and their streamed bed positions. Presentation samples
@@ -103,10 +112,21 @@ job costs remain unverified. No browser release or parity gate closes here.
 `far-terrain` summarises each column the server sent: the height of every cell's highest
 visible block, its average texture colour tinted by biome, and any water depth, with water
 blended over its floor. World workers summarise a column when all of its sections have arrived,
-including a resend, and again as it retires, so local edits are kept. Summaries hash their
-content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
-compressed under a byte budget and drops the least recently used first. All bounds live in
-`far_terrain::config`.
+including a resend, and again as it retires, so local edits are kept. Summaries run below
+mesh, decode and lighting on the background workers. One process-wide admission owner bounds
+copied job inputs and undelivered results across live and retired streams; retained world
+snapshots and immutable asset registries remain separate source memory. Large sources advance
+through bounded copies of the relevant layers and biomes. A shared asset identity prepares
+its colours before any dependent summary runs. Retired inboxes keep deferred sources alive
+and advance them during draining, within the existing bounded exit wait. Shutdown gives all
+retiring inboxes a bounded drain turn before waiting for activity in any of them, so one
+session's ready results can release capacity for another. Disabling live far terrain closes
+its previous result receiver: queued results are discarded and running copies release their
+reservations when they finish, independently of enabled polling. Focused regression
+fixtures are written; execution, transfer timing and output qualification remain unverified.
+Summaries hash their content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
+compressed under a byte budget and drops the least recently used first. Cache bounds live in
+`far_terrain::config`; copied worker admission lives in the chunk pipeline.
 
 Summaries persist under the user data root in 32×32-column region files, namespaced by a
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
@@ -1016,6 +1036,12 @@ these changes do not close the movement, camera, or actor parity gates.
   bell rings and map requests still advance, and beacon beams are exempt. Regression tests
   count prepared candidates and bound authored model reach. Incomplete: no hardware capture
   yet measures the gain.
+- Nametag atlas admission counts misses and reserves cells before rasterizing. Pressure
+  reclaims unused shelf cells in place; remaining misses get a bounded fresh packing
+  attempt at the next frame boundary. Selection retention checks each cached actor
+  identity once. The overall nametag performance package remains
+  partial: this covers its atlas and selection portion. Regression tests are unrun;
+  paired captures, pixel acceptance and hardware frame-time measurements remain open.
 
 ## Camera packets and aim assist
 
@@ -6615,7 +6641,28 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   audio acceptance, offhand air use and a comparison of boost timing and flight speed remain
   incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
-  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
+  additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
+  Ordinary and assisted releases retain eligibility at the release edge while waiting for facing
+  input, including movement FIFO backpressure before interaction sampling, without extending charge
+  time, and keep use slowdown through that facing tick. Accepted uses retain their facing fence
+  while pending inventory gestures hide the selected stack. The first release observation retains
+  its selected item, eligibility and effective action facing for both that input and the launch;
+  later look and aim targets cannot replace it. Its sprint gate expires
+  on the same fixed tick even when a frame runs several ticks. Admitted releases retain
+  their launch through snaps and replay fallback until its movement input is written; discarded
+  releases cancel their pending and replayed launch. Cancellation replay rebuilds interpolated
+  camera eyes, retained aim and liquid attachment heights from the retained pose state.
+  Locomotion, travel and replay share the preceding spin's compact liquid probe, including glide entry.
+  Respawn search and ready anchors discard
+  retained releases, active item-use charges, temporary use modifiers and pending launches from
+  the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
+  Travel-suppressed spin ticks use the compact
+  body for block contact. Impulses beyond the
+  collision-query budget are skipped and logged instead of stalling prediction; this safety
+  bound is a known divergence for unsupported enchantment levels.
+  Riptide parity remains incomplete: positional rain temperature, precise rain occlusion,
+  actor-hit termination, server spin metadata, launch audio and integrated acceptance remain open.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
   blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
   budget. Land movement speed is not clamped.
@@ -9168,3 +9215,20 @@ resource-pack fixture checks title-selected panels through indexed pack overlays
 Incomplete: the reported server form flash-close needs the affected pack and an
 ordered packet/input trace. The separate data-driven screen packet family remains
 unsupported. Live visual parity and performance acceptance remain open.
+
+## Retained HUD alpha segments
+
+The UI renderer keeps bounded independent alpha rasters around invert draws.
+Each invert still reads the current resolved world and earlier alpha segments;
+the final segment keeps the existing output-composite policy. Removed segments,
+resizes and device/view changes release their old storage. Large segment sets
+use the original single-raster replay path.
+
+Accepted publications prepare conservative glint coverage once. Clock-only
+frames restore those pixels and replay overlapping translucent and model batches
+in painter order. Shared depth scopes across invert boundaries and unsupported
+projection or pipeline states use conservative full replay.
+
+Incomplete validation: the focused segment/lifetime and shader pixel fixtures
+are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
+captures and measured renderer work remain outstanding; no speedup is claimed.

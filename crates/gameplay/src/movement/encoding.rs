@@ -5,6 +5,7 @@ use super::PhysicsMovementSample;
 /// Previous actor state used only for start/stop actions between ticks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
+    spinning: bool,
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
@@ -13,6 +14,7 @@ pub(super) struct HeldInput {
 impl From<&PhysicsMovementSample> for HeldInput {
     fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
+            spinning: sample.processed.spinning,
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
@@ -32,6 +34,12 @@ pub(super) fn direction_flags(buttons: semantic_input::MovementButtons) -> Playe
 /// Encodes independent input requests, raw button edges and resulting actor transitions.
 pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     let mut flags = direction_flags(sample.input.movement_buttons);
+    if sample.processed.spin_started {
+        flags |= PlayerInputFlags::START_SPIN_ATTACK;
+    }
+    if !sample.processed.spinning && (previous.spinning || sample.processed.spin_started) {
+        flags |= PlayerInputFlags::STOP_SPIN_ATTACK;
+    }
 
     if sample.horizontal_collision {
         flags |= PlayerInputFlags::HORIZONTAL_COLLISION;

@@ -84,7 +84,7 @@ impl<'a> Binder<'a> {
     /// The items a screen fed to this control's named factory.
     pub(super) fn feed(&self, control: &ResolvedControl) -> Option<&'a [FactoryItem]> {
         let name = control.factory.as_ref()?.name.as_deref()?;
-        self.data.factories.get(name).map(Vec::as_slice)
+        self.data.factories.get(name).map(AsRef::as_ref)
     }
 
     /// One control per fed item, oldest first: a `control_name` template as

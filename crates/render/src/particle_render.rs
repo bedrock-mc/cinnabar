@@ -20,6 +20,8 @@ use bevy::{
             lifetimeless::{Read, SRes},
         },
     },
+    math::FloatOrd,
+    platform::collections::HashMap,
     prelude::{
         App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
         Resource, Result, Shader, Vec3, World, default,
@@ -29,7 +31,8 @@ use bevy::{
         extract_resource::ExtractResourcePlugin,
         render_phase::{
             DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
-            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            SetItemPipeline, SortedPhaseItem, SortedRenderPhase, TrackedRenderPass,
+            ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -45,7 +48,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, RetainedViewEntity, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -54,6 +57,7 @@ use particles::ParticleInstance;
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-9a57-3c0f1d7a2b64");
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
 const MIN_CAPACITY: usize = 256;
+const MERGE_RETAINED_CAPACITY_FACTOR: usize = 4;
 
 #[cfg(all(test, target_os = "macos"))]
 #[path = "particle_render/upload_tests.rs"]
@@ -86,6 +90,7 @@ impl Plugin for ParticleRenderPlugin {
         crate::transparent_phase::install(render_app);
         render_app
             .init_resource::<ParticlePipeline>()
+            .init_resource::<ParticlePhase>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Opaque as u8 }>>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Blend as u8 }>>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Add as u8 }>>()
@@ -95,9 +100,6 @@ impl Plugin for ParticleRenderPlugin {
                 (
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    coalesce_particle_ranges
-                        .after(RenderSystems::Prepare)
-                        .before(RenderSystems::Render),
                     queue_particles
                         .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
@@ -484,11 +486,12 @@ fn prepare_particle_bind_group(
     gpu.bound = key;
 }
 
-/// Queues each translucent instance at its view depth using the current extracted frame.
+/// Queues compact translucent streams at their target-view depths from the extracted frame.
 fn queue_particles(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ParticlePipeline>,
     frame: Res<ParticleGpuFrame>,
+    mut pending: ResMut<ParticlePhase>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(
@@ -499,6 +502,9 @@ fn queue_particles(
         &Msaa,
     )>,
 ) {
+    for draws in pending.0.values_mut() {
+        draws.clear_frame();
+    }
     let functions = draw_functions.read();
     let draws = [
         functions.id::<DrawParticles<{ ParticleMode::Opaque as u8 }>>(),
@@ -550,87 +556,242 @@ fn queue_particles(
                 continue;
             }
             let rangefinder = view.rangefinder3d();
-            for (index, instance) in instances.iter().enumerate() {
-                let position = Vec3::from_slice(&instance.center_light[..3]);
-                let index = first + index as u32;
-                crate::transparent_phase::add(
-                    phase,
-                    item(
-                        rangefinder.distance(&position),
-                        PhaseItemExtraIndex::IndirectParametersIndex {
-                            range: index..index + 1,
-                            batch_set_index: None,
-                        },
-                    ),
-                );
-            }
+            let streams = pending.0.entry(view.retained_view_entity).or_default();
+            streams.push(
+                phase.items.len(),
+                item(0.0, PhaseItemExtraIndex::None),
+                instances.iter().enumerate().map(|(index, instance)| {
+                    let position = Vec3::from_slice(&instance.center_light[..3]);
+                    (
+                        FloatOrd(rangefinder.distance(&position)),
+                        first + index as u32,
+                    )
+                }),
+            );
+        }
+        if let Some(streams) = pending.0.get_mut(&view.retained_view_entity) {
+            streams.streams.truncate(streams.active);
         }
     }
 }
 
-/// Joins adjacent instance ranges after sorting, preserving every intervening terrain draw.
-fn coalesce_particle_ranges(
-    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
-) {
-    let functions = draw_functions.read();
-    let blend = functions.id::<DrawParticles<{ ParticleMode::Blend as u8 }>>();
-    let add = functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>();
-    for phase in phases.values_mut() {
-        let len = phase.items.len();
-        coalesce_ranges(phase.items.as_mut_slice(), len, [blend, add]);
+/// Per-view particle streams and merge storage retained while the view queues particles.
+#[derive(Resource, Default)]
+pub(crate) struct ParticlePhase(pub(crate) HashMap<RetainedViewEntity, ParticleViewDraws>);
+
+impl ParticlePhase {
+    /// Drops storage for absent or idle particle views, bounding the retained view table as well.
+    pub(crate) fn retain_views(&mut self, phases: &ViewSortedRenderPhases<Transparent3d>) {
+        self.0
+            .retain(|view, draws| phases.contains_key(view) && draws.has_pending());
+        if self.0.capacity() > self.0.len().saturating_mul(MERGE_RETAINED_CAPACITY_FACTOR) {
+            self.0.shrink_to_fit();
+        }
     }
 }
 
-/// Batches contiguous particle instances without crossing a different phase item or pipeline;
-/// `items` holds `len` phase items in sorted order.
-fn coalesce_ranges<Items>(
-    items: &mut Items,
-    len: usize,
-    draws: [bevy::render::render_phase::DrawFunctionId; 2],
-) where
-    Items: std::ops::IndexMut<usize, Output = Transparent3d> + ?Sized,
-{
-    let mut start = 0;
-    while start < len {
-        if !draws.contains(&items[start].draw_function) || items[start].batch_range.len() != 1 {
-            start += 1;
-            continue;
+/// Compact instance order and the draw state shared by one material list.
+#[derive(Default)]
+struct ParticleStream {
+    insertion: usize,
+    template: Option<Transparent3d>,
+    instances: Vec<(FloatOrd, u32)>,
+    next: usize,
+}
+
+#[derive(Default)]
+pub(crate) struct ParticleViewDraws {
+    streams: Vec<ParticleStream>,
+    active: usize,
+    order: ParticleMergeOrder,
+}
+
+/// Reusable source order and destination permutation; phase keys stay in their original map.
+#[derive(Default)]
+struct ParticleMergeOrder {
+    source: Vec<usize>,
+    destinations: Vec<usize>,
+    emitted: usize,
+}
+
+impl ParticleViewDraws {
+    /// Reports whether this view has fresh streams awaiting the shared phase merge.
+    pub(crate) fn has_pending(&self) -> bool {
+        self.active != 0
+    }
+
+    /// Expires authored draw state without discarding the view's reusable instance storage.
+    fn clear_frame(&mut self) {
+        self.active = 0;
+        for stream in &mut self.streams {
+            stream.template = None;
+            stream.instances.clear();
+            stream.next = 0;
         }
-        let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &items[start].extra_index
-        else {
-            start += 1;
-            continue;
-        };
-        let first = range.start;
-        let mut end = range.end;
-        let mut next = start + 1;
-        while next < len {
-            let item = &items[next];
-            if item.entity != items[start].entity
-                || item.pipeline != items[start].pipeline
-                || item.draw_function != items[start].draw_function
-                || item.batch_range.len() != 1
-            {
-                break;
-            }
-            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
-            else {
+    }
+
+    /// Refills a material slot and orders it by target-view depth with original index ties.
+    fn push(
+        &mut self,
+        insertion: usize,
+        template: Transparent3d,
+        instances: impl Iterator<Item = (FloatOrd, u32)>,
+    ) {
+        if self.active == self.streams.len() {
+            self.streams.push(ParticleStream::default());
+        }
+        let stream = &mut self.streams[self.active];
+        stream.instances.clear();
+        stream.instances.extend(instances);
+        bound_merge_scratch(&mut stream.instances);
+        if stream.instances.is_empty() {
+            self.streams.truncate(self.active);
+            return;
+        }
+        if !stream.instances.is_sorted_by_key(|instance| instance.0) {
+            // GPU indices preserve stable material-list ties without allocating sort scratch.
+            stream.instances.sort_unstable();
+        }
+        stream.insertion = insertion;
+        stream.template = Some(template);
+        stream.next = 0;
+        self.active += 1;
+    }
+
+    /// Merges compatible instance runs and applies their order without rebuilding the phase map.
+    pub(crate) fn merge(&mut self, phase: &mut SortedRenderPhase<Transparent3d>) {
+        self.order.begin(phase);
+        let mut next_key = u32::try_from(phase.items.len())
+            .expect("transparent phase exceeds entity index capacity");
+        let mut source_cursor = 0;
+        let mut run: Option<(usize, Transparent3d)> = None;
+        loop {
+            // Stream order breaks equal-depth ties in the original material queue order.
+            let next = self.streams[..self.active]
+                .iter()
+                .enumerate()
+                .filter_map(|(index, stream)| {
+                    stream
+                        .instances
+                        .get(stream.next)
+                        .map(|&(depth, _)| (depth, stream.insertion, index))
+                })
+                .min();
+            let Some((depth, insertion, stream_index)) = next else {
                 break;
             };
-            if range.start != end {
-                break;
+            if let Some(&index) = self.order.source.get(source_cursor) {
+                let (_, item) = phase.items.get_index(index).unwrap();
+                if item.sort_key() < depth || (item.sort_key() == depth && index < insertion) {
+                    self.order.flush_run(phase, &mut run, &mut next_key);
+                    self.order.record_source(index);
+                    source_cursor += 1;
+                    continue;
+                }
             }
-            end = range.end;
-            items[next].batch_range = 0..0;
-            next += 1;
+            let stream = &mut self.streams[stream_index];
+            let (_, index) = stream.instances[stream.next];
+            stream.next += 1;
+            if let Some((previous, item)) = &mut run
+                && *previous == stream_index
+                && let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } =
+                    &mut item.extra_index
+                && range.end == index
+            {
+                range.end = index + 1;
+                continue;
+            }
+            self.order.flush_run(phase, &mut run, &mut next_key);
+            let template = stream.template.as_ref().unwrap();
+            run = Some((
+                stream_index,
+                Transparent3d {
+                    sorting_info: template.sorting_info,
+                    distance: depth.0,
+                    entity: template.entity,
+                    pipeline: template.pipeline,
+                    draw_function: template.draw_function,
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                        range: index..index + 1,
+                        batch_set_index: None,
+                    },
+                    indexed: template.indexed,
+                },
+            ));
         }
-        items[start].extra_index = PhaseItemExtraIndex::IndirectParametersIndex {
-            range: first..end,
-            batch_set_index: None,
-        };
-        items[start].batch_range = 0..(next - start) as u32;
-        start = next;
+        self.order.flush_run(phase, &mut run, &mut next_key);
+        while let Some(&index) = self.order.source.get(source_cursor) {
+            self.order.record_source(index);
+            source_cursor += 1;
+        }
+        self.order.finish(phase);
+        self.clear_frame();
+    }
+}
+
+impl ParticleMergeOrder {
+    /// Sorts source indices with stable queue ties while leaving all keys reserved in the map.
+    fn begin(&mut self, phase: &SortedRenderPhase<Transparent3d>) {
+        self.source.clear();
+        self.source.extend(0..phase.items.len());
+        self.source.sort_unstable_by_key(|&index| {
+            (phase.items.get_index(index).unwrap().1.sort_key(), index)
+        });
+        bound_merge_scratch(&mut self.source);
+        self.destinations.clear();
+        self.destinations.resize(phase.items.len(), 0);
+        self.emitted = 0;
+    }
+
+    /// Assigns the next merged position to an existing source entry.
+    fn record_source(&mut self, index: usize) {
+        self.destinations[index] = self.emitted;
+        self.emitted += 1;
+    }
+
+    /// Appends a completed run and records its destination without displacing any source key.
+    fn flush_run(
+        &mut self,
+        phase: &mut SortedRenderPhase<Transparent3d>,
+        run: &mut Option<(usize, Transparent3d)>,
+        next_key: &mut u32,
+    ) {
+        if let Some((_, item)) = run.take() {
+            crate::transparent_phase::add_with_cursor(phase, item, next_key);
+            self.destinations.push(self.emitted);
+            self.emitted += 1;
+        }
+    }
+
+    /// Applies the permutation in place, then expires ordering data while retaining bounded space.
+    fn finish(&mut self, phase: &mut SortedRenderPhase<Transparent3d>) {
+        for index in 0..self.destinations.len() {
+            while self.destinations[index] != index {
+                let destination = self.destinations[index];
+                phase.items.swap_indices(index, destination);
+                self.destinations.swap(index, destination);
+            }
+        }
+        bound_merge_scratch(&mut self.destinations);
+        if phase.items.capacity()
+            > phase
+                .items
+                .len()
+                .saturating_mul(MERGE_RETAINED_CAPACITY_FACTOR)
+        {
+            phase.items.shrink_to_fit();
+        }
+        self.source.clear();
+        self.destinations.clear();
+        self.emitted = 0;
+    }
+}
+
+/// Releases excess scratch after a workload shrinks, retaining at most four times its live length.
+fn bound_merge_scratch<T>(scratch: &mut Vec<T>) {
+    if scratch.capacity() > scratch.len().saturating_mul(MERGE_RETAINED_CAPACITY_FACTOR) {
+        scratch.shrink_to_fit();
     }
 }
 

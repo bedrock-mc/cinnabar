@@ -79,7 +79,8 @@ pub use form::{
     render_form_with,
 };
 pub use hud::{
-    BossBar, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks, hud_context, hud_data_source,
+    BossBar, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
+    hud_context, hud_data_source,
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,

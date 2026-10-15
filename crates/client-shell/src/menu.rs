@@ -76,7 +76,7 @@ use bevy::prelude::{Commands, ResMut, Resource};
 
 use launcher::install_layout::InstallLayout;
 
-use launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES};
+use launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuList};
 /// Vanilla's port box: six number characters, prefilled with the Bedrock default.
 const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
@@ -129,15 +129,15 @@ pub struct MenuRuntime {
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
-    servers: Vec<SavedServer>,
+    servers: MenuList<SavedServer>,
     config_path: PathBuf,
     saves: ServerWriter,
     intents: SessionIntents,
     /// The session controller's last published state.
     session: SessionStatus,
-    featured: Vec<MenuServerCard>,
-    realms: Vec<MenuRealmCard>,
-    friends: Vec<MenuFriendCard>,
+    featured: MenuList<MenuServerCard>,
+    realms: MenuList<MenuRealmCard>,
+    friends: MenuList<MenuFriendCard>,
     catalog_message: Option<String>,
     catalog_started: bool,
     catalog: launcher_host::catalog::Catalog,
@@ -163,7 +163,7 @@ pub struct MenuRuntime {
     death_loading: bool,
     death_presentation: launcher::menu::death::DeathPresentation,
     death_retry_remaining: Option<std::time::Duration>,
-    local_worlds: Vec<LocalWorldCard>,
+    local_worlds: MenuList<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
@@ -321,7 +321,7 @@ impl MenuRuntime {
 
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
     pub fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
-        self.local_worlds = worlds;
+        self.local_worlds.replace(worlds);
     }
 
     /// A local world the player chose to open, for the local-worlds module.

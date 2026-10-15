@@ -334,6 +334,7 @@ impl ActorSnapshot {
         self.set_flag(ActorFlag::Sneaking.wire_value(), feed.sneaking);
         self.set_flag(ActorFlag::Sprinting.wire_value(), feed.sprinting);
         self.set_flag(ActorFlag::Gliding.wire_value(), feed.gliding);
+        self.set_flag(ActorFlag::DamageNearbyMobs.wire_value(), feed.spinning);
         // Sprinting in water is swimming; the water sample lags one frame.
         let in_water = self.status.fluid.is_some_and(|(water, _)| water);
         self.set_flag(ActorFlag::Swimming.wire_value(), feed.sprinting && in_water);
@@ -413,6 +414,11 @@ impl ActorSnapshot {
     #[must_use]
     pub fn is_gliding(&self) -> bool {
         self.flag(ActorFlag::Gliding.wire_value())
+    }
+
+    /// Whether this actor is in its Riptide spin pose.
+    pub fn is_spinning(&self) -> bool {
+        self.flag(ActorFlag::DamageNearbyMobs.wire_value())
     }
 
     #[must_use]
@@ -669,6 +675,8 @@ pub struct LocalPlayerFeed {
     pub flying: bool,
     /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
     pub gliding: bool,
+    /// Predicted Riptide spin pose, independent of swimming and gliding.
+    pub spinning: bool,
     /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
     pub fall_fly_ticks: u32,
     /// Look-input yaw driving the body target, not the camera boom.

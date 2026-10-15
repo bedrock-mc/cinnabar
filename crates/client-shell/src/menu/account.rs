@@ -103,9 +103,11 @@ impl MenuRuntime {
     }
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
-        self.featured = self.catalog_cards(catalog.featured);
-        self.realms = catalog.realms;
-        self.friends = catalog.friends.into_iter().map(Into::into).collect();
+        let featured = self.catalog_cards(catalog.featured);
+        self.featured.replace(featured);
+        self.realms.replace(catalog.realms);
+        self.friends
+            .replace(catalog.friends.into_iter().map(Into::into).collect());
         // Service errors may contain URLs, response bodies, or account material.
         // Keep successful sections, but expose only controlled recovery copy.
         self.catalog_message =

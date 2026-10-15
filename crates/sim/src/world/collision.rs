@@ -64,6 +64,7 @@ impl<'a> PaletteWorld<'a> {
                     shape,
                     block: None,
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 })
             })
             .collect()
@@ -103,11 +104,15 @@ impl<'a> PaletteWorld<'a> {
                 }
                 for y in min[1]..=max[1] {
                     let block = [x, y, z];
+                    let first_instance = instances.len();
+                    let mut cell_has_scaffolding = false;
                     for runtime_id in self.runtime_ids_at(block)? {
                         let physics = self
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
+                        cell_has_scaffolding |=
+                            physics.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
                         for shape in self
                             .block_collision_shapes(block, physics, query)?
                             .iter()
@@ -119,9 +124,14 @@ impl<'a> PaletteWorld<'a> {
                                     shape,
                                     block: Some(block),
                                     runtime_id: Some(runtime_id),
+                                    cell_has_scaffolding: None,
                                 });
                             }
                         }
+                    }
+                    // A later layer may classify shapes emitted by an earlier layer.
+                    for instance in &mut instances[first_instance..] {
+                        instance.cell_has_scaffolding = Some(cell_has_scaffolding);
                     }
                 }
             }
@@ -136,6 +146,7 @@ impl<'a> PaletteWorld<'a> {
                         shape,
                         block: None,
                         runtime_id: None,
+                        cell_has_scaffolding: None,
                     }),
             );
         }

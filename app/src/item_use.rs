@@ -6,7 +6,9 @@
 
 use client_interaction::item_use::{
     ItemUseRuntime,
-    selection::{loading_projectile, needs_met, selected_air_use_with_projectile},
+    selection::{
+        loading_projectile, needs_met, selected_air_use_with_projectile, selected_riptide_use,
+    },
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -35,6 +37,7 @@ use gameplay::item_use::UseFrame;
 use gameplay::item_use::admit_on_tick;
 
 use gameplay::item_use::AirUse;
+mod riptide;
 
 /// A successful extension request is valid only in its originating world scope.
 #[derive(Resource, Debug, Default)]
@@ -53,7 +56,8 @@ pub(crate) struct ItemUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
     effects: Res<'w, LocalMovementEffectTimeline>,
-    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
+    physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
+    weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
@@ -103,13 +107,18 @@ pub(crate) fn prepare_item_release(
 /// Resolves assisted releases before the drain and other item actions after it.
 fn produce_use(
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
-    context: ItemUseContext,
+    mut context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     before_flush: bool,
 ) {
+    runtime.synchronize(context.ui.session_id());
+    if context.client_world.respawn.input_held() {
+        runtime.cancel_for_respawn();
+        return;
+    }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -119,7 +128,6 @@ fn produce_use(
             .and_then(|timing| timing.swing_duration_ticks),
     );
 
-    runtime.synchronize(context.ui.session_id());
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let use_phase = context.input.phase(Action::Use);
@@ -145,10 +153,11 @@ fn produce_use(
     let held = admitted && use_phase.held;
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !held;
-    if before_flush != assisted_release
-        || (before_flush && movement.newest_unsent_sample().is_none())
-    {
+    let release_facing = runtime
+        .riptide_release_facing()
+        .unwrap_or_else(|| riptide::release_facing(aim_rotation, &view));
+    let assisted_release = release_facing.assisted && runtime.is_releasing(held);
+    if before_flush != assisted_release {
         return;
     }
     if !admitted {
@@ -167,25 +176,10 @@ fn produce_use(
     runtime.set_delay_fix(delay_fix_enabled);
     runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
     runtime.observe_press(admitted && use_phase.pressed);
-    if movement.has_held_release() {
-        return;
-    }
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
     };
     if !runtime.has_work(held) {
-        return;
-    }
-    let sample = if before_flush {
-        movement.newest_unsent_sample().map(Into::into)
-    } else {
-        runtime.frame_sample(&movement, held, true)
-    };
-    let Some(sample) = sample else {
-        return;
-    };
-    // One press resolves once: item use waits while block use still holds it.
-    if context.block_use.press_pending() {
         return;
     }
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -208,7 +202,60 @@ fn produce_use(
             .predicted_selection(&server, inventory_revision.unwrap_or(0))
             .unwrap_or(server)
     });
+    let riptide_at = |position| {
+        selected_riptide_use(
+            &player_runtime,
+            stream,
+            context
+                .physics
+                .as_deref()
+                .is_some_and(|physics| physics.in_water())
+                || riptide::in_rain(
+                    stream,
+                    position,
+                    context
+                        .weather
+                        .as_deref()
+                        .map_or(0.0, |weather| weather.current_rain_level),
+                ),
+        )
+    };
+    // The completed local pose remains available while its movement input waits in the FIFO.
+    if runtime.is_releasing(held)
+        && let Some(edge) = movement.build_action_state()
+    {
+        let first = runtime.observe_riptide_release(
+            edge.tick.saturating_add(1),
+            held,
+            riptide_at(edge.position),
+            selection.as_ref(),
+            release_facing,
+        );
+        if first && let Some(rotation) = aim_rotation {
+            view.set_rotation(rotation);
+        }
+    }
+    if movement.has_held_release() {
+        return;
+    }
+    let sample = if before_flush {
+        movement
+            .newest_unsent_sample()
+            .map(Into::into)
+            .or_else(|| movement.between_ticks_sample())
+    } else {
+        runtime.frame_sample(&movement, held, true)
+    };
+    let Some(sample) = sample else {
+        return;
+    };
+    // One press resolves once: item use waits while block use still holds it.
+    if context.block_use.press_pending() {
+        return;
+    }
     let frame = UseFrame {
+        riptide: riptide_at(sample.position),
+        riptide_facing: release_facing,
         tick: sample.tick,
         now_millis,
         position: sample.position,
@@ -251,6 +298,11 @@ fn produce_use(
         aim_rotation,
         &context.network,
     );
+    if let Some(launch) = runtime.take_riptide_launch()
+        && let Some(physics) = context.physics.as_deref_mut()
+    {
+        movement.request_riptide(physics, launch.level, launch.rotation);
+    }
     if let Some((slot, revision, change)) = runtime.take_inventory_change() {
         player_runtime
             .inventory
@@ -259,7 +311,7 @@ fn produce_use(
     }
 }
 
-/// Admits use on its logical clock, holding assisted release behind its completed facing input.
+/// Admits use on its logical clock and fences releases behind their captured action facing.
 #[allow(clippy::too_many_arguments)]
 fn admit_with_action_aim(
     runtime: &mut gameplay::item_use::ItemUseRuntime,
@@ -272,38 +324,68 @@ fn admit_with_action_aim(
     aim_rotation: Option<bevy::prelude::Quat>,
     network: &NetworkHandle<PackApplication>,
 ) {
-    // Keep the use active until a completed using tick can carry the release facing.
-    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !frame.held;
+    let release_facing = runtime
+        .riptide_release_facing()
+        .unwrap_or_else(|| riptide::release_facing(aim_rotation, view));
+    let assisted_release = release_facing.assisted && runtime.is_releasing(frame.held);
+    // Facing uses a completed input; elapsed use time includes that tick.
+    let action_frame = UseFrame {
+        tick: if assisted_release {
+            movement.completed_tick().saturating_add(1)
+        } else {
+            frame.tick
+        },
+        riptide_facing: release_facing,
+        ..frame.clone()
+    };
+    let first = runtime.observe_riptide_release(
+        action_frame.tick,
+        action_frame.held,
+        action_frame.riptide,
+        action_frame.selection.as_ref(),
+        release_facing,
+    );
+    if first && let Some(rotation) = aim_rotation {
+        view.set_rotation(rotation);
+    }
+    // Freeze the edge before waiting, retaining slowdown until facing can be written.
     if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
         return;
     }
-    // Facing uses a completed input; elapsed use time includes that tick.
-    let duration_frame = assisted_release.then(|| UseFrame {
-        tick: movement.completed_tick().saturating_add(1),
-        ..frame.clone()
-    });
-    let mut assisted = None;
+    let riptide_fence = runtime.riptide_release_facing().is_some();
+    let use_modifier = runtime.movement_modifier();
+    let mut deferred = None;
     admit_on_tick(
         runtime,
         swings,
         movement,
-        duration_frame.as_ref().unwrap_or(frame),
+        &action_frame,
         local_runtime_id,
         swing_duration,
         |packets| {
-            if aim_rotation.is_some() && packets.iter().any(protocol::is_aim_assist_rotation_action)
+            if (aim_rotation.is_some() || riptide_fence)
+                && packets.iter().any(protocol::is_aim_assist_rotation_action)
             {
-                assisted = Some(packets);
+                deferred = Some(packets);
                 return Ok(());
             }
             network.send_inventory_packets(packets)
         },
     );
-    if let (Some(rotation), Some(packets)) = (aim_rotation, assisted) {
-        client_interaction::camera::aim_assist::apply_action_rotation(
-            rotation, view, movement, frame.tick,
-        );
+    if let Some(packets) = deferred {
+        if riptide_fence {
+            movement.override_action_rotation(
+                frame.tick,
+                release_facing.rotation[0],
+                release_facing.rotation[1],
+            );
+        } else if let Some(rotation) = aim_rotation {
+            client_interaction::camera::aim_assist::apply_action_rotation(
+                rotation, view, movement, frame.tick,
+            );
+        }
         movement.hold_release_after_tick(frame.tick, packets);
+        movement.retain_release_use_modifier(use_modifier);
     }
 }
 

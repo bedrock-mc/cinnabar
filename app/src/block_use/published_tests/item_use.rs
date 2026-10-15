@@ -3,26 +3,35 @@ use gameplay::melee::{ActorHit, Crosshair, PressContext};
 
 /// Selects a stack of snowballs in hotbar slot 0 and returns the world scope.
 pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
+    hold_air_item(world, "minecraft:snowball", 16, std::sync::Arc::from([]))
+}
+
+/// Publishes one negotiated item and its authoritative hotbar stack to both owners.
+pub(super) fn hold_air_item(
+    world: &mut World,
+    identifier: &str,
+    count: u8,
+    extra_data: std::sync::Arc<[u8]>,
+) -> (u64, i32) {
     let network_id = 300;
+    let registry = protocol::ItemRegistryEvent {
+        entries: [protocol::ItemRegistryEntry {
+            identifier: identifier.into(),
+            network_id,
+            component_based: false,
+            version: protocol::ItemRegistryVersion::None,
+            components: None,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: Some(count),
+            canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
+        }]
+        .into(),
+    };
     let scope = {
         let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
         let stream = client_world.stream.as_mut().unwrap();
-        assert!(
-            stream.seed_item_registry(protocol::ItemRegistryEvent {
-                entries: [protocol::ItemRegistryEntry {
-                    identifier: "minecraft:snowball".into(),
-                    network_id,
-                    component_based: false,
-                    version: protocol::ItemRegistryVersion::None,
-                    components: None,
-                    component_digest: [0; 32],
-                    negotiated_max_stack_size: Some(16),
-                    canonical_empty_component_data: true,
-                    item_tags: std::sync::Arc::from([]),
-                }]
-                .into(),
-            })
-        );
+        assert!(stream.seed_item_registry(registry.clone()));
         (
             stream.authority().actor_session_id(),
             stream.authority().current_dimension(),
@@ -30,7 +39,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
     };
     world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
-        let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
+        player.inventory.ledger_mut().apply_registry(&registry);
         ui.inventory_ledger_mut(&mut player)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
                 identity: SlotIdentity {
@@ -45,7 +54,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
                     network_id,
                     metadata: 0,
                     stack_network_id: 5,
-                    count: 16,
+                    count: u16::from(count),
                     nbt_digest: <sha2::Sha256 as sha2::Digest>::digest(&extra_data).into(),
                     block_runtime_id: 0,
                     extra_data,

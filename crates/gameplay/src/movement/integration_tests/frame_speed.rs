@@ -35,7 +35,7 @@ fn loading_and_spawn_search_share_stationary_ticks_but_differ_in_wire_admission(
     let mut locals = super::LocomotionState::default();
     let mut speed = super::LocalMovementSpeedAuthority::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
-    ticker.begin_respawn_search();
+    ticker.begin_respawn_search(&mut physics);
     for withhold_input in [true, false] {
         let mut frame = speed_frame(semantic_input::ActionPhase {
             pressed: true,

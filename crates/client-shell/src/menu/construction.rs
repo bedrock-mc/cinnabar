@@ -135,7 +135,7 @@ impl MenuRuntime {
             render_mode_request: None,
             vsync_override: None,
             display_name: initial.display_name,
-            servers: loaded.servers,
+            servers: loaded.servers.into(),
             saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
             config_path,
             intents: SessionIntents::default(),

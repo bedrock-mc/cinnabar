@@ -118,7 +118,8 @@ fn extra_large_realms_keeps_selected_play_reachable_by_scrolling() {
                     days_left: 0,
                     expired: false,
                     member: false,
-                }];
+                }]
+                .into();
                 view.feeds.selected_realm = Some(0);
                 Arc::make_mut(&mut view.settings_options)
                     .set(option_index(EXTRA_LARGE_UI), enabled);
