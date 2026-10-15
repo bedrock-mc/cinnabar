@@ -117,6 +117,10 @@ impl GameplayContext<'_> {
         let player = self.player.as_ref()?;
         let capabilities = player.facts.game_mode_capabilities();
         if player.facts.is_immobile()
+            || player
+                .facts
+                .input_locks()
+                .blocks(protocol::ClientInputLock::Jump)
             || player.facts.mount_unique_id().is_some()
             || capabilities.is_some_and(|abilities| abilities.flying)
             || !self.physics.as_ref()?.jump_pulse_eligible()
