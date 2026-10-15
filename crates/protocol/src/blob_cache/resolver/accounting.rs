@@ -189,3 +189,58 @@ impl BlobCacheResolver {
             .is_some_and(|bytes| bytes <= MAX_CLIENT_BLOB_PENDING_BYTES)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abandoning_shared_blob_waiters_keeps_running_totals_exact() {
+        let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+        let hash = client_blob_hash(b"shared missing blob");
+        for _ in 0..128 {
+            resolver
+                .accept_cached_packet(Packet::new(crate::blob_cache::tests::cached_level_chunk(
+                    0,
+                    vec![hash],
+                )))
+                .unwrap();
+        }
+        // Fill the existing table so removals exercise tombstone capacity changes.
+        let capacity = resolver.pending_by_hash[&hash].capacity();
+        for _ in resolver.pending.len()..capacity {
+            resolver
+                .accept_cached_packet(Packet::new(crate::blob_cache::tests::cached_level_chunk(
+                    0,
+                    vec![hash],
+                )))
+                .unwrap();
+        }
+        let sequences = resolver.pending_order.iter().copied().collect::<Vec<_>>();
+        let mut shrank = false;
+        for sequence in sequences.into_iter().take(capacity - 1) {
+            let before = resolver.pending_by_hash[&hash].capacity();
+            resolver.abandon_pending_transaction(sequence).unwrap();
+            let after = resolver.pending_by_hash[&hash].capacity();
+            shrank |= after < before;
+            assert_eq!(
+                resolver.pending_hash_set_capacity,
+                resolver
+                    .pending_by_hash
+                    .values()
+                    .map(HashSet::capacity)
+                    .sum::<usize>(),
+                "removing one waiter must account for tombstones while the set remains"
+            );
+            resolver.debug_assert_running_totals();
+        }
+        assert!(
+            shrank,
+            "the shared waiters must exercise a capacity decrease"
+        );
+        let last = *resolver.pending_order.first().unwrap();
+        resolver.abandon_pending_transaction(last).unwrap();
+        assert!(resolver.pending_by_hash.is_empty());
+        resolver.debug_assert_running_totals();
+    }
+}

@@ -233,7 +233,7 @@ impl WorldStream {
 }
 
 /// Counts commit payload work without formatting packet contents.
-#[cfg(feature = "tracy")]
+#[cfg(any(feature = "tracy", test))]
 fn commit_item_size(step: &CommitStep) -> (&'static str, usize, usize, usize) {
     match step {
         CommitStep::Apply { event, .. } => match event {
@@ -244,6 +244,7 @@ fn commit_item_size(step: &CommitStep) -> (&'static str, usize, usize, usize) {
             PreparedWorldEvent::SubChunks { entries, .. } => {
                 ("subchunks", entries.len(), entries.len(), 0)
             }
+            PreparedWorldEvent::SubChunk { .. } => ("subchunks", 1, 1, 0),
             PreparedWorldEvent::BlockUpdates { result, .. }
             | PreparedWorldEvent::SyncedBlockUpdates { result, .. } => (
                 "prepared_block_updates",
@@ -251,7 +252,10 @@ fn commit_item_size(step: &CommitStep) -> (&'static str, usize, usize, usize) {
                 result.as_ref().map_or(0, |batch| batch.mutations.len()),
                 0,
             ),
-            _ => ("control", 0, 0, 0),
+            PreparedWorldEvent::BlockEntityUpdate { .. }
+            | PreparedWorldEvent::Immediate(_)
+            | PreparedWorldEvent::CommitOnly
+            | PreparedWorldEvent::NormalizationFailure => ("control", 0, 0, 0),
         },
         CommitStep::BlockUpdates { events, .. } => ("block_updates", 0, 0, events.len()),
         CommitStep::SyncedBlockUpdates { packets, .. } => (
@@ -278,6 +282,34 @@ fn inline_block_batches(batches: &[BlockMutationBatch]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_subchunk_commit_keeps_terrain_trace_classification() {
+        let mut order = client_world::ingestion::OrderedCommitState::new(1);
+        order
+            .admit(1, Footprint::terrain([ChunkKey::new(0, 0, 0)], true), 0)
+            .unwrap();
+        order
+            .insert_ready(
+                1,
+                PreparedWorldEvent::SubChunks {
+                    dimension: 0,
+                    entries: vec![client_world::ingestion::PreparedSubChunk {
+                        position: [0, 0, 0],
+                        result: PreparedSubChunkResult::AllAir,
+                        diagnostics: None,
+                    }],
+                    duration: Duration::ZERO,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            order.next_commit(),
+            Some(CommitStep::BatchStarted)
+        ));
+        let step = order.next_commit().expect("one terrain entry is ready");
+        assert_eq!(commit_item_size(&step), ("subchunks", 1, 1, 0));
+    }
 
     /// Fast displays get half their interval, slow ones keep the cap, and nothing drops
     /// below the floor that keeps streaming progressing.
