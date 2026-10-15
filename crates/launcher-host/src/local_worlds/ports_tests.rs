@@ -30,11 +30,21 @@ fn exhausted_automatic_allocation_releases_rejected_signaling_ports() {
     let mut occupied_udp = Vec::new();
     let mut candidates = Vec::new();
     let error = automatic_bds_port(1, || {
-        let tcp = TcpListener::bind((LOCAL_SERVER_HOST, 0))?;
-        let port = tcp.local_addr()?.port();
-        occupied_udp.push(UdpSocket::bind((LOCAL_SERVER_HOST, port))?);
-        candidates.push(port);
-        Ok(tcp)
+        let mut rejected_udp = Vec::new();
+        for _ in 0..AUTOMATIC_ATTEMPTS {
+            let udp = UdpSocket::bind((LOCAL_SERVER_HOST, 0))?;
+            let port = udp.local_addr()?.port();
+            if let Ok(tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {
+                occupied_udp.push(udp);
+                candidates.push(port);
+                return Ok(tcp);
+            }
+            // Keep failed fixture candidates occupied until both protocols can be held.
+            rejected_udp.push(udp);
+        }
+        Err(std::io::Error::other(
+            "fixture could not reserve a matching TCP/UDP pair",
+        ))
     })
     .expect_err("every candidate has an occupied UDP port");
     assert!(error.to_string().contains("UDP transport port"), "{error}");
