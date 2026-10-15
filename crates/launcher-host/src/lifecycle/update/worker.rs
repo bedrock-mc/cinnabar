@@ -410,8 +410,11 @@ pub(super) fn cached_switch_offer(
         .is_some_and(|selected| older_release(&selected.manifest, check).unwrap_or(false))
 }
 
-/// Clears an obsolete switch offer when the winning release no longer needs a downgrade.
+/// Refreshes automatic switch offers without replacing an active manual switch's progress.
 pub(super) fn set_switch_offer(state: &mut State, available: bool) {
+    if state.switch_now {
+        return;
+    }
     if available {
         offer_switch(state);
     } else if state.switch_available {

@@ -273,6 +273,56 @@ fn cached_winner_clears_a_stale_switch_offer_without_downgrading_a_staged_nightl
 }
 
 #[test]
+fn manual_switch_progress_survives_an_older_winning_release() {
+    let expires = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
+    for (channel, nightly_build, beta_build) in [
+        (Channel::Nightly, 8, 9),
+        (Channel::Nightly, 9, 8),
+        (Channel::Beta, 8, 9),
+    ] {
+        for failed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            select_release(
+                root.path(),
+                channel,
+                nightly_build,
+                Ok(envelope(Channel::Beta, beta_build, expires)),
+            );
+            let mut state = State::new();
+            state.configure(launcher::menu::updates::Preferences {
+                channel,
+                ..state.preferences
+            });
+            worker::set_switch_offer(&mut state, true);
+            assert!(state.request_switch());
+            state.running = true;
+            let generation = state.generation;
+            let progress = state.message.clone();
+            let available = worker::cached_switch_offer(
+                root.path(),
+                &keys(),
+                Check {
+                    switch_now: state.switch_now,
+                    ..check(channel)
+                },
+                OffsetDateTime::UNIX_EPOCH,
+            );
+            assert!(available);
+            worker::set_switch_offer(&mut state, available);
+            assert!(!state.switch_available);
+            assert_eq!(state.message, progress);
+            assert!(!state.request_switch());
+            assert_eq!(state.generation, generation);
+            assert!(state.accepts_worker(generation));
+            assert!(!state.finish_check(generation, true, failed));
+            assert!(!state.switch_now && !state.running);
+            assert_eq!(state.switch_available, failed);
+            assert_eq!(state.message.is_some(), failed);
+        }
+    }
+}
+
+#[test]
 fn forced_checks_use_both_caches_and_stamps_stay_with_the_nightly_preference() {
     let root = tempfile::tempdir().unwrap();
     let expires = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
