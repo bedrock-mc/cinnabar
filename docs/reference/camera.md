@@ -85,8 +85,6 @@ Pass `-camera-test` to the local server to enable these fixture commands:
 - `/cameratest spline`: named Catmull-Rom path with independent progress and rotation.
 - `/cameratest inline`: the same path carried directly by the instruction.
 - `/cameratest aim`: categories, a preset, actor priorities and a nearby target.
-- `/cameratest tutorial`: ease into an actor-attached orbit with a fade.
-- `/cameratest firstperson`: finish that tutorial by selecting first person.
 - `/cameratest clear`: release both systems and remove the target.
 
 The developer `state` response reports semantic skips, camera state, aim target

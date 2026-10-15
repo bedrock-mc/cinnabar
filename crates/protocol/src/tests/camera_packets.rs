@@ -27,7 +27,11 @@ fn client_input_locks_are_admitted_instead_of_ignored() {
     let event = normalized(packets::UpdateClientInputLocks {
         input_lock_component_data: wire::VarUInt(6),
     });
-    assert!(event.is_some());
+    let Some(WorldEvent::Camera(CameraEvent::InputLocks(locks))) = event else {
+        panic!("input locks must reach ordered player controls")
+    };
+    assert!(locks.blocks(protocol::ClientInputLock::Camera));
+    assert!(locks.blocks(protocol::ClientInputLock::Movement));
 }
 
 #[test]
