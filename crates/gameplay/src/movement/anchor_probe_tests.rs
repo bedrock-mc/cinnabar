@@ -600,6 +600,7 @@ impl ProvenancedShaft {
             aabb,
             block: Some(block),
             runtime_id: Some(runtime_id),
+            cell_has_scaffolding: None,
         })
         .collect()
     }
@@ -632,12 +633,14 @@ impl LayeredProvenancedShaft {
                 aabb: FLOOR_CELL,
                 block: Some([0, 65, 0]),
                 runtime_id: Some(1_000 + layer),
+                cell_has_scaffolding: None,
             })
             .collect::<Vec<_>>();
         entries.push(ProvenancedCollider {
             aabb: CEILING_CELL,
             block: Some([0, 67, 0]),
             runtime_id: Some(13_094),
+            cell_has_scaffolding: None,
         });
         entries
             .into_iter()
@@ -1014,6 +1017,7 @@ fn provenance_attribution_wins_over_geometric_cell_inference() {
                     aabb,
                     block: Some([5, 60, -3]),
                     runtime_id: Some(4_242),
+                    cell_has_scaffolding: None,
                 })
                 .collect()
         }

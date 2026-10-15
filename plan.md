@@ -1,3 +1,24 @@
+## Prepared session block registries
+
+Session preparation constructs collision registrations, custom state identities and merged
+block artwork before publishing StartGame. Bootstrap checks the session generation, ID mode,
+exact carrier inputs and admitted definitions before installing the prepared bundle.
+Registry snapshots share immutable tables; replaced collision tables retire off the frame.
+Existing shared custom-state enumeration remains the source for registry consumers.
+Regression tests cover cancellation, replacement, palette modes, immutable bases and shared
+identity storage. Incomplete: compilation, executed tests, join captures and performance
+measurements remain pending. No parity or hardware performance gate closes here.
+
+## Raw intake during blob disk reads
+
+Blob prefetch shares the transport's existing bounded raw-frame storage while its one disk
+future is pending. Disk completion is checked between frames; reaching the byte bound or a
+terminal marker stops reads and keeps waiting on the same future. Classification, status
+writes, admissions and ready-event ordering retain their existing paths.
+Incomplete: controlled-future and framing regressions are written but unrun. Compilation,
+version-matched protocol evidence and measured receive gaps remain pending. Status-writer
+restructuring is separate; no performance or parity gate closes here.
+
 ## Shared solid-actor collision snapshots
 
 Actor state retains ordered solid bounds as poses, metadata and membership change. Movement

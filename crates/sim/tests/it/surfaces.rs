@@ -24,6 +24,7 @@ impl CollisionWorld for SurfaceWorld {
                     aabb,
                     block: Some([0, 0, 0]),
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
             identity: boxes.identity,

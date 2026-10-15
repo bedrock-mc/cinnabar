@@ -16,7 +16,7 @@ impl NametagAtlas {
             if shelf.height < height {
                 let limit = self.shelves[index + 1..]
                     .iter()
-                    .find(|next| next.height != 0 && next.free != [0..NAMETAG_ATLAS_SIDE])
+                    .find(|next| next.height != 0 && !spans_whole_row(&next.free))
                     .map_or(NAMETAG_ATLAS_SIDE, |next| next.y);
                 if shelf.y + height > limit {
                     return None;
@@ -55,7 +55,7 @@ impl NametagAtlas {
         self.shelves.push(AtlasShelf {
             y,
             height,
-            free: Vec::from([width..NAMETAG_ATLAS_SIDE]),
+            free: free_from(width),
         });
         Some((index, [0, y]))
     }
@@ -115,7 +115,7 @@ impl NametagAtlas {
         let tail = AtlasShelf {
             y: shelf.y + height,
             height: shelf.height - height,
-            free: Vec::from([0..NAMETAG_ATLAS_SIDE]),
+            free: free_from(0),
         };
         shelf.height = height;
         self.shelves.insert(trimmed + 1, tail);
@@ -164,7 +164,7 @@ impl NametagAtlas {
                         if self.shelves[end..next.shelves.start]
                             .iter()
                             .any(|shelf| shelf.height != 0)
-                            || next.free != [0..NAMETAG_ATLAS_SIDE]
+                            || !spans_whole_row(&next.free)
                         {
                             break;
                         }
@@ -175,7 +175,7 @@ impl NametagAtlas {
                         if available >= height {
                             return Some(ShelfReclamation {
                                 shelves: start..end,
-                                free: Vec::from([0..NAMETAG_ATLAS_SIDE]),
+                                free: free_from(0),
                                 retained_height: 0,
                                 has_unused_lines,
                             });
@@ -261,4 +261,15 @@ impl NametagAtlas {
             })
             .collect()
     }
+}
+
+/// Free spans of a shelf whose cells from `start` to the atlas edge are unused.
+fn free_from(start: u32) -> Vec<Range<u32>> {
+    let span = start..NAMETAG_ATLAS_SIDE;
+    vec![span]
+}
+
+/// Whether free spans leave every cell of the shelf unused.
+fn spans_whole_row(free: &[Range<u32>]) -> bool {
+    matches!(free, [span] if *span == (0..NAMETAG_ATLAS_SIDE))
 }
