@@ -1291,50 +1291,7 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-baselines = [
-    { path = "crates/actor-animation/src/legacy_swing.rs", max = 6 },
-    { path = "crates/actor-animation/src/query.rs", max = 1 },
-    { path = "crates/actor-animation/src/store.rs", max = 1 },
-    { path = "crates/actor-animation/src/tick.rs", max = 4 },
-    { path = "crates/assets/src/atmosphere.rs", max = 4 },
-    { path = "crates/assets/src/bamboo.rs", max = 1 },
-    { path = "crates/assets/src/banner.rs", max = 1 },
-    { path = "crates/assets/src/banner/patterns.rs", max = 4 },
-    { path = "crates/assets/src/beacon.rs", max = 1 },
-    { path = "crates/assets/src/block_entity_geometry.rs", max = 1 },
-    { path = "crates/assets/src/block_names.rs", max = 29 },
-    { path = "crates/assets/src/block_presentation_state.rs", max = 3 },
-    { path = "crates/assets/src/compiled/block_destroy.rs", max = 8 },
-    { path = "crates/assets/src/effects.rs", max = 1 },
-    { path = "crates/assets/src/entity/v4/molang_math.rs", max = 1 },
-    { path = "crates/assets/src/gui_item.rs", max = 2 },
-    { path = "crates/assets/src/icon/dial.rs", max = 3 },
-    { path = "crates/assets/src/model.rs", max = 4 },
-    { path = "crates/assets/src/potion.rs", max = 6 },
-    { path = "crates/assets/src/runtime/decode.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/predicted.rs", max = 2 },
-    { path = "crates/client-audio/src/audio/route.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/settings.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/systems.rs", max = 1 },
-    { path = "crates/client-presentation/src/actor_publication/java.rs", max = 2 },
-    { path = "crates/client-presentation/src/camera/facts.rs", max = 2 },
-    { path = "crates/client-presentation/src/camera/overlay_publish.rs", max = 1 },
-    { path = "crates/client-presentation/src/camera/presentation.rs", max = 1 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/java.rs", max = 1 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/native.rs", max = 5 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/types.rs", max = 2 },
-    { path = "crates/particles/src/ambient.rs", max = 1 },
-    { path = "crates/particles/src/ambient/fire.rs", max = 1 },
-    { path = "crates/particles/src/dragon_egg.rs", max = 1 },
-    { path = "crates/particles/src/triggers.rs", max = 7 },
-    { path = "crates/particles/src/world.rs", max = 1 },
-    { path = "crates/render-model/src/block_entity/bell.rs", max = 1 },
-    { path = "crates/render-model/src/block_entity/chest.rs", max = 7 },
-    { path = "crates/render-model/src/block_entity/held.rs", max = 3 },
-    { path = "crates/render-model/src/block_entity/pot.rs", max = 1 },
-    { path = "crates/render-model/src/block_entity/statue.rs", max = 5 },
-    { path = "crates/render-model/src/java_animation.rs", max = 1 },
-]
+baselines = []
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
@@ -1370,6 +1327,141 @@ reason = "Portal axis value from the pinned block-state domain."
 path = "crates/asset-compiler/src/block_shapes/visual.rs"
 literal = "tip"
 reason = "Dripstone thickness value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "air"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "water"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "lava"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "powder_snow"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner.rs"
+literal = "_dye"
+reason = "Extracts a colour token only after the compiled loom-dye role admits the item."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "creeper"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "skull"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "pig"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "piglin"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/block_entity_geometry.rs"
+literal = "_shulker_box"
+reason = "Extracts texture colours once while indexing generated Shulker backing memberships."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "pickaxe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "axe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "shovel"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "hoe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "sword"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "shears"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/effects.rs"
+literal = "minecraft:wither"
+reason = "Effect registry vocabulary; the table is checked against the pinned effect inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/entity/v4/molang_math.rs"
+literal = "sign"
+reason = "Molang math function keyword, not block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/gui_item.rs"
+literal = "shield"
+reason = "Native shield geometry bone name used by the isolated model transcription."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "minecraft:water"
+reason = "Potion-type vocabulary; the table is checked against the pinned potion inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "minecraft:wither"
+reason = "Potion and effect vocabulary checked against the pinned potion inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "wither"
+reason = "Potion translation-key stem in the checked potion descriptor table."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "potion_bottle_splash"
+reason = "Sprite atlas key in the validated legacy icon schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/runtime/decode.rs"
+literal = "frame"
+reason = "Diagnostic label for the animation-frame count in the carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/block_entity/bell.rs"
+literal = "hanging"
+reason = "Bell attachment value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/block_entity/pot.rs"
+literal = "_pottery_sherd"
+reason = "Extracts the artwork stem only after the compiled decorated-pot tag admits the item."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/java_animation.rs"
+literal = "_sword"
+reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
 path = "app/src/runtime/network/block_overlay.rs"

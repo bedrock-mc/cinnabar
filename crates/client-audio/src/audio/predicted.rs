@@ -14,7 +14,7 @@ use super::{
     systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_at},
 };
 
-const PLAYER: &str = "minecraft:player";
+const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
 /// Height fraction of an actor's box standing in for its head attach point.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 /// Seconds between block hit sounds while mining (vanilla 200 ms).

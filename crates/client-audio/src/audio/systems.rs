@@ -23,7 +23,7 @@ use super::{
     settings::AudioSettings,
 };
 
-const PLAYER: &str = "minecraft:player";
+const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
 const FEET_PROBE_BELOW: f64 = 0.2;
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
 

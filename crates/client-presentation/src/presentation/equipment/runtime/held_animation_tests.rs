@@ -821,7 +821,7 @@ fn third_person_held_attachable_receives_the_render_delta() {
 
 #[test]
 fn worn_attachable_categories_do_not_become_held_models() {
-    for identifier in ["minecraft:elytra", "test:helmet"] {
+    for identifier in ["minecraft:elytra", "minecraft:iron_helmet"] {
         let mut files = held_pack();
         let (_, attachable) = files
             .iter_mut()

@@ -1,5 +1,6 @@
 //! Original pack fixtures for native weapon routing, artwork, and placement.
 
+use super::NativeItem;
 use crate::presentation::equipment::tests::held_animation_tests::{owner, owner_rig};
 use crate::presentation::equipment::tests::{pack_catalog, player_body, startup_runtime};
 use crate::presentation::equipment::{FirstPersonHand, runtime::*};
@@ -1140,5 +1141,28 @@ fn version_five_carriers_recognize_single_stage_texture_overrides() {
             assert_eq!(mesh_pixel(&pages, location, &mesh)[0], 80);
             assert_eq!(span, [1.0; 2]);
         }
+    }
+}
+
+#[test]
+fn compiled_weapon_traits_preserve_every_retail_native_model_choice() {
+    for record in &assets::facts::ItemFacts::builtin()
+        .unwrap()
+        .payload()
+        .records
+    {
+        let old = match record.identifier.strip_prefix("minecraft:").unwrap() {
+            "bow" => Some(NativeItem::Bow),
+            "crossbow" => Some(NativeItem::Crossbow),
+            "trident" => Some(NativeItem::Spear),
+            name if name.ends_with("_spear") => Some(NativeItem::Spear),
+            _ => None,
+        };
+        assert_eq!(
+            NativeItem::from_identifier(&record.identifier),
+            old,
+            "{}",
+            record.identifier
+        );
     }
 }

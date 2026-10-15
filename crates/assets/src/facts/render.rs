@@ -153,6 +153,10 @@ pub enum BlockRenderTint {
 #[serde(deny_unknown_fields)]
 pub struct BlockRenderFact {
     pub kind: BlockRenderKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<super::BlockModelVariant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_alias: Option<super::LegacyBlockAlias>,
     pub tint: BlockRenderTint,
     /// The incomplete fire catch map; component names alone do not expose catch chances.
     pub fire_flammable: bool,
@@ -160,6 +164,9 @@ pub struct BlockRenderFact {
     pub fire_top: bool,
     #[serde(default)]
     pub flat_icon: bool,
+    /// Membership of the provisional sword-speed override in the destroy carrier.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast_sword: bool,
 }
 
 /// Shared route attributes used by descriptor and fallback selection.
@@ -331,10 +338,52 @@ mod tests {
     }
 
     #[test]
+    fn compiled_model_metadata_covers_every_typed_backing() {
+        use crate::facts::{BlockEntityFacts, BlockEntityRenderer as R, BlockModelVariant as V};
+        for entry in BlockEntityFacts::pinned().entries() {
+            for name in &entry.backing_blocks {
+                let variant = block_render_fact(name).variant;
+                assert!(
+                    match entry.renderer {
+                        R::Skull => matches!(variant, Some(V::Skull(_))),
+                        R::Chest => matches!(variant, Some(V::Chest(_))),
+                        R::Statue => matches!(variant, Some(V::Statue(_))),
+                        _ => true,
+                    },
+                    "{name}: missing model metadata"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn ordinary_blocks_do_not_inherit_a_dedicated_visual_route() {
         let fact = block_render_fact("minecraft:stone");
         assert_eq!(fact.kind, BlockRenderKind::Ordinary);
         assert_eq!(fact.kind.route(), BlockRenderRoute::default());
         assert!(fact.fire_top);
+    }
+}
+
+#[cfg(test)]
+mod destroy_tests {
+    #[test]
+    fn compiled_fast_sword_membership_preserves_the_pinned_destroy_override() {
+        for record in crate::read_registry_for_protocol(
+            crate::pinned_block_registry_bytes(),
+            crate::active_content_registry_protocol(),
+        )
+        .unwrap()
+        {
+            assert_eq!(
+                super::block_render_fact(&record.name).fast_sword,
+                matches!(
+                    record.name.as_ref(),
+                    "minecraft:bamboo" | "minecraft:bamboo_sapling"
+                ),
+                "{}",
+                record.name
+            );
+        }
     }
 }

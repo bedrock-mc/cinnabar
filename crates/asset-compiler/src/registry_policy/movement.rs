@@ -246,6 +246,7 @@ mod tests {
         let reviewed: String = names.iter().map(|name| format!("{name}\n")).collect();
         let owned = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
         Policy {
+            runtime_identifiers: BTreeMap::new(),
             presentation: Default::default(),
             pack_rules: serde_json::from_slice::<Policy>(super::super::POLICY)
                 .unwrap()
