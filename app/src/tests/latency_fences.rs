@@ -263,6 +263,11 @@ fn latency_reply_is_submitted_in_the_frame_that_applies_its_predecessor() {
         .resource_mut::<LocalPhysicsController>()
         .reanchor_network_position([0.0, 70.0, 0.0], 0, false);
     {
+        let mut ticker = app.world_mut().resource_mut::<MovementTicker>();
+        ticker.reset(1, 0, [0.0, 70.0, 0.0]);
+        ticker.set_source(MovementSource::Physics);
+    }
+    {
         let mut world = app.world_mut().resource_mut::<ClientWorld>();
         let stream = world.stream.as_mut().unwrap();
         stream
