@@ -7150,6 +7150,15 @@ these); chat with Bedrock formatting codes; HUD (health/hunger/armor/air, bossba
 title/actionbar); Bedrock bitmap font rendering from pack `font/` assets. Taste bar applies:
 UI phases get fable-5/opus-4.8 review before merge.
 
+Empty vanilla buckets use a liquid-enabled block-use pick for source water and lava,
+with the selected item resolved through the negotiated registry. Mining and outline
+picks keep their ordinary eligibility. Flowing liquids and solid occluders retain
+their existing rules; inventory remains authoritative until the server updates it.
+Full bucket prediction and component-defined liquid picking remain incomplete.
+Source-water, source-lava, and powder-snow collection were observed against a
+local Bedrock server. Waterlogged-source acceptance remains unverified; this does
+not close the interaction parity gate.
+
 **Phase 5 roadmap (kept current as work lands):**
 
 **Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the

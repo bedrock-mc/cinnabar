@@ -111,6 +111,7 @@ pub(crate) fn observe_block_ray(
         collisions,
         selection,
         game_mode,
+        false,
         input,
         |world, origin, direction, reach| {
             world.block_interaction_ray_current(origin, direction, reach)
@@ -127,6 +128,7 @@ pub(crate) fn observe_block_ray_using(
     collisions: &PhysicsCollisionRegistries,
     selection: FrozenMiningSelection,
     game_mode: Option<protocol::PlayerGameMode>,
+    liquids: bool,
     input: (
         PlayerInputMode,
         f64,
@@ -154,16 +156,18 @@ pub(crate) fn observe_block_ray_using(
     let vector = |value: bevy::prelude::Vec3| {
         Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
     };
+    let mut context = pick_context(
+        stream,
+        collisions,
+        game_mode,
+        Some(selection.item.block_runtime_id()),
+    );
+    context.liquids = liquids;
     let world = PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
-        pick_context(
-            stream,
-            collisions,
-            game_mode,
-            Some(selection.item.block_runtime_id()),
-        ),
+        context,
     );
     let Some(hit) = choose(&world, vector(ray.origin()), vector(ray.direction()), reach)
         .map_err(|_| BlockRayUnavailable)?
