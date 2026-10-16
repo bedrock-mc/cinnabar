@@ -173,6 +173,7 @@ impl AttachablesRuntime {
 
     /// Discards owner lifetimes when a session ends or its active asset catalog changes.
     pub fn clear(&mut self) {
+        self.layout.plans.clear();
         self.states.clear();
         self.previewed.clear();
         self.previewing = false;

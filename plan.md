@@ -328,6 +328,14 @@ using fixtures from the `test-support` feature. Animation unit tests use a plain
 double. Compilation and execution of this move remain unverified, and no actor
 animation parity gate closes.
 
+Finalized catalog layouts retain bounded immutable rig templates and motion-dependency plans.
+Actor-specific conditions still select geometry before lookup; variables, roots, controllers,
+poses, skin drivers and history remain private copies. Exact catalog ownership and topology
+keys prevent reuse across replacements. The shared cache admits at most 32 entries and 4 MiB
+of accounted payload; oversized or unmatched plans use complete uncached construction.
+Eight focused regressions pass. Per-actor copies, mutex contention and crowded-join gains
+remain unmeasured; no performance or parity gate closes.
+
 ## Render geometry and scene ownership
 
 - `render-model` owns CPU block-model and selection geometry, dropped-item meshes,
@@ -346,6 +354,15 @@ coverage and GPU-completion acknowledgement stay in their current owners. The lo
 vector adds transient allocation and copying; fragmented commands can still publish once per
 span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
 Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
+
+Actor endpoint matrices retain bounded GPU slots independently of draw order. Exact byte
+comparisons upload changed previous/current ranges while instance scalars still update.
+The renderer projects matching instance and receipt offsets; CPU publications stay dense
+for motion history. One CPU mirror is bounded by the existing endpoint arena, with no GPU
+budget increase. Fragmented allocations compact without changing admission. Regression
+tests pass in the focused actor-render suite (75 tests), and render crate clippy passes.
+Rendered parity and measured performance remain pending. Dense CPU publication copies
+and other matrix-cache work remain separate.
 
 ## Player interaction ownership
 
@@ -1093,6 +1110,11 @@ these changes do not close the movement, camera, or actor parity gates.
 
 - Actor catch-up uses `simulation_clock::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
   advancement share one clock step, including server-defined interaction boxes after a stall.
+  Returning actors warm their previous tick in full-cap prefix waves on the existing pool,
+  with bounded helper launches, ordered actual charges and a serial partial-budget tail.
+  Differential and lifecycle regressions pass in the focused scheduling suite (32 tests).
+  Native crowd-turn timing,
+  first-visible-frame acceptance and measured gains remain incomplete.
   Deterministic regression coverage does not close live animation or movement acceptance.
 
 - Apple pipelined rendering keeps surface creation on the UI thread while render
