@@ -181,7 +181,7 @@ fn speed_effect_replacement_resends_and_ordering_preserve_one_sprint_factor() {
     authority.apply_effect(7, 5, event);
     assert_eq!(authority.current(), speed_ii);
     // A later attribute packet replaces all effect and sprint modifiers.
-    assert!(authority.apply(7, 6, 0, attribute(0.17, 0.1, None)));
+    assert!(authority.apply(7, 6, 0, attribute(f64::from(0.17_f32), 0.1, None)));
     authority.set_sprinting(true);
     assert_eq!(authority.current(), Some(f64::from(0.17_f32)));
     authority.set_sprinting(false);
