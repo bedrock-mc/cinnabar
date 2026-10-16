@@ -296,14 +296,31 @@ fn block_property_alias_reads_the_same_named_state() {
     }
 }
 
-// A server-sent flat operator chain cannot exhaust the stack that walks its tree.
 #[test]
 fn block_expressions_bound_their_tree_depth() {
     let chain = |terms: usize| vec!["1"; terms].join("+");
     let state = |_: &str| None;
+    let terms = parser::MAX_PARSE_DEPTH + 1;
     assert_eq!(
-        BlockMolang::parse(&chain(1024)).and_then(|expression| expression.evaluate(&state)),
-        Some(1024.0)
+        BlockMolang::parse(&chain(terms)).and_then(|expression| expression.evaluate(&state)),
+        Some(terms as f32)
     );
+    assert!(BlockMolang::parse(&chain(terms + 1)).is_none());
     assert!(BlockMolang::parse(&chain(16_000)).is_none());
+}
+
+#[test]
+fn overdeep_scripts_drop_and_count_all_entries_without_retaining_a_program() {
+    let depth = parser::MAX_PARSE_DEPTH + 1;
+    let deep = format!("{}v.x = 1;{}", "{".repeat(depth), "};".repeat(depth));
+    let mut compiler = MolangCompiler::default();
+    assert_eq!(
+        compiler
+            .compile_script(&[deep.as_str(), "v.keep = 1;"])
+            .unwrap(),
+        (None, 2)
+    );
+    assert!(compiler.programs.is_empty());
+    assert_eq!(MolangCompiler::evaluate_default("20 - 5 - 2"), Some(13.0));
+    assert_eq!(MolangCompiler::evaluate_default("24 / 3 / 2"), Some(4.0));
 }
