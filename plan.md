@@ -1104,7 +1104,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
-  headroom; regression tests cover resumption and zero steady-state drain allocations.
+  headroom. Bounded lookahead lets light events pass stalled terrain while the shared
+  conflict tracker keeps dependent mutations and barriers ordered. Latency echoes flush
+  when their control fence clears, preserving earlier movement ordering. Deterministic
+  regressions cover these paths; hardware join and transfer latency remain unverified.
 - Rolling frame recordings retain recent completed spans and received counters, carry input
   identities into render submission, and queue every hard-hitch window with completeness
   metadata. Slow reports format outside recorder locks on the console thread. Full exports move

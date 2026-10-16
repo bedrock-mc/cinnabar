@@ -511,3 +511,45 @@ fn correction_after_a_teleport_in_the_same_pass_waits_for_earlier_terrain() {
         "the correction waits for the chunk"
     );
 }
+
+/// Retained ingress supplies dependencies while its payload still waits outside admission.
+#[test]
+fn retained_ingress_keeps_block_and_block_entity_updates_behind_their_chunk() {
+    let mut stream = block_entity_visual_stream();
+    let chunk = inline_air_event(0);
+    stream
+        .retain_ingress(
+            1,
+            stream.ingress_footprint(&chunk),
+            MAX_ADMITTED_WORLD_EVENTS,
+        )
+        .unwrap();
+    stream.submit(2, block_update(0, 1)).unwrap();
+    stream
+        .submit(
+            3,
+            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                dimension: 0,
+                position: [0, -64, 0],
+                nbt: Vec::new(),
+            }),
+        )
+        .unwrap();
+    stream.submit(4, remote_move(9)).unwrap();
+    assert!(!stream.order.is_finished(2));
+    assert!(!stream.order.is_finished(3));
+    assert!(stream.order.is_finished(4));
+    let entity = take_decode_job(&mut stream, |job| {
+        matches!(job, super::DecodeJob::BlockEntityUpdate { .. })
+    });
+    complete_decode_job(&mut stream, entity);
+    assert!(
+        !stream.order.is_finished(3),
+        "decoded block entities still wait for their chunk"
+    );
+    assert!(!stream.order.is_finished(2));
+    stream.release_ingress(1);
+    stream.submit(1, chunk).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), 4);
+}

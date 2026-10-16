@@ -647,3 +647,44 @@ fn terrain_footprints_are_sorted_distinct_and_inline_for_one_column() {
     );
     assert!(classify(&chat(), CONTEXT).columns.is_empty());
 }
+
+/// Lookahead reservations have their own bounded credit and release it on normal admission.
+#[test]
+fn retained_ingress_is_bounded_and_releases_its_reservation() {
+    let mut state = OrderedCommitState::new(1);
+    for sequence in 1..=MAX_ADMITTED_WORLD_EVENTS as u64 {
+        state
+            .retain_ingress(
+                sequence,
+                Footprint::terrain([ChunkKey::new(0, sequence as i32, 0)], true),
+                MAX_ADMITTED_WORLD_EVENTS,
+            )
+            .unwrap();
+    }
+    let next = MAX_ADMITTED_WORLD_EVENTS as u64 + 1;
+    assert!(
+        state
+            .retain_ingress(
+                next,
+                Footprint::session(Consumers::UI),
+                MAX_ADMITTED_WORLD_EVENTS
+            )
+            .is_err()
+    );
+    state.release_ingress(1);
+    state
+        .admit(1, Footprint::terrain([ChunkKey::new(0, 1, 0)], true), 0)
+        .unwrap();
+    state
+        .retain_ingress(
+            next,
+            Footprint::session(Consumers::UI),
+            MAX_ADMITTED_WORLD_EVENTS,
+        )
+        .unwrap();
+    assert_eq!(state.heavy_count(), 1);
+    assert_eq!(
+        state.retained_sequence_records(),
+        MAX_ADMITTED_WORLD_EVENTS + 1
+    );
+}

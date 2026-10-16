@@ -225,6 +225,26 @@ impl WorldStream {
         }
     }
 
+    /// Describes the dependencies used by both ingress lookahead and ordered commits.
+    pub fn ingress_footprint(&self, event: &WorldEvent) -> Footprint {
+        client_world::ingestion::classify(event, self.lane_context())
+    }
+
+    /// Records dependencies for a payload the ingress adapter retains outside admission.
+    pub fn retain_ingress(
+        &mut self,
+        sequence: u64,
+        footprint: Footprint,
+        capacity: usize,
+    ) -> Result<(), WorldStreamError> {
+        self.order.retain_ingress(sequence, footprint, capacity)
+    }
+
+    /// Removes a retained payload's reservation immediately before normal submission.
+    pub fn release_ingress(&mut self, sequence: u64) {
+        self.order.release_ingress(sequence);
+    }
+
     fn submit_with_level_chunk_payload(
         &mut self,
         sequence: u64,
@@ -233,7 +253,7 @@ impl WorldStream {
     ) -> Result<(), WorldStreamError> {
         self.order.validate_sequence(sequence)?;
         self.promote_deferred_ingress();
-        let footprint = client_world::ingestion::classify(&event, self.lane_context());
+        let footprint = self.ingress_footprint(&event);
         if let WorldEvent::ChangeDimension(change) = &event {
             self.ingress_dimension = change.dimension;
         }
@@ -257,7 +277,7 @@ impl WorldStream {
         if self.remaining_admission_capacity() > 0 {
             return true;
         }
-        let footprint = client_world::ingestion::classify(event, self.lane_context());
+        let footprint = self.ingress_footprint(event);
         if footprint.heavy {
             if self.defers_preparation(event, &footprint) {
                 self.order.deferred_capacity() > 0

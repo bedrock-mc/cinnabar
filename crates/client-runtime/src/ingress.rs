@@ -1,6 +1,13 @@
 //! Bounded ingress drains shared by the network runtime and acceptance tests.
 
-use std::time::{Duration, Instant};
+use chunk_pipeline::WorldStream;
+use client_session::WorldIngress;
+use client_world::ingestion::WorldStreamError;
+use protocol::WorldEvent;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 /// One frame's world ingress time; terrain is bounded by admission, not by this.
 pub const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);
@@ -17,9 +24,8 @@ pub fn drain_network_controls<T>(
     drain_network_ingress(receiver, budget)
 }
 
-/// Drains one frame's world ingress until the channel empties, admission fills, a transfer
-/// barrier arrives, or the frame's time budget is spent. Unconsumed events stay in the
-/// caller's retained head and channel.
+/// Drains a frame's ingress with bounded lookahead past full admission lanes.
+/// Retained payloads register their dependencies in the stream before later events pass.
 pub struct WorldIngressDrain {
     deadline: Instant,
     stopped: bool,
@@ -34,30 +40,115 @@ impl WorldIngressDrain {
         }
     }
 
-    /// Checks the next event's own admission lane. A blocked head stays in `pending` across
-    /// frames, ahead of the receiver; time and transfer boundaries never read ahead.
+    /// Returns the next event with lane capacity, retaining blocked payloads across frames.
+    /// The stream's existing footprints preserve dependent ordering during lookahead.
     pub fn next(
         &mut self,
-        receiver: &mut tokio::sync::mpsc::Receiver<client_session::WorldIngress>,
-        pending: &mut Option<client_session::WorldIngress>,
-        admits: impl FnOnce(&client_session::WorldIngress) -> bool,
+        receiver: &mut tokio::sync::mpsc::Receiver<WorldIngress>,
+        pending: &mut VecDeque<WorldIngress>,
+        mut stream: Option<&mut WorldStream>,
         now: Instant,
-    ) -> Option<client_session::WorldIngress> {
+    ) -> Result<Option<WorldIngress>, WorldStreamError> {
         if self.stopped || now >= self.deadline {
-            return None;
+            return Ok(None);
         }
-        if pending.is_none() {
-            *pending = Some(receiver.try_recv().ok()?);
+        for index in 0..pending.len() {
+            let ingress = &pending[index];
+            if index > 0 && barrier(ingress, stream.as_deref()) {
+                return Ok(None);
+            }
+            if (index == 0 || bypasses_terrain(ingress, stream.as_deref()))
+                && admits(ingress, stream.as_deref())
+            {
+                let ingress = pending.remove(index).expect("the retained ingress exists");
+                if let Some(stream) = stream.as_deref_mut() {
+                    stream.release_ingress(sequence(&ingress));
+                }
+                return Ok(Some(self.admitted(ingress)));
+            }
+            if barrier(ingress, stream.as_deref()) {
+                return Ok(None);
+            }
         }
-        if !admits(pending.as_ref().expect("the FIFO head is retained")) {
-            return None;
+        while pending.len() < client_session::WORLD_EVENT_CAPACITY {
+            let Ok(ingress) = receiver.try_recv() else {
+                return Ok(None);
+            };
+            if (pending.is_empty() || bypasses_terrain(&ingress, stream.as_deref()))
+                && admits(&ingress, stream.as_deref())
+            {
+                return Ok(Some(self.admitted(ingress)));
+            }
+            let stream = stream
+                .as_deref_mut()
+                .expect("absent streams accept ingress");
+            let is_barrier = barrier(&ingress, Some(stream));
+            let footprint = footprint(&ingress, stream);
+            stream.retain_ingress(
+                sequence(&ingress),
+                footprint,
+                client_session::WORLD_EVENT_CAPACITY,
+            )?;
+            pending.push_back(ingress);
+            if is_barrier {
+                return Ok(None);
+            }
         }
-        let ingress = pending.take().expect("the FIFO head was admitted");
-        self.stopped = matches!(
-            ingress,
-            client_session::WorldIngress::FastTransferBarrier { .. }
-        );
-        Some(ingress)
+        Ok(None)
+    }
+
+    /// Ends this drain when a transfer marker reaches ordinary admission.
+    fn admitted(&mut self, ingress: WorldIngress) -> WorldIngress {
+        self.stopped = matches!(ingress, WorldIngress::FastTransferBarrier { .. });
+        ingress
+    }
+}
+
+/// Checks the event's own admission lane without copying a chunk's payload buffer.
+fn admits(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
+    stream.is_none_or(|stream| match ingress {
+        WorldIngress::Event(event) => stream.can_admit(&event.event),
+        WorldIngress::LevelChunk { event, .. } => {
+            stream.can_admit(&WorldEvent::LevelChunk(event.clone()))
+        }
+        WorldIngress::FastTransferBarrier { .. } => stream.light_admission_capacity() > 0,
+    })
+}
+
+/// Allows light session events past retained terrain without reordering terrain preparation.
+fn bypasses_terrain(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
+    stream.is_none_or(|stream| {
+        let footprint = footprint(ingress, stream);
+        !footprint.heavy
+            && !footprint.barrier
+            && !footprint.retention
+            && footprint.columns.is_empty()
+    })
+}
+
+/// Stops lookahead at definitions and dimension changes, whose preparation changes lane context.
+fn barrier(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
+    matches!(ingress, WorldIngress::FastTransferBarrier { .. })
+        || stream.is_some_and(|stream| footprint(ingress, stream).barrier)
+}
+
+/// Uses the stream's classification for both payload representations and transfer markers.
+fn footprint(ingress: &WorldIngress, stream: &WorldStream) -> client_world::ingestion::Footprint {
+    match ingress {
+        WorldIngress::Event(event) => stream.ingress_footprint(&event.event),
+        WorldIngress::LevelChunk { event, .. } => {
+            stream.ingress_footprint(&WorldEvent::LevelChunk(event.clone()))
+        }
+        WorldIngress::FastTransferBarrier { .. } => client_world::ingestion::Footprint::barrier(),
+    }
+}
+
+/// Identifies the reservation associated with a retained world payload.
+fn sequence(ingress: &WorldIngress) -> u64 {
+    match ingress {
+        WorldIngress::Event(event) => event.sequence.get(),
+        WorldIngress::LevelChunk { sequence, .. }
+        | WorldIngress::FastTransferBarrier { sequence, .. } => sequence.get(),
     }
 }
 
