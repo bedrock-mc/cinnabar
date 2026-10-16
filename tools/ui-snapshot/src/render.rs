@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod edit_selection;
 mod panorama;
 
 use std::{
@@ -56,7 +57,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } | Fixture::TabList(_) => false,
+        Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
@@ -84,6 +85,11 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         renderers: &mut [],
     };
     match fixture {
+        Fixture::EditSelection => {
+            let mut engine = json_engine(&carriers)?;
+            edit_selection::paint(&mut engine, &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)
