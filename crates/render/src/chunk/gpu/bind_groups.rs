@@ -229,8 +229,15 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     clock: Res<ChunkAnimationClock>,
     gpu_clock: Res<ChunkGpuAnimationClock>,
     render_queue: Res<RenderQueue>,
+    device: Res<RenderDevice>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
 ) {
-    render_queue.profiled_write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
+    crate::upload_staging::write_batch(
+        staging.as_deref(),
+        &device,
+        &render_queue,
+        &[(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock))],
+    );
 }
 
 type PreparedReplacement = (

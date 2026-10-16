@@ -1146,6 +1146,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Sorted transparency records its contiguous colour-space passes into one command
   buffer, removing worker waits around draws serialized by the phase's shared lock.
   Regression tests cover draw order, submission counts and empty viewports.
+- Block-model uploads compare bounded vertex pages and upload disjoint changed
+  ranges, retaining complete shifted tails and refilling grown buffers. Bytewise
+  comparisons preserve signed zero and NaN payloads. Sparse-update and native
+  staging-allocation regressions are written but unrun.
 - Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
   scene read, while translucent pixels retain premultiplied gamma blending. Native
   pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
@@ -1237,7 +1241,8 @@ these changes do not close the movement, camera, or actor parity gates.
   remain cold costs. Synthetic crowds and headless screenshots do not
   establish native first-appearance timing, join latency, no-pop-in acceptance or release
   frame budgets; those gates remain open.
-- Recurring hand, UI viewport and particle writes share bounded retained GPU
+- Recurring hand, UI viewport, particle, actor, nametag, block-model, shadow, dropped-item,
+  atmosphere and animation-clock writes share bounded retained GPU
   staging. Terrain arena writes use a separate pool that starts at three 120 Hz
   frames of the publication target rate and grows after missed frames, at most
   2 MiB per frame, to a 32 MiB ceiling. Abutting records share one copy, batches

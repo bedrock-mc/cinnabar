@@ -94,6 +94,7 @@ impl Plugin for ChunkRenderPlugin {
         crate::upload_staging::install_terrain(app);
 
         crate::lighting::install(app);
+        crate::upload_staging::install(app);
         load_internal_asset!(
             app,
             BIOME_TINT_SHADER_HANDLE,
