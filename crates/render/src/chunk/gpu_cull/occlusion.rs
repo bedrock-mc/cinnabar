@@ -131,3 +131,28 @@ impl OcclusionHistory {
         self.basis == Some(*basis) && basis.world == self.world
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visibility_counts_exclude_freed_tail_slots() {
+        for slots in [0, 1, 31, 32, 33, 64] {
+            let tag = VerdictTag {
+                frame: 1,
+                basis: OcclusionBasis {
+                    eye: [0.0; 3],
+                    view_rotation: [0.0; 9],
+                    clip_from_view: [0.0; 16],
+                    viewport: [0; 4],
+                    depth_size: [0; 2],
+                    depth_samples: 1,
+                    world: 0,
+                },
+                slots,
+            };
+            assert_eq!(tag.hidden_slots(&[u32::MAX; 3]), slots);
+        }
+    }
+}
