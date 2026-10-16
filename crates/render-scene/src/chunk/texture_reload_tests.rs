@@ -42,10 +42,10 @@ fn repeated_geometry_request_retains_the_exact_acknowledged_snapshot() {
     let bridge = ChunkTextureReload::default();
     let assets = candidate(1);
     let geometry: Arc<[ChunkRenderInstance]> = Arc::from([]);
-    bridge.request_geometry(assets.clone(), geometry.clone());
+    bridge.request_geometry(bridge.geometry_epoch(), assets.clone(), geometry.clone());
     let request = bridge.preparation().unwrap();
     bridge.finish(&request, true);
-    bridge.request_geometry(assets.clone(), Arc::from([]));
+    bridge.request_geometry(bridge.geometry_epoch(), assets.clone(), Arc::from([]));
     assert!(bridge.is_current(&request));
     assert!(Arc::ptr_eq(&bridge.geometry().unwrap(), &geometry));
     assert_eq!(bridge.status(assets.identity()), Some(Ok(())));
@@ -88,12 +88,12 @@ fn obsolete_preparation_cannot_complete_retried_geometry_with_same_assets() {
         let bridge = ChunkTextureReload::default();
         let current = candidate(0);
         let assets = candidate(1);
-        bridge.request_geometry(assets.clone(), Arc::from([]));
+        bridge.request_geometry(bridge.geometry_epoch(), assets.clone(), Arc::from([]));
         let cached = bridge.preparation().unwrap();
         bridge.finish(&cached, true);
         bridge.cancel_except(current.identity());
         assert!(bridge.geometry().is_none());
-        bridge.request_geometry(assets.clone(), Arc::from([]));
+        bridge.request_geometry(bridge.geometry_epoch(), assets.clone(), Arc::from([]));
         assert!(!bridge.finish(&cached, succeeded));
         assert!(bridge.status(assets.identity()).is_none());
         bridge.published(&cached);
@@ -111,7 +111,11 @@ fn obsolete_preparation_cannot_complete_geometry_added_to_same_atlas() {
     bridge.request(assets.clone());
     let cached = bridge.preparation().unwrap();
     let geometry = Arc::from([]);
-    bridge.request_geometry(assets.clone(), Arc::clone(&geometry));
+    bridge.request_geometry(
+        bridge.geometry_epoch(),
+        assets.clone(),
+        Arc::clone(&geometry),
+    );
     let replacement = bridge.preparation().unwrap();
     assert!(cached.geometry().is_none());
     assert!(Arc::ptr_eq(replacement.geometry().unwrap(), &geometry));
@@ -121,23 +125,57 @@ fn obsolete_preparation_cannot_complete_geometry_added_to_same_atlas() {
     assert_eq!(bridge.status(assets.identity()), Some(Ok(())));
 }
 
+/// A reset invalidates readiness from the retired snapshot before main-world selection.
 #[test]
-fn discarding_geometry_retains_the_atlas_attempt_until_new_geometry_is_queued() {
+fn discarding_geometry_revokes_its_readiness_without_holding_the_next_session() {
     let bridge = ChunkTextureReload::default();
-    let assets = candidate(1);
-    bridge.request_geometry(assets.clone(), Arc::from([]));
-    let geometry = bridge.preparation().unwrap();
-    bridge.discard_geometry();
-    let atlas = bridge.preparation().unwrap();
-    assert!(geometry.geometry().is_some());
-    assert!(atlas.geometry().is_none());
-    assert_eq!(atlas.assets().identity(), assets.identity());
-    assert!(bridge.finish(&geometry, true));
-    assert!(bridge.is_current(&atlas));
+    let assets = candidate(3);
+    bridge.request_geometry(bridge.geometry_epoch(), assets.clone(), Arc::from([]));
+    bridge.finish(&bridge.preparation().unwrap(), true);
     assert_eq!(bridge.status(assets.identity()), Some(Ok(())));
-    bridge.request_geometry(assets.clone(), Arc::from([]));
-    assert!(!bridge.finish(&atlas, true));
-    bridge.published(&atlas);
-    assert!(bridge.preparation().unwrap().geometry().is_some());
+    bridge.discard_geometry();
     assert!(bridge.status(assets.identity()).is_none());
+    assert!(bridge.geometry().is_none());
+    assert!(!bridge.geometry_pending());
+    assert!(bridge.requested().is_none());
+}
+
+/// An older publication cannot consume a newer immutable preparation request.
+#[test]
+fn publication_acknowledges_only_its_matching_attempt_after_a_reset() {
+    let bridge = ChunkTextureReload::default();
+    let first = candidate(1);
+    let second = candidate(2);
+    bridge.request_geometry(bridge.geometry_epoch(), first.clone(), Arc::from([]));
+    let original = bridge.preparation().unwrap();
+    bridge.request_geometry(bridge.geometry_epoch(), second.clone(), Arc::from([]));
+    bridge.published(&original);
+    let next = bridge.preparation().unwrap();
+    assert_eq!(next.assets().identity(), second.identity());
+    assert_eq!(
+        next.epoch, original.epoch,
+        "a new request is still in the same session"
+    );
+    assert!(bridge.geometry_pending());
+    bridge.discard_geometry();
+    assert_ne!(bridge.geometry_epoch(), original.epoch);
+    assert!(!bridge.finish(&next, true));
+    bridge.request_geometry(bridge.geometry_epoch(), second.clone(), Arc::from([]));
+    bridge.published(&next);
+    assert!(
+        bridge.requested().is_some(),
+        "an old publication cannot consume the new session request"
+    );
+}
+
+/// Old CPU completions cannot acquire the new world's mesh hold.
+#[test]
+fn stale_geometry_cannot_enter_or_hold_a_new_generation() {
+    let bridge = ChunkTextureReload::default();
+    let epoch = bridge.geometry_epoch();
+    bridge.discard_geometry();
+    bridge.hold_geometry(epoch);
+    bridge.request_geometry(epoch, candidate(1), Arc::from([]));
+    assert!(!bridge.geometry_pending());
+    assert!(bridge.preparation().is_none());
 }

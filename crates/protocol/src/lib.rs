@@ -92,8 +92,9 @@ pub use camera::{
     CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSpline, CameraSplineInstruction, CameraSplineKind,
     CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame, CameraSwitchEvent,
-    CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
-    MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
+    CameraTargetInstruction, ClientInputLock, ClientInputLocks, MAX_CAMERA_AIM_ASSIST_ENTRIES,
+    MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS,
+    camera_aim_assist_activation_packet,
 };
 pub use codec::{
     PacketDecodeError, PacketEncodeError, ProtocolError, SessionError, decode_batch, encode,

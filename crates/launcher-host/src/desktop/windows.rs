@@ -1,6 +1,11 @@
 //! Win32 calls behind the client's OS integration, replacing PowerShell and `cmd` spawns.
 
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, ptr};
+use std::{
+    ffi::{OsStr, OsString},
+    os::windows::ffi::OsStringExt,
+    path::PathBuf,
+    ptr,
+};
 
 use windows_sys::Win32::{
     Foundation::{ERROR_INVALID_PARAMETER, S_FALSE, S_OK},
@@ -164,9 +169,16 @@ pub fn message_box(kind: MessageKind, title: &str, body: &str) -> Option<bool> {
 }
 
 /// Opens `target` with its registered handler, as `cmd /C start` would without the shell parsing.
-pub fn shell_open(target: &str) -> bool {
+pub fn shell_open(target: impl AsRef<OsStr>) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
     let _apartment = ComApartment::enter();
-    let (verb, target) = (wide("open"), wide(target));
+    let verb = wide("open");
+    let target: Vec<u16> = target
+        .as_ref()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     // SAFETY: both strings are NUL-terminated and outlive the call; null means defaults.
     let result = unsafe {
         ShellExecuteW(

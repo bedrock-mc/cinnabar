@@ -198,8 +198,8 @@ func (s *Supervisor) spawn() (*helper, Loaded, error) {
 	return h, loaded, nil
 }
 
-// respawn spawns a helper that must load the registered artifact: the same id and the same
-// blocks, in the same order. Only the version may change, so that a reload can ship fixed code. A
+// respawn spawns a helper that must load the registered artifact: the same id, blocks and items
+// in the same order. Only the version may change, so that a reload can ship fixed code. A
 // helper whose load fails or differs is killed.
 func (s *Supervisor) respawn() (*helper, Loaded, error) {
 	h, loaded, err := s.spawn()
@@ -297,14 +297,17 @@ func checkResult(resp Response, seq uint64) error {
 	return nil
 }
 
-// matchRegistration checks that loaded has the id and exactly the blocks of registered, in the
-// same order; the version may differ. The error names the first difference.
+// matchRegistration preserves the finalized block and item registration across helper restarts.
+// The version may differ; an error describes the first incompatible registration category.
 func matchRegistration(registered, loaded Loaded) error {
 	if loaded.ID != registered.ID {
 		return fmt.Errorf("its id changed from %q to %q", registered.ID, loaded.ID)
 	}
 	if loaded.Focus != registered.Focus {
 		return fmt.Errorf("whether it takes a focus changed from %v to %v", registered.Focus, loaded.Focus)
+	}
+	if !slices.Equal(loaded.Items, registered.Items) {
+		return errors.New("its item definitions changed")
 	}
 	if reflect.DeepEqual(loaded.Blocks, registered.Blocks) {
 		return nil

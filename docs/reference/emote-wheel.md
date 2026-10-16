@@ -56,7 +56,7 @@ playback. Side-face UVs are cropped at the knee rather than stretching or repeat
 the whole leg texture; mirrored legs and clothing retain their source mappings.
 A two-segment solve bends the knees forward while keeping foot centers planted.
 The pelvis pulses beneath steady shoulders. Source models, tick-owned poses,
-first-person hands and remote actors keep their original skeletons; stopping the
+first-person hands and actors without shared playback keep their original skeletons; stopping the
 emote restores the original mesh and pose. Unsupported rotated/polygon/custom
 limbs retain the rigid approximation. Rigid armor knee articulation and exact
 Lunar animation parity remain incomplete. The user accepted the installed knee
@@ -73,19 +73,19 @@ phase, including both vertical hip extremes.
 
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor
-share that pose. The native first-person hand and other actors keep their normal
+share that pose. The native first-person hand and actors without shared playback keep their normal
 animation. Render time drives the loop independently of simulation tick speed.
 Movement, jump, attack/use, other modal screens, loss of focus, and actor/session
 reset cancel local playback. F5 perspective remains user controlled.
 
-Starting a selected clip queues an EmotePacket in the selection frame, using the
-catalog's own identifier and duration. Opening the wheel, cancelling it, and idle
-frames send no start packet. Restarting a slot announces a new start even when
-the render clock has not advanced. The original custom clip keeps its own
-identifier; standard Bedrock clients do not have that clip. Exact Lunar keyframes,
-native Marketplace ownership/playback, and remote custom-emote synchronization
-remain incomplete. The small custom equip flow substitutes for native Dressing
-Room navigation and does not close that parity gate.
+Starting or restarting a custom clip reports its owned identifier and current phase through
+the authenticated Cinnabar API. Custom identifiers stay off the Bedrock emote packet channel;
+standard clients do not carry these clips. Nearby Cinnabar players receive the same render-only
+body, clothing and cape poses when both clients report each other nearby. The visibility setting
+controls publishing. Stops, world changes, actor-lifetime changes and expired API leases retire
+the overlay. Local playback remains available offline. Exact Lunar keyframes and native
+Marketplace ownership/playback remain incomplete. The small custom equip flow substitutes for
+native Dressing Room navigation and does not close that parity gate.
 Analog-stick and touch wheel navigation remain incomplete; controller navigation
 currently uses the D-pad and confirm/back buttons.
 
@@ -118,3 +118,7 @@ compilation, then stops at the unchanged meshing regression
 `compiled_ice_over_water_preserves_still_source_and_flat_top` in
 `crates/meshing/tests/liquid_barriers.rs` (the touching liquid-face assertion).
 That failure also occurred before this feature; emote work does not modify meshing.
+
+Articulated geometry now retains its matching prepared mesh for the body and animated clothing,
+instead of registering rigid source vertices under the jointed model identity. Cached meshes
+are shared across playback samples within the existing actor vertex budget.

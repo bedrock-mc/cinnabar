@@ -329,6 +329,7 @@ impl ChunkRenderQueue {
         key: SubChunkKey,
         priority: ChunkUploadPriority,
         token: ChunkUploadToken,
+        kind: render_api::TerrainRemovalKind,
         publication_permit: PublicationPermit,
     ) -> Result<(), (SubChunkKey, PublicationPermit)> {
         if !publication_permit.is_zero_byte() || publication_permit.bytes() != Some(0) {
@@ -346,7 +347,7 @@ impl ChunkRenderQueue {
             Ok(permit) => permit,
             Err(permit) => return Err((key, permit)),
         };
-        self.try_remove_inner_permitted(key, priority, Some(token), Some(publication_permit))
+        self.try_remove_inner_permitted(key, priority, Some(token), kind, Some(publication_permit))
             .map_err(|key| unreachable!("capacity was checked before permit transfer: {key:?}"))
     }
 
@@ -356,7 +357,13 @@ impl ChunkRenderQueue {
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
     ) -> Result<(), SubChunkKey> {
-        self.try_remove_inner_permitted(key, priority, token, None)
+        self.try_remove_inner_permitted(
+            key,
+            priority,
+            token,
+            render_api::TerrainRemovalKind::Withdrawn,
+            None,
+        )
     }
 
     fn try_remove_inner_permitted(
@@ -364,6 +371,7 @@ impl ChunkRenderQueue {
         key: SubChunkKey,
         priority: ChunkUploadPriority,
         token: Option<ChunkUploadToken>,
+        kind: render_api::TerrainRemovalKind,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), SubChunkKey> {
         if self.is_stale(key, token) {
@@ -407,6 +415,7 @@ impl ChunkRenderQueue {
         self.removals.insert(
             key,
             PendingRemoval {
+                kind,
                 previous_generation,
                 priority,
                 token,

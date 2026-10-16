@@ -377,7 +377,7 @@ func runWithResourcePackCacheFactory(
 			statusStore.ClearTransfer()
 		}}
 		if account != nil {
-			hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+			hosting := &friendHosting{account: account, worlds: localWorlds, log: logger}
 			hostingCtx, stopHosting := context.WithCancel(ctx)
 			hostingDone := make(chan struct{})
 			go func() {

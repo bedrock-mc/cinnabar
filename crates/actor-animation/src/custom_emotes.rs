@@ -1,4 +1,4 @@
-//! Original client-local emotes; no Marketplace/Lunar animation data is included.
+//! Original Cinnabar emotes; no Marketplace/Lunar animation data is included.
 //! The owned emote channels reuse native named skeleton and hierarchy composition.
 use super::{
     ActorRigSnapshot, BoneTransform, RenderTextureLayer, RuntimeBone, SkinRenderLayer, geometry,
@@ -37,8 +37,9 @@ impl CustomEmote {
     pub const fn looping(self) -> bool {
         true
     }
+    /// Owned clips may be shared with nearby Cinnabar clients through the account API.
     pub const fn local_only(self) -> bool {
-        true
+        false
     }
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|emote| emote.id() == id)
@@ -47,7 +48,7 @@ impl CustomEmote {
 
 /// Render-only poses owned by this sample, including clothing/persona geometries.
 /// Feed `snapshot` into the ordinary *third-person* body publication path only.
-/// Keep the native snapshot for the first-person hand and all remote actors.
+/// Keep the native snapshot for the first-person hand and actors without custom playback.
 #[derive(Clone, Debug)]
 pub struct CustomEmotePose {
     pub previous: Arc<[BoneTransform]>,
@@ -60,6 +61,7 @@ pub struct CustomEmotePose {
 #[derive(Clone, Debug)]
 pub(super) struct CustomEmoteRig {
     pub geometry: Arc<assets::SkinGeometry>,
+    pub mesh: render_model::ActorRigGeometry,
     pub names: Arc<[Box<str>]>,
     pub rest: Arc<[BoneTransform]>,
 }
@@ -72,6 +74,7 @@ impl CustomEmotePose {
         original.skin_layers = &self.skin_layers;
         if let Some(rig) = &self.articulated {
             original.skin_geometry = Some(&rig.geometry);
+            original.skin_mesh = Some(&rig.mesh);
             original.bone_names = &rig.names;
             original.rest = &rig.rest;
         }
@@ -113,15 +116,16 @@ pub fn sample_custom_emote(
     }
     let leg_height =
         bones[names.iter().position(|name| name.as_ref() == "leftleg")?].pivot[1].abs();
-    let articulated_geometry = rig.skin_geometry.and_then(articulated::model);
-    let (bones, names) = if let Some(model) = &articulated_geometry {
-        geometry::skeleton(&model.bones)?
+    let articulated_model = rig.skin_geometry.and_then(articulated::model);
+    let (bones, names) = if let Some(model) = &articulated_model {
+        geometry::skeleton(&model.geometry.bones)?
     } else {
         (bones, names)
     };
-    let articulated = if let Some(geometry) = articulated_geometry {
+    let articulated = if let Some(model) = articulated_model {
         Some(CustomEmoteRig {
-            geometry,
+            geometry: model.geometry,
+            mesh: model.mesh,
             names: names.clone().into(),
             rest: compose_pose(&bones, &[])?.into(),
         })
@@ -156,7 +160,8 @@ pub fn sample_custom_emote(
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
         if let Some(model) = articulated::model(&layer.geometry) {
-            layer.geometry = model;
+            layer.geometry = model.geometry;
+            layer.mesh = Some(model.mesh);
         }
         let (bones, names) = geometry::skeleton(&layer.geometry.bones)?;
         let (previous, current) = pair(
@@ -434,7 +439,7 @@ mod catalog_tests {
             assert_eq!(CustomEmote::from_id(emote.id()), Some(*emote));
             assert!(!emote.label().is_empty());
             assert!(emote.duration_seconds().is_finite() && emote.duration_seconds() > 0.0);
-            assert!(emote.looping() && emote.local_only());
+            assert!(emote.looping() && !emote.local_only());
             assert_eq!(
                 CustomEmote::ALL
                     .iter()

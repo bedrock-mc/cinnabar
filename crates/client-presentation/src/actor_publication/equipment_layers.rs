@@ -28,10 +28,15 @@ pub(super) fn attach(
                 .is_some_and(|actor| actor.is_using_item());
             input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
         }
-        let animation = stream
-            .authority()
-            .actor(runtime_id)
-            .zip(stream.authority().actor_rig(runtime_id));
+        let animation =
+            stream
+                .authority()
+                .actor(runtime_id)
+                .zip(stream.authority().actor_rig(runtime_id).map(|rig| {
+                    poses
+                        .emote(runtime_id)
+                        .map_or(rig, |pose| pose.snapshot(rig))
+                }));
         let layers = equipment.layers_for_profile(
             body,
             &input,

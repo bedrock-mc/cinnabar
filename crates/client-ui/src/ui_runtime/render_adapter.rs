@@ -87,12 +87,15 @@ pub fn adapt_ui_draw_list(
                 match batch.blend {
                     ui::UiBlendMode::Alpha => render_model::UI_BLEND_ALPHA,
                     ui::UiBlendMode::Invert => render_model::UI_BLEND_INVERT,
+                    ui::UiBlendMode::Backdrop => render_model::UI_BLEND_BACKDROP,
+                    ui::UiBlendMode::Filter => render_model::UI_BLEND_FILTER,
                 },
             )
             .with_depth_test(batch.depth_test)
             .with_depth_write(batch.depth_write)
             .with_world_projection(batch.world_projection)
-            .with_isolated_depth_scope(batch.isolated_depth_scope),
+            .with_isolated_depth_scope(batch.isolated_depth_scope)
+            .with_filter_group(batch.filter_group),
         );
     }
     let input = UiRenderInput {
@@ -251,6 +254,7 @@ mod tests {
                     depth_write: false,
                     world_projection: false,
                     isolated_depth_scope: None,
+                    filter_group: None,
                     index_range: 0..6,
                 },
                 UiDrawBatch {
@@ -261,6 +265,7 @@ mod tests {
                     depth_write: false,
                     world_projection: false,
                     isolated_depth_scope: None,
+                    filter_group: None,
                     index_range: 6..12,
                 },
             ],
