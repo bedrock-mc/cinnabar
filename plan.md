@@ -1107,6 +1107,8 @@ these changes do not close the movement, camera, or actor parity gates.
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Repeat deadlines retain sub-millisecond clock precision so the first eligible
+  simulation tick can attempt placement.
 - Presses resolve when they arrive and held repeats only on frames that simulate a tick,
   both before the frame's physics and from the last completed tick's end state, so the next
   tick's movement collides with a placed block. Incomplete: a frame
