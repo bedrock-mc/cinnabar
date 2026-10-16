@@ -134,7 +134,7 @@ pub fn paint_world_backdrop(
 type BackdropKey = (u16, [u32; 3]);
 /// A glass outline's logical size, radius and display density, its opacity and its paint.
 type GlassKey = ([u32; 4], u8, [u32; 3]);
-/// An outline and highlight width, colour and display density.
+/// A highlight's outline, colour and display density.
 type HighlightKey = ([u32; 4], [u8; 4], u32);
 
 thread_local! {
