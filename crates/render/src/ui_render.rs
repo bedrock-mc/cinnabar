@@ -37,6 +37,8 @@ use bevy::{
         view::{ExtractedView, ViewTarget},
     },
 };
+#[path = "ui_render/filter.rs"]
+pub(crate) mod filter;
 #[path = "ui_render/font_atlas.rs"]
 mod font_atlas;
 #[cfg(test)]
@@ -48,6 +50,8 @@ mod item_glint;
 mod textures;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
+#[path = "ui_render/backdrop.rs"]
+pub(crate) mod backdrop;
 #[path = "ui_render/batches.rs"]
 mod batches;
 #[path = "ui_render/composite.rs"]
@@ -124,6 +128,7 @@ fn install_ui_render(app: &mut App) {
     }
     crate::pipeline_warmup::register::<pipeline::UiPipeline>(app);
     crate::pipeline_warmup::register::<composite::UiCompositePipeline>(app);
+    crate::pipeline_warmup::register::<backdrop::UiBackdropPipeline>(app);
     let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
         ExtractResourcePlugin::<UiRenderSceneResource>::default(),
@@ -137,10 +142,24 @@ fn install_ui_render(app: &mut App) {
         "ui_composite.wgsl",
         crate::shader_safety::from_wgsl
     );
+    load_internal_asset!(
+        app,
+        backdrop::UI_BACKDROP_SHADER_HANDLE,
+        "ui_backdrop.wgsl",
+        crate::shader_safety::from_wgsl
+    );
+    load_internal_asset!(
+        app,
+        backdrop::UI_BACKDROP_FILTER_SHADER_HANDLE,
+        "ui_backdrop_filter.wgsl",
+        crate::shader_safety::from_wgsl
+    );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
         .init_resource::<pipeline::UiPipeline>()
         .init_resource::<composite::UiCompositePipeline>()
+        .init_resource::<backdrop::UiBackdropPipeline>()
+        .init_resource::<backdrop::UiBackdropStore>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
         .init_resource::<composite::UiLayerStore>()
@@ -156,6 +175,10 @@ fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sched
     (
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
         composite::prepare_ui_layers
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets)
+            .after(resources::prepare_ui_resources),
+        backdrop::prepare_ui_backdrops
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
             .after(resources::prepare_ui_resources),

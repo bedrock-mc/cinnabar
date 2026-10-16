@@ -94,6 +94,10 @@ pub struct NodeAnim {
     pub clip_direction: Option<String>,
     /// The static clip ratio a clip animation replaces.
     pub clip_rest: f32,
+    /// The Cinnabar paint transform from layout to painted coordinates.
+    pub transform: Option<crate::transform::Affine>,
+    /// The Cinnabar filtered subtree this draw paints into.
+    pub filter: Option<std::sync::Arc<crate::filter::FilterGroup>>,
 }
 
 /// A draw as its animations leave it at one moment.
@@ -108,6 +112,8 @@ pub struct Animated {
     pub uv: Option<UvRect>,
     /// Removed by `destroy_at_end`.
     pub hidden: bool,
+    /// The paint transform mapping `dest` to painted coordinates; `clip` is already painted.
+    pub transform: Option<crate::transform::Affine>,
 }
 
 impl DrawNode {
@@ -127,10 +133,12 @@ impl DrawNode {
             color: None,
             uv: None,
             hidden: false,
+            transform: None,
         };
         let Some(anim) = &self.anim else {
             return out;
         };
+        out.transform = anim.transform;
         if animator.hides(&self.key) {
             out.hidden = true;
             return out;

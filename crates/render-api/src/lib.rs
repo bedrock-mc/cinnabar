@@ -12,9 +12,11 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+mod ui_backdrop;
 mod ui_coverage_paint;
 mod vrr;
 
+pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};
 pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
 
 pub use actor_lighting::{
