@@ -12,6 +12,9 @@ mod held_model_residency_tests;
 #[path = "held_block_entity_reload_tests.rs"]
 mod held_block_entity_reload_tests;
 
+#[path = "block_reload_tests.rs"]
+mod block_reload_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;
@@ -40,8 +43,8 @@ fn held_blocks_draw_only_their_outward_faces() {
     let HeldKind::Block(visual) = item.kind else {
         unreachable!()
     };
-    runtime
-        .block_alpha
+    Arc::make_mut(&mut runtime.blocks.source)
+        .alpha
         .insert(visual, render_model::HandItemAlphaMode::Cutout);
     runtime.held_mesh(&item, true).unwrap();
     let geometry = runtime.take_pending_geometries().pop().unwrap();
@@ -73,9 +76,11 @@ fn held_block_faces_keep_local_glint_origins_after_atlas_placement() {
                 },
             ]);
             let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(&atlas.layers);
-            runtime.placements = atlas.placements;
-            runtime.atlas_locations = locations;
-            let placement = runtime.placements[0].as_mut().unwrap();
+            Arc::make_mut(&mut runtime.blocks.source).placements = atlas.placements;
+            runtime.blocks.locations = locations;
+            let placement = Arc::make_mut(&mut runtime.blocks.source).placements[0]
+                .as_mut()
+                .unwrap();
             placement.x = 64;
             placement.y = 128;
             let rect = placement.uv_rect();
@@ -86,7 +91,9 @@ fn held_block_faces_keep_local_glint_origins_after_atlas_placement() {
                 render_model::equipment::blocks::face_rects([0.0, 0.0, 1.0, 1.0]),
             );
             if authored {
-                runtime.block_models.insert(visual, reference.clone());
+                Arc::make_mut(&mut runtime.blocks.source)
+                    .models
+                    .insert(visual, reference.clone());
             }
             runtime.held_mesh(&item, true).unwrap();
             let geometry = runtime.take_pending_geometries().pop().unwrap();
@@ -151,6 +158,13 @@ fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity(
 /// The cube sheet is injected after atlas construction: these tests cover placement and
 /// routing, not block-carrier admission (which has separate asset tests).
 fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
+    block_fixture_with_visuals(Vec::new())
+}
+
+/// Builds the isolated player and equipment fixture with explicit item-to-block routes.
+fn block_fixture_with_visuals(
+    item_visuals: Vec<assets::ItemVisualDefinition>,
+) -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     let entities = RuntimeEntityAssets::from_compiled(
         assets::CompiledEntityAssets {
             item_use_profiles: Box::new([]),
@@ -189,7 +203,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
             rig_geometries: Box::new([]),
             rig_animations: Box::new([]),
             rig_controllers: Box::new([]),
-            item_visuals: Box::new([]),
+            item_visuals: item_visuals.into(),
             item_visual_aliases: Box::new([]),
             render: Default::default(),
         }
@@ -217,10 +231,12 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     };
     let atlas = SpriteAtlas::pack(&[sheet]);
     let (_, locations) = pages.with_equipment_rasters(&atlas.layers);
-    runtime.placements = atlas.placements;
-    runtime.atlas_locations = locations;
+    Arc::make_mut(&mut runtime.blocks.source).placements = atlas.placements;
+    runtime.blocks.locations = locations;
     let visual = 7;
-    runtime.block_sheets.insert(visual, 0);
+    Arc::make_mut(&mut runtime.blocks.source)
+        .sheets
+        .insert(visual, 0);
     let rig = EntityRigId(0x7000_0000);
     runtime.register_skin_rig(rig, vec!["rightItem".into()]);
     let bone = RenderBoneTransform {
@@ -323,7 +339,7 @@ fn carried_block_sheet_is_admitted_without_untinted_world_materials() {
         None,
         ActorArtworkPages::default(),
     );
-    assert_eq!(runtime.block_sheets.get(&7), Some(&0));
+    assert_eq!(runtime.blocks.source.sheets.get(&7), Some(&0));
     runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
     let first = runtime
         .first_person_item(&body, &item, ItemAnimationState::default())
@@ -363,7 +379,7 @@ fn carried_block_sheet_rejects_a_stale_manifest_or_out_of_range_visual() {
             None,
             ActorArtworkPages::default(),
         );
-        assert!(runtime.block_sheets.is_empty());
+        assert!(runtime.blocks.source.sheets.is_empty());
     }
 }
 
@@ -685,7 +701,7 @@ fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_id
             .insert(MeshKey::Block(index), Some(item_mesh_rig_id(index)));
     }
     let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
-    let placement = runtime.placements[0].unwrap();
+    let placement = runtime.blocks.source.placements[0].unwrap();
     for _ in 0..8 {
         runtime.attachable_meshes.insert((true, 0, (1, 0)), retired);
         runtime.set_pack_layer(None);

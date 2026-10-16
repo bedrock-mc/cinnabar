@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use assets::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, BlockOverlay,
     DIAGNOSTIC_MATERIAL, IconSprite, ItemVisualDefinitionRoute, Material, NO_ANIMATION,
-    NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, TextureMip, VisualKind,
-    VisualSupport, compose_block_item_sheet,
+    NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, VisualKind, VisualSupport,
+    compose_block_item_sheet,
 };
 
 const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
@@ -329,10 +329,8 @@ fn compose_sheet(world: &RuntimeAssets, materials: &[u32; 6]) -> Option<IconSpri
         tiles.push(face_tile(
             material,
             &page.texture,
-            page.texture
-                .mips
-                .iter()
-                .find(|mip| mip.size as usize == TILE)?,
+            *world.texture_source_size(material.texture).iter().max()?,
+            world.texture_source_grid(material.texture),
         )?);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
@@ -384,9 +382,6 @@ pub fn overlay_face_sheet(overlay: &BlockOverlay, faces: [u32; 6]) -> Option<Ico
 
 /// Selects mips in exposed source pixels and resamples the admitted grid into a held face.
 fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<IconSprite> {
-    if !face_material_is_admitted(material) {
-        return None;
-    }
     let shard = material.texture.page().checked_sub(1)? as usize;
     let texture = overlay.textures.get(shard)?;
     let layer = material.texture.layer() as usize;
@@ -404,7 +399,30 @@ fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<Icon
         Some(size) => u32::from(*size.iter().max()?),
         None => base.size.checked_shr(u32::from(grid))?,
     };
-    if source_side == 0 {
+    face_tile(material, texture, source_side, grid)
+}
+
+/// Unresolved tint and animation need authored carried faces instead of a static sheet.
+fn face_material_is_admitted(material: &Material) -> bool {
+    material.flags
+        & !(assets::MATERIAL_FLAG_ALPHA_BLEND
+            | assets::MATERIAL_FLAG_ALPHA_CUTOUT
+            | assets::MATERIAL_FLAG_ISOTROPIC)
+        == 0
+        && material.animation == NO_ANIMATION
+}
+
+/// Samples the exposed source rectangle, using the same mip and UV-grid rules for all sheets.
+fn face_tile(
+    material: &Material,
+    texture: &TextureArray,
+    source_side: u32,
+    grid: u8,
+) -> Option<IconSprite> {
+    if !face_material_is_admitted(material)
+        || source_side == 0
+        || material.texture.layer() >= texture.layers
+    {
         return None;
     }
     let level = source_side
@@ -421,7 +439,7 @@ fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<Icon
         return None;
     }
     let bytes = side.checked_mul(side)?.checked_mul(4)?;
-    let start = layer.checked_mul(bytes)?;
+    let start = (material.texture.layer() as usize).checked_mul(bytes)?;
     let tile = mip.rgba8.get(start..start.checked_add(bytes)?)?;
     let mut pixels = Vec::with_capacity(TILE * TILE * 4);
     for y in 0..TILE {
@@ -434,34 +452,6 @@ fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<Icon
         width: BLOCK_ITEM_FACE_SIDE,
         height: BLOCK_ITEM_FACE_SIDE,
         rgba8: pixels.into(),
-    })
-}
-
-/// Unresolved tint and animation need authored carried faces instead of a static sheet.
-fn face_material_is_admitted(material: &Material) -> bool {
-    material.flags
-        & !(assets::MATERIAL_FLAG_ALPHA_BLEND
-            | assets::MATERIAL_FLAG_ALPHA_CUTOUT
-            | assets::MATERIAL_FLAG_ISOTROPIC)
-        == 0
-        && material.animation == NO_ANIMATION
-}
-
-/// Preserves face alpha; unresolved world tint and animation require authored carried faces.
-fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
-    if !face_material_is_admitted(material)
-        || mip.size as usize != TILE
-        || material.texture.layer() >= texture.layers
-    {
-        return None;
-    }
-    let tile_bytes = TILE * TILE * 4;
-    let first = (material.texture.layer() as usize).checked_mul(tile_bytes)?;
-    let tile = mip.rgba8.get(first..first.checked_add(tile_bytes)?)?;
-    Some(IconSprite {
-        width: BLOCK_ITEM_FACE_SIDE,
-        height: BLOCK_ITEM_FACE_SIDE,
-        rgba8: tile.into(),
     })
 }
 

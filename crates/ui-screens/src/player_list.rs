@@ -16,16 +16,30 @@ const MAX_PLAYERS: usize = 80;
 const MAX_ROWS: usize = 20;
 const ROW_HEIGHT: f64 = 9.0;
 const SCREEN: &str = "cinnabar_tab.screen";
+/// The roster badge's built-in texture path.
+pub const CINNABAR_BADGE: &str = "textures/ui/cinnabar_badge";
+/// Original gem pixels shared by tab-list and world-space name-tag atlases.
+pub const CINNABAR_BADGE_PNG: &[u8] =
+    include_bytes!("../../../assets/java-hud/textures/ui/cinnabar_badge.png");
+/// Width a badged cell reserves beside its name.
+const BADGE_WIDTH: f64 = 9.0;
 
-/// The roster screen over its own bundled catalog, rebound only when the names change.
+/// One roster entry as the tab list draws it; the badge belongs to this entry, not its name.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RosterRow {
+    pub name: Arc<str>,
+    pub badged: bool,
+}
+
+/// The roster screen over its own bundled catalog, rebound only when the rows change.
 pub struct PlayerList {
     catalog: Arc<Catalog>,
     screen: CachedScreen,
-    names: Vec<Arc<str>>,
+    rows: Vec<RosterRow>,
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3])>,
+    geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
     context: Context,
 }
 
@@ -47,7 +61,7 @@ impl PlayerList {
                 .expect("bundled player-list JSON must be valid"),
             ),
             screen: CachedScreen::default(),
-            names: Vec::new(),
+            rows: Vec::new(),
             total: 0,
             data: Arc::default(),
             dimensions: [0, 0],
@@ -56,33 +70,37 @@ impl PlayerList {
         }
     }
 
-    fn refresh(&mut self, names: &[Arc<str>], rows: usize) -> [usize; 2] {
-        let shown = &names[..names.len().min(MAX_PLAYERS)];
+    fn refresh(&mut self, players: &[RosterRow], rows: usize) -> [usize; 2] {
+        let shown = &players[..players.len().min(MAX_PLAYERS)];
         let columns = shown.len().div_ceil(rows).max(1);
         let rows = shown.len().div_ceil(columns).max(1);
-        if self.names != shown || self.total != names.len() || self.dimensions != [columns, rows] {
+        if self.rows != shown || self.total != players.len() || self.dimensions != [columns, rows] {
             // Grids consume row-major collections; Java presents names down each column.
             let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
             let entries = cells
                 .map(|index| {
-                    let name = shown.get(index);
+                    let row = shown.get(index);
                     CollectionItem::default()
                         .with(
                             "#player_name",
-                            Scalar::Text(name.map_or_else(String::new, |name| name.to_string())),
+                            Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
                         )
-                        .with("#row_visible", Scalar::Bool(name.is_some()))
+                        .with("#row_visible", Scalar::Bool(row.is_some()))
+                        .with(
+                            "#cinnabar_badge",
+                            Scalar::Bool(row.is_some_and(|row| row.badged)),
+                        )
                 })
                 .collect();
-            self.names = shown.to_vec();
-            self.total = names.len();
+            self.rows = shown.to_vec();
+            self.total = players.len();
             self.dimensions = [columns, rows];
             self.geometry = None;
             let mut data = DataSource::new();
-            let title = if names.len() > MAX_PLAYERS {
-                format!("Online players: {} (first {MAX_PLAYERS})", names.len())
+            let title = if players.len() > MAX_PLAYERS {
+                format!("Online players: {} (first {MAX_PLAYERS})", players.len())
             } else {
-                format!("Online players: {}", names.len())
+                format!("Online players: {}", players.len())
             };
             data.set_global("#online_title", Scalar::Text(title));
             data.set_collection("online_players", entries);
@@ -100,11 +118,11 @@ impl Default for PlayerList {
 }
 
 impl PlayerList {
-    /// Paints the roster of `names` over the frame.
+    /// Paints the roster `players` over the frame, badging each row that carries one.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
-        names: &[Arc<str>],
+        players: &[RosterRow],
         frame: &mut PaintFrame<'_>,
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -113,15 +131,18 @@ impl PlayerList {
             let max_rows = ((root[1] - 40.0) / ROW_HEIGHT)
                 .floor()
                 .clamp(1.0, MAX_ROWS as f64) as usize;
-            let [columns, rows] = self.refresh(names, max_rows);
-            let geometry = (root, px, language);
+            let [columns, rows] = self.refresh(players, max_rows);
+            let badge = self.rows.iter().any(|row| row.badged);
+            let geometry = (root, px, language, badge);
             if self.geometry != Some(geometry) {
                 let widest = self
-                    .names
+                    .rows
                     .iter()
-                    .map(|name| env.text.extent(name)[0])
+                    .map(|row| env.text.extent(&row.name)[0])
                     .fold(60.0, f64::max);
-                let width = (widest + 8.0).min((root[0] - 8.0).max(1.0) / columns as f64);
+                let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
+                let width =
+                    (widest + 8.0 + badge_width).min((root[0] - 8.0).max(1.0) / columns as f64);
                 let title = format!("Online players: {}", self.total);
                 let panel_width = (width * columns as f64 + 4.0)
                     .max(env.text.extent(&title)[0] + 4.0)
@@ -131,6 +152,7 @@ impl PlayerList {
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
                     .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
                     .with_var("cell_width", serde_json::json!(width))
+                    .with_var("cinnabar_badge_texture", serde_json::json!(CINNABAR_BADGE))
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
                         "panel_height",

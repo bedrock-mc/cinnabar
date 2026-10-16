@@ -47,6 +47,9 @@ pub(crate) fn drive_menu_services(
     }
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
+    if let Some(account) = launcher_account.as_deref() {
+        client_shell::menu::sync_cinnabar_players(account, &mut runtime.0);
+    }
     menu.drive_account_services(
         &mut commands,
         client_blob_cache.enables_upstream_client_cache(),

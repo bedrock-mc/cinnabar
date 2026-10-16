@@ -1,4 +1,4 @@
-//! Presence reporting must leave the account event worker running.
+//! Presence and Cinnabar API reporting must leave the account event worker running.
 use super::*;
 use std::{
     io::{Read, Write},
@@ -14,7 +14,7 @@ fn presence_reporting_keeps_account_events_running() {
     listener.set_nonblocking(true).unwrap();
     let done = Arc::new(AtomicBool::new(false));
     let stopping = Arc::clone(&done);
-    let (methods, received) = bounded(2);
+    let (methods, received) = bounded(3);
     let fixture = thread::spawn(move || {
         while !stopping.load(Ordering::Relaxed) {
             let mut stream = match listener.accept() {
@@ -49,6 +49,12 @@ fn presence_reporting_keeps_account_events_running() {
     });
     let shared = Arc::new(Mutex::new(Snapshot {
         joining: true,
+        cinnabar_api: Some(bridge::CinnabarApiConfig {
+            client_version: "0.1.18".into(),
+            client_build: 42,
+            channel: "beta".into(),
+            visible: true,
+        }),
         ..Default::default()
     }));
     let (requests, receiver) = bounded(1);
@@ -56,6 +62,7 @@ fn presence_reporting_keeps_account_events_running() {
     let worker = thread::spawn(move || poll_events(&worker_dir, &worker_shared, &receiver));
     let first = received.recv_timeout(Duration::from_secs(2));
     let second = received.recv_timeout(Duration::from_secs(2));
+    let third = received.recv_timeout(Duration::from_secs(2));
     drop(requests);
     let completed = worker.join();
     done.store(true, Ordering::Relaxed);
@@ -66,7 +73,8 @@ fn presence_reporting_keeps_account_events_running() {
         "presence reporting stopped the account worker"
     );
     assert_eq!(first.unwrap(), "presence.v1");
-    assert_eq!(second.unwrap(), "events.v1");
+    assert_eq!(second.unwrap(), "cinnabar_api.v1");
+    assert_eq!(third.unwrap(), "events.v1");
     assert_eq!(
         shared.lock().unwrap().account.as_ref().unwrap().state,
         CoreAuth::SignedIn

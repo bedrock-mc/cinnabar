@@ -563,6 +563,7 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
                         unique_id: 2,
                         username: "reader".into(),
                         verified: true,
+                        xuid: "".into(),
                         skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
                             width: render_api::CLASSIC_SKIN_SIDE as u32,
                             height: render_api::CLASSIC_SKIN_SIDE as u32,

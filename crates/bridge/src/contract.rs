@@ -227,6 +227,21 @@ pub const RPC_INVALID_TARGET: i64 = -32022;
 /// Control error code for services disabled.
 pub const RPC_SERVICES_DISABLED: i64 = -32023;
 
+/// Control error code for a Cinnabar lookup the API rate-limited.
+pub const RPC_CINNABAR_RATE_LIMITED: i64 = -32024;
+
+/// Control method for the Cinnabar API identity and visibility.
+pub const METHOD_CINNABAR_API: &str = "cinnabar_api.v1";
+
+/// Control method for a Cinnabar player lookup.
+pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
+
+/// Most XUIDs in one Cinnabar player lookup.
+pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
+
+/// Fallback lifetime of a Cinnabar lookup answer.
+pub const CINNABAR_API_CACHE_TTL_MS: u32 = 120000;
+
 /// Xbox presence game mode for survival.
 pub const PRESENCE_GAME_MODE_SURVIVAL: i32 = 0;
 
@@ -482,4 +497,18 @@ pub enum ConnectStage {
     #[serde(rename = "connecting")]
     #[serde(other)]
     Connecting,
+}
+
+/// A release the Cinnabar API announced on the client's channel.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarRelease {
+    /// Release channel name.
+    pub channel: String,
+    /// App version; rolling channels reuse one across builds.
+    pub version: String,
+    /// Signed manifest build number; absent in older v1 notices.
+    #[serde(default)]
+    pub build: u64,
+    /// When the API recorded the release.
+    pub published_at: String,
 }

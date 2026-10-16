@@ -1,5 +1,52 @@
 use super::*;
 
+/// A committed transition disconnects deferred and late output, even after a round trip.
+#[test]
+fn dimension_round_trip_disconnects_deferred_and_late_summaries() {
+    let mut stream = WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_far_terrain_enabled(true);
+    let inbox = &mut stream.far_terrain.inbox;
+    let column = finish(inbox, 0);
+    let late = inbox.tx.clone();
+    let generation = inbox.issue(column);
+    let mut out = Vec::new();
+    inbox.drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    for (sequence, dimension) in [(1, 1), (2, 0)] {
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+    }
+    assert!(
+        late.send(Event::Finished(Finished {
+            column,
+            generation,
+            summary: far_terrain::ColumnSummary::default().encode(),
+        }))
+        .is_err(),
+        "a worker still delivers into the departed world"
+    );
+    stream.drain_far_summaries(&mut out);
+    assert!(out.is_empty());
+    finish(&mut stream.far_terrain.inbox, column.x);
+    stream.drain_far_summaries(&mut out);
+    assert_eq!(out.len(), 1);
+    assert!(out[0].generation > generation);
+}
+
 /// Completes one issued column without a worker or a clock dependency.
 fn finish(inbox: &mut FarSummaryInbox, x: i32) -> ChunkKey {
     let column = ChunkKey {
@@ -61,4 +108,30 @@ fn deferred_results_still_obey_generation_order() {
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].generation, generation);
     assert!(inbox.is_idle());
+}
+
+#[test]
+fn cancelling_a_resource_generation_discards_deferred_and_late_results() {
+    let mut inbox = FarSummaryInbox::default();
+    let column = finish(&mut inbox, 0);
+    let late = inbox.tx.clone();
+    let generation = inbox.issue(column);
+    let mut out = Vec::new();
+    inbox.drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    inbox.cancel_pending();
+    assert!(
+        late.send(Event::Finished(Finished {
+            column,
+            generation,
+            summary: far_terrain::ColumnSummary::default().encode(),
+        }))
+        .is_err()
+    );
+    inbox.drain(&mut out);
+    assert!(out.is_empty());
+    assert!(inbox.is_idle());
+    finish(&mut inbox, 0);
+    inbox.drain(&mut out);
+    assert_eq!(out.len(), 1);
+    assert!(out[0].generation > generation);
 }

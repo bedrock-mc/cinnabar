@@ -29,6 +29,7 @@ mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
 pub mod platform_clipboard;
+pub mod player_roster;
 pub mod presentation;
 pub mod raw_text_resolution;
 pub mod render_adapter;
@@ -132,6 +133,7 @@ impl UiAuthorityTransition {
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
     pub experiences: crate::experience_session::ExperienceSession,
+    pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     last_fifo_sequence: Option<u64>,
@@ -228,6 +230,7 @@ impl UiRuntime {
             item_fuel_catalog: None,
             session_id,
             experiences: Default::default(),
+            player_roster: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
             last_local_millis: None,
@@ -650,6 +653,7 @@ impl UiRuntime {
         self.inventory_open = false;
         self.score_owner_names.clear();
         self.known_player_names.clear();
+        self.player_roster = Default::default();
         self.player_list_held = false;
         self.hud.clear();
         self.death_reason = Arc::from("");

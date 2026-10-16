@@ -77,6 +77,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         unique_id: 9,
         username: "remote".into(),
         verified: true,
+        xuid: "".into(),
         skin,
     };
 

@@ -10,6 +10,7 @@ use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
 };
+use ui_screens::player_list::RosterRow;
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -29,6 +30,8 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
     },
+    /// The held tab roster's rows.
+    TabList(Vec<RosterRow>),
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -137,6 +140,18 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::reset_settings,
     },
     State {
+        name: "play-worlds",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds,
+    },
+    State {
+        name: "play-worlds-importing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds_importing,
+    },
+    State {
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -153,6 +168,18 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || chat_background(100),
+    },
+    State {
+        name: "chat-history-width",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_history_width,
+    },
+    State {
+        name: "chat-history-width-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: chat_history_width,
     },
     State {
         name: "chat-command-background-transparent",
@@ -214,6 +241,18 @@ pub const STATES: &[State] = &[
         fixture: chat_command_targets,
     },
     State {
+        name: "tab-list-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(true),
+    },
+    State {
+        name: "tab-list-expired-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(false),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -230,6 +269,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || settings_video_option(SettingId::FullDetailDistance),
+    },
+    State {
+        name: "settings-storage",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_storage,
     },
     State {
         name: "settings-keyboard",
@@ -370,6 +415,22 @@ fn chat_command_background() -> Fixture {
     chat_completion("/", &["/give", "/help", "/say"])
 }
 
+/// Shows equal-width history backgrounds and a message that wraps inside them.
+fn chat_history_width() -> Fixture {
+    let mut fixture = chat_background(50);
+    if let Fixture::Chat { messages, .. } = &mut fixture {
+        messages.push_back(ui::ChatMessage {
+            fifo_sequence: messages.len() as u64 + 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: "A longer chat message wraps inside the history box while every visible line keeps the same background width.".into(),
+            parameters: Arc::from([]),
+        });
+    }
+    fixture
+}
+
 /// Shows completions after an anonymous draft with transparent message backgrounds.
 fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;
@@ -382,6 +443,24 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
         messages: Default::default(),
         options: Arc::new(options),
     }
+}
+
+/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
+fn tab_list_badges(visible: bool) -> Fixture {
+    Fixture::TabList(
+        [
+            ("Alex", true),
+            ("Alex", false),
+            ("Riley", false),
+            ("Steve", visible),
+            ("Zoe", false),
+        ]
+        .map(|(name, badged)| RosterRow {
+            name: Arc::from(name),
+            badged,
+        })
+        .into(),
+    )
 }
 
 /// Opens a settings category by its registered name rather than a copied index.
@@ -398,6 +477,13 @@ pub fn settings(section: &str) -> MenuView {
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
+}
+
+/// Shows Storage as a desktop host fills it, with the folder buttons.
+fn settings_storage() -> Fixture {
+    let mut view = settings(SettingSection::StorageManagement.definition().name);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    Fixture::Menu(Box::new(view))
 }
 
 /// Reveals the distance controls through the same focus scrolling as the client.

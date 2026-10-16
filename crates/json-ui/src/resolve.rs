@@ -122,7 +122,7 @@ impl<'a> Resolver<'a> {
             .get("type")
             .map(|value| substitute(value, &env, &mut missing))
             .and_then(value_string);
-        let properties = build_properties(&control, &env, false, &mut missing);
+        let properties = build_properties(&control, &env, false, &mut missing, self.catalog);
         Some((control_type, properties))
     }
 
@@ -143,7 +143,13 @@ impl<'a> Resolver<'a> {
             .and_then(value_string);
         let (factory, control_ids_consumed) =
             self.extract_factory(control, control_type.as_deref(), env);
-        let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
+        let mut properties = build_properties(
+            control,
+            env,
+            control_ids_consumed,
+            &mut missing,
+            self.catalog,
+        );
         self.resolve_anims(&mut properties, env, &control.owner_ns);
         // A grid's items and a `control_name` template resolve in this scope;
         // `control_ids` creations see only their own and captured variables.
@@ -556,11 +562,14 @@ fn scope_key(scope: &Value) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// The control's substituted properties; a paint transform survives only in catalogs that
+/// opt into it.
 fn build_properties(
     control: &RawControl,
     env: &Env,
     control_ids_consumed: bool,
     missing: &mut Vec<String>,
+    catalog: &Catalog,
 ) -> std::collections::BTreeMap<String, Value> {
     let mut properties = std::collections::BTreeMap::new();
     for (key, value) in &control.props {
@@ -571,6 +580,10 @@ fn build_properties(
             continue;
         }
         properties.insert(key.clone(), substitute(value, env, missing));
+    }
+    if !catalog.paint_transforms() {
+        properties.remove(crate::transform::TRANSFORM_PROPERTY);
+        properties.remove(crate::filter::FILTER_PROPERTY);
     }
     properties
 }

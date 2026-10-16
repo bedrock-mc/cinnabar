@@ -64,6 +64,108 @@ fn reload(cache: &mut FarTerrainCache, pos: ColumnPos, now: Instant) -> Option<C
     cache.store().summary(pos).map(Result::unwrap)
 }
 
+/// Resolves identical terrain probes under the selected resource generation.
+fn join_resources(cache: &mut FarTerrainCache, resources: [u8; 32], now: Instant) {
+    cache.begin_visit_with_resources(SERVER, 42, 0, resources);
+    for x in 0..=WORLD_PROBE_COLUMNS as i32 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    cache.sync();
+    cache.poll(now);
+    assert!(cache.namespace().is_some());
+}
+
+#[test]
+fn resource_generations_keep_separate_surface_colors_on_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let position = ColumnPos::new(100, 100);
+    let mut cache = cache(root.path());
+    join_resources(&mut cache, [1; 32], now);
+    let first = cache.namespace().unwrap();
+    cache.admit(0, position, flat(80).encode(), now);
+    cache.flush_all();
+    cache.sync();
+
+    join_resources(&mut cache, [2; 32], now);
+    assert_ne!(cache.namespace().unwrap(), first);
+    assert!(reload(&mut cache, position, now).is_none());
+    let mut green = flat(80);
+    for cell in green.cells_mut() {
+        cell.rgb = [30, 200, 70];
+    }
+    cache.admit(0, position, green.encode(), now);
+    cache.flush_all();
+    cache.sync();
+
+    join_resources(&mut cache, [1; 32], now);
+    assert_eq!(cache.namespace().unwrap(), first);
+    assert_eq!(reload(&mut cache, position, now), Some(flat(80)));
+    join_resources(&mut cache, [2; 32], now);
+    assert_eq!(reload(&mut cache, position, now), Some(green));
+}
+
+#[test]
+fn resource_generations_share_one_server_disk_quota() {
+    use far_terrain::{DiskBounds, DiskCache, DiskEvent, RegionPos, Versioned, encode_region};
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut routing = FarTerrainCache::new(FarTerrainConfig::default(), None, 0);
+    let namespaces = [1, 2, 3, 4, 5].map(|resource| {
+        join_resources(&mut routing, [resource; 32], now);
+        routing.namespace().unwrap()
+    });
+    routing.begin_visit("remote:another.example.net:19132", 42, 0);
+    routing.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    routing.sync();
+    routing.poll(now + WORLD_PROBE_TIMEOUT);
+    let other = routing.namespace().unwrap();
+    let summary = Versioned {
+        version: 1,
+        summary: flat(80).encode(),
+    };
+    let bytes = encode_region(&[(0, summary.clone())]).len() as u64;
+    let disk = DiskCache::spawn(
+        root.path().to_owned(),
+        DiskBounds {
+            server_cap_bytes: bytes * 2,
+            global_cap_bytes: bytes * 4,
+        },
+    )
+    .unwrap();
+    let region = RegionPos { x: 0, z: 0 };
+    disk.write(other, region, vec![(0, summary.clone())]);
+    for namespace in namespaces {
+        disk.write(namespace, region, vec![(0, summary.clone())]);
+    }
+    for namespace in namespaces.into_iter().chain([other]) {
+        disk.load(namespace, region);
+    }
+    disk.sync();
+    let mut retained = 0;
+    let mut other_retained = false;
+    for event in disk.events() {
+        if let DiskEvent::Loaded {
+            namespace, columns, ..
+        } = event
+        {
+            if namespace == other {
+                other_retained = !columns.is_empty();
+            } else {
+                retained += usize::from(!columns.is_empty());
+            }
+        }
+    }
+    assert_eq!(
+        retained, 2,
+        "resource switches share the destination's allowance"
+    );
+    assert!(
+        other_retained,
+        "pack generations cannot evict another server by multiplying their allowance"
+    );
+}
+
 #[test]
 fn rejoining_the_same_world_reuses_its_cache() {
     let root = tempfile::tempdir().unwrap();

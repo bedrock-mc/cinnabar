@@ -38,6 +38,7 @@ fn local_skin_selection_updates_authoritative_roster_without_replacing_identity(
                         unique_id: 7,
                         username: "signed-in".into(),
                         verified: true,
+                        xuid: "".into(),
                         skin: skin(1),
                     }]),
                 },
