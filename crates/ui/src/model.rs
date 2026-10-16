@@ -39,13 +39,18 @@ impl UiNodeId {
 /// Fixed-function blend selection for a drawn quad.
 ///
 /// `Invert` is the classic crosshair blend — src*(1-dst) + dst*(1-src) — so a
-/// white sprite reads against any background. Quads with different blends
-/// never share a draw batch.
+/// white sprite reads against any background. `Backdrop` draws no UI pixels: its geometry
+/// shows the 3-D scene processed by each vertex's [`render_api::UiBackdropPaint`], applied
+/// before any UI layer composites. `Filter` closes the filter group of the batches just
+/// before it: its geometry shows what that group drew, blurred by the vertex paint's `blur`.
+/// Quads with different blends never share a draw batch.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum UiBlendMode {
     #[default]
     Alpha,
     Invert,
+    Backdrop,
+    Filter,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -127,6 +132,17 @@ pub enum TextShadow {
     Offset64(u32),
 }
 
+/// A paint-time 2-D affine map of one node's own visual, in that node's coordinates:
+/// points relative to its bounds' top-left, in the same units as its bounds. It moves only
+/// the drawn vertices; layout, the node's clip scissor, children and input bounds stay put.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiTransform {
+    /// Column-major `[a, b, c, d]`: `x' = a x + c y + e`, `y' = b x + d y + f`.
+    pub linear: [f32; 4],
+    /// `[e, f]`.
+    pub translation: [f32; 2],
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiNode {
     id: UiNodeId,
@@ -138,6 +154,8 @@ pub struct UiNode {
     viewport_clip: Option<UiRect>,
     visual: UiVisual,
     world_projection: Option<UiWorldProjection>,
+    transform: Option<UiTransform>,
+    filter_group: Option<u32>,
 }
 
 impl UiNode {
@@ -152,7 +170,30 @@ impl UiNode {
             viewport_clip: None,
             visual: UiVisual::None,
             world_projection: None,
+            transform: None,
+            filter_group: None,
         }
+    }
+
+    /// Draws this node's own visual into filter group `group` instead of straight into its
+    /// layer; a later [`UiBlendMode::Filter`] batch composites the group.
+    pub fn with_filter_group(mut self, group: u32) -> Self {
+        self.filter_group = Some(group);
+        self
+    }
+
+    pub const fn filter_group(&self) -> Option<u32> {
+        self.filter_group
+    }
+
+    /// Moves this node's own drawn vertices by `transform`; world-projected nodes ignore it.
+    pub fn with_transform(mut self, transform: UiTransform) -> Self {
+        self.transform = Some(transform);
+        self
+    }
+
+    pub const fn transform(&self) -> Option<&UiTransform> {
+        self.transform.as_ref()
     }
 
     pub fn with_focusable(mut self, focusable: bool) -> Self {
@@ -296,6 +337,8 @@ pub struct UiFrame {
     effective_clips: BTreeMap<UiNodeId, UiRect>,
     focus_order: Box<[UiNodeId]>,
     draw_order: Box<[UiNodeId]>,
+    /// Frame units per node unit, which scales node transforms' translations.
+    scale: f32,
 }
 
 impl UiFrame {
@@ -349,6 +392,8 @@ pub struct UiDrawBatch {
     pub world_projection: bool,
     /// One model control's private depth lifetime; never the world depth buffer.
     pub isolated_depth_scope: Option<u32>,
+    /// The filter group this batch draws into, composited by a later filter batch.
+    pub filter_group: Option<u32>,
     pub index_range: Range<u32>,
 }
 
@@ -573,6 +618,7 @@ impl UiTree {
             effective_clips,
             focus_order: focus_order.into_iter().map(|(_, _, _, _, id)| id).collect(),
             draw_order: draw_order.into_boxed_slice(),
+            scale: scale.get(),
         };
         self.revision = next_revision;
         self.frame = Some(frame.clone());
@@ -693,6 +739,10 @@ impl UiTree {
                         clip,
                         projection: node.world_projection.as_ref(),
                         node: id,
+                        transform: node.transform.as_ref().map(|transform| {
+                            draw::FrameAffine::for_node(transform, bounds, frame.scale)
+                        }),
+                        filter: node.filter_group,
                     },
                     effects,
                     &mut vertices,
@@ -770,6 +820,7 @@ impl UiTree {
             effective_clips: BTreeMap::new(),
             focus_order: Box::new([]),
             draw_order: Box::new([]),
+            scale: 1.0,
         })
     }
 

@@ -574,6 +574,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 

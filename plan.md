@@ -316,6 +316,14 @@ using fixtures from the `test-support` feature. Animation unit tests use a plain
 double. Compilation and execution of this move remain unverified, and no actor
 animation parity gate closes.
 
+Finalized catalog layouts retain bounded immutable rig templates and motion-dependency plans.
+Actor-specific conditions still select geometry before lookup; variables, roots, controllers,
+poses, skin drivers and history remain private copies. Exact catalog ownership and topology
+keys prevent reuse across replacements. The shared cache admits at most 32 entries and 4 MiB
+of accounted payload; oversized or unmatched plans use complete uncached construction.
+Eight focused regressions pass. Per-actor copies, mutex contention and crowded-join gains
+remain unmeasured; no performance or parity gate closes.
+
 ## Render geometry and scene ownership
 
 - `render-model` owns CPU block-model and selection geometry, dropped-item meshes,
@@ -334,6 +342,15 @@ coverage and GPU-completion acknowledgement stay in their current owners. The lo
 vector adds transient allocation and copying; fragmented commands can still publish once per
 span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
 Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
+
+Actor endpoint matrices retain bounded GPU slots independently of draw order. Exact byte
+comparisons upload changed previous/current ranges while instance scalars still update.
+The renderer projects matching instance and receipt offsets; CPU publications stay dense
+for motion history. One CPU mirror is bounded by the existing endpoint arena, with no GPU
+budget increase. Fragmented allocations compact without changing admission. Regression
+tests pass in the focused actor-render suite (75 tests), and render crate clippy passes.
+Rendered parity and measured performance remain pending. Dense CPU publication copies
+and other matrix-cache work remain separate.
 
 ## Player interaction ownership
 
@@ -440,6 +457,30 @@ cards and label, package templates and the cosmetic cursor. It depends on `ui-en
 crates only. `client-ui` keeps authority, item-icon and container projection, scene order and
 publication, and adapts runtime state into paint frames and typed inputs. This move has not been
 compiled or executed and closes no parity gate.
+
+## Mod surface motion
+
+Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points,
+an optional opening value and an optional exit value that personal-panel surfaces ease to
+when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
+feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
+to scale about an origin and rotate their drawing and hits without changing layout,
+bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
+subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred and
+filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
+`#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
+pyramid of the post-processed scene serves every backdrop in a frame, built only while one
+is published. `cinnabar_filter` blurs a control's subtree as one image through an offscreen
+group, animatable through `#cinnabar_blur`. These are Cinnabar extensions for mod
+surfaces; server-pack JSON-UI is unchanged.
+
+Incomplete toward expressive mod menus:
+- The shared scene blur and element blur are unmeasured on the reference hardware tiers.
+- Backdrops blur only the 3-D scene: UI beneath a glass panel, including the HUD and nested
+  glass, stays sharp.
+- Exits between routes: replacing an open panel's surface swaps it at once without playing
+  the old surface's exit values.
 
 ## Extension crate ownership
 
@@ -1057,6 +1098,11 @@ these changes do not close the movement, camera, or actor parity gates.
 
 - Actor catch-up uses `simulation_clock::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
   advancement share one clock step, including server-defined interaction boxes after a stall.
+  Returning actors warm their previous tick in full-cap prefix waves on the existing pool,
+  with bounded helper launches, ordered actual charges and a serial partial-budget tail.
+  Differential and lifecycle regressions pass in the focused scheduling suite (32 tests).
+  Native crowd-turn timing,
+  first-visible-frame acceptance and measured gains remain incomplete.
   Deterministic regression coverage does not close live animation or movement acceptance.
 
 - Apple pipelined rendering keeps surface creation on the UI thread while render
@@ -1089,7 +1135,7 @@ these changes do not close the movement, camera, or actor parity gates.
 - Named schedule traces and bounded frame recordings separate main work, render
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.
-- Ordinary direct terrain draws retain CPU-selected units of at most 64 quads,
+- Ordinary direct terrain draws group retained CPU-selected units into indexed instances,
   retain unchanged section descriptors in stable GPU slots, and upload ordered
   visibility references separately after current occlusion results. Both regions
   share one storage binding. Changed sections update only their descriptor spans;
@@ -1180,6 +1226,15 @@ these changes do not close the movement, camera, or actor parity gates.
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
+- Attachments belong to individual boom rigs. Selecting first person after an
+  attached tutorial returns to the player; attaching alone does not select a
+  camera. Clear and detach release only the selected rig's attachment.
+- Server input locks commit in packet order independently of camera selection.
+  Camera, movement, jump, sneak, dismount and directional locks filter input;
+  raw movement vectors remain available and unlocking restores held controls.
+  Mount permission routing and exact attachment actor-loss behavior remain incomplete.
+  Dimension, respawn, game-mode and initialization interactions, plus the full
+  current-version aim-assist and presentation-effects audit, remain unverified.
 - Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
@@ -3090,7 +3145,9 @@ completion, and live visual acceptance. This does not close the chat parity gate
 
 The built-in Java-look chat input spans the viewport with two GUI pixels of side
 padding. Completion rows share the longest text width and sit at the replaced
-token, shifting left near the right edge. History retains its configured width.
+token, shifting left near the right edge. HUD and open-chat history use a fixed
+320 GUI-unit width, scaled by the selected GUI scale, with text wrapped inside
+full-width backgrounds.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled

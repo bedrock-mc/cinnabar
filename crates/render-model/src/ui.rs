@@ -61,6 +61,12 @@ impl UiScissor {
 pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
+/// Wire value for backdrop geometry ([`render_api::UiBackdropPaint`]): screen-space batches
+/// that replace the scene under them with its shared blurred copy and draw no UI pixels.
+pub const UI_BLEND_BACKDROP: u32 = 2;
+/// Wire value for a filter composite: screen-space geometry showing what the preceding batches
+/// of its filter group drew, blurred by its vertices' [`render_api::UiBackdropPaint`].
+pub const UI_BLEND_FILTER: u32 = 3;
 /// Elliptical gradient: UV is the centered radius coordinate, tint is the inner
 /// straight RGBA stop, and overlay_color is the outer straight RGBA stop.
 pub const UI_STYLE_RADIAL_GRADIENT: u32 = 1;
@@ -97,8 +103,9 @@ pub struct UiRenderBatch {
     pub scissor: UiScissor,
     pub first_index: u32,
     pub index_count: u32,
-    /// One of [`UI_BLEND_ALPHA`] or [`UI_BLEND_INVERT`]; any other value is
-    /// rejected at publication.
+    /// One of [`UI_BLEND_ALPHA`], [`UI_BLEND_INVERT`], [`UI_BLEND_BACKDROP`] or
+    /// [`UI_BLEND_FILTER`]; any other value, or a backdrop or filter with depth or world
+    /// projection, is rejected at publication.
     pub blend_mode: u32,
     /// 0 for Always/no comparison, 1 for reverse-Z world-depth testing.
     pub depth_test: u32,
@@ -107,6 +114,9 @@ pub struct UiRenderBatch {
     pub world_projection: u32,
     /// An ordered screen-space model's depth lifetime, separate from world depth.
     pub isolated_depth_scope: Option<u32>,
+    /// The filter group an alpha batch draws into instead of its layer; the next
+    /// [`UI_BLEND_FILTER`] batch composites the group.
+    pub filter_group: Option<u32>,
 }
 
 impl UiRenderBatch {
@@ -128,7 +138,15 @@ impl UiRenderBatch {
             depth_write: 0,
             world_projection: 0,
             isolated_depth_scope: None,
+            filter_group: None,
         }
+    }
+
+    /// Draws this batch into filter group `group`; world-projected batches cannot filter.
+    #[must_use]
+    pub const fn with_filter_group(mut self, group: Option<u32>) -> Self {
+        self.filter_group = group;
+        self
     }
 
     #[must_use]
@@ -476,7 +494,14 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
         if batch.texture_page as usize >= input.textures.pages().len() {
             return Err(UiRenderRejectReason::TexturePageOutOfBounds { batch: batch_index });
         }
-        if batch.blend_mode > UI_BLEND_INVERT {
+        let screen_only = matches!(batch.blend_mode, UI_BLEND_BACKDROP | UI_BLEND_FILTER)
+            || batch.filter_group.is_some();
+        if batch.blend_mode > UI_BLEND_FILTER
+            || (batch.filter_group.is_some() && batch.blend_mode != UI_BLEND_ALPHA)
+            || (screen_only && batch.world_projection != 0)
+            || (matches!(batch.blend_mode, UI_BLEND_BACKDROP | UI_BLEND_FILTER)
+                && (batch.depth_test != 0 || batch.depth_write != 0))
+        {
             return Err(UiRenderRejectReason::UnsupportedBlendMode { batch: batch_index });
         }
         if batch.depth_test > 1 {

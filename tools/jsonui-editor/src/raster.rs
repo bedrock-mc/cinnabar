@@ -382,6 +382,9 @@ fn blend_into(dst: &mut [u8; 4], texel: [u8; 4], tint: [u8; 4], blend: UiBlendMo
             }
             dst[3] = dst[3].max(alpha as u8);
         }
+        // The editor has no 3-D scene for a backdrop to process, and draws filtered groups
+        // unblurred.
+        UiBlendMode::Backdrop | UiBlendMode::Filter => {}
     }
 }
 

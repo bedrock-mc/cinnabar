@@ -17,6 +17,7 @@ test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test
 tracy = ["oreui/tracy"]
 
 [dependencies]
+uuid.workspace = true
 protocol-ids = { path = "../protocol-ids" }
 pack-json = { path = "../pack-json" }
 env-compat = { path = "../env-compat" }
