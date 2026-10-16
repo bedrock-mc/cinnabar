@@ -6,7 +6,7 @@ use bevy::{ecs::system::SystemState, prelude::World};
 /// Publishes a prepared atmosphere through the production identity guard in a minimal world.
 fn publish(world: &mut World, atmosphere: render_scene::AtmosphereTextureAssets) {
     let mut state = SystemState::<EnvironmentPublication<'_>>::new(world);
-    state.get_mut(world).publish(PreparedEnvironment {
+    state.get_mut(world).unwrap().publish(PreparedEnvironment {
         atmosphere: Some(PreparedAtmosphere {
             atmosphere,
             weather: Default::default(),
