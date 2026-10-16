@@ -106,3 +106,15 @@ fn indexed_pages_bound_both_regions_and_keep_the_original_storage_slot_count() {
         );
     }
 }
+
+#[test]
+fn hidden_units_reject_valid_quad_addresses() {
+    let mut unit = TerrainUnit::build(17..20, 3, [[0; 3], [16; 3]], None, 1)
+        .next()
+        .unwrap()
+        .descriptor();
+    unit.hidden = 1;
+    assert_eq!(unit.quad(0), None);
+    unit.hidden = 0;
+    assert_eq!(unit.quad(0), Some((17, 0)));
+}

@@ -1770,6 +1770,14 @@ not close a parity or visual acceptance gate.
 - Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
   hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
 
+- An opt-in same-frame path (`CINNABAR_TERRAIN_VISIBILITY=1`) draws a bounded near-first
+  solid depth subset, builds conservative Hi-Z verdicts, and writes unit visibility flags
+  on the GPU. Ordinary color draws keep their original order; strict depth rejection keeps
+  ties and current-frame depth handles disocclusion. Missing depth or pipelines clears the
+  flags. Metal indirect draws remain disabled. Native raster fixtures cover page tails,
+  camera changes and one-sample/2× MSAA output equality. Performance and presentation
+  acceptance remain incomplete; this path does not change the default.
+
 ## Bounded lighting CPU work
 
 - Retained-support early exits and section packing preserve light/provenance output;

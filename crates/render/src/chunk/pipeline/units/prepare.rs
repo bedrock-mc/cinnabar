@@ -129,6 +129,22 @@ pub(in crate::chunk) fn prepare_units(
                     (count.div_ceil(group) * group - count) * u64::from(QUADS_PER_UNIT);
             }
         }
+        if let Some(order) = occlusion.as_ref().and_then(|s| s.occluder_order(entity)) {
+            let uploaded = prepare_occluders(
+                view,
+                order,
+                capacity,
+                &device,
+                &queue,
+                &cache,
+                staging.as_deref(),
+            );
+            stats.descriptor_bytes_uploaded += uploaded.descriptors;
+            stats.reference_bytes_uploaded += uploaded.references;
+            stats.list_bytes_uploaded += uploaded.descriptors + uploaded.references;
+            stats.draws += view.occluders.pages.len() as u64;
+            stats.occluder_units += view.occluders.fallback.len() as u64;
+        }
         view.stale = false;
         view.facing = facing;
     }
@@ -139,10 +155,46 @@ pub(in crate::chunk) fn prepare_units(
         phase_items = stats.phase_items,
         draws = stats.draws,
         units = stats.units,
+        occluder_units = stats.occluder_units,
         padded_quads = stats.padded_quads,
         list_bytes_uploaded = stats.list_bytes_uploaded,
         descriptor_bytes_uploaded = stats.descriptor_bytes_uploaded,
         reference_bytes_uploaded = stats.reference_bytes_uploaded,
     )
     .entered();
+}
+
+/// Keeps a bounded, near-first depth-only subset separate from the original color ordering.
+fn prepare_occluders(
+    view: &mut super::UnitView,
+    order: &[(Entity, MainEntity)],
+    capacity: usize,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    cache: &PipelineCache,
+    staging: Option<&TerrainUploadStaging>,
+) -> super::buffers::Uploaded {
+    const MAX_OCCLUDER_UNITS: usize = 1024;
+    let stream = &mut view.occluders;
+    stream.indexed = false;
+    stream.fallback.clear();
+    for &(entity, _) in order {
+        let Some(&index) = view.sources.lookup[0].get(&entity) else {
+            continue;
+        };
+        let section = &view.sources.streams[0][index];
+        let facing = super::descriptors::facing(section.key, view.camera);
+        stream.fallback.extend(
+            section
+                .units
+                .iter()
+                .filter(|u| super::descriptors::faces(u, facing))
+                .map(TerrainUnit::descriptor)
+                .take(MAX_OCCLUDER_UNITS - stream.fallback.len()),
+        );
+        if stream.fallback.len() == MAX_OCCLUDER_UNITS {
+            break;
+        }
+    }
+    super::buffers::upload(stream, capacity, device, queue, cache, staging)
 }

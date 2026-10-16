@@ -20,6 +20,7 @@ mod prepare;
 mod slots;
 #[cfg(test)]
 mod tests;
+pub(in crate::chunk) mod unit_mask;
 
 use bevy::{
     camera::{primitives::Frustum, visibility::RenderLayers},
@@ -170,11 +171,15 @@ impl GpuCullQueue<'_, '_> {
             .direct_state
             .as_deref()
             .is_some_and(|state| state.wants_verdict(entity, view, msaa));
-        Some(
-            self.direct
-                .as_deref_mut()?
-                .begin(entity, view, solid, wants),
-        )
+        let same_frame = self.direct_state.as_deref().is_some_and(|s| s.same_frame());
+        let routed = self
+            .direct
+            .as_deref_mut()?
+            .begin(entity, view, solid, wants);
+        if same_frame {
+            self.direct.as_deref_mut()?.force_depth_pass();
+        }
+        Some(routed && !same_frame)
     }
 
     /// The selected direct view's frame; `None` when the path is not installed.

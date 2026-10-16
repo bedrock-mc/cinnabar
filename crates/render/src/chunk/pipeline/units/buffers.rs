@@ -7,7 +7,7 @@ use crate::upload_staging::TerrainUploadStaging;
 
 /// One binding contains both stable geometry slots and the ordered visibility references.
 pub(super) struct UnitPage {
-    buffer: Buffer,
+    pub(super) buffer: Buffer,
     pub(super) group: BindGroup,
     pub(super) count: u32,
     layout: IndexedUnitPage,

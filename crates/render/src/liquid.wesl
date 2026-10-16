@@ -200,7 +200,7 @@ fn vertex_unit(
     let slot = terrain_units[references + unit_index / 4u][unit_index % 4u];
     let unit = terrain_units[1u + slot];
     let quad = (vertex_index / 4u) % TERRAIN_UNIT_QUADS;
-    if (quad >= unit.y) {
+    if (quad >= unit.y || unit.w != 0u) {
         var invisible: VertexOutput;
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
         return invisible;

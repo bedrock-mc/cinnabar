@@ -7,9 +7,17 @@ pub(in crate::chunk) type DrawTerrainUnits<const STREAM: usize> = (
     DrawUnits<STREAM>,
 );
 
-pub(in crate::chunk) struct DrawUnits<const STREAM: usize>;
+pub(in crate::chunk) type DrawTerrainOccluders = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawUnits<0, true>,
+);
 
-impl<P: PhaseItem, const STREAM: usize> RenderCommand<P> for DrawUnits<STREAM> {
+pub(in crate::chunk) struct DrawUnits<const STREAM: usize, const OCCLUDERS: bool = false>;
+
+impl<P: PhaseItem, const STREAM: usize, const OCCLUDERS: bool> RenderCommand<P>
+    for DrawUnits<STREAM, OCCLUDERS>
+{
     type Param = (
         SRes<ChunkGpuArena>,
         SRes<TerrainUnitBatches>,
@@ -48,7 +56,11 @@ impl<P: PhaseItem, const STREAM: usize> RenderCommand<P> for DrawUnits<STREAM> {
             move |pass| {
                 pass.set_bind_group(0, group, &[offset.offset]);
                 pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
-                for page in &view.streams[STREAM].pages {
+                for page in if OCCLUDERS {
+                    &view.occluders.pages
+                } else {
+                    &view.streams[STREAM].pages
+                } {
                     pass.set_bind_group(2, &page.group, &[]);
                     pass.draw_indexed(
                         0..super::index_count(),
