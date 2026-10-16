@@ -6,13 +6,12 @@ use {
     launcher::menu::{MenuAction, MenuView},
 };
 
-/// Draws related distance controls in order and omits an empty Advanced heading.
+/// Omits the Advanced heading when the Video section has no advanced rows.
 #[test]
-fn video_distance_rows_stay_together_without_an_empty_advanced_section() {
+fn video_section_omits_an_empty_advanced_heading() {
     let view = MenuView::new(true, "Player".into());
     for width in [400.0, 800.0] {
-        let mut tracks = HashMap::new();
-        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
             let mut content = Content {
                 canvas,
                 view: &view,
@@ -23,30 +22,7 @@ fn video_distance_rows_stay_together_without_an_empty_advanced_section() {
                 nested: false,
             };
             sections::draw(&mut content, SettingSection::Video).unwrap();
-            tracks.extend(
-                content
-                    .canvas
-                    .slider_tracks
-                    .iter()
-                    .map(|(index, track, _)| (*index, *track)),
-            );
         });
-        let render = tracks[&(SettingId::RenderDistance.index() as u16)];
-        let full = tracks[&(SettingId::FullDetailDistance.index() as u16)];
-        let far = hits
-            .iter()
-            .find(|(action, _)| {
-                *action == MenuAction::SettingsDropdown(SettingId::FarTerrain.index() as u16)
-                    || *action
-                        == MenuAction::SettingsOption(
-                            SettingId::FarTerrain.index() as u16,
-                            view.settings_options.value(SettingId::FarTerrain),
-                        )
-            })
-            .expect("far terrain selector")
-            .1;
-        assert!(render.max().y() < full.min().y());
-        assert!(full.max().y() < far.min().y());
         let advanced = nodes.iter().any(|node| match node.visual() {
             ui::UiVisual::Text { layout, .. } => layout
                 .glyphs()

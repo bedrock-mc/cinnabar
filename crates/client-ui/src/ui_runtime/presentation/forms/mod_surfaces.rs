@@ -67,6 +67,18 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_mod_screens(input, page);
     }
 
+    /// Applies the Screen animations setting to mod surface motion. It reads the settings
+    /// snapshot, which gameplay publishes while the launcher menu is hidden.
+    pub(in super::super) fn configure_mod_ui_motion(&mut self) {
+        let animations = self
+            .screens
+            .chat
+            .settings
+            .options()
+            .value(SettingId::ScreenAnimations);
+        self.screens.mod_ui.configure_motion(animations != 0);
+    }
+
     /// All personal HUD content follows gameplay focus and the player's HUD preference.
     pub(in super::super) fn mod_hud_visible(
         &self,

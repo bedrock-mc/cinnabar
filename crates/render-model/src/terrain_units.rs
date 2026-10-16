@@ -2,8 +2,11 @@
 
 use std::ops::Range;
 
-/// Quads covered by one indexed instance, including its unused tail.
-pub const QUADS_PER_UNIT: u32 = 64;
+/// Quads covered by one terrain unit, including its unused tail.
+pub const QUADS_PER_UNIT: u32 = 32;
+
+/// Consecutive units drawn by one indexed instance, in their original primitive order.
+pub const UNITS_PER_INSTANCE: u32 = 2;
 
 /// An allocation's contiguous stream fragment. Bounds are conservative section-local bounds;
 /// visibility must also validate the allocation generation before using a retained descriptor.
@@ -125,9 +128,10 @@ impl IndexedUnitPage {
             + self.capacity.div_ceil(4) as u64 * size_of::<VisibleTerrainUnit>() as u64
     }
 
-    /// The shader locates references through this header before fetching a descriptor.
-    pub fn header(self) -> [u32; 4] {
-        [self.capacity as u32 + 1, 0, 0, 0]
+    /// Locates references and bounds the final instance before it fetches a padded unit.
+    pub fn header(self, reference_count: u32) -> [u32; 4] {
+        assert!(reference_count as usize <= self.capacity);
+        [self.capacity as u32 + 1, reference_count, 0, 0]
     }
 }
 

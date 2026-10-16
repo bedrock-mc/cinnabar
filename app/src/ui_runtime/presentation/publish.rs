@@ -451,8 +451,8 @@ pub(crate) fn prepare_ui_runtime(
             for tag in &mut tags {
                 tag.set_cinnabar_badge(
                     authority
-                        .actor_player_xuid(tag.runtime_id())
-                        .is_some_and(|xuid| runtime.player_roster.has_badge(xuid)),
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
                 );
             }
             tags

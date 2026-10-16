@@ -88,6 +88,8 @@ impl AimAssistFrustum {
             if score.is_finite() && selected.is_none_or(|current| score < current.score) {
                 selected = Some(AimAssistTarget {
                     kind: candidate.kind,
+                    minimum: candidate.minimum,
+                    maximum: candidate.maximum,
                     point: candidate.point,
                     direction: delta.normalize(),
                     score,
@@ -101,7 +103,7 @@ impl AimAssistFrustum {
 /// Stable identity retained from the world candidate; no string copies are needed per frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
-    Actor(u64),
+    Actor(actor_animation::ActorLifetimeId),
     Block { position: [i32; 3], face: u8 },
 }
 
@@ -120,9 +122,30 @@ pub struct AimAssistCandidate {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AimAssistTarget {
     pub kind: TargetKind,
+    /// Bounds of the selected candidate, retained with its hit point.
+    pub minimum: Vec3,
+    pub maximum: Vec3,
     pub point: Vec3,
     pub direction: Vec3,
     pub score: f32,
+}
+
+impl AimAssistTarget {
+    /// Checks the selected box against an inclusive pick sphere without moving its hit point.
+    #[must_use]
+    pub fn within_pick_range(&self, origin: Vec3, reach: f32) -> bool {
+        if !reach.is_finite()
+            || reach < 0.0
+            || !origin.is_finite()
+            || !self.minimum.is_finite()
+            || !self.maximum.is_finite()
+            || self.minimum.cmpgt(self.maximum).any()
+        {
+            return false;
+        }
+        let [x, y, z] = (origin - origin.clamp(self.minimum, self.maximum)).to_array();
+        z * z + y * y + x * x <= reach * reach
+    }
 }
 
 /// Larger priorities reduce a bounded weight; angle ranking uses vanilla's cubic approximation.

@@ -51,12 +51,8 @@ pub(crate) fn ending(observed: &Observed, panicked: bool, exit_code: Option<u32>
     if let Some(failure) = &observed.failure {
         return Ending::Failed(failure.clone());
     }
-    if panicked {
-        return if clean_after_panic(observed.exit, exit_code) {
-            Ending::Clean
-        } else {
-            Ending::Panicked
-        };
+    if panicked && panic_exit(observed.exit, exit_code) {
+        return Ending::Panicked;
     }
     if observed.exit.is_some() {
         return Ending::Clean;
@@ -67,15 +63,15 @@ pub(crate) fn ending(observed: &Observed, panicked: bool, exit_code: Option<u32>
     }
 }
 
-/// After a panic only a clean exit code is deliberate: the runtime ends a process whose main
-/// thread panicked with [`protocol::AT_EXIT`] and code 101, and a teardown the watchdog cuts
-/// short announces 101 too.
-fn clean_after_panic(exit: Option<i32>, exit_code: Option<u32>) -> bool {
-    let code = match exit {
-        None | Some(protocol::AT_EXIT) => exit_code,
-        Some(announced) => u32::try_from(announced).ok(),
-    };
-    code.is_some_and(|code| CLEAN_EXIT_CODES.contains(&code))
+/// A saved panic explains termination only when the final evidence matches a panic exit.
+/// Unix's return hook has no exit status, while Windows can verify the runtime's code 101.
+fn panic_exit(exit: Option<i32>, exit_code: Option<u32>) -> bool {
+    if exit_code.is_some_and(|code| code != u32::from(protocol::PANIC_EXIT_CODE)) {
+        return false;
+    }
+    exit == Some(protocol::AT_EXIT)
+        || exit == Some(i32::from(protocol::PANIC_EXIT_CODE))
+        || (exit.is_none() && exit_code.is_some())
 }
 
 /// Builds the report for an `ending` that needs a new folder at `now_ms`; `None` for clean,
@@ -270,6 +266,16 @@ mod tests {
         observed.exit = None;
         assert_eq!(ending(&observed, true, Some(0)), Ending::Clean);
         assert_eq!(report(&observed, &Ending::Panicked, 5_000), None);
+    }
+
+    #[test]
+    fn diagnostics_audit_recovered_panics_do_not_hide_later_terminations() {
+        let mut observed = introduced();
+        for code in [None, Some(9), Some(137), Some(0xC000_0409)] {
+            assert_eq!(ending(&observed, true, code), Ending::Abort(code));
+        }
+        observed.exit = Some(protocol::SELF_REPORTED);
+        assert_eq!(ending(&observed, true, None), Ending::Clean);
     }
 
     #[test]

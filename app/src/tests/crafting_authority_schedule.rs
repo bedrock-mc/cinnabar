@@ -94,6 +94,8 @@ fn app() -> App {
     .init_resource::<LocalPhysicsController>()
     .init_resource::<LocalMovementEffectTimeline>()
     .init_resource::<LocalMovementSpeedAuthority>()
+    .init_resource::<client_interaction::movement::LocomotionState>()
+    .init_resource::<client_presentation::camera::look::LookSmoother>()
     .init_resource::<Time<Real>>()
     .init_resource::<render_scene::ChunkUploadBudget>()
     .init_resource::<CameraSettingsAuthority>()

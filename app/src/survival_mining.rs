@@ -1,201 +1,24 @@
-//! Hold-to-mine for every game mode: one destroy state-machine step per completed
-//! physics tick. Creative and zero-hardness destroys complete on their start tick, and a
-//! press between ticks removes the block in its own frame.
-//!
-//! Completion, timed from the provisional destroy table, removes the block locally
-//! as vanilla's local destroy does; inbound block updates stay authoritative and
-//! replace the prediction. Unknown blocks keep cracking until the server breaks them.
+//! Builds a mining target from the current interaction facts for ordered attack admission.
 
-use crate::runtime::network::resource_packs::PackApplication;
-use bevy::{
-    ecs::system::SystemParam,
-    prelude::{Query, Real, Res, ResMut, Time, Window, With},
-    window::PrimaryWindow,
+use crate::interaction_authority::observe_block;
+use client_interaction::mining::hand_interaction_selection;
+use client_world::game_mode_capabilities::GameModeCapabilities;
+use gameplay::{
+    interaction_authority::within_pick_range,
+    mining::{creative_reach, protocol_input_mode, survival_reach},
+    survival_mining::{
+        DestroyTarget, ToolWear, destroys_in_creative, exempt_from_airborne_penalty, eyes_in_water,
+        percent_roll, tool_break_damage, unbreaking_keeps_damage,
+    },
 };
-use client_interaction::survival_mining::SurvivalMiningRuntime;
-use client_runtime::network::NetworkHandle;
-use semantic_input::Action;
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
 
-use client_shell::ui_resources::UiRuntimeResource;
-use client_world::game_mode_capabilities::GameModeCapabilities;
-use {
-    crate::{interaction_authority::observe_block, runtime::world::ClientWorld},
-    client_interaction::{
-        melee::{MeleeRuntime, SwingTracker},
-        mining::hand_interaction_selection,
-        movement::{
-            LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
-            PhysicsCollisionRegistries,
-        },
-    },
-    client_presentation::local_player::InteractionOriginSnapshot,
-    client_state::SemanticInputSnapshot,
-    gameplay::{
-        interaction_authority::within_pick_range,
-        melee::swing_duration,
-        mining::{creative_reach, protocol_input_mode, survival_reach},
-    },
-};
-
-use gameplay::survival_mining::{
-    BlockBreakingAuthority, DestroyInput, DestroyTarget, ToolWear, blocked_mining_reason,
-    destroys_in_creative, exempt_from_airborne_penalty, eyes_in_water, mining_active, percent_roll,
-    tool_break_damage, unbreaking_keeps_damage,
-};
-
-#[derive(SystemParam)]
-pub(crate) struct SurvivalMiningContext<'w, 's> {
-    input: Res<'w, SemanticInputSnapshot>,
-    origin: Res<'w, InteractionOriginSnapshot>,
-    ui: Res<'w, UiRuntimeResource>,
-    focus: Res<'w, client_state::ScreenFocus>,
-    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    client_world: ResMut<'w, ClientWorld>,
-    collisions: Res<'w, PhysicsCollisionRegistries>,
-    effects: Res<'w, LocalMovementEffectTimeline>,
-    physics: Option<Res<'w, LocalPhysicsController>>,
-    melee: Res<'w, MeleeRuntime>,
-    network: Res<'w, NetworkHandle<PackApplication>>,
-    time: Res<'w, Time<Real>>,
-    block_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
-}
-
-/// Runs after the committed world poll and before the movement flush.
-pub(crate) fn produce_survival_mining(
-    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    mut context: SurvivalMiningContext,
-    mut runtime: ResMut<SurvivalMiningRuntime>,
-    mut swings: ResMut<SwingTracker>,
-    mut movement: ResMut<MovementTicker>,
-) {
-    swings.sync_ticks_for_item(
-        movement.interaction_authority_identity(),
-        movement.completed_tick(),
-        &context.effects,
-        crate::melee::selected_attack_timing(&player_runtime, &context.client_world)
-            .and_then(|timing| timing.swing_duration_ticks),
-    );
-
-    // Wire sequencing only, defaulted to server-authoritative when the server
-    // never negotiated it. This decides HOW a break travels, never WHETHER one
-    // may happen; the capability gate below owns that.
-    let authority = player_runtime
-        .facts
-        .server_authoritative_block_breaking()
-        .map(BlockBreakingAuthority::from_negotiation);
-    let caps = player_runtime.facts.game_mode_capabilities();
-    let focused =
-        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
-    let attack = context.input.phase(Action::Attack);
-    let snapshot = context.input.snapshot();
-    let snapshot_present = snapshot.is_some();
-    let actor_in_front = context.melee.actor_in_front();
-    let active = mining_active(caps, focused, snapshot_present);
-    let mining_input =
-        runtime.observe_attack_input(active, attack.pressed, attack.held, actor_in_front);
-    let target = match snapshot.filter(|_| active) {
-        Some(input) => {
-            mining_input.then(|| {
-                // An actor in front owns the press; the block behind it is not a target.
-                (!actor_in_front)
-                    .then(|| {
-                        observe_destroy_target(
-                            &player_runtime,
-                            &context,
-                            caps,
-                            input.input_mode,
-                            (input.authority_generation, input.frame_sequence),
-                            movement.interaction_authority_identity().1,
-                        )
-                    })
-                    .flatten()
-            })
-        }
-        None => None,
-    };
-    if (attack.pressed || attack.held)
-        && let Some(reason) = blocked_mining_reason(
-            caps,
-            focused,
-            snapshot_present,
-            actor_in_front,
-            matches!(target, Some(Some(_))),
-        )
-    {
-        let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-        runtime.log_blocked_mining(now, reason, caps, authority);
-    }
-    let input = target.as_ref().map_or(DestroyInput::Released, |target| {
-        DestroyInput::Held(target.as_ref())
-    });
-    let local_runtime_id = context
-        .client_world
-        .stream
-        .as_ref()
-        .map(|stream| stream.local_player_runtime_id());
-    let network = &context.network;
-    let client_world = &mut context.client_world;
-    let completed_tick = movement.completed_tick();
-    let authority = authority.unwrap_or(BlockBreakingAuthority::Server);
-    let mut swing = |tick| {
-        if let Some(local_runtime_id) = local_runtime_id
-            && swings.try_swing(
-                tick,
-                swing_duration(context.effects.mining_tick(tick, completed_tick).0),
-            )
-        {
-            let _ = network.send_inventory_packet(protocol::swing_arm_packet(
-                local_runtime_id,
-                protocol::SwingSource::Mine,
-            ));
-        }
-    };
-    let mut predict_break = |position| {
-        if let Some(stream) = client_world.stream.as_mut() {
-            let air = stream.air_block_id();
-            stream.predict_block(position, 0, air);
-        }
-    };
-    runtime.break_on_press(&movement, input, authority, &mut swing, &mut predict_break);
-    let unsent = runtime.step_ticks(
-        &mut movement,
-        input,
-        authority,
-        &mut swing,
-        |slot, damage| {
-            player_runtime
-                .inventory
-                .ledger_mut()
-                .begin_mining_request(slot, damage)
-        },
-        &mut predict_break,
-    );
-    for request_id in unsent {
-        player_runtime
-            .inventory
-            .ledger_mut()
-            .cancel_mining_request(request_id);
-    }
-    for cue in runtime.take_break_cues() {
-        let gameplay::survival_mining::BlockBreakCue::Break {
-            position,
-            block_runtime_id,
-        } = cue;
-        context
-            .block_cues
-            .write(client_audio::audio::LocalBlockCue::Break {
-                position,
-                block_runtime_id,
-            });
-    }
-}
-
-fn observe_destroy_target(
+/// Freezes the destroy facts used when the shared queue admits a block press.
+pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
-    context: &SurvivalMiningContext,
+    context: &crate::melee::MeleeContext,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),

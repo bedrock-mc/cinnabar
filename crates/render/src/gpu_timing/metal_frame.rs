@@ -1,13 +1,11 @@
-//! Metal whole-frame GPU time comes from two empty marker command buffers that open and close the
-//! render graph's submission. Metal stamps an empty buffer only once every earlier buffer in its
-//! queue has finished, so the span runs from the later of submission and the end of earlier work
-//! to the end of the frame's work. Completion latency stays a separate CPU observation that also
-//! includes queueing and callback delivery by a device poll.
+//! Retained Metal markers bracket the graph's submissions with native host timestamps.
+//! Completion latency remains a separate CPU observation including callback delivery by a poll.
 
 use super::{
     health::QueryHealth,
     readback::{ReadbackRing, SLOTS},
 };
+use crate::input_pacing::InputPacer;
 use bevy::{
     prelude::*,
     render::{
@@ -95,6 +93,7 @@ struct FrameSlot {
     started: Option<Instant>,
     begin: Option<Marker>,
     end: Option<Marker>,
+    submission: Option<(InputPacer, u64)>,
 }
 
 impl FrameSlot {
@@ -128,6 +127,7 @@ impl Default for MetalFrames {
                 started: None,
                 begin: None,
                 end: None,
+                submission: None,
             }),
             recording: None,
             health: QueryHealth::requested("metal_frame"),
@@ -151,6 +151,17 @@ impl MetalFrames {
             let mut frame = GpuFrameTimes::completion_latency(Duration::from_nanos(nanos));
             if let Some((begin, end)) = execution {
                 frame = frame.with_frame_span(begin, end);
+                if let Some((pacer, submission)) = slot.submission.take()
+                    && end >= begin
+                    && begin != 0
+                    && let Some(completed) = completed_at(
+                        host_nanos(objc2_quartz_core::CACurrentMediaTime()),
+                        Instant::now(),
+                        end,
+                    )
+                {
+                    pacer.gpu_completed(submission, completed, Duration::from_nanos(end - begin));
+                }
             }
             if let Some(health) = &mut self.health {
                 health.completion_latency();
@@ -180,17 +191,28 @@ impl MetalFrames {
     }
 
     /// Retains a completion callback for submissions already issued, with no GPU wait.
-    fn submit(&mut self, queue: &RenderQueue) {
+    fn submit(&mut self, queue: &RenderQueue, pacer: Option<&InputPacer>) {
+        // Frames skipped by the timing ring still contribute work to the queue prediction.
+        let submission = pacer.map(|pacer| (pacer.clone(), pacer.gpu_submitted()));
         let Some(slot) = self.recording.take() else {
             return;
         };
         let started = self.slots[slot].started.take().unwrap_or_else(Instant::now);
+        self.slots[slot].submission = submission;
         let latency = self.slots[slot].latency.clone();
         crate::device_poll::on_frame_complete(queue, move || {
             complete(&latency, started, Instant::now());
         });
         self.ring.submit(slot);
     }
+}
+
+/// Maps a completed Metal timestamp from mach host seconds to the caller's monotonic clock.
+fn completed_at(host_now: u64, now: Instant, end: u64) -> Option<Instant> {
+    if end == 0 || end > host_now {
+        return None;
+    }
+    now.checked_sub(Duration::from_nanos(host_now - end))
 }
 
 /// Publishes a callback receipt interval while reserving the pending sentinel.
@@ -244,11 +266,11 @@ fn open_frame(
     mut pending: ResMut<PendingCommandBuffers>,
 ) {
     frames.begin(|frame| profiler.record_gpu_frame(frame));
-    if let Some(slot) = frames.recording()
+    if frames.recording.is_some()
         && let Some((buffer, marker)) = Marker::new(&device, "gpu frame begin")
     {
         pending.push([buffer]);
-        slot.begin = Some(marker);
+        frames.recording().unwrap().begin = Some(marker);
     }
 }
 
@@ -264,13 +286,17 @@ fn close_frame(
     slot.started = Some(Instant::now());
     if let Some((buffer, marker)) = Marker::new(&device, "gpu frame end") {
         pending.push([buffer]);
-        slot.end = Some(marker);
+        frames.recording().unwrap().end = Some(marker);
     }
 }
 
 /// Requests completion after all frame submissions, before the render world's existing poll.
-fn end_frame(mut frames: ResMut<MetalFrames>, queue: Res<RenderQueue>) {
-    frames.submit(&queue);
+fn end_frame(
+    mut frames: ResMut<MetalFrames>,
+    queue: Res<RenderQueue>,
+    pacer: Option<Res<InputPacer>>,
+) {
+    frames.submit(&queue, pacer.as_deref());
 }
 
 #[cfg(test)]

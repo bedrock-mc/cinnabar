@@ -6,7 +6,7 @@ use json_ui::{DataSource, Scalar, ViewState};
 use serde_json::json;
 use ui::mod_panel::{Control, Panel, Theme};
 
-use super::widgets::Palette;
+use super::{transitions::SurfaceTransitions, widgets::Palette};
 
 const FEEDBACK_SECONDS: f64 = 0.10;
 const SCROLL_SECONDS: f64 = 0.14;
@@ -32,10 +32,22 @@ impl Tween {
         true
     }
 
-    /// An out-cubic sample with a finite end, without frame-rate-dependent integration.
+    /// An out-cubic sample with a finite end, without frame-rate-dependent integration; a zero
+    /// duration shows the target at once.
     fn sample(self, now: f64) -> f64 {
-        let t = ((now - self.began) / self.duration).clamp(0.0, 1.0);
+        let t = if self.duration > 0.0 {
+            ((now - self.began) / self.duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.from + (self.to - self.from) * (1.0 - (1.0 - t).powi(3))
+    }
+
+    /// Jumps to the target, reporting whether the value displayed at `now` changed.
+    fn settle(&mut self, now: f64) -> bool {
+        let moved = self.sample(now) != self.to;
+        self.from = self.to;
+        moved
     }
 
     fn active(self, now: f64) -> bool {
@@ -58,14 +70,19 @@ pub(super) struct PanelMotion {
     toggles: HashMap<usize, Tween>,
     hover: HashMap<usize, Tween>,
     scrolls: HashMap<String, Tween>,
+    /// Authored surface bindings easing toward their latest values.
+    pub(super) transitions: SurfaceTransitions,
 }
 
 impl PanelMotion {
-    /// Reports whether clearing motion would leave an intermediate toggle or hover highlight.
+    /// Reports whether clearing motion would leave an intermediate toggle, hover highlight or
+    /// transitioned binding.
     pub(super) fn needs_feedback_reset(&self) -> bool {
-        self.toggles
-            .values()
-            .any(|tween| tween.sample(self.now) != tween.to)
+        self.transitions.active()
+            || self
+                .toggles
+                .values()
+                .any(|tween| tween.sample(self.now) != tween.to)
             || self
                 .hover
                 .values()
@@ -99,13 +116,15 @@ impl PanelMotion {
         self.scrolls.remove(key);
     }
 
-    /// Samples all current feedback once and reports whether visible values moved.
+    /// Samples all current feedback once and reports whether visible values moved. Without
+    /// `animate`, feedback and pending wheel motion reach their targets at once.
     pub(super) fn advance(
         &mut self,
         panel: &Panel,
         view: &mut ViewState,
         hovered: Option<usize>,
         now: f64,
+        animate: bool,
     ) -> bool {
         if !now.is_finite() {
             return false;
@@ -114,6 +133,17 @@ impl PanelMotion {
         self.now = now.max(previous);
         let now = self.now;
         let mut changed = false;
+        let feedback = if animate { FEEDBACK_SECONDS } else { 0.0 };
+        if !animate {
+            for tween in self
+                .toggles
+                .values_mut()
+                .chain(self.hover.values_mut())
+                .chain(self.scrolls.values_mut())
+            {
+                changed |= tween.settle(now);
+            }
+        }
         for (index, control) in panel.controls.iter().enumerate() {
             if let Control::Toggle { value, .. } = control {
                 let value = f64::from(u8::from(*value));
@@ -121,7 +151,7 @@ impl PanelMotion {
                     .toggles
                     .entry(index)
                     .or_insert_with(|| Tween::still(value));
-                changed |= tween.retarget(value, now, FEEDBACK_SECONDS);
+                changed |= tween.retarget(value, now, feedback);
                 changed |= tween.sample(previous) != tween.sample(now);
             }
         }
@@ -129,11 +159,7 @@ impl PanelMotion {
             self.hover.entry(index).or_insert_with(|| Tween::still(0.0));
         }
         for (index, tween) in &mut self.hover {
-            changed |= tween.retarget(
-                f64::from(u8::from(hovered == Some(*index))),
-                now,
-                FEEDBACK_SECONDS,
-            );
+            changed |= tween.retarget(f64::from(u8::from(hovered == Some(*index))), now, feedback);
             changed |= tween.sample(previous) != tween.sample(now);
         }
         self.scrolls.retain(|key, tween| {
@@ -145,8 +171,10 @@ impl PanelMotion {
         changed
     }
 
-    /// Publishes generic native values without changing the retained document or schema.
+    /// Publishes generic native values and transitioned bindings without changing the retained
+    /// document or schema.
     pub(super) fn write(&self, panel: &Panel, data: &mut DataSource) {
+        self.transitions.write(data);
         let palette = Palette::for_panel(panel);
         let mix = |from: [f64; 4], to: [f64; 4], progress: f64| {
             std::array::from_fn::<_, 4, _>(|index| {
@@ -192,6 +220,7 @@ impl PanelMotion {
             .chain(self.hover.values())
             .chain(self.scrolls.values())
             .any(|tween| tween.active(self.now))
+            || self.transitions.active()
     }
 }
 
@@ -207,11 +236,11 @@ mod tests {
         let panel = crate::test_support::sample_panel();
         motion.scroll("list", 0.0, 30.0, 100.0);
         motion.scroll("list", 0.0, 30.0, 100.0);
-        motion.advance(&panel, &mut view, None, 0.03);
+        motion.advance(&panel, &mut view, None, 0.03, true);
         let middle = view.scroll["list"];
         assert!(middle > 0.0 && middle < 60.0);
         motion.scroll("list", middle, -10.0, 100.0);
-        motion.advance(&panel, &mut view, None, 0.5);
+        motion.advance(&panel, &mut view, None, 0.5, true);
         assert_eq!(view.scroll["list"], 50.0);
         assert!(!motion.active());
         motion.scroll("list", 50.0, 30.0, 100.0);
@@ -225,23 +254,54 @@ mod tests {
         let mut motion = PanelMotion::default();
         let mut view = ViewState::default();
         let mut panel = crate::test_support::sample_panel();
-        motion.advance(&panel, &mut view, None, 1.0);
+        motion.advance(&panel, &mut view, None, 1.0, true);
         if let Control::Toggle { value, .. } = &mut panel.controls[0] {
             *value = true;
         }
-        motion.advance(&panel, &mut view, Some(0), 1.01);
+        motion.advance(&panel, &mut view, Some(0), 1.01, true);
         assert_eq!(motion.toggles[&0].sample(motion.now), 0.0);
-        motion.advance(&panel, &mut view, Some(0), 1.04);
+        motion.advance(&panel, &mut view, Some(0), 1.04, true);
         let middle = motion.toggles[&0].sample(motion.now);
         assert!(middle > 0.0 && middle < 1.0);
         if let Control::Toggle { value, .. } = &mut panel.controls[0] {
             *value = false;
         }
-        motion.advance(&panel, &mut view, None, 1.04);
+        motion.advance(&panel, &mut view, None, 1.04, true);
         assert_eq!(motion.toggles[&0].sample(motion.now), middle);
-        motion.advance(&panel, &mut view, None, 1.4);
+        motion.advance(&panel, &mut view, None, 1.4, true);
         assert_eq!(motion.toggles[&0].sample(motion.now), 0.0);
         assert_eq!(motion.hover[&0].sample(motion.now), 0.0);
+        assert!(!motion.active());
+    }
+
+    /// With animations off, toggles, hover and wheel targets apply at once, and feedback
+    /// already moving jumps to its target.
+    #[test]
+    fn disabled_animation_applies_feedback_and_wheel_targets_at_once() {
+        let mut motion = PanelMotion::default();
+        let mut view = ViewState::default();
+        let mut panel = crate::test_support::sample_panel();
+        motion.advance(&panel, &mut view, None, 1.0, true);
+        if let Control::Toggle { value, .. } = &mut panel.controls[0] {
+            *value = true;
+        }
+        motion.advance(&panel, &mut view, Some(0), 1.01, true);
+        motion.advance(&panel, &mut view, Some(0), 1.03, true);
+        assert!(motion.active());
+        assert!(motion.advance(&panel, &mut view, Some(0), 1.04, false));
+        assert_eq!(motion.toggles[&0].sample(motion.now), 1.0);
+        assert_eq!(motion.hover[&0].sample(motion.now), 1.0);
+        assert!(!motion.active());
+
+        if let Control::Toggle { value, .. } = &mut panel.controls[0] {
+            *value = false;
+        }
+        assert!(motion.advance(&panel, &mut view, None, 1.05, false));
+        assert_eq!(motion.toggles[&0].sample(motion.now), 0.0);
+        assert_eq!(motion.hover[&0].sample(motion.now), 0.0);
+        motion.scroll("list", 0.0, 30.0, 100.0);
+        assert!(motion.advance(&panel, &mut view, None, 1.05, false));
+        assert_eq!(view.scroll["list"], 30.0);
         assert!(!motion.active());
     }
 }

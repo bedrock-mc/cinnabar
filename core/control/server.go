@@ -212,6 +212,9 @@ func (server *Server) serveOne(conn net.Conn) error {
 	if call.Method == methodCinnabarAPI {
 		return server.serveCinnabarAPI(conn, id, call.Params)
 	}
+	if call.Method == bridgecontract.MethodCinnabarEmotes {
+		return server.serveCinnabarEmotes(conn, id, call.Params)
+	}
 	if call.Method == methodCinnabarLookup {
 		return server.serveCinnabarLookup(conn, id, call.Params)
 	}
