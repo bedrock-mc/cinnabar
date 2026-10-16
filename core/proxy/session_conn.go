@@ -240,8 +240,10 @@ func (session *sessionConn) flushLocked() error {
 	}
 	_, err := session.conn.Write(session.pending)
 	if session.trace != nil {
-		session.traceFrames++
-		session.trace.RecordIDs(latencytrace.Inbound, session.traceIDs, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now())
+		if err == nil { // a failed write never reached the client
+			session.traceFrames++
+			session.trace.RecordIDs(latencytrace.Inbound, session.traceIDs, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now())
+		}
 		session.traceIDs, session.traceRead = session.traceIDs[:0], 0
 	}
 	// Write has returned, so the buffer is reused unless one large batch grew it.

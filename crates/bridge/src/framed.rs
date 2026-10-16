@@ -224,13 +224,19 @@ impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
 
 /// Numbers one direction's batch frames in the latency trace; inert until the core's ID is set.
 struct FrameTrace {
+    trace: Option<&'static crate::latency_trace::Trace>,
     conn: Option<Arc<AtomicU64>>, // shared by a connection's reader and writer
     frames: u64,
 }
 
 impl FrameTrace {
     fn new(conn: Option<Arc<AtomicU64>>) -> Self {
-        Self { conn, frames: 0 }
+        let trace = conn.as_ref().and(crate::latency_trace::active());
+        Self {
+            trace,
+            conn,
+            frames: 0,
+        }
     }
 
     fn id(&self) -> u64 {
@@ -246,7 +252,7 @@ impl FrameTrace {
         if conn == 0 || head != Some(&crate::contract::KIND_BATCH) {
             return;
         }
-        let Some(trace) = crate::latency_trace::active() else {
+        let Some(trace) = self.trace else {
             return;
         };
         self.frames += 1;
@@ -377,12 +383,15 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
         if let Err(reason) = &result {
             let _ = failure.set(reason.clone());
         }
+        // Only frames that reached the socket count as written; a failure ends the connection.
         for (head, len) in traced.drain(..) {
-            trace.batch(
-                crate::latency_trace::kind::FRAME_WRITTEN,
-                head.as_ref(),
-                len,
-            );
+            if result.is_ok() {
+                trace.batch(
+                    crate::latency_trace::kind::FRAME_WRITTEN,
+                    head.as_ref(),
+                    len,
+                );
+            }
         }
         for (written, _bytes) in pending.drain(..) {
             let _ = written.send(result.clone());
@@ -761,5 +770,80 @@ mod tests {
                 .is_none()
         );
         assert!(header.capacity() < MAX_FRAME_LEN);
+    }
+
+    /// A writer whose every write fails, standing in for a closed core socket.
+    struct FailingWriter;
+
+    impl tokio::io::AsyncWrite for FailingWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Writes one batch frame through the queued writer and returns the trace lines it left.
+    async fn traced_write<W: tokio::io::AsyncWrite + Unpin>(write: W) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let trace: &'static _ = Box::leak(Box::new(
+            crate::latency_trace::Trace::open(dir.path(), "frames").unwrap(),
+        ));
+        let (frames, queued) = tokio::sync::mpsc::channel(1);
+        let (written, _receipt) = tokio::sync::oneshot::channel();
+        frames
+            .send(super::QueuedFrame {
+                frame: Bytes::from_static(&[crate::contract::KIND_BATCH, 1]),
+                written,
+                bytes: None,
+            })
+            .await
+            .unwrap();
+        drop(frames);
+        let mut frame_trace = super::FrameTrace::new(None);
+        frame_trace.trace = Some(trace);
+        frame_trace.conn = Some(std::sync::Arc::new(std::sync::atomic::AtomicU64::new(9)));
+        super::write_queued_frames(
+            tokio_util::codec::FramedWrite::new(write, BridgeCodec::new()),
+            queued,
+            std::sync::Arc::default(),
+            frame_trace,
+        )
+        .await;
+        trace.finish();
+        let path = dir
+            .path()
+            .join(format!("frames-{}.trace", std::process::id()));
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Only a frame that reached the socket is traced as written.
+    #[tokio::test]
+    async fn failed_bridge_writes_are_not_traced_as_written() {
+        let written = traced_write(tokio::io::sink()).await;
+        assert_eq!(written.len(), 1);
+        assert!(written[0].starts_with("w 9 1 "));
+        assert!(traced_write(FailingWriter).await.is_empty());
     }
 }

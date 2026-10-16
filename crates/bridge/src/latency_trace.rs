@@ -27,11 +27,11 @@ pub mod kind {
     pub const DRAINED: u8 = b'a';
     /// World event committed to client state: fifo, t.
     pub const COMMITTED: u8 = b'c';
-    /// Main frame handed to extraction: frame count, t.
+    /// Render world extracted the main frame: frame count, t.
     pub const EXTRACTED: u8 = b'x';
     /// Render world finished presenting that frame: frame count, t.
     pub const PRESENTED: u8 = b'p';
-    /// PlayerAuthInput queued for send: tick, frame time sample, t.
+    /// PlayerAuthInput admitted to the outbound queue: tick, frame time sample, t.
     pub const TICK_SENT: u8 = b'k';
     /// Outbound frame batch handed to the bridge: t begin, t flushed, packets.
     pub const OUTBOUND_FLUSH: u8 = b'f';
@@ -139,6 +139,24 @@ impl Trace {
         }
     }
 
+    /// Runs `admit` and records `kind` with `values` and the time it began only if it succeeded,
+    /// so a rejected attempt that is retried later leaves no record.
+    pub fn record_admitted<T, E>(
+        &self,
+        kind: u8,
+        values: &[i64],
+        admit: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        let began = self.now();
+        let result = admit();
+        if result.is_ok() {
+            let mut fields = values.to_vec();
+            fields.push(began);
+            self.record(kind, &fields);
+        }
+        result
+    }
+
     /// Writes every queued event, closes the file and stops recording.
     pub fn finish(&self) {
         drop(
@@ -228,6 +246,30 @@ mod tests {
         });
         drop(records);
         writer.join().unwrap();
+    }
+
+    /// An admission that fails leaves no record; one that succeeds records its start.
+    #[test]
+    fn only_admitted_attempts_are_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let trace = Trace::open(dir.path(), "admit").unwrap();
+        assert!(
+            trace
+                .record_admitted(kind::TICK_SENT, &[4, 1], || Err::<(), _>("full"))
+                .is_err()
+        );
+        trace
+            .record_admitted(kind::TICK_SENT, &[4, 1], || Ok::<_, ()>(()))
+            .unwrap();
+        trace.finish();
+        let text = std::fs::read_to_string(
+            dir.path()
+                .join(format!("admit-{}.trace", std::process::id())),
+        )
+        .unwrap();
+        let ticks: Vec<_> = text.lines().filter(|line| line.starts_with('k')).collect();
+        assert_eq!(ticks.len(), 1);
+        assert!(ticks[0].starts_with("k 4 1 "));
     }
 
     /// Records reach the file in order with their fields, on a clock past the anchor.

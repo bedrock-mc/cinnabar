@@ -244,10 +244,10 @@ pub(super) fn trace_decoded((conn, frame, index): (u64, u64, u32), ingress: &Wor
     }
 }
 
-/// Records `ingress` entering the app's world channel.
-pub(super) fn trace_enqueued(ingress: &WorldIngress) {
+/// Records the ingress with this session generation and FIFO sequence entering the app's world
+/// channel, once it is in it.
+pub(super) fn trace_enqueued((session, fifo): (u64, u64)) {
     if let Some(trace) = bridge::latency_trace::active() {
-        let (session, fifo) = ingress.identity();
         trace.record(
             bridge::latency_trace::kind::ENQUEUED,
             &[session as i64, fifo as i64, trace.now()],

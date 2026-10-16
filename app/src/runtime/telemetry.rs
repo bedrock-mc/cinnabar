@@ -309,14 +309,13 @@ pub(crate) fn send_player_auth_inputs(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet, mining_guard| {
-            if let Some((trace, sampled)) = trace {
-                trace.record(
-                    bridge::latency_trace::kind::TICK_SENT,
-                    &[identity.tick.get() as i64, sampled, trace.now()],
-                );
-            }
-            network.send_physics_packet(identity, packet, mining_guard)
+        |identity, packet, mining_guard| match trace {
+            Some((trace, sampled)) => trace.record_admitted(
+                bridge::latency_trace::kind::TICK_SENT,
+                &[identity.tick.get() as i64, sampled],
+                || network.send_physics_packet(identity, packet, mining_guard),
+            ),
+            None => network.send_physics_packet(identity, packet, mining_guard),
         },
     );
     match result {

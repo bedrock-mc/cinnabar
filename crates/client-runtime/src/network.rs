@@ -5,7 +5,7 @@ use bevy::diagnostic::FrameCount;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::{Deref, DerefMut, IntoScheduleConfigs, Query, Res, ResMut, Resource};
 use bevy::render::view::ExtractedWindow;
-use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use std::path::PathBuf;
 
 /// A Bevy resource retaining the domain's exact command and event queues.
@@ -120,30 +120,27 @@ pub fn configure_network_frame_flush<P: Send + Sync + 'static>(app: &mut App) {
         .resource_mut::<MainScheduleOrder>()
         .insert_before(render::FrameEnd, NetworkFrameFlush);
     app.add_systems(NetworkFrameFlush, flush_network_frame::<P>);
-    if bridge::latency_trace::active().is_some() {
-        app.add_systems(
-            NetworkFrameFlush,
-            trace_frame_handoff.before(flush_network_frame::<P>),
-        );
-    }
 }
 
-/// Records each frame that reached a window's swap chain in the latency trace while tracing;
-/// needs the render sub-app.
+/// Records each extracted frame, and each that reached a window's swap chain, in the latency trace
+/// while tracing; needs the render sub-app.
 pub(crate) fn trace_presented_frames(app: &mut App) {
     if bridge::latency_trace::active().is_none() {
         return;
     }
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-        render_app.init_resource::<HeldSwapChains>().add_systems(
-            Render,
-            (
-                count_held_swap_chains
-                    .after(RenderSystems::PrepareViews)
-                    .before(RenderSystems::Render),
-                trace_frame_presented.in_set(RenderSystems::Cleanup),
-            ),
-        );
+        render_app
+            .init_resource::<HeldSwapChains>()
+            .add_systems(ExtractSchedule, trace_frame_extracted)
+            .add_systems(
+                Render,
+                (
+                    count_held_swap_chains
+                        .after(RenderSystems::PrepareViews)
+                        .before(RenderSystems::Render),
+                    trace_frame_presented.in_set(RenderSystems::Cleanup),
+                ),
+            );
     }
 }
 
@@ -151,9 +148,14 @@ pub(crate) fn trace_presented_frames(app: &mut App) {
 #[derive(Resource, Default)]
 struct HeldSwapChains(usize);
 
-/// Stamps the frame count extraction is about to copy, so it pairs with the presented frame.
-fn trace_frame_handoff(frames: Option<Res<FrameCount>>) {
-    trace_frame(bridge::latency_trace::kind::EXTRACTED, frames);
+/// Stamps the main frame as the render world extracts it, the count pairing it with its present.
+fn trace_frame_extracted(frames: Extract<Option<Res<FrameCount>>>) {
+    if let (Some(trace), Some(frames)) = (bridge::latency_trace::active(), frames.as_ref()) {
+        trace.record(
+            bridge::latency_trace::kind::EXTRACTED,
+            &[i64::from(frames.0), trace.now()],
+        );
+    }
 }
 
 fn count_held_swap_chains(windows: Query<&ExtractedWindow>, mut held: ResMut<HeldSwapChains>) {
