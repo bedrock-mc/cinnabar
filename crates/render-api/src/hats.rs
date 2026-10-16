@@ -22,7 +22,10 @@ macro_rules! hats {
     };
 }
 
-hats! { BunnyEars => ("bunny_ears", "Bunny ears") }
+hats! {
+    BunnyEars => ("bunny_ears", "Bunny ears"),
+    Crown => ("crown", "Crown"),
+}
 
 impl Hat {
     /// Stable artwork key of the original attachment texture.

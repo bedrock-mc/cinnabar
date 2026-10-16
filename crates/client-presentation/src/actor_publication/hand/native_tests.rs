@@ -703,6 +703,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
             renders_game: true,
             hide_hand: false,
             remote_emotes: Vec::new(),
+            remote_hats: Vec::new(),
             custom_emote: None,
         },
         |_| {},

@@ -80,7 +80,13 @@ pub(super) fn draw(
         view.dressing_room
             .selected_hat
             .map_or(("No hat", "Your original look"), |hat| {
-                (hat.name(), "Flexible ears. Made to move.")
+                (
+                    hat.name(),
+                    match hat {
+                        render_api::Hat::BunnyEars => "Flexible ears. Made to move.",
+                        render_api::Hat::Crown => "Gold crown. Pixel jewels.",
+                    },
+                )
             })
     } else if cape_tab {
         view.dressing_room

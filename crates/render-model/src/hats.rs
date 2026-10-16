@@ -10,7 +10,7 @@ use crate::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 /// Layer reserved between player capes and animated skin layers.
 pub const ACTOR_LAYER_HAT: u8 = 25;
 
-/// A head attachment with separately hinged upper ear bones.
+/// A head attachment with optional flexible surface joints.
 pub struct HatRig {
     pub geometry: ActorRigGeometry,
     parents: Vec<Option<usize>>,
@@ -23,15 +23,20 @@ pub struct HatRig {
 
 /// Resolves original authored assets once, independently of installed game carriers.
 pub fn rig(hat: Hat) -> &'static HatRig {
-    match hat {
-        Hat::BunnyEars => {
-            static RIG: OnceLock<HatRig> = OnceLock::new();
-            RIG.get_or_init(model::build)
-        }
-    }
+    static RIGS: OnceLock<Vec<HatRig>> = OnceLock::new();
+    let index = Hat::ALL
+        .iter()
+        .position(|entry| *entry == hat)
+        .expect("catalogued hat");
+    &RIGS.get_or_init(|| Hat::ALL.iter().copied().map(model::build).collect())[index]
 }
 
 impl HatRig {
+    /// Whether the authored surface contains joints that respond to movement.
+    pub fn bends_in_wind(&self) -> bool {
+        self.flex.iter().any(|weight| *weight > 0.0)
+    }
+
     /// Attaches a continuous ear surface to the head, curving its upper rings progressively.
     /// Positive bend moves the tips toward model +Z, behind a player facing model -Z.
     pub fn pose(&self, head: RenderBoneTransform, bend: f32) -> Arc<[RenderBoneTransform]> {
@@ -106,6 +111,7 @@ impl HatPoseCache {
         head: RenderBoneTransform,
         bend: f32,
     ) -> Arc<[RenderBoneTransform]> {
+        let bend = if rig(hat).bends_in_wind() { bend } else { 0.0 };
         let key = (hat, head, bend);
         if self.key != Some(key) {
             self.pose = rig(hat).pose(head, bend);

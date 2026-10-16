@@ -95,13 +95,14 @@ type Client struct {
 
 // session is one authenticated connection.
 type session struct {
-	emoteSent      bool       // guarded by Client.mu
-	emoteWatchSent time.Time  // guarded by Client.mu
-	emoteSentXUIDs []string   // guarded by Client.mu
-	emoteSentUUIDs []string   // guarded by Client.mu
-	emoteState     EmoteState // guarded by Client.mu
-	emoteQueued    time.Time  // guarded by Client.mu
+	emoteSent      bool        // guarded by Client.mu
+	emoteWatchSent time.Time   // guarded by Client.mu
+	emoteSentXUIDs []string    // guarded by Client.mu
+	emoteSentUUIDs []string    // guarded by Client.mu
+	emoteState     PlayerState // guarded by Client.mu
+	emoteQueued    time.Time   // guarded by Client.mu
 	emoteDirty     chan struct{}
+	hats           map[string]receivedHat   // guarded by Client.mu
 	emotes         map[string]receivedEmote // guarded by Client.mu
 	conn           *websocket.Conn
 	out            chan []byte
@@ -457,6 +458,8 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		switch msg.Type {
 		case typeRelease:
 			c.release(msg)
+		case typeCosmetic:
+			c.receiveHatAt(s, msg, time.Now())
 		case typeEmote:
 			c.receiveEmote(s, msg)
 		case typeLookupResult:

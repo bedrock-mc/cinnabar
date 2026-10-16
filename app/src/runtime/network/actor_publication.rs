@@ -1,5 +1,5 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
-mod shared_emotes;
+mod shared_players;
 #[cfg(test)]
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
@@ -78,7 +78,7 @@ pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
-    mut emote_state: Local<shared_emotes::State>,
+    mut shared_state: Local<shared_players::State>,
     mut fluids: Local<client_presentation::actor_sampling::ActorFluidSampler>,
 ) {
     let ActorObservations {
@@ -145,6 +145,14 @@ pub(crate) fn advance_actor_frame(
         physics.render_eye_position(),
         physics.render_feet_position(),
     );
+    let shared = shared_players::exchange(
+        stream,
+        ui.as_deref().map(|ui| &ui.0),
+        skin.hat,
+        account.as_deref().map(|account| &account.0),
+        &time,
+        &mut shared_state,
+    );
     let input = ActorFrameInput {
         hat: skin.hat,
         local_feed,
@@ -166,13 +174,8 @@ pub(crate) fn advance_actor_frame(
                     .map(|presentation| &presentation.0),
             )
         },
-        remote_emotes: shared_emotes::exchange(
-            stream,
-            ui.as_deref().map(|ui| &ui.0),
-            account.as_deref().map(|account| &account.0),
-            &time,
-            &mut emote_state,
-        ),
+        remote_emotes: shared.emotes,
+        remote_hats: shared.hats,
         custom_emote: ui
             .as_deref()
             .and_then(|ui| ui.emotes().playback())

@@ -1,23 +1,23 @@
-//! Coalesced emote exchange on the account API, independent of slow launcher services.
+//! Coalesced nearby player exchange on the account API, independent of slow launcher services.
 use super::*;
-use bridge::contract::{CinnabarEmoteState, CinnabarRemoteEmote};
+use bridge::contract::{CinnabarPlayerState, CinnabarPlayerUpdates};
 
 #[derive(Default)]
 pub(super) struct Exchange {
     session: Option<u64>,
-    local: Option<CinnabarEmoteState>,
-    remote: Vec<CinnabarRemoteEmote>,
+    local: Option<CinnabarPlayerState>,
+    remote: CinnabarPlayerUpdates,
     received: Option<Instant>,
     updated: Option<Instant>,
 }
 
 impl LauncherAccount {
     /// Replaces nearby subscriptions and clears old answers at every game-session boundary.
-    pub fn set_cinnabar_emotes(&self, session: u64, state: CinnabarEmoteState) {
+    pub fn set_shared_players(&self, session: u64, state: CinnabarPlayerState) {
         publish(&self.snapshot, |snapshot| {
-            let exchange = &mut snapshot.emotes;
+            let exchange = &mut snapshot.shared_players;
             if exchange.session != Some(session) {
-                exchange.remote.clear();
+                exchange.remote = Default::default();
                 exchange.received = None;
             }
             exchange.session = Some(session);
@@ -26,24 +26,36 @@ impl LauncherAccount {
         });
     }
 
-    /// Returns current phases, expiring playback even if the account core stops answering.
-    pub fn cinnabar_emotes(&self) -> Vec<CinnabarRemoteEmote> {
+    /// Returns only unexpired playback and hats, including when the account core stops answering.
+    pub fn shared_player_updates(&self) -> CinnabarPlayerUpdates {
         self.with(|snapshot| {
-            let age = snapshot.emotes.received.map_or(u64::MAX, |time| {
+            let age = snapshot.shared_players.received.map_or(u64::MAX, |time| {
                 u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
             });
-            snapshot
-                .emotes
-                .remote
-                .iter()
-                .filter(|emote| age < emote.valid_for_ms)
-                .map(|emote| {
-                    let mut emote = emote.clone();
-                    emote.elapsed_ms = emote.elapsed_ms.saturating_add(age);
-                    emote.valid_for_ms -= age;
-                    emote
-                })
-                .collect()
+            let remote = &snapshot.shared_players.remote;
+            CinnabarPlayerUpdates {
+                emotes: remote
+                    .emotes
+                    .iter()
+                    .filter(|value| age < value.valid_for_ms)
+                    .map(|value| {
+                        let mut value = value.clone();
+                        value.elapsed_ms = value.elapsed_ms.saturating_add(age);
+                        value.valid_for_ms -= age;
+                        value
+                    })
+                    .collect(),
+                hats: remote
+                    .hats
+                    .iter()
+                    .filter(|value| age < value.valid_for_ms)
+                    .map(|value| {
+                        let mut value = value.clone();
+                        value.valid_for_ms -= age;
+                        value
+                    })
+                    .collect(),
+            }
         })
     }
 }
@@ -67,14 +79,15 @@ pub(super) fn start(
                 let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
                 (
                     snapshot.auth_generation,
-                    snapshot.emotes.session,
-                    snapshot.emotes.local.clone().map(|mut local| {
+                    snapshot.shared_players.session,
+                    snapshot.shared_players.local.clone().map(|mut local| {
                         if snapshot
-                            .emotes
+                            .shared_players
                             .updated
                             .is_none_or(|updated| updated.elapsed() > Duration::from_secs(5))
                         {
                             local.emote_id.clear();
+                            local.hat_id.clear();
                             local.xuids.clear();
                             local.uuids.clear();
                         }
@@ -86,16 +99,17 @@ pub(super) fn start(
             let result = runtime.block_on(async {
                 tokio::time::timeout(
                     Duration::from_secs(2),
-                    bridge::sync_cinnabar_emotes(&dir, &local),
+                    bridge::sync_cinnabar_players(&dir, &local),
                 )
                 .await
             });
             if let Ok(Ok(remote)) = result {
                 publish(&shared, |snapshot| {
-                    if snapshot.auth_generation == generation && snapshot.emotes.session == session
+                    if snapshot.auth_generation == generation
+                        && snapshot.shared_players.session == session
                     {
-                        snapshot.emotes.remote = remote;
-                        snapshot.emotes.received = Some(Instant::now());
+                        snapshot.shared_players.remote = remote;
+                        snapshot.shared_players.received = Some(Instant::now());
                     }
                 });
             }
@@ -119,9 +133,9 @@ mod tests {
         let shared = Arc::new(Mutex::new(Snapshot::default()));
         {
             let mut snapshot = shared.lock().unwrap();
-            snapshot.emotes.session = Some(1);
-            snapshot.emotes.local = Some(CinnabarEmoteState::default());
-            snapshot.emotes.updated = Some(Instant::now());
+            snapshot.shared_players.session = Some(1);
+            snapshot.shared_players.local = Some(CinnabarPlayerState::default());
+            snapshot.shared_players.updated = Some(Instant::now());
         }
         let (alive, stop) = bounded(0);
         let worker = start(dir.clone(), Arc::clone(&shared), stop);
@@ -140,16 +154,18 @@ mod tests {
         let mut body = vec![0; u32::from_be_bytes(size) as usize];
         connection.read_exact(&mut body).unwrap();
         let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(request["method"], bridge::contract::METHOD_CINNABAR_EMOTES);
+        assert_eq!(request["method"], bridge::contract::METHOD_CINNABAR_PLAYERS);
         let response = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0", "id":request["id"],
             "result":{"schema_version":1,"emotes":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff",
-            "emote_id":"cinnabar:twerk","elapsed_ms":42,"valid_for_ms":15000}]}})).unwrap();
+            "emote_id":"cinnabar:twerk","elapsed_ms":42,"valid_for_ms":15000}],"hats":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff","hat_id":"crown","valid_for_ms":15000}]}})).unwrap();
         connection
             .write_all(&(response.len() as u32).to_be_bytes())
             .unwrap();
         connection.write_all(&response).unwrap();
         test_time::eventually("published shared emote", || {
-            shared.lock().unwrap().emotes.remote.len() == 1
+            let snapshot = shared.lock().unwrap();
+            snapshot.shared_players.remote.emotes.len() == 1
+                && snapshot.shared_players.remote.hats.len() == 1
         });
         drop(alive);
         worker.join().unwrap();

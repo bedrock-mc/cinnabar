@@ -110,16 +110,26 @@ def declarations(manifest, root=ROOT):
             payload = "(String)" if enum.get("content") else ""
             rust += [f'    {variant["rust_name"]}{payload},']
         rust += ["}"]
+    def field_types(field):
+        """Resolve primitive fields or lists of declared contract records in both languages."""
+        kind = field["type"]
+        if kind in STRUCT_TYPES:
+            return STRUCT_TYPES[kind]
+        if kind.startswith("list:"):
+            name = kind.removeprefix("list:")
+            record = next((row for row in manifest.get("structs", []) if row["rust_name"] == name), None)
+            if record is not None:
+                return f"Vec<{name}>", f"[]{record['go_name']}"
+        raise ValueError(f"unsupported field type: {kind}")
+
     for struct in manifest.get("structs", []):
         rust += ["", f'/// {struct["doc"]}', f'#[derive({", ".join(struct["derive"])})]',
                  f'pub struct {struct["rust_name"]} {{']
         for field in struct["fields"]:
-            if field["type"] not in STRUCT_TYPES:
-                raise ValueError(f'unsupported field type in {struct["rust_name"]}')
             rust += [f'    /// {field["doc"]}']
             if field.get("default"):
                 rust += ["    #[serde(default)]"]
-            rust_type = STRUCT_TYPES[field["type"]][0]
+            rust_type = field_types(field)[0]
             rust += [f'    pub {field["name"]}: {rust_type},']
         rust += ["}"]
     go.append(")")
@@ -127,7 +137,7 @@ def declarations(manifest, root=ROOT):
         go += ["", f'// {struct["go_name"]}: {struct["doc"]}', f'type {struct["go_name"]} struct {{']
         for field in struct["fields"]:
             go += [f'    // {field["go_name"]}: {field["doc"]}',
-                   f'    {field["go_name"]} {STRUCT_TYPES[field["type"]][1]} `json:"{field["name"]}"`']
+                   f'    {field["go_name"]} {field_types(field)[1]} `json:"{field["name"]}"`']
         go.append("}")
     for row in manifest.get("string_lists", []):
         values = ", ".join(json.dumps(value) for value in string_list_values(row, resolved))

@@ -2,9 +2,9 @@
 use actor_animation::CustomEmote;
 use bevy::prelude::Time;
 use bevy::time::Real;
-use bridge::contract::CinnabarEmoteState;
+use bridge::contract::CinnabarPlayerState;
 use chunk_pipeline::WorldStream;
-use client_presentation::actor_publication::RemoteEmote;
+use client_presentation::actor_publication::{RemoteEmote, RemoteHat};
 use client_ui::ui_runtime::UiRuntime;
 use launcher_host::launcher_account::LauncherAccount;
 use std::time::Duration;
@@ -24,19 +24,28 @@ pub(crate) struct State {
     refreshed: Option<Duration>,
     reported: Option<Duration>,
     playback: Option<(CustomEmote, u64)>,
+    hat: Option<render_api::Hat>,
     peers: Vec<Peer>,
+}
+
+/// Presentation observations resolved to the current world actor lifetimes.
+#[derive(Default)]
+pub(super) struct Updates {
+    pub emotes: Vec<RemoteEmote>,
+    pub hats: Vec<RemoteHat>,
 }
 
 /// Exchanges only nearby player identities, clearing subscriptions and playback on leaving a world.
 pub(super) fn exchange(
     stream: Option<&WorldStream>,
     ui: Option<&UiRuntime>,
+    hat: Option<render_api::Hat>,
     account: Option<&LauncherAccount>,
     time: &Time<Real>,
     state: &mut State,
-) -> Vec<RemoteEmote> {
+) -> Updates {
     let Some(account) = account else {
-        return Vec::new();
+        return Updates::default();
     };
     let session = stream.map(|stream| stream.authority().actor_session_id());
     let now = time.elapsed();
@@ -93,9 +102,11 @@ pub(super) fn exchange(
             .collect();
         state.refreshed = Some(now);
     }
+    let hat = stream.and(hat);
     let playback = stream.and(ui).and_then(|ui| ui.emotes().playback());
     let key = playback.map(|clip| (clip.emote, clip.revision));
     if changed
+        || hat != state.hat
         || key != state.playback
         || state
             .reported
@@ -110,9 +121,10 @@ pub(super) fn exchange(
         xuids.dedup();
         uuids.sort_unstable();
         uuids.dedup();
-        account.set_cinnabar_emotes(
+        account.set_shared_players(
             session.unwrap_or(0),
-            CinnabarEmoteState {
+            CinnabarPlayerState {
+                hat_id: hat.map_or_else(String::new, |hat| hat.id().to_owned()),
                 xuids,
                 uuids,
                 emote_id: playback.map_or_else(String::new, |clip| clip.emote.id().to_owned()),
@@ -128,33 +140,51 @@ pub(super) fn exchange(
             },
         );
         state.playback = key;
+        state.hat = hat;
         state.reported = Some(now);
     }
     let Some(stream) = stream else {
-        return Vec::new();
+        return Updates::default();
     };
-    account
-        .cinnabar_emotes()
-        .into_iter()
-        .filter_map(|emote| {
-            let clip = CustomEmote::from_id(&emote.emote_id)?;
-            let peer = state
-                .peers
-                .iter()
-                .find(|peer| peer.identity == emote.xuid || peer.identity == emote.uuid)?;
-            let actor = stream.authority().actor(peer.runtime_id)?;
-            if actor.spawn_revision != peer.spawn_revision
-                || actor.status.dead
-                || actor.is_sleeping()
-            {
-                return None;
-            }
-            Some(RemoteEmote {
-                runtime_id: peer.runtime_id,
-                spawn_revision: peer.spawn_revision,
-                emote: clip,
-                elapsed: emote.elapsed_ms as f64 / 1_000.0,
+    let updates = account.shared_player_updates();
+    let peer = |xuid: &str, uuid: &str| {
+        let peer = state
+            .peers
+            .iter()
+            .find(|peer| peer.identity == xuid || peer.identity == uuid)?;
+        let actor = stream.authority().actor(peer.runtime_id)?;
+        (actor.spawn_revision == peer.spawn_revision).then_some((peer, actor))
+    };
+    Updates {
+        emotes: updates
+            .emotes
+            .into_iter()
+            .filter_map(|emote| {
+                let clip = CustomEmote::from_id(&emote.emote_id)?;
+                let (peer, actor) = peer(&emote.xuid, &emote.uuid)?;
+                if actor.status.dead || actor.is_sleeping() {
+                    return None;
+                }
+                Some(RemoteEmote {
+                    runtime_id: peer.runtime_id,
+                    spawn_revision: peer.spawn_revision,
+                    emote: clip,
+                    elapsed: emote.elapsed_ms as f64 / 1_000.0,
+                })
             })
-        })
-        .collect()
+            .collect(),
+        hats: updates
+            .hats
+            .into_iter()
+            .filter_map(|value| {
+                let hat = render_api::Hat::from_id(&value.hat_id)?;
+                let (peer, _) = peer(&value.xuid, &value.uuid)?;
+                Some(RemoteHat {
+                    runtime_id: peer.runtime_id,
+                    spawn_revision: peer.spawn_revision,
+                    hat,
+                })
+            })
+            .collect(),
+    }
 }

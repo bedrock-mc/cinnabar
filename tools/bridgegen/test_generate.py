@@ -52,6 +52,12 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             declarations(self.manifest)
 
+    def test_record_lists_require_a_declared_record(self):
+        """Reject list element names that cannot be emitted in both languages."""
+        self.manifest["structs"][-1]["fields"][0]["type"] = "list:MissingRecord"
+        with self.assertRaises(ValueError):
+            declarations(self.manifest)
+
     def test_wire_values_remain_bounded(self):
         """Reject zero frame limits, port overflow, and signed error overflow."""
         for name, value in [("MAX_FRAME_LEN", 0), ("DEFAULT_BEDROCK_PORT", 65536),

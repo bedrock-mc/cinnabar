@@ -1,4 +1,5 @@
 """Export the original Blockbench project into the runtime's Bedrock mesh format."""
+import argparse
 import json
 import math
 from pathlib import Path
@@ -69,5 +70,11 @@ def export(project):
 
 
 if __name__ == '__main__':
-    project = json.loads((ROOT / 'bunny_ears.bbmodel').read_text())
-    (ROOT / 'bunny_ears.geo.json').write_text(json.dumps(export(project), separators=(',', ':')) + '\n')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('project', nargs='?', default='bunny_ears', help='Blockbench project name or path')
+    name = Path(parser.parse_args().project)
+    if not name.suffix:
+        name = name.with_suffix('.bbmodel')
+    source = name if name.is_absolute() else ROOT / name
+    project = json.loads(source.read_text())
+    source.with_suffix('.geo.json').write_text(json.dumps(export(project), separators=(',', ':')) + '\n')

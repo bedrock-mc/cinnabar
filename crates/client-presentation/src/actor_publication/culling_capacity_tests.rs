@@ -268,6 +268,7 @@ fn input() -> ActorFrameInput {
         hide_hand: true,
         custom_emote: None,
         remote_emotes: Vec::new(),
+        remote_hats: Vec::new(),
     }
 }
 
