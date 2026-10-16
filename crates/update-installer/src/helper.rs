@@ -1,9 +1,11 @@
 //! Retained helper and manual-package copies, independent of the replaceable update stage.
 
 use std::{
+    ffi::OsString,
     fs::{self, File},
     io,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     time::{Duration, SystemTime},
 };
 
@@ -22,6 +24,41 @@ pub fn copy(update_dir: &Path, source: &Path) -> io::Result<(PathBuf, File)> {
     fs::copy(source, &helper)?;
     let _ = directory.keep();
     Ok((helper, reader))
+}
+
+/// Copies the installed `helper` outside the install and starts it with `args`. The helper
+/// waits for this process to exit, so the caller must quit promptly; the stdin pipe and the
+/// copy's reader lease are released only by that exit.
+pub fn start(update_dir: &Path, helper: &Path, args: &[OsString]) -> io::Result<()> {
+    prune(update_dir, SystemTime::now());
+    let (copy, copy_reader) = self::copy(update_dir, helper)?;
+    let directory = copy
+        .parent()
+        .ok_or_else(|| io::Error::other("missing helper directory"))?;
+    let mut command = Command::new(&copy);
+    command
+        .args(args)
+        .current_dir(directory)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(File::create(directory.join("apply.log"))?);
+    #[cfg(target_os = "linux")]
+    for name in crate::startup::APPIMAGE_RUNTIME_ENV {
+        command.env_remove(name);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS | CREATE_NO_WINDOW
+        command.creation_flags(0x00000008 | 0x08000000);
+    }
+    let mut child = command.spawn()?;
+    if let Some(pipe) = child.stdin.take() {
+        std::mem::forget(pipe);
+    }
+    // The helper's shared reader overlaps this one, including a delayed process start.
+    std::mem::forget(copy_reader);
+    Ok(())
 }
 
 /// Creates a snapshot directory and holds it against pruning until its last reader finishes.

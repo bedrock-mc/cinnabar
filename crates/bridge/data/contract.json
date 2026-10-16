@@ -81,7 +81,7 @@
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
     {"rust_name": "METHOD_CINNABAR_PLAYERS", "go_name": "MethodCinnabarPlayers", "value": "cinnabar_players.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emotes and cosmetics."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
-    {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.cinnabar-api.workers.dev", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
+    {"rust_name": "CINNABAR_API_BASE_URL", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.cinnabar-api.workers.dev", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow and launcher news read it from this manifest."},
     {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
     {"rust_name": "CINNABAR_API_CACHE_TTL_MS", "go_name": "CinnabarAPICacheTTLMS", "value": 120000, "rust_type": "u32", "doc": "Fallback lifetime of a Cinnabar lookup answer."},
     {"rust_name": "", "go_name": "CinnabarAPILookupBucketCapacity", "value": 1024, "rust_type": "u32", "doc": "Fallback lookup budget in XUIDs."},

@@ -1,10 +1,14 @@
 //! Offline apply process copied outside the installed app before the old client exits.
 use anyhow::{Context, Result, ensure};
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
-use update_installer::startup::{self, Monitor, Progress};
+use update_installer::{
+    runtime::Quiescent,
+    startup::{self, Monitor, Progress},
+};
 
 /// Accepts only local inputs and reports a failed apply in the installer's log.
 #[expect(
@@ -33,8 +37,9 @@ fn run() -> Result<()> {
         let (root, target) = (PathBuf::from(&args[1]), PathBuf::from(&args[2]));
         let pid = args[3].to_str().context("invalid parent PID")?.parse()?;
         update_installer::parent::wait(pid)?;
+        let gate = RefCell::new(Some(quiesce(&root)?));
         if update_installer::recovery::restore(&target, &root)? {
-            launch(&target, &root)?;
+            launch(&target, &root, &gate)?;
         }
         return Ok(());
     }
@@ -63,6 +68,9 @@ fn run() -> Result<()> {
             || std::thread::sleep(update_installer::lease::POLL_INTERVAL),
         )
         .map_err(|error| anyhow::Error::new(error).context(update_installer::apply::Untouched))?;
+        let gate = RefCell::new(Some(
+            quiesce(root).context(update_installer::apply::Untouched)?,
+        ));
         let installed = update_installer::target::installed_build(&target)
             .context(update_installer::apply::Untouched)?;
         update_installer::apply::after_exit(
@@ -81,7 +89,7 @@ fn run() -> Result<()> {
             },
             lease,
             |target| {
-                let result = launch(target, root);
+                let result = launch(target, root, &gate);
                 started = result.is_ok();
                 result
             },
@@ -103,12 +111,26 @@ fn finish_apply(
     result
 }
 
+/// Waits until no game, core or crash monitor runs from the installation.
+fn quiesce(root: &Path) -> Result<Quiescent> {
+    let waiting_since = Instant::now();
+    Quiescent::wait(
+        root,
+        update_installer::runtime::QUIESCE_TIMEOUT,
+        || waiting_since.elapsed(),
+        || std::thread::sleep(update_installer::lease::POLL_INTERVAL),
+    )
+    .context("wait for Cinnabar to close")
+}
+
 /// Confirms the new client reached a complete frame, restoring its predecessor on early failure.
 /// Asset preparation heartbeats restart the stall timeout, so a long first-run download is not a failure.
-fn launch(target: &Path, root: &Path) -> Result<()> {
+/// The validation start alone may join the released `gate`, which is retaken before any rollback.
+fn launch(target: &Path, root: &Path, gate: &RefCell<Option<Quiescent>>) -> Result<()> {
     let directory = tempfile::Builder::new().prefix("start-").tempdir_in(root)?;
     let mut command = startup::client_command(target);
     command.env(startup::STARTUP_ENV, startup::marker(directory.path()));
+    drop(gate.borrow_mut().take());
     let mut client = startup::Tree::spawn(&mut command).context("launch updated client")?;
     let mut monitor = Monitor::new(Instant::now());
     loop {
@@ -122,6 +144,7 @@ fn launch(target: &Path, root: &Path) -> Result<()> {
         if let Some(failure) = failure {
             // Rollback restores files only after the client and its setup process have exited.
             client.stop()?;
+            *gate.borrow_mut() = Some(quiesce(root)?);
             anyhow::bail!(failure);
         }
         std::thread::sleep(Duration::from_millis(100));

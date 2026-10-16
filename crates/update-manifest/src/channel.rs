@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
     #[default]
@@ -47,15 +48,6 @@ impl Channel {
             || self
                 .additional_channel()
                 .is_some_and(|channel| channel.name() == release)
-    }
-
-    /// The radio binding used by the existing settings picker.
-    pub const fn binding(self) -> &'static str {
-        match self {
-            Self::Beta => "update_channel_beta",
-            Self::Nightly => "update_channel_nightly",
-            Self::Stable => "update_channel_stable",
-        }
     }
 
     /// The persisted setting's index, derived from its declared order.

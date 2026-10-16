@@ -344,7 +344,7 @@ fn merged_servers_fit_the_existing_storage_byte_limit() {
     assert_eq!(merged.len() + skipped, incoming.len());
     assert!(
         serde_json::to_vec_pretty(&merged).unwrap().len()
-            <= crate::servers::MAX_SAVED_SERVER_FILE_BYTES
+            <= launcher::menu::MAX_SAVED_SERVER_FILE_BYTES
     );
     crate::servers::validate(&merged).unwrap();
 }

@@ -16,13 +16,11 @@ use anyhow::{Context, Result, bail};
 
 use {
     launcher::menu::view::SavedServer,
-    launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES},
+    launcher::menu::{MAX_SAVED_SERVER_FILE_BYTES, MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES},
 };
 
 /// Maximum number of saved-server entries retained from one local file.
 pub const MAX_SAVED_SERVERS: usize = 256;
-/// Maximum saved-server JSON bytes read or written in one operation.
-pub const MAX_SAVED_SERVER_FILE_BYTES: usize = 64 * 1024;
 
 /// Result of reading the saved-server file.
 pub struct LoadedServers {

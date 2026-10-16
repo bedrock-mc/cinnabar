@@ -29,12 +29,23 @@ const AWAITING_USER: &str = "awaiting-user";
 #[cfg(unix)]
 const STOP_GRACE: Duration = Duration::from_secs(10);
 
-/// Builds a native client launch without inheriting another helper's startup receipt.
+/// The installed entry point: the desktop launcher, which starts and supervises the game.
+pub const LAUNCHER: &str = "cinnabar-launcher";
+/// The game executable installed beside the launcher.
+pub const GAME: &str = "cinnabar";
+
+/// `name`'s executable path in an installed binary `directory` on this host.
+pub fn executable(directory: &Path, name: &str) -> PathBuf {
+    directory.join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Builds a native launcher start without inheriting another helper's startup receipt; the
+/// launcher continues into the game when it carries a receipt.
 pub fn client_command(target: &Path) -> Command {
     #[cfg(target_os = "macos")]
-    let executable = target.join("Contents/MacOS/cinnabar");
+    let executable = executable(&target.join("Contents/MacOS"), LAUNCHER);
     #[cfg(windows)]
-    let executable = target.join("cinnabar.exe");
+    let executable = executable(target, LAUNCHER);
     #[cfg(not(any(target_os = "macos", windows)))]
     let executable = target.to_owned();
     let mut command = Command::new(executable);

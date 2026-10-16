@@ -490,8 +490,8 @@ pub struct MenuFriendCard {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuView {
-    /// Verified update notice and the available release-channel choices.
-    pub updates: super::updates::View,
+    /// A desktop launcher supervises this game, so it can quit back to it for an update.
+    pub return_to_launcher: bool,
     pub visible: bool,
     /// The menu opened over the session's world rather than the launcher's.
     pub over_world: bool,
@@ -697,20 +697,17 @@ impl From<CatalogFriend> for MenuFriendCard {
 }
 
 impl MenuView {
-    /// Hides a channel choice until the update service has verified that channel's release.
+    /// Hides choices this platform cannot use.
     pub fn setting_choice_visible(
         &self,
         option: &super::settings_options::SettingDefinition,
         choice: usize,
     ) -> bool {
-        if option.id == super::settings_options::graphics_api::OPTION.id {
-            return super::settings_options::graphics_api::visible(
+        option.id != super::settings_options::graphics_api::OPTION.id
+            || super::settings_options::graphics_api::visible(
                 choice,
                 crate::graphics_backend::Platform::current(),
-            );
-        }
-        option.id != super::settings_options::UPDATE_CHANNEL_OPTION.id
-            || self.updates.channel_visible(choice)
+            )
     }
 
     /// The join's pending trust question, which draws as a popup over the join screen.
@@ -755,7 +752,7 @@ impl MenuView {
     /// Creates the empty home view used before host settings and service feeds are loaded.
     pub fn new(visible: bool, display_name: String) -> Self {
         Self {
-            updates: super::updates::View::default(),
+            return_to_launcher: false,
             visible,
             over_world: !visible,
             screen: MenuScreen::Home,

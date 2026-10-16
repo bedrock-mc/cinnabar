@@ -31,6 +31,14 @@ pub(super) fn draw(
         DisconnectBody::Server(reason) => localized(&reason, translate).into_owned(),
     };
     let mut buttons = Vec::new();
+    // Only the supervising launcher can install the update an outdated-client refusal asks for.
+    if view.return_to_launcher && disconnect::requires_client_update(error) {
+        buttons.push((
+            translated(translate, "cinnabar.returnToLauncher", "Return to launcher").into(),
+            Variant::Primary,
+            Some(MenuAction::ReturnToLauncher),
+        ));
+    }
     if view.can_reconnect {
         buttons.push((
             translated(translate, "cinnabar.reconnect", "Reconnect").into(),
@@ -64,6 +72,28 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use launcher::menu::{MenuView, disconnect::from_server};
+
+    /// The actions a disconnect screen offers for `reason` in `view`.
+    fn actions(view: &MenuView, reason: &str) -> Vec<launcher::menu::MenuAction> {
+        let (_, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| {
+            super::draw(canvas, view, [1280.0, 720.0], &from_server(reason), &|_| {
+                None
+            })
+            .unwrap();
+        });
+        hits.into_iter().map(|(action, _)| action).collect()
+    }
+
+    // An outdated client offers the launcher only when one is waiting for this game.
+    #[test]
+    fn outdated_clients_return_to_a_supervising_launcher() {
+        let return_action = launcher::menu::MenuAction::ReturnToLauncher;
+        let mut view = MenuView::new(true, "Player".into());
+        assert!(!actions(&view, "OutdatedClient").contains(&return_action));
+        view.return_to_launcher = true;
+        assert!(actions(&view, "OutdatedClient").contains(&return_action));
+        assert!(!actions(&view, "ServerFull").contains(&return_action));
+    }
 
     /// Paints a server disconnect reason and returns its text runs joined.
     fn painted(reason: &str) -> String {

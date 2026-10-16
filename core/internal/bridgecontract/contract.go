@@ -163,7 +163,7 @@ const (
 	MethodCinnabarPlayers = "cinnabar_players.v1"
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
-	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
+	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow and launcher news read it from this manifest.
 	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128

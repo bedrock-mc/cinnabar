@@ -21,6 +21,21 @@ pub(super) fn legacy_schema() -> u32 {
     1
 }
 
+/// The removed in-game channel setting's saved choice, for the launcher's one-time migration.
+pub fn legacy_update_channel(path: &Path) -> Option<update_manifest::channel::Channel> {
+    const KEY: &str = "update_channel";
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(MAX_SETTINGS_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let saved: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let index = usize::try_from(saved.get("values")?.get(KEY)?.as_u64()?).ok()?;
+    // The setting stored the channel's position in this declared order.
+    update_manifest::channel::Channel::ALL.get(index).copied()
+}
+
 impl SettingsOptions {
     /// Loads known settings and rejects malformed values without losing defaults.
     pub fn load(path: &Path) -> Self {

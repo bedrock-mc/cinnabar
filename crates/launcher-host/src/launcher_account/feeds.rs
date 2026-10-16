@@ -73,9 +73,10 @@ pub(super) fn poll_featured(
         socket_dir,
         art: Some(&art),
     };
+    let snapshot_file = launcher::desktop::featured_file(artwork_dir);
     loop {
         while changes.try_recv().is_ok() {}
-        let failed = runtime.block_on(featured_round(&feeds, shared));
+        let failed = runtime.block_on(featured_round(&feeds, shared, &snapshot_file));
         if !wait_changes(
             stop,
             changes,
@@ -134,7 +135,11 @@ async fn home_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> (Opti
 }
 
 /// Publishes featured details without allowing an older layout read to erase visible counts.
-async fn featured_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> bool {
+async fn featured_round(
+    source: &impl FeedSource,
+    shared: &Mutex<Snapshot>,
+    snapshot_file: &Path,
+) -> bool {
     let (generation, include_player_counts) = {
         let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
         (snapshot.auth_generation, snapshot.player_counts_visible)
@@ -145,6 +150,7 @@ async fn featured_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> b
         source.featured(include_player_counts).await,
         &mut failed,
     ) {
+        save_featured(snapshot_file, &featured);
         publish_account(shared, generation, |snapshot| {
             if include_player_counts || !snapshot.player_counts_visible {
                 snapshot.featured = Some(featured);
@@ -152,6 +158,27 @@ async fn featured_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> b
         });
     }
     failed
+}
+
+/// Shares the latest featured list with the desktop launcher's home page.
+fn save_featured(path: &Path, featured: &[FeaturedServer]) {
+    let snapshot = launcher::desktop::FeaturedSnapshot {
+        servers: featured
+            .iter()
+            .map(|server| launcher::desktop::FeaturedEntry {
+                name: server.name.clone(),
+                address: server.address.clone(),
+                caption: server.caption.clone(),
+                logo_url: server.logo.url.clone(),
+                player_count: server.player_count,
+                motd: server.news_title.clone(),
+                tags: server.games.iter().map(|game| game.title.clone()).collect(),
+            })
+            .collect(),
+    };
+    if let Err(error) = snapshot.save(path) {
+        tracing::debug!("could not save featured servers for the launcher: {error}");
+    }
 }
 
 /// Wakes the feed worker for a screen/account change, its next read, or shutdown.
@@ -272,10 +299,12 @@ mod tests {
 
     #[test]
     fn featured_reloads_while_home_waits_and_each_feed_publishes_on_arrival() {
+        let scratch = tempfile::tempdir().unwrap();
+        let snapshot = scratch.path().join("featured.json");
         let feeds = GatedFeeds::default();
         let shared = Mutex::new(Snapshot::default());
         let mut home = pin!(home_round(&feeds, &shared));
-        let mut featured = pin!(featured_round(&feeds, &shared));
+        let mut featured = pin!(featured_round(&feeds, &shared, &snapshot));
         assert!(poll(home.as_mut()).is_pending());
         assert!(poll(featured.as_mut()).is_pending());
         assert_eq!(feeds.started.load(Ordering::SeqCst), 2);
@@ -285,7 +314,7 @@ mod tests {
         assert_eq!(poll(featured.as_mut()), Poll::Ready(false));
         assert_eq!(published(&shared), [false, true, false, false]);
         shared.lock().unwrap().player_counts_visible = true;
-        let mut counted = pin!(featured_round(&feeds, &shared));
+        let mut counted = pin!(featured_round(&feeds, &shared, &snapshot));
         assert!(poll(counted.as_mut()).is_pending());
         assert_eq!(feeds.counted.load(Ordering::SeqCst), 1);
         feeds.featured.notify_one();
@@ -310,13 +339,15 @@ mod tests {
 
     #[test]
     fn a_failed_feed_reports_failure_without_publishing() {
+        let scratch = tempfile::tempdir().unwrap();
+        let snapshot = scratch.path().join("featured.json");
         let feeds = GatedFeeds {
             fail: true,
             ..Default::default()
         };
         let shared = Mutex::new(Snapshot::default());
         let mut home = pin!(home_round(&feeds, &shared));
-        let mut featured = pin!(featured_round(&feeds, &shared));
+        let mut featured = pin!(featured_round(&feeds, &shared, &snapshot));
         assert!(poll(home.as_mut()).is_pending());
         assert!(poll(featured.as_mut()).is_pending());
         feeds.home.notify_one();
@@ -331,13 +362,15 @@ mod tests {
 
     #[test]
     fn visible_details_request_counts_and_old_account_answers_are_discarded() {
+        let scratch = tempfile::tempdir().unwrap();
+        let snapshot = scratch.path().join("featured.json");
         let feeds = GatedFeeds::default();
         let shared = Mutex::new(Snapshot {
             player_counts_visible: true,
             ..Default::default()
         });
         let mut home = pin!(home_round(&feeds, &shared));
-        let mut featured = pin!(featured_round(&feeds, &shared));
+        let mut featured = pin!(featured_round(&feeds, &shared, &snapshot));
         assert!(poll(home.as_mut()).is_pending());
         assert!(poll(featured.as_mut()).is_pending());
         assert_eq!(feeds.counted.load(Ordering::SeqCst), 1);
@@ -351,6 +384,8 @@ mod tests {
 
     #[test]
     fn uncounted_reply_cannot_erase_counts_after_details_open() {
+        let scratch = tempfile::tempdir().unwrap();
+        let snapshot = scratch.path().join("featured.json");
         let feeds = GatedFeeds::default();
         let previous = vec![FeaturedServer {
             player_count: Some(12_345),
@@ -360,7 +395,7 @@ mod tests {
             featured: Some(previous.clone()),
             ..Default::default()
         });
-        let mut featured = pin!(featured_round(&feeds, &shared));
+        let mut featured = pin!(featured_round(&feeds, &shared, &snapshot));
         assert!(poll(featured.as_mut()).is_pending());
         shared.lock().unwrap().player_counts_visible = true;
         feeds.featured.notify_one();

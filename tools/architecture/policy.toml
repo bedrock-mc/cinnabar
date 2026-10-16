@@ -1328,6 +1328,22 @@ path = "crates/update-installer"
 allowed_dependencies = ["update-manifest"]
 forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio"]
 
+# Update checks, preferences and explicit installs; network and state only, no UI or game.
+[[crates]]
+name = "update-service"
+path = "crates/update-service"
+allowed_dependencies = ["update-installer", "update-manifest"]
+forbidden_dependencies = ["bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "launcher", "launcher-host", "client-ui", "ui", "render", "bevy", "bevy_*", "wgpu*"]
+
+# The `cinnabar-launcher` Tauri app: composition only, never the game's Bevy graph.
+[[crates]]
+name = "desktop-launcher"
+path = "crates/desktop-launcher"
+allowed_dependencies = ["bridge", "launcher", "update-installer", "update-manifest", "update-service"]
+forbidden_dependencies = ["launcher-host", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "launcher-host", "client-ui", "render", "bevy", "bevy_*"]
+
 # Production identity decisions move to the facts owners; unlisted files have a zero budget.
 [identifier_literals]
 owners = [
@@ -1349,6 +1365,11 @@ baselines = []
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "crates/update-installer/src/startup.rs"
+literal = "cinnabar"
+reason = "The packaged game executable's name from the runtime binary table, not a vanilla identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/json-ui/src/transform.rs"

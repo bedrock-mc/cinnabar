@@ -76,6 +76,8 @@ members = [
     "crates/env-compat",
     "crates/update-manifest",
     "crates/update-installer",
+    "crates/update-service",
+    "crates/desktop-launcher",
     "tools/architecture",
     "tools/bedrock-replay",
     "tools/devtool",

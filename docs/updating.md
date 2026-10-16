@@ -1,28 +1,33 @@
 # Updates
 
-The launcher checks its selected release channel at every launch, then every six hours, and
-downloads verified updates in the background. A [Cinnabar API](cinnabar-api.md) release notice for
-the selected channel starts a check at once; the check still verifies the signed manifest. An interrupted transfer resumes from its digest-named partial file, or
-restarts safely if the server does not support ranges.
+The Cinnabar launcher (`cinnabar-launcher`, `crates/desktop-launcher`) owns updates; the game
+never checks, downloads or installs them. The launcher checks its selected channel's signed
+manifests when it opens and on request. It only downloads and installs after **Update** is
+clicked, showing download, verification and installation as separate steps. Offline, a cached
+offer whose signed manifest is still valid stays visible; the installed game always plays. Set
+`CINNABAR_UPDATE_CHECK=0` to skip the launch-time check.
 
-Only one running client per install handles updates; other windows stay passive until they take over on a due check tick.
+Installation needs the whole game tree closed. The game, its core-family processes, setup and
+crash monitor hold the installation's runtime gate shared for as long as they run; the launcher
+refuses to install while any of them holds it, and the helper waits for it before changing files.
+A game started directly also holds the gate, and waits while an install is in progress.
 
-When the download is ready, choose **Restart and update** or **Later**. Later defers installation
-for this session; periodic checks continue, and a newer release replaces the waiting one. In
-**Settings → General**, you can turn off update checks, select a channel, or enable **Install
-updates when I quit**. Installation on quit is off by default. The in-game pause menu only shows
-a small ready badge; update actions remain in the launcher.
+The saved channel lives in the update directory's `preferences.json`, separately from the
+installed payload's channel. The first launcher start migrates the game's old channel setting.
+When a server refuses an outdated client, a game started by the launcher offers **Return to
+launcher**, which exits with a typed status; the launcher then marks its offer as required and
+checks again. An ordinary quit never installs anything.
 
 Beta follows the latest tagged `vX.Y.Z` release. Nightly follows the rolling `nightly`
 prerelease. Stable is reserved for a future release track and stays hidden until that track
 publishes a signed release. Clients from before these channels require one manual install.
 Changing channels never silently downgrades: a slower channel waits for a newer app version
-and build. **Switch now** downloads the selected channel's older release for manual installation. Numeric
+and build. Choosing an older channel's release in the launcher downloads it for manual installation. Numeric
 prereleases use SemVer ordering, and successive builds use a signed monotonic build number.
 
 The client checks the manifest's Ed25519 signature, channel, expiry, app version and build,
 then the artifact's size and SHA-256. The existing trusted-key list supports key rotation.
-A separate Rust helper waits for the exact client process to exit and verifies the stage again.
+A separate Rust helper waits for the exact launcher process to exit and verifies the stage again.
 A new version preparing game assets relays each setup progress report, so only a start that makes
 no progress for five minutes counts as failed; time on setup's consent prompt never counts. The
 helper then stops the client, its setup process and the asset compiler before restoring files.
@@ -30,15 +35,16 @@ Startup is acknowledged only after three primary-window frames have been present
 work has completed. Main-world updates alone cannot confirm startup or discard the previous install.
 
 - **macOS:** the helper replaces the complete signed app bundle from the DMG and preserves its
-  signature and notarization ticket. The previous bundle remains beside it until the new client
-  completes startup. A failed new start restores the previous bundle.
+  signature and notarization ticket. It starts the new launcher, which continues into the game;
+  the previous bundle remains beside it until the game completes startup. A failed new start
+  restores the previous bundle.
 - **Linux:** the same swap and startup rollback apply to AppImages. Unpacked installations use
   the manual download action.
-- **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
-  the client. The previous downloaded MSI remains in the update directory for manual repair.
+- **Windows:** the per-machine install is not writable without elevation, so the launcher opens
+  the verified MSI and quits; Windows Installer asks for approval and replaces the files.
 
-If the install location is not writable, the launcher offers **Download update**. It opens the
-verified DMG or installer for you to finish; on Linux it opens the folder containing the AppImage.
+If the install location is not writable, the launcher opens the verified DMG or installer for
+you to finish and quits; on Linux it opens the folder containing the AppImage.
 The updater does not request elevated privileges or reboot the machine.
 Manual installers are copied out of the waiting stage before opening. A newer download or channel
 change can replace that stage while the handed-off installer remains available. Manual copies use

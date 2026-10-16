@@ -349,25 +349,30 @@ verification. No parity gate closes here.
 
 ## Launcher updates
 
-One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
-update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
-carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
-An offline Rust helper waits for the old process, applies the verified native package, and
-restores failed macOS/Linux starts. Read-only installs offer the manual download action.
-Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
-API release notice for the selected channel checks immediately.
+`cinnabar-launcher` (Tauri 2, `crates/desktop-launcher`) is the installed entry point. It shows
+the installed version, desired and installed channels, verified offers, news and the featured
+servers the game last fetched, and starts and supervises the game. `update-service` owns channel
+checks, the saved channel (migrated once from the game's old setting) and explicit installs; the
+game no longer checks, downloads or installs, and has no update card, ready badge or
+install-on-quit. Signed manifests carry monotonic build numbers, and digest-named partial
+downloads resume with HTTP ranges. An offline Rust helper waits for the launcher and the
+installation's runtime gate, which every game, core-family, setup and crash-monitor process
+holds, then applies the verified package and restores failed macOS/Linux starts. The new
+launcher continues into the game, which confirms startup. Read-only and Windows per-machine
+installs open the verified installer and quit. An outdated-client disconnect offers Return to
+launcher, a typed exit status that marks the offer required.
 
 Nightly checks both the nightly and beta signed manifests and offers the newer release while
 keeping the Nightly preference. Release ordering compares the version core, then the shared
 publication number, then SemVer prerelease precedence. An unavailable or invalid beta manifest
-leaves nightly usable. Cached offers and retained stages use the same order to prevent automatic
-downgrades when the winning publishing channel changes. Beta remains the default channel.
+leaves nightly usable. Beta remains the default channel.
 
-Incomplete: CI must compile and run the written regression tests on all platforms. The package
-workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
-the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
-configured. The first signed publication remains pending.
-The launcher owner must review the notice screenshots before merge.
+Incomplete: the runtime gate is per user, not per installation, so another Windows user's session
+is not covered; Windows relies on the launcher's job for an outliving core. Windows has no
+post-MSI startup rollback, unpacked Linux installs update manually, and the AppImage needs the
+system WebKitGTK. The launcher's own native updates and over-the-air UI bundles, signing and
+notarization of the new executable, and the three-platform acceptance matrix remain. The first
+signed publication remains pending. The launcher owner must review the launcher screenshots.
 
 ## Actor animation ownership
 

@@ -286,6 +286,12 @@ impl InstallLayout {
             .join("artwork")
     }
 
+    /// The featured servers the game last fetched, read by the desktop launcher.
+    #[must_use]
+    pub fn featured_servers_file(&self) -> PathBuf {
+        crate::desktop::featured_file(&self.launcher_artwork_dir())
+    }
+
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {

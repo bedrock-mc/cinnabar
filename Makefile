@@ -159,9 +159,20 @@ CORE_STAMP = $$(CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" bash packaging/
 PACKAGE_CARGO_FLAGS ?=
 # The runtime table owns Rust package/bin pairs; Go integrations retain their module-specific builds.
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
-.PHONY: package-binaries package-macos package-windows package-linux
-package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
+PNPM ?= pnpm
+LAUNCHER_UI = crates/desktop-launcher/ui
+.PHONY: package-binaries package-macos package-windows package-linux launcher-ui
+# The launcher embeds this web UI; release builds refuse to fall back to a placeholder page.
+# Shipped launchers always include their window, which Linux builds only with linux-webview.
+launcher-ui:
+	$(PNPM) --dir $(LAUNCHER_UI) install --frozen-lockfile
+	$(PNPM) --dir $(LAUNCHER_UI) build
+
+# The installed build's release highlights, embedded so the launcher shows them offline.
+LAUNCHER_CHANGELOG = .local/dist/launcher-changelog.json
+package-binaries: launcher-ui
+	python3 packaging/changelog.py highlights "$(LAUNCHER_CHANGELOG)"
+	CINNABAR_CHANGELOG="$(abspath $(LAUNCHER_CHANGELOG))" CINNABAR_REQUIRE_LAUNCHER_UI=1 CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features --features desktop-launcher/linux-webview $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

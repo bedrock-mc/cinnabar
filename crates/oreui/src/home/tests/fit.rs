@@ -21,16 +21,15 @@ fn assert_fits(
     preference: Option<u8>,
     artwork: Option<IconRef>,
     event: bool,
-    update_ready: bool,
 ) {
     let physical = size.map(|value| (value * dpi).round() as u32);
     let metrics = TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), preference);
     let rem = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32 * GUI_PIXELS_PER_REM;
-    let layout = layout::Layout::new(rem, size, artwork, event, update_ready);
+    let layout = layout::Layout::new(rem, size, artwork, event);
     let action_width = layout.width * if layout.compact { 1.0 } else { 0.59 };
     let content_height = rem
         * layout.scale
-        * (layout::action_group_height(layout.compact, update_ready)
+        * (layout::action_group_height(layout.compact)
             + if event {
                 layout::LIVE_EVENT_HEIGHT
             } else {
@@ -45,13 +44,6 @@ fn assert_fits(
     assert!(layout.height + layout.outside <= size[1] + 0.001);
 
     let mut view = view();
-    if update_ready {
-        view.updates.ready = Some(launcher::menu::updates::Ready {
-            version: launcher::PRODUCT_VERSION.into(),
-            writable: true,
-            protocol_required: false,
-        });
-    }
     if event {
         view.feeds.home.live_event = Some(launcher::menu::LiveEventCard {
             button_text: "Live event".into(),
@@ -86,21 +78,7 @@ fn assert_fits(
         header.bounds().min().y() >= 0.0 && header.bounds().max().y() <= viewport.height() + 0.001,
         "action header is clipped at {size:?}, DPI {dpi}, preference {preference:?}"
     );
-    assert_eq!(
-        hits.len(),
-        9 + usize::from(event) + usize::from(update_ready) * 2
-    );
-    if update_ready {
-        for action in [
-            launcher::menu::updates::Action::Restart,
-            launcher::menu::updates::Action::Later,
-        ] {
-            assert!(
-                hits.iter()
-                    .any(|(found, _)| *found == MenuAction::Update(action))
-            );
-        }
-    }
+    assert_eq!(hits.len(), 9 + usize::from(event));
     for (action, bounds) in targets {
         let visible = hits.iter().find(|(found, _)| *found == action).unwrap().1;
         assert_eq!(visible, bounds, "{action:?} is clipped at {size:?}");
@@ -129,7 +107,7 @@ fn assert_fits(
 fn reported_short_window_fits_every_action_without_scrolling() {
     for artwork in [None, Some(title(400, 80)), Some(title(300, 100))] {
         for event in [false, true] {
-            assert_fits([1000.0, 560.0], 1.0, None, artwork, event, false);
+            assert_fits([1000.0, 560.0], 1.0, None, artwork, event);
         }
     }
 }
@@ -138,14 +116,7 @@ fn reported_short_window_fits_every_action_without_scrolling() {
 fn smallest_supported_window_fits_every_action_without_scrolling() {
     for artwork in [None, Some(title(400, 80)), Some(title(300, 100))] {
         for event in [false, true] {
-            assert_fits(
-                ui::MIN_WINDOW_LOGICAL_SIZE,
-                1.0,
-                None,
-                artwork,
-                event,
-                false,
-            );
+            assert_fits(ui::MIN_WINDOW_LOGICAL_SIZE, 1.0, None, artwork, event);
         }
     }
 }
@@ -169,7 +140,7 @@ fn fit_survives_compact_breakpoints_and_display_scales() {
                     .map(|choice| Some(desktop.scale_for_offset(choice.offset))),
             );
             for preference in preferences {
-                assert_fits(size, dpi, preference, Some(title(300, 100)), true, false);
+                assert_fits(size, dpi, preference, Some(title(300, 100)), true);
             }
         }
     }
@@ -190,9 +161,7 @@ fn every_native_gui_scale_choice_fits_common_window_sizes() {
                 let preference = Some(desktop.scale_for_offset(choice.offset));
                 for artwork in [None, Some(title(400, 80)), Some(title(300, 100))] {
                     for event in [false, true] {
-                        for update_ready in [false, true] {
-                            assert_fits(size, dpi, preference, artwork, event, update_ready);
-                        }
+                        assert_fits(size, dpi, preference, artwork, event);
                     }
                 }
             }
@@ -201,7 +170,7 @@ fn every_native_gui_scale_choice_fits_common_window_sizes() {
 }
 
 #[test]
-fn update_notice_and_live_event_fit_without_clipping_or_scrolling() {
+fn live_event_fits_without_clipping_or_scrolling() {
     for size in [
         ui::MIN_WINDOW_LOGICAL_SIZE,
         [1000.0, 560.0],
@@ -210,7 +179,7 @@ fn update_notice_and_live_event_fit_without_clipping_or_scrolling() {
         for artwork in [None, Some(title(400, 80)), Some(title(300, 100))] {
             for event in [false, true] {
                 for dpi in [1.0, 2.0, 8.0] {
-                    assert_fits(size, dpi, None, artwork, event, true);
+                    assert_fits(size, dpi, None, artwork, event);
                 }
             }
         }
@@ -221,7 +190,7 @@ fn update_notice_and_live_event_fit_without_clipping_or_scrolling() {
 fn normal_window_keeps_panel_logo_footer_and_action_geometry() {
     let size = [1920.0, 1080.0];
     let artwork = title(400, 80);
-    let layout = layout::Layout::new(10.0, size, Some(artwork), false, false);
+    let layout = layout::Layout::new(10.0, size, Some(artwork), false);
     assert_eq!(layout.scale, 1.0);
     assert!(!layout.compact && !layout.compact_footer);
     assert!((layout.width - 860.0).abs() < 0.001);

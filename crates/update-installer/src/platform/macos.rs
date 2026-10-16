@@ -41,7 +41,8 @@ pub(super) fn candidate(artifact: &Path, work: &Path, target: &Path) -> Result<P
         .args(["--verify", "--deep", "--strict"])
         .arg(&candidate))?;
     ensure!(
-        candidate.join("Contents/MacOS/cinnabar").is_file(),
+        crate::startup::executable(&candidate.join("Contents/MacOS"), crate::startup::LAUNCHER)
+            .is_file(),
         "bundle is missing its entry point"
     );
     Ok(candidate)

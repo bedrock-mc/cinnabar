@@ -14,6 +14,21 @@ def entry(number, title):
 
 
 class ChangelogTest(unittest.TestCase):
+    def test_launcher_highlights_keep_player_facing_merges_in_display_order(self):
+        subjects = [
+            "Reduce frame upload overhead (#3)",
+            "chore: repin gophertunnel (#2)",
+            "Fix black nametag rectangles (#1)",
+            "Add wardrobe hats (#4)",
+            "Merge remote-tracking branch 'origin/dev'",
+        ]
+        self.assertEqual(
+            changelog.highlights(subjects),
+            ["Add wardrobe hats", "Fix black nametag rectangles", "Reduce frame upload overhead"],
+        )
+        many = [f"Add feature {n} (#{n})" for n in range(20)]
+        self.assertEqual(len(changelog.highlights(many)), changelog.MAX_HIGHLIGHTS)
+
     def test_titles_map_to_categories(self):
         cases = {
             "Add third-person and crosshair color settings": "new",

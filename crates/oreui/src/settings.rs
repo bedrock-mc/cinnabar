@@ -410,12 +410,6 @@ impl Content<'_, '_> {
             "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
         } else if id == SettingId::CinnabarBadges {
             "Show Cinnabar badges beside player names and in the player list.".to_owned()
-        } else if id == SettingId::AutoUpdateEnabled {
-            "Check the selected channel and download verified updates in the background.".to_owned()
-        } else if id == SettingId::InstallUpdatesOnQuit {
-            "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
-        } else if id == SettingId::UpdateChannel {
-            "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if id == SettingId::VerboseLogging {

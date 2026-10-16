@@ -222,8 +222,10 @@ impl LauncherAccount {
         publish(&self.snapshot, |snapshot| snapshot.xbox_presence = state);
     }
 
-    /// Keeps the core's Cinnabar API connection on `channel`, showing this player when `visible`.
-    pub fn set_cinnabar_api(&self, channel: update_manifest::channel::Channel, visible: bool) {
+    /// Keeps the core's Cinnabar API connection on this build's channel, showing this player when `visible`.
+    pub fn set_cinnabar_api(&self, visible: bool) {
+        // The installed payload's channel; development builds report the default.
+        let channel = update_manifest::build::release_channel().unwrap_or_default();
         self.with(|snapshot| {
             if snapshot
                 .cinnabar_api
@@ -343,7 +345,6 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     let mut sent_presence = None;
     let mut presence_failed = false;
     let mut sent_cinnabar = None;
-    let mut seen_release = None;
     let mut ping_due = Instant::now();
     let mut pinged: Vec<String> = Vec::new();
     loop {
@@ -405,10 +406,6 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
         }
         let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(bridge::poll_events(socket_dir)) {
-            if let Some(release) = new_release(&mut seen_release, events.cinnabar_release.as_ref())
-            {
-                crate::lifecycle::update::release_published(release);
-            }
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
                     && snapshot.last_disconnect != Some(disconnect.sequence)
@@ -450,19 +447,6 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             publish(shared, |snapshot| snapshot.pings = Some(pings));
         }
     }
-}
-
-/// The announced release when its identity differs from the last one seen.
-fn new_release<'a>(
-    seen: &mut Option<bridge::CinnabarRelease>,
-    latest: Option<&'a bridge::CinnabarRelease>,
-) -> Option<&'a bridge::CinnabarRelease> {
-    let latest = latest?;
-    if seen.as_ref() == Some(latest) {
-        return None;
-    }
-    *seen = Some(latest.clone());
-    Some(latest)
 }
 
 fn poll_catalog(

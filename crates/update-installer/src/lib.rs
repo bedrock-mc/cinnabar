@@ -6,6 +6,7 @@ pub mod lease;
 pub mod parent;
 mod platform;
 pub mod recovery;
+pub mod runtime;
 pub mod stage;
 pub mod startup;
 pub mod target;

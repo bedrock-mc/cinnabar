@@ -129,7 +129,7 @@ pub(super) fn merge_servers(
             continue;
         }
         if serde_json::to_vec_pretty(&merged).map_or(true, |bytes| {
-            bytes.len() > crate::servers::MAX_SAVED_SERVER_FILE_BYTES
+            bytes.len() > launcher::menu::MAX_SAVED_SERVER_FILE_BYTES
         }) {
             merged.pop();
             skipped += 1;

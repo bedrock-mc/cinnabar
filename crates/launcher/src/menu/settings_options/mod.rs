@@ -35,18 +35,17 @@ pub use command_macros::{
 };
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
-    DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
-    MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
-    SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, CINNABAR_VISIBILITY_OPTION, DISCORD_PRESENCE_OPTION,
+    FRAME_RATE_UNLIMITED, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE,
+    MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
+    SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION, VRR_CHOICES, VRR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
     DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };
-pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
+pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA, legacy_update_channel};
 pub use runtime::{frame_rate_label, frame_rate_limit};
 
 /// Persisted toggle shared by the new UI's sizing and settings controls.
@@ -128,19 +127,6 @@ impl SettingsOptions {
         match preference.value {
             Some(value) => self.values.insert(option.name.to_owned(), value) != Some(value),
             None => self.values.remove(option.name).is_some(),
-        }
-    }
-
-    /// The saved check preference, quit-time opt-in and selected release channel.
-    pub fn update_preferences(&self) -> super::updates::Preferences {
-        super::updates::Preferences {
-            checks: self.value(AUTO_UPDATE_OPTION.id) != 0,
-            install_on_quit: self.value(INSTALL_ON_QUIT_OPTION.id) != 0,
-            channel: update_manifest::channel::Channel::ALL
-                .get(self.value(UPDATE_CHANNEL_OPTION.id) as usize)
-                .copied()
-                .filter(|channel| channel.is_published())
-                .unwrap_or_default(),
         }
     }
 

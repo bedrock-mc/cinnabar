@@ -20,7 +20,6 @@ pub mod settings_sections;
 pub mod settings_storage;
 pub mod settings_support;
 pub mod sign_in;
-pub mod updates;
 pub mod view;
 pub mod worlds_tab;
 
@@ -105,7 +104,8 @@ pub enum MenuField {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     MinecraftImport(crate::minecraft_import::Action),
-    Update(updates::Action),
+    /// Quits so the supervising desktop launcher can offer the update a server asked for.
+    ReturnToLauncher,
     OpenAccounts,
     AddAccount,
     SwitchAccount(usize),
@@ -270,5 +270,7 @@ mod address_tests;
 
 /// Maximum saved server name size in UTF-8 bytes.
 pub const MAX_SERVER_NAME_BYTES: usize = 64;
+/// Maximum saved-server JSON bytes read or written in one operation.
+pub const MAX_SAVED_SERVER_FILE_BYTES: usize = 64 * 1024;
 /// Maximum saved server address size in UTF-8 bytes.
 pub const MAX_SERVER_ADDRESS_BYTES: usize = 128;

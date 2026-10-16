@@ -54,7 +54,6 @@ mod sidebar;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 mod transitions;
-mod updates;
 mod widgets;
 mod world_settings;
 

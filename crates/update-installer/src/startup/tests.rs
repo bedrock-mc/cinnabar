@@ -134,3 +134,17 @@ fn stopping_a_client_also_ends_the_setup_process_it_started() {
     // Returns only once the job, grandchild included, has no live process.
     tree.stop().unwrap();
 }
+
+#[test]
+fn launched_executables_are_packaged_runtime_binaries() {
+    let packaged = include_str!("../../../../packaging/common/runtime-binaries.txt")
+        .lines()
+        .filter_map(|row| row.split_whitespace().next())
+        .collect::<Vec<_>>();
+    for name in [LAUNCHER, GAME] {
+        assert!(
+            packaged.contains(&name),
+            "{name} is not a packaged runtime binary"
+        );
+    }
+}

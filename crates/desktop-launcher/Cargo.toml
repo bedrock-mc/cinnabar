@@ -1,0 +1,62 @@
+[package]
+name = "desktop-launcher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "LICENSE",
+    "packaging/icons/cinnabar.svg",
+    "packaging/macos/build-app.sh",
+]
+
+[[bin]]
+name = "cinnabar-launcher"
+path = "src/main.rs"
+
+[build-dependencies]
+ico = "0.5"
+resvg = { version = "0.48", default-features = false }
+serde_json = "1"
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+bridge = { path = "../bridge" }
+launcher = { path = "../launcher" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+time = { version = "0.3", default-features = false, features = ["std", "formatting", "parsing"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+update-installer = { path = "../update-installer" }
+update-manifest = { path = "../update-manifest" }
+update-service = { path = "../update-service" }
+
+# Always serve the embedded UI; UI work runs in a browser against the mock API instead.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tauri = { version = "=2.12.4", features = ["custom-protocol"] }
+tauri-plugin-opener = "=2.7.2"
+tauri-plugin-single-instance = "=2.5.4"
+
+# Linux needs WebKitGTK to build the window, so Linux checks without it build the Tauri-free core.
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri = { version = "=2.12.4", features = ["custom-protocol"], optional = true }
+tauri-plugin-opener = { version = "=2.7.2", optional = true }
+tauri-plugin-single-instance = { version = "=2.5.4", optional = true }
+
+[features]
+linux-webview = ["dep:tauri", "dep:tauri-plugin-opener", "dep:tauri-plugin-single-instance"]
+
+[dev-dependencies]
+ts-rs = "=12.0.1"
+update-service = { path = "../update-service", features = ["typescript"] }
+
+[lints]
+workspace = true

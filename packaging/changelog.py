@@ -4,6 +4,8 @@
 Usage:
   changelog.py label <pr-number>  Adds the category label to a PR that has none.
   changelog.py discord <tag>      Posts the release's published changelog to DISCORD_CHANGELOG_WEBHOOK (skips when unset).
+  changelog.py highlights <out>   Writes the launcher's changelog for HEAD's version as JSON, from the
+                                  player-facing squash-merge titles since the previous version tag.
 """
 
 import json
@@ -136,11 +138,49 @@ def post_discord(tag: str) -> None:
         print(f"Posted the {tag} changelog to Discord ({response.status})")
 
 
+MAX_HIGHLIGHTS = 8
+MERGED = re.compile(r"^(?P<title>.+?) \(#\d+\)$")
+
+
+def highlights(subjects: list[str]) -> list[str]:
+    """Player-facing PR titles, newest first and grouped new, fix, then performance."""
+    grouped: dict = {}
+    for subject in subjects:
+        match = MERGED.match(subject.strip())
+        if match:
+            grouped.setdefault(classify(match["title"]), []).append(plain_title(match["title"]))
+    ordered = [title for label in DISPLAY_ORDER for title in grouped.get(label, [])]
+    return ordered[:MAX_HIGHLIGHTS]
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], text=True, capture_output=True, check=False).stdout.strip()
+
+
+def write_highlights(out: str) -> None:
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cargo = open(os.path.join(root, "Cargo.toml"), encoding="utf-8").read()
+    version = re.search(r'(?ms)^\[workspace\.package\].*?^version = "([^"]+)"', cargo).group(1)
+    release = json.load(open(os.path.join(root, "packaging/release-assets.json"), encoding="utf-8"))
+    previous = git("describe", "--tags", "--abbrev=0", "--match", "v*", "HEAD^")
+    log = git("log", "--format=%s", f"{previous}..HEAD" if previous else "HEAD", "--max-count=200")
+    changelog = {
+        "version": version,
+        "publishedAt": git("log", "-1", "--format=%cI", "HEAD"),
+        "highlights": highlights(log.splitlines()),
+        "url": f"https://github.com/{release['repository']}/releases/tag/v{version}",
+    }
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as handle:
+        json.dump(changelog, handle)
+
+
 def main() -> int:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("label", "discord"):
+    commands = {"label": label_pr, "discord": post_discord, "highlights": write_highlights}
+    if len(sys.argv) != 3 or sys.argv[1] not in commands:
         print(__doc__, file=sys.stderr)
         return 2
-    (label_pr if sys.argv[1] == "label" else post_discord)(sys.argv[2])
+    commands[sys.argv[1]](sys.argv[2])
     return 0
 
 

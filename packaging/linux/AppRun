@@ -1,3 +1,4 @@
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/usr/bin/cinnabar" "$@"
+# The launcher is the entry point; it starts the game binary beside it directly.
+exec "$HERE/usr/bin/cinnabar-launcher" "$@"

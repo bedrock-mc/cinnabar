@@ -201,6 +201,8 @@ impl CoreOutput {
         } else {
             Stdio::null()
         });
+        // Installed core-family processes keep updates waiting until they exit too.
+        super::update::share_installation(command);
         let child = children::spawn(command)?;
         let (Some(log), Some(stderr)) = (&self.log, child.take_stderr()) else {
             return Ok(child);

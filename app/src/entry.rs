@@ -47,9 +47,13 @@ pub(crate) fn dispatch() {
             if let Err(error) = run(*args) {
                 fail(&error);
             }
-            launcher_host::lifecycle::update::apply_after_exit();
             diagnostics::console::flush_before_exit();
-            crash::announce_exit(0);
+            // A typed reason tells the supervising launcher why the game quit.
+            let code = launcher_host::lifecycle::update::exit_code();
+            crash::announce_exit(code);
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Err(error) => {
             eprintln!("{error}");

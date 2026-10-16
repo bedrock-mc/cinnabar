@@ -845,49 +845,16 @@ fn saved_far_terrain_settings_do_not_enable_it() {
 }
 
 #[test]
-fn automatic_update_opt_out_survives_save_and_reload() {
-    let mut settings = SettingsOptions::default();
-    assert!(settings.update_preferences().checks);
-    let index = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == super::AUTO_UPDATE_OPTION.name)
-        .unwrap();
-    settings.set(index, 0);
-    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(!reloaded.update_preferences().checks);
-}
-
-#[test]
-fn install_on_quit_requires_an_opt_in_and_channel_preferences_round_trip() {
+fn the_removed_channel_setting_still_migrates_to_the_launcher() {
     use update_manifest::channel::Channel;
-    let mut settings = SettingsOptions::default();
-    assert!(!settings.update_preferences().install_on_quit);
-    assert_eq!(settings.update_preferences().channel, Channel::Beta);
-    let index = |name| {
-        SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-            .unwrap()
-    };
-    settings.set(index(INSTALL_ON_QUIT_OPTION.name), 1);
-    settings.set(
-        index(UPDATE_CHANNEL_OPTION.name),
-        Channel::Nightly.index() as i32,
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(SETTINGS_FILE);
+    assert_eq!(super::persistence::legacy_update_channel(&path), None);
+    std::fs::write(&path, br#"{"values":{"update_channel":1}}"#).unwrap();
+    assert_eq!(
+        super::persistence::legacy_update_channel(&path),
+        Some(Channel::Nightly)
     );
-    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(saved.update_preferences().install_on_quit);
-    assert_eq!(saved.update_preferences().channel, Channel::Nightly);
-}
-
-#[test]
-fn an_unpublished_saved_channel_falls_back_to_beta() {
-    use update_manifest::channel::Channel;
-    let mut settings = SettingsOptions::default();
-    let index = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == UPDATE_CHANNEL_OPTION.name)
-        .unwrap();
-    settings.set(index, Channel::Stable.index() as i32);
-    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert_eq!(saved.update_preferences().channel, Channel::default());
+    std::fs::write(&path, br#"{"values":{"update_channel":9}}"#).unwrap();
+    assert_eq!(super::persistence::legacy_update_channel(&path), None);
 }

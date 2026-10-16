@@ -99,7 +99,7 @@ fn oversized_saved_server_file_is_bounded_and_quarantined() {
     let path = directory.join("servers.json");
     write_bytes(
         &path,
-        &vec![b' '; crate::servers::MAX_SAVED_SERVER_FILE_BYTES + 1],
+        &vec![b' '; launcher::menu::MAX_SAVED_SERVER_FILE_BYTES + 1],
     );
 
     let loaded = load_servers(&path);

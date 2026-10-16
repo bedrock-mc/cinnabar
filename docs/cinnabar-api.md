@@ -1,11 +1,13 @@
 # Cinnabar API
 
 The account core (`-cinnabar-api`) keeps one optional WebSocket for release notices and Cinnabar
-player badges. Signed-out clients stay offline. An API outage does not stop gameplay or the
-normal signed-manifest update checks. `core/cinnabarapi/schema/v1.json` pins the server contract;
+player badges; the game ignores its release notices because the launcher owns updates. Signed-out
+clients stay offline. An API outage does not stop gameplay or the launcher's signed-manifest
+update checks. The launcher reads the read-only `GET /v1/news` feed from the same origin and
+caches the last answer, marked stale while offline. `core/cinnabarapi/schema/v1.json` pins the server contract;
 new v1 fields are optional, and unknown fields and message types are ignored.
 
-**Sent:** app version, signed-manifest build number, update channel and visibility; a Minecraft
+**Sent:** app version, signed-manifest build number, the installed payload's channel and visibility; a Minecraft
 multiplayer token bound to a proof key; and XUID batches from the current server's player list.
 The socket connects before a token is minted. The key and token are reused until near expiry,
 and each handshake signs a fresh challenge. Tokens, challenges and lookup contents are not logged.

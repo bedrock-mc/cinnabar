@@ -249,7 +249,8 @@ fn all_tampered_stages_are_refused_before_start_or_swap() {
             )
             .unwrap(),
             "truncated" => fs::write(directory.join(stage::ARTIFACT_FILE), &PAYLOAD[..2]).unwrap(),
-            "channel" => policy.channel = "nightly",
+            // Nightly also accepts Beta releases, so only Stable refuses the Beta fixture.
+            "channel" => policy.channel = "stable",
             "expired" => clock += time::Duration::days(2),
             "platform" => policy.platform = "windows-x86_64",
             _ => unreachable!(),

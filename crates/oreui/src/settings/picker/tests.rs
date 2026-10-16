@@ -5,67 +5,6 @@ use {
     launcher::menu::{MenuAction, MenuView},
 };
 
-/// Paints the real channel picker with a caller-provided publication view.
-fn channel_picker_actions(updates: launcher::menu::updates::View) -> (u16, Vec<MenuAction>) {
-    use launcher::menu::settings_options::{SETTINGS_OPTIONS, UPDATE_CHANNEL_OPTION};
-    let index = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == UPDATE_CHANNEL_OPTION.name)
-        .unwrap() as u16;
-    let mut view = MenuView::new(true, "Player".into());
-    view.settings_dropdown = Some(index);
-    view.updates = updates;
-    let (_, hits, _) = paint(HashMap::new(), |canvas| {
-        draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
-    });
-    (index, hits.into_iter().map(|(action, _)| action).collect())
-}
-
-#[test]
-fn shipped_channel_picker_keeps_unpublished_stable_hidden() {
-    use launcher::menu::settings_options::UPDATE_CHANNEL_OPTION;
-    let SettingKind::Dropdown(choices) = UPDATE_CHANNEL_OPTION.kind else {
-        unreachable!()
-    };
-    for published in [false, true] {
-        let updates = launcher::menu::updates::View {
-            stable_available: published,
-            ..Default::default()
-        };
-        let (index, actions) = channel_picker_actions(updates);
-        for (choice, metadata) in choices.iter().enumerate() {
-            let action = MenuAction::SettingsOption(index, choice as i32);
-            assert_eq!(actions.contains(&action), metadata.label != "Stable");
-        }
-    }
-}
-
-#[test]
-fn a_catalog_with_stable_reveals_its_picker_action_after_verified_publication() {
-    use launcher::menu::settings_options::UPDATE_CHANNEL_OPTION;
-    let SettingKind::Dropdown(choices) = UPDATE_CHANNEL_OPTION.kind else {
-        unreachable!()
-    };
-    let additional_publications = serde_json::json!({
-        "stable": {
-            "track": "rolling", "tag": "fixture-stable", "manifest": "fixture-stable.json"
-        }
-    });
-    for verified in [false, true] {
-        let mut updates = launcher::menu::updates::View::with_publications(|channel| {
-            channel.is_published() || additional_publications.get(channel.name()).is_some()
-        });
-        updates.stable_available = verified;
-        let (index, actions) = channel_picker_actions(updates);
-        for (choice, metadata) in choices.iter().enumerate() {
-            assert_eq!(
-                actions.contains(&MenuAction::SettingsOption(index, choice as i32)),
-                metadata.label != "Stable" || verified
-            );
-        }
-    }
-}
-
 fn same_bounds(left: Bounds, right: Bounds) -> bool {
     left.into_iter()
         .zip(right)

@@ -85,15 +85,20 @@ class PackageBinariesTests(unittest.TestCase):
                         [
                             "make", "--no-print-directory", "package-binaries",
                             f"CARGO={command} cargo", f"GO={command} go",
-                            f"DIST_PLATFORM={platform}",
+                            f"PNPM={command} pnpm", f"DIST_PLATFORM={platform}",
                         ],
                         cwd=ROOT, env=env, capture_output=True, text=True, check=True,
                     )
                     calls = [json.loads(line) for line in log.read_text().splitlines()]
                     builds = [args for tool, *args in calls if tool == "cargo" and args[0] == "build"]
                     self.assertEqual(len(builds), 1)
+                    # The launcher's embedded UI is built before the Rust binaries.
+                    ui_build = next(index for index, (tool, *args) in enumerate(calls) if tool == "pnpm" and "build" in args)
+                    self.assertLess(ui_build, next(index for index, (tool, *args) in enumerate(calls) if tool == "cargo"))
                     args = builds[0]
-                    self.assertNotIn("--features", args)
+                    # Only the launcher's window is a release feature; client features stay off.
+                    features = [args[index + 1] for index, arg in enumerate(args) if arg == "--features"]
+                    self.assertEqual(features, ["desktop-launcher/linux-webview"])
                     self.assertIn("--release", args)
                     self.assertIn("--no-default-features", args)
                     runtime = [line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]

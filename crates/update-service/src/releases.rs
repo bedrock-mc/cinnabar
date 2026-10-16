@@ -1,6 +1,5 @@
 //! Authenticated channel candidates and their independent manifest caches.
 
-use super::Channel;
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::{self, File},
@@ -9,10 +8,11 @@ use std::{
 };
 use time::OffsetDateTime;
 use update_installer::stage::Selection;
+use update_manifest::channel::Channel;
 use update_manifest::{TrustedKeys, select::Check};
 
 /// Fetches the selected channel and its optional companion, tolerating companion failures.
-pub(super) async fn select(
+pub(crate) async fn select(
     root: &Path,
     keys: &TrustedKeys,
     check: Check<'_>,
@@ -43,7 +43,7 @@ pub(super) async fn select(
 }
 
 /// Selects the same winner from authenticated caches when a network check is not due.
-pub(super) fn cached(
+pub(crate) fn cached(
     root: &Path,
     keys: &TrustedKeys,
     check: Check<'_>,
@@ -130,7 +130,7 @@ fn verify_channel(
 }
 
 /// Reuses only authenticated, unexpired cached releases for this exact publishing channel.
-pub(super) fn cached_channel(
+pub(crate) fn cached_channel(
     path: &Path,
     keys: &TrustedKeys,
     check: Check<'_>,
@@ -140,12 +140,12 @@ pub(super) fn cached_channel(
 }
 
 /// Returns the independent cache path for one publishing channel.
-pub(super) fn cache_path(root: &Path, channel: Channel) -> PathBuf {
+pub(crate) fn cache_path(root: &Path, channel: Channel) -> PathBuf {
     root.join(format!("manifest-{}.json", channel.name()))
 }
 
 /// Reads a cached envelope no larger than a fetched one may be.
-pub(super) fn read_cached(path: &Path) -> Option<Vec<u8>> {
+pub(crate) fn read_cached(path: &Path) -> Option<Vec<u8>> {
     let mut cached = Vec::new();
     File::open(path)
         .and_then(|file| {

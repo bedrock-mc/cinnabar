@@ -1,6 +1,6 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server and its
+Release installers ship the `cinnabar-launcher` entry point, the client, the Go core, the dragonfly local-world server and its
 `cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
 carriers. A packaged launch whose carriers are
 missing or stale runs `crates/first-run`: a setup window (a `--first-run-setup` child process, or
@@ -32,6 +32,17 @@ accept `BINARIES` for the build directory; otherwise helpers default beside the 
 server, core or client. `CXB` overrides the verifier path. `dist-local --binaries <DIR>` selects
 companion executables (by default beside `--client`), while `--client` and `--core` retain their
 explicit paths. Missing runtime executables fail staging.
+
+`cinnabar-launcher` (`crates/desktop-launcher`, a Tauri 2 app) is the installed entry point on
+every platform: `CFBundleExecutable` in the macOS bundle, the Windows Start menu and desktop
+shortcuts, and the Linux `AppRun` and user-install wrapper. It starts the `cinnabar` binary beside
+it and owns updates. It embeds the web UI from `crates/desktop-launcher/ui/dist`; `make
+package-binaries` builds it first (`make launcher-ui`, Node with corepack's pnpm) and fails rather
+than embed a placeholder. Linux builds and the AppImage need the system WebKitGTK 4.1
+(`libwebkit2gtk-4.1-dev` to build, `libwebkit2gtk-4.1-0` to run); Windows needs WebView2, which
+current Windows includes. The macOS bundle ID and the MSI upgrade code are unchanged, so existing
+installs upgrade in place. Packaged builds stamp `CINNABAR_RELEASE_CHANNEL` so the launcher can
+show the installed payload's channel.
 
 Installers also ship the bundled Cinnangles Sans font at `<resources>/fonts/`, so first-run setup can
 draw before any download.
@@ -210,10 +221,10 @@ disconnect. Every core's stderr goes to `logs/core.log`, one file per client ses
 labelled with the process role and pid.
 
 ## Update channel
-The client checks its selected channel's fixed GitHub Releases manifest at most daily and
-streams verified downloads to the user's update directory. It rejects unknown keys, expired
+The launcher checks its selected channel's fixed GitHub Releases manifest when it opens and on
+request, and downloads only after the player chooses Update. It rejects unknown keys, expired
 or wrong-channel manifests, non-HTTPS artifacts, corrupt payloads, and unintended downgrades.
-Trusted keys (`id:base64[,...]`) are compiled into the client from `UPDATE_TRUSTED_KEYS`,
+Trusted keys (`id:base64[,...]`) are compiled in from `UPDATE_TRUSTED_KEYS`,
 so rotation ships as a new key ID. The Publish job uses the `release` environment's
 `CINNABAR_UPDATE_SIGNING_KEY`, available only to `dev` and `v*` tags, and
 a positive `-build-number` matching the packaged client's publication number;

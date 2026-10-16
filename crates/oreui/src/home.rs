@@ -29,7 +29,6 @@ pub(super) fn draw(
         size,
         canvas.title_artwork,
         view.feeds.home.live_event.is_some(),
-        view.updates.ready.is_some(),
     );
     canvas.with_scale(layout.scale, |canvas| {
         draw_layout(canvas, view, size, portrait, translate, layout)
@@ -199,15 +198,7 @@ fn action_panel(
     } else {
         0.0
     };
-    let update_height = if view.updates.ready.is_some() {
-        layout::UPDATE_NOTICE_HEIGHT
-    } else {
-        0.0
-    };
-    let group_height = canvas.r(layout::action_group_height(
-        compact,
-        view.updates.ready.is_some(),
-    ));
+    let group_height = canvas.r(layout::action_group_height(compact));
     let content_height = bounds[3] - bounds[1];
     let origin = bounds[1];
     let x = bounds[0] + pad;
@@ -224,14 +215,6 @@ fn action_panel(
             y - canvas.r(1.2),
         ];
         live_event(canvas, view, b, event, translate)?;
-    }
-    if view.updates.ready.is_some() {
-        super::updates::notice(
-            canvas,
-            view,
-            [x, y, right, y + canvas.r(update_height - 1.2)],
-        )?;
-        y += canvas.r(update_height);
     }
     canvas.text_line("LET'S PLAY", [x, y], right - x, HEADER5, TEXT)?;
     y += canvas.r(HEADER5.line + 0.8);

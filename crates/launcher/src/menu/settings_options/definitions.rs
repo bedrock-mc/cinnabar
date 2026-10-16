@@ -107,30 +107,6 @@ pub const SMAA_CHOICES: &[SettingChoice] = &[
 /// An extra silhouette filter independent of vanilla's coverage sample count.
 pub const SMAA_OPTION: SettingDefinition = SettingId::Smaa.definition();
 
-/// Controls background checks separately from the user's installation consent.
-pub const AUTO_UPDATE_OPTION: SettingDefinition = SettingId::AutoUpdateEnabled.definition();
-
-/// Applying on exit requires a separate opt-in and never overrides Later.
-pub const INSTALL_ON_QUIT_OPTION: SettingDefinition = SettingId::InstallUpdatesOnQuit.definition();
-
-/// A channel choice reads its name and label from the signed manifest channel contract.
-const fn channel_choice(channel: update_manifest::channel::Channel) -> SettingChoice {
-    SettingChoice {
-        name: channel.binding(),
-        label: channel.label(),
-    }
-}
-
-pub const UPDATE_CHANNEL_CHOICES: &[SettingChoice] = &[
-    channel_choice(update_manifest::channel::Channel::ALL[0]),
-    channel_choice(update_manifest::channel::Channel::ALL[1]),
-    channel_choice(update_manifest::channel::Channel::ALL[2]),
-];
-const _: () = assert!(UPDATE_CHANNEL_CHOICES.len() == update_manifest::channel::Channel::ALL.len());
-
-/// Stable is offered only after its signed release exists; beta is the initial channel.
-pub const UPDATE_CHANNEL_OPTION: SettingDefinition = SettingId::UpdateChannel.definition();
-
 /// Lets other Cinnabar players see this player as one through the Cinnabar API.
 pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVisible.definition();
 
@@ -470,12 +446,6 @@ settings! {
         [(SettingPanel::GeneralNetwork, 2)], [], None, None;
     CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
         [(SettingPanel::GeneralNetwork, 3)], [], None, None;
-    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
-        [(SettingPanel::GeneralUpdates, 0)], [], None, None;
-    InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
-        [(SettingPanel::GeneralUpdates, 1)], [], None, None;
-    UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
-        [(SettingPanel::GeneralUpdates, 2)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),

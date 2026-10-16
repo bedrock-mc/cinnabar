@@ -44,7 +44,9 @@ if ($LASTEXITCODE -ne 0) { throw "icon rendering failed" }
 $logo = Join-Path $outPath "cinnabar.png"
 magick -background none (Join-Path $PSScriptRoot "../icons/cinnabar.svg") -resize 64x64 $logo
 if ($LASTEXITCODE -ne 0) { throw "logo rendering failed" }
-& (Join-Path $PSScriptRoot "set-executable-icon.ps1") -Executable (Join-Path $payload "cinnabar.exe") -Icon $icon
+foreach ($name in @("cinnabar.exe", "cinnabar-launcher.exe")) {
+    & (Join-Path $PSScriptRoot "set-executable-icon.ps1") -Executable (Join-Path $payload $name) -Icon $icon
+}
 
 $signPaths = @($runtimeNames | ForEach-Object { Join-Path $payload $_ }) + @(Join-Path $kit "bin/assetc.exe")
 & (Join-Path $PSScriptRoot "sign.ps1") -Path $signPaths

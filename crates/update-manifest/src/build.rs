@@ -21,3 +21,8 @@ impl Build {
         }
     }
 }
+
+/// The channel this payload was published on, stamped by release packaging; none in development.
+pub fn release_channel() -> Option<crate::channel::Channel> {
+    crate::channel::Channel::parse(option_env!("CINNABAR_RELEASE_CHANNEL")?)
+}

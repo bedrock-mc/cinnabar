@@ -1,4 +1,5 @@
-//! Process lifecycle around the client: crash capture, first-run asset preparation, update checks.
+//! Process lifecycle around the client: crash capture, first-run asset preparation and the
+//! installation's update gate.
 
 use anyhow::{Context, Result};
 use launcher_host::lifecycle::{crash, update};
@@ -29,6 +30,7 @@ pub(crate) fn launched_at() -> Instant {
 /// stderr the client captures, then runs the setup window and returns its exit code.
 pub fn run_first_run_setup() -> i32 {
     crate::app::logging::install(crate::app::logging::Process::Setup);
+    hold_installation();
     let code = first_run::run_setup_process();
     diagnostics::console::flush_before_exit();
     code
@@ -47,6 +49,12 @@ pub fn run_crash_monitor() -> i32 {
         return 2;
     };
     let layout = InstallLayout::discover().ok();
+    // The crash window keeps installs waiting until the player closes it.
+    if let Some(layout) = &layout
+        && let Err(error) = update::join_installation(layout)
+    {
+        bevy::log::warn!("{error:#}");
+    }
     let code = match crash_monitor::run(&args, layout.as_ref()) {
         Ok(_) => 0,
         Err(error) => {
@@ -58,6 +66,15 @@ pub fn run_crash_monitor() -> i32 {
     code
 }
 
+/// Joins a setup child to the installation the client already holds.
+fn hold_installation() {
+    if let Ok(layout) = InstallLayout::discover()
+        && let Err(error) = update::join_installation(&layout)
+    {
+        bevy::log::warn!("{error:#}");
+    }
+}
+
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
@@ -65,6 +82,8 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     crate::app::logging::install(crate::app::logging::Process::Client);
     launched_at();
     let layout = InstallLayout::discover().context("resolve install layout")?;
+    // Before any helper starts, so an update never replaces files under this process tree.
+    update::join_installation(&layout)?;
     crate::app::logging::apply_saved_verbose_setting(&layout);
     crash::prune_reports(&layout);
     // The monitor starts first, so it can report even a failure of the rest of startup.
@@ -80,8 +99,6 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     if !layout.is_installed() {
         return Ok(true);
     }
-    update::check_in_background(&layout);
-
     // An update helper waiting on this start must not mistake a long asset download for a hang.
     if !assets_overridden
         && update::while_preparing(
