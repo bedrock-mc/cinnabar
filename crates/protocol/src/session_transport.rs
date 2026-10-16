@@ -63,7 +63,6 @@ pub(crate) struct SessionTransport {
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
     split_frames: u64,              // batch frames split so far; startup batches count as 0
-    split_len: usize,               // packets split from the latest frame
     delivered: (u64, u32),          // frame and index of the packet `recv` returned last
 }
 
@@ -108,7 +107,6 @@ impl SessionTransport {
             tap: None,
             current: None,
             split_frames: 0,
-            split_len: 0,
             delivered: (0, 0),
         }
     }
@@ -143,14 +141,12 @@ impl SessionTransport {
         self.current = None;
         loop {
             if let Some(packet) = self.received.pop_front() {
-                let index = self.split_len.saturating_sub(self.received.len() + 1);
-                self.delivered = (self.split_frames, index as u32);
+                self.delivered = packet.trace_position;
                 self.observe(&packet);
                 return Ok(Inbound::Packet(packet));
             }
             if let Some(batch) = self.startup.pop_front() {
-                let packets = self.split_batch(batch)?;
-                self.split_len = packets.len();
+                let packets = self.split_batch(batch, 0)?;
                 self.received.extend(packets);
                 continue;
             }
@@ -172,9 +168,8 @@ impl SessionTransport {
                 None => return Err(SessionFailure::ConnectionClosed.into()),
             };
             if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
-                let packets = self.split_batch(body)?;
                 self.split_frames += 1;
-                self.split_len = packets.len();
+                let packets = self.split_batch(body, self.split_frames)?;
                 self.received.extend(packets);
                 continue;
             }
@@ -273,15 +268,19 @@ impl SessionTransport {
         });
     }
 
-    /// Splits a batch body and records each packet with the tap, so every packet of one batch
-    /// carries the time its batch was read; a batch that cannot be split is reported whole.
-    fn split_batch(&self, body: Bytes) -> Result<Vec<RawPacket>, SessionError> {
+    /// Splits a batch body, tagging each packet with `frame` and its slot, and records each with
+    /// the tap, so every packet of one batch carries the time its batch was read; a batch that
+    /// cannot be split is reported whole.
+    fn split_batch(&self, body: Bytes, frame: u64) -> Result<Vec<RawPacket>, SessionError> {
         let len = body.len();
         let mut packets = decode_batch_body(body, MAX_SESSION_BATCH_BYTES).inspect_err(|_| {
             if let Some(tap) = &self.tap {
                 tap.reject_batch(len);
             }
         })?;
+        for (index, packet) in packets.iter_mut().enumerate() {
+            packet.trace_position = (frame, index as u32);
+        }
         if let Some(tap) = &self.tap {
             for packet in &mut packets {
                 packet.record = Some(tap.record(
