@@ -145,7 +145,7 @@ async fn serve(
         client_cache: false,
         packs_required: false,
         packs: metadata,
-        startup: Vec::new(),
+        ..SessionHandoff::default()
     };
     let (mut sink, mut reader) = stream.split();
     let receive = async {

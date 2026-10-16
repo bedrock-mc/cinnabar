@@ -109,8 +109,9 @@ pub enum CoreMessage {
     Disconnect(SessionDisconnect),
 }
 
-/// What the client needs before play.
-#[derive(Debug, Deserialize, Serialize)]
+/// What the client needs before play. Builders set what they need and default the rest, so new
+/// optional fields never break them.
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionHandoff {
     /// The upstream login's canonical identity.
@@ -131,7 +132,7 @@ pub struct SessionHandoff {
 }
 
 /// The player identity the server knows.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionIdentity {
     pub display_name: String,

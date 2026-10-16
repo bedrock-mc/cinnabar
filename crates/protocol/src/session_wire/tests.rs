@@ -230,8 +230,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 cache: None,
             })
             .collect(),
-        trace_conn: 0,
-        startup: Vec::new(),
+        ..SessionHandoff::default()
     }
 }
 
