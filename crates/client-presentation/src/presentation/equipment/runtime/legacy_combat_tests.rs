@@ -207,7 +207,7 @@ fn worn_controllers_keep_explicit_overlay_and_suppression() {
 }
 
 /// Adds a dye-capable lit material whose overlay alpha also drives dissolve coverage.
-fn worn_style_pack(material: &str, alpha: f32) -> Vec<(Box<str>, Vec<u8>)> {
+fn worn_style_pack(material: &str, overlay: [f32; 4]) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = controller_pack(false);
     for (path, bytes) in &mut files {
         if path.as_ref() == "attachables/crown.json" {
@@ -218,7 +218,9 @@ fn worn_style_pack(material: &str, alpha: f32) -> Vec<(Box<str>, Vec<u8>)> {
             let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
             let controller = &mut value["render_controllers"]["controller.render.fixture"];
             controller["color"] = serde_json::json!({"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0});
-            controller["overlay_color"]["a"] = alpha.into();
+            controller["overlay_color"] = serde_json::json!({
+                "r": overlay[0], "g": overlay[1], "b": overlay[2], "a": overlay[3]
+            });
             *bytes = serde_json::to_vec(&value).unwrap();
         } else if path.as_ref() == "materials/fixture.material" {
             let mut value = serde_json::json!({"materials": {"version": "1.0.0"}});
@@ -240,8 +242,13 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
         ("entity_dissolve_layer1", DissolveColor),
         ("fixture_ordinary", Ordinary),
     ] {
-        for alpha in [0.0, 0.4] {
-            let files = worn_style_pack(material, alpha);
+        for (overlay, inherits_owner_overlay) in [
+            ([0.2, 0.3, 0.8, 0.0], false),
+            ([0.2, 0.3, 0.8, 0.4], false),
+            ([0.0; 4], true),
+        ] {
+            let alpha = overlay[3];
+            let files = worn_style_pack(material, overlay);
             let (entities, catalog) = pack_catalog(files.clone());
             assert_eq!(
                 catalog.binding("test:crown").unwrap().color_mask,
@@ -285,7 +292,7 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
                 .unwrap();
             let selected = &evaluated.render[0];
             assert_eq!(selected.material, kind);
-            assert_eq!(selected.overlay[3], alpha);
+            assert_eq!(selected.overlay, overlay);
             assert_eq!(selected.color, [1.0; 4]);
             assert!(!selected.material_state.unwrap().disable_overlay);
             for enchanted in [false, true] {
@@ -336,7 +343,7 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
                         );
                         let expected_overlay = if legacy {
                             if kind == Ordinary {
-                                if alpha == 0.0 {
+                                if inherits_owner_overlay {
                                     body.overlay_rgba8
                                 } else {
                                     render_model::pack_overlay_rgba8(selected.overlay)
@@ -349,7 +356,10 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
                         } else {
                             0
                         };
-                        assert_eq!(worn.overlay_rgba8, expected_overlay);
+                        assert_eq!(
+                            worn.overlay_rgba8, expected_overlay,
+                            "material {material}, authored overlay {overlay:?}, enchanted {enchanted}, Java {java}, profile {profile:?}"
+                        );
                         if legacy && kind != Ordinary {
                             assert_eq!(
                                 render_api::fancy_actor_shade(
