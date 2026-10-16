@@ -222,6 +222,7 @@ impl SessionController {
 
     /// Advances with every join, transfer and leave, so each session is told apart even on
     /// one address.
+    #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }

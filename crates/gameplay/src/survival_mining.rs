@@ -136,6 +136,24 @@ impl SurvivalTickPayload {
         (interactions, self.mine_block)
     }
 
+    /// Allocates the inventory request for valid tool wear when a tick can carry it.
+    pub(crate) fn assign_request(&mut self, request_id: &mut impl FnMut(u8, i32) -> Option<i32>) {
+        self.mine_block = self
+            .wear
+            .filter(|&(slot, damage, stack_network_id)| {
+                slot <= 8 && damage >= 0 && stack_network_id > 0
+            })
+            .and_then(|(slot, damage, stack_network_id)| {
+                protocol::MineBlockRequest::new(
+                    request_id(slot, damage)?,
+                    slot,
+                    damage,
+                    stack_network_id,
+                )
+                .ok()
+            });
+    }
+
     fn push(&mut self, kind: BlockActionKind, position: [i32; 3], face: u8) {
         // A tick emits at most four actions; the bounded list holds eight.
         let _ = self.actions.push(BlockAction {
@@ -380,35 +398,12 @@ const BLOCKED_MINING_LOG_THROTTLE_MILLIS: u64 = 2000;
 pub struct SurvivalMiningRuntime {
     machine: DestroyMachine,
     last_stepped_tick: Option<u64>,
-    pub latched_press: bool,
     position_authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     last_blocked_log_millis: Option<u64>,
     break_cues: Vec<BlockBreakCue>,
-    /// A press that broke its block in its own frame, with the actions its tick carries.
-    press_break: Option<(u64, SurvivalTickPayload)>,
 }
 
 impl SurvivalMiningRuntime {
-    /// Retains block presses until a tick can carry them, excluding attacks owned by melee.
-    pub fn observe_attack_input(
-        &mut self,
-        active: bool,
-        pressed: bool,
-        held: bool,
-        actor_in_front: bool,
-    ) -> bool {
-        if !active {
-            self.latched_press = false;
-            return false;
-        }
-        if actor_in_front {
-            self.latched_press = false;
-            return pressed || held;
-        }
-        self.latched_press |= pressed;
-        held || self.latched_press
-    }
-
     /// The block and face the local player is breaking, for hit particles.
     pub fn destroying_target(&self) -> Option<([i32; 3], u8)> {
         self.machine.destroying_target()
@@ -419,9 +414,9 @@ impl SurvivalMiningRuntime {
         std::mem::take(&mut self.break_cues)
     }
 
-    /// Steps every unsent tick once, attaching nonempty payloads to their
-    /// samples, and returns the mining request ids no tick carried. A break is
-    /// predicted only once its tick carries it.
+    /// Steps every unsent tick once and retains its destroy work on that sample,
+    /// including silent progress or delay, so later presses cannot precede it.
+    /// Returns requests no tick carried; a break is predicted only after attachment.
     pub fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -441,34 +436,13 @@ impl SurvivalMiningRuntime {
         if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
-            self.press_break = None;
             return unsent;
         }
         for (tick, motion) in ticks {
-            let pressed = self
-                .press_break
-                .take_if(|(pressed, _)| *pressed <= tick)
-                .filter(|(pressed, _)| *pressed == tick)
-                .map(|(_, payload)| payload);
-            let from_press = pressed.is_some();
-            let mut payload =
-                pressed.unwrap_or_else(|| self.machine.step(input, motion, authority));
-            payload.mine_block = payload
-                .wear
-                .filter(|&(slot, damage, stack_network_id)| {
-                    slot <= 8 && damage >= 0 && stack_network_id > 0
-                })
-                .and_then(|(slot, damage, stack_network_id)| {
-                    protocol::MineBlockRequest::new(
-                        request_id(slot, damage)?,
-                        slot,
-                        damage,
-                        stack_network_id,
-                    )
-                    .ok()
-                });
-            self.latched_press = false;
-            if payload.swing && !from_press {
+            let maintaining = self.machine != DestroyMachine::default();
+            let mut payload = self.machine.step(input, motion, authority);
+            payload.assign_request(&mut request_id);
+            if payload.swing {
                 swing(tick);
             }
             let mine_block = payload
@@ -476,13 +450,10 @@ impl SurvivalMiningRuntime {
                 .as_ref()
                 .map(|request| request.request_id());
             let broken = payload.broken;
-            if payload.is_empty() {
+            if payload.is_empty() && !maintaining && self.machine == DestroyMachine::default() {
                 continue;
             }
             if ticker.attach_survival_mining(tick, payload) {
-                if from_press {
-                    break;
-                }
                 broken.into_iter().for_each(&mut predict_break);
                 if let Some(position) = broken {
                     if let DestroyInput::Held(Some(target)) = input {
@@ -502,60 +473,86 @@ impl SurvivalMiningRuntime {
         unsent
     }
 
-    /// Breaks an instantly breakable block in a press's own frame between ticks, as vanilla
-    /// destroys locally on the press; the break's actions still ride the next tick's input.
-    pub fn break_on_press(
+    /// Previews a queued mining start without committing work before its carrier accepts it.
+    pub(crate) fn preview_press(
+        &self,
+        target: &DestroyTarget,
+        motion: TickMotion,
+        authority: BlockBreakingAuthority,
+    ) -> (DestroyMachine, SurvivalTickPayload) {
+        let mut machine = self.machine.clone();
+        let payload = machine.step(DestroyInput::Held(Some(target)), motion, authority);
+        (machine, payload)
+    }
+
+    /// Commits a queued start only after its payload is attached to an unsent movement tick.
+    pub(crate) fn commit_press(
+        &mut self,
+        machine: DestroyMachine,
+        tick: u64,
+        completed_tick: u64,
+        target: &DestroyTarget,
+        broken: Option<[i32; 3]>,
+    ) {
+        self.machine = machine;
+        self.last_stepped_tick = Some(if broken.is_some() {
+            completed_tick
+        } else {
+            tick
+        });
+        if let Some(position) = broken {
+            self.break_cues.push(BlockBreakCue::Break {
+                position,
+                block_runtime_id: target.runtime_id as i32,
+            });
+        }
+    }
+
+    /// Predicts an admitted instant start between ticks; its queue entry retains the payload.
+    pub(crate) fn predict_press(
         &mut self,
         ticker: &MovementTicker,
-        input: DestroyInput<'_>,
+        target: &DestroyTarget,
         authority: BlockBreakingAuthority,
-        swing: impl FnOnce(u64),
-        predict_break: impl FnOnce([i32; 3]),
-    ) {
-        self.synchronize(ticker.interaction_authority_identity());
-        let DestroyInput::Held(Some(target)) = input else {
-            return;
-        };
-        // Only a fresh start ignores the tick's motion; a continuing destroy waits for it.
-        if !self.latched_press
-            || self.press_break.is_some()
-            || self.machine.destroying.is_some()
-            || !ticker.accepts_block_interactions()
-        {
-            return;
+    ) -> Option<(u64, SurvivalTickPayload)> {
+        if self.machine.destroying.is_some() || !ticker.accepts_block_interactions() {
+            return None;
         }
-        let Some(sample) = ticker.between_ticks_sample() else {
-            return;
-        };
-        let mut machine = self.machine.clone();
-        let motion = TickMotion {
-            on_ground: true,
-            moved: 0.0,
-        };
-        let payload = machine.step(input, motion, authority);
+        let sample = ticker.between_ticks_sample()?;
+        let (machine, payload) = self.preview_press(
+            target,
+            TickMotion {
+                on_ground: true,
+                moved: 0.0,
+            },
+            authority,
+        );
         let (Some(position), None) = (payload.broken, payload.wear) else {
-            return;
+            return None;
         };
         self.machine = machine;
-        if payload.swing {
-            swing(sample.tick);
-        }
-        predict_break(position);
         self.break_cues.push(BlockBreakCue::Break {
             position,
             block_runtime_id: target.runtime_id as i32,
         });
-        self.press_break = Some((sample.tick, payload));
+        Some((sample.tick, payload))
+    }
+
+    /// A predicted press's carrier already includes the break; later catch-up ticks must not repeat it.
+    pub(crate) fn carried_prediction(&mut self, completed_tick: u64) {
+        self.last_stepped_tick = Some(completed_tick);
     }
 
     /// Reanchors clear the outbox and may rewind tick numbers.
-    fn synchronize(&mut self, identity: (SessionGeneration, PositionAuthorityGeneration)) {
+    pub(crate) fn synchronize(
+        &mut self,
+        identity: (SessionGeneration, PositionAuthorityGeneration),
+    ) {
         if let Some((session, _)) = self
             .position_authority
             .filter(|previous| *previous != identity)
         {
             self.last_stepped_tick = None;
-            self.press_break = None;
             if session == identity.0 {
                 self.machine.interrupt();
             } else {

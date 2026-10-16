@@ -199,7 +199,9 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     if let Some(document) = &surface_document {
         files.push(("ui/extension_surface.json", document.as_bytes()));
     }
-    let catalog = Catalog::from_files(files).map_err(|e| e.to_string())?;
+    let catalog = Catalog::from_files(files)
+        .map_err(|e| e.to_string())?
+        .with_paint_transforms();
     if !catalog.diagnostics().is_empty() {
         return Err(format!(
             "invalid HUD editor catalog: {}",

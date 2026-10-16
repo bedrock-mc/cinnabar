@@ -78,26 +78,7 @@ impl Family {
 
     /// Orders archive names by their stamp, then by their collision suffix.
     fn archive_key(&self, name: &str) -> Option<(String, u32)> {
-        let rest = name
-            .strip_prefix(self.stem.as_str())?
-            .strip_prefix('-')?
-            .strip_suffix(self.ext.as_str())?
-            .strip_suffix('.')?;
-        let (stamp, suffix) = match rest.get(STAMP_LEN..) {
-            Some("") => (rest, 0),
-            Some(tail) => (&rest[..STAMP_LEN], tail.strip_prefix('-')?.parse().ok()?),
-            None => return None,
-        };
-        let bytes = stamp.as_bytes();
-        let valid = bytes.len() == STAMP_LEN
-            && bytes.iter().enumerate().all(|(index, byte)| {
-                if index == 8 {
-                    *byte == b'-'
-                } else {
-                    byte.is_ascii_digit()
-                }
-            });
-        valid.then(|| (stamp.to_owned(), suffix))
+        crash_report::log_archive::key(name, &self.stem, &self.ext)
     }
 
     /// An archive path after every retained collision at `at`, so pruned suffixes stay unused.
@@ -159,9 +140,6 @@ impl Family {
         failure.map_or(Ok(()), Err)
     }
 }
-
-/// `yyyymmdd-hhmmss`.
-const STAMP_LEN: usize = 15;
 
 /// Formats `at` as a UTC `yyyymmdd-hhmmss` stamp; times before the epoch format as the epoch.
 pub fn utc_stamp(at: SystemTime) -> String {

@@ -12,9 +12,11 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+mod ui_backdrop;
 mod ui_coverage_paint;
 mod vrr;
 
+pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};
 pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
 
 pub use actor_lighting::{
@@ -24,6 +26,7 @@ pub use frame_rate_limit::FrameRateLimit;
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
+    TerrainRemovalKind,
 };
 pub use skin::{
     CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION,

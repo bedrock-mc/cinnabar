@@ -12,6 +12,7 @@ mod pipeline;
 mod prepare;
 #[cfg(test)]
 mod raster_tests;
+mod resolve;
 #[cfg(test)]
 mod resource_tests;
 mod shader;
@@ -76,9 +77,13 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     };
     state.active
         && cache.get_render_pipeline(state.pipeline).is_some()
-        && cache
-            .get_render_pipeline(state.footprint_pipeline)
-            .is_some()
+        && [
+            state.row_pipeline,
+            state.footprint_pipeline,
+            state.resolve_pipeline,
+        ]
+        .into_iter()
+        .all(|id| cache.get_render_pipeline(id).is_some())
         && state
             .binding(
                 target.main_texture_view().id(),

@@ -74,7 +74,7 @@ pub fn sync_cinnabar_players(
     account.0.set_cinnabar_roster(
         runtime.session_id(),
         runtime.player_roster.revision(),
-        runtime.player_roster.xuids(),
+        runtime.player_roster.lookup_ids(),
     );
     runtime
         .player_roster

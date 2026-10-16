@@ -101,7 +101,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
                 true,
                 102,
                 RepeatClock {
-                    now_millis: 1_000,
+                    now: Duration::from_millis(1_000),
                     sneaking: false,
                     speed: 0.0,
                     survival: true

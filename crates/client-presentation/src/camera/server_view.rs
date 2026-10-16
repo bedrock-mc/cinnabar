@@ -6,4 +6,7 @@ mod runtime;
 mod spline;
 mod target;
 
+#[cfg(test)]
+mod tutorial_tests;
+
 pub use runtime::{ActorView, ServerCameraSkips, ServerCameraView, ViewContext};

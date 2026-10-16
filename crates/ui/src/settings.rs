@@ -228,8 +228,8 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
-            // The settings registry's default; a launcher test keeps the two equal.
-            far_terrain: render_api::far_terrain::FarTerrainMode::Auto,
+            // Far terrain has no setting while it is disabled.
+            far_terrain: render_api::far_terrain::FarTerrainMode::Off,
             full_detail_distance_chunks: render_api::far_terrain::FULL_DETAIL_AUTO,
         }
     }
