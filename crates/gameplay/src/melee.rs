@@ -8,11 +8,11 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
 #[cfg(test)]
-mod painting_tests;
+mod actor_pick_tests;
 mod target;
 pub use target::{
-    ActorHit, Crosshair, actor_is_pickable, block_pick_distance, classify, classify_block_hit,
-    obstructs_placement, painting_pick_unique_id, pick_actor, pick_actor_by, pick_distance,
+    ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,
+    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_distance,
     ray_box_entry,
 };
 

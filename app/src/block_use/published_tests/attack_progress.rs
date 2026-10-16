@@ -826,3 +826,39 @@ fn attack_progress_pending_press_does_not_hold_an_existing_destroy_after_release
     );
     assert_eq!(actions[0].1, [4, 2, 6]);
 }
+
+#[test]
+fn middle_click_requests_the_nearer_mob_and_respects_block_occlusion() {
+    for (actor_z, expected) in [
+        (7.5, protocol::actor_pick_request_packet(99, false)),
+        (5.5, protocol::block_pick_request_packet([4, 2, 6], false)),
+    ] {
+        let (mut world, mut captured) = fixture();
+        actor_use_tests::spawn(&mut world, actor_z);
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        buttons(&mut world, vec![]);
+        world.init_resource::<client_state::GameplayScreenControls>();
+        world
+            .resource_mut::<client_state::GameplayScreenControls>()
+            .pick_block_pressed = true;
+        world
+            .run_system_cached(crate::pick_block::produce_pick_block)
+            .unwrap();
+        let actor_pick = protocol::actor_pick_request_packet(99, false).kind();
+        let block_pick = protocol::block_pick_request_packet([4, 2, 6], false).kind();
+        let picks = captured
+            .drain()
+            .iter()
+            .filter(|packet| packet.kind() == actor_pick || packet.kind() == block_pick)
+            .map(|packet| protocol::encode(packet).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            picks,
+            [protocol::encode(&expected).unwrap()],
+            "actor z={actor_z}"
+        );
+    }
+}

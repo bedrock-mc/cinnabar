@@ -7150,6 +7150,11 @@ these); chat with Bedrock formatting codes; HUD (health/hunger/armor/air, bossba
 title/actionbar); Bedrock bitmap font rendering from pack `font/` assets. Taste bar applies:
 UI phases get fable-5/opus-4.8 review before merge.
 
+Middle-click picking includes mobs and paintings, and asks the server for the
+nearest eligible actor's item using its persistent ID. Mob spawn eggs remain
+server-authoritative; walls, reach, and mounted-actor exclusion still constrain
+the pick. This does not close the broader interaction parity gate.
+
 **Phase 5 roadmap (kept current as work lands):**
 
 **Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the

@@ -1,4 +1,4 @@
-//! Middle-click picking asks the server for the selected block or hanging picture.
+//! Middle-click picking asks the server for the selected block or actor.
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
@@ -79,7 +79,7 @@ pub(crate) fn produce_pick_block(
     if let (Some(stream), Some(ray)) = (
         context.client_world.stream.as_ref(),
         context.origin.outbound_ray(),
-    ) && let Some(unique_id) = gameplay::melee::painting_pick_unique_id(
+    ) && let Some(unique_id) = gameplay::melee::actor_pick_unique_id(
         stream.authority(),
         ray.origin().to_array(),
         ray.direction().to_array(),
