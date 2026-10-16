@@ -42,7 +42,11 @@ impl LayerStyle {
             submission
                 .material
                 .state
-                .get_or_insert_with(Default::default)
+                .get_or_insert_with(|| assets::EntityRenderMaterialState {
+                    // The unauthored ordinary actor pipeline does not cull faces.
+                    cull: false,
+                    ..Default::default()
+                })
                 .disable_overlay = true;
         }
     }
