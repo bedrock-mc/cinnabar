@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub mod kind {
     /// Batch frame read from the core: conn, frame, t, bytes.
     pub const FRAME_READ: u8 = b'b';
-    /// Batch frame flushed to the core: conn, frame, t, bytes.
+    /// Batch frame flushed to the core: conn, frame, t the flush began, bytes.
     pub const FRAME_WRITTEN: u8 = b'w';
     /// Packet decoded into world ingress: conn, frame, index, session, fifo, t.
     pub const DECODED: u8 = b'd';
@@ -248,7 +248,8 @@ mod tests {
         writer.join().unwrap();
     }
 
-    /// An admission that fails leaves no record; one that succeeds records its start.
+    /// An admission that fails leaves no record; one that succeeds records the time it began,
+    /// before anything the admission publishes can be observed.
     #[test]
     fn only_admitted_attempts_are_recorded() {
         let dir = tempfile::tempdir().unwrap();
@@ -261,6 +262,13 @@ mod tests {
         trace
             .record_admitted(kind::TICK_SENT, &[4, 1], || Ok::<_, ()>(()))
             .unwrap();
+        let mut admitted_at = 0;
+        trace
+            .record_admitted(kind::ENQUEUED, &[1, 2], || {
+                admitted_at = trace.now();
+                Ok::<_, ()>(())
+            })
+            .unwrap();
         trace.finish();
         let text = std::fs::read_to_string(
             dir.path()
@@ -270,6 +278,16 @@ mod tests {
         let ticks: Vec<_> = text.lines().filter(|line| line.starts_with('k')).collect();
         assert_eq!(ticks.len(), 1);
         assert!(ticks[0].starts_with("k 4 1 "));
+        let enqueued: i64 = text
+            .lines()
+            .find_map(|line| line.strip_prefix("e 1 2 "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            enqueued <= admitted_at,
+            "a consumer acting inside the admission must not precede the recorded time"
+        );
     }
 
     /// Records reach the file in order with their fields, on a clock past the anchor.

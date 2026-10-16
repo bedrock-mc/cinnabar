@@ -325,9 +325,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                 let pending = pending_world_event
                     .take()
                     .expect("world capacity is reserved only for a pending event");
-                let identity = pending.identity();
-                permit.send(pending);
-                trace_enqueued(identity);
+                publish_traced(permit, pending);
                 if let Some(transfer) = session.take_server_transfer() {
                     end_pump_with_transfer(
                         &session,

@@ -244,13 +244,20 @@ pub(super) fn trace_decoded((conn, frame, index): (u64, u64, u32), ingress: &Wor
     }
 }
 
-/// Records the ingress with this session generation and FIFO sequence entering the app's world
-/// channel, once it is in it.
-pub(super) fn trace_enqueued((session, fifo): (u64, u64)) {
-    if let Some(trace) = bridge::latency_trace::active() {
-        trace.record(
-            bridge::latency_trace::kind::ENQUEUED,
-            &[session as i64, fifo as i64, trace.now()],
-        );
-    }
+/// Publishes `ingress` into the app's world channel, recording its entry at the time publishing
+/// began, so the app can never drain it before its recorded enqueue time.
+pub(super) fn publish_traced(permit: mpsc::Permit<'_, WorldIngress>, ingress: WorldIngress) {
+    let Some(trace) = bridge::latency_trace::active() else {
+        permit.send(ingress);
+        return;
+    };
+    let (session, fifo) = ingress.identity();
+    let _ = trace.record_admitted(
+        bridge::latency_trace::kind::ENQUEUED,
+        &[session as i64, fifo as i64],
+        || {
+            permit.send(ingress);
+            Ok::<_, std::convert::Infallible>(())
+        },
+    );
 }
