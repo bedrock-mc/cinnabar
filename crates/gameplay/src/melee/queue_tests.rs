@@ -1,6 +1,6 @@
 //! Generated event sequences compare admission and encoded delivery with an independent model.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use super::*;
 use crate::{
@@ -8,7 +8,9 @@ use crate::{
         LocalMovementEffectTimeline, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementEffectSource,
         MovementTicker, flush_player_auth_inputs,
     },
-    survival_mining::{BlockBreakingAuthority, DestroyInput, DestroyTarget, SurvivalMiningRuntime},
+    survival_mining::{
+        BlockBreakingAuthority, DestroyInput, DestroyMachine, DestroyTarget, SurvivalMiningRuntime,
+    },
 };
 
 /// One input event in the independent pending-press model.
@@ -17,6 +19,19 @@ struct ExpectedPress {
     id: u64,
     since: u64,
     block: bool,
+}
+
+/// A separate tick-driven machine records maintenance expected even while presses wait.
+#[derive(Default)]
+struct Maintenance {
+    machine: DestroyMachine,
+    last_tick: Option<u64>,
+    actions: BTreeMap<u64, Vec<(i32, [i32; 3], i32)>>,
+    target: Option<u64>,
+    instant: bool,
+    pending_ticks: usize,
+    held_gaps: usize,
+    block_presses: usize,
 }
 
 /// Captures real packet output while keeping only input deadlines and delivered prefixes in the model.
@@ -33,6 +48,7 @@ struct Harness {
     delivered: Vec<[i32; 3]>,
     admitted: Vec<u64>,
     expired_behind_prediction: usize,
+    maintenance: Option<Maintenance>,
 }
 
 impl Harness {
@@ -67,6 +83,7 @@ impl Harness {
             delivered: Vec::new(),
             admitted: Vec::new(),
             expired_behind_prediction: 0,
+            maintenance: None,
         }
     }
 
@@ -110,7 +127,11 @@ impl Harness {
             self.expired_behind_prediction += before_expiry - self.pending.len();
         }
         let first = self.pending.front().copied();
-        let target = target(first.map_or(self.next_id + 1_000, |press| press.id));
+        let mut target = target(first.map_or(self.next_id + 1_000, |press| press.id));
+        if let Some(model) = &self.maintenance {
+            target = self::target(model.target.unwrap_or(1_000));
+            target.instant = model.instant;
+        }
         let crosshair = first.map(|press| {
             if press.block {
                 Crosshair::Block
@@ -156,11 +177,25 @@ impl Harness {
                 },
             ))
         });
-        let input = if first.is_some_and(|press| press.block) || (first.is_none() && held) {
+        let input = if let Some(model) = &self.maintenance {
+            if held {
+                DestroyInput::Held(model.target.map(|_| &target))
+            } else {
+                DestroyInput::Released
+            }
+        } else if first.is_some_and(|press| press.block) || (first.is_none() && held) {
             DestroyInput::Held(Some(&target))
         } else {
             DestroyInput::Released
         };
+        // This corpus admits block starts on completed inputs; the first corpus covers
+        // instant previews between ticks and their later carriers.
+        let full = full
+            || (self.maintenance.is_some()
+                && first.is_some_and(|press| press.block)
+                && matches!(input, DestroyInput::Held(Some(_)))
+                && self.movement.between_ticks_sample().is_some());
+        let attack_tick = attack.as_ref().map(|(_, press)| press.tick);
         let mut packets = Vec::new();
         let mut predicted = Vec::new();
         let outcome = admit_attack_frame(
@@ -170,7 +205,11 @@ impl Harness {
             &mut self.movement,
             AttackFrame {
                 attack,
-                mining: input,
+                mining_target: match input {
+                    DestroyInput::Held(target) => target,
+                    DestroyInput::Released => None,
+                },
+                attack_held: held,
                 authority: BlockBreakingAuthority::Server,
                 now_millis: self.now,
                 local_runtime_id: 8,
@@ -198,10 +237,12 @@ impl Harness {
                 id, expected.id,
                 "presses must enter the FIFO in input order"
             );
-            assert_eq!(
-                self.predictions, self.delivered,
-                "a later press overtook a predicted break's carrier"
-            );
+            if self.maintenance.is_none() {
+                assert_eq!(
+                    self.predictions, self.delivered,
+                    "a later press overtook a predicted break's carrier"
+                );
+            }
             if !expected.block {
                 let actor = packets
                     .iter()
@@ -211,6 +252,69 @@ impl Harness {
                 assert_eq!(actor, expected.id);
             }
             self.admitted.push(id);
+        }
+        let admitted_block = outcome.admitted.is_some() && first.is_some_and(|press| press.block);
+        if let Some(model) = &mut self.maintenance {
+            model.block_presses += usize::from(admitted_block);
+            // A newly admitted start can replace earlier idle work on retained inputs.
+            let after = if admitted_block && matches!(input, DestroyInput::Held(Some(_))) {
+                attack_tick.and_then(|tick| tick.checked_sub(1))
+            } else {
+                model.last_tick
+            };
+            let ticks = self.movement.unstepped_interaction_ticks(after);
+            if let Some(&(newest, _)) = ticks.last() {
+                model.last_tick = Some(newest);
+            }
+            let mut expected_predictions = Vec::new();
+            for (tick, motion) in ticks {
+                let maintaining = model.machine.destroying_target();
+                model.pending_ticks +=
+                    usize::from(!self.pending.is_empty() && maintaining.is_some());
+                model.held_gaps += usize::from(input == DestroyInput::Held(None));
+                let step_input = match input {
+                    DestroyInput::Held(Some(target))
+                        if !self.pending.is_empty()
+                            && !(admitted_block && attack_tick == Some(tick))
+                            && maintaining
+                                .is_none_or(|(position, _)| position != target.position) =>
+                    {
+                        DestroyInput::Held(None)
+                    }
+                    _ => input,
+                };
+                let payload =
+                    model
+                        .machine
+                        .step(step_input, motion, BlockBreakingAuthority::Server);
+                model.actions.insert(
+                    tick,
+                    payload
+                        .actions
+                        .iter()
+                        .map(|action| {
+                            (
+                                action.kind.wire_value(),
+                                action.position,
+                                i32::from(action.face),
+                            )
+                        })
+                        .collect(),
+                );
+                if let Some(position) = payload.broken {
+                    expected_predictions.push(position);
+                    break;
+                }
+            }
+            assert_eq!(
+                predicted, expected_predictions,
+                "held input and destroy maintenance must advance on every eligible tick"
+            );
+            assert_eq!(
+                self.mining.destroying_target(),
+                model.machine.destroying_target(),
+                "pending presses suppressed destroy maintenance"
+            );
         }
         self.predictions.extend(predicted);
         let actual: Vec<_> = self
@@ -258,6 +362,16 @@ impl Harness {
         }
         let _ = self.movement.take_tick_evidence();
         for packet in packets {
+            if let Some(model) = &mut self.maintenance {
+                let tick = protocol::player_auth_input_trace_sample(&packet)
+                    .unwrap()
+                    .tick;
+                assert_eq!(
+                    protocol::test_support::packets::input_block_actions(&packet),
+                    model.actions.remove(&tick).unwrap_or_default(),
+                    "destroy progress or abort actions stalled at tick {tick}"
+                );
+            }
             self.delivered
                 .extend(protocol::test_support::packets::predicted_block_breaks(
                     &packet,
@@ -375,6 +489,67 @@ fn generated_attack_mining_and_expiry_sequences_preserve_admitted_fifo_prefixes(
         harness.finish();
         expired_behind_prediction += harness.expired_behind_prediction;
     }
+    let mut pending_ticks = 0;
+    let mut held_gaps = 0;
+    let mut block_presses = 0;
+    for initial in 1..=64 {
+        let mut rng = initial;
+        let mut harness = Harness::new();
+        harness.maintenance = Some(Maintenance {
+            target: Some(1_000),
+            instant: initial % 2 == 0,
+            ..Default::default()
+        });
+        harness.effects.begin_frame();
+        harness.ticks(1);
+        harness.frame(false, true);
+        harness.flush(usize::MAX, false);
+        harness.press(false);
+        harness.effects.begin_frame();
+        harness.ticks(2);
+        harness.frame(true, true);
+        for _ in 0..256 {
+            harness.effects.begin_frame();
+            harness.now += 1;
+            let value = next(&mut rng);
+            match value % 8 {
+                0 => harness.press(value & 8 != 0),
+                1 => {
+                    harness.maintenance.as_mut().unwrap().target = match value % 3 {
+                        0 => None,
+                        slot => Some(1_000 + slot),
+                    }
+                }
+                2 => harness.ticks(1 + value as usize % MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
+                3 => harness.flush(
+                    1 + value as usize % MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
+                    value & 16 != 0,
+                ),
+                4 => harness.now += 1 + value % (MAX_PENDING_INTERACTION_MILLIS + 1),
+                5 => harness.cancel(),
+                _ => {}
+            }
+            harness.frame(value & 32 != 0, value & 64 != 0);
+        }
+        harness.finish();
+        let model = harness.maintenance.unwrap();
+        assert!(model.actions.is_empty());
+        pending_ticks += model.pending_ticks;
+        held_gaps += model.held_gaps;
+        block_presses += model.block_presses;
+    }
+    assert!(
+        block_presses > 0,
+        "the maintenance corpus must admit block presses"
+    );
+    assert!(
+        pending_ticks > 0,
+        "the generated corpus must maintain ongoing destroys behind waiting presses"
+    );
+    assert!(
+        held_gaps > 0,
+        "the generated corpus must preserve held input with no target"
+    );
     assert!(
         expired_behind_prediction > 0,
         "the generated corpus must expire newer presses behind predictions"

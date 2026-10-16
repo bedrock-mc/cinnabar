@@ -3620,8 +3620,9 @@ visibility follows the ray from that frame's eye to its selected point. Block pr
 wait behind older inputs without requiring a predecessor pose. Presses and their
 mining starts and predicted breaks share one ordered queue. Each pending entry has
 its own expiry; accepted carriers advance before later presses and survive their
-cancellation. One admission step resolves attacks and catch-up mining against the
-shared swing clock. Accepted item uses keep advancing
+cancellation. Existing destroy progress, cancellation and held-input delay advance
+while new presses wait. One admission step resolves attacks and catch-up mining
+against the shared swing clock. Accepted item uses keep advancing
 while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced

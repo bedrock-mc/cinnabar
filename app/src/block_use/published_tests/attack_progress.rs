@@ -675,3 +675,154 @@ fn assisted_attack_with_published_aim(piercing: bool) {
     assert!((input.yaw - gameplay::movement::wire_yaw(180.0 - yaw.to_degrees())).abs() < 0.001);
     assert!((input.pitch + pitch.to_degrees()).abs() < 0.001);
 }
+
+#[test]
+fn attack_progress_held_sweep_preserves_the_post_break_delay() {
+    for actor_in_front in [false, true] {
+        let (mut world, mut captured) = fixture();
+        item_use_tests::hold_snowball(&mut world);
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        let block = world
+            .resource::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .collision_store()
+            .sub_chunk_ref(world::SubChunkKey::new(0, 0, 0, 0))
+            .unwrap()
+            .runtime_id(0, 4, 2, 6)
+            .unwrap();
+        buttons(&mut world, vec![]);
+        produce_air_use(&mut world);
+        captured.drain();
+        let mut app = interaction_app(world);
+        buttons(app.world_mut(), vec![1]);
+        app.world_mut().run_schedule(Update);
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            1
+        );
+        ticks(app.world_mut(), 102, 103);
+        buttons(app.world_mut(), vec![1]);
+        app.world_mut().run_schedule(Update);
+        if actor_in_front {
+            actor_use_tests::spawn(app.world_mut(), 7.5);
+            // Give published picking its preceding frame before the next mining tick.
+            app.world_mut()
+                .resource_mut::<LocalMovementEffectTimeline>()
+                .begin_frame();
+            buttons(app.world_mut(), vec![1]);
+            app.world_mut().run_schedule(Update);
+        }
+        ticks(app.world_mut(), 103, 104);
+        buttons(app.world_mut(), vec![1]);
+        app.world_mut().run_schedule(Update);
+        assert!(
+            app.world().resource::<MeleeRuntime>().actor_in_front(),
+            "both air misses and actor picks suppress the mining target"
+        );
+        if actor_in_front {
+            actor_use_tests::spawn(app.world_mut(), -30.0);
+        }
+        {
+            let mut world = app
+                .world_mut()
+                .resource_mut::<crate::runtime::world::ClientWorld>();
+            world
+                .stream
+                .as_mut()
+                .unwrap()
+                .predict_block([4, 2, 6], 0, block);
+        }
+        // Publish the changed pick without advancing mining time or releasing Attack.
+        app.world_mut()
+            .resource_mut::<LocalMovementEffectTimeline>()
+            .begin_frame();
+        buttons(app.world_mut(), vec![1]);
+        app.world_mut().run_schedule(Update);
+        let last_delayed = 103 + u64::from(gameplay::survival_mining::DESTROY_DELAY_TICKS);
+        for tick in 104..last_delayed {
+            ticks(app.world_mut(), tick, tick + 1);
+            buttons(app.world_mut(), vec![1]);
+            assert!(
+                app.world()
+                    .resource::<client_state::SemanticInputSnapshot>()
+                    .phase(semantic_input::Action::Attack)
+                    .held
+            );
+            app.world_mut().run_schedule(Update);
+            assert_eq!(
+                app.world()
+                    .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                    .len(),
+                1,
+                "held input lost its delay after aiming at actor={actor_in_front}, tick={tick}"
+            );
+        }
+        ticks(app.world_mut(), last_delayed, last_delayed + 1);
+        buttons(app.world_mut(), vec![1]);
+        app.world_mut().run_schedule(Update);
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            2,
+            "held mining must resume when its original delay finishes"
+        );
+    }
+}
+
+#[test]
+fn attack_progress_pending_press_does_not_hold_an_existing_destroy_after_release() {
+    let (mut world, mut captured) = fixture();
+    item_use_tests::hold_snowball(&mut world);
+    world.init_resource::<crate::melee::MeleeTarget>();
+    // A held input can maintain mining without another press proposal.
+    buttons(&mut world, vec![1]);
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
+            .destroying_target()
+            .map(|(position, _)| position),
+        Some([4, 2, 6])
+    );
+    produce_air_use(&mut world);
+    captured.drain();
+    world
+        .resource_mut::<MeleeRuntime>()
+        .observe_input(true, false);
+    buttons(&mut world, vec![]);
+    ticks(&mut world, 102, 103);
+    // No proposal is available for the queued press, while current mining facts remain valid.
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    assert!(world.resource::<MeleeRuntime>().press_pending());
+    assert_eq!(
+        world
+            .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
+            .destroying_target(),
+        None,
+        "the queued press must not turn released input into held mining"
+    );
+    produce_air_use(&mut world);
+    let packets = captured.drain();
+    let actions: Vec<_> = packets
+        .iter()
+        .flat_map(protocol::test_support::packets::input_block_actions)
+        .collect();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].0,
+        protocol::BlockActionKind::AbortDestroy.wire_value()
+    );
+    assert_eq!(actions[0].1, [4, 2, 6]);
+}

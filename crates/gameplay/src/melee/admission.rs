@@ -10,7 +10,10 @@ use crate::{
 /// Current facts used when the next queued press can enter the outbound FIFO.
 pub struct AttackFrame<'a> {
     pub attack: Option<(Crosshair, PressContext)>,
-    pub mining: DestroyInput<'a>,
+    /// A queued press may retain a target even after the button is released.
+    pub mining_target: Option<&'a crate::survival_mining::DestroyTarget>,
+    /// Current button state, independent of queued presses and target eligibility.
+    pub attack_held: bool,
     pub authority: BlockBreakingAuthority,
     pub now_millis: u64,
     pub local_runtime_id: u64,
@@ -104,7 +107,7 @@ pub fn admit_attack_frame(
                 runtime.queue.entries.front_mut().unwrap().work = Work::Carrying { tick };
             }
             Work::Block { tick } => {
-                let DestroyInput::Held(Some(target)) = frame.mining else {
+                let Some(target) = frame.mining_target else {
                     runtime.queue.entries.pop_front();
                     continue;
                 };
@@ -150,7 +153,7 @@ pub fn admit_attack_frame(
                 let between = movement
                     .between_ticks_sample()
                     .is_some_and(|sample| sample.tick == press.tick);
-                if !before_input && !between {
+                if (!before_input && !between) || movement.carries_survival_mining(press.tick) {
                     break;
                 }
                 attempted = true;
@@ -182,24 +185,38 @@ pub fn admit_attack_frame(
             }
         }
     }
-    // All accepted carriers above advance regardless of new input. Only a fresh start waits.
-    if !runtime.queue.pending() {
-        let unsent = mining.step_ticks(
-            movement,
-            frame.mining,
-            frame.authority,
-            |tick| {
-                if swings.try_swing(tick, (effects.swing_duration)(tick)) {
-                    let _ = (effects.send)(vec![protocol::swing_arm_packet(
-                        frame.local_runtime_id,
-                        protocol::SwingSource::Mine,
-                    )]);
-                }
-            },
-            &mut effects.request_id,
-            &mut effects.predict_break,
-        );
-        result.cancelled_mining_requests.extend(unsent);
-    }
+    // Only a fresh mining start waits; existing progress, aborts and held delay still advance.
+    let held_input = if frame.attack_held {
+        DestroyInput::Held(frame.mining_target)
+    } else {
+        DestroyInput::Released
+    };
+    let input = match held_input {
+        DestroyInput::Held(Some(target))
+            if runtime.queue.pending()
+                && mining
+                    .destroying_target()
+                    .is_none_or(|(position, _)| position != target.position) =>
+        {
+            DestroyInput::Held(None)
+        }
+        input => input,
+    };
+    let unsent = mining.step_ticks(
+        movement,
+        input,
+        frame.authority,
+        |tick| {
+            if swings.try_swing(tick, (effects.swing_duration)(tick)) {
+                let _ = (effects.send)(vec![protocol::swing_arm_packet(
+                    frame.local_runtime_id,
+                    protocol::SwingSource::Mine,
+                )]);
+            }
+        },
+        &mut effects.request_id,
+        &mut effects.predict_break,
+    );
+    result.cancelled_mining_requests.extend(unsent);
     result
 }

@@ -190,10 +190,10 @@ pub(crate) fn produce_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
-    let mine_input = active
-        && !runtime.actor_in_front()
-        && (context.input.phase(Action::Attack).held || runtime.press_pending());
-    let destroy = if mine_input {
+    let attack_held = active && context.input.phase(Action::Attack).held;
+    let wants_target =
+        active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
+    let destroy = if wants_target {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
@@ -228,11 +228,8 @@ pub(crate) fn produce_attacks(
         &mut movement,
         gameplay::melee::AttackFrame {
             attack,
-            mining: if mine_input {
-                gameplay::survival_mining::DestroyInput::Held(destroy.as_ref())
-            } else {
-                gameplay::survival_mining::DestroyInput::Released
-            },
+            mining_target: destroy.as_ref(),
+            attack_held,
             authority,
             now_millis,
             local_runtime_id,

@@ -656,6 +656,13 @@ impl MovementTicker {
         std::mem::replace(&mut self.next_tick_flags, protocol::PlayerInputFlags::NONE)
     }
 
+    /// Whether committed destroy maintenance already owns this unsent input.
+    pub(crate) fn carries_survival_mining(&self, tick: u64) -> bool {
+        self.outbox
+            .iter()
+            .any(|sample| sample.snapshot.tick == tick && sample.mining.is_some())
+    }
+
     /// Attaches one destroy tick to its exact unsent sample; it is committed from then on.
     pub fn attach_survival_mining(
         &mut self,

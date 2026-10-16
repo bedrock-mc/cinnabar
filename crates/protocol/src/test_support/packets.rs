@@ -300,6 +300,16 @@ pub fn empty_stack_response(request_id: i32, list_present: bool) -> Packet {
 
 /// Reads server-authoritative predicted destroys in the order carried by one input packet.
 pub fn predicted_block_breaks(packet: &Packet) -> Vec<[i32; 3]> {
+    input_block_actions(packet)
+        .into_iter()
+        .filter_map(|(kind, position, _)| {
+            (kind == crate::BlockActionKind::PredictDestroy.wire_value()).then_some(position)
+        })
+        .collect()
+}
+
+/// Reads tick-ordered block actions without interpreting their wire kind or abort percent.
+pub fn input_block_actions(packet: &Packet) -> Vec<(i32, [i32; 3], i32)> {
     let packets::Packet::PlayerAuthInput(input) = &*packet.data else {
         return Vec::new();
     };
@@ -308,16 +318,16 @@ pub fn predicted_block_breaks(packet: &Packet) -> Vec<[i32; 3]> {
         .as_deref()
         .unwrap_or_default()
         .iter()
-        .filter(|action| {
-            action.player_action_type
-                == bedrock_protocol_1_26_51::enums::PlayerActionType::Predictdestroyblock
-        })
         .map(|action| {
-            [
-                action.position.x.0,
-                action.position.y.0,
-                action.position.z.0,
-            ]
+            (
+                action.player_action_type.to_raw(),
+                [
+                    action.position.x.0,
+                    action.position.y.0,
+                    action.position.z.0,
+                ],
+                action.facing.0,
+            )
         })
         .collect()
 }

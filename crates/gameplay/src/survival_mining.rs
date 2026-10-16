@@ -414,9 +414,9 @@ impl SurvivalMiningRuntime {
         std::mem::take(&mut self.break_cues)
     }
 
-    /// Steps every unsent tick once, attaching nonempty payloads to their
-    /// samples, and returns the mining request ids no tick carried. A break is
-    /// predicted only once its tick carries it.
+    /// Steps every unsent tick once and retains its destroy work on that sample,
+    /// including silent progress or delay, so later presses cannot precede it.
+    /// Returns requests no tick carried; a break is predicted only after attachment.
     pub fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -439,6 +439,7 @@ impl SurvivalMiningRuntime {
             return unsent;
         }
         for (tick, motion) in ticks {
+            let maintaining = self.machine != DestroyMachine::default();
             let mut payload = self.machine.step(input, motion, authority);
             payload.assign_request(&mut request_id);
             if payload.swing {
@@ -449,7 +450,7 @@ impl SurvivalMiningRuntime {
                 .as_ref()
                 .map(|request| request.request_id());
             let broken = payload.broken;
-            if payload.is_empty() {
+            if payload.is_empty() && !maintaining && self.machine == DestroyMachine::default() {
                 continue;
             }
             if ticker.attach_survival_mining(tick, payload) {
