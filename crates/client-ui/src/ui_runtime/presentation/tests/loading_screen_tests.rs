@@ -1,10 +1,37 @@
-//! Joining shows vanilla's world-loading progress screen for the dimension.
+//! World entry uses OreUI; dimension changes retain the session's JSON-UI backdrop.
 
 use json_ui::Draw;
 
 use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
 use ui::LoadingStage;
+
+#[test]
+fn world_entry_loading_leaves_the_menu_panorama_visible() {
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    for stage in [LoadingStage::Connecting, LoadingStage::BuildingTerrain] {
+        presentation.set_loading_stage(Some(stage));
+        presentation
+            .build(
+                &player,
+                &runtime,
+                1_000,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        assert!(
+            !presentation.last_frame.as_ref().unwrap().nodes.iter().any(|node| {
+                node.bounds().width() >= 1280.0
+                    && node.bounds().height() >= 720.0
+                    && matches!(node.visual(), ui::UiVisual::Solid { color, .. } if color[3] == 255)
+            }),
+            "{stage:?} must not cover the panorama with an opaque fill"
+        );
+    }
+}
 
 fn texts(presentation: &UiPresentationRuntime) -> Vec<String> {
     presentation
@@ -89,17 +116,10 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    let shown = texts(&presentation);
-    assert!(
-        shown.iter().any(|text| text == "Locating server"),
-        "{shown:?}"
-    );
-    assert!(
-        shown
-            .iter()
-            .any(|text| text == "Connecting to external server")
-    );
-    assert!(has_sprite(&presentation, "textures/blocks/dirt"));
+    for wanted in ["Locating server", "Connecting to external server"] {
+        assert!(painted_text(&presentation, wanted));
+    }
+    assert!(presentation.loading_draw_nodes().is_empty());
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     presentation.hud_frame_mut().dimension = 1;
     presentation
@@ -111,11 +131,10 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    let shown = texts(&presentation);
     for wanted in ["Generating World", "Building terrain"] {
-        assert!(shown.iter().any(|text| text == wanted), "{shown:?}");
+        assert!(painted_text(&presentation, wanted));
     }
-    assert!(has_sprite(&presentation, "textures/blocks/netherrack"));
+    assert!(presentation.loading_draw_nodes().is_empty());
 }
 
 #[test]
@@ -141,7 +160,7 @@ fn dimension_loading_names_its_destination_without_the_join_animation() {
     };
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     frame(&mut presentation);
-    assert!(has_sprite(&presentation, "textures/ui/loading_bar"));
+    assert!(presentation.loading_draw_nodes().is_empty());
     presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     for (dimension, (backdrop, destination)) in [
         ("textures/blocks/dirt", "Entering the Overworld"),
@@ -218,9 +237,8 @@ fn loading_screen_snapshot() {
     }
 }
 
-// The overworld backdrop carries vanilla's darkening gradient and its colours.
 #[test]
-fn overworld_backdrop_draws_its_gradient() {
+fn terrain_loading_uses_only_native_nodes() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
@@ -239,12 +257,8 @@ fn overworld_backdrop_draws_its_gradient() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    let nodes = presentation.loading_draw_nodes();
-    assert!(nodes.iter().any(|node| matches!(
-        &node.draw,
-        Draw::Custom { renderer, data } if renderer == "gradient_renderer"
-            && data.contains_key("color1") && data.contains_key("color2")
-    )));
+    assert!(presentation.loading_draw_nodes().is_empty());
+    assert!(painted_text(&presentation, "Building terrain"));
 }
 
 /// Local-only: `loading_screen_pack.png` under the pack `CINNABAR_FORM_PACK_DIR` names.

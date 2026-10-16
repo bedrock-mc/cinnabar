@@ -77,11 +77,12 @@ impl Editor {
         self.staged_pending.push(path.to_owned());
     }
 
-    pub fn commit_files(&mut self, layer: usize) {
+    /// Commit staged files and return pending `[pack-relative path, host path]` pairs.
+    pub fn commit_files(&mut self, layer: usize) -> String {
         self.frame = None;
         let files = std::mem::take(&mut self.staged);
         let pending = std::mem::take(&mut self.staged_pending);
-        self.session.workspace.add_files(layer, files, pending);
+        json!(self.session.workspace.add_files(layer, files, pending)).to_string()
     }
 
     pub fn add_zip(&mut self, layer: usize, bytes: Vec<u8>) -> Result<(), JsValue> {
@@ -96,11 +97,16 @@ impl Editor {
         self.session.workspace.supply(layer, path, bytes);
     }
 
+    /// Indexed UI documents the browser still needs to supply, as `[layer, path]` pairs.
+    pub fn wanted_ui_files(&self) -> String {
+        json!(self.session.workspace.wanted_ui_files()).to_string()
+    }
+
     pub fn edit(&mut self, layer: usize, path: &str, text: &str) {
         self.session.workspace.edit(layer, path, text);
     }
 
-    /// `[{layer, name, files: [{path, edited}]}]` for every layer's ui json.
+    /// `[{layer, name, files: [{path, edited}]}]` for every layer's indexed UI documents.
     pub fn files(&self) -> String {
         let layers: Vec<Value> = self
             .session

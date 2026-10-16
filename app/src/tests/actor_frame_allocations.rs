@@ -38,6 +38,7 @@ pub(crate) fn actor_frame_world(
         1,
     )));
     world.insert_resource(client_world);
+    world.init_resource::<crate::runtime::shutdown::FatalError>();
     world.insert_resource(Time::<Real>::new(Instant::now()));
     world.insert_resource(scene);
     world.insert_resource(ActorRenderFrame::default());

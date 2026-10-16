@@ -1,4 +1,5 @@
-use std::{collections::HashMap, sync::Arc};
+use hashbrown::HashMap as FastHashMap;
+use std::sync::Arc;
 
 use protocol::ActorPropertySyncEvent;
 use world::{BlockEntityNbt, NbtValue};
@@ -23,7 +24,7 @@ pub struct PropertyDefault {
 /// Property definitions of every entity type, in wire index order.
 #[derive(Debug, Default)]
 pub(crate) struct PropertyRegistry {
-    by_type: HashMap<Arc<str>, Arc<[PropertyDefinition]>>,
+    by_type: FastHashMap<Arc<str>, Arc<[PropertyDefinition]>>,
 }
 
 impl PropertyRegistry {

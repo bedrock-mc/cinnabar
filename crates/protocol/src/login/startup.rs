@@ -152,6 +152,7 @@ pub(super) async fn await_spawn(
             }
         }
 
+        transport.accept_current();
         if start_game.is_some()
             && item_registry.is_some()
             && let Some(on_startup) = on_startup.take()

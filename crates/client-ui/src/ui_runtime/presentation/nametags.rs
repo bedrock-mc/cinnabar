@@ -67,12 +67,18 @@ pub struct NametagAnchor {
     pub(super) view_depth: f32,
     /// Camera depth gained by one block of world-Y lift.
     pub(super) camera_forward_y: f32,
+    pub(super) cinnabar_badge: bool,
 }
 
 impl NametagAnchor {
     /// Native actor identity for presentation filters against retained world facts.
     pub const fn runtime_id(&self) -> u64 {
         self.runtime_id
+    }
+
+    /// Applies the shared roster's display decision after existing tag visibility selection.
+    pub fn set_cinnabar_badge(&mut self, visible: bool) {
+        self.cinnabar_badge = visible;
     }
 }
 
@@ -324,6 +330,7 @@ fn nametag_with_lines(
         text_alpha: if sneaking { DIM_TEXT_ALPHA } else { 1.0 },
         view_depth,
         camera_forward_y: view.camera_forward.y,
+        cinnabar_badge: false,
     })
 }
 
@@ -454,26 +461,56 @@ pub fn build_nametag_scene<'p>(
     // Any deferred atlas rebuild must finish before this frame captures its first cell UVs.
     atlas.begin_frame(ordered.iter().flat_map(|anchor| {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
-        let count = anchor.lines.len().min(available_records / records_per_line);
-        available_records -= count * records_per_line;
+        let badge_records = usize::from(anchor.cinnabar_badge) * (records_per_line - 1);
+        let count = anchor
+            .lines
+            .len()
+            .min(available_records.saturating_sub(badge_records) / records_per_line);
+        available_records -= count * records_per_line + usize::from(count != 0) * badge_records;
         anchor.lines.iter().take(count)
     }));
+    let badge = ordered
+        .iter()
+        .any(|anchor| anchor.cinnabar_badge)
+        .then(|| atlas.badge())
+        .flatten();
     let side = NAMETAG_ATLAS_SIDE as f32;
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
-    let mut records = Vec::new();
+    let mut records = Vec::with_capacity(MAX_NAMETAG_RECORDS - available_records);
     let mut labels = Vec::with_capacity(ordered.len());
+    // One line buffer serves every label.
+    let mut placed = Vec::new();
     for anchor in ordered {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
-        let remaining_lines = (MAX_NAMETAG_RECORDS - records.len()) / records_per_line;
-        let placed: Vec<_> = anchor
-            .lines
-            .iter()
-            .take(remaining_lines)
-            .filter_map(|line| atlas.line(line, font, layouts, pages))
-            .collect();
+        let badge = badge.filter(|_| anchor.cinnabar_badge);
+        let badge_records = usize::from(badge.is_some()) * (records_per_line - 1);
+        let remaining_lines =
+            (MAX_NAMETAG_RECORDS - records.len()).saturating_sub(badge_records) / records_per_line;
+        placed.clear();
+        let mut name_placed = false;
+        placed.extend(
+            anchor
+                .lines
+                .iter()
+                .take(remaining_lines)
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line = atlas.line(line, font, layouts, pages)?;
+                    name_placed |= index == 0;
+                    Some(line)
+                }),
+        );
         if placed.is_empty() {
             continue;
         }
+        let [ink_top, ink_bottom] = placed[0].ink_y_px;
+        let badge_size = ink_bottom - ink_top;
+        let badge = badge.filter(|_| name_placed && badge_size > 0.0);
+        let extra_width = if badge.is_some() {
+            badge_size + 1.0
+        } else {
+            0.0
+        };
         let common = NametagRecord {
             anchor: anchor.position.to_array(),
             line_lift: EXTRA_LINE_LIFT * placed.len().saturating_sub(1) as f32,
@@ -482,23 +519,41 @@ pub fn build_nametag_scene<'p>(
         };
         let first = records.len();
         records.extend(
-            java_nametag_line_backgrounds(placed.iter().map(|line| line.width_px)).map(|rect| {
-                NametagRecord {
-                    rect,
-                    uv: [0.0, 0.0, -1.0, -1.0],
-                    color: PLATE_COLOR,
-                    ..common
-                }
+            java_nametag_line_backgrounds(
+                placed.iter().enumerate().map(|(index, line)| {
+                    line.width_px + if index == 0 { extra_width } else { 0.0 }
+                }),
+            )
+            .map(|rect| NametagRecord {
+                rect,
+                uv: [0.0, 0.0, -1.0, -1.0],
+                color: PLATE_COLOR,
+                ..common
             }),
         );
         let first_glyph = records.len();
         for (index, line) in placed.iter().enumerate() {
-            let left = nametag_line_left(line.width_px);
+            let left = if index == 0 {
+                nametag_line_left(line.width_px + extra_width) + extra_width
+            } else {
+                nametag_line_left(line.width_px)
+            };
             let [x, y, width, height] = line.cell.map(|value| value as f32);
             let top = NAMETAG_LINE_PITCH_PX * index as f32 + line.top_px;
             records.push(NametagRecord {
                 text: 1,
                 rect: [left, top, left + width / texels, top + height / texels],
+                uv: [x / side, y / side, (x + width) / side, (y + height) / side],
+                color: [1.0, 1.0, 1.0, anchor.text_alpha],
+                ..common
+            });
+        }
+        if let Some(badge) = badge {
+            let left = nametag_line_left(placed[0].width_px + extra_width);
+            let [x, y, width, height] = badge.cell.map(|value| value as f32);
+            records.push(NametagRecord {
+                text: 1,
+                rect: [left, ink_top, left + badge_size, ink_bottom],
                 uv: [x / side, y / side, (x + width) / side, (y + height) / side],
                 color: [1.0, 1.0, 1.0, anchor.text_alpha],
                 ..common
@@ -526,13 +581,13 @@ pub fn build_nametag_scene<'p>(
         labels.push((plane_depth, anchor.runtime_id, first..records.len()));
     }
     labels.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-    let records = labels
-        .into_iter()
-        .flat_map(|(_, _, range)| records[range].iter().copied())
-        .collect();
+    let mut ordered_records = Vec::with_capacity(records.len());
+    for (_, _, range) in labels {
+        ordered_records.extend_from_slice(&records[range]);
+    }
     let (atlas, atlas_revision) = atlas.publish();
     NametagScene {
-        records,
+        records: ordered_records,
         atlas,
         atlas_revision,
     }

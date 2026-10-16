@@ -55,7 +55,7 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        list.paint(renderer, runtime.known_player_names(), &mut paint_frame)?;
+        list.paint(renderer, runtime.player_roster.rows(), &mut paint_frame)?;
         Ok(())
     }
 }

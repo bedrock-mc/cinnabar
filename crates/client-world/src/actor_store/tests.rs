@@ -876,6 +876,7 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
                 unique_id: 1,
                 username: "Alex".into(),
                 verified: true,
+                xuid: "".into(),
                 skin: protocol::PlayerSkin::Unavailable(
                     protocol::PlayerSkinUnavailable::InvalidDimensions,
                 ),
@@ -938,6 +939,7 @@ fn render_players_join_roster_skins_and_sort_by_runtime_id() {
                 unique_id: 1,
                 username: "player-10".into(),
                 verified: true,
+                xuid: "".into(),
                 skin: skin.clone(),
             }]),
         }),
@@ -983,6 +985,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
                 unique_id,
                 username: format!("player-{unique_id}").into(),
                 verified: true,
+                xuid: "".into(),
                 skin,
             }]),
         })

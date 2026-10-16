@@ -20,8 +20,10 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
@@ -65,6 +67,7 @@ type Service struct {
 	cfg       Config
 	logger    *slog.Logger
 	presence  *xboxpresence.Worker
+	cinnabar  *cinnabarapi.Client
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
@@ -175,7 +178,7 @@ func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.Feat
 	}
 	counts, countErr := s.cfg.ExperienceCounts(ctx, src)
 	if countErr != nil {
-		s.logger.Warn("experience counts unavailable", "error", control.RedactError(countErr))
+		s.logger.Warn("experience counts unavailable", "error", redact.Error(countErr))
 	}
 	if _, err := s.source(); err != nil {
 		return nil, err
@@ -337,6 +340,9 @@ func (s *Service) SignOut() error {
 	s.mu.Unlock()
 	if s.presence != nil {
 		s.presence.Close()
+	}
+	if s.cinnabar != nil {
+		s.cinnabar.Close()
 	}
 	_ = s.cfg.Account.Close()
 	s.disk.Lock()

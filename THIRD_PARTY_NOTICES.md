@@ -30,9 +30,10 @@ carry the notice “(c) Mojang AB. All rights reserved.” and are subject to th
 - Provenance: original pixel art drawn for Cinnabar by `tools/oreui_icons/build.py`; not Mojang
   content.
 
-## Java HUD offhand frames
+## Java HUD textures
 
-- Files: `assets/java-hud/textures/` (`hotbar_offhand_left.png`, `hotbar_offhand_right.png`)
+- Files: `assets/java-hud/textures/` (`hotbar_offhand_left.png`, `hotbar_offhand_right.png`,
+  `cinnabar_badge.png`)
 - Provenance: original pixel art drawn for Cinnabar; not Mojang content.
 
 ## Window and installer icon
@@ -367,6 +368,34 @@ SOFTWARE.
 - Copyright: 2021 Christopher Berner.
 - Full selected license: `assets/licenses/redb-MIT.txt`, included in packaged resources.
 
+## tracing subscriber stack
+
+- Source: https://github.com/tokio-rs/tracing
+- Dependencies: `tracing-subscriber`, `tracing-log` and `tracing-error`, pinned in `Cargo.lock`;
+  `diagnostics::logging` builds the process subscriber from them. Bevy's log plugin linked the
+  same crates before it was replaced.
+- License: MIT.
+- Copyright: Copyright (c) Tokio Contributors.
+- Android builds add `android_log-sys` (https://github.com/rust-mobile/android_log-sys-rs),
+  MIT OR Apache-2.0, distributed under the MIT option. The `frame-trace` developer feature
+  adds `tracing-chrome` (https://github.com/thoren-d/tracing-chrome), MIT; release builds do
+  not include it.
+
+## Crash capture and minidumps
+
+- Source: https://github.com/EmbarkStudios/crash-handling and
+  https://github.com/rust-minidump/minidump-writer
+- Dependencies: `crash-handler`, `crash-context`, `minidumper` and `minidump-writer`, pinned in
+  `Cargo.lock`; the client installs the handler and the `--crash-monitor` process writes dumps.
+  Tests add `sadness-generator` from the same repository.
+- License: MIT OR Apache-2.0; Cinnabar distributes them under the MIT option.
+- Copyright: Copyright (c) 2022 Embark Studios; rust-minidump contributors.
+- `minidump` (https://github.com/rust-minidump/rust-minidump), MIT, reads the fault location
+  from each dump for the crash window.
+- `memmap2` (https://github.com/RazrFalcon/memmap2-rs), MIT OR Apache-2.0 under the MIT
+  option, Copyright (c) 2020 Yevhenii Reizner and Copyright (c) 2015 Dan Burkert, maps the
+  heartbeat file the client and its crash monitor share for hang detection.
+
 ## Gophertunnel numeric contracts
 
 The protocol ID fixture uses numeric constants from Gophertunnel, under the MIT license.
@@ -392,3 +421,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Crash symbolication tooling
+
+- Source: https://github.com/rust-minidump/rust-minidump, https://github.com/mstange/samply and
+  https://github.com/luser/rust-test-assembler
+- Dependencies: `minidump`, `minidump-processor` and `minidump-unwind` (MIT) and `wholesym`
+  (MIT OR Apache-2.0) in `tools/devtool`, with the test-only `minidump-synth` and
+  `test-assembler` (MIT); pinned in `Cargo.lock`, used unmodified.
+- Transitive licenses: MIT, Apache-2.0, BSD-3-Clause, NCSA (`msvc-demangler`, MIT/NCSA), ISC
+  (`untrusted`, `rustls-webpki`; `ring` is Apache-2.0 AND ISC), CDLA-Permissive-2.0
+  (`webpki-roots`), Unicode-3.0 (`yoke`) and MPL-2.0 (`option-ext`). `wholesym` always links an
+  HTTP client for symbol servers; `devtool symbolicate` configures none and never uses it.
+- Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.

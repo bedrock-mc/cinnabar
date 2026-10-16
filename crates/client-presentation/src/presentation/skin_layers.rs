@@ -1,6 +1,8 @@
 //! Animated player skin textures on their own geometry and shared actor pose.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
+
+use bevy::platform::collections::{HashMap, hash_map::Entry};
 
 use actor_animation::ActorRigSnapshot;
 use render_model::ActorRigGeometry;
@@ -91,9 +93,7 @@ impl SkinLayerCache {
         if self.desired.is_empty() {
             self.desired_index.clear();
         }
-        if let std::collections::hash_map::Entry::Vacant(entry) =
-            self.desired_index.entry(ImageKey::new(&raster))
-        {
+        if let Entry::Vacant(entry) = self.desired_index.entry(ImageKey::new(&raster)) {
             entry.insert((raster.clone(), self.desired.len()));
             self.desired.push(raster);
         }

@@ -136,7 +136,11 @@ fn severity_of(message: &str) -> Severity {
 fn located(message: &str, stage: &'static str, index: &Index, workspace: &Workspace) -> Diagnostic {
     let head = message.split(": ").next().unwrap_or_default();
     let head = head.strip_prefix("pack ").unwrap_or(head);
-    let location = if head.starts_with("ui/") {
+    let location = if workspace
+        .layers()
+        .iter()
+        .any(|layer| layer.ui_paths().any(|path| path == head))
+    {
         let layer = (0..workspace.layers().len())
             .rev()
             .find(|layer| workspace.layers()[*layer].file(head).is_some());

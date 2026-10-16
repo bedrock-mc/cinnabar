@@ -1,7 +1,8 @@
 //! Player skins' own models registered as actor rig geometry, shared by model digest.
 use assets::SkinGeometry;
+use bevy::platform::collections::{HashMap, HashSet};
 use render_model::{ActorRigGeometry, EntityRigId, skin_rig_id};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 /// Body and animated skin models for every selected player, plus the local first-person hand.
 pub const MAX_SKIN_RIGS: usize =

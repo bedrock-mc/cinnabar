@@ -89,9 +89,9 @@ impl UiPresentationRuntime {
         {
             return Ok(true);
         }
-        let context = ui_screens::chat_position::context(
-            hud_context(renderer.context()),
-            self.screens.chat.settings.options(),
+        let context = self.screens.hud.context(
+            renderer.context(),
+            self.screens.chat.settings.options().chat_at_top(),
         );
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()

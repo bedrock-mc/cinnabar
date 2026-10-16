@@ -2,11 +2,14 @@
 
 use std::{ops::Deref, sync::Arc};
 
+/// Sorted keys and their shared encoded source bytes.
+type SourceEntries = Vec<(String, Arc<[u8]>)>;
+
 /// An immutable view of oversized texture keys and their original encoded bytes.
 /// The atlas keeps at most `MAX_OVERSIZED` entries. Readers share the current vector;
 /// a source edit detaches it without copying pixels or retaining previous snapshots.
 #[derive(Clone, Default)]
-pub struct OversizedTextures(Option<Arc<Vec<(String, Arc<[u8]>)>>>);
+pub struct OversizedTextures(Option<Arc<SourceEntries>>);
 
 impl OversizedTextures {
     /// Whether both views retain the same metadata, without walking their entries.

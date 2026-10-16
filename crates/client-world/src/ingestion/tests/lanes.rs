@@ -623,3 +623,27 @@ fn skipping_chunk_data_follows_a_queued_batch_dependency() {
         );
     }
 }
+
+/// Classifying single-column terrain allocates nothing; wider batches stay sorted and distinct.
+#[test]
+fn terrain_footprints_are_sorted_distinct_and_inline_for_one_column() {
+    let chunk = level_chunk(3);
+    let (footprint, allocations) = test_alloc::count(|| classify(&chunk, CONTEXT));
+    assert_eq!(allocations, 0);
+    assert_eq!(*footprint.columns, [ChunkKey::new(0, 3, 0)]);
+    let batch = WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
+        dimension: 0,
+        entries: [2, 0, 2, 0]
+            .map(|x| protocol::SubChunkEntryEvent {
+                diagnostics: None,
+                position: [x, 0, 0],
+                result: protocol::SubChunkResult::AllAir,
+            })
+            .into(),
+    });
+    assert_eq!(
+        *classify(&batch, CONTEXT).columns,
+        [ChunkKey::new(0, 0, 0), ChunkKey::new(0, 2, 0)]
+    );
+    assert!(classify(&chat(), CONTEXT).columns.is_empty());
+}

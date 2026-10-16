@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "cinnabar-cxb reports keys, digests and sizes as key=value lines on stdout"
+)]
+
 use std::{
     io::{self, Read},
     path::Path,

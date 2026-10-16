@@ -33,6 +33,22 @@ impl Channel {
         }
     }
 
+    /// Nightly also follows beta releases while keeping the saved Nightly preference.
+    pub const fn additional_channel(self) -> Option<Self> {
+        match self {
+            Self::Nightly => Some(Self::Beta),
+            Self::Beta | Self::Stable => None,
+        }
+    }
+
+    /// Accepts only releases published for this choice or its additional channel.
+    pub fn accepts_release(self, release: &str) -> bool {
+        self.name() == release
+            || self
+                .additional_channel()
+                .is_some_and(|channel| channel.name() == release)
+    }
+
     /// The radio binding used by the existing settings picker.
     pub const fn binding(self) -> &'static str {
         match self {

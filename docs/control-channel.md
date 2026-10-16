@@ -16,12 +16,14 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `connect.v1` | `kind` = `raknet` (`host:port`), `realm` (id), `friend` (xuid); `value` | empty; next client connection dials it |
 | `account_status.v1` | none | `account` |
 | `sign_out.v1` | none | `account`; deletes cached tokens |
-| `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?` |
+| `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?`, `cinnabar_release?` |
 | `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
 | `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
 | `home.v1` | none | `home: {messages, inbox, treatments, realm_invites, live_events, persona_head}` |
 | `message_event.v1` | `event_type`, `instance_id?`, `report_id?`, `button_id?` | empty |
 | `ping.v1` | `addresses` (at most 64) | `servers: [{address, online, players, max_players, ping_ms, motd?}]` |
+| `cinnabar_api.v1` | `client_version`, `channel`, `visible` | empty; see `docs/cinnabar-api.md` |
+| `cinnabar_lookup.v1` | `xuids` (at most 128) | `cinnabar`: the visible Cinnabar players among them |
 
 Artwork fields are `{url, path?}`: an HTTPS URL the client downloads and caches; `path` is set only
 for persona art the core renders. Realms also
@@ -35,7 +37,7 @@ connection attempt begins; poll and compare `sequence`. `pack_download`: `{recei
 newest attempt downloads the server's packs (chunk bytes against the admitted offer).
 
 Errors: `-32020` not signed in, `-32021` service unavailable, `-32022` invalid target, `-32023` launcher services
-disabled, `-32602` invalid params. Precedence for the next connection: pending server transfer, `connect.v1`
+disabled, `-32024` Cinnabar lookup rate limited, `-32602` invalid params. Precedence for the next connection: pending server transfer, `connect.v1`
 selection, open local world, `-upstream`. A local world that begins opening clears the selection and any pending
 transfer.
 

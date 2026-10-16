@@ -18,6 +18,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
+        log_dir: std::path::PathBuf::from("logs"),
+        record_session: false,
     };
     let hash = first
         .client_blob_cache
@@ -34,6 +36,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
+        log_dir: std::path::PathBuf::from("logs"),
+        record_session: false,
     };
 
     assert!(replacement.client_blob_cache.contains(hash));

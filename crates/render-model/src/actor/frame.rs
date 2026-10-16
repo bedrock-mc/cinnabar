@@ -26,9 +26,9 @@ use catalog::GeometryCatalog;
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Existing body/equipment allowance plus every animated skin layer per selected player.
+/// Body/equipment allowance, world flames and every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
-    MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
+    MAX_RENDERED_PLAYERS * (5 + render_api::MAX_SKIN_ANIMATION_LAYERS);
 /// Shared previous/current pose storage, independent of one model's bone limit.
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_BONE_MATRIX_BYTES);
@@ -438,7 +438,9 @@ impl ActorRigFrameBuilder {
         if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
             return false;
         }
-        let Ok((id, geometry)) = eligibility::geometry(&self.catalog.geometries, submission) else {
+        let Ok((id, geometry)) =
+            eligibility::geometry(&self.catalog.geometries, &self.matrices, submission)
+        else {
             return false;
         };
         let Some(&index) = self.catalog.indices.get(&id) else {
@@ -601,7 +603,7 @@ impl ActorRigFrameBuilder {
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
             let (geometry_id, geometry) =
-                match eligibility::geometry(&self.catalog.geometries, submission) {
+                match eligibility::geometry(&self.catalog.geometries, &self.matrices, submission) {
                     Ok(geometry) => geometry,
                     Err(error) => {
                         error.count(&mut rejects);

@@ -38,6 +38,7 @@ impl ShutdownWatchdog {
     pub fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
             launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
+            launcher_host::lifecycle::crash::announce_exit(code);
             std::process::exit(code)
         })
     }
@@ -110,14 +111,24 @@ impl ShutdownWatchdog {
 }
 
 /// Arms the watchdog when the world is torn down without an `AppExit`, as macOS `terminate:`
-/// (Cmd+Q, Dock Quit) does; Bevy's pipelined-render teardown otherwise deadlocks there.
-/// Insert before the render plugins finish so it drops ahead of `RenderAppChannels`.
+/// (Cmd+Q, Dock Quit) and a panic unwinding the main thread do; Bevy's pipelined-render teardown
+/// otherwise deadlocks there. Insert before the render plugins finish so it drops ahead of
+/// `RenderAppChannels`.
 #[derive(Resource)]
 pub struct TeardownWatchdog(pub ShutdownWatchdog);
 
+/// The status Rust exits with after a panic on the main thread.
+const PANIC_EXIT_CODE: u8 = launcher_host::lifecycle::crash::protocol::PANIC_EXIT_CODE;
+
 impl Drop for TeardownWatchdog {
     fn drop(&mut self) {
-        begin_bounded_shutdown(&self.0, &AppExit::Success);
+        // A watchdog cutting short a panic's teardown must still end the process as failed.
+        let exit = if thread::panicking() {
+            AppExit::from_code(PANIC_EXIT_CODE)
+        } else {
+            AppExit::Success
+        };
+        begin_bounded_shutdown(&self.0, &exit);
     }
 }
 

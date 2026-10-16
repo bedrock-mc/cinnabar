@@ -79,7 +79,7 @@ pub(super) fn load_startup_carriers(
     let start = Instant::now();
     let times = LoadTimes::default();
     let carriers = load_with(selection, physics_registry, &times);
-    diagnostics::log_stderr!("{}", times.summary(start.elapsed()));
+    bevy::log::info!("{}", times.summary(start.elapsed()));
     carriers
 }
 
@@ -181,11 +181,11 @@ fn load_core(
 fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     let loaded = match times.time("audio", || asset_startup::load_audio_assets(world)) {
         Ok(Some(loaded)) => {
-            diagnostics::log_stderr!("{}", loaded.startup_summary());
+            bevy::log::info!("{}", loaded.startup_summary());
             Some(loaded)
         }
         Ok(None) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "{}",
                 asset_startup::audio_assets_missing_notice(&asset_startup::audio_asset_path(world))
             );
@@ -211,17 +211,17 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     }) {
         Ok(Some(mut bank)) => {
             times.time("sound prewarm queue", || bank.prewarm_common());
-            diagnostics::log_stderr!("loaded sound bank ({} sound files)", bank.file_count());
+            bevy::log::info!("loaded sound bank ({} sound files)", bank.file_count());
             Some(bank)
         }
         Ok(None) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "optional sound bank was not found; run `make audio-bank-assets` (or `make assets`) to enable playback"
             );
             None
         }
         Err(error) => {
-            diagnostics::log_stderr!("sound bank unusable, audio stays silent: {error}");
+            bevy::log::warn!("sound bank unusable, audio stays silent: {error}");
             None
         }
     };

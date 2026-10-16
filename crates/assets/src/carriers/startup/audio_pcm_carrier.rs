@@ -21,7 +21,7 @@ pub fn load_audio_pcm_assets(
     let mut file = match File::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            eprintln!(
+            tracing::warn!(
                 "optional finite PCM carrier absent at {}; named playback inactive; make audio-pcm-assets",
                 path.display()
             );
@@ -53,7 +53,7 @@ pub fn load_audio_pcm_assets(
     let expected = crate::reviewed_audio_pcm_identity();
     let runtime = RuntimeAudioPcm::decode(&bytes, catalog.runtime(), catalog.identity(), &expected)
         .map_err(|error| fail(error.to_string()))?;
-    eprintln!(
+    tracing::info!(
         "loaded finite no-loop PCM: {} frames at {}Hz; preview sample identity, playback capability excludes streaming/spatial/loop parity",
         runtime.frames(),
         runtime.sample_rate()

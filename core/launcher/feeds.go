@@ -13,6 +13,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 )
 
 const (
@@ -75,7 +76,7 @@ var homeFeed = feedSpec[catalog.Home]{
 			if home.Failed() {
 				return home, partial
 			}
-			s.logger.Warn("launcher feed partly failed", "feed", "home", "error", control.RedactError(partial))
+			s.logger.Warn("launcher feed partly failed", "feed", "home", "error", redact.Error(partial))
 		}
 		if previous != nil {
 			home = home.Refill(*previous)
@@ -145,7 +146,7 @@ func refresh[T any](s *Service, src *authcache.Account, spec feedSpec[T]) *fligh
 		}
 		s.mu.Unlock()
 		if err != nil {
-			s.logger.Warn("launcher feed refresh failed", "feed", spec.name, "error", control.RedactError(err))
+			s.logger.Warn("launcher feed refresh failed", "feed", spec.name, "error", redact.Error(err))
 		} else {
 			s.persist()
 			s.prune()
@@ -177,7 +178,7 @@ func (s *Service) load() {
 	data, err := os.ReadFile(s.cfg.CacheFile)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			s.logger.Warn("launcher catalog cache unreadable", "error", control.RedactError(err))
+			s.logger.Warn("launcher catalog cache unreadable", "error", redact.Error(err))
 		}
 		return
 	}
@@ -226,7 +227,7 @@ func (s *Service) persist() {
 		err = writeAtomic(s.cfg.CacheFile, data)
 	}
 	if err != nil {
-		s.logger.Warn("launcher catalog cache not written", "error", control.RedactError(err))
+		s.logger.Warn("launcher catalog cache not written", "error", redact.Error(err))
 	}
 }
 

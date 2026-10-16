@@ -6,6 +6,7 @@ mod container;
 mod core_link;
 mod docker;
 mod download;
+mod import;
 mod junction;
 mod manager;
 mod ports;
@@ -18,6 +19,7 @@ mod unpack;
 mod world;
 
 pub use core_link::{CoreLink, CoreRoute};
+pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
 pub use manager::Manager;
 pub use world::WorldError;
 

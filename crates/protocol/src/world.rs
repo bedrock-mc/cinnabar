@@ -300,7 +300,9 @@ macro_rules! world_packets {
             matches!(id, $(PacketId::$variant)|+)
         }
 
-        fn dispatch(
+        /// Normalizes a decoded payload and its header as [`into_world_event`] does, for
+        /// callers that hold the payload unboxed.
+        pub(crate) fn dispatch(
             data: packets::Packet,
             $header: GameHeader,
             $dimension: i32,
@@ -325,6 +327,9 @@ pub fn into_world_event(
 
 world_packets! {
     header, current_dimension;
+    UpdateClientInputLocks(packet) => WorldEvent::Camera(crate::CameraEvent::InputLocks(
+        crate::camera::ClientInputLocks::from_bits(packet.input_lock_component_data.0),
+    )),
     ShowCredits(packet) => {
         let Some(event) = crate::credits::normalize(&packet) else {
             return Ok(None);

@@ -152,7 +152,7 @@ pub fn poll_model_witness_request(
                 *request = ModelWitnessRequest::default();
                 evidence.reset();
                 source.last_digest = None;
-                eprintln!("model witness request read failed: {error}");
+                bevy::log::warn!("model witness request read failed: {error}");
                 return;
             }
         };
@@ -172,7 +172,7 @@ pub fn poll_model_witness_request(
         Err(error) => {
             *request = ModelWitnessRequest::default();
             evidence.reset();
-            eprintln!("model witness request rejected: {error:#}");
+            bevy::log::warn!("model witness request rejected: {error:#}");
         }
     }
 }

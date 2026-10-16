@@ -125,6 +125,54 @@ fn column_eviction_removes_custom_height_air_without_visiting_other_columns() {
     assert_eq!(visits[1], visits[0], "eviction visited unrelated residency");
 }
 
+/// Bulk retirement publishes removals in ascending key order across columns, before any
+/// survivor it dirties, whether or not it retires every resident section.
+#[test]
+fn bulk_eviction_marks_removed_sections_in_key_order_before_survivors() {
+    for keep_survivor in [false, true] {
+        let mut stream = stream_with_unrelated_columns(0);
+        // Same X, different Z: key order interleaves the columns by height.
+        let columns = BTreeSet::from([ChunkKey::new(0, 0, 0), ChunkKey::new(0, 0, 5)]);
+        let mut removed = Vec::new();
+        for &column in columns.iter().rev() {
+            for y in [7, -3, 0] {
+                let key = SubChunkKey::from_chunk(column, y);
+                stream.record_known_air(key);
+                removed.push(key);
+            }
+        }
+        let survivor = SubChunkKey::new(0, 0, 0, 1);
+        if keep_survivor {
+            stream.record_known_air(survivor);
+        }
+        stream.evict_columns(columns);
+        removed.sort_unstable();
+        let mut marked = removed
+            .iter()
+            .map(|&key| {
+                (
+                    stream
+                        .revisions
+                        .dirty(key)
+                        .expect("removal marked")
+                        .revision,
+                    key,
+                )
+            })
+            .collect::<Vec<_>>();
+        marked.sort_unstable();
+        assert_eq!(
+            marked.iter().map(|(_, key)| *key).collect::<Vec<_>>(),
+            removed
+        );
+        if let Some(dirty) = stream.revisions.dirty(survivor) {
+            assert!(dirty.revision > marked.last().expect("removed keys").0);
+        }
+        assert_eq!(stream.resident.contains(&survivor), keep_survivor);
+        assert_eq!(stream.resident.len(), usize::from(keep_survivor));
+    }
+}
+
 /// Retention runs on every local chunk crossing, so finding tracked columns must not walk
 /// every resident section.
 #[test]

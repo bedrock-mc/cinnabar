@@ -122,6 +122,7 @@ pub(super) fn build(
         scene.install_prepared_assets(art);
     }
     client_world.pack_entities = packs.entities.clone();
+    client_world.terrain_resource_identity = packs.terrain_identity;
     client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
     client_world.session_items = Some(Arc::new(
         client_presentation::session_assets::SessionItems {

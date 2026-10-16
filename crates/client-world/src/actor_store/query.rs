@@ -30,6 +30,18 @@ impl ActorStore {
         profile.filter(|profile| profile.unique_id == actor.unique_id)
     }
 
+    /// Reads the current roster identity independently of skin preparation or display names.
+    pub(crate) fn player_roster_identity(&self, runtime_id: u64) -> Option<(&str, &[u8; 16])> {
+        let actor = self.actors.get(&runtime_id)?;
+        let ActorKind::Player { uuid, .. } = &actor.kind else {
+            return None;
+        };
+        self.players
+            .get(uuid)
+            .filter(|profile| profile.unique_id == actor.unique_id)
+            .map(|profile| (&*profile.xuid, uuid))
+    }
+
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         let runtime_id = self.unique_to_runtime.get(&unique_id)?;
         let actor = self.actors.get(runtime_id)?;
@@ -72,6 +84,26 @@ impl ActorStore {
             .collect::<Vec<_>>();
         names.sort_unstable();
         names
+    }
+
+    /// Named player-list entries as `(username, xuid, uuid)`, sorted by username; the XUID may be empty.
+    pub(crate) fn player_list_roster(
+        &self,
+    ) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>, [u8; 16])> {
+        let mut roster = self
+            .players
+            .iter()
+            .filter(|(_, profile)| !profile.username.is_empty())
+            .map(|(uuid, profile)| {
+                (
+                    std::sync::Arc::clone(&profile.username),
+                    std::sync::Arc::clone(&profile.xuid),
+                    *uuid,
+                )
+            })
+            .collect::<Vec<_>>();
+        roster.sort_unstable();
+        roster
     }
 
     /// How many players [`Self::player_list_usernames`] would list, without allocating.

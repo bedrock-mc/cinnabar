@@ -88,6 +88,8 @@ pub struct ChatScreen {
     /// Logical px per virtual px, from the last frame.
     scale: f32,
     pointer: Option<UiPoint>,
+    /// The chat context, kept while the engine context and placement stay.
+    context: crate::chat_position::PlacedContext,
 }
 
 /// What one chat paint reads from the client's chat state.
@@ -136,8 +138,11 @@ impl ChatScreen {
             data.set_control_values(name, metrics.feedback());
         }
         let view = self.view_state(input.selected_suggestion);
-        let context =
-            crate::chat_position::context(engine.context().clone(), &self.settings.options);
+        let context = self.context.get(
+            engine.context(),
+            self.settings.options.chat_at_top(),
+            crate::chat_position::placed,
+        );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -469,6 +474,13 @@ fn chat_data(
     }
     content.push_str(&editor.as_str()[editor.cursor_byte()..]);
     data.set_global("#message_text_box_content", Scalar::Text(content));
+    let before = &editor.as_str()[..editor.cursor_byte()];
+    let completion_start = protocol::ChatAutocompleteCatalog::replacement_start(before)
+        .max(usize::from(before.starts_with('/')));
+    data.set_global(
+        "#cinnabar_chat_completion_prefix",
+        Scalar::Text(before[..completion_start].to_owned()),
+    );
     for flag in ["#send_button_visible", "#chat_title_visible"] {
         data.set_global(flag, Scalar::Bool(true));
     }
@@ -584,5 +596,7 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
     }
 }
 
+#[cfg(test)]
+mod geometry_tests;
 #[cfg(test)]
 mod tests;

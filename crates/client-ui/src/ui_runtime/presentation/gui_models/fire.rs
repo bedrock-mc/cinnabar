@@ -16,7 +16,7 @@ pub(super) struct FireAtlas {
 pub(super) struct FirePlayback {
     actor: Option<(u64, u64, u64)>,
     frame: usize,
-    countdown: f32,
+    clock: render_model::actor::flame::FlamePlayback,
 }
 
 impl FirePlayback {
@@ -27,16 +27,8 @@ impl FirePlayback {
                 ..Default::default()
             };
         }
-        if !burning || frames == 0 {
-            return;
-        }
-        // The HUD advances the flame countdown by one per visible draw.
-        self.countdown -= 1.0;
-        // Advance at most once per draw, reset to two and discard overshoot.
-        if self.countdown <= 0.0 {
-            self.countdown = 2.0;
-            self.frame = (self.frame + 1) % frames;
-        }
+        self.clock.advance(burning, frames);
+        self.frame = self.clock.frame();
     }
 }
 

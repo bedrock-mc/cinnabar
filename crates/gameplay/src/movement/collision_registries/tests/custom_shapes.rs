@@ -74,6 +74,213 @@ fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces()
 }
 
 #[test]
+fn default_component_boxes_follow_a_half_height_transformation_in_both_identity_spaces() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut bytes = named(10, "");
+    bytes.extend(named(10, "components"));
+    bytes.extend(named(10, "minecraft:collision_box"));
+    bytes.extend(named(1, "enabled"));
+    bytes.extend([1, 0]);
+    bytes.extend(named(1, "minecraft:selection_box"));
+    bytes.push(1);
+    bytes.extend(named(10, "minecraft:transformation"));
+    for (name, value) in [("SY", 0.5_f32), ("TY", -0.25)] {
+        bytes.extend(named(5, name));
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend([0, 0, 0]);
+    let custom = protocol::CustomBlocks::from_definitions([("test:half_height", bytes.as_slice())]);
+    assert_eq!(custom.skipped, 0);
+    let registration = registries.begin_session_blocks(&custom, false);
+    let sequential = registration.custom_ids.unwrap().start;
+    registries.begin_session_hashed_custom_blocks(&custom);
+    let hash = custom.blocks[0].hashed_states()[0].hash;
+    let expected = Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0));
+    for (mode, registry, id) in [
+        (
+            assets::NetworkIdMode::Sequential,
+            &registries.sequential,
+            sequential,
+        ),
+        (assets::NetworkIdMode::Hashed, &registries.hashed, hash),
+    ] {
+        assert!(!registries.block_is_full_cube(mode, id));
+        assert_eq!(registry.collision_shapes(id).unwrap(), [expected]);
+        assert_eq!(registry.selection_shapes(id).unwrap(), [expected]);
+        let above = Aabb::new(Vec3::new(0.25, 0.6, 0.25), Vec3::new(0.75, 0.9, 0.75));
+        assert!(
+            registry
+                .collision_shapes(id)
+                .unwrap()
+                .iter()
+                .all(|shape| !shape.intersects(above))
+        );
+    }
+}
+
+/// Encodes a pixel box component, including its network enable flag.
+fn pixel_component(name: &str, origin: [f32; 3], size: [f32; 3]) -> Vec<u8> {
+    let mut bytes = named(10, name);
+    bytes.extend(named(1, "enabled"));
+    bytes.push(1);
+    for (name, values) in [("origin", origin), ("size", size)] {
+        bytes.extend(named(9, name));
+        bytes.extend([5, 6]);
+        for value in values {
+            bytes.extend(value.to_le_bytes());
+        }
+    }
+    bytes.push(0);
+    bytes
+}
+
+#[test]
+fn half_height_collision_and_independent_selection_reach_world_queries() {
+    use sim::{CollisionWorld, PaletteWorld};
+    use world::{BlockUpdate, ChunkStore, SubChunkKey};
+
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut bytes = named(10, "");
+    bytes.extend(named(10, "components"));
+    bytes.extend(pixel_component(
+        "minecraft:collision_box",
+        [-8.0, 0.0, -8.0],
+        [16.0, 8.0, 16.0],
+    ));
+    bytes.extend(pixel_component(
+        "minecraft:selection_box",
+        [-6.0, 0.0, -2.0],
+        [4.0, 6.0, 8.0],
+    ));
+    bytes.extend([0, 0]);
+    let custom = protocol::CustomBlocks::from_definitions([("test:half_height", bytes.as_slice())]);
+    let sequential = registries
+        .begin_session_blocks(&custom, false)
+        .custom_ids
+        .unwrap()
+        .start;
+    registries.begin_session_hashed_custom_blocks(&custom);
+    let hash = custom.blocks[0].hashed_states()[0].hash;
+    let air = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:air")
+        .unwrap();
+    let selection = Aabb::new(Vec3::new(8.625, 8.0, 8.375), Vec3::new(8.875, 8.375, 8.875));
+    for (registry, id, air) in [
+        (&registries.sequential, sequential, air.sequential_id),
+        (&registries.hashed, hash, air.network_hash),
+    ] {
+        let mut store = ChunkStore::new();
+        let key = SubChunkKey::new(0, 0, 0, 0);
+        store.apply_request_mode_air(key).unwrap();
+        store.mark_sub_chunk_loaded(key).unwrap();
+        store
+            .update_block(key, BlockUpdate::new(8, 8, 8, 0, id), air)
+            .unwrap();
+        let world = PaletteWorld::new(&store, registry, 0, Default::default());
+        let above = Aabb::new(Vec3::new(8.25, 8.6, 8.25), Vec3::new(8.75, 8.9, 8.75));
+        assert!(world.collision_boxes(above).unwrap().value.is_empty());
+        let inside = Aabb::new(Vec3::new(8.25, 8.1, 8.25), Vec3::new(8.75, 8.4, 8.75));
+        assert_eq!(
+            world.collision_boxes(inside).unwrap().value,
+            [Aabb::new(
+                Vec3::new(8.0, 8.0, 8.0),
+                Vec3::new(9.0, 8.5, 9.0)
+            )]
+        );
+        let hit = world
+            .block_interaction_ray_current(
+                Vec3::new(8.75, 10.0, 8.5),
+                Vec3::new(0.0, -1.0, 0.0),
+                3.0,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.runtime_id, id);
+        assert_eq!(hit.hit_local.y, 0.375);
+        assert_eq!(world.block_outline([8, 8, 8], id).unwrap(), Some(selection));
+    }
+}
+
+#[test]
+fn selection_never_expands_disabled_or_partial_custom_collision() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut custom = definitions(&[[0.0, 0.0, 0.0, 16.0, 8.0, 16.0]]);
+    for collides in [true, false] {
+        Arc::make_mut(&mut custom.blocks)[0].collides = collides;
+        let sequential = registries
+            .begin_session_blocks(&custom, false)
+            .custom_ids
+            .unwrap()
+            .start;
+        registries.begin_session_hashed_custom_blocks(&custom);
+        let hash = custom.blocks[0].hashed_states()[0].hash;
+        for (registry, id) in [
+            (&registries.sequential, sequential),
+            (&registries.hashed, hash),
+        ] {
+            let expected = if collides {
+                vec![Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0))]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(registry.collision_shapes(id).unwrap(), expected);
+            assert_eq!(
+                registry.selection_shapes(id).unwrap(),
+                [Aabb::new(Vec3::ZERO, Vec3::ONE)]
+            );
+        }
+    }
+}
+
+#[test]
+fn zero_volume_custom_collision_has_no_movement_primitives() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let custom = definitions(&[[0.0; 6]]);
+    let sequential = registries
+        .begin_session_blocks(&custom, false)
+        .custom_ids
+        .unwrap()
+        .start;
+    registries.begin_session_hashed_custom_blocks(&custom);
+    let hash = custom.blocks[0].hashed_states()[0].hash;
+    for (registry, id) in [
+        (&registries.sequential, sequential),
+        (&registries.hashed, hash),
+    ] {
+        assert!(registry.collision_shapes(id).unwrap().is_empty());
+    }
+}
+
+#[test]
 fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
     let version = active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();

@@ -19,7 +19,7 @@ use super::{
         HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
         compute_overlays, probe_head_medium,
     },
-    portal_projection::{apply_distortion, portal_distortion},
+    portal_projection::{apply_distortion, distortion_changes, portal_distortion},
     server_view::{ActorView, ServerCameraView, ViewContext},
 };
 
@@ -479,7 +479,9 @@ pub fn apply_camera_presentation(
                     settings.feel().distortion_scale,
                 )
             });
-        apply_distortion(&mut projection, distortion);
+        if distortion_changes(&projection, distortion) {
+            apply_distortion(&mut projection, distortion);
+        }
     }
 
     let shake = server.shake_offset();

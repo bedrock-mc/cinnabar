@@ -70,6 +70,10 @@ impl WorldStream {
     ///
     /// Only the built-in Overworld weather route is currently admitted. Custom
     /// dimension weather and positional climate remain explicitly incomplete.
+    #[allow(
+        clippy::print_stderr,
+        reason = "BIOME_SEASONS is a debug-build stderr marker line for seasonal foliage runs"
+    )]
     pub fn advance_seasonal_foliage(
         &mut self,
         rain: [f32; 2],

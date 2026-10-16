@@ -261,10 +261,17 @@ fn unchanged_gallery_polls_and_installs_worker_results_and_resets_its_request() 
     let requested = runtime.menu_artwork_loader.requested;
     let (done, results) = crossbeam_channel::unbounded();
     runtime.menu_artwork_loader.results = results;
+    let side = render_model::UI_ART_PAGE_SIDE;
     done.send(Packed {
         id: requested,
         complete: true,
-        pages: vec![render_model::UiTexturePage::owned([2, 2], vec![71; 16].into()).unwrap()],
+        pages: vec![
+            render_model::UiTexturePage::owned(
+                [side; 2],
+                vec![71; (side * side * 4) as usize].into(),
+            )
+            .unwrap(),
+        ],
         refs: HashMap::from([(
             "completed-gallery".into(),
             IconRef {
@@ -422,7 +429,7 @@ fn simultaneous_mod_modal_and_server_pages_all_publish_without_an_artwork_change
     let mut paint = PaintFrame {
         layouts: &mut runtime.layouts,
         font: &runtime.font,
-        metrics: TextMetrics::for_viewport([640, 480], 1.0, None),
+        metrics: TextMetrics::for_viewport([640, 480], ui::DpiScale::new(1.0).unwrap(), None),
         solid_page: runtime.solid_texture_page,
         safe_area: runtime.safe_area,
         content: [640.0, 480.0],

@@ -154,6 +154,10 @@ fn fixture(phase: Phase) -> UiPresentationRuntime {
     let mut view = MenuView::new(true, "Fixture".into());
     view.dialog = Some(MenuDialog::MinecraftImport);
     view.focused_action = None;
+    Arc::make_mut(&mut view.settings_options).set(
+        launcher::menu::settings_options::SettingId::ScreenAnimations.index(),
+        0,
+    );
     Arc::make_mut(&mut view.minecraft_import).phase = phase;
     presentation.menu_view = Some(Arc::new(view));
     presentation

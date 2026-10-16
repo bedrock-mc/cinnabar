@@ -45,7 +45,7 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
             attached: true,
         }),
         failed: None,
-        retiring: None,
+        ..Default::default()
     };
     let mut menu = MenuRuntime::new_with_layout(
         true,
@@ -65,7 +65,20 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
     (slot, menu, world, socket_dir)
 }
 
+/// Past the first restart delay after a quick exit.
+const AFTER_FIRST_DELAY: Duration = Duration::from_secs(1);
+
 fn drive(slot: &mut LauncherCoreSlot, menu: &mut MenuRuntime, world: &mut World, idle: bool) {
+    drive_at(slot, menu, world, idle, Instant::now());
+}
+
+fn drive_at(
+    slot: &mut LauncherCoreSlot,
+    menu: &mut MenuRuntime,
+    world: &mut World,
+    idle: bool,
+    now: Instant,
+) {
     let mut queue = CommandQueue::default();
     slot.drive(
         &mut Commands::new(&mut queue, world),
@@ -73,6 +86,7 @@ fn drive(slot: &mut LauncherCoreSlot, menu: &mut MenuRuntime, world: &mut World,
         idle,
         false,
         None,
+        now,
     );
     queue.apply(world);
 }
@@ -82,7 +96,8 @@ fn dead_child_detaches_clients_during_play_and_retries_unchanged_auth_when_idle(
     let (mut slot, mut menu, mut world, socket_dir) = fixture(true);
     // A failed-mode latch must not suppress recovery of a child that subsequently existed.
     slot.failed = Some(false);
-    drive(&mut slot, &mut menu, &mut world, false);
+    let exited_at = Instant::now();
+    drive_at(&mut slot, &mut menu, &mut world, false, exited_at);
     assert!(
         slot.core.is_none(),
         "a dead child cannot serve another join"
@@ -96,7 +111,18 @@ fn dead_child_detaches_clients_during_play_and_retries_unchanged_auth_when_idle(
     );
     assert!(!menu.layout.core_executable.exists());
 
-    drive(&mut slot, &mut menu, &mut world, true);
+    drive_at(&mut slot, &mut menu, &mut world, true, exited_at);
+    assert!(
+        slot.failed.is_none(),
+        "a core that just exited is not restarted before its backoff delay"
+    );
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        true,
+        exited_at + AFTER_FIRST_DELAY,
+    );
     assert_eq!(
         slot.failed,
         Some(false),
@@ -118,13 +144,10 @@ fn healthy_child_and_account_client_survive_idle_and_active_frames() {
     }
 }
 
-#[test]
-fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness() {
-    let (mut slot, mut menu, mut world, socket_dir) = fixture(true);
-    let old_pid = slot.core.as_ref().unwrap()._guard.id();
+/// Installs a core executable that exits as soon as it starts and offers no IPC.
+fn install_exiting_core(menu: &MenuRuntime) {
     let executable = &menu.layout.core_executable;
     std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
-    // A harmless process fixture proves production spawn/adoption; it intentionally offers no IPC.
     #[cfg(windows)]
     std::fs::copy(
         PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/where.exe"),
@@ -137,7 +160,24 @@ fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness()
         std::fs::write(executable, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    drive(&mut slot, &mut menu, &mut world, true);
+}
+
+#[test]
+fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness() {
+    let (mut slot, mut menu, mut world, socket_dir) = fixture(true);
+    let old_pid = slot.core.as_ref().unwrap()._guard.id();
+    // A harmless process fixture proves production spawn/adoption.
+    install_exiting_core(&menu);
+    let exited_at = Instant::now();
+    drive_at(&mut slot, &mut menu, &mut world, true, exited_at);
+    assert!(slot.core.is_none(), "the restart waits for its backoff");
+    drive_at(
+        &mut slot,
+        &mut menu,
+        &mut world,
+        true,
+        exited_at + AFTER_FIRST_DELAY,
+    );
     let core = slot
         .core
         .as_ref()
@@ -153,6 +193,39 @@ fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness()
     assert!(!bridge::bridge_endpoint_exists(&socket_dir));
     #[cfg(unix)]
     assert!(!bridge::control_endpoint_path(&socket_dir).exists());
+}
+
+#[test]
+fn a_core_that_keeps_exiting_quickly_is_given_up_on_until_a_refresh() {
+    let (mut slot, mut menu, mut world, _) = fixture(true);
+    install_exiting_core(&menu);
+    // Past the longest delay, but each run stays far below the stable run that resets it.
+    let step = Duration::from_secs(9);
+    let mut now = Instant::now();
+    let mut restarts = 0;
+    loop {
+        drive_at(&mut slot, &mut menu, &mut world, true, now);
+        assert!(slot.core.is_none(), "an exited core is retired");
+        if slot.failed == Some(false) {
+            break;
+        }
+        now += step;
+        drive_at(&mut slot, &mut menu, &mut world, true, now);
+        let core = slot.core.as_mut().expect("restarted after its delay");
+        restarts += 1;
+        test_time::eventually("the restarted core to exit", || {
+            core._guard.exit_status().is_some()
+        });
+    }
+    assert_eq!(
+        restarts, 5,
+        "five quick restarts, then the backoff gives up"
+    );
+    drive_at(&mut slot, &mut menu, &mut world, true, now + step * 10);
+    assert!(slot.core.is_none(), "no restart after giving up");
+    menu.feeds.profile_refresh_requested = true;
+    drive_at(&mut slot, &mut menu, &mut world, true, now + step * 10);
+    assert!(slot.core.is_some(), "a refresh retries the core");
 }
 
 #[test]

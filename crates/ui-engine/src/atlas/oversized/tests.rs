@@ -153,8 +153,8 @@ fn carrier_and_builtin_replacements_publish_new_source_ownership() {
     assert!(atlas.oversized().is_empty());
     atlas.require(["textures/art"]);
     assert!(!atlas.oversized().same(&old));
-    let builtin: &'static [(&str, &[u8])] =
-        Vec::leak(vec![("textures/art", Vec::leak(png(9).to_vec()))]);
+    let bytes: &'static [u8] = Vec::leak(png(9).to_vec());
+    let builtin: &'static [(&str, &[u8])] = Vec::leak(vec![("textures/art", bytes)]);
     atlas = atlas.with_builtin_images(builtin);
     assert!(atlas.oversized().is_empty());
     atlas.require(["textures/art"]);

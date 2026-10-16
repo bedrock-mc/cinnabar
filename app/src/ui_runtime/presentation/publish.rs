@@ -56,6 +56,7 @@ type PublishExtras<'w, 's> = (
     Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     Local<'s, nametags::NametagTextCache>,
+    ResMut<'w, crate::runtime::shutdown::FatalError>,
     (
         Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
         Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
@@ -98,6 +99,7 @@ pub(crate) fn prepare_ui_runtime(
         warmed_pipelines,
         server_camera,
         mut nametag_cache,
+        mut fatal_error,
         (
             actor_partial,
             local_frame,
@@ -144,6 +146,7 @@ pub(crate) fn prepare_ui_runtime(
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(
         &mut client_world,
+        &mut fatal_error.0,
         &mut presentation,
         &runtime,
         &mut diagnostics_input,
@@ -351,6 +354,9 @@ pub(crate) fn prepare_ui_runtime(
             physical_size,
         );
     }
+    runtime
+        .player_roster
+        .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = menu_runtime
         .settings_snapshot()
         .0
@@ -441,6 +447,13 @@ pub(crate) fn prepare_ui_runtime(
                 {
                     tags.push(tag);
                 }
+            }
+            for tag in &mut tags {
+                tag.set_cinnabar_badge(
+                    authority
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
+                );
             }
             tags
         })

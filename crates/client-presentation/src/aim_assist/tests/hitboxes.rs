@@ -77,7 +77,10 @@ fn disjoint_hitboxes_never_target_the_gap_between_them() {
     let mut frame = AimAssistFrame::default();
     search(&mut frame, &world, &store, &registry, 1);
     let target = frame.target.unwrap();
-    assert_eq!(target.kind, TargetKind::Actor(2));
+    assert_eq!(
+        target.kind,
+        TargetKind::Actor(world.actor_lifetime(2).unwrap())
+    );
     assert!((target.point.x.abs() - 1.0).abs() < 1e-5, "{target:?}");
 }
 

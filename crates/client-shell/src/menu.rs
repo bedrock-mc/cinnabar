@@ -35,6 +35,7 @@ pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+pub use services::sync_cinnabar_players;
 pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;
@@ -915,7 +916,7 @@ impl MenuRuntime {
 impl Drop for MenuRuntime {
     fn drop(&mut self) {
         if let Err(error) = self.flush_user_settings() {
-            eprintln!("Could not save settings at shutdown: {error}");
+            bevy::log::warn!("could not save settings at shutdown: {error}");
         }
         self.stop_sign_in();
         self.stop_catalog();

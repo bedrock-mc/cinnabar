@@ -156,6 +156,14 @@ impl UiRect {
             && point.y >= self.min.y
             && point.y <= self.max.y
     }
+
+    /// This rectangle moved by `by` logical px; fails only on a non-finite result.
+    pub fn translated(self, by: [f32; 2]) -> Result<Self, GeometryError> {
+        Self::new(
+            UiPoint::new(self.min.x + by[0], self.min.y + by[1])?,
+            UiPoint::new(self.max.x + by[0], self.max.y + by[1])?,
+        )
+    }
 }
 
 /// Nonnegative viewport insets in logical UI pixels.
