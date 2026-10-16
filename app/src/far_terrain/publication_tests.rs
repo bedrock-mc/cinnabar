@@ -600,3 +600,115 @@ fn a_new_stream_republishes_targets_even_when_section_counters_match() {
             .is_empty()
     );
 }
+
+/// First-delivered air reaches the real render mask without a mesh or a rebuilt far tile.
+#[test]
+fn first_delivered_air_masks_cached_terrain_at_either_mesh_radius() {
+    let sections = protocol::vanilla_dimension_range(0)
+        .unwrap()
+        .sub_chunk_count;
+    for x in [0, 10] {
+        for mode in [
+            protocol::LevelChunkMode::Inline { count: 0 },
+            protocol::LevelChunkMode::Inline { count: 1 },
+            protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+        ] {
+            let config = PublicationServiceConfig::DEFAULT;
+            let allowance = PublicationAllowance::new(config);
+            allowance.begin_frame(1, sections, 0, sections, config.maximum_frame_items);
+            let assets = Arc::new(assets::RuntimeAssets::diagnostic());
+            let mut stream = WorldStream::new_with_assets(
+                protocol::WorldBootstrap {
+                    local_player_unique_id: 1,
+                    dimension: 0,
+                    local_player_runtime_id: 1,
+                    player_position: [0.0; 3],
+                    world_spawn_position: [0; 3],
+                    air_network_id: 0,
+                    block_network_ids_are_hashes: false,
+                },
+                Arc::clone(&assets),
+                [0.0; 3],
+                None,
+            );
+            stream.set_far_terrain_enabled(true);
+            stream.set_full_detail_radius(Some(1));
+            stream.set_publication_allowance(allowance.clone());
+            let column = ChunkKey::new(0, x, 0);
+            let mut payload = if matches!(mode, protocol::LevelChunkMode::Inline { count: 1 }) {
+                let base = protocol::vanilla_dimension_range(0)
+                    .unwrap()
+                    .base_sub_chunk_y;
+                vec![9, 0, i8::try_from(base).unwrap() as u8]
+            } else {
+                Vec::new()
+            };
+            payload.extend([1, 0]);
+            payload.extend(std::iter::repeat_n(0xff, sections - 1));
+            payload.push(0);
+            stream
+                .submit(
+                    1,
+                    protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                        dimension: 0,
+                        x,
+                        z: 0,
+                        mode,
+                        payload,
+                    }),
+                )
+                .unwrap();
+            test_time::eventually("first air delivery committed", || {
+                stream.poll([0.0; 3], 0);
+                stream.terrain_publication_sections().count() >= sections
+            });
+            let position = ColumnPos::new(x, 0);
+            let tile = Arc::new(TileMesh {
+                coverage: far_terrain::TileCoverage::Partial(vec![position].into_boxed_slice()),
+                key: TileKey::containing(0, x * COLUMN_SIDE as i32, 0),
+                revision: 1,
+                quads: vec![[1 << 14 | 1 << 21, 64]].into_boxed_slice(),
+                colours: vec![100; TILE_CELLS * TILE_CELLS * 4].into_boxed_slice(),
+                min_y: 0,
+                max_y: 64,
+            });
+            let mut scene = FarTerrainScene {
+                tiles: vec![tile].into(),
+                ..Default::default()
+            };
+            let mut far = FarTerrain::new(None);
+            far.publish_target(&stream, 32, &mut scene);
+            let mut app = publication_app(
+                ChunkTextureAssets::new(assets),
+                ChunkBiomeTints::default(),
+                ChunkUploadBudget::new(sections, 0).with_zero_byte_operations_per_frame(sections),
+                scene,
+            );
+            settle_publication_noop_frame(&mut app);
+            assert_eq!(
+                publication_terrain_draws(&mut app, column),
+                (vec![], true),
+                "cached terrain remains until real empty publications arrive"
+            );
+            test_time::eventually("permitted empty publications", || {
+                stream.poll([0.0; 3], sections);
+                stream.pending_mesh_change_count() == sections
+            });
+            publish_changes(&mut app, &mut stream);
+            settle_publication_noop_frame(&mut app);
+            assert_eq!(
+                publication_terrain_draws(&mut app, column),
+                (vec![], false),
+                "first-delivered air masks cached terrain at {x}, {mode:?}"
+            );
+            assert_near_geometry(&mut app, 0);
+            let actual = publication_render_terminal_snapshot(&mut app);
+            assert_eq!((actual.near_updates, actual.near_upload_bytes), (0, 0));
+            assert_eq!(acknowledge(&app, &mut stream), sections);
+            refresh_mask(&mut app, &mut far, &stream);
+            settle_publication_noop_frame(&mut app);
+            assert_eq!(publication_terrain_draws(&mut app, column), (vec![], false));
+            assert_eq!(allowance.live_permits(), 0);
+        }
+    }
+}

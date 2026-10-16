@@ -52,8 +52,7 @@ impl WorldStream {
             .copied()
             .filter(|column| {
                 column.dimension == self.current_dimension()
-                    && (self.wants_mesh(*column)
-                        || self.near_drawn.columns.get(column) == Some(&Coverage::Empty))
+                    && (self.wants_mesh(*column) || self.column_is_delivered_air(*column))
             })
             .filter_map(|column| {
                 let keys = self
@@ -113,11 +112,7 @@ impl WorldStream {
         if !self.far_terrain_enabled() || !self.loaded_columns.contains(&column) {
             return;
         }
-        let empty = self.authority.terrain().chunk(column).is_none_or(|chunk| {
-            chunk
-                .sub_chunks()
-                .all(|(_, section)| self.classifier.is_sub_chunk_air(&section))
-        });
+        let empty = self.column_is_delivered_air(column);
         if !empty && !self.wants_mesh(column) {
             self.forget_near_drawn([&column]);
             return;
@@ -147,6 +142,16 @@ impl WorldStream {
                 self.near_drawn.revision += 1;
             }
         }
+    }
+
+    /// A completely delivered column proves emptiness from its source, independent of meshing.
+    fn column_is_delivered_air(&self, column: ChunkKey) -> bool {
+        self.loaded_columns.contains(&column)
+            && self.authority.terrain().chunk(column).is_none_or(|chunk| {
+                chunk
+                    .sub_chunks()
+                    .all(|(_, section)| self.classifier.is_sub_chunk_air(&section))
+            })
     }
 
     /// Whether near geometry or delivered air currently hides this column's far terrain.
