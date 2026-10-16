@@ -1,3 +1,10 @@
+/// Whether a zero-byte terrain publication proves empty geometry or withdraws its drawer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerrainRemovalKind {
+    Empty,
+    Withdrawn,
+}
+
 use std::{
     collections::BTreeMap,
     fmt,

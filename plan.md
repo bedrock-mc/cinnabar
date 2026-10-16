@@ -213,7 +213,21 @@ finest quads whole, coarser ones per fragment. Only finest tiles reach the near 
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
-the selected tiles; a still camera uploads and rebuilds nothing. Encoded summaries share
+the selected tiles and covering fallbacks during bounded replacements; a still camera uploads
+and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
+Near column admission and the far mask publish together before draw queues run. Delivered-air
+columns remain in the publication target outside the mesh radius. First delivery publishes
+zero-byte empty evidence through the same bounded queue at either radius, so its receipts
+hide cached terrain without requiring geometry work. Empty-section receipts survive feature
+toggles within their stream and dimension visit, stay bounded by retained sections, refresh
+on every section-membership change, and expire on replacement or
+withdrawal. Valid decoded summaries prove coverage per column; missing, invalid or partial
+summaries cannot prove an entire tile empty or retire its visible fallback. Resource geometry
+and material tables publish together after pending removals and their fences allow the swap;
+blocked candidates stay staged. The same admission is rechecked before replacement allocation
+components reach draw queues. Focused lifecycle regressions pass, including 15 app far-terrain
+cases after transfer and resource resets. Hardware performance and visual acceptance remain
+open. Encoded summaries share
 immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
 resumes within column and byte limits. Cache completions and live or retiring summary
 admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit
@@ -1134,6 +1148,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Sorted transparency records its contiguous colour-space passes into one command
   buffer, removing worker waits around draws serialized by the phase's shared lock.
   Regression tests cover draw order, submission counts and empty viewports.
+- Block-model uploads compare bounded vertex pages and upload disjoint changed
+  ranges, retaining complete shifted tails and refilling grown buffers. Bytewise
+  comparisons preserve signed zero and NaN payloads. Sparse-update and native
+  staging-allocation regressions are written but unrun.
 - Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
   scene read, while translucent pixels retain premultiplied gamma blending. Native
   pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
@@ -1225,7 +1243,8 @@ these changes do not close the movement, camera, or actor parity gates.
   remain cold costs. Synthetic crowds and headless screenshots do not
   establish native first-appearance timing, join latency, no-pop-in acceptance or release
   frame budgets; those gates remain open.
-- Recurring hand, UI viewport and particle writes share bounded retained GPU
+- Recurring hand, UI viewport, particle, actor, nametag, block-model, shadow, dropped-item,
+  atmosphere and animation-clock writes share bounded retained GPU
   staging. Terrain arena writes use a separate pool that starts at three 120 Hz
   frames of the publication target rate and grows after missed frames, at most
   2 MiB per frame, to a 32 MiB ceiling. Abutting records share one copy, batches

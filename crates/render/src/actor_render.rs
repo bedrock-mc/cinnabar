@@ -94,6 +94,7 @@ fn install_actor_render(app: &mut App) {
         .init_resource::<render_scene::ActorPipelineReadiness>()
         .init_resource::<ActorRuntimeWitness>();
     crate::lighting::install(app);
+    crate::upload_staging::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -281,11 +282,13 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_actor_resources(
     frame: Res<ActorRenderFrame>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ActorGpu>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
@@ -381,10 +384,15 @@ fn prepare_actor_resources(
                 bytes = std::mem::size_of_val(&*rig.instances) + prepared.uploaded_bytes(),
             )
             .entered();
-            render_queue.profiled_write_buffer(
-                &gpu.instance_buffer,
-                0,
-                bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+            crate::upload_staging::write_batch(
+                staging.as_deref(),
+                &render_device,
+                &render_queue,
+                &[(
+                    &gpu.instance_buffer,
+                    0,
+                    bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+                )],
             );
             gpu.bones.writes(&prepared, |current, offset, bytes| {
                 let buffer = if current {
@@ -392,7 +400,12 @@ fn prepare_actor_resources(
                 } else {
                     &gpu.previous_bone_buffer
                 };
-                render_queue.profiled_write_buffer(buffer, offset, bytes);
+                crate::upload_staging::write_batch(
+                    staging.as_deref(),
+                    &render_device,
+                    &render_queue,
+                    &[(buffer, offset, bytes)],
+                );
             });
             #[cfg(feature = "tracy")]
             drop(_span);

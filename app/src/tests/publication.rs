@@ -643,6 +643,7 @@ fn drive_unified_publication_fixture(
                             generation,
                             dirty_since,
                         },
+                        render_api::TerrainRemovalKind::Empty,
                         permit.expect("real known-air admission attaches a zero-byte permit"),
                     )
                     .unwrap();
@@ -1004,6 +1005,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
                 generation: 2,
                 dirty_since: now,
             },
+            render_api::TerrainRemovalKind::Withdrawn,
             removal_permit,
         )
         .unwrap();

@@ -27,8 +27,6 @@ use client_state::ClientFrameSet;
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
-#[cfg(test)]
-use std::fs;
 use std::io::Write;
 use std::{ffi::OsStr, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
@@ -258,6 +256,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::far_terrain::feed_far_terrain
                 .after(drive_world_stream)
+                .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
         .add_systems(
