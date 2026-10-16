@@ -30,9 +30,10 @@ carry the notice “(c) Mojang AB. All rights reserved.” and are subject to th
 - Provenance: original pixel art drawn for Cinnabar by `tools/oreui_icons/build.py`; not Mojang
   content.
 
-## Java HUD offhand frames
+## Java HUD textures
 
-- Files: `assets/java-hud/textures/` (`hotbar_offhand_left.png`, `hotbar_offhand_right.png`)
+- Files: `assets/java-hud/textures/` (`hotbar_offhand_left.png`, `hotbar_offhand_right.png`,
+  `cinnabar_badge.png`)
 - Provenance: original pixel art drawn for Cinnabar; not Mojang content.
 
 ## Window and installer icon

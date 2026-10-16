@@ -5,11 +5,11 @@ use super::registration::{
     removal,
     selection::{self, Receipt, disable, forget, registered, same_path, select},
 };
-use crate::global_resources::picker::{self, Filter};
 use bevy::prelude::*;
 use client_shell::menu::MenuRuntime;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use launcher::mods::{Action, ActiveMod, COMPONENT_EXTENSION, InstalledMod, Library, Permission};
+use launcher_host::desktop::picker::{self, Filter};
 use mod_host::ModHost;
 use sha2::{Digest, Sha256};
 use std::{

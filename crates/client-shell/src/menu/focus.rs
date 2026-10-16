@@ -435,6 +435,7 @@ impl MenuRuntime {
                 actions.extend([
                     MenuAction::LocalWorld(LocalWorldAction::BeginCreate),
                     MenuAction::LocalWorld(LocalWorldAction::OpenTemplates),
+                    MenuAction::LocalWorld(LocalWorldAction::Import),
                 ]);
                 for index in 0..self.local_worlds.len() {
                     actions.extend([

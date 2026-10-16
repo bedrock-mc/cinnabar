@@ -23,10 +23,13 @@ use super::{
 };
 
 const UNPACK_WORKERS: usize = 8;
-const SIZE_LIMIT: &str = "dedicated server archive exceeds size limit";
 
 /// Bounds an archive by its listing before anything is written.
 pub(super) struct UnpackLimits {
+    /// Names the archive in rejections.
+    pub label: &'static str,
+    /// Refuses symlinks and other special entries instead of skipping them.
+    pub refuse_links: bool,
     pub max_entries: u64,
     pub max_file_bytes: u64,
     pub max_total_bytes: u64,
@@ -39,6 +42,8 @@ pub(super) struct UnpackLimits {
 /// Headroom over the Linux 1.26.32.2 build: 9,761 entries, 317 MB expanded, largest file 233 MB,
 /// worst entry ratio about 19.7, aggregate 3.6.
 pub(super) const BDS_LIMITS: UnpackLimits = UnpackLimits {
+    label: "dedicated server archive",
+    refuse_links: false,
     max_entries: 65_536,
     max_file_bytes: 1 << 30,
     max_total_bytes: 4 << 30,
@@ -100,7 +105,7 @@ impl Provisioner {
         digest: &str,
         size: u64,
     ) -> Result<(), WorldError> {
-        extract_archive(partial, archive, &BDS_LIMITS)?;
+        extract_archive(partial, archive, &BDS_LIMITS, &|| false)?;
         let binary = partial.join(self.binary_name());
         if fs::metadata(&binary).is_err() {
             return Err(failed("dedicated server archive has no server binary"));
@@ -176,13 +181,22 @@ fn set_executable(path: &Path) {
     let _ = path;
 }
 
-fn open_archive(archive: &Path) -> Result<ZipArchive<File>, WorldError> {
+fn open_archive(archive: &Path, label: &str) -> Result<ZipArchive<File>, WorldError> {
     File::open(archive)
         .map_err(|error| failed(error.to_string()))
-        .and_then(|file| {
-            ZipArchive::new(file)
-                .map_err(|error| failed(format!("dedicated server archive is corrupt: {error}")))
-        })
+        .and_then(|file| ZipArchive::new(file).map_err(|_| corrupt(label)))
+}
+
+fn corrupt(label: &str) -> WorldError {
+    WorldError::Rejected(format!("the {label} is corrupt"))
+}
+
+/// "the world file unpacks larger than 8192 MiB", for a `what` that breached `bound` bytes.
+fn too_large(label: &str, what: &str, bound: u64) -> WorldError {
+    WorldError::Rejected(format!(
+        "the {label} {what} larger than {} MiB",
+        bound >> 20
+    ))
 }
 
 /// Checks the whole listing against `limits`, creates every folder once, then writes the files
@@ -191,8 +205,9 @@ pub(super) fn extract_archive(
     root: &Path,
     archive: &Path,
     limits: &UnpackLimits,
+    cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<(), WorldError> {
-    let (files, dirs) = plan_extraction(root, &mut open_archive(archive)?, limits)?;
+    let (files, dirs) = plan_extraction(root, &mut open_archive(archive, limits.label)?, limits)?;
     for dir in &dirs {
         create_private_dir(dir).map_err(|error| failed(error.to_string()))?;
     }
@@ -207,16 +222,19 @@ pub(super) fn extract_archive(
     std::thread::scope(|scope| {
         for _ in 0..UNPACK_WORKERS.min(files.len()) {
             scope.spawn(|| {
-                let mut zip = match open_archive(archive) {
+                let mut zip = match open_archive(archive, limits.label) {
                     Ok(zip) => zip,
                     Err(error) => return record(error),
                 };
                 let mut buffer = vec![0u8; 256 << 10];
                 while lock(&failure).is_none() {
+                    if cancelled() {
+                        return record(WorldError::Cancelled);
+                    }
                     let Some(job) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
                         return;
                     };
-                    if let Err(error) = extract_file(&mut zip, job, &mut buffer) {
+                    if let Err(error) = extract_file(&mut zip, job, &mut buffer, limits) {
                         return record(error);
                     }
                 }
@@ -233,15 +251,16 @@ pub(super) fn extract_archive(
 }
 
 /// Validates every entry and returns the files (largest first) and the folders they need.
-/// Symlinks and other special entries are skipped.
+/// Symlinks and other special entries are skipped unless the limits refuse them.
 fn plan_extraction(
     root: &Path,
     zip: &mut ZipArchive<File>,
     limits: &UnpackLimits,
 ) -> Result<(Vec<PlannedFile>, BTreeSet<PathBuf>), WorldError> {
+    let label = limits.label;
     if zip.len() as u64 > limits.max_entries {
-        return Err(failed(format!(
-            "dedicated server archive has more than {} entries",
+        return Err(WorldError::Rejected(format!(
+            "the {label} has more than {} entries",
             limits.max_entries
         )));
     }
@@ -250,37 +269,42 @@ fn plan_extraction(
     let mut seen = HashSet::new();
     let (mut total, mut compressed) = (0u64, 0u64);
     for index in 0..zip.len() {
-        let entry = zip
-            .by_index_raw(index)
-            .map_err(|error| failed(format!("dedicated server archive is corrupt: {error}")))?;
+        let entry = zip.by_index_raw(index).map_err(|_| corrupt(label))?;
         let name = entry.name().to_owned();
-        let target = entry_target(root, &name)?;
+        let target = entry_target(root, &name, label)?;
         if entry.is_dir() {
             dirs.insert(target);
             continue;
         }
         let mode = entry.unix_mode().unwrap_or(0);
         if !matches!(mode & 0o170_000, 0 | 0o100_000) {
+            if limits.refuse_links {
+                return Err(WorldError::Rejected(format!(
+                    "the {label} contains a link or special file"
+                )));
+            }
             continue;
         }
         // Case-folded, so parallel writers never share a file on case-insensitive disks.
         if !seen.insert(target.to_string_lossy().to_lowercase()) {
-            return Err(failed(format!("archive entry {name:?} is duplicated")));
+            return Err(WorldError::Rejected(format!(
+                "the {label} lists {name:?} twice"
+            )));
         }
         let (size, packed) = (entry.size(), entry.compressed_size());
         if size > limits.max_file_bytes {
-            return Err(failed(SIZE_LIMIT));
+            return Err(too_large(label, "has a file", limits.max_file_bytes));
         }
         if packed >= limits.min_ratio_sample && size as f64 > limits.max_entry_ratio * packed as f64
         {
-            return Err(failed(format!(
-                "archive entry {name:?} is compressed implausibly well"
+            return Err(WorldError::Rejected(format!(
+                "the {label} entry {name:?} is compressed implausibly well"
             )));
         }
         total += size;
         compressed += packed;
         if total > limits.max_total_bytes {
-            return Err(failed(SIZE_LIMIT));
+            return Err(too_large(label, "unpacks", limits.max_total_bytes));
         }
         if let Some(parent) = target.parent() {
             dirs.insert(parent.to_path_buf());
@@ -295,9 +319,9 @@ fn plan_extraction(
     if compressed >= limits.min_ratio_sample
         && total as f64 > limits.max_archive_ratio * compressed as f64
     {
-        return Err(failed(
-            "dedicated server archive is compressed implausibly well",
-        ));
+        return Err(WorldError::Rejected(format!(
+            "the {label} is compressed implausibly well"
+        )));
     }
     // Largest first, so the server binary never trails the small files.
     files.sort_by_key(|file| std::cmp::Reverse(file.size));
@@ -305,12 +329,13 @@ fn plan_extraction(
 }
 
 /// The path of an archive entry under `root`, rejecting names that escape it.
-fn entry_target(root: &Path, name: &str) -> Result<PathBuf, WorldError> {
+fn entry_target(root: &Path, name: &str, label: &str) -> Result<PathBuf, WorldError> {
+    let unsafe_path = |why: &str| WorldError::Rejected(format!("the {label} entry {name:?} {why}"));
     let separators: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
     let absolute = name.starts_with('/')
         || (cfg!(windows) && (name.starts_with('\\') || name.as_bytes().get(1) == Some(&b':')));
     if absolute {
-        return Err(failed(format!("archive entry {name:?} is absolute")));
+        return Err(unsafe_path("is absolute"));
     }
     let mut parts: Vec<&str> = Vec::new();
     for part in name.split(separators) {
@@ -318,13 +343,11 @@ fn entry_target(root: &Path, name: &str) -> Result<PathBuf, WorldError> {
             "" | "." => {}
             ".." => {
                 if parts.pop().is_none() {
-                    return Err(failed(format!(
-                        "archive entry {name:?} escapes the install directory"
-                    )));
+                    return Err(unsafe_path("escapes its folder"));
                 }
             }
             part if cfg!(windows) && part.contains(':') => {
-                return Err(failed(format!("archive entry {name:?} names a stream")));
+                return Err(unsafe_path("names a stream"));
             }
             part => parts.push(part),
         }
@@ -339,10 +362,9 @@ fn extract_file(
     zip: &mut ZipArchive<File>,
     job: &PlannedFile,
     buffer: &mut [u8],
+    limits: &UnpackLimits,
 ) -> Result<(), WorldError> {
-    let mut entry = zip
-        .by_index(job.index)
-        .map_err(|error| failed(error.to_string()))?;
+    let mut entry = zip.by_index(job.index).map_err(|_| corrupt(limits.label))?;
     let mut options = fs::OpenOptions::new();
     options.create(true).write(true).truncate(true);
     #[cfg(unix)]
@@ -354,15 +376,13 @@ fn extract_file(
         .map_err(|error| failed(error.to_string()))?;
     let mut written = 0u64;
     loop {
-        let read = entry
-            .read(buffer)
-            .map_err(|error| failed(error.to_string()))?;
+        let read = entry.read(buffer).map_err(|_| corrupt(limits.label))?;
         if read == 0 {
             return Ok(());
         }
         written += read as u64;
         if written > job.size {
-            return Err(failed(SIZE_LIMIT));
+            return Err(corrupt(limits.label));
         }
         out.write_all(&buffer[..read])
             .map_err(|error| failed(error.to_string()))?;

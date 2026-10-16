@@ -470,6 +470,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             )
         },
         Screen::Create if view.busy => Modal::text("Creating new world...", ""),
+        Screen::Importing => Modal::text("Importing world...", ""),
         _ => return None,
     })
 }

@@ -6,6 +6,7 @@ use super::{
     LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController, ModeIntent,
     MovementTicker, PhysicsSampleContext, physics_movement_input,
 };
+use protocol::ClientInputLock;
 use semantic_input::ActionPhase;
 use std::time::Duration;
 use tracing::debug;
@@ -80,17 +81,27 @@ pub struct LocomotionState {
     input_mode: protocol::PlayerInputMode,
     previous_blocker: Option<String>,
     /// A deferred press belongs to one session and one vehicle.
-    pending_dismount: Option<(u64, u64)>,
+    pending_dismount: Option<(u64, u64, ClientInputLock)>,
 }
 
 impl LocomotionState {
+    /// Revokes retained mode requests and dismounts, including their triggering category.
+    pub fn revoke_input_requests(&mut self, locks: protocol::ClientInputLocks) {
+        self.controls.revoke_input_requests(locks);
+        if self.pending_dismount.is_some_and(|(_, _, trigger)| {
+            locks.blocks(ClientInputLock::Dismount) || locks.blocks(trigger)
+        }) {
+            self.pending_dismount = None;
+        }
+    }
+
     /// Admits a requested dismount ahead of movement, retaining it only on a full queue.
     pub fn flush_dismount(
         &mut self,
         position: [f32; 3],
         mut send: impl FnMut(protocol::Packet) -> Result<(), protocol::BatchSendError>,
     ) {
-        let Some((_, mount)) = self.pending_dismount else {
+        let Some((_, mount, _)) = self.pending_dismount else {
             return;
         };
         let Ok(packet) = protocol::stop_riding_packet(mount, position) else {
@@ -138,6 +149,13 @@ impl LocomotionState {
             self.input_mode = input_mode;
         }
         let input_mode = self.input_mode;
+        let movement = facts.input_locks.movement(movement);
+        let sprint_allowed = !facts.input_locks.blocks(ClientInputLock::MoveForward);
+        let processed_sneak = ActionPhase {
+            pressed: sneak.pressed && !facts.input_locks.blocks(ClientInputLock::Sneak),
+            held: sneak.held && !facts.input_locks.blocks(ClientInputLock::Sneak),
+            released: sneak.released,
+        };
         let head_yaw = wire_head_yaw(yaw);
         let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
@@ -177,12 +195,12 @@ impl LocomotionState {
                 forward: movement[1],
                 sideways: movement[0],
                 touch_input: input_mode == protocol::PlayerInputMode::Touch,
-                sprint_pressed: sprint.pressed,
-                sprint_held: sprint.held,
-                sneak_pressed: sneak.pressed,
-                sneak_held: sneak.held,
+                sprint_pressed: sprint.pressed && sprint_allowed,
+                sprint_held: sprint.held && sprint_allowed,
+                sneak_pressed: processed_sneak.pressed,
+                sneak_held: processed_sneak.held,
                 toggle_sprint: frame.toggle_sprint,
-                always_sprint: active && frame.always_sprint,
+                always_sprint: active && frame.always_sprint && sprint_allowed,
                 toggle_sneak: frame.toggle_sneak,
                 sprint_blocked: facts.sprint_blocked,
                 sprint_start_blocked: facts.sprint_start_blocked,
@@ -195,7 +213,7 @@ impl LocomotionState {
                 yaw,
                 active,
                 jump.held,
-                controlled.sneaking,
+                controlled.sneaking && !facts.input_locks.blocks(ClientInputLock::Sneak),
                 controlled.sprint_request,
                 frame.item_use_modifier,
             );
@@ -203,7 +221,8 @@ impl LocomotionState {
                 input.sprinting = controlled.sprint_request;
             }
             if !active {
-                input.sneaking = controlled.sneaking;
+                input.sneaking =
+                    controlled.sneaking && !facts.input_locks.blocks(ClientInputLock::Sneak);
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
@@ -244,12 +263,16 @@ impl LocomotionState {
                         stop_sprinting: controlled.stop_sprinting,
                     },
                     release_use_modifier: movement_ticker.release_use_modifier(),
+                    input_locks: facts.input_locks,
                     input: super::TickInput {
-                        movement_buttons: frame.movement_buttons,
+                        movement_buttons: filtered_movement_buttons(
+                            frame.movement_buttons,
+                            facts.input_locks,
+                        ),
                         jump,
-                        sneak,
+                        sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
-                        sneak_down: controlled.sneaking,
+                        sneak_down: input.sneaking,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                     },
                 },
@@ -316,13 +339,18 @@ impl LocomotionState {
 
     /// Retains riding input even when transport admission pauses physics, preserving server links.
     pub fn observe_dismount(&mut self, frame: &PhysicsFrameInput, session: u64) {
+        let trigger = if frame.facts.ride == Some(super::RideKind::Boat) {
+            ClientInputLock::Jump
+        } else {
+            ClientInputLock::Sneak
+        };
         let mount = frame
             .facts
             .ride
             .and(frame.facts.mount_runtime_id)
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
-            .map(|mount| (session, mount));
+            .map(|mount| (session, mount, trigger));
         if self.pending_dismount != mount {
             self.pending_dismount = None;
         }
@@ -331,8 +359,24 @@ impl LocomotionState {
         } else {
             frame.sneak.pressed
         };
-        if pressed {
+        if pressed
+            && !frame.facts.input_locks.blocks(ClientInputLock::Dismount)
+            && !frame.facts.input_locks.blocks(trigger)
+        {
             self.pending_dismount = mount;
         }
+    }
+}
+
+/// Filters digital directions independently of raw and analogue device vectors.
+fn filtered_movement_buttons(
+    buttons: semantic_input::MovementButtons,
+    locks: protocol::ClientInputLocks,
+) -> semantic_input::MovementButtons {
+    semantic_input::MovementButtons {
+        forward: buttons.forward && !locks.blocks(ClientInputLock::MoveForward),
+        backward: buttons.backward && !locks.blocks(ClientInputLock::MoveBackward),
+        left: buttons.left && !locks.blocks(ClientInputLock::MoveLeft),
+        right: buttons.right && !locks.blocks(ClientInputLock::MoveRight),
     }
 }

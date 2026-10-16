@@ -194,3 +194,46 @@ fn json_keys_that_redact_to_the_same_key_are_an_error() {
     let mut value = serde_json::json!({"203.0.113.7": 1, "203.0.113.8": 2});
     assert_eq!(Redactor::default().json(&mut value), Err(Error::MergedKeys));
 }
+
+/// Every sharing path must remove these private values while preserving useful context.
+#[test]
+fn diagnostics_audit_private_values_never_survive() {
+    for (input, secret) in [
+        ("token=fixture-token failed", "fixture-token"),
+        ("Authorization: Bearer fixture-token", "fixture-token"),
+        ("xuid=2535412345678901 connected", "2535412345678901"),
+        ("gamertag=\"Fixture Player\" joined", "Fixture Player"),
+        ("connect play.example.log:19132", "play.example.log"),
+        ("connect localhost:9", "localhost"),
+        ("connect 7host:19132", "7host"),
+        ("connect 203.0.113.7:19132", "203.0.113.7"),
+        ("connect [2001:db8::1]:19132", "2001:db8::1"),
+        ("at /Users/FixturePlayer/logs", "FixturePlayer"),
+        (r"at C:\Users\FixturePlayer\logs", "FixturePlayer"),
+    ] {
+        for output in [patterns(input), Redactor::default().text(input).unwrap()] {
+            assert!(!output.contains(secret), "leaked {secret}: {output}");
+        }
+    }
+}
+
+/// Filename exemptions apply only to bare filenames; every explicit endpoint is private.
+#[test]
+fn diagnostics_audit_every_filename_exemption_rejects_ports() {
+    let spec: serde_json::Value = serde_json::from_str(RULES_JSON).unwrap();
+    for extension in spec["file_extensions"].as_array().unwrap() {
+        let file = format!("fixture.{}", extension.as_str().unwrap());
+        assert_eq!(patterns(&file), file);
+        for port in [1, 9, 80, 19132, 65535] {
+            assert_eq!(patterns(&format!("{file}:{port}")), PLACEHOLDER);
+        }
+    }
+    for source in [
+        "src/fixture.rs:9",
+        "fixture.rs:9:2",
+        r"src\fixture.go:9",
+        "fixture.go:9:2",
+    ] {
+        assert_eq!(patterns(source), source);
+    }
+}

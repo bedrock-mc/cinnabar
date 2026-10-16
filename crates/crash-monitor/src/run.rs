@@ -77,6 +77,13 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         start_log(layout, args);
     }
     let launch = read_launch()?;
+    // Retain before READY: any introduced client has a monitor protecting its attachments.
+    let staging = launch
+        .staging
+        .as_deref()
+        .map(crash_report::staging::Staging::retain)
+        .transpose()
+        .map_err(|error| format!("crash staging could not be retained: {error}"))?;
     let parent = Parent::open(args.parent);
     let mut server = minidumper::Server::with_name(protocol::socket_name(&args.socket))
         .map_err(|error| format!("crash monitor could not listen: {error}"))?;
@@ -158,6 +165,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         Ending::Abort(_) if hung.is_some() => hung,
         _ => report(args, &observed, &ending),
     };
+    drop(staging);
     Ok(shown.map(|written| {
         show(layout, &launch.restart, &written);
         written.folder

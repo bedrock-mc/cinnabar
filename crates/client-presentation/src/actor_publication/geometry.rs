@@ -29,6 +29,7 @@ pub(super) fn apply_session_pack(
     if let Some(equipment) = equipment {
         equipment.set_pack_layer(layer);
         equipment.set_block_entity_artwork(resources.held_block_entities.as_ref());
+        equipment.set_block_items(resources.block_items.as_ref());
     }
     let mut icon_locations = Vec::new();
     if let Some(icons) = &session_icons {
@@ -41,9 +42,11 @@ pub(super) fn apply_session_pack(
         apply_session_geometry(scene, resources, geometry_ready, profiler);
     }
     scene.configure_artwork(pages.clone());
-    let effective =
-        (pack.is_some() || session_icons.is_some() || resources.held_block_entities.is_some())
-            .then_some(pages);
+    let effective = (pack.is_some()
+        || session_icons.is_some()
+        || resources.held_block_entities.is_some()
+        || resources.block_items.is_some())
+    .then_some(pages);
     (effective, session_icons, icon_locations)
 }
 

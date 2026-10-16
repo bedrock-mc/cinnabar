@@ -178,7 +178,9 @@ Afterwards the first cached columns replaced by live ones are compared too: when
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
 summaries never replace a later visit's. Every session, including a transfer to the same
-address, and every dimension change starts a fresh visit. An IO thread writes each region in
+address, and every committed dimension change starts a fresh visit, including a round trip
+between rendered frames. Dimension changes disconnect pending summary delivery before the
+destination can publish terrain. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
@@ -284,6 +286,8 @@ update / Later actions, and a separate default-off install-on-quit preference. S
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
+Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
+API release notice for the selected channel checks immediately.
 
 Nightly checks both the nightly and beta signed manifests and offers the newer release while
 keeping the Nightly preference. Release ordering compares the version core, then the shared
@@ -338,6 +342,15 @@ coverage and GPU-completion acknowledgement stay in their current owners. The lo
 vector adds transient allocation and copying; fragmented commands can still publish once per
 span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
 Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
+
+Actor endpoint matrices retain bounded GPU slots independently of draw order. Exact byte
+comparisons upload changed previous/current ranges while instance scalars still update.
+The renderer projects matching instance and receipt offsets; CPU publications stay dense
+for motion history. One CPU mirror is bounded by the existing endpoint arena, with no GPU
+budget increase. Fragmented allocations compact without changing admission. Regression
+tests pass in the focused actor-render suite (75 tests), and render crate clippy passes.
+Rendered parity and measured performance remain pending. Dense CPU publication copies
+and other matrix-cache work remain separate.
 
 ## Player interaction ownership
 
@@ -444,6 +457,30 @@ cards and label, package templates and the cosmetic cursor. It depends on `ui-en
 crates only. `client-ui` keeps authority, item-icon and container projection, scene order and
 publication, and adapts runtime state into paint frames and typed inputs. This move has not been
 compiled or executed and closes no parity gate.
+
+## Mod surface motion
+
+Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points,
+an optional opening value and an optional exit value that personal-panel surfaces ease to
+when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
+feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
+to scale about an origin and rotate their drawing and hits without changing layout,
+bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
+subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred and
+filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
+`#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
+pyramid of the post-processed scene serves every backdrop in a frame, built only while one
+is published. `cinnabar_filter` blurs a control's subtree as one image through an offscreen
+group, animatable through `#cinnabar_blur`. These are Cinnabar extensions for mod
+surfaces; server-pack JSON-UI is unchanged.
+
+Incomplete toward expressive mod menus:
+- The shared scene blur and element blur are unmeasured on the reference hardware tiers.
+- Backdrops blur only the 3-D scene: UI beneath a glass panel, including the HUD and nested
+  glass, stays sharp.
+- Exits between routes: replacing an open panel's surface swaps it at once without playing
+  the old surface's exit values.
 
 ## Extension crate ownership
 
@@ -650,6 +687,23 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   permission gates remain incomplete. The current heartbeat
   fallback is provisional. Signed-in friends-visible validation is incomplete, and no
   Xbox presence parity gate closes. Discord presence is unchanged.
+
+## Cinnabar API
+
+- The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`). It dials
+  before minting and reuses unexpired key-bound credentials with fresh challenge proofs. Negotiated
+  limits, retry minima, reconnect jitter and bounded frame-rejection retries control its traffic.
+- Player lookups prioritize new joiners, drain coalesced refresh rounds, expire visible positives and discard
+  older-session replies. Release notices include manifest builds and schedule jittered checks with
+  bounded retries for older signed manifests. Packaging rejects placeholder origins and announces
+  only changed signed manifests.
+- Tab-list and name-tag badges share roster answers and the default-on General display toggle.
+  Name tags reuse the original gem in a retained atlas cell, widen the name plate and apply the
+  existing text visibility, depth and opacity passes.
+- Go tests cover the handshake, lookups, release identities, retry policy and schema conformance.
+  Rust tests cover roster-cache lifetimes, session changes and release-check scheduling.
+- Incomplete: an authenticated live run against the deployed API and
+  owner visual acceptance remain outstanding. No vanilla parity gate closes for this optional feature.
 
 ## Small-surface render safety
 
@@ -1076,7 +1130,7 @@ these changes do not close the movement, camera, or actor parity gates.
 - Named schedule traces and bounded frame recordings separate main work, render
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.
-- Ordinary direct terrain draws retain CPU-selected units of at most 64 quads,
+- Ordinary direct terrain draws group retained CPU-selected units into indexed instances,
   retain unchanged section descriptors in stable GPU slots, and upload ordered
   visibility references separately after current occlusion results. Both regions
   share one storage binding. Changed sections update only their descriptor spans;
@@ -1167,6 +1221,15 @@ these changes do not close the movement, camera, or actor parity gates.
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
+- Attachments belong to individual boom rigs. Selecting first person after an
+  attached tutorial returns to the player; attaching alone does not select a
+  camera. Clear and detach release only the selected rig's attachment.
+- Server input locks commit in packet order independently of camera selection.
+  Camera, movement, jump, sneak, dismount and directional locks filter input;
+  raw movement vectors remain available and unlocking restores held controls.
+  Mount permission routing and exact attachment actor-loss behavior remain incomplete.
+  Dimension, respawn, game-mode and initialization interactions, plus the full
+  current-version aim-assist and presentation-effects audit, remain unverified.
 - Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
@@ -3077,7 +3140,9 @@ completion, and live visual acceptance. This does not close the chat parity gate
 
 The built-in Java-look chat input spans the viewport with two GUI pixels of side
 padding. Completion rows share the longest text width and sit at the replaced
-token, shifting left near the right edge. History retains its configured width.
+token, shifting left near the right edge. HUD and open-chat history use a fixed
+320 GUI-unit width, scaled by the selected GUI scale, with text wrapped inside
+full-width backgrounds.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
@@ -3599,6 +3664,22 @@ first intersection in server order within each actor. Aim assist considers each
 box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
+
+2026-10-15 actor attacks run the ordinary pick once against the published frame's
+camera ray, ordered actor boxes and lifetime identities, using current admission policy.
+The selected frame also owns the action-facing rotation. Block presses resolve before
+catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+while pending interaction presses suppress new use starts.
+Published inputs contain no cached hit or acceptance result. Assisted picks use that
+frame's selected point and box for their input-specific reach check. Removed, replaced
+or dead actors cannot receive an attack from old frame geometry. Position-authority
+changes use the current frame instead. The one pick result
+also owns mining/use vetoes; the explicit item-use timing override remains available. Attacks
+use the network pose before this frame's first movement input, including catch-up frames,
+and enter the queue before their swing and those inputs. Older queued inputs and held
+releases must drain first. Lowered visual eyes do not change the network anchor. Exact
+camera sampling, held-item user-data bytes, network batch boundaries and latency-reply
+timing remain incomplete pending a matched packet capture.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the
@@ -9120,6 +9201,19 @@ transfer. These remain separate acceptance gates.
 The resource-pack transaction now builds the block-entity atlas on its worker and publishes it with the accepted pack result on join and reload. Missing or invalid overrides retain the validated startup tile. Texture and UV publication advance together.
 
 Incomplete parity: full pack-reload galleries and streaming frame budgets remain open.
+
+Live pack changes also prepare held terrain models and their artwork on the resource worker.
+Publishing a replacement retires cached block meshes, including non-cube models, and removal
+restores startup resources. Compatible authored carried sheets remain available without
+replacing shaped terrain models. Startup and reload use one held-block generation builder;
+pack UV grids and source-sized mips use the same face sampler as pack icon preparation.
+Far-terrain reloads discard old summary jobs and resummarize
+resident columns when the carrier or terrain cache identity changes, including when the carrier
+is reused. Disk colors stay separate for each set of terrain resource inputs while
+sharing one destination's disk quota. Regression tests cover warmed models, both hands,
+authored sheets, byte-identical fresh and reloaded sheets, UV-grid cropping, restoration,
+mesh-slot reuse, resource generations, and shared disk quotas.
+Rendered acceptance and the full pack-reload gallery remain incomplete.
 
 ## Loom banner previews
 

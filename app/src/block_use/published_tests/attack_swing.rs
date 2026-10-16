@@ -38,6 +38,9 @@ fn an_instant_mining_press_retains_its_press_and_completion_swings() {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
+        .run_system_cached(crate::melee::produce_melee)
+        .unwrap();
+    world
         .run_system_cached(crate::survival_mining::produce_survival_mining)
         .unwrap();
     assert_eq!(
@@ -47,9 +50,6 @@ fn an_instant_mining_press_retains_its_press_and_completion_swings() {
         1,
         "the press must complete its instant break"
     );
-    world
-        .run_system_cached(crate::melee::produce_melee)
-        .unwrap();
     let swing = protocol::swing_arm_packet(42, protocol::SwingSource::Mine).kind();
     let count = captured
         .drain()

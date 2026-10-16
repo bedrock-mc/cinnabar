@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// A dimension round trip must not deliver the old world's queued or retired summaries.
+#[test]
+fn dimension_round_trip_cancels_old_far_summaries() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.dispatch_far_summaries();
+    for (sequence, dimension) in [(2, 1), (3, 0)] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+    }
+    let mut summaries = Vec::new();
+    test_time::eventually("previous dimension summary work finishes", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut summaries);
+        stream.far_summaries_idle()
+    });
+    assert!(
+        summaries.is_empty(),
+        "old-world summaries reached the destination: {summaries:?}"
+    );
+    stream
+        .submit(4, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let current = drain_until(&mut stream, 1);
+    assert_eq!(current[0].column, ChunkKey::new(0, 2, 0));
+}
+
 fn stream(enabled: bool) -> WorldStream {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
@@ -24,6 +62,29 @@ fn drain_until(stream: &mut WorldStream, count: usize) -> Vec<FarColumnSummary> 
         summaries.len() >= count
     });
     summaries
+}
+
+#[test]
+fn resource_reload_resummarizes_resident_columns_without_a_geometry_change() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let first = drain_until(&mut stream, 1).pop().unwrap();
+    let session = stream.authority().actor_session_id();
+    let replacement = Arc::new(RuntimeAssets::diagnostic());
+    assert!(replacement.has_same_geometry(stream.runtime_assets()));
+    stream.reload_resource_assets(Arc::clone(&replacement));
+    let fresh = drain_until(&mut stream, 1).pop().unwrap();
+    assert_eq!(fresh.column, first.column);
+    assert!(fresh.generation > first.generation);
+    assert_eq!(stream.authority().actor_session_id(), session);
+    stream.reload_resource_assets(replacement);
+    assert!(
+        stream.far_summaries_idle(),
+        "the same carrier does not rebuild summaries"
+    );
 }
 
 /// An inline column, its resend and its eviction are each summarised from complete data.

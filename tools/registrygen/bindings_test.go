@@ -103,7 +103,7 @@ func TestNewRegistryDependentsCannotKeepStalePins(t *testing.T) {
 					t.Fatalf("rejected current binding: %v: %s", err, output)
 				}
 				write(path, makeBinding(old))
-				if output, err := exec.Command(python, script, "--root", root, "--check").CombinedOutput(); err == nil || !bytes.Contains(output, []byte(path)) {
+				if output, err := exec.Command(python, script, "--root", root, "--check").CombinedOutput(); err == nil || !bytes.Contains(output, []byte(filepath.FromSlash(path))) {
 					t.Fatalf("accepted stale %s binding: %v: %s", kind, err, output)
 				}
 			}

@@ -204,7 +204,7 @@ fn list_reports_world_size() {
     let dir = scratch();
     let store = store(&dir);
     let world = store.create(&new_world("sized")).expect("create");
-    let data = store.dir(&world.id).expect("dir").join("db");
+    let data = store.dir(&world.id).expect("dir").join(LEVEL_DIR);
     fs::create_dir_all(&data).expect("db folder");
     fs::write(data.join("000001.ldb"), vec![0u8; 4096]).expect("data file");
     let worlds = store.list().expect("list");
@@ -333,4 +333,45 @@ fn thumbnails_are_kept_beside_their_world() {
         store.save_thumbnail("0123456789abcdef", b"view"),
         Err(WorldError::NotFound)
     ));
+}
+
+/// Opening the store, which happens on a frame, leaves import folders a killed client left
+/// behind to the worker; reclaiming them removes those with an unlocked or missing lock file but
+/// never a live import's folder and lock.
+#[test]
+fn abandoned_import_folders_are_reclaimed_off_the_open() {
+    let dir = scratch();
+    let root = dir.path().join("worlds");
+    let store = store(&dir);
+    let live = store.staging().expect("live import");
+    for (name, with_lock_file) in [("unlocked", true), ("missing", false)] {
+        let folder = root.join(format!("{STAGING_PREFIX}{name}"));
+        fs::create_dir_all(folder.join("db")).expect("partial world");
+        if with_lock_file {
+            fs::write(
+                root.join(format!("{STAGING_PREFIX}{name}{STAGING_LOCK_SUFFIX}")),
+                b"",
+            )
+            .expect("lock file");
+        }
+    }
+    let listing = || {
+        let mut left: Vec<_> = fs::read_dir(&root)
+            .expect("worlds")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        left.sort();
+        left
+    };
+    let before = listing();
+    let reopened = Store::open(root.clone()).expect("reopen");
+    assert_eq!(
+        listing(),
+        before,
+        "opening must not walk or delete import folders"
+    );
+    reopened.reclaim_abandoned_imports();
+    let mut expected = vec![live.path().to_path_buf(), live.lock_path.clone()];
+    expected.sort();
+    assert_eq!(listing(), expected);
 }
