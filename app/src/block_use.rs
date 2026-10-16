@@ -130,11 +130,7 @@ pub(crate) fn produce_block_use(
         return;
     };
     let tick = state.tick.saturating_add(1);
-    let clock = RepeatClock::for_state(
-        u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
-        &state,
-        game_mode,
-    );
+    let clock = RepeatClock::for_state(context.time.elapsed(), &state, game_mode);
     let Some((trigger, due)) = runtime.due(use_phase.held, tick, clock) else {
         return;
     };
@@ -146,7 +142,10 @@ pub(crate) fn produce_block_use(
     {
         return;
     }
-    if context.melee.blocks_use_at(clock.now_millis) {
+    if context
+        .melee
+        .blocks_use_at(u64::try_from(clock.now.as_millis()).unwrap_or(u64::MAX))
+    {
         runtime.clear_press();
         return;
     }

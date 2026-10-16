@@ -16,7 +16,7 @@ pub fn caret_byte(text: &str, byte: usize) -> usize {
     at
 }
 
-/// The character boundary of `text` nearest `x`, from each prefix's drawn width.
+/// The character boundary of `text` nearest `x`, from each boundary's horizontal position.
 pub fn nearest_boundary(text: &str, x: f32, mut width: impl FnMut(&str) -> f32) -> usize {
     let bounds: Vec<usize> = text
         .char_indices()
@@ -41,6 +41,8 @@ pub fn nearest_boundary(text: &str, x: f32, mut width: impl FnMut(&str) -> f32) 
 
 /// Where a text box draws its text, to place a pressed caret by character.
 pub struct TextSpot<F> {
+    /// The exact painted layout, when the control retains editable text geometry.
+    pub layout: Option<std::sync::Arc<ui::TextLayout>>,
     pub field: F,
     /// The box's press area, window-logical px.
     pub bounds: UiRect,
@@ -56,13 +58,16 @@ pub struct TextSpot<F> {
 }
 
 impl<F> TextSpot<F> {
-    /// `text`'s drawn width, window-logical px.
+    /// The position after the prefix `text`, in window-logical pixels.
     pub fn width(
         &self,
         layouts: &mut TextLayoutCache,
         font: &assets::RuntimeFontCatalog,
         text: &str,
     ) -> f32 {
+        if let Some(layout) = &self.layout {
+            return layout.first_line_caret_x_64(text.len()) as f32 / 64.0;
+        }
         if text.is_empty() {
             return 0.0;
         }

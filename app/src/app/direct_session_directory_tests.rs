@@ -1,5 +1,6 @@
 use super::*;
 use crate::args::ParseOutcome;
+use std::fs;
 
 fn run_args(arguments: &[&str]) -> args::ClientArgs {
     match args::ClientArgs::parse_from(arguments.to_vec()) {

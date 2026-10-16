@@ -1,4 +1,5 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
+mod shared_emotes;
 #[cfg(test)]
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
@@ -56,6 +57,7 @@ pub(crate) struct ActorObservations<'w> {
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
+    account: Option<Res<'w, client_shell::menu::launcher_account::LauncherAccount>>,
 }
 
 /// Predicts remote actors at this frame's tick positions before interaction picks them.
@@ -76,6 +78,7 @@ pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
+    mut emote_state: Local<shared_emotes::State>,
 ) {
     let ActorObservations {
         mut world,
@@ -94,6 +97,7 @@ pub(crate) fn advance_actor_frame(
         movement,
         time,
         profiler,
+        account,
     } = observations;
     let _timer = profiler
         .as_deref()
@@ -160,6 +164,13 @@ pub(crate) fn advance_actor_frame(
                     .map(|presentation| &presentation.0),
             )
         },
+        remote_emotes: shared_emotes::exchange(
+            stream,
+            ui.as_deref().map(|ui| &ui.0),
+            account.as_deref().map(|account| &account.0),
+            &time,
+            &mut emote_state,
+        ),
         custom_emote: ui
             .as_deref()
             .and_then(|ui| ui.emotes().playback())

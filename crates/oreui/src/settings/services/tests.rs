@@ -7,6 +7,14 @@ use {super::*, launcher::menu::MenuAction, launcher::menu::auth::AuthState};
 
 /// Draws the account panel and returns its visible text and available actions.
 fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
+    panel(view, account)
+}
+
+/// Draws one settings panel and returns its visible text and available actions.
+fn panel(
+    view: &MenuView,
+    draw: fn(&mut Content<'_, '_>) -> Result<(), PaintError>,
+) -> (Vec<String>, Vec<MenuAction>) {
     let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
         let mut content = Content {
             canvas,
@@ -17,7 +25,7 @@ fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
             translate: &|_| None,
             nested: false,
         };
-        account(&mut content).unwrap();
+        draw(&mut content).unwrap();
     });
     let labels = nodes
         .iter()
@@ -77,6 +85,20 @@ fn account_settings_follow_profile_saved_account_and_local_fallback() {
     assert!(!labels.iter().any(|label| label == launcher::PRODUCT_NAME));
     assert!(actions.contains(&MenuAction::StartSignIn));
     assert!(!actions.contains(&MenuAction::SignOut));
+}
+
+#[test]
+fn storage_offers_folder_buttons_only_when_the_host_can_open_folders() {
+    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
+    let mut view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    for opens_folders in [true, false] {
+        std::sync::Arc::make_mut(&mut view.storage).opens_folders = opens_folders;
+        let (_, actions) = panel(&view, storage);
+        for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
+            let action = MenuAction::SettingsStorage(StorageAction::OpenFolder(folder));
+            assert_eq!(actions.contains(&action), opens_folders, "{folder:?}");
+        }
+    }
 }
 
 #[test]

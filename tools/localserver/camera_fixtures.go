@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"image/color"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -15,6 +16,24 @@ const cameraFixtureDuration float32 = 6
 // cameraFixturePackets covers named and inline paths, aim registries and clearing both systems.
 func cameraFixturePackets(command string, origin mgl32.Vec3) []packet.Packet {
 	switch command {
+	case "tutorial":
+		return []packet.Packet{
+			&packet.CameraPresets{Presets: []protocol.CameraPreset{
+				{Name: cameraFixtureName, Parent: "minecraft:follow_orbit", Radius: protocol.Option(float32(10))},
+				{Name: "minecraft:first_person"},
+			}},
+			&packet.AddActor{EntityUniqueID: cameraFixtureActor, EntityRuntimeID: cameraFixtureActor, EntityType: "minecraft:pig", Position: origin.Add(mgl32.Vec3{12, 2, 12})},
+			&packet.CameraInstruction{
+				Set:            protocol.Option(protocol.CameraInstructionSet{Preset: 0, Ease: protocol.Option(protocol.CameraEase{Duration: 1})}),
+				AttachToEntity: protocol.Option(int64(cameraFixtureActor)),
+				Fade: protocol.Option(protocol.CameraInstructionFade{
+					TimeData: protocol.Option(protocol.CameraFadeTimeData{FadeInDuration: 0.25, WaitDuration: 0.5, FadeOutDuration: 0.25}),
+					Colour:   protocol.Option(color.RGBA{A: 255}),
+				}),
+			},
+		}
+	case "firstperson":
+		return []packet.Packet{&packet.CameraInstruction{Set: protocol.Option(protocol.CameraInstructionSet{Preset: 1})}}
 	case "spline", "inline":
 		points := []mgl32.Vec3{origin.Add(mgl32.Vec3{-4, 3, -4}), origin.Add(mgl32.Vec3{0, 5, -4}), origin.Add(mgl32.Vec3{4, 3, -4}), origin.Add(mgl32.Vec3{0, 3, -8})}
 		return []packet.Packet{

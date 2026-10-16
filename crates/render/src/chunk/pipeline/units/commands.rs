@@ -50,7 +50,13 @@ impl<P: PhaseItem, const STREAM: usize> RenderCommand<P> for DrawUnits<STREAM> {
                 pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
                 for page in &view.streams[STREAM].pages {
                     pass.set_bind_group(2, &page.group, &[]);
-                    pass.draw_indexed(0..super::index_count(), 0, 0..page.count);
+                    pass.draw_indexed(
+                        0..super::index_count(),
+                        0,
+                        0..page
+                            .count
+                            .div_ceil(render_model::terrain_units::UNITS_PER_INSTANCE),
+                    );
                 }
             },
         );

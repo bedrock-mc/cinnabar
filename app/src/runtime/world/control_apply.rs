@@ -70,7 +70,8 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
         | CommittedControlEvent::LocalHurt { .. }
-        | CommittedControlEvent::PlayerListChanged { .. } => return,
+        | CommittedControlEvent::PlayerListChanged { .. }
+        | CommittedControlEvent::ClientInputLocks { .. } => return,
     };
     view.reanchor_camera();
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));

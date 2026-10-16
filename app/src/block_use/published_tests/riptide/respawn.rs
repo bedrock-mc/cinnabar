@@ -63,6 +63,8 @@ pub(super) fn charging_world(charge_ticks: u64) -> (World, client_session::Captu
     world.init_resource::<crate::environment::WorldClock>();
     world.init_resource::<crate::environment::WeatherState>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
+    world.init_resource::<client_presentation::camera::look::LookSmoother>();
     world.init_resource::<crate::runtime::world::WorldStreamFramePoll>();
     world.init_resource::<render_scene::ChunkUploadBudget>();
     world.init_resource::<client_presentation::camera::CameraSettingsAuthority>();

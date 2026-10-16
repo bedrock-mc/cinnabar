@@ -3,10 +3,9 @@
 use crate::DevtoolError;
 use crash_report::{folder, redact, section};
 use diagnostics::session_log::{Family, Retention};
-use regex::Regex;
 use std::{
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -84,12 +83,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     Ok(())
 }
 
-/// Collects the current session's retained log segments, oldest first, with a bounded read
+/// Collects the current session's retained log segments, oldest first, with a bounded tail
 /// per file and at most the configured number of archives. Repeated headers identify segments
 /// from the same session; logs without a header cannot safely select older files.
 fn client_session_logs(log_dir: &Path) -> std::io::Result<String> {
     let family = Family::new(log_dir, "client", "log");
-    let current = tail(&family.current())?;
+    let current = session_segment(&family.current(), section::CLIENT_SESSION_START)?;
     let current = section::latest(&current, section::CLIENT_SESSION_START);
     let header = current
         .lines()
@@ -103,7 +102,9 @@ fn client_session_logs(log_dir: &Path) -> std::io::Result<String> {
         .iter()
         .skip(archives.len().saturating_sub(Retention::DEFAULT.archives))
     {
-        let Ok(text) = tail(path) else { continue };
+        let Ok(text) = session_segment(path, section::CLIENT_SESSION_START) else {
+            continue;
+        };
         let segment = section::latest(&text, section::CLIENT_SESSION_START);
         if segment.lines().next() == Some(header) {
             combined.push_str(segment);
@@ -145,83 +146,145 @@ fn header_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
         .find_map(|field| field.strip_prefix(key)?.strip_prefix('='))
 }
 
-/// Scans both core-log generations for the client boundary, then reads a bounded combined tail.
+/// Reads retained core segments in archive order, selecting the client's identity when present
+/// and using timestamps for legacy logs. The combined result is bounded across all files.
 fn core_session_tail(path: &Path, client: &str) -> std::io::Result<String> {
-    let mut files = Vec::new();
-    for generation in [path.with_extension("log.1"), path.to_owned()] {
-        match fs::File::open(generation) {
-            Ok(file) => files.push(file),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-    }
-    let timestamp = Regex::new(r"timestamp_ms=(\d+)")
-        .unwrap()
-        .captures(client)
-        .and_then(|capture| capture[1].parse::<u128>().ok());
+    let family = Family::new(path.parent().unwrap_or(Path::new(".")), "core", "log");
+    let archives = family.archives()?;
+    let archive_start = archives.len().saturating_sub(Retention::DEFAULT.archives);
+    let paths = std::iter::once(path.with_extension("log.1"))
+        .chain(archives.into_iter().skip(archive_start))
+        .chain(std::iter::once(path.to_owned()));
+    let header = client
+        .lines()
+        .find(|line| line.contains(section::CLIENT_SESSION_START));
+    let id = header.and_then(|line| header_field(line, "session"));
+    let timestamp = header
+        .and_then(|line| header_field(line, "timestamp_ms"))
+        .and_then(|stamp| stamp.parse::<u64>().ok());
     let marker = regex::bytes::Regex::new(&format!(
-        r"{} timestamp_ms=(\d+)(?: [^\r\n]*)?\r?\n",
+        r"(?m)^{} [^\r\n]*\r?\n",
         section::CORE_SESSION_START
     ))
     .unwrap();
-    let mut buffer = [0u8; 64 << 10];
-    let mut carry = Vec::new();
-    let mut offset = 0u64;
-    let mut session = None;
-    for file in &mut files {
+    let mut files = Vec::new();
+    let mut sections = Vec::new();
+    for path in paths {
+        let mut file = match fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let mut headers = std::collections::BTreeMap::new();
+        let mut buffer = [0; 64 << 10];
+        let mut carry = Vec::new();
+        let mut offset = 0;
         loop {
             let count = file.read(&mut buffer)?;
             if count == 0 {
                 break;
             }
-            let start = offset.saturating_sub(carry.len() as u64);
+            let start = offset - carry.len() as u64;
             carry.extend_from_slice(&buffer[..count]);
-            for capture in marker.captures_iter(&carry) {
-                let Some(at) = std::str::from_utf8(&capture[1])
-                    .ok()
-                    .and_then(|stamp| stamp.parse::<u128>().ok())
-                else {
-                    continue;
+            for matched in marker.find_iter(&carry) {
+                let line = String::from_utf8_lossy(matched.as_bytes());
+                let matches = match (id, header_field(&line, "session")) {
+                    (Some(wanted), Some(actual)) => wanted == actual,
+                    _ => timestamp.is_none_or(|start| {
+                        header_field(&line, "timestamp_ms")
+                            .and_then(|stamp| stamp.parse::<u64>().ok())
+                            .is_some_and(|at| at >= start)
+                    }),
                 };
-                if timestamp.is_none()
-                    || (session.is_none() && timestamp.is_some_and(|client_at| at >= client_at))
-                {
-                    session = Some(start + capture.get(0).unwrap().start() as u64);
-                }
+                headers.insert(start + matched.start() as u64, matches);
             }
             offset += count as u64;
-            // Every emitted marker fits in this overlap, including a boundary between read blocks.
             if carry.len() > 256 {
                 carry.drain(..carry.len() - 256);
             }
         }
+        let mut selected = None;
+        for (at, matches) in headers {
+            if let Some(start) = selected.take() {
+                sections.push((files.len(), start, at));
+            }
+            if matches {
+                selected = Some(at);
+            }
+            if id.is_none() && timestamp.is_none() {
+                sections.clear();
+            }
+        }
+        if let Some(start) = selected {
+            sections.push((files.len(), start, offset));
+        } else if id.is_none() && timestamp.is_none() {
+            sections.push((files.len(), 0, offset));
+        }
+        files.push(file);
     }
-    let Some(session) = session.or_else(|| timestamp.is_none().then_some(0)) else {
-        return Ok(String::new());
-    };
-    let start = session.max(offset.saturating_sub(LOG_LIMIT));
+    let total: u64 = sections.iter().map(|(_, start, end)| end - start).sum();
+    let mut skip = total.saturating_sub(LOG_LIMIT);
     let mut bytes = Vec::new();
-    let mut generation_start = 0;
-    for mut file in files {
-        let length = file.stream_position()?;
-        let relative_start = start.saturating_sub(generation_start).min(length);
-        file.seek(SeekFrom::Start(relative_start))?;
-        (&mut file)
-            .take((length - relative_start).min(LOG_LIMIT - bytes.len() as u64))
-            .read_to_end(&mut bytes)?;
-        generation_start += length;
+    for (index, start, end) in sections {
+        let skipped = skip.min(end - start);
+        skip -= skipped;
+        let start = start + skipped;
+        let file = &mut files[index];
+        file.seek(SeekFrom::Start(start))?;
+        file.take(end - start).read_to_end(&mut bytes)?;
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Reads a bounded tail; malformed UTF-8 becomes replacement characters.
-fn tail(path: &Path) -> std::io::Result<String> {
+/// Keeps the latest session header even when it falls outside a large segment's tail.
+fn session_segment(path: &Path, marker: &str) -> std::io::Result<String> {
     let mut file = fs::File::open(path)?;
     let length = file.metadata()?.len();
     file.seek(SeekFrom::Start(length.saturating_sub(LOG_LIMIT)))?;
     let mut bytes = Vec::new();
-    file.take(LOG_LIMIT).read_to_end(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    (&mut file)
+        .take(length.min(LOG_LIMIT))
+        .read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if !text.lines().any(|line| line.contains(marker)) {
+        file.rewind()?;
+        // Match the tail's snapshot: later appends must not change its session identity.
+        if let Some(header) = latest_header(file.take(length), marker)? {
+            return Ok(format!("{header}\n{text}"));
+        }
+    }
+    Ok(text)
+}
+
+/// Finds the newest line-start header with bounded line prefixes, skipping long payload lines.
+/// A header exceeding the shared header bound clears any older identity.
+fn latest_header(file: impl Read, marker: &str) -> std::io::Result<Option<String>> {
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let mut latest = None;
+    loop {
+        line.clear();
+        let count = reader
+            .by_ref()
+            .take(section::HEADER_BYTES as u64 + 1)
+            .read_until(b'\n', &mut line)?;
+        if count == 0 {
+            break;
+        }
+        if line.starts_with(marker.as_bytes())
+            && line.get(marker.len()).is_none_or(u8::is_ascii_whitespace)
+        {
+            latest = (line.len() <= section::HEADER_BYTES).then(|| {
+                String::from_utf8_lossy(&line)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_owned()
+            });
+        }
+        if !line.ends_with(b"\n") {
+            reader.skip_until(b'\n')?;
+        }
+    }
+    Ok(latest)
 }
 
 /// Writes only scrubbed text using fixed member names and atomically publishes a completed zip.

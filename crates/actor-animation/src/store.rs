@@ -58,12 +58,7 @@ impl ActorAnimationStore {
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let mut store = Self {
-            layout: Arc::new(
-                assets
-                    .as_deref()
-                    .map(VariableLayout::new)
-                    .unwrap_or_default(),
-            ),
+            layout: Arc::new(assets.as_ref().map(VariableLayout::new).unwrap_or_default()),
             assets,
             pack: None,
             server_compiler: None,
@@ -99,6 +94,10 @@ impl ActorAnimationStore {
     }
 
     pub fn clear(&mut self) {
+        self.layout.plans.clear();
+        if let Some(pack) = &self.pack {
+            pack.layout.plans.clear();
+        }
         self.rigs.clear();
         self.skin_preparation = skin::SkinPreparationQueue::default();
         self.prewarm_skin_catalog();

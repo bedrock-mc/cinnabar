@@ -46,7 +46,7 @@ impl Plugin for FarTerrainRenderPlugin {
             .add_systems(
                 Render,
                 (
-                    gpu::prepare_far_terrain.in_set(RenderSystems::PrepareResources),
+                    gpu::prepare_far_terrain.in_set(crate::chunk::ChunkPublicationStage::FarTiles),
                     gpu::prepare_far_terrain_views
                         .in_set(RenderSystems::PrepareBindGroups)
                         .after(gpu::prepare_far_terrain),
