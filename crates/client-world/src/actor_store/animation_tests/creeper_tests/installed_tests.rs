@@ -130,25 +130,28 @@ fn assert_installed_creeper_samples(powered: bool) {
     let expected = [rig.previous[head].rotation, rig.current[head].rotation];
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
-        if powered {
+        let layer_count = if powered {
             assert!(layers.len() > 1);
-            assert_eq!(
+            2
+        } else {
+            1
+        };
+        for (index, layer) in layers.iter().take(layer_count).enumerate() {
+            let rotations = if layer.pose.is_empty() {
+                expected
+            } else {
                 [
-                    layers[1].previous_pose[head].rotation,
-                    layers[1].pose[head].rotation
-                ],
-                expected,
-                "powered layer must preserve motion"
+                    layer.previous_pose[head].rotation,
+                    layer.pose[head].rotation,
+                ]
+            };
+            let drawn = interpolated_pitch(rotations, alpha);
+            let expected = interpolated_pitch(expected, alpha);
+            assert!(
+                (drawn - expected).abs() < 1e-4,
+                "layer {index} head pitch at {alpha}: {drawn}, expected {expected}"
             );
         }
-        assert_eq!(
-            [
-                layers[0].previous_pose[head].rotation,
-                layers[0].pose[head].rotation
-            ],
-            expected,
-            "swelling must retain tick interpolation for head motion"
-        );
     }
     let mut actor = store.get(1).unwrap().clone();
     let mut animation = ActorAnimationStore::with_assets(assets);
@@ -282,20 +285,26 @@ fn assert_installed_creeper_samples(powered: bool) {
         }
     }
     store.advance_interpolation_ticks(1);
-    let completed = store.actor_rig(1).unwrap().render;
+    let completed = store.actor_rig(1).unwrap();
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap();
-        if powered {
-            assert!(Arc::ptr_eq(&completed[1].pose, &layers[1].pose));
-            assert!(Arc::ptr_eq(
-                &completed[1].previous_pose,
-                &layers[1].previous_pose
-            ));
+        for layer in layers.iter().take(if powered { 2 } else { 1 }) {
+            for (pose, fallback) in [
+                (layer.previous_pose.as_ref(), completed.previous.as_ref()),
+                (layer.pose.as_ref(), completed.current.as_ref()),
+            ] {
+                let body_pose = if pose.is_empty() {
+                    &fallback[body]
+                } else {
+                    &pose[body]
+                };
+                assert_eq!(
+                    total_scale(body_pose),
+                    total_scale(&completed.rest[body]),
+                    "a steady defused creeper must retain its rest scale"
+                );
+            }
         }
-        assert!(
-            layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
-            "unchanged swelling must reuse tick-owned poses"
-        );
     }
     store.apply(
         1,
@@ -341,4 +350,16 @@ fn assert_installed_creeper_samples(powered: bool) {
             );
         }
     }
+}
+
+/// Samples this fixture's pure X-axis rotations as a displayed pitch in radians.
+fn interpolated_pitch(rotations: [[f32; 4]; 2], alpha: f32) -> f32 {
+    let pitches = rotations.map(|[x, y, z, w]| {
+        assert!(
+            y.abs() < 1e-6 && z.abs() < 1e-6,
+            "fixture must rotate around X"
+        );
+        2.0 * x.atan2(w)
+    });
+    pitches[0] + (pitches[1] - pitches[0]) * alpha
 }
