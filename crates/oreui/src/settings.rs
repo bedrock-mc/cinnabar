@@ -422,12 +422,7 @@ impl Content<'_, '_> {
             "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
-        } else if (id == SettingId::RenderClouds
-            || id == SettingId::MaxFramerate
-            || id == SettingId::ShowExactServerPing
-            || id == SettingId::OreuiDarkMode)
-            && description.is_empty()
-        {
+        } else if description.is_empty() {
             sections::fallback(&description_key).to_owned()
         } else {
             description
@@ -465,6 +460,7 @@ impl Content<'_, '_> {
                         })
                     }
                     SettingId::Msaa => value.to_string(),
+                    SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;

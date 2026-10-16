@@ -325,13 +325,13 @@ settings! {
     MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
         [(SettingPanel::Keyboard, 6)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
-        [(SettingPanel::VideoGeneral, 2)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
         [(SettingPanel::CreatorContentLog, 3)], [], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 4)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
-        [(SettingPanel::AccessibilityUi, 3)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::Chat, 4)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
     ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
         [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
     SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
@@ -341,7 +341,7 @@ settings! {
     HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
     ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 1), (SettingPanel::Chat, 1)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
     ActionbarTextBackgroundOpacity => "actionbar_text_background_opacity", slider("options.actionBarTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
     Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
@@ -533,19 +533,19 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
     ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
-        [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
     ChatTypeface => "chat_typeface", dropdown("chat.settings.typeface", super::chat::TYPEFACES, 0),
-        [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
-    ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
         [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
-    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+    ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
-        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
-        [(SettingPanel::Chat, 5)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
     AlwaysSprint => "always_sprint", toggle("Always Sprint", false),
         [(SettingPanel::Keyboard, 4)], [], None, None;
     ShowExactServerPing => "show_exact_server_ping", toggle("options.showExactServerPing", false),
