@@ -8249,9 +8249,10 @@ hotbar, retaining the inherited Bedrock label and animation. Bare block stacks
 can split/restack without rejecting nonzero block identity; ingredient plainness
 no longer requires zero aux/block identity. Supported recipe shapes are retained
 independently of discovery metadata, including high-bit result block identities.
-Personal/workbench closes explicitly return crafting inputs and cursor items to
-player inventory, dropping only overflow, with sparse dependency preservation
-and rejected-return recovery. References and scoped acceptance are in
+Personal/workbench closes explicitly return crafting inputs, and all storage
+closes return cursor items to player inventory, dropping only overflow, with
+sparse dependency preservation and rejected-return recovery. References and
+scoped acceptance are in
 `docs/reference/selected-item-hud-label.md`, `inventory-block-restacking.md`,
 `inventory-recipe-admission.md` and `inventory-crafting-close.md`.
 
@@ -8265,6 +8266,11 @@ Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
+
+Storage-close regressions cover empty/full player inventories, pending/accepted
+takes, both close-acknowledgement orders, and later inventory gestures. The
+close-with-cursor lock is reproduced in the owning ledger. Live kit-server
+acceptance and an overflow-only trigger remain unverified.
 
 Incremental recipe replacements now retire obsolete station and multi-recipe
 views. Station inputs outside the supported slot counts, or with quantities

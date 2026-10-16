@@ -11,6 +11,8 @@ use protocol::{
     StackResponseStatus,
 };
 
+mod cursor_close;
+
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
         network_id,
@@ -484,7 +486,7 @@ fn foreign_storage_content_and_mismatched_slot_updates_are_fenced() {
 }
 
 #[test]
-fn local_close_with_held_cursor_requires_player_and_cursor_authority() {
+fn local_close_with_held_cursor_and_unknown_player_inventory_requires_authority() {
     let mut ledger = ready(27, 800);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
@@ -499,11 +501,10 @@ fn local_close_with_held_cursor_requires_player_and_cursor_authority() {
 }
 
 /// A storage gesture whose admitted prediction awaits its response, followed
-/// by a local close request: the exact window that must retain its
-/// generation and journal until authority settles.
+/// by a local close without player inventory authority to plan a cursor return.
+/// The window must retain its generation and journal until authority settles.
 fn closing_with_pending(dynamic_id: u32) -> (PlayerInventoryLedger, i32) {
     let mut ledger = ready(27, dynamic_id);
-    ledger.apply(&player_content_with_first(stack(8, 2, 44)));
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
     ledger.request_storage_close();
