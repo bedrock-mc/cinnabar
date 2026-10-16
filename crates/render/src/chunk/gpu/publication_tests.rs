@@ -5,11 +5,13 @@ use render_scene::{
     ChunkUploadPriority, ChunkUploadToken, PresentedFrameGate, TargetRenderExpectation,
 };
 
+#[path = "publication_tests/empty.rs"]
+mod empty;
 #[path = "publication_removal_tests.rs"]
 mod removal_pressure;
 
 /// Creates isolated upload and publication resources on a noop device without running a frame.
-pub(super) fn noop_gpu_publication_app(
+pub(in crate::chunk) fn noop_gpu_publication_app(
     acknowledgements: ChunkUploadAcknowledgements,
     gpu_removals: ChunkGpuRemovalQueue,
 ) -> App {
@@ -131,6 +133,7 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
                     generation: index as u64 + 1,
                     dirty_since: now,
                 },
+                render_api::TerrainRemovalKind::Withdrawn,
                 permit,
             )
             .unwrap();
@@ -151,59 +154,6 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
 
     drop(app);
     assert_eq!(allowance.live_permits(), 0);
-}
-
-#[test]
-fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactly_once() {
-    use bevy::ecs::system::RunSystemOnce;
-
-    let key = SubChunkKey::new(0, 7, 0, 9);
-    let token = ChunkUploadToken {
-        generation: 41,
-        dirty_since: Instant::now(),
-    };
-    let allowance =
-        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::DEFAULT);
-    allowance.begin_frame(
-        1,
-        1,
-        0,
-        1,
-        render_api::PublicationServiceConfig::DEFAULT.maximum_frame_items,
-    );
-    let permit = allowance
-        .try_admit_zero_byte()
-        .unwrap()
-        .into_handoff()
-        .unwrap()
-        .into_render_entity()
-        .unwrap();
-    let acknowledgements = ChunkUploadAcknowledgements::default();
-    let gpu_removals = ChunkGpuRemovalQueue::default();
-    assert!(
-        gpu_removals
-            .push(PendingGpuRemoval {
-                key,
-                token: Some(token),
-                priority: ChunkUploadPriority::new(0.0),
-                permit,
-            })
-            .is_ok()
-    );
-    let mut app = noop_gpu_publication_app(acknowledgements.clone(), gpu_removals.clone());
-
-    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
-
-    let completed = acknowledgements.drain();
-    assert_eq!(completed.len(), 1);
-    assert_eq!(completed[0].key, key);
-    assert_eq!(completed[0].token, token);
-    assert!(acknowledgements.is_empty());
-    assert_eq!(gpu_removals.pending_len(), 0);
-    assert_eq!(allowance.live_permits(), 0);
-
-    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
-    assert!(acknowledgements.drain().is_empty());
 }
 
 #[test]
@@ -236,6 +186,8 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: Some(token),
                 priority: ChunkUploadPriority::new(0.0),
@@ -286,6 +238,8 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: None,
                 priority: ChunkUploadPriority::new(0.0),
@@ -298,6 +252,8 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: None,
                 priority: ChunkUploadPriority::new(0.0),
@@ -336,6 +292,8 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
+                    kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,
                     priority: ChunkUploadPriority::new(0.0),
@@ -356,6 +314,8 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
                 key: SubChunkKey::new(0, 256, 0, 0),
                 token: None,
                 priority: ChunkUploadPriority::new(0.0),
@@ -373,6 +333,8 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
                 key: SubChunkKey::new(0, 257, 0, 0),
                 token: None,
                 priority: ChunkUploadPriority::urgent(),
@@ -412,6 +374,8 @@ fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
+                    kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,
                     priority: ChunkUploadPriority::urgent(),
@@ -441,6 +405,8 @@ fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
+                    kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,
                     priority: ChunkUploadPriority::urgent(),
@@ -717,7 +683,13 @@ fn render_handoff_rejects_a_permit_with_the_wrong_class_or_exact_bytes() {
 
     assert!(
         queue
-            .try_remove_tracked_permitted(key, ChunkUploadPriority::new(0.0), token, payload,)
+            .try_remove_tracked_permitted(
+                key,
+                ChunkUploadPriority::new(0.0),
+                token,
+                render_api::TerrainRemovalKind::Withdrawn,
+                payload,
+            )
             .is_err()
     );
     assert!(
@@ -832,6 +804,7 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
                         generation: u64::MAX - completed_frames as u64,
                         dirty_since: started,
                     },
+                    render_api::TerrainRemovalKind::Withdrawn,
                     permit,
                 )
                 .unwrap();

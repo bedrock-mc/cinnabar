@@ -52,7 +52,6 @@ fn builder<'a>(
         base_assets: Some(base),
         vanilla_carried: Vec::new(),
         terrain_materials: Default::default(),
-        geometries: Default::default(),
         overlay: Default::default(),
         sources: vec![(super::super::super::super::Source::Diagnostic, 0)],
         source_bytes: 0,

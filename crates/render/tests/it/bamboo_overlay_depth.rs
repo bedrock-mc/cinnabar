@@ -1,7 +1,8 @@
 //! Production overlay vertices must stay in front of two-sided leaf depth from either view.
 use crate::{gpu_snapshot::Gpu, shader_safety, shader_source};
 use render_model::{
-    BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance, SceneClock,
+    BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance,
+    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock,
 };
 
 #[test]
@@ -44,9 +45,9 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     );
     let atlas = assets::encode_block_entity_catalog(
         b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
         16,
-        16,
-        &[255; 16 * 16 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4],
         &[assets::BlockEntityPlacement {
             name: "textures/environment/destroy_stage_0".into(),
             x: 0,

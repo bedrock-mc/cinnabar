@@ -31,6 +31,19 @@ fn stationary_motion_bindings(
         uniform.strength.z = if coverage.enabled { 1.0 } else { 0.0 };
         queue.write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
         state.last_uniform = Some(uniform);
+        let uniform_buffer = state.uniform.clone();
+        super::super::super::resolve::ResolvedInputs::prepare(
+            &mut state.resolved,
+            &device,
+            &cache,
+            pipeline.resolve_layout(1),
+            &uniform_buffer,
+            (crate::scene_sampling::view_depth(depth), &coverage.view),
+            target.main_texture().size(),
+        );
+        let Some(resolved) = &state.resolved else {
+            continue;
+        };
         let Some(footprint) = &state.footprint else {
             continue;
         };
@@ -40,15 +53,33 @@ fn stationary_motion_bindings(
             [target.main_texture_view(), target.main_texture_other_view()].map(|source| {
                 let binding = device.create_bind_group(
                     "stationary actor composed fixture",
-                    &cache.get_bind_group_layout(pipeline.layout(1)),
-                    &BindGroupEntries::sequential((
-                        source,
-                        &pipeline.sampler,
-                        depth,
-                        state.uniform.as_entire_binding(),
-                        motion,
-                        &footprint.view,
-                    )),
+                    &cache.get_bind_group_layout(pipeline.layout()),
+                    &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: BindingResource::TextureView(source),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::Sampler(&pipeline.sampler),
+                        },
+                        BindGroupEntry {
+                            binding: 3,
+                            resource: state.uniform.as_entire_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 5,
+                            resource: BindingResource::TextureView(&footprint.view),
+                        },
+                        BindGroupEntry {
+                            binding: 6,
+                            resource: BindingResource::TextureView(&resolved.motion),
+                        },
+                        BindGroupEntry {
+                            binding: 7,
+                            resource: BindingResource::TextureView(&resolved.depth),
+                        },
+                    ],
                 );
                 (source.id(), depth.id(), motion.id(), binding)
             });

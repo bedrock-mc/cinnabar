@@ -1070,9 +1070,13 @@ fn world_ingress_drain_stops_at_transfer_barrier_without_consuming_replacement_e
 
     let now = Instant::now();
     let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
-    let mut pending = None;
-    let drained: Vec<_> =
-        std::iter::from_fn(|| drain.next(&mut receiver, &mut pending, |_| true, now)).collect();
+    let mut pending = std::collections::VecDeque::new();
+    let drained: Vec<_> = std::iter::from_fn(|| {
+        drain
+            .next(&mut receiver, &mut pending, None, || now)
+            .unwrap()
+    })
+    .collect();
 
     assert!(matches!(
             drained.as_slice(),

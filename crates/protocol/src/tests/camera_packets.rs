@@ -23,6 +23,18 @@ use protocol::{
 type SetEase = bedrock_protocol_1_26_51::types::CameraEase;
 
 #[test]
+fn client_input_locks_are_admitted_instead_of_ignored() {
+    let event = normalized(packets::UpdateClientInputLocks {
+        input_lock_component_data: wire::VarUInt(6),
+    });
+    let Some(WorldEvent::Camera(CameraEvent::InputLocks(locks))) = event else {
+        panic!("input locks must reach ordered player controls")
+    };
+    assert!(locks.blocks(protocol::ClientInputLock::Camera));
+    assert!(locks.blocks(protocol::ClientInputLock::Movement));
+}
+
+#[test]
 fn spline_instruction_reaches_camera_presentation() {
     let event = normalized(InstructionPacket {
         camera_instruction: CameraInstructionData {

@@ -6,10 +6,7 @@ use assets::gui_item::{
     GUI_ITEM_SIDE, SHIELD_FACE_CORNERS as FACE_CORNERS, SHIELD_ROOT_BONE as ROOT_BONE,
     shield_face_uvs as face_uvs,
 };
-use assets::{
-    AssetError, EntityGeometry, EntityGeometryBone, EntityGeometryCube, EquipmentTexture,
-    IconSprite,
-};
+use assets::{AssetError, EntityGeometry, EntityGeometryCube, EquipmentTexture, IconSprite};
 use std::{path::Path, sync::Arc};
 
 mod raster;
@@ -79,7 +76,7 @@ fn bake(geometry: &EntityGeometry, texture: &EquipmentTexture) -> Option<IconSpr
         if cube.rotation.iter().any(|value| value.get() != 0.0) {
             return None;
         }
-        append_cube(&mut pixels, geometry, bone, cube, texture);
+        append_cube(&mut pixels, geometry, cube, texture);
     }
     Some(IconSprite {
         width: SIDE as u16,
@@ -96,13 +93,12 @@ fn project(authored: [f32; 3]) -> [f32; 2] {
 fn append_cube(
     pixels: &mut [u8],
     geometry: &EntityGeometry,
-    bone: &EntityGeometryBone,
     cube: &EntityGeometryCube,
     texture: &EquipmentTexture,
 ) {
     let origin = cube.origin.map(|value| value.get());
     let size = cube.size.map(|value| value.get());
-    let inflate = cube.inflate.get() + bone.inflate.map_or(0.0, |value| value.get());
+    let inflate = cube.inflate.get();
     let min: [f32; 3] = std::array::from_fn(|axis| origin[axis] - inflate);
     let max: [f32; 3] = std::array::from_fn(|axis| origin[axis] + size[axis] + inflate);
     let corners = [
@@ -116,7 +112,7 @@ fn append_cube(
         [min[0], max[1], max[2]],
     ]
     .map(project);
-    let mirror = cube.mirror ^ bone.mirror.unwrap_or(false);
+    let mirror = cube.mirror;
     let uvs = face_uvs(cube);
     for (face, corners_index) in FACE_CORNERS.into_iter().enumerate() {
         let Some(uvs) = uvs[face] else {

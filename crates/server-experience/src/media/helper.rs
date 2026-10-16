@@ -50,7 +50,7 @@ fn decode_session<W: Write>(
     #[cfg(feature = "developer-media")]
     {
         let reader =
-            super::ranges::RangeReader::new(start.descriptor.clone(), IpcChunks { input, output });
+            super::ranges::RangeReader::new(&start.descriptor, IpcChunks { input, output })?;
         super::webm::decode(
             reader,
             &start.descriptor,

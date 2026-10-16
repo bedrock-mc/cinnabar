@@ -252,3 +252,56 @@ fn correction_before_fenced_probe_applies_this_frame() {
         .count();
     assert_eq!(replies, 1);
 }
+
+/// The probe and its earlier impulse reach a submitted batch during authority application.
+#[test]
+fn latency_reply_is_submitted_in_the_frame_that_applies_its_predecessor() {
+    let mut app = app();
+    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    app.insert_resource(network);
+    app.world_mut()
+        .resource_mut::<LocalPhysicsController>()
+        .reanchor_network_position([0.0, 70.0, 0.0], 0, false);
+    {
+        let mut ticker = app.world_mut().resource_mut::<MovementTicker>();
+        ticker.reset(1, 0, [0.0, 70.0, 0.0]);
+        ticker.set_source(MovementSource::Physics);
+    }
+    {
+        let mut world = app.world_mut().resource_mut::<ClientWorld>();
+        let stream = world.stream.as_mut().unwrap();
+        stream
+            .submit(
+                1,
+                WorldEvent::ActorMotion(protocol::ActorMotionEvent {
+                    actor_runtime_id: 42,
+                    motion: [0.0, 0.4, 0.0],
+                    tick: 0,
+                }),
+            )
+            .unwrap();
+        stream
+            .submit(2, WorldEvent::NetworkStackLatency(777))
+            .unwrap();
+    }
+    app.world_mut()
+        .run_system_once(reconcile_world_stream_before_physics)
+        .unwrap();
+    assert_eq!(
+        app.world()
+            .resource::<LocalPhysicsController>()
+            .state()
+            .unwrap()
+            .velocity
+            .y,
+        f64::from(0.4_f32)
+    );
+    let sent = packets
+        .take_flushed_frame()
+        .expect("the reply must leave before the frame-end flush");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        protocol::encode(&sent[0]).unwrap(),
+        protocol::encode(&protocol::network_stack_latency_reply(777)).unwrap()
+    );
+}

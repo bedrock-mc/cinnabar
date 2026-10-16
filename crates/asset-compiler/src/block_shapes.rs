@@ -124,7 +124,8 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
         .or_else(|| faces::vine(record))
         .or_else(|| faces::pale_moss(record, shapes))
         .unwrap_or_else(|| {
-            visual::shape(record, shapes)
+            outlines::gate_shape(record)
+                .or_else(|| visual::shape(record, shapes))
                 .or_else(|| furnishings::shape(record, shapes))
                 .or_else(|| attachments::shape(record))
                 .or_else(|| redstone::shape(record, shapes))

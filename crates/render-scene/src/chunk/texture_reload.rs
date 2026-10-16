@@ -9,13 +9,16 @@ struct State {
     geometry: Option<Arc<[ChunkRenderInstance]>>,
     attempt: Arc<()>,
     holding_geometry: bool,
+    geometry_epoch: u64,
     result: Option<Result<(), String>>,
 }
 
 impl State {
     /// Accepts work only from the exact immutable request still held by the mailbox.
     fn is_current(&self, request: &ChunkTexturePreparation) -> bool {
-        self.requested.is_some() && Arc::ptr_eq(&self.attempt, &request.attempt)
+        self.requested.is_some()
+            && self.geometry_epoch == request.epoch
+            && Arc::ptr_eq(&self.attempt, &request.attempt)
     }
 }
 
@@ -25,6 +28,7 @@ pub struct ChunkTexturePreparation {
     assets: ChunkTextureAssets,
     geometry: Option<Arc<[ChunkRenderInstance]>>,
     attempt: Arc<()>,
+    epoch: u64,
 }
 
 impl ChunkTexturePreparation {
@@ -61,13 +65,17 @@ impl ChunkTextureReload {
         }
     }
 
-    /// Stages the complete resident mesh set alongside its new material tables.
+    /// Stages a resident mesh set and its material tables only for the captured world epoch.
     pub fn request_geometry(
         &self,
+        epoch: u64,
         assets: ChunkTextureAssets,
         geometry: Arc<[ChunkRenderInstance]>,
     ) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if epoch != state.geometry_epoch {
+            return;
+        }
         if state
             .requested
             .as_ref()
@@ -83,12 +91,12 @@ impl ChunkTextureReload {
         state.result = None;
     }
 
-    /// Freezes the resident entity set while CPU neighbourhoods are rebuilt.
-    pub fn hold_geometry(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .holding_geometry = true;
+    /// Freezes the resident entity set only while the captured world epoch is current.
+    pub fn hold_geometry(&self, epoch: u64) {
+        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if epoch == state.geometry_epoch {
+            state.holding_geometry = true;
+        }
     }
 
     /// Keeps ordinary mesh handoff from changing the resident set during preparation.
@@ -108,12 +116,22 @@ impl ChunkTextureReload {
             .clone()
     }
 
-    /// Drops a replacement set captured for chunks a session reset retired, so ordinary mesh
-    /// handoff resumes for the new session; the atlas request still completes and publishes.
+    /// Drops retired geometry and revokes its readiness so the next session can resume handoff.
     pub fn discard_geometry(&self) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         state.geometry = None;
         state.holding_geometry = false;
+        state.requested = None;
+        state.result = None;
+        state.geometry_epoch += 1;
+    }
+
+    /// Identifies the current session independently of superseding pack requests.
+    pub fn geometry_epoch(&self) -> u64 {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .geometry_epoch
     }
 
     /// Releases the CPU replacement set after the render world publishes it.
@@ -171,6 +189,7 @@ impl ChunkTextureReload {
             assets: state.requested.clone()?,
             geometry: state.geometry.clone(),
             attempt: Arc::clone(&state.attempt),
+            epoch: state.geometry_epoch,
         })
     }
 
@@ -180,6 +199,17 @@ impl ChunkTextureReload {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .is_current(request)
+    }
+
+    /// Retains only work from this world and either the live request or the selected atlas.
+    pub fn accepts(
+        &self,
+        request: &ChunkTexturePreparation,
+        selected: ChunkTextureAssetIdentity,
+    ) -> bool {
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        request.epoch == state.geometry_epoch
+            && (state.is_current(request) || request.assets.identity() == selected)
     }
 
     /// Completes only this exact attempt; cancelled or superseded work cannot complete a retry.

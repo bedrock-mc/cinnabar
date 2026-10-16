@@ -104,7 +104,9 @@ def declarations():
                   "    pub const fn wire_name(self) -> &'static str {", "        match self {"])
     lines.extend(f"            Self::{name} => {json.dumps(value)}," for name, value in movement["attributes"].items())
     lines.extend(["        }", "    }", "}", "", "/// Identity of the sprint speed modifier.",
-                  f"pub const SPRINT_SPEED_MODIFIER_ID: &str = {json.dumps(movement['sprint_speed_modifier_id'])};"])
+                  f"pub const SPRINT_SPEED_MODIFIER_ID: &str = {json.dumps(movement['sprint_speed_modifier_id'])};",
+                  "", "/// Identity of the Speed effect's movement modifier.",
+                  f"pub const SPEED_EFFECT_MODIFIER_ID: &str = {json.dumps(movement['speed_effect_modifier_id'])};"])
     sequential, hashed = air_ids(target)
     lines.extend([
         "", "/// Sequential air identity derived from the active block registry.",

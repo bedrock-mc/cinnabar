@@ -95,6 +95,13 @@ pub(super) fn prepare_publication_removals(
             }
         };
         if let Some(token) = pending.token {
+            if let Some(source) = &pending.publications {
+                source.record(
+                    pending.key,
+                    token.generation,
+                    pending.kind == render_api::TerrainRemovalKind::Empty,
+                );
+            }
             acknowledgements.complete(pending.key, token, Instant::now());
             if let Some(terrain) = terrain_generations.as_deref_mut() {
                 terrain.record(pending.key, token.generation);
