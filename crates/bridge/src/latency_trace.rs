@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub mod kind {
     /// Batch frame read from the core: conn, frame, t, bytes.
     pub const FRAME_READ: u8 = b'b';
-    /// Batch frame flushed to the core: conn, frame, t the flush began, bytes.
+    /// Batch frame flushed to the core: conn, frame, t its bytes were fed to the socket, bytes.
     pub const FRAME_WRITTEN: u8 = b'w';
     /// Packet decoded into world ingress: conn, frame, index, session, fifo, t.
     pub const DECODED: u8 = b'd';

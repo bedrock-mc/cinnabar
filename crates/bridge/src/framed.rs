@@ -361,13 +361,13 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
     mut trace: FrameTrace,
 ) {
     let mut pending = Vec::with_capacity(QUEUED_FRAMES);
-    // First byte and length of the frames in this flush, kept only while tracing.
+    // First byte, length and feed time of the frames in this flush, kept only while tracing.
+    // Each time is taken before that frame's bytes can go out, so the core never reads a frame
+    // before its record.
     let mut traced = Vec::new();
     while let Some(first) = frames.recv().await {
-        // Taken before any byte goes out, so the core cannot read a frame before its record.
-        let began = trace.now();
         if trace.conn.is_some() {
-            traced.push((first.frame.first().copied(), first.frame.len()));
+            traced.push((first.frame.first().copied(), first.frame.len(), trace.now()));
         }
         let mut written = writer.feed(first.frame).await;
         pending.push((first.written, first.bytes));
@@ -376,7 +376,7 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
             && let Ok(next) = frames.try_recv()
         {
             if trace.conn.is_some() {
-                traced.push((next.frame.first().copied(), next.frame.len()));
+                traced.push((next.frame.first().copied(), next.frame.len(), trace.now()));
             }
             written = writer.feed(next.frame).await;
             pending.push((next.written, next.bytes));
@@ -390,11 +390,11 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
             let _ = failure.set(reason.clone());
         }
         // Only frames that reached the socket count as written; a failure ends the connection.
-        for (head, len) in traced.drain(..) {
+        for (head, len, fed) in traced.drain(..) {
             if result.is_ok() {
                 trace.batch(
                     crate::latency_trace::kind::FRAME_WRITTEN,
-                    began,
+                    fed,
                     head.as_ref(),
                     len,
                 );
@@ -806,8 +806,10 @@ mod tests {
         }
     }
 
-    /// Writes one batch frame through the writer `writer` builds and returns the trace lines left.
+    /// Queues `batches` together, so the writer coalesces them into one flush, writes them through
+    /// the writer `writer` builds and returns the trace lines left.
     async fn traced_write<W: tokio::io::AsyncWrite + Unpin>(
+        batches: Vec<Bytes>,
         writer: impl FnOnce(&'static crate::latency_trace::Trace) -> W,
     ) -> Vec<String> {
         let dir = tempfile::tempdir().unwrap();
@@ -815,16 +817,20 @@ mod tests {
             crate::latency_trace::Trace::open(dir.path(), "frames").unwrap(),
         ));
         let write = writer(trace);
-        let (frames, queued) = tokio::sync::mpsc::channel(1);
-        let (written, _receipt) = tokio::sync::oneshot::channel();
-        frames
-            .send(super::QueuedFrame {
-                frame: Bytes::from_static(&[crate::contract::KIND_BATCH, 1]),
-                written,
-                bytes: None,
-            })
-            .await
-            .unwrap();
+        let (frames, queued) = tokio::sync::mpsc::channel(batches.len());
+        let mut receipts = Vec::new();
+        for frame in batches {
+            let (written, receipt) = tokio::sync::oneshot::channel();
+            receipts.push(receipt);
+            frames
+                .send(super::QueuedFrame {
+                    frame,
+                    written,
+                    bytes: None,
+                })
+                .await
+                .unwrap();
+        }
         drop(frames);
         let mut frame_trace = super::FrameTrace::new(None);
         frame_trace.trace = Some(trace);
@@ -851,10 +857,14 @@ mod tests {
     /// Only a frame that reached the socket is traced as written.
     #[tokio::test]
     async fn failed_bridge_writes_are_not_traced_as_written() {
-        let written = traced_write(|_| tokio::io::sink()).await;
+        let written = traced_write(vec![small_batch()], |_| tokio::io::sink()).await;
         assert_eq!(written.len(), 1);
         assert!(written[0].starts_with("w 9 1 "));
-        assert!(traced_write(|_| FailingWriter).await.is_empty());
+        assert!(
+            traced_write(vec![small_batch()], |_| FailingWriter)
+                .await
+                .is_empty()
+        );
     }
 
     /// Stamps the trace clock when the first bytes reach it, as the core's read would.
@@ -899,13 +909,38 @@ mod tests {
     async fn written_frames_are_stamped_before_their_bytes_leave() {
         let seen = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
         let stamp = std::sync::Arc::clone(&seen);
-        let lines = traced_write(|trace| StampingWriter(trace, stamp)).await;
+        let lines = traced_write(vec![small_batch()], |trace| StampingWriter(trace, stamp)).await;
         let recorded: i64 = lines[0].split(' ').nth(3).unwrap().parse().unwrap();
         let seen = seen.load(std::sync::atomic::Ordering::Relaxed);
         assert!(seen != 0, "the writer must have seen the frame");
         assert!(
             recorded <= seen,
             "recorded {recorded} after the bytes left at {seen}"
+        );
+    }
+
+    fn small_batch() -> Bytes {
+        Bytes::from_static(&[crate::contract::KIND_BATCH, 1])
+    }
+
+    /// Frames coalesced into one flush keep their own times, each taken as that frame is fed, in
+    /// queue order.
+    #[tokio::test]
+    async fn coalesced_frames_keep_their_own_write_times() {
+        let large = |fill| {
+            let mut frame = vec![fill; 1 << 20];
+            frame[0] = crate::contract::KIND_BATCH;
+            Bytes::from(frame)
+        };
+        let lines = traced_write(vec![large(1), large(2)], |_| tokio::io::sink()).await;
+        let times: Vec<i64> = lines
+            .iter()
+            .map(|line| line.split(' ').nth(3).unwrap().parse().unwrap())
+            .collect();
+        assert_eq!(times.len(), 2);
+        assert!(
+            times[0] < times[1],
+            "the second frame was fed after the first: {times:?}"
         );
     }
 }
