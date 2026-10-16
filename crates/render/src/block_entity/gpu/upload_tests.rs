@@ -96,3 +96,37 @@ fn changed_spans_cover_every_differing_byte_and_skip_identical_lists() {
     assert_eq!(changed_span(&previous, &grown), Some(count..count + 1));
     assert_eq!(changed_span(&[], &previous), Some(0..count));
 }
+
+/// Real block-model preparation reuses mapped staging across changing publications.
+#[cfg(target_os = "macos")]
+#[test]
+fn recurring_vertices_do_not_allocate_native_staging_buffers() {
+    let Some(mut app) = crate::upload_allocation_tests::app(BlockEntityRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut vertices = vec![BlockEntityVertex::default(); 6];
+    world
+        .resource_mut::<render_scene::BlockEntityFrameResource>()
+        .solid = Arc::from(vertices.clone());
+    world.run_system_once(prepare_resources).unwrap();
+    let before = crate::upload_allocation_tests::buffers(world);
+    let staged = world
+        .resource::<crate::upload_staging::BufferUploadStaging>()
+        .stats()
+        .staged_writes;
+    for generation in 1..=3 {
+        vertices[0].position[0] = generation as f32;
+        let mut frame = world.resource_mut::<render_scene::BlockEntityFrameResource>();
+        frame.solid = Arc::from(vertices.clone());
+        frame.revision += 1;
+        drop(frame);
+        world.run_system_once(prepare_resources).unwrap();
+        assert_eq!(crate::upload_allocation_tests::buffers(world), before);
+    }
+    let stats = world
+        .resource::<crate::upload_staging::BufferUploadStaging>()
+        .stats();
+    assert!(stats.staged_writes >= staged + 3);
+    assert_eq!(stats.fallback_writes, 0);
+}

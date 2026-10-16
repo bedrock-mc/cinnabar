@@ -189,6 +189,18 @@ pub const STATES: &[State] = &[
         fixture: || chat_background(100),
     },
     State {
+        name: "chat-history-width",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_history_width,
+    },
+    State {
+        name: "chat-history-width-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: chat_history_width,
+    },
+    State {
         name: "chat-command-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -266,16 +278,10 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
-        name: "settings-video-distance",
+        name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FarTerrain),
-    },
-    State {
-        name: "settings-video-full-detail",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FullDetailDistance),
+        fixture: settings_storage,
     },
     State {
         name: "settings-keyboard",
@@ -416,6 +422,22 @@ fn chat_command_background() -> Fixture {
     chat_completion("/", &["/give", "/help", "/say"])
 }
 
+/// Shows equal-width history backgrounds and a message that wraps inside them.
+fn chat_history_width() -> Fixture {
+    let mut fixture = chat_background(50);
+    if let Fixture::Chat { messages, .. } = &mut fixture {
+        messages.push_back(ui::ChatMessage {
+            fifo_sequence: messages.len() as u64 + 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: "A longer chat message wraps inside the history box while every visible line keeps the same background width.".into(),
+            parameters: Arc::from([]),
+        });
+    }
+    fixture
+}
+
 /// Shows completions after an anonymous draft with transparent message backgrounds.
 fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;
@@ -464,13 +486,10 @@ fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
 }
 
-/// Reveals the distance controls through the same focus scrolling as the client.
-fn settings_video_option(id: SettingId) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        id.index() as u16,
-        view.settings_options.value(id),
-    ));
+/// Shows Storage as a desktop host fills it, with the folder buttons.
+fn settings_storage() -> Fixture {
+    let mut view = settings(SettingSection::StorageManagement.definition().name);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
     Fixture::Menu(Box::new(view))
 }
 

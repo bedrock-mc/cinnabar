@@ -14,7 +14,7 @@ impl ModUi {
 
 impl ModPanel {
     /// Releases captured movement and visual pointer states without closing the panel.
-    fn cancel_pointer_input(&mut self) {
+    pub(super) fn cancel_pointer_input(&mut self) {
         self.drag = None;
         self.vector_drag = None;
         self.scroll_drag = None;
@@ -25,11 +25,14 @@ impl ModPanel {
         self.view.pointer = None;
     }
 
+    /// Routes one pointer sample through the last frame's hits; `exit` lets a close action
+    /// play the surface's exit transitions.
     pub(super) fn pointer_events(
         &mut self,
         position: [f32; 2],
         pressed: bool,
         held: bool,
+        exit: bool,
     ) -> Vec<Event> {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
             self.cancel_pointer_input();
@@ -130,7 +133,7 @@ impl ModPanel {
         }
         match action {
             Some("mod.close") => {
-                self.close();
+                self.close(exit);
                 return Vec::new();
             }
             Some("mod.prev") | Some("mod.next") => {
@@ -199,7 +202,7 @@ impl ModPanel {
                     self.drag = None;
                     return Vec::new();
                 };
-                let raw = *min + region.fraction_at(point[0]) as f32 * (*max - *min);
+                let raw = *min + region.fraction_at(region.local(point)[0]) as f32 * (*max - *min);
                 let next = (*min + ((raw - *min) / *step).round() * *step).clamp(*min, *max);
                 if *value == next {
                     return Vec::new();

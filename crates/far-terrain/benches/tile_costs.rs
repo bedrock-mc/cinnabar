@@ -76,6 +76,10 @@ fn updating_tile() -> UpdatingTile {
     let mut tiles = FarTiles::default();
     tiles.set_view(view);
     let mut store = SummaryStore::new(usize::MAX);
+    // Each readiness probe needs a decoded summary, even when its terrain is empty.
+    for key in &keys {
+        store.admit(key.columns().next().unwrap(), &ColumnSummary::default());
+    }
     while !keys
         .iter()
         .all(|key| tiles.ready(key.columns().next().unwrap()))

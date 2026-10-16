@@ -10,7 +10,7 @@ use super::{pose::LocalDelta, *};
 pub struct SkinRenderLayer {
     pub image: SkinAnimation,
     pub geometry: Arc<assets::SkinGeometry>,
-    /// Immutable worker-built mesh for this exact animated layer.
+    /// Immutable prepared mesh for this exact animated layer.
     pub mesh: Option<render_model::ActorRigGeometry>,
     pub previous: Arc<[BoneTransform]>,
     pub current: Arc<[BoneTransform]>,
