@@ -13,6 +13,8 @@ use protocol::{
 
 use super::*;
 
+mod auto_allocation;
+
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;
 const COBBLE: i32 = 8;

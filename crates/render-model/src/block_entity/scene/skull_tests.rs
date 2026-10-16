@@ -1,5 +1,5 @@
 use super::*;
-use crate::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES;
+use crate::block_entity::{MIN_DYNAMIC_ATLAS_WIDTH, mesh::BLOCK_ENTITY_CULL_BACK_FACES};
 use crate::{BlockEntityScene, BlockEntitySubmission, CrackInstance};
 use crate::{Facing, SkullKind, SkullModel, SkullMount, floor_yaw_degrees, pack_actor_light};
 use glam::{Mat4, Vec3};
@@ -7,9 +7,9 @@ use glam::{Mat4, Vec3};
 fn scene() -> BlockEntityScene {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        80,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         64,
-        &vec![255; 80 * 64 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
         &[
             assets::BlockEntityPlacement {
                 name: "textures/entity/steve".into(),

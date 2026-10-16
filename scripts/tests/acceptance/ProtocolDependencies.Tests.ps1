@@ -1,6 +1,32 @@
 $expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
-$expectedProtocolgenRevision = 'dec7334ac3981b0b79146fa53c82af91d70f9f62'
+$expectedProtocolgenRevision = [string](Get-BedrockTargetManifest -ProjectRoot $ProjectRoot).protocolgen_commit
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
+
+# Both acceptance implementations must follow the same target-owned generator identity.
+$pinFixture = Join-Path $TempRoot 'generator target policy'
+$pinAssets = Join-Path $pinFixture 'assets'
+New-Item -ItemType Directory -Force -Path $pinAssets | Out-Null
+$pinPath = Join-Path $pinAssets 'bedrock-target.json'
+$pinSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'assets\bedrock-target.json')
+$pinSource | Set-Content -LiteralPath $pinPath -Encoding UTF8
+Assert-Equal $expectedProtocolgenRevision (Get-PinnedProtocolgenCommit -ProjectRoot $pinFixture) `
+    'acceptance generator identity differs from target policy'
+$pinPolicy = $pinSource | ConvertFrom-Json
+$alternateRevision = 'a' * 40
+$pinPolicy.protocolgen_commit = $alternateRevision
+$pinPolicy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $pinPath -Encoding UTF8
+Assert-Equal $alternateRevision (Get-PinnedProtocolgenCommit -ProjectRoot $pinFixture) `
+    'acceptance cached a generator identity instead of reading target policy'
+foreach ($invalidRevision in @('', 'abc', ('g' * 40), ('A' * 40), 123)) {
+    $pinPolicy.protocolgen_commit = $invalidRevision
+    $pinPolicy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $pinPath -Encoding UTF8
+    Assert-ThrowsLike { Get-PinnedProtocolgenCommit -ProjectRoot $pinFixture } `
+        '*protocolgen_commit*' 'acceptance admitted an invalid target generator identity'
+}
+$pinPolicy.PSObject.Properties.Remove('protocolgen_commit')
+$pinPolicy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $pinPath -Encoding UTF8
+Assert-ThrowsLike { Get-PinnedProtocolgenCommit -ProjectRoot $pinFixture } `
+    '*protocolgen_commit*' 'acceptance admitted missing target generator identity'
 
 $validationSource = Get-Content -Raw -LiteralPath `
     (Join-Path $ProjectRoot 'scripts\acceptance\Orchestration\Validate.ps1')

@@ -486,6 +486,123 @@ fn overlap_view(camera: Vec3) -> ActorCullView {
 }
 
 #[test]
+fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
+    let feet = [8.0, 0.0, -5.0];
+    let cull_view = overlap_view(Vec3::Y);
+    let view = Some(cull_view);
+    for choice in [
+        "Geometry.wide",
+        "query.frame_alpha > 0.25 ? Geometry.wide : Geometry.default",
+    ] {
+        let world = world_with_geometry_choice("1", false, feet, false, Some(choice));
+        let rig = world.actor_rig(1).unwrap();
+        assert!(!actor_bounds_are_visible(
+            feet,
+            1.0,
+            rig.culling_bounds(),
+            view
+        ));
+        let mut sampled = world.actor_render_frame(0.5);
+        let geometry = sampled.layers(1).unwrap()[0].geometry.unwrap();
+        let (assets, _) = rig.geometry_source().unwrap();
+        assert!(actor_bounds_are_visible(
+            feet,
+            1.0,
+            assets.geometry_visible_bounds(geometry as usize).unwrap(),
+            view,
+        ));
+        let mut frame = world.actor_render_frame(0.5);
+        assert!(rig_may_be_visible(
+            &rig,
+            world.actor(1).unwrap(),
+            0.5,
+            view,
+            Some(&mut frame),
+            |_, _| panic!("base terrain bounds cannot reject a replacement"),
+        ));
+        let mut presentation = entity_rig_presentation(
+            &rig,
+            world.actor(1).unwrap(),
+            &ActorArtworkPages::default(),
+            0.5,
+        )
+        .unwrap();
+        let (_, locations) =
+            ActorArtworkPages::default().with_equipment_rasters(&[render_model::EquipmentRaster {
+                width: 1,
+                height: 1,
+                rgba8: Arc::from([255; 4]),
+            }]);
+        presentation.artwork = locations[0];
+        presentation.submission.route = ActorRigRoute::Compiled;
+        assert!(!actor_rig_submission_is_visible(
+            &presentation.submission,
+            view
+        ));
+        let base_bounds = presentation.submission.culling_bounds;
+        assert!(admit_frame_bounds(
+            &mut presentation,
+            &rig,
+            view,
+            Some(&mut frame)
+        ));
+        assert!(actor_rig_submission_is_visible(
+            &presentation.submission,
+            view
+        ));
+        let selected =
+            select_actor_presentations_for_view(999, false, None, [presentation.clone()], view);
+        assert_eq!(
+            selected.submissions.len(),
+            1,
+            "resolved replacement bounds survive bounded selection"
+        );
+        presentation.submission.culling_bounds = base_bounds;
+        assert!(
+            select_actor_presentations_for_view(999, false, None, [presentation], view)
+                .submissions
+                .is_empty()
+        );
+        let short_view = Some(ActorCullView {
+            max_distance: 1.0,
+            ..cull_view
+        });
+        assert!(!rig_may_be_visible(
+            &rig,
+            world.actor(1).unwrap(),
+            0.5,
+            short_view,
+            Some(&mut frame),
+            |_, _| panic!("distance admission must precede replacement handling"),
+        ));
+    }
+    let distant =
+        world_with_geometry_choice("1", false, [73.0, 0.0, -5.0], false, Some("Geometry.wide"));
+    let rig = distant.actor_rig(1).unwrap();
+    let mut frame = distant.actor_render_frame(0.5);
+    assert!(frame.may_replace_body_geometry(1));
+    assert!(!rig_may_be_visible(
+        &rig,
+        distant.actor(1).unwrap(),
+        0.5,
+        view,
+        Some(&mut frame),
+        |_, _| panic!("candidate cube admission must precede replacement handling")
+    ));
+    let world = world("1", false, feet);
+    let rig = world.actor_rig(1).unwrap();
+    let mut frame = world.actor_render_frame(0.5);
+    assert!(!rig_may_be_visible(
+        &rig,
+        world.actor(1).unwrap(),
+        0.5,
+        view,
+        Some(&mut frame),
+        |_, _| false,
+    ));
+}
+
+#[test]
 fn camera_inside_remote_player_skips_scale_and_layer_preparation() {
     let world = world("1", false, [0.0; 3]);
     let rig = world.actor_rig(1).unwrap();

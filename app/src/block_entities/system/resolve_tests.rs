@@ -29,9 +29,9 @@ impl Fixture {
         .unwrap();
         let atlas = assets::encode_block_entity_catalog(
             b"{}",
-            1024,
+            render_model::MIN_DYNAMIC_ATLAS_WIDTH,
             256,
-            &vec![255; 1024 * 256 * 4],
+            &vec![255; render_model::MIN_DYNAMIC_ATLAS_WIDTH as usize * 256 * 4],
             &[assets::BlockEntityPlacement {
                 name: "textures/entity/chest/normal".into(),
                 x: 0,

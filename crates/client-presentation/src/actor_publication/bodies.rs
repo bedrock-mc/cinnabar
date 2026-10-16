@@ -264,13 +264,6 @@ pub(super) fn sample<'a>(
                             {
                                 remote_skin_layers.insert(rig.actor.runtime_id, skin);
                             }
-                            preparation::register_player_skin(
-                                &mut presentation,
-                                &sampled_rig,
-                                skin_rigs,
-                                equipment.as_deref_mut(),
-                                new_geometries,
-                            );
                             presentation
                         })
                     } else {
@@ -285,6 +278,32 @@ pub(super) fn sample<'a>(
                     let Some(mut presentation) = presentation else {
                         continue;
                     };
+                    if rig.actor.runtime_id != local_runtime_id {
+                        let admission_rig = emote_geometry::skin_layer_snapshot(
+                            rig,
+                            remote_emote_pose.as_ref(),
+                            java::posed(&java_posed, rig.actor.runtime_id)
+                                .map(|posed| posed.skin_layers.as_slice()),
+                            remote_skin_layers
+                                .get(&rig.actor.runtime_id)
+                                .map(AsRef::as_ref),
+                        );
+                        if !crate::presentation::actors::admit_frame_bounds(
+                            &mut presentation,
+                            &admission_rig,
+                            cull_view,
+                            render_frame.as_mut(),
+                        ) {
+                            continue;
+                        }
+                    }
+                    preparation::register_player_skin(
+                        &mut presentation,
+                        &sampled_rig,
+                        skin_rigs,
+                        equipment.as_deref_mut(),
+                        new_geometries,
+                    );
                     presentation.submission.overlay_rgba8 =
                         crate::presentation::combat::overlay(actor, combat_visuals);
                     if rig.actor.runtime_id == local_runtime_id {

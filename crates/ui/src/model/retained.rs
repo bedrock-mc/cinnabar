@@ -278,18 +278,22 @@ impl RetainedDraw {
             return None;
         }
         let mut counts = self.counts;
-        let mut emitted = Vec::new();
+        for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
+            counts = subtract(counts, self.placed[position].counts);
+        }
         for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
             let node_counts = DrawCounts::of(&nodes[self.placed[position].node].visual).ok()?;
-            counts = subtract(counts, self.placed[position].counts)
-                .add(node_counts)
-                .ok()?;
+            counts = counts.add(node_counts).ok()?;
             self.placed[position].counts = node_counts;
+        }
+        // Admit the final aggregate before any replacement geometry is materialized.
+        counts.budget().ok()?;
+        let mut emitted = Vec::new();
+        for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
             let mut scratch = Scratch::default();
             self.emit(nodes, position, effects, &mut scratch).ok()?;
             emitted.push((position, scratch));
         }
-        counts.budget().ok()?;
         self.counts = counts;
         let mut update = DrawUpdate {
             emitted: emitted.len(),

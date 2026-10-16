@@ -1,3 +1,11 @@
+## Fence gate targeting
+
+Gate picking uses the same thin directional bounds as its outline for closed, open
+and in-wall states. Rays can pass through empty cell space to the lower gate in a
+stack. Movement boxes and carried-block visuals keep their separate geometry.
+Regression coverage includes every registered gate state in both runtime ID modes.
+Broader block-family parity remains incomplete.
+
 ## Restore and share custom emote playback
 
 The articulated emote snapshot now carries the matching prepared body and clothing meshes.
@@ -167,6 +175,10 @@ job costs remain unverified. No browser release or parity gate closes here.
 
 ## Far terrain (LOD)
 
+**Disabled, incomplete:** far terrain and the full-detail radius are off, with no Video settings,
+until their streaming bugs are fixed; values older builds saved are ignored. The design below is
+kept for re-enabling.
+
 `far-terrain` summarises each column the server sent: the height of every cell's highest
 visible block, its average texture colour tinted by biome, and any water depth, with water
 blended over its floor. World workers summarise a column when all of its sections have arrived,
@@ -213,7 +225,21 @@ finest quads whole, coarser ones per fragment. Only finest tiles reach the near 
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
-the selected tiles; a still camera uploads and rebuilds nothing. Encoded summaries share
+the selected tiles and covering fallbacks during bounded replacements; a still camera uploads
+and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
+Near column admission and the far mask publish together before draw queues run. Delivered-air
+columns remain in the publication target outside the mesh radius. First delivery publishes
+zero-byte empty evidence through the same bounded queue at either radius, so its receipts
+hide cached terrain without requiring geometry work. Empty-section receipts survive feature
+toggles within their stream and dimension visit, stay bounded by retained sections, refresh
+on every section-membership change, and expire on replacement or
+withdrawal. Valid decoded summaries prove coverage per column; missing, invalid or partial
+summaries cannot prove an entire tile empty or retire its visible fallback. Resource geometry
+and material tables publish together after pending removals and their fences allow the swap;
+blocked candidates stay staged. The same admission is rechecked before replacement allocation
+components reach draw queues. Focused lifecycle regressions pass, including 15 app far-terrain
+cases after transfer and resource resets. Hardware performance and visual acceptance remain
+open. Encoded summaries share
 immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
 resumes within column and byte limits. Cache completions and live or retiring summary
 admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit
@@ -226,7 +252,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or a full-detail distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -858,8 +884,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   separating the actor's colour for exposure remains incomplete.
 - Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
   reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
-  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
-  acceptance remain unmeasured; no performance gate closes.
+  remain open. Enabled views retain exact per-pixel motion/depth resolves and row/tile velocity targets.
+  Repeated exposure taps share those resolves; each reduction scans at most one tile edge per invocation.
+  Full-scene hardware frame-budget acceptance remains open; no performance gate closes.
 
 ## Item frames
 
@@ -1093,6 +1120,8 @@ these changes do not close the movement, camera, or actor parity gates.
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Repeat deadlines retain sub-millisecond clock precision so the first eligible
+  simulation tick can attempt placement.
 - Presses resolve when they arrive and held repeats only on frames that simulate a tick,
   both before the frame's physics and from the last completed tick's end state, so the next
   tick's movement collides with a placed block. Incomplete: a frame
@@ -1113,10 +1142,12 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Frame attribution and unchanged GPU uploads
 
-- macOS reserves three native drawable slots for either presentation mode. The
-  native Metal backend uses display-link drawable delivery on supported AppKit
-  surfaces, with bounded prefetch and cancellation before reconfiguration.
-  Smooth 120 Hz acceptance remains open.
+- With VSync, macOS 14 and later reserve a third native drawable for display-link
+  prefetch; older systems and other backends keep one queued frame. The native
+  Metal backend delivers drawables through the display link on supported AppKit
+  surfaces at the configured latency, follows the hosting screen's refresh rate,
+  discards updates past their submission deadline and cancels before
+  reconfiguration. Smooth 120 Hz acceptance remains open.
 
 - Metal completion markers feed bounded GPU queue predictions into input admission,
   delaying the next input sample until CPU work can feed the GPU without a frame
@@ -1132,6 +1163,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Sorted transparency records its contiguous colour-space passes into one command
   buffer, removing worker waits around draws serialized by the phase's shared lock.
   Regression tests cover draw order, submission counts and empty viewports.
+- Block-model uploads compare bounded vertex pages and upload disjoint changed
+  ranges, retaining complete shifted tails and refilling grown buffers. Bytewise
+  comparisons preserve signed zero and NaN payloads. Sparse-update and native
+  staging-allocation regressions are written but unrun.
 - Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
   scene read, while translucent pixels retain premultiplied gamma blending. Native
   pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
@@ -1223,7 +1258,8 @@ these changes do not close the movement, camera, or actor parity gates.
   remain cold costs. Synthetic crowds and headless screenshots do not
   establish native first-appearance timing, join latency, no-pop-in acceptance or release
   frame budgets; those gates remain open.
-- Recurring hand, UI viewport and particle writes share bounded retained GPU
+- Recurring hand, UI viewport, particle, actor, nametag, block-model, shadow, dropped-item,
+  atmosphere and animation-clock writes share bounded retained GPU
   staging. Terrain arena writes use a separate pool that starts at three 120 Hz
   frames of the publication target rate and grows after missed frames, at most
   2 MiB per frame, to a 32 MiB ceiling. Abutting records share one copy, batches
@@ -1292,6 +1328,8 @@ these changes do not close the movement, camera, or actor parity gates.
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
   Sprint transitions recalculate movement speed from attribute defaults and other
   modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
+  Server Speed effect changes refresh that value while sprint stays held.
+  Local Speed modifier expiry without a server update remains incomplete.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
@@ -8793,6 +8831,16 @@ native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
 ## Third-person held attachables
+
+Incomplete: held attachables publish one selected layer per hand. Authored
+dissolve depth/color passes use a drawable ordinary-material fallback, retaining
+overlay suppression; coupled multi-pass coverage remains unsupported in both
+first and third person. This does not close a material or held-item parity gate.
+
+Selected tint, overlay, UV animation and lighting modifiers are retained in both
+view submissions. Incomplete: the first-person hand shader does not yet consume
+those fields. Projection regressions verify published values; first-person styled
+rendering remains incomplete and does not close a material parity gate.
 
 Held models evaluate authored scripts and texture meshes against the owner's
 posed bones, including aiming skeleton bows. Third-person bow draws supply the

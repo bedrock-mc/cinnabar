@@ -162,3 +162,40 @@ fn worker_loss_reports_pending_pack_save_failure_without_overwriting_preferences
             .contains("worker is unavailable")
     );
 }
+
+#[test]
+fn unchanged_snapshots_retain_their_identity_before_and_after_worker_loss() {
+    let (mut app, _incoming, outgoing) = fixture();
+    app.update();
+    let initial = Arc::clone(&app.world().resource::<MenuRuntime>().global_resources);
+    app.update();
+    assert!(Arc::ptr_eq(
+        &initial,
+        &app.world().resource::<MenuRuntime>().global_resources
+    ));
+
+    outgoing
+        .send(Event::Snapshot(Snapshot {
+            selected: Some((false, 0)),
+            busy: true,
+            message: "Preparing fixture".into(),
+            ..Default::default()
+        }))
+        .unwrap();
+    app.update();
+    let busy = Arc::clone(&app.world().resource::<MenuRuntime>().global_resources);
+    assert_eq!(initial.revision, busy.revision);
+    assert_ne!(initial.selected, busy.selected);
+    assert!(!Arc::ptr_eq(&initial, &busy));
+    drop(outgoing);
+    app.update();
+    let stopped = Arc::clone(&app.world().resource::<MenuRuntime>().global_resources);
+    assert!(!stopped.busy);
+    assert!(busy.busy, "existing readers keep their immutable snapshot");
+    assert!(!Arc::ptr_eq(&busy, &stopped));
+    app.update();
+    assert!(Arc::ptr_eq(
+        &stopped,
+        &app.world().resource::<MenuRuntime>().global_resources
+    ));
+}

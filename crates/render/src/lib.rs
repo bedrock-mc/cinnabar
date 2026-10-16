@@ -131,7 +131,7 @@ pub use chunk::{
 #[cfg(feature = "publication-test-support")]
 pub use chunk::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
-    publication_render_terminal_snapshot, settle_publication_noop_frame,
+    publication_render_terminal_snapshot, publication_terrain_draws, settle_publication_noop_frame,
 };
 
 pub use dropped_item_render::DroppedItemRenderPlugin;

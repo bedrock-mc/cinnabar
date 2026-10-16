@@ -53,6 +53,34 @@ export CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY=1
 source "$script"
 unset CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY
 
+pin_fixture="$temp_root/generator target policy"
+mkdir -p "$pin_fixture/assets"
+cp "$project_root/assets/bedrock-target.json" "$pin_fixture/assets/bedrock-target.json"
+[[ $(resolve_pinned_protocolgen_commit "$pin_fixture") == "$pinned_protocolgen_commit" ]]
+alternate_revision=$(printf 'a%.0s' {1..40})
+for revision in "$alternate_revision" '' abc "$(printf 'g%.0s' {1..40})" "$(printf 'A%.0s' {1..40})" number missing; do
+    python3 - "$pin_fixture/assets/bedrock-target.json" "$revision" <<'PYCODE'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+policy = json.loads(path.read_text(encoding="utf-8"))
+if sys.argv[2] == "missing":
+    policy.pop("protocolgen_commit", None)
+elif sys.argv[2] == "number":
+    policy["protocolgen_commit"] = 123
+else:
+    policy["protocolgen_commit"] = sys.argv[2]
+path.write_text(json.dumps(policy), encoding="utf-8")
+PYCODE
+    if [[ $revision == "$alternate_revision" ]]; then
+        [[ $(resolve_pinned_protocolgen_commit "$pin_fixture") == "$revision" ]]
+    elif resolve_pinned_protocolgen_commit "$pin_fixture" >/dev/null 2>&1; then
+        echo 'acceptance admitted invalid or missing target generator identity' >&2
+        exit 1
+    fi
+done
+
 protocol_fixture="$temp_root/protocol-provenance"
 python3 "$project_root/scripts/tests/copy_workspace.py" "$project_root" "$protocol_fixture"
 assert_protocol_dependency_provenance "$protocol_fixture"
@@ -216,7 +244,6 @@ grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
 grep -Fq 'str(root / "core"), "mod", "edit", "-json"' "$script"
 grep -Fq 'resolve_pinned_gophertunnel_commit' "$script"
 grep -Fq "pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'" "$script"
-grep -Fq "pinned_protocolgen_commit='dec7334ac3981b0b79146fa53c82af91d70f9f62'" "$script"
 grep -Fq "pinned_jolyne_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
 grep -Fq '"protocol_dependency_resolution": "vendored-path"' "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)

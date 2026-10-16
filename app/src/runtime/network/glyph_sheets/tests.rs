@@ -81,7 +81,7 @@ fn the_first_server_pack_wins_per_sheet() {
     .expect("sheets");
     let cell = |c: char| {
         sheets
-            .cells
+            .cells()
             .iter()
             .find(|cell| cell.codepoint == c)
             .unwrap()
@@ -106,7 +106,7 @@ fn the_first_server_pack_wins_per_sheet() {
             .unwrap();
         client_ui::test_support::write_snapshot(&input, "server-pack-glyph-priority");
     }
-    assert_eq!(sheets.cells.len(), 512);
+    assert_eq!(sheets.cells().len(), 512);
     // E0 comes from the top pack (16 px cells, cell 3 opaque); E1 falls through to the lower one.
     assert_eq!(cell('\u{e003}').size, [16, 16]);
     assert_eq!(cell('\u{e002}').size, [0, 0]);
@@ -130,11 +130,11 @@ fn a_real_server_pack_decodes_and_packs() {
         );
         return;
     };
-    let atlas = assets::pack_cells(&sheets.cells, 0, 256, 8);
+    let atlas = assets::pack_cells(sheets.cells(), 0, 256, 8);
     assert!(!atlas.glyphs.is_empty());
     eprintln!(
         "{} cells, {} glyphs, {} pages",
-        sheets.cells.len(),
+        sheets.cells().len(),
         atlas.glyphs.len(),
         atlas.pages.len()
     );
@@ -153,7 +153,7 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
     let applied = compile_session_glyphs(&view(vec![upper, lower()])).unwrap();
     let glyph = |codepoint| {
         applied
-            .cells
+            .cells()
             .iter()
             .find(|cell| cell.codepoint == codepoint)
             .unwrap()
@@ -167,7 +167,7 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
     );
     assert_eq!(
         applied
-            .cells
+            .cells()
             .iter()
             .filter(|cell| cell.codepoint == 'B')
             .count(),
@@ -178,10 +178,10 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
         (assets::texel_size_64(0, 1) / 2) as i16
     );
     let restored = compile_session_glyphs(&view(vec![lower()])).unwrap();
-    assert_eq!(restored.cells.len(), 256);
+    assert_eq!(restored.cells().len(), 256);
     assert_eq!(
         restored
-            .cells
+            .cells()
             .iter()
             .find(|cell| cell.codepoint == 'A')
             .unwrap()
@@ -206,7 +206,7 @@ fn default8_keeps_leading_padding_in_advance_and_falls_through_bad_images() {
     ]))
     .unwrap();
     let glyph = applied
-        .cells
+        .cells()
         .iter()
         .find(|cell| cell.codepoint == 'A')
         .unwrap();
@@ -240,7 +240,7 @@ fn extended_mapping_named_bitmap_and_locale_overrides_are_kept_separate() {
     .unwrap();
     assert_eq!(
         sheets
-            .cells
+            .cells()
             .iter()
             .find(|cell| cell.codepoint == 'é')
             .unwrap()
@@ -249,14 +249,14 @@ fn extended_mapping_named_bitmap_and_locale_overrides_are_kept_separate() {
     );
     assert_eq!(
         sheets
-            .cells
+            .cells()
             .iter()
             .find(|cell| cell.codepoint == '\u{e001}')
             .unwrap()
             .size,
         [16, 16]
     );
-    assert_eq!(sheets.named["rune"].len(), 1);
-    assert_eq!(sheets.named["rune"][0].codepoint, 'A');
-    assert_eq!(sheets.named["rune"][0].size, [8, 8]);
+    assert_eq!(sheets.named()["rune"].len(), 1);
+    assert_eq!(sheets.named()["rune"][0].codepoint, 'A');
+    assert_eq!(sheets.named()["rune"][0].size, [8, 8]);
 }

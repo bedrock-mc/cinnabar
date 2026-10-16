@@ -19,14 +19,31 @@ use bevy::{
 #[cfg(test)]
 mod tests;
 
-/// Metal reserves three native drawables so its display callback can prefetch during rendering.
-/// Other backends keep one queued frame with VSync and two without it.
+/// The surface latency for this platform's presentation path; see [`frame_latency`].
 #[must_use]
-pub const fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
-    if vsync && !cfg!(target_os = "macos") {
+pub fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
+    frame_latency(vsync, metal_display_link_delivery())
+}
+
+/// One queued frame with VSync, or two when a display link holds a prefetched drawable;
+/// two without VSync to overlap CPU and GPU work.
+const fn frame_latency(vsync: bool, display_link: bool) -> NonZeroU32 {
+    if vsync && !display_link {
         NonZeroU32::MIN
     } else {
         NonZeroU32::new(2).expect("two is nonzero")
+    }
+}
+
+/// Whether the Metal backend delivers synchronized drawables through a display link.
+fn metal_display_link_delivery() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        wgpu::hal::metal::display_link_delivery_supported()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 

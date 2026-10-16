@@ -9,7 +9,10 @@ use render_model::{
     actor::flame::{FLAME_RIG_ID, FLAME_SCALE, FlamePlayback, flame_depth, flame_geometry},
 };
 
-use crate::presentation::actors::ActorPresentationBatch;
+use crate::{
+    local_player::FrozenLocalAvatarVisibility,
+    presentation::actors::{ActorPresentationBatch, ActorRigPresentation},
+};
 
 /// Flame layers follow skin animation and precede authored controller layers.
 const FLAME_LAYER: u8 = super::super::presentation::skin_layers::SKIN_LAYER_BASE
@@ -18,6 +21,30 @@ const _: () =
     assert!(FLAME_LAYER < super::super::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE);
 
 type ActorKey = (u64, i32, u64, u64);
+
+/// Physical local origin bound to the exact selected body, independent of Java's model lift.
+#[derive(Clone, Copy)]
+pub(super) struct LocalFlameFeet {
+    identity: render_model::ActorRenderIdentity,
+    feet: [f32; 3],
+}
+
+impl LocalFlameFeet {
+    /// Captures the same frozen physics sample used to place this frame's local body.
+    pub(super) fn capture(
+        local: Option<&ActorRigPresentation>,
+        visibility: Option<FrozenLocalAvatarVisibility>,
+    ) -> Option<Self> {
+        let identity = local?.submission.input.identity;
+        let visibility = visibility.filter(|visibility| {
+            visibility.visible() && visibility.runtime_id() == identity.runtime_id
+        })?;
+        Some(Self {
+            identity,
+            feet: visibility.feet().to_array(),
+        })
+    }
+}
 
 /// Immutable flame artwork and per-spawn playback, retained across world frames.
 #[derive(Resource, Default)]
@@ -88,6 +115,7 @@ impl WorldActorFlames {
         world: Option<&client_world::WorldAuthority>,
         camera_yaw: f32,
         partial_tick: f32,
+        local: Option<LocalFlameFeet>,
         batch: &mut ActorPresentationBatch,
     ) {
         let Some(world) = world else {
@@ -122,7 +150,11 @@ impl WorldActorFlames {
             let Some((low, high)) = actor.bounding_box_at([0.0; 3]) else {
                 continue;
             };
-            let Some(feet) = actor.interpolated_position(partial_tick) else {
+            let Some(feet) = local
+                .filter(|local| local.identity == body.input.identity)
+                .map(|local| local.feet)
+                .or_else(|| actor.interpolated_position(partial_tick))
+            else {
                 continue;
             };
             let (width, height) = (high[0] - low[0], high[1] - low[1]);
@@ -183,4 +215,4 @@ impl WorldActorFlames {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

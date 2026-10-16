@@ -32,6 +32,13 @@ pub enum Fixture {
     },
     /// The held tab roster's rows.
     TabList(Vec<RosterRow>),
+    /// Two original custom-form inputs after selection moves from the first to the second.
+    EditSelection,
+    /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
+    #[cfg(feature = "test-support")]
+    CraftOverlap {
+        selected: bool,
+    },
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -43,6 +50,26 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-overlap-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap { selected: false },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-overlap-selected",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap { selected: true },
+    },
+    State {
+        name: "edit-selection-transfer",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::EditSelection,
+    },
     State {
         name: "loading-connecting",
         size: SIZE,
@@ -152,6 +179,12 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::play_worlds_importing,
     },
     State {
+        name: "world-edit-after-delete-back",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::world_edit_after_delete_back,
+    },
+    State {
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -257,18 +290,6 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_video,
-    },
-    State {
-        name: "settings-video-distance",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FarTerrain),
-    },
-    State {
-        name: "settings-video-full-detail",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FullDetailDistance),
     },
     State {
         name: "settings-storage",
@@ -483,16 +504,6 @@ fn settings_video() -> Fixture {
 fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
     Arc::make_mut(&mut view.storage).opens_folders = true;
-    Fixture::Menu(Box::new(view))
-}
-
-/// Reveals the distance controls through the same focus scrolling as the client.
-fn settings_video_option(id: SettingId) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        id.index() as u16,
-        view.settings_options.value(id),
-    ));
     Fixture::Menu(Box::new(view))
 }
 
