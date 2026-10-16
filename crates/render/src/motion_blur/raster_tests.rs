@@ -29,6 +29,8 @@ struct ActorMotion {
 mod fixture;
 #[path = "raster_tests/occlusion.rs"]
 mod occlusion;
+#[path = "raster_tests/resolve.rs"]
+mod resolve;
 #[path = "raster_tests/surfaces.rs"]
 mod surfaces;
 use occlusion::Coverage;

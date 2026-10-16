@@ -32,6 +32,7 @@ mod home_promo;
 
 mod artwork;
 mod cinnabar_players;
+mod emotes;
 mod feeds;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
@@ -74,7 +75,8 @@ struct Snapshot {
     xbox_presence: bridge::XboxPresenceState,
     /// The Cinnabar API identity and visibility the events worker keeps the core configured with.
     cinnabar_api: Option<bridge::CinnabarApiConfig>,
-    /// Roster XUIDs the API reports as Cinnabar players; replaced whole on change.
+    emotes: emotes::Exchange,
+    /// Roster identifiers the API reports as Cinnabar players; replaced whole on change.
     cinnabar_players: Arc<std::collections::HashSet<String>>,
     /// The `(session, revision)` roster last sent to the lookup worker.
     cinnabar_roster_key: Option<(u64, u64)>,
@@ -106,6 +108,7 @@ struct Snapshot {
 impl Snapshot {
     /// Retires values tied to the old account before accepting responses for another identity.
     fn retire_account_data(&mut self) {
+        self.emotes = emotes::Exchange::default();
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.realms = None;
         self.friends = None;
@@ -196,6 +199,7 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         let (art, wake) = (artwork.clone(), home_wake.clone());
         thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
+        let _ = emotes::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || {
             profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)
@@ -237,13 +241,13 @@ impl LauncherAccount {
         });
     }
 
-    /// Asks which of the server roster's XUIDs are Cinnabar players when `(session, revision)` is new;
+    /// Asks which of the server roster's identities are Cinnabar players when `(session, revision)` is new;
     /// answers are cached per session.
-    pub fn set_cinnabar_roster<'a>(
+    pub fn set_cinnabar_roster(
         &self,
         session: u64,
         revision: u64,
-        xuids: impl IntoIterator<Item = &'a str>,
+        identities: impl IntoIterator<Item = String>,
     ) {
         let key = Some((session, revision));
         let changed = self.with(|snapshot| {
@@ -254,14 +258,22 @@ impl LauncherAccount {
             previous != key
         });
         if changed {
-            let _ = self.cinnabar_rosters.send(cinnabar_players::Roster {
-                session,
-                xuids: xuids.into_iter().map(str::to_owned).collect(),
-            });
+            let identities: Vec<String> = identities.into_iter().collect();
+            tracing::debug!(players = identities.len(), "Cinnabar roster submitted");
+            if self
+                .cinnabar_rosters
+                .send(cinnabar_players::Roster {
+                    session,
+                    identities,
+                })
+                .is_err()
+            {
+                tracing::debug!("Cinnabar roster worker stopped");
+            }
         }
     }
 
-    /// Roster XUIDs the API reports as Cinnabar players; the `Arc` changes only with the set.
+    /// Roster identifiers the API reports as Cinnabar players; the `Arc` changes only with the set.
     pub fn cinnabar_players(&self) -> Arc<std::collections::HashSet<String>> {
         self.with(|snapshot| Arc::clone(&snapshot.cinnabar_players))
     }

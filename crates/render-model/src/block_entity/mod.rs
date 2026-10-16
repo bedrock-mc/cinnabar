@@ -33,7 +33,10 @@ mod skull;
 mod statue;
 
 pub use artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
-pub use atlas::{AtlasRect, BlockEntityAtlas, MAP_CELL, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
+pub use atlas::{
+    AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
+    TextureRef,
+};
 pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};

@@ -215,10 +215,12 @@ fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
         ] {
             for samples in [1, 2, 4, 8] {
                 let original = pipeline.specialize(&cache, format, samples);
-                let footprint = pipeline.footprint(&cache, samples);
+                let footprint = pipeline.footprint(&cache);
+                let resolve = pipeline.resolve(&cache, samples);
                 let allocated = test_alloc::thread_allocations();
                 let repeated = pipeline.specialize(&cache, format, samples);
-                assert_eq!(pipeline.footprint(&cache, samples), footprint);
+                assert_eq!(pipeline.footprint(&cache), footprint);
+                assert_eq!(pipeline.resolve(&cache, samples), resolve);
                 assert_eq!(test_alloc::thread_allocations(), allocated);
                 assert_eq!(repeated, original);
             }
@@ -234,7 +236,7 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
     world.run_system_once(super::pipeline::init).unwrap();
     world.resource_scope(|world, mut cache: Mut<PipelineCache>| {
         let mut pipeline = world.resource_mut::<BlurPipeline>();
-        let mut warmed = Vec::with_capacity(2);
+        let mut warmed = Vec::with_capacity(4);
         for hdr in [false, true] {
             for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
                 warmed.clear();
@@ -250,9 +252,10 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                         &mut warmed,
                     )
                     .unwrap();
-                assert_eq!(warmed.len(), 2);
-                assert_eq!(warmed[1], pipeline.footprint(&cache, msaa.samples()));
-                let tile = crate::queue_review_support::queued_descriptor(&mut cache, warmed[1]);
+                assert_eq!(warmed.len(), 4);
+                assert_eq!(warmed[1..3], pipeline.footprint(&cache));
+                assert_eq!(warmed[3], pipeline.resolve(&cache, msaa.samples()));
+                let tile = crate::queue_review_support::queued_descriptor(&mut cache, warmed[2]);
                 assert_eq!(tile.multisample.count, 1);
                 assert_eq!(
                     tile.fragment.as_ref().unwrap().entry_point.as_deref(),
@@ -302,5 +305,91 @@ fn exposure_and_tile_shader_variants_validate_without_a_native_adapter() {
         )
         .validate(&module)
         .unwrap();
+    }
+}
+
+#[test]
+fn actor_tile_reduction_bounds_serial_source_work() {
+    let (app, _) = fixture();
+    let world = app.world();
+    let device = world.resource::<RenderDevice>();
+    let cache = world.resource::<PipelineCache>();
+    let pipeline = world.resource::<BlurPipeline>();
+    let source_size = Extent3d {
+        width: 101,
+        height: 99,
+        depth_or_array_layers: 1,
+    };
+    let motion = device
+        .create_texture(&TextureDescriptor {
+            label: Some("actor reduction work fixture"),
+            size: source_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: crate::actor_render::motion::MOTION_FORMAT,
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&Default::default());
+    let uniform = device.create_buffer(&BufferDescriptor {
+        label: Some("actor reduction exposure fixture"),
+        size: std::mem::size_of::<super::history::ExposureUniform>() as u64,
+        usage: BufferUsages::UNIFORM,
+        mapped_at_creation: false,
+    });
+    let mut footprint = None;
+    super::footprint::Footprint::prepare(
+        &mut footprint,
+        device,
+        cache,
+        pipeline.footprint_layouts(),
+        &uniform,
+        &motion,
+        source_size,
+    );
+    let footprint = footprint.unwrap();
+    let source = UVec2::new(source_size.width, source_size.height);
+    let rows = UVec2::new(footprint.rows.width(), footprint.rows.height());
+    let output = UVec2::new(footprint.texture.width(), footprint.texture.height());
+    for (source, output) in [(source, rows), (rows, output)] {
+        let serial_reads = source.x.div_ceil(output.x) * source.y.div_ceil(output.y);
+        assert!(
+            serial_reads <= super::shader::TILE_SIZE,
+            "{serial_reads} source texels per reduction invocation"
+        );
+    }
+    assert_eq!(footprint.rows.format(), super::footprint::ROW_FORMAT);
+}
+
+#[test]
+fn exposure_taps_do_not_repeat_raw_surface_resolves() {
+    for multisampled in [false, true] {
+        let source = super::shader::source(include_str!("../motion_blur.wgsl"), multisampled);
+        let module = naga::front::wgsl::parse_str(&source).unwrap();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+        let index = module
+            .entry_points
+            .iter()
+            .position(|entry| entry.name == "fragment")
+            .unwrap();
+        for (handle, global) in module.global_variables.iter() {
+            if global
+                .binding
+                .as_ref()
+                .is_some_and(|slot| slot.group == 0 && [2, 4].contains(&slot.binding))
+            {
+                assert!(
+                    info.get_entry_point(index)[handle].is_empty(),
+                    "exposure taps must use resolved surfaces, not {:?}",
+                    global.name
+                );
+            }
+        }
     }
 }

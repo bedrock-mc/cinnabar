@@ -140,6 +140,8 @@ fn text(value: &wire::Str) -> Arc<str> {
 /// overloads are dropped.
 pub(crate) fn normalize_available_commands(packet: AvailableCommands) -> UiEvent {
     let values = &packet.enum_values;
+    // Only referenced pool entries allocate text; repeated indices share that allocation.
+    let mut shared_values = BTreeMap::new();
     let enums: Vec<NamedValues> = packet
         .enum_data
         .iter()
@@ -147,8 +149,12 @@ pub(crate) fn normalize_available_commands(packet: AvailableCommands) -> UiEvent
             let list = entry
                 .values
                 .iter()
-                .filter_map(|index| values.get(index.0 as usize))
-                .map(text)
+                .filter_map(|index| {
+                    let value = values.get(index.0 as usize)?;
+                    Some(Arc::clone(
+                        shared_values.entry(index.0).or_insert_with(|| text(value)),
+                    ))
+                })
                 .collect::<Vec<Arc<str>>>();
             (text(&entry.name), Arc::from(list))
         })

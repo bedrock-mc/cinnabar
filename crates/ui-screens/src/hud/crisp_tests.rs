@@ -105,9 +105,10 @@ fn replace_texture(
 
 /// Publishes admitted oversized bytes through the artwork handoff that upgrades atlas previews.
 fn publish_artwork(engine: &mut FormEngine) -> Option<(u16, render_model::UiTexturePage)> {
-    let (key, bytes) = engine.textures.oversized().into_iter().next()?;
+    let oversized = engine.textures.oversized();
+    let (key, bytes) = oversized.first()?;
     assert_eq!(key, CROSSHAIR_TEXTURE);
-    let image = image::load_from_memory(&bytes).unwrap().into_rgba8();
+    let image = image::load_from_memory(bytes).unwrap().into_rgba8();
     assert!(
         image.width() <= ui_engine::pages::WHOLE_ART_PAGE
             && image.height() <= ui_engine::pages::WHOLE_ART_PAGE,
@@ -134,7 +135,7 @@ fn publish_artwork(engine: &mut FormEngine) -> Option<(u16, render_model::UiText
     engine
         .textures
         .set_full_res(std::collections::HashMap::from([(
-            key,
+            key.clone(),
             ui::IconRef {
                 page: index,
                 uv,

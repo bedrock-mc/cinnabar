@@ -38,10 +38,7 @@ fn an_instant_mining_press_retains_its_press_and_completion_swings() {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
-        .unwrap();
-    world
-        .run_system_cached(crate::survival_mining::produce_survival_mining)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
     assert_eq!(
         world

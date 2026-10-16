@@ -2,6 +2,7 @@
 
 mod aim_assist;
 mod aim_assist_types;
+mod input_locks;
 mod instruction;
 mod presets;
 mod spline;
@@ -20,6 +21,7 @@ pub use aim_assist_types::{
     CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
     CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode,
 };
+pub use input_locks::{ClientInputLock, ClientInputLocks};
 pub(crate) use instruction::normalize_instruction;
 pub(crate) use presets::{normalize_presets, normalize_shake, normalize_switch};
 pub(crate) use spline::normalize_registry;

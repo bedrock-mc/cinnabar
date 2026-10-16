@@ -68,13 +68,7 @@ impl Descriptor {
             (64 * 1024..=1024 * 1024).contains(&self.chunk_bytes),
             "invalid chunk size"
         );
-        ensure!(
-            self.bytes > 0
-                && self.chunk_hashes.len() <= 4096
-                && self.bytes.div_ceil(u64::from(self.chunk_bytes))
-                    == self.chunk_hashes.len() as u64,
-            "invalid integrity index"
-        );
+        super::ranges::validate_shape(self)?;
         crate::crypto::fixed_hex::<32>(&self.sha256)?;
         for hash in &self.chunk_hashes {
             crate::crypto::fixed_hex::<32>(hash)?;

@@ -3,7 +3,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Cursor,
     path::Path,
-    sync::Arc,
 };
 
 use assets::{
@@ -18,7 +17,9 @@ use sha2::{Digest, Sha256};
 use crate::entity::compile_entity_assets;
 use pack_compile_input::source::read_bounded_source;
 mod pack;
+mod raster;
 pub use pack::{ActorPackCompilation, compile_actor_pack, compile_actor_pack_unless};
+use raster::{SharedRaster, admit, prepare_rasters};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ActorFallback {
@@ -311,9 +312,8 @@ fn build_artwork(
     let mut bindings = Vec::new();
     let mut fallbacks = Vec::new();
     let mut pixel_bytes = 0usize;
-    // Decoded once per source; `None` when the raster is unusable.
-    let mut decoded = BTreeMap::<u32, Option<DecodedRaster>>::new();
     let mut table = BTreeMap::<u32, usize>::new();
+    let mut refused = BTreeSet::new();
     let render = &entities.render;
     let decoder = SourceDecoder {
         lenient,
@@ -332,14 +332,12 @@ fn build_artwork(
                     .starts_with("textures/")
         })
         .collect::<BTreeSet<_>>();
-    let halvings = plan_halvings(layer_rasters.into_iter().filter_map(|source| {
-        if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
-            // A failed read is retried, and reported, where a rig uses the source.
-            slot.insert(decoder.decode(entities, source, read).ok()?);
-        }
-        let raster = decoded[&source].as_ref()?;
-        Some((source, raster.width, raster.height))
-    }));
+    let mut decoded = prepare_rasters(
+        layer_rasters,
+        |source| decoder.decode(entities, source, read),
+        MAX_ACTOR_PIXEL_BYTES,
+        MAX_ACTOR_TEXTURES,
+    );
     for (rig_index, rig) in entities.rig_bindings.iter().enumerate() {
         let reject = |fallbacks: &mut Vec<ActorFallback>, reason: &str| {
             fallbacks.push(ActorFallback {
@@ -391,10 +389,18 @@ fn build_artwork(
                 {
                     continue;
                 }
-                if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
-                    slot.insert(decoder.decode(entities, source, read)?);
+                if refused.contains(&source) {
+                    reject(&mut fallbacks, "texture_budget");
+                    continue;
                 }
-                let Some(raster) = decoded[&source].as_ref() else {
+                if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                    slot.insert(
+                        decoder
+                            .decode(entities, source, read)?
+                            .map(SharedRaster::from),
+                    );
+                }
+                let Some(raster) = decoded.get_mut(&source).unwrap().as_mut() else {
                     continue;
                 };
                 // UVs use the declared size, independent of the raster resolution.
@@ -405,13 +411,15 @@ fn build_artwork(
                         &mut pixel_bytes,
                         source,
                         raster,
-                        halvings.get(&source).copied().unwrap_or(0),
+                        MAX_ACTOR_PIXEL_BYTES,
                     ) {
                         Some(index) => {
                             table.insert(source, index);
                             index
                         }
                         None => {
+                            decoded.remove(&source);
+                            refused.insert(source);
                             reject(&mut fallbacks, "texture_budget");
                             continue;
                         }
@@ -463,10 +471,18 @@ fn build_artwork(
             {
                 continue;
             }
-            if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
-                slot.insert(decoder.decode(entities, source, read)?);
+            if refused.contains(&source) {
+                reject(&mut fallbacks, "texture_budget");
+                continue;
             }
-            let Some(raster) = decoded[&source].as_ref() else {
+            if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                slot.insert(
+                    decoder
+                        .decode(entities, source, read)?
+                        .map(SharedRaster::from),
+                );
+            }
+            let Some(raster) = decoded.get_mut(&source).unwrap().as_mut() else {
                 continue;
             };
             match admit(
@@ -474,12 +490,16 @@ fn build_artwork(
                 &mut pixel_bytes,
                 source,
                 raster,
-                halvings.get(&source).copied().unwrap_or(0),
+                MAX_ACTOR_PIXEL_BYTES,
             ) {
                 Some(index) => {
                     table.insert(source, index);
                 }
-                None => reject(&mut fallbacks, "texture_budget"),
+                None => {
+                    decoded.remove(&source);
+                    refused.insert(source);
+                    reject(&mut fallbacks, "texture_budget");
+                }
             }
         }
     }
@@ -491,107 +511,6 @@ fn build_artwork(
     })
 }
 
-/// How many times to halve each `(source, width, height)` raster so all of them fit the
-/// pixel budget together. The largest raster is always halved next, so a few oversized
-/// rasters cannot leave the rest of a pack without art.
-fn plan_halvings(rasters: impl IntoIterator<Item = (u32, u16, u16)>) -> BTreeMap<u32, u8> {
-    let mut queue = std::collections::BinaryHeap::new();
-    let mut total = 0usize;
-    for (source, width, height) in rasters.into_iter().take(MAX_ACTOR_TEXTURES) {
-        let bytes = raster_bytes(width, height);
-        total = total.saturating_add(bytes);
-        queue.push((bytes, std::cmp::Reverse(source), width, height));
-    }
-    let mut halvings = BTreeMap::new();
-    while total > MAX_ACTOR_PIXEL_BYTES {
-        let Some((bytes, std::cmp::Reverse(source), width, height)) = queue.pop() else {
-            break;
-        };
-        if width.max(height) <= 1 {
-            break;
-        }
-        let (width, height) = (width.div_ceil(2), height.div_ceil(2));
-        let halved = raster_bytes(width, height);
-        total = total - bytes + halved;
-        *halvings.entry(source).or_insert(0) += 1;
-        queue.push((halved, std::cmp::Reverse(source), width, height));
-    }
-    halvings
-}
-
-/// RGBA8 bytes of a `width` by `height` raster.
-fn raster_bytes(width: u16, height: u16) -> usize {
-    usize::from(width) * usize::from(height) * 4
-}
-
-/// Adds `raster` to the texture table after its planned `halvings`, then halved further
-/// until it fits the pixel budget (UVs are normalised, so it draws blurred rather than not
-/// at all); `None` once the table is full.
-fn admit(
-    textures: &mut Vec<ActorTexture>,
-    pixel_bytes: &mut usize,
-    source: u32,
-    raster: &DecodedRaster,
-    halvings: u8,
-) -> Option<usize> {
-    if textures.len() == MAX_ACTOR_TEXTURES {
-        return None;
-    }
-    let (mut width, mut height, mut pixels) = (
-        raster.width,
-        raster.height,
-        std::borrow::Cow::Borrowed(&raster.pixels),
-    );
-    for _ in 0..halvings {
-        if width.max(height) <= 1 {
-            break;
-        }
-        pixels = std::borrow::Cow::Owned(halve(&pixels, width, height));
-        (width, height) = (width.div_ceil(2), height.div_ceil(2));
-    }
-    while pixel_bytes.saturating_add(pixels.len()) > MAX_ACTOR_PIXEL_BYTES {
-        if width.max(height) <= 1 {
-            return None;
-        }
-        let (half_width, half_height) = (width.div_ceil(2), height.div_ceil(2));
-        pixels = std::borrow::Cow::Owned(halve(&pixels, width, height));
-        (width, height) = (half_width, half_height);
-    }
-    *pixel_bytes += pixels.len();
-    textures.push(ActorTexture {
-        source,
-        width,
-        height,
-        pixel_sha256: Sha256::digest(pixels.as_slice()).into(),
-        rgba8: Arc::from(pixels.as_slice()),
-    });
-    Some(textures.len() - 1)
-}
-
-/// 2x2 box filter of an RGBA8 raster; odd edges average the texels they have.
-fn halve(pixels: &[u8], width: u16, height: u16) -> Vec<u8> {
-    let (width, height) = (usize::from(width), usize::from(height));
-    let (out_width, out_height) = (width.div_ceil(2), height.div_ceil(2));
-    let mut output = Vec::with_capacity(out_width * out_height * 4);
-    for y in 0..out_height {
-        for x in 0..out_width {
-            let mut sum = [0u32; 4];
-            let mut count = 0;
-            for source_y in 2 * y..(2 * y + 2).min(height) {
-                for source_x in 2 * x..(2 * x + 2).min(width) {
-                    let at = (source_y * width + source_x) * 4;
-                    for (total, value) in sum.iter_mut().zip(&pixels[at..at + 4]) {
-                        *total += u32::from(*value);
-                    }
-                    count += 1;
-                }
-            }
-            output.extend(sum.map(|total| (total / count) as u8));
-        }
-    }
-    output
-}
-
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),
@@ -599,46 +518,4 @@ fn invalid(detail: &str) -> AssetError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // A raster past the remaining pixel budget is halved until it fits, not rejected.
-    #[test]
-    fn a_raster_past_the_pixel_budget_is_halved_to_fit() {
-        let raster = DecodedRaster {
-            width: 4,
-            height: 2,
-            pixels: vec![200; 4 * 2 * 4],
-        };
-        let mut textures = Vec::new();
-        let mut pixel_bytes = MAX_ACTOR_PIXEL_BYTES - 8;
-        assert_eq!(
-            admit(&mut textures, &mut pixel_bytes, 3, &raster, 0),
-            Some(0)
-        );
-        assert_eq!((textures[0].width, textures[0].height), (2, 1));
-        assert_eq!(pixel_bytes, MAX_ACTOR_PIXEL_BYTES);
-    }
-
-    // Past the budget the largest raster shrinks first; a small one is never starved.
-    #[test]
-    fn rasters_past_the_budget_halve_the_largest_first() {
-        let side = MAX_ACTOR_TEXTURE_SIDE;
-        let rasters = [(1, side, side), (2, 4096, 4096), (3, 16, 16)];
-        let halvings = plan_halvings(rasters);
-        let total: usize = rasters
-            .iter()
-            .map(|&(source, width, height)| {
-                let steps = halvings.get(&source).copied().unwrap_or(0);
-                let (mut width, mut height) = (width, height);
-                for _ in 0..steps {
-                    (width, height) = (width.div_ceil(2), height.div_ceil(2));
-                }
-                raster_bytes(width, height)
-            })
-            .sum();
-        assert!(total <= MAX_ACTOR_PIXEL_BYTES);
-        assert!(halvings.get(&1).copied().unwrap_or(0) > 0);
-        assert_eq!(halvings.get(&3), None);
-    }
-}
+mod tests;

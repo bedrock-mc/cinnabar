@@ -9,6 +9,9 @@ use super::{
 };
 
 #[cfg(test)]
+#[path = "geometry_contract_tests.rs"]
+mod geometry_contract_tests;
+#[cfg(test)]
 #[path = "inherited_cube_tests.rs"]
 mod inherited_cube_tests;
 #[cfg(test)]
