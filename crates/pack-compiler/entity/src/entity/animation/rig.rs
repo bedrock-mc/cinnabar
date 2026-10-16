@@ -395,7 +395,13 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let field = |name: &str| {
+            scripts.and_then(|scripts| {
+                scripts
+                    .get(name)
+                    .or_else(|| scripts.get(&name.to_ascii_lowercase()))
+            })
+        };
         let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),

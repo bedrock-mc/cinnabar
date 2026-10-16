@@ -3900,6 +3900,11 @@ are authored but unrun at the user's request. Native
 `#item_name_text_offset` controller binding remains
 incomplete; this correction preserves the approved built-in pack geometry.
 
+Legacy lowercase `scalex`, `scaley` and `scalez` scripts use the same compiled scale
+programs as the modern spellings. Malformed optional values retain their counted
+fallback. Incomplete: native precedence when both spellings are supplied and the
+remaining wither spawn, armor and death behavior still need matched verification.
+
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor
 carrier admission. Incomplete: absorbed-block scale and attachment placement remain
