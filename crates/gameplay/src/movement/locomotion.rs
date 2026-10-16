@@ -255,8 +255,8 @@ impl ModeTracker {
                 flight_request,
             });
         }
-        // Flight persists on the ground; only a toggle or an ability update changes it.
-        let flying = intent.can_fly && held_flight != fly_toggle;
+        // Flight survives ground contact; server flight does not require MayFly.
+        let flying = (intent.can_fly || intent.server_flying) && held_flight != fly_toggle;
         let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
             self.mode,
