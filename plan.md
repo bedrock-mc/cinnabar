@@ -708,7 +708,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 Eyes inside scaffolding keep a clear view instead of receiving the solid-block
 overlay. Submerged eyes still select the liquid medium before the scaffolding
 exception, and ordinary solid blocks retain their overlay. Eligibility for other
-nonopaque blocks and complete native screen-effect parity remain incomplete.
+nonopaque blocks, scaffolding interior-face rendering, and complete native
+screen-effect parity remain incomplete.
 
 ## Totem activation
 
