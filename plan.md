@@ -7396,7 +7396,9 @@ one-byte stack-request slot address range instead of requiring vanilla chest row
 counts. Storage artwork, hover-name capture, and JSON-UI collections use that same
 bound, including high-index custom menu controls. Jaya's 200-slot market has a
 native Android 1.26.50.4 witness: the menu stays open, while the earlier client
-requested an immediate close. Current-client live acceptance is pending.
+requested an immediate close. The current client now retains that live menu;
+per-stack custom names also override localized item names in its collection data.
+Final live label/listing acceptance is pending.
 Incomplete: inventories beyond the retained address range, full custom binding and
 visual parity, and platform/version coverage beyond this witnessed server route.
 This does not close the storage or JSON-UI parity gates.

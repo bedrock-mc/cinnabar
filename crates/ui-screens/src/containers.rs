@@ -601,7 +601,10 @@ impl Cells<'_> {
         }
         let count = stack.map_or(0, |stack| stack.count);
         let name = stack
-            .and_then(|stack| self.names.get(&(stack.network_id, stack.metadata)))
+            .and_then(|stack| {
+                protocol::item_custom_name(&stack.extra_data)
+                    .or_else(|| self.names.get(&(stack.network_id, stack.metadata)).cloned())
+            })
             .map_or_else(String::new, |name| name.to_string());
         item.with(
             "#inventory_stack_count",

@@ -8,6 +8,37 @@ use {
     ui::IconRef,
 };
 
+#[test]
+fn same_item_menu_cells_keep_distinct_custom_names_including_empty_names() {
+    let names = [((1, 0), Arc::from("Diamond"))].into();
+    let mut icons = Vec::new();
+    let mut cells = Cells {
+        names: &names,
+        icons: &mut icons,
+    };
+    for name in [Some("Market"), Some("Next page"), Some(""), None] {
+        let extra_data = protocol::edit_item_extra(
+            &[],
+            &protocol::ItemNbtEdit {
+                custom_name: name.map(|name| Some(name.to_owned())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let stack = NetworkItemStack {
+            network_id: 1,
+            count: 1,
+            extra_data,
+            ..NetworkItemStack::empty()
+        };
+        let cell = cells.cell(Some(&stack), None, None);
+        assert_eq!(
+            cell.values["#hover_text"],
+            json_ui::Scalar::Text(name.unwrap_or("Diamond").to_owned()),
+        );
+    }
+}
+
 fn cell_control() -> Arc<ResolvedControl> {
     Arc::new(ResolvedControl {
         name: "inventory".into(),
