@@ -186,6 +186,7 @@ impl EntityGeometryScalar {
     }
 }
 
+/// One cube after its producer has resolved authored bone defaults and cube overrides.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityGeometryCube {
@@ -194,7 +195,9 @@ pub struct EntityGeometryCube {
     pub pivot: [EntityGeometryScalar; 3],
     pub rotation: [EntityGeometryScalar; 3],
     pub uv: EntityGeometryUv,
+    /// Final cube inflation; retained bone metadata must not be added again.
     pub inflate: EntityGeometryScalar,
+    /// Final cube mirroring, including an explicit false override of a bone default.
     pub mirror: bool,
 }
 
@@ -257,7 +260,9 @@ pub struct EntityGeometryBone {
     /// Rotation baked into this part's cubes, independently of the animated bone frame.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind_pose_rotation: Option<[EntityGeometryScalar; 3]>,
+    /// Authored default metadata retained for sparse bone overlays; cubes are already resolved.
     pub mirror: Option<bool>,
+    /// Authored default metadata retained for sparse bone overlays; cubes are already resolved.
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
     pub reset: Option<bool>,

@@ -139,8 +139,7 @@ fn drive(
                     worker.minecraft_import_pending = false;
                 }
                 worker.awaiting = None;
-                worker.snapshot.busy = false;
-                snapshot_changed = true;
+                snapshot_changed |= std::mem::take(&mut worker.snapshot.busy);
                 break;
             }
         };

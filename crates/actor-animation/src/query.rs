@@ -420,7 +420,9 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             }
         }
         // Only the one-argument forms carry a value; the bare forms read as zero.
-        Q::HeadYRotation => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
+        Q::HeadYRotation => argument(0)
+            .filter(|limit| !limit.is_nan())
+            .map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         Q::HeadXRotation => argument(0).map_or(0.0, |_| input.pitch),
         Q::StateTime => evaluator.state_time,
         Q::AllAnimationsFinished => truth(evaluator.finished.0),

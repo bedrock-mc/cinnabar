@@ -136,6 +136,15 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
 
 /// Advances bounded scheduler turns until test lighting is current and its workers are idle.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
+    settle_light_with_retired_wait(stream, camera, || {});
+}
+
+/// Reports an observed occupied retired slot before waiting for its worker to release it.
+fn settle_light_with_retired_wait(
+    stream: &mut WorldStream,
+    camera: [f32; 3],
+    mut on_retired_wait: impl FnMut(),
+) {
     // Emitter-dense fields take hundreds of boundary exchanges to settle.
     for _ in 0..1024 {
         stream.dispatch_light_jobs(camera, usize::MAX);
@@ -144,6 +153,7 @@ pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
             // Wait for real worker progress instead of spending scheduler turns spinning.
             let deadline = Instant::now() + Duration::from_secs(5);
             while stream.lighting.running_jobs.load(Ordering::Acquire) != 0 {
+                on_retired_wait();
                 assert!(
                     Instant::now() < deadline,
                     "retired light workers did not release their slots"
@@ -285,11 +295,24 @@ fn settle_light_waits_for_retired_worker_slots() {
     running.store(effective_light_job_cap(), Ordering::Release);
     assert!(stream.lighting.jobs.in_flight.is_empty());
     assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 0);
+    let (entered, waiting) = std::sync::mpsc::sync_channel(1);
     let worker = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(20));
+        let observed = waiting.recv_timeout(Duration::from_secs(5));
         running.store(0, Ordering::Release);
+        observed.expect("convergence must reach the occupied retired slot before release");
     });
-    settle_light(&mut stream, [8.0; 3]);
-    worker.join().unwrap();
+    let mut entered = Some(entered);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        settle_light_with_retired_wait(&mut stream, [8.0; 3], || {
+            if let Some(entered) = entered.take() {
+                entered.send(()).unwrap();
+            }
+        });
+    }));
+    let joined = worker.join();
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+    joined.unwrap();
     assert!(stream.light_is_current(key));
 }

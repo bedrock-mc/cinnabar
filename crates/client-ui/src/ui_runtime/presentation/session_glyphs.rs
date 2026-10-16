@@ -12,21 +12,42 @@ use ui_engine::pages::FIRST_GLYPH_PAGE;
 use render_model::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
 
 /// The session's glyph cells, cropped from the winning sheets.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SessionGlyphSheets {
-    pub cells: Vec<CellGlyph>,
-    pub named: std::collections::BTreeMap<String, Vec<CellGlyph>>,
-    pub prepared: std::sync::OnceLock<PreparedGlyphs>,
+    cells: Vec<CellGlyph>,
+    named: std::collections::BTreeMap<String, Vec<CellGlyph>>,
+    prepared: std::sync::OnceLock<PreparedGlyphs>,
 }
 
 #[derive(Debug)]
-pub struct PreparedGlyphs {
+struct PreparedGlyphs {
     pages: Vec<UiTexturePage>,
     glyphs: Vec<assets::SheetGlyph>,
     named: std::collections::BTreeMap<String, Vec<assets::SheetGlyph>>,
 }
 
+impl Default for SessionGlyphSheets {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
 impl SessionGlyphSheets {
+    /// Prepares an immutable default font source without named overrides.
+    pub fn new(cells: Vec<CellGlyph>) -> Self {
+        Self::with_named(cells, Default::default())
+    }
+
+    /// Returns the immutable source cells used to prepare this font.
+    pub fn cells(&self) -> &[CellGlyph] {
+        &self.cells
+    }
+
+    /// Returns the immutable named sources packed alongside the default cells.
+    pub fn named(&self) -> &std::collections::BTreeMap<String, Vec<CellGlyph>> {
+        &self.named
+    }
+
     /// Keeps named fonts in the same bounded atlas allocation as the default font.
     pub fn with_named(
         cells: Vec<CellGlyph>,

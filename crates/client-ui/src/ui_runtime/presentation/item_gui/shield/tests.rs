@@ -3,7 +3,7 @@ use assets::gui_item::{
     SHIELD_GUI_TRANSLATION as GUI_TRANSLATION, SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT,
     SHIELD_MODEL_UNIT as MODEL_UNIT,
 };
-use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+use assets::{EntityGeometryBone, EntityGeometryScalar as Scalar, EntityGeometryUv};
 use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 fn scalar(value: f32) -> Scalar {
@@ -127,4 +127,22 @@ fn unsupported_modelpart_branches_are_not_silently_guessed() {
     let mut mismatched_texture_ref = texture_ref();
     mismatched_texture_ref.uv[2] += 1;
     assert!(mesh(&geometry(), &texture(), mismatched_texture_ref).is_none());
+}
+
+#[test]
+fn gui_mesh_uses_resolved_cube_attributes_without_reapplying_bone_metadata() {
+    for (mirror, inflate) in [(false, 0.0), (true, 0.0), (false, 0.75), (true, 0.75)] {
+        let mut resolved = geometry();
+        resolved.bones[0].cubes[0].mirror = mirror;
+        resolved.bones[0].cubes[0].inflate = scalar(inflate);
+        let expected = mesh(&resolved, &texture(), texture_ref()).unwrap();
+        let mut retained_metadata = resolved.clone();
+        retained_metadata.bones[0].mirror = Some(true);
+        retained_metadata.bones[0].inflate = Some(scalar(0.75));
+        assert_eq!(
+            mesh(&retained_metadata, &texture(), texture_ref()).unwrap(),
+            expected,
+            "resolved mirror={mirror}, inflate={inflate}"
+        );
+    }
 }

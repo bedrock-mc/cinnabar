@@ -4,6 +4,8 @@ use std::io::Cursor;
 use std::io::Write;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
+mod texture_identity;
+
 /// Creates only synthetic pack content for environment subscriber tests.
 pub(super) fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
     stack(&[files])
