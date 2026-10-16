@@ -1,5 +1,13 @@
 # Phases 2-5 Completion Ledger
 
+## Liquid surfaces beneath opaque roofs
+
+Lowered water and lava tops remain visible below solid blocks, with shared side
+insets. Owning meshing regressions and the focused crate check pass. Matched local
+BDS frames reproduce the missing tops and verify the corrected surfaces against
+the official Android client. Broader liquid parity and hardware performance gates
+remain open.
+
 ## Original wardrobe hats
 
 Local headwear has an independent persisted selection, a wardrobe gallery and shared

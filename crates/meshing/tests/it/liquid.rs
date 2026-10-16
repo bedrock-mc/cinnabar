@@ -204,7 +204,64 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (SOLID, [9, 8, 8]),
         (SOLID, [8, 7, 8]),
     ]));
-    assert_eq!(occluded.liquid_quads().len(), 3);
+    assert_eq!(occluded.liquid_quads().len(), 4);
+}
+
+#[test]
+fn opaque_roofs_keep_liquid_surfaces_below_their_bottom_face() {
+    for liquid in [WATER_SOURCE, NON_WATER_LIQUID] {
+        let covered = mesh(&blocks(&[(liquid, [8, 8, 8]), (SOLID, [8, 9, 8])]));
+        let top = quad_at(&covered, [8, 8, 8], Face::PositiveY);
+        assert!(
+            top.heights()
+                .into_iter()
+                .all(|height| height < LiquidLevel::FULL_HEIGHT)
+        );
+        assert!(top.has_top_height_inset());
+        for side in [
+            Face::NegativeX,
+            Face::PositiveX,
+            Face::NegativeZ,
+            Face::PositiveZ,
+        ] {
+            assert!(quad_at(&covered, [8, 8, 8], side).has_top_height_inset());
+        }
+    }
+    let sloped = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (SOLID, [8, 9, 8]),
+        (WATER_ALIAS, [9, 8, 8]),
+        (WATER_ALIAS, [9, 9, 9]),
+    ]));
+    let top = quad_at(&sloped, [8, 8, 8], Face::PositiveY);
+    assert_eq!(top.heights()[2], LiquidLevel::FULL_HEIGHT);
+    assert!(
+        top.heights()
+            .into_iter()
+            .any(|height| height < LiquidLevel::FULL_HEIGHT)
+    );
+}
+
+#[test]
+fn fully_raised_liquid_surfaces_stay_hidden_against_opaque_roofs() {
+    let covered = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (SOLID, [8, 9, 8]),
+        (WATER_SOURCE, [7, 8, 8]),
+        (WATER_SOURCE, [7, 9, 8]),
+        (WATER_SOURCE, [9, 8, 8]),
+        (WATER_SOURCE, [9, 9, 8]),
+    ]));
+    assert!(
+        !covered
+            .liquid_quads()
+            .iter()
+            .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveY })
+    );
+    assert_eq!(
+        quad_at(&covered, [8, 8, 8], Face::PositiveZ).heights(),
+        [0, LiquidLevel::FULL_HEIGHT, LiquidLevel::FULL_HEIGHT, 0]
+    );
 }
 
 #[test]
@@ -230,7 +287,9 @@ fn alpha_glass_enclosure_keeps_water_contacts_without_reverse_side_winding() {
             .filter(|quad| quad.face() != Face::PositiveY)
             .all(|quad| !quad.is_two_sided())
     );
-    assert!(enclosure(SOLID).liquid_quads().is_empty());
+    let opaque = enclosure(SOLID);
+    assert_eq!(opaque.liquid_quads().len(), 1);
+    assert_eq!(opaque.liquid_quads()[0].face(), Face::PositiveY);
 }
 
 #[test]
@@ -248,15 +307,20 @@ fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_rep
             .enumerate()
             .all(|(index, quad)| { quad.lighting_index() == index as u32 })
     );
-    for cover in [WATER_ALIAS, SOLID] {
+    for (cover, emits_top) in [(WATER_ALIAS, false), (SOLID, true)] {
         let covered = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8]), (cover, [8, 9, 8])]));
         let mut lower = covered
             .liquid_quads()
             .iter()
             .filter(|quad| quad.origin() == [8, 8, 8]);
-        assert!(lower.clone().all(|quad| quad.face() != Face::PositiveY));
+        assert_eq!(
+            lower.clone().any(|quad| quad.face() == Face::PositiveY),
+            emits_top
+        );
         assert!(lower.clone().any(|quad| quad.face() == Face::NegativeX));
-        assert!(lower.all(|quad| !quad.has_top_height_inset()));
+        assert!(lower.all(|quad| {
+            quad.has_top_height_inset() == (emits_top && quad.face() != Face::NegativeY)
+        }));
     }
 }
 
@@ -1142,10 +1206,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            13_081_610_191_978_589_870,
-            7_276_265_386_106_865_686,
-            18_330_598_413_732_250_100,
-            11_629_133_763_896_578_950
+            12_126_709_224_666_265_908,
+            985_666_959_304_608_936,
+            15_418_509_414_702_196_572,
+            14_508_846_418_541_417_581
         ]
     );
 }
@@ -1195,5 +1259,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 857_614_043_643_775_143);
+    assert_eq!(digest, 5_225_287_854_792_396_798);
 }

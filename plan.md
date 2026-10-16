@@ -655,6 +655,15 @@ Full transport parity remains incomplete. Host-resolver timing and address admis
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
 
+## Liquid surfaces beneath opaque roofs
+
+Liquid tops below opaque roofs remain visible when any surface corner is below
+the roof boundary. Stacked compatible liquids and fully raised surfaces against
+opaque roofs retain their culling. Original-art meshing regressions cover water,
+lava, sloped surfaces and shared side insets. Local BDS rendering now matches the
+closed surfaces observed with the official Android client. Broader liquid parity
+and hardware performance gates remain open.
+
 ## Flowing water texels
 
 Replicated flipbooks compile the frame's upper-left `1 / replicate` square at full
@@ -8693,6 +8702,12 @@ does not close the broader native body-motion or live visual parity gate. See
 `docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
 
 ## Server pack compatibility
+
+Manifest format numbers accept integral decimal and exponent notation, including
+`2.0`, within the existing supported range. Fractional and unsupported formats
+remain rejected. Native Android 1.26.50.4 admits the observed decimal-format pack;
+the fixed client reaches the Motaz world and the Veltrix rules form with their
+required packs applied. Broader admission and rendering parity remain pending.
 
 Resource-pack admission accepts corrected chunk-transfer sizes within its archive
 and selected-stack byte limits. Repeated offer identities consume the count and
