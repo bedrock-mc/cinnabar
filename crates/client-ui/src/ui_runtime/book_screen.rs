@@ -282,7 +282,7 @@ impl UiRuntime {
             .map(|edit| protocol::book_edit_packet(slot, edit))
             .collect::<Option<std::collections::VecDeque<_>>>()
         else {
-            bevy::log::warn!("Book edit exceeds protocol limits; keeping the editor open");
+            tracing::warn!("Book edit exceeds protocol limits; keeping the editor open");
             return false;
         };
         if sign {
@@ -294,7 +294,7 @@ impl UiRuntime {
                     xuid: String::new(),
                 },
             ) else {
-                bevy::log::warn!("Book signature exceeds protocol limits; keeping the editor open");
+                tracing::warn!("Book signature exceeds protocol limits; keeping the editor open");
                 return false;
             };
             packets.push_back(packet);
