@@ -39,6 +39,7 @@ struct PendingRig {
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
+    held_item_scale: Option<u32>,
 }
 
 /// `(alias, target, weight, authored order)` of one root binding.
@@ -112,6 +113,7 @@ impl PendingRigPayload {
                 pre_animation: rig.pre_animation,
                 scale: rig.scale,
                 scale_expressions: rig.scale_expressions,
+                held_item_scale: rig.held_item_scale,
             });
         }
         Ok(FinalRigPayload {
@@ -366,6 +368,7 @@ pub(super) fn compile_rigs(
             pre_animation: scripts.pre_animation,
             scale: scripts.scale,
             scale_expressions: scripts.scale_expressions,
+            held_item_scale: scripts.held_item_scale,
         });
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
@@ -377,6 +380,7 @@ struct RigScripts {
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
+    held_item_scale: Option<u32>,
     dropped: usize,
 }
 
@@ -441,11 +445,25 @@ impl RigScripts {
             .and_then(EntityGeometryScalar::new)
             .or_else(|| EntityGeometryScalar::new(1.0))
             .ok_or_else(|| invalid("unit scale is representable"))?;
+        let held_item_scale = match description.get("held_item_scale") {
+            None => None,
+            Some(value) => {
+                let expression = match value {
+                    Value::Number(number) => Some(number.to_string()),
+                    Value::String(text) => Some(text.clone()),
+                    _ => None,
+                };
+                let compiled = expression.and_then(|text| molang.compile(&text).ok());
+                dropped += usize::from(compiled.is_none());
+                compiled
+            }
+        };
         Ok(Self {
             initialize,
             pre_animation,
             scale,
             scale_expressions,
+            held_item_scale,
             dropped,
         })
     }

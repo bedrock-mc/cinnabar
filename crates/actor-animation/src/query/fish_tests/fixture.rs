@@ -118,6 +118,7 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
             pre_animation: None,
             scale: scalar(1.0),
             scale_expressions: None,
+            held_item_scale: None,
         }]
         .into_boxed_slice(),
         rig_geometries: [None, Some(0)]

@@ -56,8 +56,14 @@ impl EquipmentRuntime {
         } else {
             &selected.pose
         };
-        let model_scale =
-            std::array::from_fn::<_, 3, _>(|axis| evaluated.scale * evaluated.axis_scale[axis]);
+        let held_scale = AttachableAnimationInput {
+            held_item_scale: owner_rig.held_item_scale,
+            ..input
+        }
+        .main_hand_scale();
+        let model_scale = std::array::from_fn::<_, 3, _>(|axis| {
+            evaluated.scale * evaluated.axis_scale[axis] * held_scale
+        });
         let placed = self.poses.sample_pair(
             body,
             if input.off_hand {
@@ -131,7 +137,7 @@ impl EquipmentRuntime {
                     raster.image_to_rig,
                     texture.width,
                     texture.height,
-                );
+                ) * bevy::math::Mat4::from_scale(Vec3::splat(held_scale));
                 camera
                     .is_finite()
                     .then_some((camera, raster.rest, raster.normal_axis))

@@ -7,6 +7,7 @@ use assets::{
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
+mod held_scale;
 mod player_attack;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");

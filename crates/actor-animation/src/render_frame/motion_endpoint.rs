@@ -23,6 +23,7 @@ pub(super) struct MotionEndpoint<'a> {
     pub variables: ScratchVariables,
     pub clips: Vec<tick::WeightedClip>,
     pub scale: Option<[f32; 4]>,
+    pub held_item_scale: Option<f32>,
 }
 
 impl MotionEndpointState {
@@ -69,7 +70,13 @@ impl MotionEndpointState {
         if publish {
             variables.capture_writes();
         }
-        let scale = tick::evaluate_scale(
+        let scale = tick::scale::evaluate_model(
+            &evaluator,
+            &evaluator.assets.rig_bindings()[state.rig_binding],
+            &mut variables,
+            budget,
+        )?;
+        let held_item_scale = tick::scale::evaluate_held_item(
             &evaluator,
             &evaluator.assets.rig_bindings()[state.rig_binding],
             &mut variables,
@@ -103,6 +110,7 @@ impl MotionEndpointState {
             variables,
             clips,
             scale,
+            held_item_scale,
         })
     }
 }

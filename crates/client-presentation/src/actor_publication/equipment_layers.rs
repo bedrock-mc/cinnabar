@@ -10,6 +10,7 @@ pub(super) fn attach(
     batch: &mut ActorPresentationBatch,
     equipment: &mut EquipmentRuntime,
     stream: &WorldStream,
+    mut render_frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     poses: &super::layers::LayerPoses<'_>,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
 ) {
@@ -33,6 +34,9 @@ pub(super) fn attach(
                 .authority()
                 .actor(runtime_id)
                 .zip(stream.authority().actor_rig(runtime_id).map(|rig| {
+                    let rig = render_frame
+                        .as_mut()
+                        .map_or(rig, |frame| frame.sample_held_item_scale(rig));
                     poses
                         .emote(runtime_id)
                         .map_or(rig, |pose| pose.snapshot(rig))

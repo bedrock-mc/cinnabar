@@ -99,6 +99,7 @@ pub(super) fn attach(
             batch,
             equipment,
             stream,
+            render_frame.as_deref_mut(),
             &poses,
             (partial_tick, delta_seconds, glint_settings),
         );

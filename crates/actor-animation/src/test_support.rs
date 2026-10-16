@@ -170,6 +170,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
             pre_animation: Some(0),
             scale: scalar(1.0),
             scale_expressions: None,
+            held_item_scale: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {

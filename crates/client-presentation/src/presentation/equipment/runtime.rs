@@ -393,6 +393,13 @@ impl EquipmentRuntime {
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
             let Some(item) = item else { continue };
+            let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
+            let scale = actor_animation::AttachableAnimationInput {
+                off_hand: layer == LAYER_OFF_HAND,
+                held_item_scale,
+                ..Default::default()
+            }
+            .main_hand_scale();
             let before = layers.len();
             if self.uses_native_item_mesh(&item.identifier) {
                 let elapsed = animation
@@ -406,6 +413,7 @@ impl EquipmentRuntime {
                     input.java,
                     actor_animation::AttachableAnimationInput {
                         off_hand: layer == LAYER_OFF_HAND,
+                        held_item_scale,
                         animation_frame: inventory::crossbow_animation_frame(
                             elapsed,
                             item.use_facts.ticks.unwrap_or_default(),
@@ -484,11 +492,11 @@ impl EquipmentRuntime {
             }
             match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
                 Some(grip) => {
-                    if !self.push_attachable(body, item, layer, bone, false, layers) {
-                        self.push_java_held(body, item, &bones, grip, layers);
+                    if !self.push_attachable(body, item, layer, bone, false, scale, layers) {
+                        self.push_java_held(body, item, &bones, grip, scale, layers);
                     }
                 }
-                None => self.push_held(body, item, layer, bone, layers),
+                None => self.push_held(body, item, layer, bone, scale, layers),
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
@@ -519,6 +527,7 @@ impl EquipmentRuntime {
                         layer,
                         bones.head,
                         Some(head_block_display()),
+                        1.0,
                         layers,
                     );
                     continue;

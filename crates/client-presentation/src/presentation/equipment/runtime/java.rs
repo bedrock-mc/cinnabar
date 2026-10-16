@@ -33,12 +33,14 @@ pub(super) fn rest_bone(pivot: [f32; 3]) -> RenderBoneTransform {
 impl EquipmentRuntime {
     /// The main-hand item in Java's third-person grip on the right arm; `false` when the body
     /// lacks the arm or the item has no drawable mesh.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_java_held(
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
         bones: &BodyBones,
         grip: JavaGrip,
+        scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
         let Some(arm) = bones.right_arm else {
@@ -66,8 +68,9 @@ impl EquipmentRuntime {
             JavaHeldItem::Flat
         };
         // The arm frame, not the hand bone, which vanilla animations still turn.
-        let display =
+        let mut display =
             ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind(block)));
+        display.scale *= scale;
         let (Some(previous), Some(current)) = (
             attach_to_bone(*previous, display),
             attach_to_bone(*current, display),
@@ -118,7 +121,8 @@ impl EquipmentRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
-        let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
+        let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art())
+            * bevy::math::Mat4::from_scale(bevy::math::Vec3::splat(input.main_hand_scale()));
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses

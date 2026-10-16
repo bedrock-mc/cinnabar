@@ -7,6 +7,7 @@ pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -
     };
     let mut expressions = Vec::new();
     expressions.extend(rig.pre_animation);
+    expressions.extend(rig.held_item_scale);
     expressions.extend(render_controller_expressions(assets, binding));
     expressions
 }

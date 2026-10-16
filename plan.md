@@ -3898,6 +3898,13 @@ The pinned adult and baby shell rasters preserve fractional opacity through acto
 carrier admission. Incomplete: absorbed-block scale and attachment placement remain
 unverified; restoring the shell does not close the full sulfur-cube rendering gate.
 
+Client descriptions retain numeric or Molang `held_item_scale` through rig carriers.
+Equipment reads the owner's bounded frame sample and applies the factor once to the
+main hand in either perspective; omitted descriptions keep unit size. Regression
+fixtures cover carried blocks, native weapon stages, authored models, offhand isolation
+and exhausted frame budgets. Incomplete: native custom-model origins, expression
+side effects and extreme equipment visibility bounds still need matched comparisons.
+
 2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
 wildcard material with `slime_outer`. The compiler previously ignored bone-specific
 rules, drawing both coincident opposing lens faces with the body material. Per-bone
