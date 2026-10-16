@@ -2310,6 +2310,7 @@ dependencies = [
  "ui-screens",
  "update-manifest",
  "url",
+ "uuid",
  "wat",
  "wgpu",
  "windows-sys 0.61.2",

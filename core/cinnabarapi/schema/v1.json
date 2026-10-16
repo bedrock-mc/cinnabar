@@ -63,7 +63,8 @@
         { "$ref": "#/$defs/Hello" },
         { "$ref": "#/$defs/Proof" },
         { "$ref": "#/$defs/Visibility" },
-        { "$ref": "#/$defs/Lookup" }
+        { "$ref": "#/$defs/Lookup" },
+        { "$ref": "#/$defs/EmoteState" }
       ]
     },
     "Hello": {
@@ -126,7 +127,8 @@
         { "$ref": "#/$defs/Welcome" },
         { "$ref": "#/$defs/Error" },
         { "$ref": "#/$defs/LookupResult" },
-        { "$ref": "#/$defs/Release" }
+        { "$ref": "#/$defs/Release" },
+        { "$ref": "#/$defs/Emote" }
       ]
     },
     "Challenge": {
@@ -185,6 +187,83 @@
         "version": { "$ref": "#/$defs/Version" },
         "build": { "$ref": "#/$defs/Build" },
         "published_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "EmoteId": {
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128,
+      "pattern": "^[a-z0-9_.:-]+$"
+    },
+    "EmoteState": {
+      "description": "Replaces the nearby-player watch list and local emote. The combined identifier limit is 128. Null stops playback; elapsed_ms is the current playback phase. Omitting both identifier arrays retains subscriptions; an empty array clears them. Receivers ignore unknown clips.",
+      "type": "object",
+      "required": [
+        "type",
+        "emote_id",
+        "elapsed_ms"
+      ],
+      "properties": {
+        "type": {
+          "const": "emote_state"
+        },
+        "emote_id": {
+          "$ref": "#/$defs/EmoteId"
+        },
+        "elapsed_ms": {
+          "$ref": "#/$defs/U32"
+        },
+        "xuids": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Xuid"
+          }
+        },
+        "uuids": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        }
+      }
+    },
+    "Emote": {
+      "description": "Authenticated sender identity with a bounded playback lease. Null stops playback. No server-provided actor identity is trusted.",
+      "type": "object",
+      "required": [
+        "type",
+        "xuid",
+        "uuid",
+        "emote_id",
+        "elapsed_ms",
+        "valid_for_ms"
+      ],
+      "properties": {
+        "type": {
+          "const": "emote"
+        },
+        "xuid": {
+          "$ref": "#/$defs/Xuid"
+        },
+        "uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "emote_id": {
+          "$ref": "#/$defs/EmoteId"
+        },
+        "elapsed_ms": {
+          "$ref": "#/$defs/U32"
+        },
+        "valid_for_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15000
+        }
       }
     }
   }

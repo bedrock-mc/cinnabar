@@ -137,3 +137,21 @@ mod tests {
         assert!(!valid_cinnabar_uuid("00112233445566778899aabbccddeeff0000"));
     }
 }
+
+/// Exchanges nearby watches and local playback with the core's nonblocking API connection.
+pub async fn sync_cinnabar_emotes(
+    socket_dir: &Path,
+    state: &crate::contract::CinnabarEmoteState,
+) -> Result<Vec<crate::contract::CinnabarRemoteEmote>, BridgeError> {
+    #[derive(Deserialize)]
+    struct Emotes {
+        emotes: Vec<crate::contract::CinnabarRemoteEmote>,
+    }
+    let response: Emotes = call(
+        socket_dir,
+        crate::contract::METHOD_CINNABAR_EMOTES,
+        Some(state),
+    )
+    .await?;
+    Ok(response.emotes)
+}

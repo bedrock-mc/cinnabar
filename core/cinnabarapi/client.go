@@ -95,14 +95,22 @@ type Client struct {
 
 // session is one authenticated connection.
 type session struct {
-	conn       *websocket.Conn
-	out        chan []byte
-	dirty      chan struct{} // visibility changed
-	visible    bool          // what the server holds; written only by the writer
-	nextID     uint32
-	pending    map[uint32]chan lookupReply // guarded by Client.mu
-	closed     chan struct{}
-	parameters parameters
+	emoteSent      bool       // guarded by Client.mu
+	emoteWatchSent time.Time  // guarded by Client.mu
+	emoteSentXUIDs []string   // guarded by Client.mu
+	emoteSentUUIDs []string   // guarded by Client.mu
+	emoteState     EmoteState // guarded by Client.mu
+	emoteQueued    time.Time  // guarded by Client.mu
+	emoteDirty     chan struct{}
+	emotes         map[string]receivedEmote // guarded by Client.mu
+	conn           *websocket.Conn
+	out            chan []byte
+	dirty          chan struct{} // visibility changed
+	visible        bool          // what the server holds; written only by the writer
+	nextID         uint32
+	pending        map[uint32]chan lookupReply // guarded by Client.mu
+	closed         chan struct{}
+	parameters     parameters
 }
 
 // LookupResult contains matches in each requested identifier namespace.
@@ -338,6 +346,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	defer conn.CloseNow()
 	s := &session{
 		conn: conn, out: make(chan []byte, 8), dirty: make(chan struct{}, 1),
+		emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote),
 		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
@@ -448,6 +457,8 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		switch msg.Type {
 		case typeRelease:
 			c.release(msg)
+		case typeEmote:
+			c.receiveEmote(s, msg)
 		case typeLookupResult:
 			c.logger.Debug("Cinnabar API lookup result received", "found", len(msg.Cinnabar), "found_uuids", len(msg.CinnabarUUIDs))
 			c.answer(s, msg.ID, lookupReply{result: LookupResult{Cinnabar: msg.Cinnabar, CinnabarUUIDs: msg.CinnabarUUIDs}})
@@ -472,6 +483,8 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 		case <-ctx.Done():
 			return
 		case payload = <-s.out:
+		case <-s.emoteDirty:
+			payload = c.emotePayload(s)
 		case <-s.dirty:
 			c.mu.Lock()
 			visible := c.config.Visible

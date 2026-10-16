@@ -29,3 +29,12 @@ park the API connection until restart. Release pushes schedule a signed-manifest
 minutes; if the manifest still predates the announcement, a few delayed retries allow publication
 caches to catch up. Release notices include the build and are sent only after publishing a changed,
 signed manifest. Packaging rejects placeholder API origins.
+
+**Shared emotes:** the client reports up to 128 nearby player identities and local custom
+playback over the same authenticated connection. The API relays starts, phases and stops only
+when both clients report each other nearby. The visibility option controls publishing.
+Changing worlds clears watches and received playback. Unknown clips are skipped, and each
+received dance expires after at most 15 seconds without renewal. Disconnects and visibility
+opt-out stop playback immediately when delivered. Server addresses and names are not sent.
+This requires the API's optional `emote_state`/`emote` extension; older API servers simply
+ignore the updates. Local playback works while the API is unavailable.
