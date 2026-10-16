@@ -42,9 +42,9 @@ fn movement() -> WorldEvent {
     }))
 }
 
-/// Fills both terrain lanes without dispatching their decode jobs.
-fn full_stream() -> (chunk_pipeline::WorldStream, u64) {
-    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+/// Creates a stream with independent terrain and light admission lanes.
+fn stream() -> chunk_pipeline::WorldStream {
+    chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
         dimension: 0,
@@ -52,7 +52,12 @@ fn full_stream() -> (chunk_pipeline::WorldStream, u64) {
         world_spawn_position: [0; 3],
         air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
-    });
+    })
+}
+
+/// Fills both terrain lanes without dispatching their decode jobs.
+fn full_stream() -> (chunk_pipeline::WorldStream, u64) {
+    let mut stream = stream();
     let count = (MAX_ADMITTED_HEAVY_EVENTS + MAX_DEFERRED_WORLD_EVENTS) as u64;
     for sequence in 1..=count {
         stream.submit(sequence, terrain(sequence as i32)).unwrap();
@@ -75,7 +80,7 @@ fn remote_moves_drain_when_heavy_and_deferred_terrain_are_full() {
     let mut pending = VecDeque::new();
     let mut applied = Vec::new();
     while let Some(ingress) = drain
-        .next(&mut receiver, &mut pending, Some(&mut stream), now)
+        .next(&mut receiver, &mut pending, Some(&mut stream), || now)
         .unwrap()
     {
         let WorldIngress::Event(event) = ingress else {
@@ -103,7 +108,7 @@ fn expired_frame_leaves_the_buffered_head_untouched() {
     let mut drain = WorldIngressDrain::new(now);
     assert!(
         drain
-            .next(&mut receiver, &mut pending, None, now)
+            .next(&mut receiver, &mut pending, None, || now)
             .unwrap()
             .is_none()
     );
@@ -124,12 +129,14 @@ fn buffered_transfer_barrier_stops_before_replacement_events() {
     let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
     let mut pending = VecDeque::from([barrier.clone()]);
     assert_eq!(
-        drain.next(&mut receiver, &mut pending, None, now).unwrap(),
+        drain
+            .next(&mut receiver, &mut pending, None, || now)
+            .unwrap(),
         Some(barrier)
     );
     assert!(
         drain
-            .next(&mut receiver, &mut pending, None, now)
+            .next(&mut receiver, &mut pending, None, || now)
             .unwrap()
             .is_none()
     );
@@ -211,7 +218,7 @@ fn stalled_chunk_head_still_admits_inventory_hud_movement_and_latency() {
     let mut pending = VecDeque::new();
     let mut admitted = Vec::new();
     while let Some(WorldIngress::Event(event)) = drain
-        .next(&mut receiver, &mut pending, Some(&mut stream), now)
+        .next(&mut receiver, &mut pending, Some(&mut stream), || now)
         .unwrap()
     {
         admitted.push(event.sequence.get());
@@ -275,7 +282,7 @@ fn retained_block_mutation_keeps_later_inventory_and_latency_ordered() {
     let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
     let mut pending = VecDeque::new();
     while let Some(WorldIngress::Event(event)) = drain
-        .next(&mut receiver, &mut pending, Some(&mut stream), now)
+        .next(&mut receiver, &mut pending, Some(&mut stream), || now)
         .unwrap()
     {
         if matches!(event.event, WorldEvent::Inventory(_)) {
@@ -323,7 +330,7 @@ fn stalled_terrain_keeps_dimension_and_transfer_barriers_ahead_of_later_events()
             let mut drain = WorldIngressDrain::new(start + WORLD_INGRESS_DRAIN_BUDGET);
             assert!(
                 drain
-                    .next(&mut receiver, &mut pending, Some(&mut stream), start)
+                    .next(&mut receiver, &mut pending, Some(&mut stream), || start)
                     .unwrap()
                     .is_none()
             );
@@ -354,11 +361,289 @@ fn ingress_lookahead_stays_bounded_across_stalled_frames() {
         let mut drain = WorldIngressDrain::new(start + WORLD_INGRESS_DRAIN_BUDGET);
         assert!(
             drain
-                .next(&mut receiver, &mut pending, Some(&mut stream), start)
+                .next(&mut receiver, &mut pending, Some(&mut stream), || start)
                 .unwrap()
                 .is_none()
         );
         assert_eq!(pending.len(), limit);
+        assert_eq!(receiver.len(), 1);
+    }
+}
+
+/// Advances the supplied frame clock to its deadline after one item can be inspected.
+fn one_item_clock(start: Instant) -> impl FnMut() -> Instant {
+    let deadline = start + WORLD_INGRESS_DRAIN_BUDGET;
+    let mut times = [start, start].into_iter();
+    move || times.next().unwrap_or(deadline)
+}
+
+#[test]
+fn lookahead_deadline_leaves_uninspected_receiver_payloads_for_next_frame() {
+    let (mut stream, full) = full_stream();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(3);
+    for offset in 1..=3 {
+        sender
+            .try_send(event(full + offset, terrain(1000)))
+            .unwrap();
+    }
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    assert!(
+        WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+            .next(
+                &mut receiver,
+                &mut pending,
+                Some(&mut stream),
+                one_item_clock(now)
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending.len(), 1);
+    assert_eq!(receiver.len(), 2);
+    assert_eq!(sequence(pending.front().unwrap()), full + 1);
+    assert!(
+        WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending.len(), 3);
+    assert!(receiver.is_empty());
+}
+
+#[test]
+fn lookahead_deadline_stops_retained_scan_before_later_light_admission() {
+    let (mut stream, full) = full_stream();
+    let mut pending = VecDeque::new();
+    for (offset, value) in [terrain(1000), movement()].into_iter().enumerate() {
+        let sequence = full + offset as u64 + 1;
+        let footprint = stream.ingress_footprint(&value);
+        stream
+            .retain_ingress(sequence, footprint, client_session::WORLD_EVENT_CAPACITY)
+            .unwrap();
+        pending.push_back(event(sequence, value));
+    }
+    let (_sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let now = Instant::now();
+    assert!(
+        WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+            .next(
+                &mut receiver,
+                &mut pending,
+                Some(&mut stream),
+                one_item_clock(now)
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending.len(), 2);
+    assert!(matches!(
+        WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now).unwrap(),
+        Some(WorldIngress::Event(event)) if event.sequence.get() == full + 2
+    ));
+}
+
+/// Light consumer backpressure cannot spend the independent terrain allowance.
+#[test]
+fn full_light_lane_still_admits_terrain_head() {
+    let mut stream = stream();
+    let full = client_world::ingestion::MAX_ADMITTED_WORLD_EVENTS as u64;
+    for sequence in 1..=full {
+        stream
+            .submit(sequence, WorldEvent::NetworkStackLatency(sequence))
+            .unwrap();
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
+    for sequence in full + 1..=full + 2 {
+        sender
+            .try_send(event(sequence, terrain(sequence as i32)))
+            .unwrap();
+    }
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
+    for sequence in full + 1..=full + 2 {
+        let WorldIngress::Event(event) = drain
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("terrain still has admission credit");
+        };
+        assert_eq!(event.sequence.get(), sequence);
+        stream.submit(sequence, event.event).unwrap();
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    assert!(pending.is_empty());
+    assert!(receiver.is_empty());
+}
+
+/// An unreserved light payload stops further reads until consumer fanout releases credit.
+#[test]
+fn full_light_lane_stops_lookahead_then_reserves_credit_when_consumers_drain() {
+    let (mut stream, terrain_count) = full_stream();
+    let light_count = client_world::ingestion::MAX_ADMITTED_WORLD_EVENTS as u64;
+    for sequence in terrain_count + 1..=terrain_count + light_count {
+        stream
+            .submit(sequence, WorldEvent::NetworkStackLatency(sequence))
+            .unwrap();
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    let full = terrain_count + light_count;
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(3);
+    sender.try_send(event(full + 1, terrain(1000))).unwrap();
+    sender
+        .try_send(event(
+            full + 2,
+            WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [100.5, 80.0, 100.5],
+                mode: protocol::MovePlayerMode::Teleport,
+                ..Default::default()
+            }),
+        ))
+        .unwrap();
+    sender.try_send(event(full + 3, movement())).unwrap();
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    for _ in 0..2 {
+        assert!(
+            WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+                .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(pending.len(), 2);
+        assert_eq!(receiver.len(), 1);
+    }
+    assert_eq!(stream.take_committed_controls().len(), light_count as usize);
+    let Some(WorldIngress::Event(event)) = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET)
+        .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+        .unwrap()
+    else {
+        panic!("fanout released credit for the retained teleport and later movement");
+    };
+    assert_eq!(event.sequence.get(), full + 3);
+    stream.submit(event.sequence.get(), event.event).unwrap();
+    assert_eq!(stream.light_admission_capacity(), light_count as usize - 2);
+    assert!(stream.take_committed_controls().is_empty());
+    assert_eq!(pending.len(), 2);
+    assert!(receiver.is_empty());
+}
+
+/// A retained teleport and block mutation keep latency and actor consumers in wire order.
+#[test]
+fn retained_light_and_mutation_keep_later_latency_and_movement_ordered() {
+    let (mut stream, full) = full_stream();
+    let teleport = WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+        runtime_id: 1,
+        position: [100.5, 80.0, 100.5],
+        mode: protocol::MovePlayerMode::Teleport,
+        ..Default::default()
+    });
+    let values = [
+        terrain(1000),
+        teleport,
+        WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+            dimension: 0,
+            position: [16_000, 0, 0],
+            layer: 0,
+            network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        }]),
+        WorldEvent::NetworkStackLatency(777),
+        movement(),
+    ];
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(values.len());
+    for (offset, value) in values.into_iter().enumerate() {
+        sender
+            .try_send(event(full + offset as u64 + 1, value))
+            .unwrap();
+    }
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
+    while let Some(WorldIngress::Event(event)) = drain
+        .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+        .unwrap()
+    {
+        stream.submit(event.sequence.get(), event.event).unwrap();
+    }
+    assert_eq!(
+        pending.iter().map(sequence).collect::<Vec<_>>(),
+        [full + 1, full + 2, full + 3]
+    );
+    assert!(stream.take_committed_controls().is_empty());
+    assert_eq!(stream.committed_sequence(), 0);
+    assert_eq!(stream.inventory_committed_through(), Some(full + 1));
+    assert!(receiver.is_empty());
+}
+
+/// A retained head spends its own light slot, including when that head ends a session.
+#[test]
+fn retained_light_head_spends_its_reserved_credit_when_lane_is_full() {
+    let full = client_world::ingestion::MAX_ADMITTED_WORLD_EVENTS as u64;
+    for transfer in [false, true] {
+        let mut stream = stream();
+        let ingress = if transfer {
+            WorldIngress::FastTransferBarrier {
+                session_generation: SessionGeneration::new(1),
+                sequence: protocol::identity::FifoSequence::new(1),
+                action_sequence: 7,
+            }
+        } else {
+            event(
+                1,
+                WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                    runtime_id: 1,
+                    position: [100.5, 80.0, 100.5],
+                    mode: protocol::MovePlayerMode::Teleport,
+                    ..Default::default()
+                }),
+            )
+        };
+        assert!(
+            stream
+                .retain_ingress(
+                    1,
+                    footprint(&ingress, &stream),
+                    client_session::WORLD_EVENT_CAPACITY
+                )
+                .unwrap()
+        );
+        let mut pending = VecDeque::from([ingress.clone()]);
+        for sequence in 2..=full {
+            stream.submit(sequence, movement()).unwrap();
+        }
+        assert_eq!(stream.light_admission_capacity(), 0);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        sender.try_send(event(full + 1, movement())).unwrap();
+        let now = Instant::now();
+        let mut drain = WorldIngressDrain::new(now + WORLD_INGRESS_DRAIN_BUDGET);
+        let admitted = drain
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
+            .unwrap();
+        assert_eq!(admitted, ingress);
+        match admitted {
+            WorldIngress::Event(event) => stream.submit(event.sequence.get(), event.event).unwrap(),
+            WorldIngress::FastTransferBarrier { sequence, .. } => {
+                stream.commit_barrier(sequence.get()).unwrap()
+            }
+            WorldIngress::LevelChunk { .. } => unreachable!(),
+        }
+        assert_eq!(stream.committed_sequence(), full);
+        assert!(pending.is_empty());
+        if transfer {
+            assert!(
+                drain
+                    .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+                    .unwrap()
+                    .is_none()
+            );
+        }
         assert_eq!(receiver.len(), 1);
     }
 }

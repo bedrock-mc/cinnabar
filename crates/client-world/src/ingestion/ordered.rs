@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
+mod ingress;
+
 use protocol::{BlockUpdateEvent, SyncedBlockUpdateEvent, WorldEvent};
 
 use super::{
@@ -58,8 +60,10 @@ enum Held {
     Heavy,
     /// Ordered behind earlier terrain without decode admission yet.
     Deferred,
-    /// A payload retained by the bounded ingress lookahead, before lane admission.
-    Ingress,
+    /// A retained payload; light packets may already own admission credit.
+    Ingress {
+        light_reserved: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -119,6 +123,8 @@ pub struct OrderedCommitState {
     heavy: usize,
     deferred: usize,
     ingress: usize,
+    /// Light slots reserved by payloads still owned by the ingress adapter.
+    ingress_light: usize,
     pending_sub_chunks: Option<PendingSubChunkCommit>,
     /// The block batch awaiting decode, with the last sequence it merged.
     blocking_block_updates: Option<(u64, u64)>,
@@ -143,6 +149,7 @@ impl OrderedCommitState {
             heavy: 0,
             deferred: 0,
             ingress: 0,
+            ingress_light: 0,
             pending_sub_chunks: None,
             blocking_block_updates: None,
             block_update_range_end: None,
@@ -302,45 +309,6 @@ impl OrderedCommitState {
         Ok(())
     }
 
-    /// Records a retained ingress payload's dependencies before later events are admitted.
-    /// The caller keeps its payload until ordinary lane capacity becomes available.
-    pub fn retain_ingress(
-        &mut self,
-        sequence: u64,
-        footprint: Footprint,
-        capacity: usize,
-    ) -> Result<(), WorldStreamError> {
-        self.validate_sequence(sequence)?;
-        if self.ingress >= capacity {
-            return Err(self.full(sequence));
-        }
-        self.ingress += 1;
-        self.insert_entry(sequence, footprint, Held::Ingress);
-        Ok(())
-    }
-
-    /// Borrows a retained payload's recorded dependencies until its reservation is released.
-    /// Panics if the sequence does not hold an ingress reservation.
-    pub fn retained_ingress_footprint(&self, sequence: u64) -> &Footprint {
-        let entry = self
-            .entries
-            .get(&sequence)
-            .filter(|entry| entry.held == Held::Ingress)
-            .expect("only retained ingress has an ingress footprint");
-        &entry.footprint
-    }
-
-    /// Releases a lookahead reservation immediately before its payload is admitted normally.
-    pub fn release_ingress(&mut self, sequence: u64) {
-        assert!(
-            self.entries
-                .get(&sequence)
-                .is_some_and(|entry| entry.held == Held::Ingress),
-            "only retained ingress can release its reservation"
-        );
-        self.cancel_admission(sequence);
-    }
-
     /// Moves deferred heavy terrain into decode admission; the caller checked capacity, or
     /// the event is the frontier and owes nothing to later events.
     pub fn promote_deferred(&mut self, sequence: u64) {
@@ -378,6 +346,7 @@ impl OrderedCommitState {
     /// Every unfinished event holds exactly one bounded admission lane until it finishes.
     fn debug_check_accounting(&self) {
         debug_assert_eq!(self.unfinished, self.entries.len());
+        debug_assert!(self.ingress_light <= self.ingress);
         debug_assert_eq!(
             self.unfinished,
             self.light + self.heavy + self.deferred + self.ingress,
@@ -419,7 +388,10 @@ impl OrderedCommitState {
             Held::Light => self.light -= 1,
             Held::Heavy => self.heavy -= 1,
             Held::Deferred => self.deferred -= 1,
-            Held::Ingress => self.ingress -= 1,
+            Held::Ingress { light_reserved } => {
+                self.ingress -= 1;
+                self.ingress_light -= usize::from(light_reserved);
+            }
         }
         self.debug_check_accounting();
     }
@@ -886,7 +858,20 @@ impl OrderedCommitState {
     /// Light-lane headroom left after retained committed consumers.
     #[must_use]
     pub const fn light_capacity(&self, retained_commits: usize) -> usize {
-        MAX_ADMITTED_WORLD_EVENTS.saturating_sub(self.light.saturating_add(retained_commits))
+        self.light_capacity_with_reservations(retained_commits, self.ingress_light)
+    }
+
+    /// Counts ordinary and reserved light credit against the same consumer bound.
+    const fn light_capacity_with_reservations(
+        &self,
+        retained_commits: usize,
+        reservations: usize,
+    ) -> usize {
+        MAX_ADMITTED_WORLD_EVENTS.saturating_sub(
+            self.light
+                .saturating_add(retained_commits)
+                .saturating_add(reservations),
+        )
     }
 
     /// Heavy decode admission headroom.

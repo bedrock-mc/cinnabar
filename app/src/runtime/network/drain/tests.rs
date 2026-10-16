@@ -76,7 +76,7 @@ fn drain_frame(
     let now = Instant::now();
     let mut drain = frame_drain(now);
     let mut consumed = Vec::new();
-    while let Some(ingress) = drain.next(receiver, pending, Some(stream), now).unwrap() {
+    while let Some(ingress) = drain.next(receiver, pending, Some(stream), || now).unwrap() {
         consumed.push(submit(stream, ingress));
     }
     consumed
@@ -151,20 +151,20 @@ fn world_ingress_stops_at_its_time_budget_and_preserves_fifo() {
     let mut drain = frame_drain(start);
     let mut pending = VecDeque::new();
     assert!(matches!(
-        drain.next(&mut receiver, &mut pending, None, start).unwrap(),
+        drain.next(&mut receiver, &mut pending, None, || start).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     ));
     let spent = start + WORLD_INGRESS_DRAIN_BUDGET;
     assert!(
         drain
-            .next(&mut receiver, &mut pending, None, spent)
+            .next(&mut receiver, &mut pending, None, || spent)
             .unwrap()
             .is_none()
     );
     assert_eq!(receiver.len(), 2);
     let mut next_frame = frame_drain(spent);
     assert!(matches!(
-        next_frame.next(&mut receiver, &mut pending, None, spent).unwrap(),
+        next_frame.next(&mut receiver, &mut pending, None, || spent).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     ));
 }
@@ -228,7 +228,7 @@ fn world_ingress_cursor_leaves_zero_admission_events_queued() {
     let mut pending = VecDeque::new();
     assert!(
         drain
-            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
             .unwrap()
             .is_none()
     );
@@ -236,7 +236,7 @@ fn world_ingress_cursor_leaves_zero_admission_events_queued() {
     stream.take_committed_controls();
     stream.take_committed_ui();
     assert!(matches!(
-        drain.next(&mut receiver, &mut pending, Some(&mut stream), now).unwrap(),
+        drain.next(&mut receiver, &mut pending, Some(&mut stream), || now).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == sequence
     ));
 }
@@ -259,24 +259,24 @@ fn world_ingress_cursor_receives_without_allocating() {
     let mut drain = frame_drain(now);
     let mut pending = VecDeque::new();
     let first = matches!(
-        drain.next(&mut receiver, &mut pending, None, now).unwrap(),
+        drain.next(&mut receiver, &mut pending, None, || now).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     );
     let second = matches!(
-        drain.next(&mut receiver, &mut pending, None, now).unwrap(),
+        drain.next(&mut receiver, &mut pending, None, || now).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     );
     let capped = drain
-        .next(&mut receiver, &mut pending, None, spent)
+        .next(&mut receiver, &mut pending, None, || spent)
         .unwrap()
         .is_none();
     let mut next_frame = frame_drain(spent);
     let third = matches!(
-        next_frame.next(&mut receiver, &mut pending, None, spent).unwrap(),
+        next_frame.next(&mut receiver, &mut pending, None, || spent).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 3
     );
     let empty = next_frame
-        .next(&mut receiver, &mut pending, None, spent)
+        .next(&mut receiver, &mut pending, None, || spent)
         .unwrap()
         .is_none();
     let allocated = thread_allocations() - before;
@@ -319,7 +319,7 @@ fn retained_multi_column_ingress_rescans_without_allocating() {
     let mut pending = VecDeque::new();
     assert!(
         frame_drain(now)
-            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
             .unwrap()
             .is_none()
     );
@@ -328,7 +328,7 @@ fn retained_multi_column_ingress_rescans_without_allocating() {
     for _ in 0..3 {
         let before = thread_allocations();
         let next = frame_drain(now)
-            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
             .unwrap();
         let allocations = thread_allocations() - before;
         assert!(next.is_none());
@@ -339,7 +339,7 @@ fn retained_multi_column_ingress_rescans_without_allocating() {
         sender.try_send(remote_move(sequence)).unwrap();
         let before = thread_allocations();
         let next = drain
-            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
             .unwrap()
             .unwrap();
         let allocations = thread_allocations() - before;

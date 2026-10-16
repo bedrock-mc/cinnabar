@@ -48,7 +48,7 @@ pub(super) fn drain(
             receiver,
             pending,
             client_world.stream.as_mut(),
-            Instant::now(),
+            Instant::now,
         ) {
             Ok(Some(ingress)) => ingress,
             Ok(None) => break,

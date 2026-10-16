@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// One frame's world ingress time; terrain is bounded by admission, not by this.
+/// One frame's ingress time allowance, rechecked between payloads.
 pub const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);
 pub const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 /// Drains a full control queue per frame so send receipts cannot accumulate and block
@@ -41,19 +41,27 @@ impl WorldIngressDrain {
     }
 
     /// Returns the next event with lane capacity, retaining blocked payloads across frames.
-    /// The stream's existing footprints preserve dependent ordering during lookahead.
+    /// The supplied clock is rechecked between payloads and retained scans.
     pub fn next(
         &mut self,
         receiver: &mut tokio::sync::mpsc::Receiver<WorldIngress>,
         pending: &mut VecDeque<WorldIngress>,
         mut stream: Option<&mut WorldStream>,
-        now: Instant,
+        mut now: impl FnMut() -> Instant,
     ) -> Result<Option<WorldIngress>, WorldStreamError> {
-        if self.stopped || now >= self.deadline {
+        if self.stopped || now() >= self.deadline {
             return Ok(None);
         }
         for index in 0..pending.len() {
+            if now() >= self.deadline {
+                return Ok(None);
+            }
             let ingress = &pending[index];
+            if let Some(stream) = stream.as_deref_mut()
+                && !stream.reserve_ingress_light(sequence(ingress))
+            {
+                return Ok(None);
+            }
             let footprint = stream
                 .as_deref()
                 .map(|stream| stream.retained_ingress_footprint(sequence(ingress)));
@@ -63,7 +71,7 @@ impl WorldIngressDrain {
                 return Ok(None);
             }
             if (index == 0 || footprint.is_none_or(bypasses_terrain))
-                && admits(ingress, stream.as_deref(), footprint)
+                && admits_retained(ingress, stream.as_deref(), footprint)
             {
                 let ingress = pending.remove(index).expect("the retained ingress exists");
                 if let Some(stream) = stream.as_deref_mut() {
@@ -76,6 +84,9 @@ impl WorldIngressDrain {
             }
         }
         while pending.len() < client_session::WORLD_EVENT_CAPACITY {
+            if now() >= self.deadline {
+                return Ok(None);
+            }
             let Ok(ingress) = receiver.try_recv() else {
                 return Ok(None);
             };
@@ -90,13 +101,13 @@ impl WorldIngressDrain {
                 return Ok(Some(self.admitted(ingress)));
             }
             let is_barrier = footprint.barrier;
-            stream.retain_ingress(
+            let has_credit = stream.retain_ingress(
                 sequence(&ingress),
                 footprint,
                 client_session::WORLD_EVENT_CAPACITY,
             )?;
             pending.push_back(ingress);
-            if is_barrier {
+            if is_barrier || !has_credit {
                 return Ok(None);
             }
         }
@@ -107,6 +118,20 @@ impl WorldIngressDrain {
     fn admitted(&mut self, ingress: WorldIngress) -> WorldIngress {
         self.stopped = matches!(ingress, WorldIngress::FastTransferBarrier { .. });
         ingress
+    }
+}
+
+/// Includes a retained light payload's own credit when checking its admission.
+fn admits_retained(
+    ingress: &WorldIngress,
+    stream: Option<&WorldStream>,
+    footprint: Option<&Footprint>,
+) -> bool {
+    match (stream, footprint) {
+        (Some(stream), Some(footprint)) if !footprint.heavy => {
+            stream.retained_ingress_light_capacity(sequence(ingress)) > 0
+        }
+        _ => admits(ingress, stream, footprint),
     }
 }
 

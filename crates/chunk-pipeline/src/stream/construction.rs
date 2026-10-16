@@ -230,14 +230,31 @@ impl WorldStream {
         client_world::ingestion::classify(event, self.lane_context())
     }
 
-    /// Records dependencies for a payload the ingress adapter retains outside admission.
+    /// Records a retained payload, returning whether its lane has credit for further lookahead.
     pub fn retain_ingress(
         &mut self,
         sequence: u64,
         footprint: Footprint,
         capacity: usize,
-    ) -> Result<(), WorldStreamError> {
-        self.order.retain_ingress(sequence, footprint, capacity)
+    ) -> Result<bool, WorldStreamError> {
+        self.order.retain_ingress(
+            sequence,
+            footprint,
+            capacity,
+            self.authority.retained_commit_count(),
+        )
+    }
+
+    /// Reserves light credit before later packets may pass a retained payload.
+    pub fn reserve_ingress_light(&mut self, sequence: u64) -> bool {
+        self.order
+            .reserve_ingress_light(sequence, self.authority.retained_commit_count())
+    }
+
+    /// Reports light headroom including this retained payload's own reserved credit.
+    pub fn retained_ingress_light_capacity(&self, sequence: u64) -> usize {
+        self.order
+            .retained_ingress_light_capacity(sequence, self.authority.retained_commit_count())
     }
 
     /// Borrows a retained payload's dependencies without classifying or copying its columns.
