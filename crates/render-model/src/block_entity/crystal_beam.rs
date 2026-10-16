@@ -179,7 +179,8 @@ pub(super) fn emit(builder: &mut MeshBuilder, atlas: &BlockEntityAtlas, model: &
 mod tests {
     use super::*;
     use crate::block_entity::{
-        BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+        BlockEntityKind, BlockEntityScene, BlockEntitySubmission, MIN_DYNAMIC_ATLAS_WIDTH,
+        SceneClock,
     };
     use std::sync::Arc;
 
@@ -187,9 +188,9 @@ mod tests {
     fn scene() -> BlockEntityScene {
         let encoded = assets::encode_block_entity_catalog(
             b"{}",
+            MIN_DYNAMIC_ATLAS_WIDTH,
             16,
-            16,
-            &[255; 16 * 16 * 4],
+            &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4],
             &[assets::BlockEntityPlacement {
                 name: assets::CRYSTAL_BEAM_TEXTURE.into(),
                 x: 0,
@@ -204,6 +205,7 @@ mod tests {
         scene
     }
 
+    /// Interpolates packed atlas UVs at a point covered by the emitted beam triangles.
     fn sample_uv(vertices: &[super::super::mesh::BlockEntityVertex], point: Vec3) -> [f32; 2] {
         for triangle in vertices.as_chunks::<3>().0 {
             let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i].position));
@@ -247,7 +249,12 @@ mod tests {
                 [2.0 / (3 * SIDES) as f32, 2.0 / 3.0],
             ),
         ];
-        let atlas_height = scene.atlas().unwrap().size()[1];
+        let atlas = scene.atlas().unwrap();
+        let atlas_size = atlas.size().map(|side| side as f32);
+        let rect = atlas
+            .texture(assets::CRYSTAL_BEAM_TEXTURE, [1.0; 2])
+            .unwrap()
+            .rect;
         for age_ticks in [0.0, 25.0, 50.0, 99.0, 100.0] {
             let submission = BlockEntitySubmission {
                 block: [0; 3],
@@ -260,11 +267,13 @@ mod tests {
             };
             let frame = scene.update(SceneClock::default(), &[], &[submission]);
             for (point, expected) in samples {
-                let uv = sample_uv(&frame.solid, point);
+                let packed = sample_uv(&frame.solid, point);
+                let uv = [
+                    (packed[0] * atlas_size[0] - rect.x) / rect.width,
+                    (packed[1] * atlas_size[1] - rect.y) / rect.height,
+                ];
                 assert!((uv[0] - expected[0]).abs() < 1e-5, "{age_ticks}: {uv:?}");
-                let expected_v = (expected[1] + age_ticks * UV_SCROLL_PER_TICK).rem_euclid(1.0)
-                    * 16.0
-                    / atlas_height as f32;
+                let expected_v = (expected[1] + age_ticks * UV_SCROLL_PER_TICK).rem_euclid(1.0);
                 assert!((uv[1] - expected_v).abs() < 1e-5, "{age_ticks}: {uv:?}");
             }
         }

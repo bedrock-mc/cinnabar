@@ -65,6 +65,7 @@ pub(super) fn emit_mesh(
             depth_write: material.depth_write,
             world_projection: false,
             isolated_depth_scope: Some(space.node.get()),
+            filter_group: space.filter_for(material.blend),
             index_range: start
                 ..u32::try_from(indices.len()).map_err(|_| UiError::DrawIndexOverflow)?,
         });

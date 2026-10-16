@@ -73,9 +73,10 @@ pub(super) fn plan_segment(
         return UiDamage::Unchanged;
     }
     let mut damage = None;
+    // Backdrops draw into the scene, never into a retained layer.
     for batch in current.batches[segment]
         .iter()
-        .filter(|batch| batch.world_projection == 0)
+        .filter(|batch| batch.world_projection == 0 && !super::backdrop::is_backdrop(batch))
     {
         let start = batch.first_index as usize;
         let end = start + batch.index_count as usize;
@@ -216,7 +217,8 @@ fn supported(input: &UiRenderInput, segment: &Range<usize>) -> bool {
             || batch.texture_page as usize >= input.textures.pages().len()
             || (segment.contains(&index)
                 && batch.world_projection == 0
-                && batch.blend_mode != UI_BLEND_ALPHA)
+                && batch.blend_mode != UI_BLEND_ALPHA
+                && !super::backdrop::is_backdrop(batch))
             || batch.depth_test > 1
             || batch.depth_write > 1
             || ((batch.depth_test != 0 || batch.depth_write != 0)

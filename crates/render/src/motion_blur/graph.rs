@@ -105,6 +105,13 @@ pub(super) fn motion_blur(
     let Some(footprint_pipeline) = cache.get_render_pipeline(state.footprint_pipeline) else {
         return Ok(());
     };
+    let (Some(row_pipeline), Some(resolve_pipeline), Some(resolved)) = (
+        cache.get_render_pipeline(state.row_pipeline),
+        cache.get_render_pipeline(state.resolve_pipeline),
+        state.resolved.as_ref(),
+    ) else {
+        return Ok(());
+    };
     let Some(footprint) = &state.footprint else {
         return Ok(());
     };
@@ -126,18 +133,20 @@ pub(super) fn motion_blur(
     {
         return Ok(());
     }
-    if state.actors.is_some() {
-        let attachments = [Some(RenderPassColorAttachment {
-            view: &footprint.view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                store: wgpu::StoreOp::Store,
-            },
-        })];
+    {
+        let attachments = [&resolved.motion, &resolved.depth].map(|view| {
+            Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })
+        });
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("actor motion tile reduction"),
+            label: Some("resolve exposure surface"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
@@ -147,9 +156,39 @@ pub(super) fn motion_blur(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_render_pipeline(footprint_pipeline);
-        pass.set_bind_group(0, &footprint.binding, &[]);
+        pass.set_render_pipeline(resolve_pipeline);
+        pass.set_bind_group(0, &resolved.binding, &[]);
         pass.draw(0..3, 0..1);
+    }
+    if state.actors.is_some() {
+        for (view, binding, pipeline) in [
+            (&footprint.row_view, &footprint.bindings[0], row_pipeline),
+            (&footprint.view, &footprint.bindings[1], footprint_pipeline),
+        ] {
+            let attachments = [Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })];
+            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                label: Some("actor motion reduction"),
+                color_attachments: &attachments,
+                depth_stencil_attachment: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    render_scene::RuntimeStage::GpuPost,
+                ),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_render_pipeline(pipeline);
+            pass.set_bind_group(0, binding, &[]);
+            pass.draw(0..3, 0..1);
+        }
     }
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.
     if scene.texture.sample_count() == 1 {

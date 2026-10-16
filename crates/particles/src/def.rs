@@ -241,16 +241,6 @@ pub struct EffectDef {
     pub particle: ParticleDef,
 }
 
-impl EffectDef {
-    #[must_use]
-    pub fn event(&self, name: &str) -> Option<&EventNode> {
-        self.events
-            .iter()
-            .find(|(key, _)| key.as_ref() == name)
-            .map(|(_, node)| node)
-    }
-}
-
 /// Parses one `particle_effect` document; `None` when it lacks the required structure.
 #[must_use]
 pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
@@ -928,7 +918,12 @@ mod tests {
         );
         assert!(matches!(effect.emitter.rate, Rate::Steady { .. }));
         assert_eq!(effect.curves.len(), 1);
-        assert!(effect.event("boom").is_some());
+        assert!(
+            effect
+                .events
+                .iter()
+                .any(|(name, _)| name.as_ref() == "boom")
+        );
         assert_eq!(effect.particle.billboard.facing, Facing::RotateXyz);
     }
 

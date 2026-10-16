@@ -118,7 +118,7 @@ impl ShutdownWatchdog {
 pub struct TeardownWatchdog(pub ShutdownWatchdog);
 
 /// The status Rust exits with after a panic on the main thread.
-const PANIC_EXIT_CODE: u8 = 101;
+const PANIC_EXIT_CODE: u8 = launcher_host::lifecycle::crash::protocol::PANIC_EXIT_CODE;
 
 impl Drop for TeardownWatchdog {
     fn drop(&mut self) {

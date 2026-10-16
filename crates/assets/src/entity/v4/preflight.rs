@@ -163,6 +163,8 @@ struct GeometryProbe {
     texture_height: de::IgnoredAny,
     bones: BoneSequenceCount,
     #[serde(default)]
+    animation_no_head_bob: Option<de::IgnoredAny>,
+    #[serde(default)]
     visible_bounds: Option<de::IgnoredAny>,
 }
 
@@ -288,6 +290,7 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
                         texture_width: _,
                         texture_height: _,
                         bones: _,
+                        animation_no_head_bob: _,
                         visible_bounds: _,
                     } = geometry;
                     count = count
@@ -363,6 +366,36 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    #[test]
+    fn geometry_probe_tracks_all_serialized_geometry_fields_and_remains_strict() {
+        use crate::{EntityGeometry, EntityGeometryBounds, EntityGeometryScalar};
+
+        // An exhaustive literal makes a new geometry field require a schema-test decision.
+        let geometry = EntityGeometry {
+            identifier: "geometry.schema_fixture".into(),
+            inherits: None,
+            source_index: 0,
+            texture_width: 16,
+            texture_height: 16,
+            bones: Box::new([]),
+            animation_no_head_bob: true,
+            visible_bounds: Some(EntityGeometryBounds {
+                center: [EntityGeometryScalar::ZERO; 3],
+                half_extents: [EntityGeometryScalar::new(1.0).unwrap(); 3],
+            }),
+        };
+        let mut value = serde_json::to_value(&geometry).unwrap();
+        assert!(serde_json::from_value::<GeometryProbe>(value.clone()).is_ok());
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("animation_no_head_bob");
+        value.as_object_mut().unwrap().remove("visible_bounds");
+        assert!(serde_json::from_value::<GeometryProbe>(value.clone()).is_ok());
+        value["unknown_geometry_field"] = true.into();
+        assert!(serde_json::from_value::<GeometryProbe>(value).is_err());
+    }
     #[test]
     fn locator_arrays_are_bounded_across_bones_before_payload_deserialization() {
         let mut bone = serde_json::json!({

@@ -2,14 +2,64 @@
 
 use super::{MAX_COMPRESSED_BYTES, descriptor::Descriptor};
 use anyhow::{Result, ensure};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeSet, VecDeque},
     io::{self, Read, Seek, SeekFrom},
+    num::NonZeroUsize,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
+
+/// Bound on the signed per-object chunk index, shared by profile and range validation.
+pub(super) const MAX_INDEX_CHUNKS: usize = 4096;
+
+/// Immutable range shape and hashes, independent of origin approval or decoder profile.
+pub struct RangeIndex {
+    bytes: u64,
+    chunk_bytes: u32,
+    hashes: Box<[[u8; 32]]>,
+    cache_slots: NonZeroUsize,
+}
+
+impl RangeIndex {
+    /// Checks nonempty, bounded and length-consistent signed ranges before retaining their hashes.
+    pub fn new(descriptor: &Descriptor) -> Result<Self> {
+        let cache_slots = validate_shape(descriptor)?;
+        let hashes = descriptor
+            .chunk_hashes
+            .iter()
+            .map(|hash| crate::crypto::fixed_hex::<32>(hash))
+            .collect::<Result<Vec<_>>>()?
+            .into_boxed_slice();
+        Ok(Self {
+            bytes: descriptor.bytes,
+            chunk_bytes: descriptor.chunk_bytes,
+            hashes,
+            cache_slots,
+        })
+    }
+}
+
+/// Establishes safe chunk arithmetic and at least one compressed-cache slot, without codec policy.
+pub(super) fn validate_shape(descriptor: &Descriptor) -> Result<NonZeroUsize> {
+    let chunk_bytes = usize::try_from(descriptor.chunk_bytes)?;
+    ensure!(
+        (1..=MAX_COMPRESSED_BYTES).contains(&chunk_bytes),
+        "invalid chunk size"
+    );
+    ensure!(
+        descriptor.bytes > 0
+            && descriptor.chunk_hashes.len() <= MAX_INDEX_CHUNKS
+            && descriptor.bytes.div_ceil(u64::from(descriptor.chunk_bytes))
+                == descriptor.chunk_hashes.len() as u64,
+        "invalid integrity index"
+    );
+    NonZeroUsize::new(MAX_COMPRESSED_BYTES / chunk_bytes)
+        .ok_or_else(|| anyhow::anyhow!("chunk exceeds compressed cache"))
+}
 
 /// Supplies raw bytes of one signed chunk; the caller verifies them.
 pub trait ChunkSource {
@@ -18,21 +68,20 @@ pub trait ChunkSource {
 
 /// Loads chunk `index` and checks it against the signed index before anyone reads it.
 pub fn load_verified(
-    descriptor: &Descriptor,
+    descriptor: &RangeIndex,
     source: &mut impl ChunkSource,
     index: usize,
 ) -> Result<Vec<u8>> {
     let expected = descriptor
-        .chunk_hashes
+        .hashes
         .get(index)
         .ok_or_else(|| anyhow::anyhow!("range outside signed index"))?;
     let start = index as u64 * u64::from(descriptor.chunk_bytes);
-    let length = (start + u64::from(descriptor.chunk_bytes)).min(descriptor.bytes) - start;
+    let length = (descriptor.bytes - start).min(u64::from(descriptor.chunk_bytes));
     let bytes = source.load(index, start, length)?;
-    ensure!(
-        bytes.len() as u64 == length && crate::crypto::digest(&bytes) == *expected,
-        "media range hash mismatch"
-    );
+    ensure!(bytes.len() as u64 == length, "media range hash mismatch");
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    ensure!(digest == *expected, "media range hash mismatch");
     Ok(bytes)
 }
 
@@ -98,7 +147,7 @@ impl ChunkSource for HttpsChunks {
 }
 
 pub struct RangeReader<S> {
-    descriptor: Descriptor,
+    descriptor: RangeIndex,
     source: S,
     position: u64,
     chunks: VecDeque<(usize, Vec<u8>)>,
@@ -106,13 +155,13 @@ pub struct RangeReader<S> {
 
 impl<S: ChunkSource> RangeReader<S> {
     /// Wraps a chunk source with a small verified cache bounded by the compressed budget.
-    pub fn new(descriptor: Descriptor, source: S) -> Self {
-        Self {
-            descriptor,
+    pub fn new(descriptor: &Descriptor, source: S) -> Result<Self> {
+        Ok(Self {
+            descriptor: RangeIndex::new(descriptor)?,
             source,
             position: 0,
             chunks: VecDeque::new(),
-        }
+        })
     }
 
     fn chunk(&mut self, index: usize) -> Result<&[u8]> {
@@ -121,7 +170,7 @@ impl<S: ChunkSource> RangeReader<S> {
             self.chunks.push_front(chunk);
         } else {
             let bytes = load_verified(&self.descriptor, &mut self.source, index)?;
-            let max_chunks = MAX_COMPRESSED_BYTES / self.descriptor.chunk_bytes as usize;
+            let max_chunks = self.descriptor.cache_slots.get();
             while self.chunks.len() >= max_chunks {
                 self.chunks.pop_back();
             }
@@ -221,13 +270,14 @@ pub(crate) mod tests {
         let bytes: Vec<u8> = (0..150_000u32).map(|i| i as u8).collect();
         let descriptor = descriptor_for(&bytes);
         let mut reader = RangeReader::new(
-            descriptor.clone(),
+            &descriptor,
             MemoryChunks {
                 bytes: bytes.clone(),
                 corrupt: None,
                 loads: 0,
             },
-        );
+        )
+        .unwrap();
         let mut all = Vec::new();
         reader.read_to_end(&mut all).unwrap();
         assert_eq!(all, bytes);
@@ -235,14 +285,121 @@ pub(crate) mod tests {
         reader.read_exact(&mut [0; 4]).unwrap();
         assert_eq!(reader.source.loads, 3, "cached chunk refetched");
         let mut tampered = RangeReader::new(
-            descriptor,
+            &descriptor,
             MemoryChunks {
                 bytes,
                 corrupt: Some(1),
                 loads: 0,
             },
-        );
+        )
+        .unwrap();
         tampered.seek(SeekFrom::Start(70_000)).unwrap();
         assert!(tampered.read(&mut [0; 4]).is_err());
+    }
+
+    #[test]
+    fn invalid_chunk_shapes_are_rejected_before_loading() {
+        struct UnusedSource;
+        impl ChunkSource for UnusedSource {
+            fn load(&mut self, _: usize, _: u64, _: u64) -> Result<Vec<u8>> {
+                panic!("invalid descriptor reached its source");
+            }
+        }
+        let valid = descriptor_for(&[1]);
+        let mut invalid = Vec::new();
+        let mut descriptor = valid.clone();
+        descriptor.chunk_bytes = 0;
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.chunk_bytes = MAX_COMPRESSED_BYTES as u32 + 1;
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.bytes = 0;
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.bytes = u64::MAX;
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.chunk_hashes.clear();
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.chunk_hashes.push(crate::crypto::digest(&[2]));
+        invalid.push(descriptor);
+        let mut descriptor = valid.clone();
+        descriptor.chunk_bytes = 1;
+        descriptor.bytes = MAX_INDEX_CHUNKS as u64 + 1;
+        descriptor.chunk_hashes = vec![crate::crypto::digest(&[1]); MAX_INDEX_CHUNKS + 1];
+        invalid.push(descriptor);
+        let mut descriptor = valid;
+        descriptor.chunk_hashes[0] = "not a sha256 hash".into();
+        invalid.push(descriptor);
+        for descriptor in invalid {
+            assert!(RangeReader::new(&descriptor, UnusedSource).is_err());
+        }
+    }
+
+    #[test]
+    fn last_short_chunk_is_loaded_at_its_exact_offset_and_length() {
+        struct ExactChunks(Vec<(usize, u64, u64)>);
+        impl ChunkSource for ExactChunks {
+            fn load(&mut self, index: usize, start: u64, length: u64) -> Result<Vec<u8>> {
+                self.0.push((index, start, length));
+                match (index, start, length) {
+                    (0, 0, 3) => Ok(vec![1, 2, 3]),
+                    (1, 3, 1) => Ok(vec![4]),
+                    other => anyhow::bail!("unexpected range: {other:?}"),
+                }
+            }
+        }
+        let mut descriptor = descriptor_for(&[1, 2, 3, 4]);
+        descriptor.chunk_bytes = 3;
+        descriptor.chunk_hashes = vec![
+            crate::crypto::digest(&[1, 2, 3]),
+            crate::crypto::digest(&[4]),
+        ];
+        // Range integrity does not authorize a URL or impose the decoder's media profile.
+        descriptor.url = "memory:fixture".into();
+        descriptor.width = 0;
+        assert!(descriptor.validate_profile().is_err());
+        let mut reader = RangeReader::new(&descriptor, ExactChunks(Vec::new())).unwrap();
+        reader.seek(SeekFrom::Start(2)).unwrap();
+        let mut tail = Vec::new();
+        reader.read_to_end(&mut tail).unwrap();
+        assert_eq!(tail, [3, 4]);
+        assert_eq!(reader.source.0, [(0, 0, 3), (1, 3, 1)]);
+        assert_eq!(reader.seek(SeekFrom::End(0)).unwrap(), 4);
+        assert!(reader.seek(SeekFrom::Current(1)).is_err());
+    }
+
+    #[test]
+    fn a_cache_sized_chunk_can_hold_a_short_object() {
+        let mut descriptor = descriptor_for(&[9]);
+        descriptor.chunk_bytes = MAX_COMPRESSED_BYTES as u32;
+        let mut reader = RangeReader::new(
+            &descriptor,
+            MemoryChunks {
+                bytes: vec![9],
+                corrupt: None,
+                loads: 0,
+            },
+        )
+        .unwrap();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, [9]);
+        assert_eq!(reader.source.loads, 1);
+    }
+
+    #[test]
+    fn out_of_index_requests_never_reach_the_source() {
+        let descriptor = descriptor_for(&[1]);
+        let index = RangeIndex::new(&descriptor).unwrap();
+        let mut source = MemoryChunks {
+            bytes: vec![1],
+            corrupt: None,
+            loads: 0,
+        };
+        assert!(load_verified(&index, &mut source, usize::MAX).is_err());
+        assert_eq!(source.loads, 0);
     }
 }

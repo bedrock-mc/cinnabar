@@ -2,8 +2,8 @@ use bevy::math::Vec3;
 use render_model::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityKind, BlockEntityScene, BlockEntitySubmission,
     BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget, CrackShape,
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, SceneClock,
-    item_frame_item_transform,
+    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock, item_frame_item_transform,
 };
 
 use crate::{
@@ -32,7 +32,8 @@ impl Default for FrameCase {
 
 /// Creates a brown frame and an asymmetric item entirely from original diagnostic pixels.
 fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
-    let mut atlas = vec![0; 64 * 16 * 4];
+    let width = MIN_DYNAMIC_ATLAS_WIDTH as usize;
+    let mut atlas = vec![0; width * 16 * 4];
     let mut item = vec![0; 16 * 16 * 4];
     for y in 0..16 {
         for x in 0..16 {
@@ -42,14 +43,14 @@ fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
             } else {
                 [193, 130, 57, 255]
             };
-            atlas[(y * 64 + x) * 4..(y * 64 + x + 1) * 4].copy_from_slice(&color);
+            atlas[(y * width + x) * 4..(y * width + x + 1) * 4].copy_from_slice(&color);
             let wood = if y % 4 == 0 {
                 [210, 155, 65, 255]
             } else {
                 [240, 200, 100, 255]
             };
-            atlas[(y * 64 + x + 32) * 4..(y * 64 + x + 33) * 4].copy_from_slice(&wood);
-            atlas[(y * 64 + x + 48) * 4..(y * 64 + x + 49) * 4]
+            atlas[(y * width + x + 32) * 4..(y * width + x + 33) * 4].copy_from_slice(&wood);
+            atlas[(y * width + x + 48) * 4..(y * width + x + 49) * 4]
                 .copy_from_slice(&[24, 220, 255, 255]);
             let color = if (5..11).contains(&x) && (2..8).contains(&y) {
                 [32, 255, 32, 255]
@@ -59,7 +60,7 @@ fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
                 [0; 4]
             };
             item[(y * 16 + x) * 4..(y * 16 + x + 1) * 4].copy_from_slice(&color);
-            atlas[(y * 64 + x + 16) * 4..(y * 64 + x + 17) * 4].copy_from_slice(&color);
+            atlas[(y * width + x + 16) * 4..(y * width + x + 17) * 4].copy_from_slice(&color);
         }
     }
     let mut placements: Vec<_> = assets::block_entity_geometry::ITEM_FRAME_TEXTURES
@@ -74,7 +75,14 @@ fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
         })
         .collect();
     placements.sort_by(|a, b| a.name.cmp(&b.name));
-    let bytes = assets::encode_block_entity_catalog(b"{}", 64, 16, &atlas, &placements).unwrap();
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
+        16,
+        &atlas,
+        &placements,
+    )
+    .unwrap();
     (
         assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap(),
         item,

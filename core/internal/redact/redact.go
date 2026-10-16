@@ -31,6 +31,7 @@ type ruleFile struct {
 	} `json:"fields"`
 	PackIdentityFields []string `json:"pack_identity_fields"`
 	SourceLocation     string   `json:"source_location"`
+	Timestamp          string   `json:"timestamp"`
 	FileExtensions     []string `json:"file_extensions"`
 	Rules              []struct {
 		Name    string `json:"name"`
@@ -52,6 +53,7 @@ type ruleSet struct {
 	rules          []rule
 	packIdentity   []string
 	sourceLocation *regexp.Regexp
+	timestamp      *regexp.Regexp
 	extensions     []string
 }
 
@@ -101,6 +103,11 @@ func compile(data []byte) (*ruleSet, error) {
 		return nil, fmt.Errorf("source location: %w", err)
 	}
 	set.sourceLocation = location
+	timestamp, err := regexp.Compile(file.Timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("timestamp: %w", err)
+	}
+	set.timestamp = timestamp
 	return set, nil
 }
 
@@ -188,8 +195,8 @@ func (set *ruleSet) apply(rule rule, text string) string {
 	return out.String()
 }
 
-// sourceLocations are the spans of <file>.rs:<line> (or .go) locations that follow a path
-// separator or carry a column.
+// sourceLocations preserves file locations with a path separator or column and complete ISO
+// timestamps, whose colons and digits do not name servers.
 func (set *ruleSet) sourceLocations(text string) [][]int {
 	var spans [][]int
 	for _, match := range set.sourceLocation.FindAllStringSubmatchIndex(text, -1) {
@@ -197,6 +204,7 @@ func (set *ruleSet) sourceLocations(text string) [][]int {
 			spans = append(spans, match[:2])
 		}
 	}
+	spans = append(spans, set.timestamp.FindAllStringIndex(text, -1)...)
 	return spans
 }
 
@@ -208,7 +216,7 @@ func (set *ruleSet) keepsHost(host string, start, end int, sources [][]int) bool
 		}
 	}
 	if colon := strings.LastIndexByte(host, ':'); colon >= 0 && allDigits(host[colon+1:]) {
-		host = host[:colon]
+		return false
 	}
 	dot := strings.LastIndexByte(host, '.')
 	if dot < 0 {

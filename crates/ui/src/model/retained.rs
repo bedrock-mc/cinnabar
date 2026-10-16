@@ -5,7 +5,7 @@ use std::ops::Range;
 use super::{
     DrawCounts, TextEffects, UiDrawBatch, UiDrawList, UiError, UiNode, UiNodeId, UiTree, UiVertex,
     UiVisual,
-    draw::{DrawSpace, emit_visual, is_empty},
+    draw::{DrawSpace, FrameAffine, emit_visual, is_empty},
     intersect, scale_rect,
 };
 use crate::{FormattingPalette, SafeArea, UiLimits, UiRect, UiScale};
@@ -278,18 +278,22 @@ impl RetainedDraw {
             return None;
         }
         let mut counts = self.counts;
-        let mut emitted = Vec::new();
+        for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
+            counts = subtract(counts, self.placed[position].counts);
+        }
         for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
             let node_counts = DrawCounts::of(&nodes[self.placed[position].node].visual).ok()?;
-            counts = subtract(counts, self.placed[position].counts)
-                .add(node_counts)
-                .ok()?;
+            counts = counts.add(node_counts).ok()?;
             self.placed[position].counts = node_counts;
+        }
+        // Admit the final aggregate before any replacement geometry is materialized.
+        counts.budget().ok()?;
+        let mut emitted = Vec::new();
+        for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
             let mut scratch = Scratch::default();
             self.emit(nodes, position, effects, &mut scratch).ok()?;
             emitted.push((position, scratch));
         }
-        counts.budget().ok()?;
         self.counts = counts;
         let mut update = DrawUpdate {
             emitted: emitted.len(),
@@ -373,6 +377,10 @@ impl RetainedDraw {
                 clip,
                 projection: node.world_projection.as_ref(),
                 node: node.id,
+                transform: node.transform.as_ref().map(|transform| {
+                    FrameAffine::for_node(transform, place.bounds, self.frame.scale.get())
+                }),
+                filter: node.filter_group,
             },
             effects,
             &mut scratch.vertices,
@@ -516,6 +524,7 @@ fn append(
             && last.depth_test == batch.depth_test
             && last.depth_write == batch.depth_write
             && last.world_projection == batch.world_projection
+            && last.filter_group == batch.filter_group
             && last.index_range.end == range.start
         {
             last.index_range.end = range.end;

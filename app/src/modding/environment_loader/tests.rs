@@ -159,6 +159,159 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
 }
 
 #[test]
+fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
+    for malformed in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("local.wasm");
+        let ui = directory.path().join("panel.json");
+        let first = component("First", None);
+        let previous = admission::prepare(
+            &path,
+            &first,
+            request(&path, [0; 32]).source.grants,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let digest = previous.host.source_digest();
+        let mut world = world(previous);
+        std::fs::write(&path, component("Second", None)).unwrap();
+        if malformed {
+            std::fs::write(&ui, b"malformed panel").unwrap();
+        }
+        let candidate = |previous| {
+            let mut next = request(&path, previous);
+            next.source.ui = Some(ui.clone());
+            next
+        };
+        let mut attempted = BTreeMap::new();
+        let rejected = prepare(candidate(digest), &mut attempted).unwrap();
+        assert!(rejected.result.is_err());
+        assert!(apply(&mut world, rejected).is_none());
+        assert_eq!(
+            world
+                .resource::<ModRuntime>()
+                .hosts
+                .host(0)
+                .panel()
+                .unwrap()
+                .title,
+            "First"
+        );
+        assert!(prepare(candidate(digest), &mut attempted).is_none());
+
+        let repaired = serde_json::json!({
+            "panel":{"title":"Repaired","toggle_key":"ShiftRight","dark":true,"controls":[]},
+            "surfaces":{}
+        });
+        std::fs::write(&ui, repaired.to_string()).unwrap();
+        let update = prepare(candidate(digest), &mut attempted).expect("repaired override retries");
+        assert!(update.result.as_ref().unwrap().panel_ui.is_some());
+        drop(apply(&mut world, update).unwrap());
+        let current = world.resource::<ModRuntime>().hosts.host(0);
+        assert_eq!(current.panel().unwrap().title, "Repaired");
+        let accepted = current.source_digest();
+        std::fs::remove_file(&ui).unwrap();
+        assert!(
+            prepare(candidate(accepted), &mut attempted).is_none(),
+            "accepted components retain their no-change fast path"
+        );
+    }
+}
+
+#[test]
+fn changed_committed_settings_retry_a_rejected_component() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let mut granted = request(&path, [0; 32]).source.grants;
+    granted.settings = true;
+    let previous = admission::prepare(
+        &path,
+        &component("First", None),
+        granted.clone(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let digest = previous.host.source_digest();
+    let destination = previous.host.settings_path().unwrap().to_owned();
+    let committed = previous.host.settings_snapshot().unwrap().to_owned();
+    let mut world = world(previous);
+    std::fs::write(&path, component("Second", None)).unwrap();
+    let candidate = |settings: String| {
+        let mut next = request(&path, digest);
+        next.source.grants = granted.clone();
+        next.settings = Some((destination.clone(), settings));
+        next
+    };
+    let invalid = "x".repeat(mod_api::MAX_SETTINGS_BYTES + 1);
+    let mut attempted = BTreeMap::new();
+    let rejected = prepare(candidate(invalid.clone()), &mut attempted).unwrap();
+    assert!(rejected.result.is_err());
+    assert!(apply(&mut world, rejected).is_none());
+    assert!(prepare(candidate(invalid), &mut attempted).is_none());
+    let update = prepare(candidate(committed), &mut attempted).expect("new settings seed retries");
+    drop(apply(&mut world, update).unwrap());
+    assert_eq!(
+        world
+            .resource::<ModRuntime>()
+            .hosts
+            .host(0)
+            .panel()
+            .unwrap()
+            .title,
+        "Second"
+    );
+}
+
+#[test]
+fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let companion = mod_host::settings_companion(&path);
+    let mut granted = request(&path, [0; 32]).source.grants;
+    granted.settings = true;
+    let previous = admission::prepare(
+        &path,
+        &component("First", None),
+        granted.clone(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let digest = previous.host.source_digest();
+    let mut world = world(previous);
+    std::fs::write(&path, component("Second", None)).unwrap();
+    std::fs::write(&companion, [0xff]).unwrap();
+    let candidate = || {
+        let mut next = request(&path, digest);
+        next.source.grants = granted.clone();
+        next
+    };
+    let mut attempted = BTreeMap::new();
+    let rejected = prepare(candidate(), &mut attempted).unwrap();
+    assert!(rejected.result.is_err());
+    assert!(apply(&mut world, rejected).is_none());
+    assert!(prepare(candidate(), &mut attempted).is_none());
+    std::fs::write(&companion, b"").unwrap();
+    let update = prepare(candidate(), &mut attempted).expect("repaired settings source retries");
+    drop(apply(&mut world, update).unwrap());
+    assert_eq!(
+        world
+            .resource::<ModRuntime>()
+            .hosts
+            .host(0)
+            .panel()
+            .unwrap()
+            .title,
+        "Second"
+    );
+}
+
+#[test]
 fn two_owners_of_one_source_prepare_independently_including_failure_suppression() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("shared.wasm");

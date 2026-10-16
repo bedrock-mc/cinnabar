@@ -1,5 +1,4 @@
 //! Draws dropped-item and block models plus dynamic line geometry in the opaque 3D phase.
-use crate::queue_writes::ProfiledQueue as _;
 mod mesh_storage;
 mod model_upload;
 use bevy::prelude::IntoScheduleConfigs;
@@ -90,6 +89,7 @@ struct Installed;
 fn install(app: &mut App) {
     app.init_resource::<DroppedItemScene>();
     crate::lighting::install(app);
+    crate::upload_staging::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -382,6 +382,7 @@ fn current_models(scene: &DroppedItemScene, current: &mut Vec<bool>) {
 fn prepare_items(
     scene: Res<DroppedItemScene>,
     terrain: Res<TerrainItemMeshGenerations>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<ItemGpu>,
@@ -460,10 +461,15 @@ fn prepare_items(
         meta: [0, 15, 15, 0],
         glint: [0.0; 4],
     });
-    queue.profiled_write_buffer(
-        &gpu.instance_buffer,
-        0,
-        bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+    crate::upload_staging::write_batch(
+        staging.as_deref(),
+        &device,
+        &queue,
+        &[(
+            &gpu.instance_buffer,
+            0,
+            bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+        )],
     );
     #[cfg(test)]
     {
@@ -471,10 +477,15 @@ fn prepare_items(
     }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
-        queue.profiled_write_buffer(
-            &gpu.dynamic_buffer,
-            0,
-            bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &device,
+            &queue,
+            &[(
+                &gpu.dynamic_buffer,
+                0,
+                bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
+            )],
         );
         #[cfg(test)]
         {
@@ -491,10 +502,15 @@ fn prepare_items(
     ];
     let environment_bits = environment.map(f32::to_bits);
     if gpu.environment_bits != Some(environment_bits) {
-        queue.profiled_write_buffer(
-            &gpu.environment,
-            0,
-            bytemuck::cast_slice::<f32, u8>(&environment),
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &device,
+            &queue,
+            &[(
+                &gpu.environment,
+                0,
+                bytemuck::cast_slice::<f32, u8>(&environment),
+            )],
         );
         gpu.environment_bits = Some(environment_bits);
         #[cfg(test)]

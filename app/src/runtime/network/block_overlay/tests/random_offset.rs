@@ -87,7 +87,6 @@ fn terrain_override_mips_average_unassociated_leaf_alpha_and_colours() {
         base_assets: None,
         vanilla_carried: Vec::new(),
         terrain_materials: Default::default(),
-        geometries: Default::default(),
         overlay: Default::default(),
         sources: Vec::new(),
         source_bytes: 0,
@@ -251,7 +250,6 @@ fn overlay_images(
         base_assets: None,
         vanilla_carried: Vec::new(),
         terrain_materials: Default::default(),
-        geometries: Default::default(),
         overlay: Default::default(),
         fallback: None,
         sources: images
@@ -453,7 +451,6 @@ fn terrain_page_rejects_over_budget_sources_without_shrinking() {
         base_assets: None,
         vanilla_carried: Vec::new(),
         terrain_materials: Default::default(),
-        geometries: Default::default(),
         overlay: Default::default(),
         sources: Vec::new(),
         source_bytes: 0,

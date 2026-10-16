@@ -99,6 +99,7 @@ if ($ValidateOnly) {
 $coreHandle = $null
 $clientHandle = $null
 $runSucceeded = $false
+$runFailure = $null
 $clientLogsCompleted = $false
 $coreLogsCompleted = $false
 try {
@@ -206,17 +207,13 @@ try {
     $runSucceeded = $true
     Write-Output "REMOTE_ACCEPTANCE_RUN_DIRECTORY=$RunDirectory"
 }
+catch {
+    $runFailure = $_
+    throw
+}
 finally {
-    if (-not $runSucceeded) {
-        $manifest.status = 'failed'
-        Write-AcceptanceJson -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
-    }
-    if ($null -ne $clientHandle) {
-        Stop-BoundedProcess -Handle $clientHandle -Kind app
-        if (-not $clientLogsCompleted) { Complete-ProcessLogs $clientHandle }
-    }
-    if ($null -ne $coreHandle) {
-        Stop-BoundedProcess -Handle $coreHandle -Kind core
-        if (-not $coreLogsCompleted) { Complete-ProcessLogs $coreHandle }
-    }
+    Complete-RemoteAcceptanceRun -Manifest $manifest -ManifestPath (Join-Path $RunDirectory 'manifest.json') `
+        -RunSucceeded $runSucceeded -ClientHandle $clientHandle -CoreHandle $coreHandle `
+        -ClientLogsCompleted $clientLogsCompleted -CoreLogsCompleted $coreLogsCompleted `
+        -PrimaryFailure $runFailure
 }

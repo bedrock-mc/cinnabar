@@ -7,6 +7,8 @@ use ui::UiAction;
 pub struct EmotePlayback {
     pub emote: CustomEmote,
     pub start_millis: u64,
+    /// Distinguishes repeated starts even when the render clock has not advanced.
+    pub revision: u64,
 }
 
 impl EmotePlayback {
@@ -29,6 +31,7 @@ pub struct EmoteState {
     mode: Mode,
     selected: Option<usize>,
     playback: Option<EmotePlayback>,
+    playback_revision: u64,
     preferences: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
 }
 
@@ -41,6 +44,7 @@ impl Default for EmoteState {
             mode: Mode::Closed,
             selected: None,
             playback: None,
+            playback_revision: 0,
             preferences: None,
         }
     }
@@ -102,7 +106,9 @@ impl EmoteState {
             return None;
         }
         let emote = self.slots[slot]?;
+        self.playback_revision = self.playback_revision.wrapping_add(1);
         self.playback = Some(EmotePlayback {
+            revision: self.playback_revision,
             emote,
             start_millis: now_millis,
         });
