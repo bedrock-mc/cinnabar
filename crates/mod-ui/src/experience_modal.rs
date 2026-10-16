@@ -1,7 +1,10 @@
 //! A client part's modal screen: its signed JSON-UI templates drawn through the engine over
 //! gameplay, under the package screen rules of [`crate::template_screen`].
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use json_ui::{CollectionItem, HitKind};
 use server_experience::screen::{self, GuiSize};
@@ -30,6 +33,8 @@ pub(super) struct ModalScreen {
     scrolled: BTreeMap<String, screen::ScrollRange>,
     rows: [Vec<CollectionItem>; 2],
     icons: Vec<IconRef>,
+    /// Every `#item_id_aux` key the bound data names.
+    icon_keys: BTreeSet<i64>,
 }
 
 impl ModUi {
@@ -56,6 +61,7 @@ impl ModUi {
                 scrolled: BTreeMap::new(),
                 rows: Default::default(),
                 icons: Vec::new(),
+                icon_keys: BTreeSet::new(),
             });
         }
         let screen = slot.as_mut().expect("modal installed");
@@ -68,6 +74,12 @@ impl ModUi {
         {
             screen.rows = Default::default();
         }
+        screen.icon_keys = crate::mod_screens::icon_keys(modal.modal);
+    }
+
+    /// Every `#item_id_aux` key the client part's bound data names; `None` without a modal.
+    pub fn experience_modal_icon_keys(&self) -> Option<&BTreeSet<i64>> {
+        Some(&self.experience_modal.as_ref()?.icon_keys)
     }
 
     /// The drawn modal's root size in GUI units and the GUI scale; none while it is not drawn.
@@ -190,12 +202,14 @@ impl ModUi {
 
     /// Draws the modal over the gameplay scenes when nothing else holds the screen; trusted
     /// chrome draws after it. `player_rows` fills the read-only inventory and hotbar rows and
-    /// their icons, and runs only when the modal draws.
+    /// their icons, and runs only when the modal draws; `id_aux` holds the icons of
+    /// [`Self::experience_modal_icon_keys`].
     pub fn paint_experience_modal(
         &mut self,
         engine: Option<&FormEngine>,
         paint_frame: &mut PaintFrame<'_>,
         over_gameplay: bool,
+        id_aux: &[(i64, IconRef)],
         player_rows: impl FnOnce(&mut Vec<IconRef>) -> [Vec<CollectionItem>; 2],
     ) {
         let Some(modal) = self.experience_modal.as_mut() else {
@@ -218,7 +232,7 @@ impl ModUi {
         }
         let mut items = ItemRenderer {
             icons: &modal.icons,
-            id_aux: &[],
+            id_aux,
         };
         let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
         if modal.screen.draw(

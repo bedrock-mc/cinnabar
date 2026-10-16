@@ -192,6 +192,12 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         over_gameplay: bool,
     ) {
+        let id_aux = match self.screens.mod_ui.experience_modal_icon_keys() {
+            Some(keys) => item_icons(keys, player_runtime, runtime, |id, aux| {
+                self.item_icon(id, aux)
+            }),
+            None => Vec::new(),
+        };
         let translate = |key: &str| runtime.translation(key);
         let hud_frame = &self.hud_frame;
         let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
@@ -199,6 +205,7 @@ impl UiPresentationRuntime {
             self.engine.as_deref(),
             &mut paint,
             over_gameplay,
+            &id_aux,
             |icons| super::containers::player_rows(player_runtime, hud_frame, icons),
         );
     }
