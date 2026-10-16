@@ -5,6 +5,7 @@ use super::*;
 use render_model::ActorSkinResidency;
 use render_model::SKIN_CLASS_SIDES;
 
+#[derive(Clone)]
 struct GpuSkinClass {
     texture: Option<Texture>,
     view: TextureView,
@@ -17,26 +18,38 @@ pub(super) struct GpuSkinArrays {
     /// Bound wherever a class has no layers, and by artwork pages, which never sample them.
     pub placeholder: TextureView,
     synced: Option<Arc<ActorSkinResidency>>,
+    failed: Option<Arc<ActorSkinResidency>>,
     pub uploaded_bytes: u64,
 }
 
-fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Texture {
-    device.create_texture(&TextureDescriptor {
-        label: Some("player skin class array"),
-        size: Extent3d {
-            width: side,
-            height: side,
-            depth_or_array_layers: layers,
+/// Allocates a class array before any view or layer copy can reference it.
+fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Option<Texture> {
+    allocation::checked(
+        device,
+        "player skin class array",
+        u64::from(side) * u64::from(side) * u64::from(layers) * 4,
+        || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("player skin class array"),
+                size: Extent3d {
+                    width: side,
+                    height: side,
+                    depth_or_array_layers: layers,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8UnormSrgb,
+                usage: TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST
+                    | TextureUsages::COPY_SRC,
+                view_formats: &[],
+            })
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8UnormSrgb,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
+    )
 }
 
+/// Creates an array binding only for a successfully allocated texture.
 fn array_view(texture: &Texture) -> TextureView {
     texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
@@ -45,9 +58,13 @@ fn array_view(texture: &Texture) -> TextureView {
 }
 
 impl GpuSkinArrays {
-    pub fn new(device: &RenderDevice) -> Self {
-        let placeholder = array_view(&skin_array(device, 1, 1));
-        Self {
+    /// Creates empty class bindings, or disables actors when even the placeholder fails.
+    pub fn new(device: &RenderDevice) -> Option<Self> {
+        let texture = skin_array(device, 1, 1)?;
+        let placeholder = allocation::checked(device, "actor skin placeholder view", 0, || {
+            array_view(&texture)
+        })?;
+        Some(Self {
             classes: std::array::from_fn(|_| GpuSkinClass {
                 texture: None,
                 view: placeholder.clone(),
@@ -55,8 +72,9 @@ impl GpuSkinArrays {
             }),
             placeholder,
             synced: None,
+            failed: None,
             uploaded_bytes: 0,
-        }
+        })
     }
 
     pub fn view(&self, class: usize) -> &TextureView {
@@ -69,6 +87,13 @@ impl GpuSkinArrays {
             .is_some_and(|synced| Arc::ptr_eq(synced, residency))
     }
 
+    /// Avoids retrying a failed immutable publication every rendered frame.
+    pub fn failed(&self, residency: &Arc<ActorSkinResidency>) -> bool {
+        self.failed
+            .as_ref()
+            .is_some_and(|failed| Arc::ptr_eq(failed, residency))
+    }
+
     /// Matches every array to `residency`, copying kept layers on resize and writing only layers
     /// whose admission changed; returns whether any array view was replaced.
     pub fn sync(
@@ -77,14 +102,49 @@ impl GpuSkinArrays {
         device: &RenderDevice,
         queue: &RenderQueue,
     ) -> bool {
+        if self.failed(residency) {
+            return false;
+        }
+        let previous = self.classes.clone();
+        let result = allocation::checked(device, "actor skin transfers", 0, || {
+            self.try_sync(residency, device, queue)
+        })
+        .flatten();
+        match result {
+            Some(changed) => {
+                self.failed = None;
+                changed
+            }
+            None => {
+                self.classes = previous;
+                for class in &mut self.classes {
+                    class.admissions.fill(0);
+                }
+                self.synced = None;
+                self.failed = Some(Arc::clone(residency));
+                false
+            }
+        }
+    }
+
+    /// Publishes only valid arrays; an interrupted upload leaves the publication unready.
+    fn try_sync(
+        &mut self,
+        residency: &Arc<ActorSkinResidency>,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Option<bool> {
         let mut views_changed = false;
         let mut copies: Option<bevy::render::render_resource::CommandEncoder> = None;
         for (class, gpu) in self.classes.iter_mut().enumerate() {
             let desired = &residency.classes[class];
             let side = SKIN_CLASS_SIDES[class] as u32;
             if desired.len() != gpu.admissions.len() {
-                let texture =
-                    (!desired.is_empty()).then(|| skin_array(device, side, desired.len() as u32));
+                let texture = if desired.is_empty() {
+                    None
+                } else {
+                    Some(skin_array(device, side, desired.len() as u32)?)
+                };
                 let mut admissions = vec![0; desired.len()];
                 if let (Some(old), Some(new)) = (gpu.texture.as_ref(), texture.as_ref()) {
                     for (layer, admission) in admissions.iter_mut().enumerate() {
@@ -151,29 +211,36 @@ impl GpuSkinArrays {
                     bytes = resident.texels.len(),
                 )
                 .entered();
-                queue.profiled_write_texture(
-                    TexelCopyTextureInfo {
-                        texture,
-                        mip_level: 0,
-                        origin: bevy::render::render_resource::Origin3d {
-                            x: 0,
-                            y: 0,
-                            z: layer as u32,
-                        },
-                        aspect: default(),
+                allocation::checked(
+                    device,
+                    "actor skin upload",
+                    resident.texels.len() as u64,
+                    || {
+                        queue.profiled_write_texture(
+                            TexelCopyTextureInfo {
+                                texture,
+                                mip_level: 0,
+                                origin: bevy::render::render_resource::Origin3d {
+                                    x: 0,
+                                    y: 0,
+                                    z: layer as u32,
+                                },
+                                aspect: default(),
+                            },
+                            &resident.texels,
+                            TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(side * 4),
+                                rows_per_image: Some(side),
+                            },
+                            Extent3d {
+                                width: side,
+                                height: side,
+                                depth_or_array_layers: 1,
+                            },
+                        )
                     },
-                    &resident.texels,
-                    TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(side * 4),
-                        rows_per_image: Some(side),
-                    },
-                    Extent3d {
-                        width: side,
-                        height: side,
-                        depth_or_array_layers: 1,
-                    },
-                );
+                )?;
                 gpu.admissions[layer] = resident.admission;
                 self.uploaded_bytes += resident.texels.len() as u64;
             }
@@ -183,9 +250,9 @@ impl GpuSkinArrays {
             let command = copies.finish();
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("actor.skin_copy_submit").entered();
-            queue.submit([command]);
+            allocation::checked(device, "actor skin copy", 0, || queue.submit([command]))?;
         }
         self.synced = Some(Arc::clone(residency));
-        views_changed
+        Some(views_changed)
     }
 }

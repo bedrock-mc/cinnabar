@@ -13,6 +13,11 @@ thread_local! {
     static WORK: Cell<Work> = Cell::new(Work::default());
 }
 
+/// Observes writes when a fault-injection test checks the allocation boundary.
+pub(super) fn upload_count() -> usize {
+    WORK.with(|work| work.get().uploads)
+}
+
 /// Counts the bytes fingerprinted for a newly encountered immutable source.
 pub(super) fn record_hash(bytes: usize) {
     WORK.with(|work| {

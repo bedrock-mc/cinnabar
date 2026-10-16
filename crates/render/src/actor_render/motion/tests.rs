@@ -5,7 +5,7 @@ fn warm_actor_history_uploads_do_not_stage_unchanged_bytes() {
     let (app, _) = crate::queue_review_support::app();
     let device = app.world().resource::<RenderDevice>();
     let queue = app.world().resource::<RenderQueue>();
-    let mut storage = MotionBuffer::new(device, 64);
+    let mut storage = MotionBuffer::new(device, 64).unwrap();
     let bytes = [3u8; 64];
     storage.upload(device, &bytes, |buffer, bytes| {
         queue.write_buffer(buffer, 0, bytes)
@@ -197,8 +197,8 @@ fn stationary_actor_publications_keep_both_motion_buffers_without_uploads() {
         0,
     );
     let mut history = ActorHistory::default();
-    let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>());
-    let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+    let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>()).unwrap();
+    let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES).unwrap();
     let mut frame = crate::motion_blur::actor_history::tests::frame(Vec3::ZERO, [0.0, 2.0, 0.25]);
     for generation in 0..4 {
         frame.frame_generation = generation;

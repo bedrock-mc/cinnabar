@@ -10,6 +10,7 @@ use render_model::ActorArtworkPageId;
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
+pub(crate) mod allocation;
 pub(crate) use geometry::SegmentedVertexBuffer;
 pub use geometry::storage_binding_bytes;
 

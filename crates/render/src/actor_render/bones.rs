@@ -43,7 +43,6 @@ pub(super) struct BoneFrame {
 
 impl BoneFrame {
     /// Counts endpoint bytes scheduled for upload, excluding the per-frame instance records.
-    #[cfg(any(test, feature = "tracy"))]
     pub fn uploaded_bytes(&self) -> usize {
         self.previous
             .iter()

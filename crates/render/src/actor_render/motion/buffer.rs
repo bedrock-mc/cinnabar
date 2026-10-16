@@ -1,5 +1,6 @@
 //! Retained actor history storage avoids staging identical bytes on repeated frames.
 
+use crate::actor::gpu::allocation;
 use bevy::render::{render_resource::*, renderer::RenderDevice};
 
 pub(super) struct MotionBuffer {
@@ -9,11 +10,11 @@ pub(super) struct MotionBuffer {
 
 impl MotionBuffer {
     /// Creates a nonempty binding even before the first actor history is available.
-    pub fn new(device: &RenderDevice, bytes: usize) -> Self {
-        Self {
-            buffer: allocate(device, bytes),
+    pub fn new(device: &RenderDevice, bytes: usize) -> Option<Self> {
+        Some(Self {
+            buffer: allocate(device, bytes)?,
             contents: Vec::new(),
-        }
+        })
     }
 
     /// Writes changed contents and reports whether callers must rebuild the buffer binding.
@@ -22,34 +23,53 @@ impl MotionBuffer {
         device: &RenderDevice,
         bytes: &[u8],
         write: impl FnOnce(&Buffer, &[u8]),
-    ) -> bool {
+    ) -> Option<bool> {
         if self.contents.get(..bytes.len()) == Some(bytes) {
-            return false;
+            return Some(false);
         }
         let resized = self.buffer.size() < bytes.len() as u64;
-        if resized {
-            self.buffer = allocate(device, bytes.len());
+        let replacement = if resized {
+            Some(allocate(device, bytes.len())?)
+        } else {
+            None
+        };
+        let buffer = replacement.as_ref().unwrap_or(&self.buffer);
+        if allocation::checked(device, "actor velocity upload", bytes.len() as u64, || {
+            write(buffer, bytes)
+        })
+        .is_none()
+        {
+            self.contents.clear();
+            return None;
         }
-        write(&self.buffer, bytes);
+        if let Some(buffer) = replacement {
+            self.buffer = buffer;
+        }
         // Shorter inputs leave the unused GPU tail intact, so retain its shadow too.
         self.contents
             .resize(self.contents.len().max(bytes.len()), 0);
         self.contents[..bytes.len()].copy_from_slice(bytes);
-        resized
+        Some(resized)
     }
 }
 
 /// Allocates storage owned by one view, retaining capacity when subsequent inputs shrink.
-fn allocate(device: &RenderDevice, bytes: usize) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
-        label: Some("actor velocity history"),
-        size: capacity(
-            bytes as u64,
-            crate::actor::gpu::storage_binding_bytes(device),
-        ),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
+fn allocate(device: &RenderDevice, bytes: usize) -> Option<Buffer> {
+    if bytes as u64 > crate::actor::gpu::storage_binding_bytes(device) {
+        return None;
+    }
+    allocation::buffer(
+        device,
+        &BufferDescriptor {
+            label: Some("actor velocity history"),
+            size: capacity(
+                bytes as u64,
+                crate::actor::gpu::storage_binding_bytes(device),
+            ),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        },
+    )
 }
 
 /// Rounds storage up geometrically without exceeding the device's whole-binding limit.
@@ -70,6 +90,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn allocation_failure_keeps_motion_buffer_and_skips_its_write() {
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let mut buffer = MotionBuffer::new(&device, 16).unwrap();
+        let previous = buffer.buffer.id();
+        let _failure = allocation::inject(|label, _| label == "actor velocity history");
+        assert!(
+            buffer
+                .upload(&device, &[1; 64], |_, _| panic!(
+                    "failed buffer was written"
+                ))
+                .is_none()
+        );
+        assert_eq!(buffer.buffer.id(), previous);
+        assert!(buffer.contents.is_empty());
+    }
+
+    #[test]
     fn growing_crowds_create_logarithmically_many_buffers_without_extra_uploads() {
         let (device, _) = wgpu::Device::noop(&Default::default());
         let device = RenderDevice::from(device);
@@ -78,18 +116,20 @@ mod tests {
             size_of::<crate::motion_blur::actor_history::MotionInstance>(),
             render_model::ACTOR_BONE_MATRIX_BYTES,
         ] {
-            let mut buffer = MotionBuffer::new(&device, stride);
+            let mut buffer = MotionBuffer::new(&device, stride).unwrap();
             let mut creations = 1;
             let mut allocated = buffer.buffer.size();
             let mut uploaded = 0;
             for count in 1..=actors {
                 let bytes = vec![1; count * stride];
                 let identity = buffer.buffer.id();
-                let resized = buffer.upload(&device, &bytes, |target, source| {
-                    assert!(target.size() >= source.len() as u64);
-                    assert_eq!(source, bytes);
-                    uploaded += source.len();
-                });
+                let resized = buffer
+                    .upload(&device, &bytes, |target, source| {
+                        assert!(target.size() >= source.len() as u64);
+                        assert_eq!(source, bytes);
+                        uploaded += source.len();
+                    })
+                    .unwrap();
                 assert_eq!(resized, identity != buffer.buffer.id());
                 if resized {
                     creations += 1;
@@ -113,8 +153,8 @@ mod tests {
 
         let (device, _) = wgpu::Device::noop(&Default::default());
         let device = RenderDevice::from(device);
-        let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>());
-        let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+        let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>()).unwrap();
+        let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES).unwrap();
         let mut instance_gpu = vec![0; instances.buffer.size() as usize];
         let mut bone_gpu = vec![0; bones.buffer.size() as usize];
         for (frame, count) in [1, 2, 3, 4, 2, 0, 3, 8, 1, 0].into_iter().enumerate() {
@@ -147,16 +187,22 @@ mod tests {
             ] {
                 let previous = buffer.buffer.clone();
                 let previous_size = previous.size();
-                let resized = buffer.upload(&device, bytes, |target, source| {
-                    if target.id() != previous.id() {
-                        *gpu = vec![0; target.size() as usize];
-                    }
-                    gpu[..source.len()].copy_from_slice(source);
-                });
+                let resized = buffer
+                    .upload(&device, bytes, |target, source| {
+                        if target.id() != previous.id() {
+                            *gpu = vec![0; target.size() as usize];
+                        }
+                        gpu[..source.len()].copy_from_slice(source);
+                    })
+                    .unwrap();
                 assert_eq!(resized, buffer.buffer.id() != previous.id());
                 assert_eq!(previous.size(), previous_size);
                 assert_eq!(&gpu[..bytes.len()], bytes);
-                assert!(!buffer.upload(&device, bytes, |_, _| panic!("repeated upload")));
+                assert!(
+                    !buffer
+                        .upload(&device, bytes, |_, _| panic!("repeated upload"))
+                        .unwrap()
+                );
             }
         }
     }
@@ -173,13 +219,21 @@ mod tests {
                 ..Default::default()
             });
             let device = RenderDevice::from(device);
-            let mut buffer = MotionBuffer::new(&device, 512);
+            let mut buffer = MotionBuffer::new(&device, 512).unwrap();
             let bytes = vec![1; 576];
-            assert!(buffer.upload(&device, &bytes, |_, source| assert_eq!(source, bytes)));
+            assert!(
+                buffer
+                    .upload(&device, &bytes, |_, source| assert_eq!(source, bytes))
+                    .unwrap()
+            );
             assert_eq!(buffer.buffer.size(), buffer_limit.min(binding_limit));
             let identity = buffer.buffer.id();
             let bytes = vec![2; buffer.buffer.size() as usize];
-            assert!(!buffer.upload(&device, &bytes, |_, source| assert_eq!(source, bytes)));
+            assert!(
+                !buffer
+                    .upload(&device, &bytes, |_, source| assert_eq!(source, bytes))
+                    .unwrap()
+            );
             assert_eq!(buffer.buffer.id(), identity);
         }
     }
@@ -188,9 +242,13 @@ mod tests {
     fn empty_motion_storage_is_nonempty_and_does_not_upload() {
         let (device, _) = wgpu::Device::noop(&Default::default());
         let device = RenderDevice::from(device);
-        let mut buffer = MotionBuffer::new(&device, 0);
+        let mut buffer = MotionBuffer::new(&device, 0).unwrap();
         assert!(buffer.buffer.size() > 0);
-        assert!(!buffer.upload(&device, &[], |_, _| panic!("empty upload")));
+        assert!(
+            !buffer
+                .upload(&device, &[], |_, _| panic!("empty upload"))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -208,17 +266,25 @@ mod tests {
     fn repeated_motion_contents_stage_no_bytes_or_allocations() {
         let (device, _) = wgpu::Device::noop(&Default::default());
         let device = RenderDevice::from(device);
-        let mut buffer = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+        let mut buffer = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES).unwrap();
         let bytes = [1; render_model::ACTOR_BONE_MATRIX_BYTES];
         let mut uploaded = 0;
-        assert!(!buffer.upload(&device, &bytes, |_, source| uploaded += source.len()));
+        assert!(
+            !buffer
+                .upload(&device, &bytes, |_, source| uploaded += source.len())
+                .unwrap()
+        );
         assert_eq!(uploaded, bytes.len());
         let identity = buffer.buffer.id();
         let allocated = test_alloc::thread_allocations();
         for source in [&bytes[..], &bytes[..bytes.len() / 2], &[], &bytes[..]] {
-            assert!(!buffer.upload(&device, source, |_, _| panic!(
-                "unchanged contents uploaded"
-            )));
+            assert!(
+                !buffer
+                    .upload(&device, source, |_, _| panic!(
+                        "unchanged contents uploaded"
+                    ))
+                    .unwrap()
+            );
         }
         assert_eq!(test_alloc::thread_allocations(), allocated);
         assert_eq!(buffer.buffer.id(), identity);
@@ -228,21 +294,39 @@ mod tests {
     fn motion_updates_reach_the_buffer_after_changes_growth_and_shrinkage() {
         let (device, _) = wgpu::Device::noop(&Default::default());
         let device = RenderDevice::from(device);
-        let mut buffer = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+        let mut buffer = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES).unwrap();
         let mut writes = Vec::new();
         let original = vec![1; render_model::ACTOR_BONE_MATRIX_BYTES];
-        buffer.upload(&device, &original, |_, bytes| writes.push(bytes.to_vec()));
+        buffer
+            .upload(&device, &original, |_, bytes| writes.push(bytes.to_vec()))
+            .unwrap();
         let identity = buffer.buffer.id();
         let larger = vec![2; original.len() * 2];
-        assert!(buffer.upload(&device, &larger, |_, bytes| writes.push(bytes.to_vec())));
+        assert!(
+            buffer
+                .upload(&device, &larger, |_, bytes| writes.push(bytes.to_vec()))
+                .unwrap()
+        );
         assert_ne!(buffer.buffer.id(), identity);
         let identity = buffer.buffer.id();
-        assert!(!buffer.upload(&device, &original, |_, bytes| writes.push(bytes.to_vec())));
+        assert!(
+            !buffer
+                .upload(&device, &original, |_, bytes| writes.push(bytes.to_vec()))
+                .unwrap()
+        );
         assert_eq!(buffer.buffer.id(), identity);
         let mut restored = larger.clone();
         restored[..original.len()].copy_from_slice(&original);
-        assert!(!buffer.upload(&device, &restored, |_, _| panic!("retained tail uploaded")));
-        assert!(!buffer.upload(&device, &larger, |_, bytes| writes.push(bytes.to_vec())));
+        assert!(
+            !buffer
+                .upload(&device, &restored, |_, _| panic!("retained tail uploaded"))
+                .unwrap()
+        );
+        assert!(
+            !buffer
+                .upload(&device, &larger, |_, bytes| writes.push(bytes.to_vec()))
+                .unwrap()
+        );
         assert_eq!(writes, [original.clone(), larger.clone(), original, larger]);
     }
 }
