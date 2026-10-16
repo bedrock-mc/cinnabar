@@ -29,11 +29,32 @@ mod riptide_tests;
 #[path = "published_tests/attack_swing.rs"]
 mod attack_swing_tests;
 
+#[path = "published_tests/attack_hit_position.rs"]
+mod attack_hit_position_tests;
+
+#[path = "published_tests/attack_fields.rs"]
+mod attack_fields_tests;
+
+#[path = "published_tests/attack_admission.rs"]
+mod attack_admission_tests;
+
+#[path = "published_tests/attack_validation.rs"]
+mod attack_validation_tests;
+
+#[path = "published_tests/attack_frame.rs"]
+mod attack_frame_tests;
+
+#[path = "published_tests/attack_progress.rs"]
+mod attack_progress_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
+
+#[path = "published_tests/repeat_clock.rs"]
+mod repeat_clock_tests;
 
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
@@ -181,6 +202,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.insert_resource(collisions);
     world.init_resource::<LocalMovementEffectTimeline>();
     world.init_resource::<MeleeRuntime>();
+    world.init_resource::<client_interaction::survival_mining::SurvivalMiningRuntime>();
     world.insert_resource(network);
     world.insert_resource(Time::<Real>::default());
     world.init_resource::<bevy::diagnostic::FrameCount>();
@@ -385,7 +407,7 @@ fn a_press_after_a_correction_does_not_reuse_the_earlier_pick() {
                 true,
                 102,
                 RepeatClock {
-                    now_millis: 1_000,
+                    now: Duration::from_millis(1_000),
                     sneaking: false,
                     speed: 0.0,
                     survival: true,
@@ -555,6 +577,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 
@@ -835,11 +858,11 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
         );
         runtime.record(
             ItemUseTrigger::SimulationTick,
-            950,
+            Duration::from_millis(950),
             100,
             LocalUse::Place,
             RepeatClock {
-                now_millis: 950,
+                now: Duration::from_millis(950),
                 sneaking: false,
                 speed: 0.0,
                 survival: true,
@@ -875,7 +898,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
             })
         );
         let clock = RepeatClock {
-            now_millis: 1_150,
+            now: Duration::from_millis(1_150),
             sneaking: false,
             speed: 0.0,
             survival: true,
@@ -890,11 +913,11 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
                 true,
                 101,
                 RepeatClock {
-                    now_millis: 1_151,
+                    now: Duration::from_millis(1_151),
                     ..clock
                 }
             ),
-            Some((ItemUseTrigger::SimulationTick, 1_150))
+            Some((ItemUseTrigger::SimulationTick, Duration::from_millis(1_150)))
         );
     }
 }
@@ -935,11 +958,11 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
         }));
     world.resource_mut::<BlockUseRuntime>().record(
         ItemUseTrigger::SimulationTick,
-        500,
+        Duration::from_millis(500),
         100,
         LocalUse::Place,
         RepeatClock {
-            now_millis: 500,
+            now: Duration::from_millis(500),
             sneaking: false,
             speed: 0.0,
             survival: true,
@@ -956,13 +979,13 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
             true,
             103,
             RepeatClock {
-                now_millis: 1_001,
+                now: Duration::from_millis(1_001),
                 sneaking: false,
                 speed: 0.0,
                 survival: true
             },
         ),
-        Some((ItemUseTrigger::SimulationTick, 700)),
+        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(700))),
         "an unsent interaction must not change the last admitted placement's schedule"
     );
 }
@@ -981,13 +1004,13 @@ fn pending_hotbar_selection_retains_a_deferred_block_press() {
             true,
             101,
             RepeatClock {
-                now_millis: 1_000,
+                now: Duration::from_millis(1_000),
                 sneaking: false,
                 speed: 0.0,
                 survival: true
             },
         ),
-        Some((ItemUseTrigger::PlayerInput, 1_000)),
+        Some((ItemUseTrigger::PlayerInput, Duration::from_millis(1_000))),
         "selection confirmation must not discard a deferred first press"
     );
 }

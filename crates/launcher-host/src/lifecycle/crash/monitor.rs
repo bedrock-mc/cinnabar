@@ -120,6 +120,7 @@ fn try_start(
         token,
         restart,
         hang: hang.clone(),
+        staging: hello.staging.clone(),
     })?;
     launch.push(b'\n');
     let hello = serde_json::to_vec(hello)?;

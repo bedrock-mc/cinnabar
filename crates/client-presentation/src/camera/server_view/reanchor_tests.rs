@@ -246,14 +246,28 @@ fn instant_target_range_loss_and_reacquisition_reset_motion_history() {
 fn delayed_attachment_arrival_loss_and_rearrival_reset_motion_history() {
     let mut view = ServerCameraView::default();
     view.apply(
-        1,
+        0,
+        &CameraEvent::Presets(
+            vec![CameraPreset {
+                name: "test:orbit".into(),
+                inherit_from: "minecraft:follow_orbit".into(),
+                ..Default::default()
+            }]
+            .into(),
+        ),
+        &context(),
+    );
+    view.apply(1, &set(None), &context());
+    view.apply(
+        2,
         &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             attach_to_entity: Some(1),
             ..Default::default()
         })),
         &context(),
     );
-    assert!(view.pose_override(&context()).is_none());
+    assert_eq!(view.skips().actor_bound, 1);
+    let fallback = view.pose_override(&context()).unwrap().translation;
     let before = view.camera_reanchor_epoch();
     view.advance_target(0.01, &context());
     assert_eq!(view.camera_reanchor_epoch(), before);
@@ -270,7 +284,11 @@ fn delayed_attachment_arrival_loss_and_rearrival_reset_motion_history() {
         view.advance_target(0.01, &context);
         assert_eq!(
             view.pose_override(&context).map(|pose| pose.translation),
-            available.then_some(position)
+            Some(if available {
+                position + fallback
+            } else {
+                fallback
+            })
         );
         assert_ne!(view.camera_reanchor_epoch(), before);
         let changed = view.camera_reanchor_epoch();

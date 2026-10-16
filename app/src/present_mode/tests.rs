@@ -117,7 +117,7 @@ fn toggling_the_user_setting_switches_the_present_mode_live() {
 
 /// The safe pre-probe FIFO request is replaced by the best advertised VSync-off mode.
 #[test]
-fn the_vsync_setting_sets_how_many_frames_stay_in_flight() {
+fn the_vsync_setting_applies_the_surface_latency_policy() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
     let latency = |app: &mut App| {
         app.world_mut()
@@ -128,9 +128,15 @@ fn the_vsync_setting_sets_how_many_frames_stay_in_flight() {
             .map(std::num::NonZeroU32::get)
     };
     publish_vsync(&mut app, false);
-    assert_eq!(latency(&mut app), Some(2));
+    assert_eq!(
+        latency(&mut app),
+        Some(render::frame_latency_for_vsync(false).get())
+    );
     publish_vsync(&mut app, true);
-    assert_eq!(latency(&mut app), Some(1));
+    assert_eq!(
+        latency(&mut app),
+        Some(render::frame_latency_for_vsync(true).get())
+    );
 }
 
 #[test]

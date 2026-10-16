@@ -24,7 +24,7 @@ const (
 // CinnabarAPI is the optional connection that announces releases and identifies Cinnabar players.
 type CinnabarAPI interface {
 	Configure(cinnabarapi.Config)
-	Lookup(ctx context.Context, xuids []string) ([]string, error)
+	Lookup(ctx context.Context, xuids, uuids []string) (cinnabarapi.LookupResult, error)
 	CacheTTLMS() int64
 	LookupLimit() int
 }
@@ -35,8 +35,10 @@ type CinnabarReleaseV1 = bridgecontract.CinnabarRelease
 type cinnabarLookupResultV1 struct {
 	SchemaVersion uint32   `json:"schema_version"`
 	Cinnabar      []string `json:"cinnabar"`
+	CinnabarUUIDs []string `json:"cinnabar_uuids"`
 	CacheTTLMS    int64    `json:"cache_ttl_ms"`
 	Resolved      []string `json:"resolved"`
+	ResolvedUUIDs []string `json:"resolved_uuids"`
 }
 
 // SetCinnabarAPI attaches the API connection; nil leaves lookups unavailable.
@@ -81,38 +83,48 @@ func (server *Server) serveCinnabarAPI(conn net.Conn, id uint64, raw json.RawMes
 	return reply.ok(emptyResultV1{SchemaVersion: 1})
 }
 
-// serveCinnabarLookup forwards one bounded XUID batch and answers with its Cinnabar subset.
+// serveCinnabarLookup forwards one bounded identifier batch and answers with its Cinnabar subset.
 func (server *Server) serveCinnabarLookup(conn net.Conn, id uint64, raw json.RawMessage) error {
 	reply := responseWriter{server: server, conn: conn, id: id}
 	var params struct {
 		XUIDs []string `json:"xuids"`
+		UUIDs []string `json:"uuids"`
 	}
-	if !decodeStrict(raw, &params) || params.XUIDs == nil || len(params.XUIDs) > bridgecontract.CinnabarAPIMaxLookupXUIDs {
+	if !decodeStrict(raw, &params) || !cinnabarapi.ValidLookup(params.XUIDs, params.UUIDs) {
 		return reply.invalid()
 	}
-	for _, xuid := range params.XUIDs {
-		if !cinnabarapi.ValidXUID(xuid) {
-			return reply.invalid()
-		}
-	}
 	api := server.cinnabarAPI()
+	server.mu.Lock()
+	logger := server.logger
+	server.mu.Unlock()
+	if logger != nil {
+		logger.Debug("Cinnabar control lookup received", "requested", len(params.XUIDs), "requested_uuids", len(params.UUIDs), "available", api != nil)
+	}
 	if api == nil {
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cinnabarLookupTimeout)
 	defer cancel()
-	batch := params.XUIDs[:min(len(params.XUIDs), api.LookupLimit())]
-	cinnabar, err := api.Lookup(ctx, batch)
+	limit := api.LookupLimit()
+	batch := params.XUIDs[:min(len(params.XUIDs), limit)]
+	uuidBatch := params.UUIDs[:min(len(params.UUIDs), limit-len(batch))]
+	found, err := api.Lookup(ctx, batch, uuidBatch)
+	if logger != nil {
+		logger.Debug("Cinnabar control lookup completed", "requested", len(batch), "requested_uuids", len(uuidBatch), "found", len(found.Cinnabar), "found_uuids", len(found.CinnabarUUIDs), "success", err == nil)
+	}
 	switch {
 	case errors.Is(err, cinnabarapi.ErrRateLimited):
 		return reply.fail(codeRateLimited, "Rate limited")
 	case err != nil:
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
-	if cinnabar == nil {
-		cinnabar = []string{}
+	if found.Cinnabar == nil {
+		found.Cinnabar = []string{}
 	}
-	return reply.ok(cinnabarLookupResultV1{SchemaVersion: 1, Cinnabar: cinnabar, CacheTTLMS: api.CacheTTLMS(), Resolved: batch})
+	if found.CinnabarUUIDs == nil {
+		found.CinnabarUUIDs = []string{}
+	}
+	return reply.ok(cinnabarLookupResultV1{SchemaVersion: 1, Cinnabar: found.Cinnabar, CinnabarUUIDs: found.CinnabarUUIDs, CacheTTLMS: api.CacheTTLMS(), Resolved: batch, ResolvedUUIDs: uuidBatch})
 }
 
 // decodeStrict decodes exactly one object with no unknown fields.

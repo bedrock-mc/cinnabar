@@ -1,6 +1,4 @@
 //! Physical input and preference handoff for the native JSON-UI emote wheel.
-use crate::runtime::network::resource_packs::PackApplication;
-use client_runtime::network::NetworkHandle;
 mod controls;
 use super::interaction::input_capture::ordered_pointer_presses;
 use super::interaction::{chat_modifiers, command_macros};
@@ -69,7 +67,6 @@ pub(crate) struct EmoteInput<'w, 's> {
     consumed: ResMut<'w, EmoteInputConsumed>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
-    network: Option<Res<'w, NetworkHandle<PackApplication>>>,
     movement: Option<ResMut<'w, client_interaction::movement::MovementTicker>>,
 }
 
@@ -322,21 +319,12 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.observed.pointer = None;
     }
     if let Some(emote) = started
-        && let Some(runtime_id) = runtime_id
-        && let Some(network) = input.network.as_deref()
+        && let Some(movement) = input.movement.as_deref_mut()
     {
         let length_ticks = (emote.duration_seconds()
             / simulation_clock::TICK_DURATION.as_secs_f64())
         .ceil() as u32;
-        if let Err(error) = network.send_inventory_packet(protocol::emote_packet(
-            runtime_id,
-            emote.id(),
-            length_ticks,
-        )) {
-            bevy::log::warn!(?error, "emote start was not admitted to the session queue");
-        } else if let Some(movement) = input.movement.as_deref_mut() {
-            movement.start_emote(length_ticks);
-        }
+        movement.start_emote(length_ticks);
     }
     if let Some(preferences) = input.runtime.emotes_mut().take_preferences()
         && let Some(menu) = input.menu.as_deref_mut()

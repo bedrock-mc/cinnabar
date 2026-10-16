@@ -273,6 +273,13 @@ fn retained_layout_bytes(layout: &TextLayout, source_bytes: usize) -> Result<usi
                 .ok_or(TextError::FixedPointOverflow)?,
         )?,
         conservative_allocation_bytes(source_bytes)?,
+        conservative_allocation_bytes(
+            layout
+                .caret_stops_64
+                .len()
+                .checked_mul(size_of::<(usize, i32)>())
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?,
         size_of::<CacheKey>(),
         size_of::<CacheEntry>(),
         CONSERVATIVE_BTREE_NODE_BYTES,

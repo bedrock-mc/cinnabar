@@ -11,7 +11,7 @@ fn a_session_reset_releases_a_held_resource_geometry_snapshot() {
     let reload = ChunkTextureReload::default();
     app.insert_resource(reload.clone());
     let assets = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 7);
-    reload.request_geometry(assets, Arc::from([]));
+    reload.request_geometry(reload.geometry_epoch(), assets, Arc::from([]));
     assert!(reload.geometry_pending());
 
     app.world_mut()
@@ -19,7 +19,10 @@ fn a_session_reset_releases_a_held_resource_geometry_snapshot() {
         .reset_session();
     app.update();
     assert!(!reload.geometry_pending(), "the reset releases the hold");
-    assert!(reload.requested().is_some(), "the atlas request survives");
+    assert!(
+        reload.requested().is_none(),
+        "the obsolete request is cancelled"
+    );
 
     let key = SubChunkKey::new(0, 0, 0, 0);
     app.world_mut()

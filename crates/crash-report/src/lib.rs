@@ -15,3 +15,6 @@ pub mod ring;
 pub mod section;
 pub mod staging;
 mod utc;
+
+/// Names and ordering shared by log writers and report readers.
+pub mod log_archive;

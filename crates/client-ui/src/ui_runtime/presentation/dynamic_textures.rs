@@ -29,6 +29,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_set = Default::default();
+    runtime.menu_artwork_loader.invalidate_gallery();
     runtime.menu_artwork_dirty = true;
     runtime.preview_dirty = true;
     rebuild(runtime);

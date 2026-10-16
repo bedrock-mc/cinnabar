@@ -16,6 +16,7 @@ pub const MAX_CAMERA_PRESETS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CameraEvent {
+    InputLocks(super::ClientInputLocks),
     /// The server's preset registry; a preset id in `set` indexes it.
     Presets(Arc<[CameraPreset]>),
     Switch(CameraSwitchEvent),

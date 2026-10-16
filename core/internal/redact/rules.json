@@ -120,7 +120,7 @@
     {
       "name": "host and port",
       "check": "host",
-      "pattern": "(?i)\\b[a-z][a-z0-9_.-]*:[0-9]{2,5}\\b"
+      "pattern": "(?i)\\b[a-z0-9][a-z0-9_.-]*:[0-9]{1,5}\\b"
     },
     {
       "name": "xuid",
@@ -276,6 +276,12 @@
       "name": "source locations and file names survive",
       "input": "panicked at crates/launcher-host/src/lifecycle/crash.rs:65:9: missing carrier hud.bin in cinnabar.exe+0x1a2b3c, see core.log",
       "output": "panicked at crates/launcher-host/src/lifecycle/crash.rs:65:9: missing carrier hud.bin in cinnabar.exe+0x1a2b3c, see core.log"
+    },
+    {
+      "name": "explicit host ports override filename exemptions",
+      "input": "connect play.example.sh:19132 play.example.log:19132 localhost:9 7host:19132",
+      "output": "connect [redacted] [redacted] [redacted] [redacted]"
     }
-  ]
+  ],
+  "timestamp": "\\b[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?"
 }
