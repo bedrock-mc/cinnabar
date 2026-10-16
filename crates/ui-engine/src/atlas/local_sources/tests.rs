@@ -118,7 +118,8 @@ fn local_and_archive_sources_share_the_large_encoded_budget() {
     let mut encoded = png(5 * 1024 * 1024);
     let key = "textures/large";
     let pack = pack_view(&[(format!("{key}.png"), encoded.clone())]);
-    let mut atlas = ServerAtlas::new(&[], Some(pack), 1);
+    let root = Arc::new(MemoryPack::default());
+    let mut atlas = ServerAtlas::new(&[], Some(pack), 1).with_fallbacks(Some(root.clone()), None);
     let large = source(Arc::from(encoded.clone())).unwrap();
     let pack = atlas.pack.as_ref().unwrap();
     pack.loaded
@@ -139,7 +140,6 @@ fn local_and_archive_sources_share_the_large_encoded_budget() {
     );
     assert_eq!(atlas.source_read_limit(), MAX_PACK_TEXTURE_BYTES);
     encoded.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
-    let root = Arc::new(MemoryPack::default());
     root.write("textures/budget.png", encoded);
     root.write("textures/budget.tga", png(0));
     atlas = atlas.with_fallbacks(Some(root), None);

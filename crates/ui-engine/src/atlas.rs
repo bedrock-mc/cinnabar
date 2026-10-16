@@ -25,9 +25,12 @@ use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote}
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
+mod oversized;
+pub use oversized::OversizedTextures;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
+mod source_reset;
 
 /// Image extensions a texture path may resolve to, in lookup order.
 pub const IMAGE_EXTENSIONS: [&str; 4] = [".png", ".tga", ".jpg", ".jpeg"];
@@ -296,7 +299,7 @@ pub struct ServerAtlas {
     metadata_revision: u64,
     metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
-    oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
+    oversized: OversizedTextures,
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
@@ -464,6 +467,11 @@ impl ServerAtlas {
         vanilla: Option<Arc<dyn LocalPack>>,
         remote: Option<Arc<dyn RemoteSource>>,
     ) -> Self {
+        if !source_reset::same_owner(&self.vanilla, &vanilla)
+            || !source_reset::same_owner(&self.remote, &remote)
+        {
+            self.reset_fallback_artwork();
+        }
         self.frames.set_vanilla(vanilla.clone());
         self.vanilla = vanilla;
         self.remote = remote;
@@ -471,12 +479,18 @@ impl ServerAtlas {
     }
 
     pub fn with_carrier(mut self, carrier: Option<Arc<assets::RuntimeUiAssets>>) -> Self {
+        if !source_reset::same_owner(&self.carrier, &carrier) {
+            self.reset_fallback_artwork();
+        }
         self.carrier = carrier;
         self
     }
 
     /// Serves `images` below the server pack and above the carrier and local pack.
     pub fn with_builtin_images(mut self, images: BuiltinImages) -> Self {
+        if !std::ptr::eq(self.builtin, images) {
+            self.reset_fallback_artwork();
+        }
         self.builtin = images;
         self
     }
@@ -673,11 +687,8 @@ impl ServerAtlas {
     }
 
     /// Drawn textures a page had to shrink, by key, with their source bytes.
-    pub fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
-        self.oversized
-            .iter()
-            .map(|(key, bytes)| (key.clone(), std::sync::Arc::clone(bytes)))
-            .collect()
+    pub fn oversized(&self) -> OversizedTextures {
+        self.oversized.clone()
     }
 
     /// Page images in order, for the reserved dynamic pages.
@@ -763,9 +774,8 @@ impl ServerAtlas {
             Some(source) => source,
             None => self.fallback(key)?,
         };
-        if source.packed != source.size && self.oversized.len() < MAX_OVERSIZED {
-            self.oversized
-                .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
+        if source.packed != source.size {
+            self.oversized.insert(key, &source.bytes);
         }
         let size = source.packed;
         let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());

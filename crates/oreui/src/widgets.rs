@@ -18,7 +18,7 @@ use super::theme::{
 };
 use launcher::menu::{MenuAction, MenuView};
 use ui::IconRef;
-use ui_engine::caret::{TextSpot, caret_byte};
+use ui_engine::caret::TextSpot;
 use ui_engine::engine::screen::PaintError;
 
 /// Standard height in rem of the fixed route tab row.
@@ -619,19 +619,15 @@ fn field(
     canvas.fill(face, mix(fill, hovered, motion.hover))?;
     let left = b[0] + canvas.r(1.4);
     let width = (b[2] - canvas.r(1.2) - left).max(1.0);
-    let top = (b[1] + b[3] - canvas.r(BODY.line)) * 0.5;
     let shown = if value.is_empty() { placeholder } else { value };
     let color = if value.is_empty() {
         FIELD_PLACEHOLDER
     } else {
         TEXT
     };
-    let before = &value[..caret_byte(value, view.caret.byte)];
-    let target = if before.is_empty() {
-        0.0
-    } else {
-        canvas.measure(before, BODY)?.min(width)
-    };
+    let viewport = [left, b[1], left + width - edge, b[3]];
+    let mut line = canvas.editable_line(value, placeholder, viewport, BODY)?;
+    let target = line.caret(view.caret.byte);
     let (caret, insertion) = if focused
         && let Some(action) = action
         && let Some(transitions) = canvas.transitions.as_deref_mut()
@@ -647,20 +643,28 @@ fn field(
     } else {
         (target, None)
     };
-    canvas.text_line_typing(
+    if focused {
+        line.reveal_caret(caret, viewport);
+    }
+    let clip = canvas.begin_clip([left, b[1], left + width, b[3]])?;
+    canvas.placed_text_typing(
         shown,
-        [left, b[1], left + width, b[3]],
-        BODY,
+        line.layout.clone(),
+        line.at,
+        viewport,
         color,
         insertion,
     )?;
-    if focused && view.caret.shown && view.caret.selection.is_none() {
-        let caret_x = left + caret;
-        canvas.fill(
-            [caret_x, top, caret_x + edge, top + canvas.r(BODY.line)],
-            FIELD_CARET,
-        )?;
+    let [top, bottom] = line.vertical;
+    if focused && let Some(selection) = view.caret.selection {
+        let edges = selection.map(|byte| line.at[0] + line.caret(byte));
+        canvas.invert([edges[0], top, edges[1], bottom])?;
     }
+    if focused && view.caret.shown && view.caret.selection.is_none() {
+        let caret_x = line.at[0] + caret;
+        canvas.fill([caret_x, top, caret_x + edge, bottom], FIELD_CARET)?;
+    }
+    canvas.end_clip(clip);
     if motion.focus > 0.0 {
         let ring = if focused { 0.0 } else { canvas.r(0.4) };
         canvas.frame(
@@ -683,9 +687,10 @@ fn field(
         let factor = request.scale.get() / metrics.scale.get();
         let letter_spacing_64 = request.wrap.letter_spacing_64;
         canvas.spots.push(TextSpot {
+            layout: (!line.placeholder).then(|| line.layout.clone()),
             field,
             bounds,
-            left,
+            left: line.at[0],
             factor,
             effect_scale_1024: 0,
             font: Some(BODY.face.name().into()),

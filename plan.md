@@ -49,8 +49,15 @@ Published form draw nodes share immutable snapshots. A bounded engine cache reta
 base texture paths and renderer names for the exact snapshot and omission values; overlays,
 renderer callbacks, source resolution and atlas residency still update every prepare.
 Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
-rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
-edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
+rendered comparisons and measured dependency-discovery cost remain pending.
+
+Oversized artwork sources retain sorted, immutable metadata with shared encoded bytes. Painted
+frames reuse that metadata and request artwork only after source ownership changes. Provider
+replacement retires stale fallback artwork; image polling, page publication and completed
+gallery work continue independently. Focused artwork and atlas regressions pass (34 and 9
+cases), and touched-crate clippy passes. Rendered comparisons and measured artwork
+publication cost remain pending. Edit-text/report copies and other form work remain separate;
+no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
@@ -3686,8 +3693,14 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-15 actor attacks run the ordinary pick once against the published frame's
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
-The selected frame also owns the action-facing rotation. Block presses resolve before
-catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+The selected frame also owns piercing direction and action-facing rotation. Assisted
+visibility follows the ray from that frame's eye to its selected point. Block presses
+wait behind older inputs without requiring a predecessor pose. Presses and their
+mining starts and predicted breaks share one ordered queue. Each pending entry has
+its own expiry; accepted carriers advance before later presses and survive their
+cancellation. Existing destroy progress, cancellation and held-input delay advance
+while new presses wait. One admission step resolves attacks and catch-up mining
+against the shared swing clock. Accepted item uses keep advancing
 while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced

@@ -70,7 +70,7 @@ use {
         local_player::{
             publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
         },
-        melee::produce_melee,
+        melee::produce_attacks,
         movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
@@ -103,7 +103,6 @@ use {
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
         shell_adapters::drive_menu_services,
-        survival_mining::produce_survival_mining,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,

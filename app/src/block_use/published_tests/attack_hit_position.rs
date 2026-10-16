@@ -75,7 +75,7 @@ pub(super) fn attack(world: &mut World) {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
 }
 
