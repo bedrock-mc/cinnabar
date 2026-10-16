@@ -401,7 +401,7 @@ fn owner_variables_copy_by_name_between_catalogs_with_different_slots() {
             *index += 1;
         }
     }
-    let owner = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let owner = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let owner_layout = VariableLayout::new(&owner);
     let target_layout = VariableLayout::new(&target);
     let mut values = owner_layout.fresh(1);

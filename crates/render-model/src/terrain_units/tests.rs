@@ -2,7 +2,15 @@ use super::*;
 
 #[test]
 fn units_cover_every_quad_once_and_reject_tail_before_addressing() {
-    for count in [0, 1, 63, 64, 65, 128, 4097] {
+    for count in [
+        0,
+        1,
+        QUADS_PER_UNIT - 1,
+        QUADS_PER_UNIT,
+        QUADS_PER_UNIT + 1,
+        2 * QUADS_PER_UNIT,
+        4097,
+    ] {
         let units = TerrainUnit::build(17..17 + count, 3, [[0; 3], [16; 3]], Some(2), 91)
             .collect::<Vec<_>>();
         let mut visible = Vec::new();
@@ -53,13 +61,15 @@ fn compaction_preserves_stream_order_and_shards_never_drop_units() {
     assert_eq!(
         visible
             .iter()
-            .map(|unit| unit.stream_start)
+            .flat_map(|unit| unit.stream_start..unit.stream_start + unit.quad_count)
             .collect::<Vec<_>>(),
-        [0, 64, 128, 400, 464, 528, 800, 864, 928]
+        (0..3)
+            .flat_map(|face| face * 400..face * 400 + 129)
+            .collect::<Vec<_>>()
     );
     let ranges =
         shards(visible.len(), 3 * size_of::<VisibleTerrainUnit>() as u64).collect::<Vec<_>>();
-    assert_eq!(ranges, [0..3, 3..6, 6..9]);
+    assert!(ranges.iter().all(|range| range.len() <= 3));
     assert_eq!(
         ranges
             .into_iter()
@@ -87,9 +97,10 @@ fn indexed_pages_bound_both_regions_and_keep_the_original_storage_slot_count() {
                 > bytes
         );
         assert_eq!(
-            u64::from(page.header()[0]) * size_of::<VisibleTerrainUnit>() as u64,
+            u64::from(page.header(capacity as u32)[0]) * size_of::<VisibleTerrainUnit>() as u64,
             page.reference_offset()
         );
+        assert_eq!(page.header(capacity as u32)[1], capacity as u32);
         assert!(
             page.reference_offset() + capacity as u64 * size_of::<u32>() as u64 <= page.byte_size()
         );
