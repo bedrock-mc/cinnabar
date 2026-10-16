@@ -57,10 +57,22 @@ pub(crate) fn read_manifest(
     let json = normalize_jsonc(bytes).ok_or(AdmissionError::MalformedManifest)?;
     let root: Value =
         serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedManifest)?;
+    let parse_u64 = |val: &Value| -> Option<u64> {
+        match val {
+            Value::Number(number) => number
+                .as_u64()
+                .or_else(|| number.as_f64().and_then(|f| (f.is_finite() && f >= 0.0).then_some(f as u64))),
+            Value::String(text) => text
+                .trim()
+                .split('.')
+                .next()
+                .and_then(|major| major.parse::<u64>().ok()),
+            _ => None,
+        }
+    };
     let format = match &root["format_version"] {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.trim().parse().ok(),
-        _ => None,
+        Value::Array(parts) => parts.first().and_then(parse_u64),
+        val => parse_u64(val),
     };
     if !matches!(format, Some(1..=3)) {
         return Err(AdmissionError::UnsupportedManifestFormat);
@@ -120,7 +132,15 @@ mod tests {
     #[test]
     fn accepts_formats_one_to_three_and_ignores_unknown_fields() {
         let resources = r#"{"type": "resources"}, {"type": "script", "language": "js"}"#;
-        for (format, version) in [("1", "[1, 2, 3]"), ("2", "[1, 2, 3]"), ("3", "\"1.2.3\"")] {
+        for (format, version) in [
+            ("1", "[1, 2, 3]"),
+            ("2", "[1, 2, 3]"),
+            ("3", "\"1.2.3\""),
+            ("2.0", "[1, 2, 3]"),
+            ("\"2.0\"", "[1, 2, 3]"),
+            ("\"2.0.0\"", "[1, 2, 3]"),
+            ("[2, 0, 0]", "[1, 2, 3]"),
+        ] {
             let text = manifest(format, version, resources);
             assert!(
                 read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
@@ -128,6 +148,11 @@ mod tests {
             );
         }
         let text = manifest("4", "[1, 2, 3]", resources);
+        assert_eq!(
+            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+            Some(AdmissionError::UnsupportedManifestFormat)
+        );
+        let text = manifest("4.0", "[1, 2, 3]", resources);
         assert_eq!(
             read_manifest(text.as_bytes(), ID, "1.2.3").err(),
             Some(AdmissionError::UnsupportedManifestFormat)
