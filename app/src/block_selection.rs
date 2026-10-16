@@ -1,6 +1,6 @@
 //! Publishes the current gameplay pick to the native outline/highlight overlay passes.
 use bevy::{ecs::system::SystemParam, prelude::*};
-use gameplay::melee::{Crosshair, classify, pick_actor};
+use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use render_model::{BlockSelectionTarget, CrackShape, crack_shape_for_block};
 use sim::PaletteWorld;
 use simulation_clock::identity::SessionGeneration;
@@ -97,23 +97,24 @@ fn target(
     let direct = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()?;
+    let actor = pick_actor(
+        stream.authority().remote_actors(),
+        context.ui.gameplay_hud().mount_unique_id(),
+        ray.origin().to_array(),
+        ray.direction().to_array(),
+        reach,
+    );
+    if matches!(
+        classify_block_hit(actor, ray.origin().to_array(), direct.as_ref(), reach),
+        Crosshair::Actor(_)
+    ) {
+        return None;
+    }
     let hit = match direct {
         Some(hit) => hit,
-        None => {
-            let actor = pick_actor(
-                stream.authority().remote_actors(),
-                context.ui.gameplay_hud().mount_unique_id(),
-                ray.origin().to_array(),
-                ray.direction().to_array(),
-                reach,
-            );
-            if matches!(classify(actor, None, reach), Crosshair::Actor(_)) {
-                return None;
-            }
-            world
-                .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
-                .ok()??
-        }
+        None => world
+            .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
+            .ok()??,
     };
     if !context.collisions.selection_overlay_visible(
         stream.network_id_mode(),

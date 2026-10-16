@@ -1668,6 +1668,10 @@ not close a parity or visual acceptance gate.
 
 ## Block selection outlines and visual bounds
 
+- A nearer selectable actor suppresses the block outline behind it, using the
+  same rounded-intercept comparison as interactions. Blocks in front of actors
+  retain their outline. Local cow comparison matches Android Bedrock 1.26.50.4;
+  this bounded correction does not close the remaining outline parity gates.
 - Block shape compilation now belongs to `assets` and `asset-compiler`. The
   physics carrier stores final movement boxes, independent selection boxes,
   eligibility, outlines, tags, and typed context facts for both runtime ID spaces.

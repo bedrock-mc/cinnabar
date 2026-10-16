@@ -53,6 +53,9 @@ mod attack_progress_tests;
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
+#[path = "published_tests/selection.rs"]
+mod selection_tests;
+
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
 
