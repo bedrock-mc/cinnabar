@@ -12,6 +12,7 @@ use super::{
 };
 use crate::movement::{MovementSource, MovementTicker, flush_player_auth_inputs};
 
+mod attack_admission;
 mod painting_attacks;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
@@ -38,6 +39,133 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
         },
         wear: None,
         instant: false,
+    }
+}
+
+/// Drives the real shared admission boundary with captured edge effects.
+struct MiningAdmission {
+    ticker: MovementTicker,
+    melee: crate::melee::MeleeRuntime,
+    mining: SurvivalMiningRuntime,
+    swings: crate::melee::SwingTracker,
+    packets: Vec<protocol::Packet>,
+    predictions: Vec<[i32; 3]>,
+}
+
+impl MiningAdmission {
+    /// Starts with the caller's movement history and empty interaction owners.
+    fn new(ticker: MovementTicker) -> Self {
+        Self {
+            ticker,
+            melee: Default::default(),
+            mining: Default::default(),
+            swings: Default::default(),
+            packets: Vec::new(),
+            predictions: Vec::new(),
+        }
+    }
+
+    /// Builds the same block-press proposal used by the edge producer.
+    fn press(&mut self, input: DestroyInput<'_>) -> Option<crate::melee::PressContext> {
+        let sample = self.melee.between_ticks_press(&self.ticker).or_else(|| {
+            self.melee.press_sample(
+                crate::melee::Crosshair::Block,
+                &self.ticker,
+                crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
+                1,
+            )
+        })?;
+        Some(crate::melee::PressContext {
+            tick: sample.tick,
+            player_position: sample.position,
+            input_mode: protocol::PlayerInputMode::Mouse,
+            local_runtime_id: 8,
+            selection: match input {
+                DestroyInput::Held(Some(target)) => Some(target.selection.clone()),
+                _ => None,
+            },
+            swing_duration: actor_animation::ACTOR_SWING_TICKS,
+            now_millis: 1,
+            item_attack: None,
+        })
+    }
+
+    /// Seeds a successfully admitted arm swing, leaving its mining work in the shared queue.
+    fn accept_block(&mut self, target: &DestroyTarget) {
+        self.melee
+            .synchronize(self.ticker.interaction_authority_identity());
+        self.melee.observe_input(true, false);
+        let press = self.press(DestroyInput::Held(Some(target))).unwrap();
+        crate::melee::resolve_and_send(
+            &mut self.melee,
+            &mut self.swings,
+            crate::melee::Crosshair::Block,
+            &press,
+            1,
+            |_| Ok(()),
+        );
+    }
+
+    /// Advances one frame without flushing movement, so tests choose the transport boundary.
+    fn frame(&mut self, input: DestroyInput<'_>, authority: BlockBreakingAuthority) {
+        let attack = self
+            .press(input)
+            .map(|press| (crate::melee::Crosshair::Block, press));
+        self.frame_with_attack(input, authority, attack, false);
+    }
+
+    /// Advances maintenance even when no new queued press has an admissible proposal.
+    fn frame_with_attack(
+        &mut self,
+        input: DestroyInput<'_>,
+        authority: BlockBreakingAuthority,
+        attack: Option<(crate::melee::Crosshair, crate::melee::PressContext)>,
+        full: bool,
+    ) {
+        crate::melee::admit_attack_frame(
+            &mut self.melee,
+            &mut self.mining,
+            &mut self.swings,
+            &mut self.ticker,
+            crate::melee::AttackFrame {
+                attack,
+                mining_target: match input {
+                    DestroyInput::Held(target) => target,
+                    DestroyInput::Released => None,
+                },
+                attack_held: !matches!(input, DestroyInput::Released),
+                authority,
+                now_millis: 1,
+                local_runtime_id: 8,
+            },
+            crate::melee::AttackEffects {
+                send: |packets| {
+                    if full {
+                        Err(crate::BatchSendError::Full)
+                    } else {
+                        self.packets.extend(packets);
+                        Ok(())
+                    }
+                },
+                swing_duration: |_| actor_animation::ACTOR_SWING_TICKS,
+                request_id: |_, _| None,
+                predict_break: |position| self.predictions.push(position),
+            },
+        );
+    }
+
+    /// Publishes every retained input through the production movement encoder.
+    fn flush(&mut self) {
+        flush_player_auth_inputs(
+            &mut self.ticker,
+            crate::movement::OUTBOX_CAPACITY,
+            Some(evidence()),
+            |_, packet| {
+                self.packets.push(packet);
+                Ok::<_, ()>(())
+            },
+        )
+        .unwrap();
     }
 }
 
@@ -891,50 +1019,39 @@ fn an_instant_break_between_ticks_is_predicted_at_the_press() {
             instant: true,
             ..target([3, 4, 5], "minecraft:obsidian", None)
         };
-        let mut runtime = SurvivalMiningRuntime::default();
-        let (mut swings, mut predictions) = (Vec::new(), Vec::new());
+        let mut harness = MiningAdmission::new(ticker);
+        harness.accept_block(&obsidian);
         for _ in 0..2 {
-            runtime.latched_press = true;
-            runtime.break_on_press(
-                &ticker,
-                DestroyInput::Held(Some(&obsidian)),
-                authority,
-                |tick| swings.push(tick),
-                |cell| predictions.push(cell),
-            );
+            harness.frame(DestroyInput::Held(Some(&obsidian)), authority);
         }
-        assert_eq!(swings, [next], "one swing, in the press frame");
-        assert_eq!(predictions, [[3, 4, 5]]);
-        assert_eq!(runtime.take_break_cues().len(), 1);
-        assert_eq!(ticker.completed_tick() + 1, next, "no tick ran");
-        let carried = kinds(&runtime.press_break.as_ref().unwrap().1);
-        assert_eq!(carried[0], (StartDestroy, [3, 4, 5], 1));
-        assert_eq!(carried.len(), 2);
-
-        ticker.enqueue_completed_physics(completed(next)).unwrap();
-        runtime.step_ticks(
-            &mut ticker,
-            DestroyInput::Released,
-            authority,
-            |tick| swings.push(tick),
-            |_, _| None,
-            |cell| predictions.push(cell),
+        let swing_kind = protocol::swing_arm_packet(8, protocol::SwingSource::Mine).kind();
+        assert_eq!(
+            harness
+                .packets
+                .iter()
+                .filter(|packet| packet.kind() == swing_kind)
+                .count(),
+            1,
+            "one completion swing in the press frame"
         );
-        assert_eq!(swings, [next]);
-        assert_eq!(predictions, [[3, 4, 5]]);
-        assert!(runtime.take_break_cues().is_empty());
-        let mut packets = Vec::new();
-        flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, packet| {
-            packets.push(packet);
-            Ok::<_, ()>(())
-        })
-        .unwrap();
-        assert!(
-            protocol::player_auth_input_trace_sample(&packets[0])
-                .unwrap()
-                .flag_names
-                .contains(&"PerformBlockActions")
-        );
+        assert_eq!(harness.predictions, [[3, 4, 5]]);
+        assert_eq!(harness.mining.take_break_cues().len(), 1);
+        assert_eq!(harness.ticker.completed_tick() + 1, next, "no tick ran");
+        harness
+            .ticker
+            .enqueue_completed_physics(completed(next))
+            .unwrap();
+        harness.frame(DestroyInput::Released, authority);
+        assert_eq!(harness.predictions, [[3, 4, 5]]);
+        assert!(harness.mining.take_break_cues().is_empty());
+        harness.flush();
+        let inputs: Vec<_> = harness
+            .packets
+            .iter()
+            .filter_map(protocol::player_auth_input_trace_sample)
+            .collect();
+        assert_eq!(inputs.len(), 1);
+        assert!(inputs[0].flag_names.contains(&"PerformBlockActions"));
     }
 }
 
@@ -944,19 +1061,12 @@ fn a_timed_break_between_ticks_waits_for_its_tick() {
     let mut ticker = ticker_with_ticks(1);
     flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, _| Ok::<_, ()>(())).unwrap();
     let stone = target([0, 1, -3], "minecraft:stone", None);
-    let mut runtime = SurvivalMiningRuntime {
-        latched_press: true,
-        ..Default::default()
-    };
-    runtime.break_on_press(
-        &ticker,
-        DestroyInput::Held(Some(&stone)),
-        Server,
-        |_| panic!("no swing before the tick"),
-        |_| panic!("no break"),
-    );
-    assert!(runtime.press_break.is_none());
-    assert_eq!(runtime.machine, DestroyMachine::default());
+    let mut harness = MiningAdmission::new(ticker);
+    harness.accept_block(&stone);
+    harness.frame(DestroyInput::Held(Some(&stone)), Server);
+    assert!(harness.packets.is_empty());
+    assert!(harness.predictions.is_empty());
+    assert_eq!(harness.mining.machine, DestroyMachine::default());
 }
 
 #[test]

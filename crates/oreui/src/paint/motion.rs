@@ -136,6 +136,8 @@ fn transform_nodes(
             continue;
         }
         let visual = match node.visual().clone() {
+            // Inversion has no opacity channel; hide feedback while the surface fades.
+            UiVisual::InvertedSprite { .. } if alpha < 1.0 => UiVisual::None,
             UiVisual::Solid {
                 texture_page,
                 color,

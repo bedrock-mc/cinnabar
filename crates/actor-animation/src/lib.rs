@@ -36,6 +36,7 @@ mod actor;
 pub use actor::{AnimatedActor, AnimatedActors, MAX_ANIMATED_ACTORS};
 pub mod consumables;
 mod properties;
+mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
 mod rig;
 pub use rig::{
