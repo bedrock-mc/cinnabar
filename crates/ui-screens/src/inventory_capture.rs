@@ -25,11 +25,11 @@ pub struct CraftingFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct StorageIcons(pub [Option<IconRef>; 54]);
+pub struct StorageIcons(pub [Option<IconRef>; protocol::MAX_GENERIC_STORAGE_SLOTS]);
 
 impl Default for StorageIcons {
     fn default() -> Self {
-        Self([None; 54])
+        Self([None; protocol::MAX_GENERIC_STORAGE_SLOTS])
     }
 }
 
@@ -37,7 +37,7 @@ impl Default for StorageIcons {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Durability {
     pub player: [Option<f32>; 36],
-    pub storage: [Option<f32>; 54],
+    pub storage: [Option<f32>; protocol::MAX_GENERIC_STORAGE_SLOTS],
     pub ui: [Option<f32>; protocol::UI_SLOT_COUNT],
 }
 
@@ -45,7 +45,7 @@ impl Default for Durability {
     fn default() -> Self {
         Self {
             player: [None; 36],
-            storage: [None; 54],
+            storage: [None; protocol::MAX_GENERIC_STORAGE_SLOTS],
             ui: [None; protocol::UI_SLOT_COUNT],
         }
     }
@@ -110,7 +110,10 @@ pub fn capture_contents(
     let item_names = if inventory_open {
         (0..36u8)
             .filter_map(|slot| ledger.displayed_stack(slot))
-            .chain((0..54u8).filter_map(|slot| ledger.furnace_visual_stack(slot)))
+            .chain(
+                (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
+                    .filter_map(|slot| ledger.furnace_visual_stack(slot as u8)),
+            )
             .filter_map(|stack| {
                 let name = item_name(stack)?;
                 Some(((stack.network_id, stack.metadata), Arc::from(name)))

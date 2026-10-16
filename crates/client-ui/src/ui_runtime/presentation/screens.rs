@@ -43,7 +43,7 @@ pub struct PlacedSlot {
 /// The panel's size in GUI pixels.
 pub fn panel_size(screen: InventoryScreen) -> [f32; 2] {
     match screen {
-        InventoryScreen::Storage(count) => [176.0, 114.0 + (count / 9) as f32 * SLOT_SIZE],
+        InventoryScreen::Storage(count) => [176.0, 114.0 + count.div_ceil(9) as f32 * SLOT_SIZE],
         InventoryScreen::Window(kind, cells) => {
             window_layout(kind, cells).map_or(PERSONAL_PANEL, |layout| layout.panel)
         }
@@ -127,7 +127,7 @@ pub fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
             slots
         }
         InventoryScreen::Storage(count) => {
-            let rows = count / 9;
+            let rows = count.div_ceil(9);
             let mut slots: Vec<PlacedSlot> = (0..count)
                 .map(|index| PlacedSlot {
                     pos: [

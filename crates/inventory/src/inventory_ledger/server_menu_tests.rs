@@ -10,6 +10,7 @@ use protocol::{
 
 use super::*;
 
+mod large_menu;
 mod repeated_open;
 
 const MENU_WINDOW: i32 = 1;

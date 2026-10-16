@@ -150,15 +150,15 @@ pub use inventory::{
     MAX_CREATIVE_ITEMS,
 };
 pub use inventory::{
-    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
-    WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
-    WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
-    WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
-    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
-    WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH,
-    WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
-    open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
-    ui_slot_request_container,
+    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS, OpenCells,
+    UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
+    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
+    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
+    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,

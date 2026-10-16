@@ -293,7 +293,7 @@ impl HudLayout<'_> {
     ) -> Result<(), UiPresentationError> {
         let g = self.geometry;
         self.solid_gui([0.0, 0.0], [g.gui_width, g.gui_height], [0, 0, 0, 150])?;
-        let rows = slot_count / 9;
+        let rows = slot_count.div_ceil(9);
         let panel_size = [176.0, 114.0 + rows as f32 * SLOT_SIZE];
         let origin = [
             ((g.gui_width - panel_size[0]) * 0.5).floor(),

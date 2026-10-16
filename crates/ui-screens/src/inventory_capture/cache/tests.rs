@@ -152,6 +152,38 @@ fn open_input(ledger: &PlayerInventoryLedger) -> ProjectionInput<'_> {
 }
 
 #[test]
+fn large_server_menu_keeps_high_slot_artwork_names_and_updates() {
+    let mut ledger = ledger();
+    ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: protocol::WINDOW_TYPE_CONTAINER,
+        position: [0; 3],
+        runtime_entity_id: -1,
+    }));
+    ledger.apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity::window(7),
+        slots: vec![NetworkItemStack::empty(); 200].into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    write(&mut ledger, 7, 113, stack(11, 5));
+    write(&mut ledger, 7, 199, stack(12, 8));
+    let mut cache = InventoryProjectionCache::default();
+    capture(&mut cache, open_input(&ledger), 0);
+    assert_eq!(cache.contents.storage_icons.0[113].unwrap().uv[0], 11);
+    assert_eq!(cache.contents.storage_icons.0[199].unwrap().uv[0], 12);
+    assert_eq!(cache.contents.item_names[&(12, 0)].as_ref(), "0:12:8");
+    assert_eq!(cache.durability.storage[199], Some(0.08));
+
+    write(&mut ledger, 7, 199, NetworkItemStack::empty());
+    let (_, calls) = capture(&mut cache, open_input(&ledger), 0);
+    assert!(calls.icons.is_empty());
+    assert!(cache.contents.storage_icons.0[199].is_none());
+    assert!(!cache.contents.item_names.contains_key(&(12, 0)));
+    assert!(cache.durability.storage[199].is_none());
+    assert!(cache.contents.storage_icons.0[113].is_some());
+}
+
+#[test]
 fn unchanged_frames_resolve_nothing_and_single_slot_changes_stay_local() {
     let mut ledger = ledger();
     let mut cache = InventoryProjectionCache::default();

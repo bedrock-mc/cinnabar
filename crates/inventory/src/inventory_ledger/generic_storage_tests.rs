@@ -172,14 +172,26 @@ fn full_storage_refresh_prevents_rejection_from_restoring_an_empty_taken_slot() 
 }
 
 #[test]
-fn only_exact_27_and_54_slot_level_entity_windows_become_authoritative() {
-    for count in [27, 54] {
+fn generic_storage_accepts_addressable_lengths_and_rejects_unaddressable_lengths() {
+    for count in [
+        1,
+        9,
+        26,
+        27,
+        28,
+        54,
+        55,
+        200,
+        protocol::MAX_GENERIC_STORAGE_SLOTS,
+    ] {
         let ledger = ready(count, 700 + count as u32);
         assert_eq!(ledger.storage_slot_count(), Some(count));
-        assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
+        if count > 2 {
+            assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
+        }
     }
 
-    for count in [0, 26, 28, 53, 55] {
+    for count in [0, protocol::MAX_GENERIC_STORAGE_SLOTS + 1] {
         let ledger = ready(count, 9);
         assert_eq!(ledger.storage_slot_count(), None);
         assert!(ledger.pending_batch().unwrap().is_some());

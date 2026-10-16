@@ -80,6 +80,22 @@ const RESULT_PREVIEW_NAMES: [u8; 8] = [
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
 
+/// Storage cells addressable by the protocol's one-byte stack-request slot.
+pub const MAX_GENERIC_STORAGE_SLOTS: usize = u8::MAX as usize + 1;
+
+/// Derives every nonempty container length that the retained slot address can represent.
+const fn generic_storage_lengths() -> [usize; MAX_GENERIC_STORAGE_SLOTS] {
+    let mut lengths = [0; MAX_GENERIC_STORAGE_SLOTS];
+    let mut index = 0;
+    while index < lengths.len() {
+        lengths[index] = index + 1;
+        index += 1;
+    }
+    lengths
+}
+
+const GENERIC_STORAGE_LENGTHS: [usize; MAX_GENERIC_STORAGE_SLOTS] = generic_storage_lengths();
+
 /// The screen a container window opens.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum WindowKind {
@@ -192,8 +208,8 @@ impl WindowKind {
     #[must_use]
     pub const fn open_cells(self) -> Option<OpenCells> {
         Some(match self {
-            // Vanilla chest models use the reported container size.
-            Self::Storage => OpenCells::Generic(&[9, 18, 27, 36, 45, 54]),
+            // Server menus can use non-row sizes and cells beyond the vanilla chest grids.
+            Self::Storage => OpenCells::Generic(&GENERIC_STORAGE_LENGTHS),
             Self::Dispenser | Self::Dropper => OpenCells::Generic(&[9]),
             Self::Hopper => OpenCells::Generic(&[5]),
             Self::Furnace => OpenCells::Named {

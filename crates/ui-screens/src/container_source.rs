@@ -116,8 +116,8 @@ pub struct ContainerFrame<'a> {
     pub inventory_icons: &'a [Option<IconRef>; 36],
     pub player_durability: &'a [Option<f32>; 36],
     pub hotbar_durability: &'a [Option<f32>; 9],
-    pub storage_icons: &'a [Option<IconRef>; 54],
-    pub storage_durability: &'a [Option<f32>; 54],
+    pub storage_icons: &'a [Option<IconRef>],
+    pub storage_durability: &'a [Option<f32>],
     /// UI-inventory slot icons and durabilities, by slot.
     pub ui_icons: &'a [Option<IconRef>],
     pub ui_durability: &'a [Option<f32>],

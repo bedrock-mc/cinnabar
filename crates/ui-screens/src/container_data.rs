@@ -598,6 +598,9 @@ pub(crate) fn collection_len(
 ) -> usize {
     let ledger = player_runtime.inventory.ledger();
     match (ledger.window_kind(), collection) {
+        (Some(WindowKind::Storage), "container_items") => {
+            ledger.storage_slot_count().unwrap_or(0).min(cells)
+        }
         (Some(WindowKind::Horse), "container_items") => ledger
             .storage_slot_count()
             .map_or(0, |count| count.saturating_sub(2))
@@ -638,6 +641,8 @@ pub(crate) fn decorate(
 
 #[cfg(test)]
 mod anvil_tests;
+#[cfg(test)]
+mod server_menu_tests;
 
 #[cfg(test)]
 mod banner_tests {
