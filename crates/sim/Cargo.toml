@@ -33,5 +33,9 @@ test-alloc = { path = "../test-alloc" }
 name = "terrain_region"
 harness = false
 
+[[bench]]
+name = "actor_fluids"
+harness = false
+
 [lints]
 workspace = true

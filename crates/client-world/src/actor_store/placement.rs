@@ -213,18 +213,15 @@ impl ActorStore {
     }
 
     /// Authoritative body boxes for the caller's native liquid-contact sampling.
-    pub(crate) fn fluid_probes(&self) -> Vec<ActorFluidProbe> {
-        self.actors
-            .values()
-            .filter_map(|actor| {
-                let (min, max) = actor.bounding_box()?;
-                Some(ActorFluidProbe {
-                    runtime_id: actor.runtime_id,
-                    min,
-                    max,
-                })
+    pub(crate) fn fluid_probes(&self) -> impl Iterator<Item = ActorFluidProbe> + '_ {
+        self.actors.values().filter_map(|actor| {
+            let (min, max) = actor.bounding_box()?;
+            Some(ActorFluidProbe {
+                runtime_id: actor.runtime_id,
+                min,
+                max,
             })
-            .collect()
+        })
     }
 
     /// The streamed bed block of every sleeping actor; sleepers without a bed position are skipped.
@@ -309,7 +306,7 @@ mod tests {
             ActorDataKey::Height.wire_value(),
             ActorMetadataValue::Float(0.4),
         );
-        let probes = store.fluid_probes();
+        let probes: Vec<_> = store.fluid_probes().collect();
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].runtime_id, 7);
         assert_eq!(probes[0].min, [0.8, 2.0, 2.8]);

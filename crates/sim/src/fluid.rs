@@ -1,4 +1,11 @@
-use crate::{Aabb, BlockPhysicsFlags, CollisionWorld, MAX_BLOCK_SAMPLES_PER_TICK, WorldQueryError};
+use crate::{
+    Aabb, BlockPhysicsFacts, BlockPhysicsFlags, CollisionWorld, MAX_BLOCK_SAMPLES_PER_TICK, Vec3,
+    WorldQueryError,
+};
+
+// Head-water sensing compares the eye against liquid level / 9, offset one level down.
+const LIQUID_LEVEL_DIVISOR: f32 = 9.0;
+const HEAD_SURFACE_OFFSET: f32 = -1.0 / LIQUID_LEVEL_DIVISOR;
 
 /// Samples an actor's native water/lava contact probes from its authoritative body box.
 /// Material cells establish contact independently of their rendered liquid surface height.
@@ -25,16 +32,36 @@ pub fn sample_actor_liquids(
                     return Err(WorldQueryError::QueryExtentExceeded);
                 }
                 samples += 1;
-                let sample = world.block_physics(block)?;
-                for layer in &sample.layers {
+                world.visit_block_materials(block, &mut |layer| {
                     water |= water_contact && layer.flags.contains(BlockPhysicsFlags::WATER);
                     lava |= lava_contact && layer.flags.contains(BlockPhysicsFlags::LAVA);
-                }
+                })?;
             }
         }
     }
     // Native liquid fetch selects lava material when both probes find contact.
     Ok((water && !lava, lava))
+}
+
+/// Compares the point with this primary material's liquid surface using f32 arithmetic.
+pub(crate) fn material_submersion(
+    facts: BlockPhysicsFacts,
+    point: Vec3,
+    block: [i32; 3],
+    liquids: &[BlockPhysicsFlags],
+) -> bool {
+    if !liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
+        return false;
+    }
+    let level = if facts.fluid_height_blocks >= 1.0 {
+        1.0
+    } else {
+        (LIQUID_LEVEL_DIVISOR - (facts.fluid_height_blocks as f32 * LIQUID_LEVEL_DIVISOR).round())
+            .clamp(1.0, 8.0)
+    };
+    let surface =
+        (i64::from(block[1]) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET);
+    (point.y as f32) < surface
 }
 
 /// Native liquid fetch shrinks each probe and clamps it to the body's center.

@@ -1,38 +1,43 @@
 use chunk_pipeline::WorldStream;
-use sim::{Aabb, Vec3, sample_actor_liquids, sample_liquid_submersion};
+use sim::{Aabb, Vec3, sample_actor_liquid_submersion, sample_actor_liquids};
 
 use crate::observations::CollisionLookup;
 
-/// Samples body liquid contact and breathing-point submersion for actor animation ticks.
-pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn CollisionLookup) {
-    let mode = stream.network_id_mode();
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(mode),
-        stream.current_dimension(),
-        Default::default(),
-    );
-    let probes = stream.authority().actor_fluid_probes();
-    let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
-    let fluids: Vec<_> = probes
-        .iter()
-        .filter_map(|probe| {
+/// Retains result storage across actor ticks; each tick replaces all pending samples.
+#[derive(Default)]
+pub struct ActorFluidSampler {
+    fluids: Vec<(u64, bool, bool)>,
+    breathing: Vec<(u64, bool)>,
+}
+
+impl ActorFluidSampler {
+    /// Samples body contact and breathing submersion, keeping each previous value on errors.
+    pub fn sample(&mut self, stream: &mut WorldStream, collisions: &dyn CollisionLookup) {
+        self.fluids.clear();
+        self.breathing.clear();
+        let mode = stream.network_id_mode();
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(mode),
+            stream.current_dimension(),
+            Default::default(),
+        );
+        let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+        for probe in stream.authority().actor_fluid_probes() {
             let bounds = Aabb::new(vector(probe.min), vector(probe.max));
             // Keep the previous sample when a probe crosses unavailable chunk data.
-            let (water, lava) = sample_actor_liquids(&world, bounds).ok()?;
-            Some((probe.runtime_id, water, lava))
-        })
-        .collect();
-    let breathing: Vec<_> = probes
-        .iter()
-        .filter_map(|probe| {
-            let submerged =
-                sample_liquid_submersion(&world, vector(breathing_point(probe))).ok()?;
-            Some((probe.runtime_id, submerged.value))
-        })
-        .collect();
-    stream.set_actor_fluids(&fluids);
-    stream.set_actor_breathing_liquids(&breathing);
+            if let Ok((water, lava)) = sample_actor_liquids(&world, bounds) {
+                self.fluids.push((probe.runtime_id, water, lava));
+            }
+            if let Ok(submerged) =
+                sample_actor_liquid_submersion(&world, vector(breathing_point(&probe)))
+            {
+                self.breathing.push((probe.runtime_id, submerged));
+            }
+        }
+        stream.set_actor_fluids(&self.fluids);
+        stream.set_actor_breathing_liquids(&self.breathing);
+    }
 }
 
 /// Samples bed headings before frame presentation, including frames without an actor tick.
@@ -80,6 +85,10 @@ fn breathing_point(probe: &client_world::ActorFluidProbe) -> [f32; 3] {
         (probe.min[2] + probe.max[2]) * 0.5,
     ]
 }
+
+#[cfg(test)]
+#[path = "actor_sampling/tests.rs"]
+mod fluid_tests;
 
 #[cfg(test)]
 mod tests {

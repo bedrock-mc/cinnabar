@@ -30,7 +30,7 @@ pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
-pub use water::{sample_liquid_submersion, sample_water_head};
+pub use water::{sample_actor_liquid_submersion, sample_liquid_submersion, sample_water_head};
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
     state::validate(state)

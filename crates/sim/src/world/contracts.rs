@@ -135,6 +135,20 @@ pub trait CollisionWorld {
         })
     }
 
+    /// Visits material facts from the primary layer upward, without retaining an identity.
+    /// All layers are checked, including those after a visitor has found its answer.
+    /// Discard visited values if the query fails. Palette worlds allocate no sample storage.
+    fn visit_block_materials(
+        &self,
+        block: [i32; 3],
+        visitor: &mut dyn FnMut(BlockPhysicsFacts),
+    ) -> Result<(), WorldQueryError> {
+        for facts in self.block_physics(block)?.layers {
+            visitor(facts);
+        }
+        Ok(())
+    }
+
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         let origin = Vec3::new(
             f64::from(block[0]),

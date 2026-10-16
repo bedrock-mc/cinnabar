@@ -810,6 +810,26 @@ impl CollisionWorld for PaletteWorld<'_> {
         self.camera_segment_entry_lenient(origin, delta)
     }
 
+    /// Reads the same layers and availability as `block_physics`, without its owned result.
+    fn visit_block_materials(
+        &self,
+        block: [i32; 3],
+        visitor: &mut dyn FnMut(BlockPhysicsFacts),
+    ) -> Result<(), WorldQueryError> {
+        self.column_revision(ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4))?;
+        for runtime_id in self
+            .layers_at(block, &mut section::SectionCache::default())?
+            .iter()
+        {
+            let facts = self
+                .registry
+                .movement_facts(runtime_id)
+                .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
+            visitor(facts);
+        }
+        Ok(())
+    }
+
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         let identity = self.identity_for_block(block)?;
         let layers = self

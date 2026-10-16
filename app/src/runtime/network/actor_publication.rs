@@ -79,6 +79,7 @@ pub(crate) fn advance_actor_frame(
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
     mut emote_state: Local<shared_emotes::State>,
+    mut fluids: Local<client_presentation::actor_sampling::ActorFluidSampler>,
 ) {
     let ActorObservations {
         mut world,
@@ -218,7 +219,7 @@ pub(crate) fn advance_actor_frame(
         input,
         |stream| {
             if let Some(collisions) = collisions.as_deref() {
-                client_presentation::actor_sampling::sample_actor_world_state(stream, collisions);
+                fluids.sample(stream, collisions);
             }
         },
         |stream, _partial_tick| {

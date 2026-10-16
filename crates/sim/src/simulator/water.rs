@@ -9,10 +9,6 @@ use super::{
     DEPTH_STRIDER_MAX_LEVEL, DEPTH_STRIDER_TARGET_DRAG, MovementInput, MovementMode, WATER_DRAG,
 };
 
-// Head-water sensing compares the eye against liquid level / 9, offset one level down.
-const LIQUID_LEVEL_DIVISOR: f32 = 9.0;
-const HEAD_SURFACE_OFFSET: f32 = -1.0 / LIQUID_LEVEL_DIVISOR;
-
 /// Head-water sensing at the pose-adjusted eye anchor. Unlike the
 /// swimming steering guard, this requires the primary water material and tests
 /// the liquid level against the eye, preserving the sampled world identity.
@@ -42,6 +38,27 @@ pub fn sample_liquid_submersion(
     )
 }
 
+/// Samples breathing-point submersion without retaining collision provenance.
+/// Only the primary layer controls the value; unknown secondary layers still fail the query.
+pub fn sample_actor_liquid_submersion(
+    world: &(impl CollisionWorld + ?Sized),
+    point: Vec3,
+) -> Result<bool, WorldQueryError> {
+    let block = super::environment::block_at(point)?;
+    let mut submerged = None;
+    world.visit_block_materials(block, &mut |facts| {
+        submerged.get_or_insert_with(|| {
+            crate::fluid::material_submersion(
+                facts,
+                point,
+                block,
+                &[BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA],
+            )
+        });
+    })?;
+    Ok(submerged.expect("material queries include the primary layer"))
+}
+
 /// Compares the point with the primary layer's liquid level / 9, offset one level down.
 fn submerged(
     world: &(impl CollisionWorld + ?Sized),
@@ -50,21 +67,7 @@ fn submerged(
 ) -> Result<CollisionQuery<bool>, WorldQueryError> {
     let block = super::environment::block_at(point)?;
     let sample = world.block_physics(block)?;
-    let facts = sample.primary();
-    let in_liquid = if liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
-        let level = if facts.fluid_height_blocks >= 1.0 {
-            1.0
-        } else {
-            (LIQUID_LEVEL_DIVISOR
-                - (facts.fluid_height_blocks as f32 * LIQUID_LEVEL_DIVISOR).round())
-            .clamp(1.0, 8.0)
-        };
-        let surface =
-            (i64::from(block[1]) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET);
-        (point.y as f32) < surface
-    } else {
-        false
-    };
+    let in_liquid = crate::fluid::material_submersion(*sample.primary(), point, block, liquids);
     Ok(CollisionQuery {
         value: in_liquid,
         identity: sample.identity,

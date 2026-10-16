@@ -155,7 +155,7 @@ impl WorldAuthority {
     }
     /// Body boxes for the native liquid probes backing [`Self::set_actor_fluids`].
     #[must_use]
-    pub fn actor_fluid_probes(&self) -> Vec<crate::ActorFluidProbe> {
+    pub fn actor_fluid_probes(&self) -> impl Iterator<Item = crate::ActorFluidProbe> + '_ {
         self.actors.fluid_probes()
     }
 
