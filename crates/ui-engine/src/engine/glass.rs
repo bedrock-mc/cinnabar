@@ -134,12 +134,14 @@ pub fn paint_world_backdrop(
 type BackdropKey = (u16, [u32; 3]);
 /// A glass outline's logical size, radius and display density, its opacity and its paint.
 type GlassKey = ([u32; 4], u8, [u32; 3]);
+/// A highlight's outline, colour and display density.
+type HighlightKey = ([u32; 4], [u8; 4], u32);
 
 thread_local! {
     /// Backdrop geometry derived from rounded shapes, keyed by outline and paint.
     static GLASS: RefCell<MeshCache<GlassKey>> = RefCell::default();
     /// Top-edge highlights, keyed by outline and width, colour and display density.
-    static HIGHLIGHTS: RefCell<MeshCache<([u32; 4], [u8; 4], u32)>> = RefCell::default();
+    static HIGHLIGHTS: RefCell<MeshCache<HighlightKey>> = RefCell::default();
     /// Whole-content world backdrop quads, keyed by page and paint.
     static WORLD: RefCell<MeshCache<BackdropKey>> = RefCell::default();
 }
