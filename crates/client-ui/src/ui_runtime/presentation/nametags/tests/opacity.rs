@@ -36,6 +36,7 @@ fn replacement_and_default_text_opacity_preserve_native_coverage() {
     );
 }
 
+/// Zero opacity discards glyphs and plates; visible glyphs retain atlas coverage and native alpha.
 #[test]
 fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
     for sneaking in [false, true] {
@@ -56,16 +57,25 @@ fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
                 } else {
                     1.0
                 };
-                let fragment = record.fragment_color([1.0, 1.0, 1.0, 0.5]).unwrap();
-                assert!((fragment[3] - native_alpha * opacity * 0.25 * 0.5).abs() < 1e-6);
+                let fragment = record.fragment_color([1.0, 1.0, 1.0, 0.5]);
+                if opacity == 0.0 {
+                    assert!(fragment.is_none());
+                } else {
+                    assert!(
+                        (fragment.unwrap()[3] - native_alpha * opacity * 0.25 * 0.5).abs() < 1e-6
+                    );
+                }
                 assert!(
                     record
                         .fragment_color([1.0, 1.0, 1.0, render_model::NAMETAG_ALPHA_CUTOFF])
                         .is_none()
                 );
             }
-            // Cosmetic fading also preserves flat plates, independently of atlas contents.
-            assert!(scene.records[0].fragment_color([0.0; 4]).is_some());
+            // Visible plates ignore atlas contents; zero opacity discards them.
+            assert_eq!(
+                scene.records[0].fragment_color([0.0; 4]).is_some(),
+                opacity > 0.0
+            );
         }
     }
 }
