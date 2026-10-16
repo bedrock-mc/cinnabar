@@ -112,12 +112,18 @@ fn transparent_nametag_plate_preserves_world_color_and_alpha() {
     gpu_snapshot::save("transparent-nametag-plate", &pixels);
     assert!(
         pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[0] > 200 && pixel[1] > 200),
         "text remains visible"
     );
     assert!(
-        pixels.chunks_exact(4).any(|pixel| pixel[3] == 204),
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] == 204),
         "the nonzero shadow opacity remains visible"
     );
     let corner = &pixels[..4];
