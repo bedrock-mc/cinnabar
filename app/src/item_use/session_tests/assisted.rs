@@ -31,7 +31,7 @@ pub(super) fn flush(
         ticker,
         gameplay::movement::OUTBOX_CAPACITY,
         Some(evidence()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             written.push(identity);
             network.send_physics_packet(identity, packet, guard)
         },

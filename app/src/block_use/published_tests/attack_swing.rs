@@ -16,7 +16,7 @@ fn an_instant_mining_press_retains_its_press_and_completion_swings() {
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
     });

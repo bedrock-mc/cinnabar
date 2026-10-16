@@ -232,7 +232,7 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
                 .insert_resource(mouse)
                 .add_systems(
                     Update,
-                    crate::ui_runtime::interaction::drive_world_inventory_keys,
+                    crate::ui_runtime::interaction::inventory::drive_world_inventory_keys,
                 );
             app.world_mut().spawn((
                 Window {

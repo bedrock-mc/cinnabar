@@ -179,7 +179,7 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// Publishes an admitted one-item use before exact drop descriptors are built or retried.
+    /// Publishes admitted consumption or book initialization before exact drop descriptors are built.
     /// The caller's slot revision and source must still match the backing inventory.
     pub fn settle_use_slot_change(
         &mut self,
@@ -187,6 +187,9 @@ impl PlayerInventoryLedger {
         revision: u64,
         change: &protocol::PredictedSlotChange,
     ) -> bool {
+        if change.from.count() == change.to.count() {
+            return self.settle_book_init_slot_change(slot, revision, change);
+        }
         let cell = Cell::Inventory(slot);
         if self.authoritative_slot_revision(slot) != Some(revision)
             || !protocol::is_legacy_request_id(change.legacy_request_id)
@@ -228,6 +231,43 @@ impl PlayerInventoryLedger {
         }
         self.confirmed.set(cell, after.clone());
         self.rebase_predictions(i32::MAX, cell, Some(&before), after);
+        self.refold();
+        true
+    }
+
+    /// Settles only the empty-pages update of an idle, current writable-book slot.
+    fn settle_book_init_slot_change(
+        &mut self,
+        slot: u8,
+        revision: u64,
+        change: &protocol::PredictedSlotChange,
+    ) -> bool {
+        let cell = Cell::Inventory(slot);
+        if self.authoritative_slot_revision(slot) != Some(revision)
+            || !protocol::is_legacy_request_id(change.legacy_request_id)
+            || self.queue.iter().any(|request| request.touches(cell))
+            || self
+                .negotiated_item_entry(change.from.network_id())
+                .and_then(|entry| {
+                    assets::facts::ItemFacts::builtin()
+                        .ok()?
+                        .book_editable(&entry.identifier)
+                })
+                != Some(true)
+            || protocol::writable_book_init_change(&change.from, change.legacy_request_id).as_ref()
+                != Some(change)
+        {
+            return false;
+        }
+        let Some(mut held) = self.confirmed.get(cell).cloned() else {
+            return false;
+        };
+        if verified(Some(&held)).ok().as_ref() != Some(&change.from) {
+            return false;
+        }
+        held.stack.extra_data = change.to.extra_data().into();
+        held.stack.nbt_digest = change.to.nbt_digest();
+        self.confirmed.set(cell, Some(held));
         self.refold();
         true
     }

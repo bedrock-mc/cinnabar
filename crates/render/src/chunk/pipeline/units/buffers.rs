@@ -7,9 +7,10 @@ use crate::upload_staging::TerrainUploadStaging;
 
 /// One binding contains both stable geometry slots and the ordered visibility references.
 pub(super) struct UnitPage {
-    buffer: Buffer,
+    pub(super) buffer: Buffer,
     pub(super) group: BindGroup,
     pub(super) count: u32,
+    pub(super) masks: Option<gpu_cull::unit_mask::UnitMaskBindings>,
     layout: IndexedUnitPage,
     indexed: bool,
     packed: Vec<VisibleTerrainUnit>,
@@ -134,6 +135,7 @@ fn ensure_page(
         buffer,
         group,
         count: 0,
+        masks: None,
         layout,
         indexed: false,
         packed: Vec::new(),

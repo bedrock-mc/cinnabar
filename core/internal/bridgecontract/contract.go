@@ -23,6 +23,8 @@ const (
 	SessionKindDisconnect = 6
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
+	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.
+	LatencyTraceEnv = "CINNABAR_LATENCY_TRACE"
 	// HostedWorldMaxPlayers: Vanilla's player limit for a hosted local world, the host included.
 	HostedWorldMaxPlayers = 8
 	// RelayVersion: Browser relay protocol version.

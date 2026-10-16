@@ -225,7 +225,7 @@ fn a_written_release_does_not_hold_later_inputs_for_another_frame() {
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| {
+            |identity, packet, guard, _| {
                 written = Some(identity);
                 network.send_physics_packet(identity, packet, guard)
             },

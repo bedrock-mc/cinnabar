@@ -221,6 +221,67 @@ pub(crate) mod unix {
         assert_eq!(transport.ahead_bytes, 0);
     }
 
+    /// Each delivered packet names the core batch frame and slot it came from, counting the
+    /// startup packets as frame 0, so trace joins line up with the core's frame numbers.
+    #[tokio::test]
+    async fn delivered_packets_name_their_frame_and_index() {
+        let time = |time| {
+            Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })
+        };
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("trace-position", &[packet_bytes(&time(0))]).await;
+        write_frame(peer, &batch_frame(&[time(1), time(2)]).unwrap()).await;
+        write_frame(peer, &batch_frame(&[time(3)]).unwrap()).await;
+
+        let mut positions = Vec::new();
+        for _ in 0..4 {
+            let Inbound::Packet(_) = transport.recv().await.unwrap() else {
+                panic!("only packets were written")
+            };
+            let (_, frame, index) = transport.trace_position();
+            positions.push((frame, index));
+        }
+        assert_eq!(positions, [(0, 0), (1, 0), (1, 1), (2, 0)]);
+    }
+
+    /// Packets deferred and prepended at startup keep the frame and slot they arrived in.
+    #[tokio::test]
+    async fn prepended_packets_keep_their_trace_position() {
+        let time = |time| {
+            Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })
+        };
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("trace-prepend", &[]).await;
+        write_frame(peer, &batch_frame(&[time(1), time(2)]).unwrap()).await;
+        write_frame(peer, &batch_frame(&[time(3)]).unwrap()).await;
+
+        let mut deferred = Vec::new();
+        for _ in 0..2 {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("only packets were written")
+            };
+            deferred.push(raw);
+        }
+        let Inbound::Packet(_) = transport.recv().await.unwrap() else {
+            panic!("only packets were written")
+        };
+        assert_eq!(transport.trace_position().1, 2);
+        transport.prepend(deferred);
+        let mut positions = Vec::new();
+        for _ in 0..2 {
+            transport.recv().await.unwrap();
+            let (_, frame, index) = transport.trace_position();
+            positions.push((frame, index));
+        }
+        assert_eq!(positions, [(1, 0), (1, 1)]);
+    }
+
     /// A single step cannot consume siblings, and another wait shares the current byte charge.
     #[tokio::test]
     async fn read_ahead_steps_stage_one_frame_and_share_the_existing_cap() {

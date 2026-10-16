@@ -229,6 +229,9 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
     ) -> RenderCommandResult {
         let (gpu, tracker, witness, pipeline, cache) = params;
         let gpu = gpu.into_inner();
+        if gpu.instance_count == 0 {
+            return RenderCommandResult::Skip;
+        }
         let tracker = tracker.into_inner();
         let pipeline = pipeline.into_inner();
         let cache = cache.into_inner();

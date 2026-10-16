@@ -38,8 +38,7 @@ fn handoff() -> SessionHandoff {
         },
         client_cache: false,
         packs_required: false,
-        packs: Vec::new(),
-        startup: Vec::new(),
+        ..SessionHandoff::default()
     }
 }
 

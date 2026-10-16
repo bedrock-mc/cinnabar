@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
@@ -134,7 +135,8 @@ const QUEUED_FRAMES: usize = 16;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
-    let (reader, frames, writer) = crate::tasks::prepare_connection(read, write, maximum);
+    let trace_conn = crate::latency_trace::active().map(|_| Arc::new(AtomicU64::new(0)));
+    let (reader, frames, writer) = prepare_bounded(read, write, maximum, None, trace_conn);
     tokio::spawn(writer);
     (reader, frames)
 }
@@ -145,15 +147,17 @@ pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     write: W,
     maximum: usize,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
-    prepare_bounded(read, write, maximum, None)
+    prepare_bounded(read, write, maximum, None, None)
 }
 
-/// Keeps byte permits until flush, admitting a frame larger than the budget alone.
+/// Keeps byte permits until flush, admitting a frame larger than the budget alone. A `trace_conn`
+/// records this connection's batch frames in the latency trace once the core's ID is set in it.
 pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: R,
     write: W,
     maximum: usize,
     budget: Option<usize>,
+    trace_conn: Option<Arc<AtomicU64>>,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
     assert!(budget.is_none_or(|bytes| bytes > 0 && bytes <= u32::MAX as usize));
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
@@ -162,10 +166,12 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),
+        FrameTrace::new(trace_conn.clone()),
     );
     (
         FramedReader {
             inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
+            trace: FrameTrace::new(trace_conn),
         },
         FrameQueue {
             frames,
@@ -181,13 +187,83 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 /// native callers use the default socket read half.
 pub struct FramedReader<R = PlatformReadHalf> {
     inner: FramedRead<R, BridgeCodec>,
+    trace: FrameTrace,
+}
+
+impl<R> FramedReader<R> {
+    /// The core's latency-trace ID for this connection, or 0 when it is not traced.
+    #[must_use]
+    pub fn trace_conn(&self) -> u64 {
+        self.trace.id()
+    }
+
+    /// Adopts the latency-trace ID the core sent in its handoff, for this reader and its writer.
+    pub fn set_trace_conn(&self, id: u64) {
+        if let Some(conn) = &self.trace.conn {
+            conn.store(id, Ordering::Relaxed);
+        }
+    }
 }
 
 impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     type Item = Result<Bytes, BridgeError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().inner).poll_next(cx)
+        let this = self.get_mut();
+        let next = Pin::new(&mut this.inner).poll_next(cx);
+        if let Poll::Ready(Some(Ok(frame))) = &next {
+            let read_at = this.trace.now();
+            this.trace.batch(
+                crate::latency_trace::kind::FRAME_READ,
+                read_at,
+                frame.first(),
+                frame.len(),
+            );
+        }
+        next
+    }
+}
+
+/// Numbers one direction's batch frames in the latency trace; inert until the core's ID is set.
+struct FrameTrace {
+    trace: Option<&'static crate::latency_trace::Trace>,
+    conn: Option<Arc<AtomicU64>>, // shared by a connection's reader and writer
+    frames: u64,
+}
+
+impl FrameTrace {
+    fn new(conn: Option<Arc<AtomicU64>>) -> Self {
+        let trace = conn.as_ref().and(crate::latency_trace::active());
+        Self {
+            trace,
+            conn,
+            frames: 0,
+        }
+    }
+
+    fn id(&self) -> u64 {
+        self.conn
+            .as_ref()
+            .map_or(0, |conn| conn.load(Ordering::Relaxed))
+    }
+
+    /// The trace clock now, or 0 when this connection is not traced.
+    fn now(&self) -> i64 {
+        self.trace.map_or(0, |trace| trace.now())
+    }
+
+    /// Records a frame of `len` bytes starting with `head` under `kind`, stamped `at`, when it is a
+    /// batch on a traced connection.
+    fn batch(&mut self, kind: u8, at: i64, head: Option<&u8>, len: usize) {
+        let conn = self.id();
+        if conn == 0 || head != Some(&crate::contract::KIND_BATCH) {
+            return;
+        }
+        let Some(trace) = self.trace else {
+            return;
+        };
+        self.frames += 1;
+        trace.record(kind, &[conn as i64, self.frames as i64, at, len as i64]);
     }
 }
 
@@ -282,15 +358,26 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
     mut writer: FramedWrite<W, BridgeCodec>,
     mut frames: mpsc::Receiver<QueuedFrame>,
     failure: Arc<OnceLock<String>>,
+    mut trace: FrameTrace,
 ) {
     let mut pending = Vec::with_capacity(QUEUED_FRAMES);
+    // First byte, length and feed time of the frames in this flush, kept only while tracing.
+    // Each time is taken before that frame's bytes can go out, so the core never reads a frame
+    // before its record.
+    let mut traced = Vec::new();
     while let Some(first) = frames.recv().await {
+        if trace.conn.is_some() {
+            traced.push((first.frame.first().copied(), first.frame.len(), trace.now()));
+        }
         let mut written = writer.feed(first.frame).await;
         pending.push((first.written, first.bytes));
         while written.is_ok()
             && pending.len() < QUEUED_FRAMES
             && let Ok(next) = frames.try_recv()
         {
+            if trace.conn.is_some() {
+                traced.push((next.frame.first().copied(), next.frame.len(), trace.now()));
+            }
             written = writer.feed(next.frame).await;
             pending.push((next.written, next.bytes));
         }
@@ -301,6 +388,17 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
         let result = flushed.map_err(|error| error.to_string());
         if let Err(reason) = &result {
             let _ = failure.set(reason.clone());
+        }
+        // Only frames that reached the socket count as written; a failure ends the connection.
+        for (head, len, fed) in traced.drain(..) {
+            if result.is_ok() {
+                trace.batch(
+                    crate::latency_trace::kind::FRAME_WRITTEN,
+                    fed,
+                    head.as_ref(),
+                    len,
+                );
+            }
         }
         for (written, _bytes) in pending.drain(..) {
             let _ = written.send(result.clone());
@@ -679,5 +777,170 @@ mod tests {
                 .is_none()
         );
         assert!(header.capacity() < MAX_FRAME_LEN);
+    }
+
+    /// A writer whose every write fails, standing in for a closed core socket.
+    struct FailingWriter;
+
+    impl tokio::io::AsyncWrite for FailingWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Queues `batches` together, so the writer coalesces them into one flush, writes them through
+    /// the writer `writer` builds and returns the trace lines left.
+    async fn traced_write<W: tokio::io::AsyncWrite + Unpin>(
+        batches: Vec<Bytes>,
+        writer: impl FnOnce(&'static crate::latency_trace::Trace) -> W,
+    ) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let trace: &'static _ = Box::leak(Box::new(
+            crate::latency_trace::Trace::open(dir.path(), "frames").unwrap(),
+        ));
+        let write = writer(trace);
+        let (frames, queued) = tokio::sync::mpsc::channel(batches.len());
+        let mut receipts = Vec::new();
+        for frame in batches {
+            let (written, receipt) = tokio::sync::oneshot::channel();
+            receipts.push(receipt);
+            frames
+                .send(super::QueuedFrame {
+                    frame,
+                    written,
+                    bytes: None,
+                })
+                .await
+                .unwrap();
+        }
+        drop(frames);
+        let mut frame_trace = super::FrameTrace::new(None);
+        frame_trace.trace = Some(trace);
+        frame_trace.conn = Some(std::sync::Arc::new(std::sync::atomic::AtomicU64::new(9)));
+        super::write_queued_frames(
+            tokio_util::codec::FramedWrite::new(write, BridgeCodec::new()),
+            queued,
+            std::sync::Arc::default(),
+            frame_trace,
+        )
+        .await;
+        trace.finish();
+        let path = dir
+            .path()
+            .join(format!("frames-{}.trace", std::process::id()));
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Only a frame that reached the socket is traced as written.
+    #[tokio::test]
+    async fn failed_bridge_writes_are_not_traced_as_written() {
+        let written = traced_write(vec![small_batch()], |_| tokio::io::sink()).await;
+        assert_eq!(written.len(), 1);
+        assert!(written[0].starts_with("w 9 1 "));
+        assert!(
+            traced_write(vec![small_batch()], |_| FailingWriter)
+                .await
+                .is_empty()
+        );
+    }
+
+    /// Stamps the trace clock when the first bytes reach it, as the core's read would.
+    struct StampingWriter(
+        &'static crate::latency_trace::Trace,
+        std::sync::Arc<std::sync::atomic::AtomicI64>,
+    );
+
+    impl tokio::io::AsyncWrite for StampingWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            bytes: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            let _ = self.1.compare_exchange(
+                0,
+                self.0.now(),
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            std::task::Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    /// A written frame's record carries the time its flush began, so the reader cannot observe the
+    /// bytes before the recorded write.
+    #[tokio::test]
+    async fn written_frames_are_stamped_before_their_bytes_leave() {
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
+        let stamp = std::sync::Arc::clone(&seen);
+        let lines = traced_write(vec![small_batch()], |trace| StampingWriter(trace, stamp)).await;
+        let recorded: i64 = lines[0].split(' ').nth(3).unwrap().parse().unwrap();
+        let seen = seen.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(seen != 0, "the writer must have seen the frame");
+        assert!(
+            recorded <= seen,
+            "recorded {recorded} after the bytes left at {seen}"
+        );
+    }
+
+    fn small_batch() -> Bytes {
+        Bytes::from_static(&[crate::contract::KIND_BATCH, 1])
+    }
+
+    /// Frames coalesced into one flush keep their own times, each taken as that frame is fed, in
+    /// queue order.
+    #[tokio::test]
+    async fn coalesced_frames_keep_their_own_write_times() {
+        let large = |fill| {
+            let mut frame = vec![fill; 1 << 20];
+            frame[0] = crate::contract::KIND_BATCH;
+            Bytes::from(frame)
+        };
+        let lines = traced_write(vec![large(1), large(2)], |_| tokio::io::sink()).await;
+        let times: Vec<i64> = lines
+            .iter()
+            .map(|line| line.split(' ').nth(3).unwrap().parse().unwrap())
+            .collect();
+        assert_eq!(times.len(), 2);
+        assert!(
+            times[0] < times[1],
+            "the second frame was fed after the first: {times:?}"
+        );
     }
 }

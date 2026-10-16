@@ -1,12 +1,20 @@
-//! Inventory pointer routing and wheel handling shared by ordered and frame input.
+//! Inventory input routing for world shortcuts, open screens and pointer gestures.
 use super::dispatch_bound_inventory_hotbar;
+use super::drop_swing::DropSwing;
+use crate::runtime::network::resource_packs::PackApplication;
+use bevy::input::gamepad::Gamepad;
+use bevy::prelude::{KeyCode, Query, Res, ResMut, Single, With};
+use bevy::window::PrimaryWindow;
 use bevy::{
     input::mouse::MouseScrollUnit,
     prelude::{ButtonInput, MouseButton, Time},
     time::Real,
     window::Window,
 };
+use client_runtime::network::NetworkHandle;
 use client_shell::menu::settings_options::control_bindings::binding_keyboard_key;
+use client_shell::menu::settings_options::control_bindings::{binding_gamepad, binding_pressed};
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use ui::UiPoint;
@@ -20,6 +28,82 @@ use {
 };
 
 use launcher::menu::settings_options::BindingId;
+/// In-world inventory keys: Q drops one item from the selected hotbar cell
+/// (Control+Q the whole stack) and a right-click with a book in hand opens it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
+pub(crate) fn drive_world_inventory_keys(
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
+    gamepads: Query<&Gamepad>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    presentation: Option<Res<UiPresentationResource>>,
+    mut runtime: ResMut<UiRuntimeResource>,
+    emote_input: Option<Res<crate::ui_runtime::emotes::EmoteInputConsumed>>,
+    swing: DropSwing,
+    touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
+    book_transport: (
+        Option<Res<client_interaction::movement::MovementTicker>>,
+        Option<Res<NetworkHandle<PackApplication>>>,
+    ),
+) {
+    if emote_input.is_some_and(|consumed| consumed.0) {
+        return;
+    }
+    let drop = binding_pressed(menu.as_deref(), BindingId::Drop, &keys, &mouse)
+        || binding_gamepad(menu.as_deref(), BindingId::Drop, &gamepads);
+    let use_book = binding_pressed(menu.as_deref(), BindingId::Use, &keys, &mouse)
+        || touch.is_some_and(|touch| touch.pressed(semantic_input::touch::USE));
+    if !window.focused
+        || client_shell::screen_policy::absorbs_input(
+            &player_runtime,
+            Some(&runtime),
+            menu.as_deref(),
+            presentation.as_deref().map(|presentation| &presentation.0),
+        )
+        || !(drop || use_book)
+        || player_runtime
+            .facts
+            .player_game_mode()
+            .is_some_and(|mode| !mode.shows_hotbar())
+    {
+        return;
+    }
+    let (movement, network) = book_transport;
+    if (use_book
+        && runtime.open_held_book(
+            &mut player_runtime,
+            movement
+                .as_deref()
+                .and_then(|movement| movement.build_action_state())
+                .map(|state| state.position),
+            |packet| {
+                network
+                    .as_deref()
+                    .is_some_and(|network| network.send_inventory_packet(packet).is_ok())
+            },
+        ))
+        || !drop
+    {
+        return;
+    }
+    let Some(slot) = player_runtime.selected_hotbar_slot() else {
+        return;
+    };
+    let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    if runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_world_drop(slot, (!control).then_some(1))
+        .is_ok()
+    {
+        swing.swing(&player_runtime);
+    }
+}
+
 /// Applies presses routed to the open inventory screen, after any keys already queued for it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_screen_presses(

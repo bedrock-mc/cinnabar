@@ -87,17 +87,17 @@ impl PageTransfer {
 }
 
 impl SegmentedVertexBuffer {
-    /// Synchronizes the snapshot, retaining the buffer unless capacity or addresses change.
+    /// Synchronizes the snapshot; false retains storage but forbids drawing this publication.
     pub(crate) fn sync(
         &mut self,
         device: &RenderDevice,
         queue: &RenderQueue,
         label: &'static str,
         vertices: &ActorRigVertexSegments,
-    ) {
+    ) -> bool {
         if vertices.is_empty() {
             *self = Self::default();
-            return;
+            return true;
         }
         let stride = std::mem::size_of::<ActorRigVertex>();
         let capacity = self
@@ -115,55 +115,80 @@ impl SegmentedVertexBuffer {
             vertices = vertices.len(),
         )
         .entered();
-        if plan.replace {
+        let replacement = if plan.replace {
             let binding = usize::try_from(storage_binding_bytes(device)).unwrap_or(usize::MAX);
+            if vertices.len() > binding / stride {
+                return false;
+            }
             let capacity = vertex_buffer_capacity(vertices.len(), binding / stride);
-            let buffer = device.create_buffer(&BufferDescriptor {
-                label: Some(label),
-                size: (capacity * stride) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            });
-            if !plan.copies.is_empty() {
-                let old = self.buffer.as_ref().expect("retained pages have a buffer");
-                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("relocate retained actor geometry pages"),
-                });
-                for (source, target, len) in plan.copies {
-                    encoder.copy_buffer_to_buffer(
-                        old,
-                        (source * stride) as u64,
-                        &buffer,
-                        (target * stride) as u64,
-                        (len * stride) as u64,
+            let Some(buffer) = super::allocation::buffer(
+                device,
+                &BufferDescriptor {
+                    label: Some(label),
+                    size: (capacity * stride) as u64,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                },
+            ) else {
+                return false;
+            };
+            Some(buffer)
+        } else {
+            None
+        };
+        let buffer = replacement
+            .as_ref()
+            .or(self.buffer.as_ref())
+            .expect("nonempty pages allocate a buffer");
+        let uploaded = super::allocation::checked(
+            device,
+            "actor rig transfer",
+            (vertices.len() * stride) as u64,
+            || {
+                if !plan.copies.is_empty() {
+                    let old = self.buffer.as_ref().expect("retained pages have a buffer");
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some("relocate retained actor geometry pages"),
+                    });
+                    for (source, target, len) in plan.copies {
+                        encoder.copy_buffer_to_buffer(
+                            old,
+                            (source * stride) as u64,
+                            buffer,
+                            (target * stride) as u64,
+                            (len * stride) as u64,
+                        );
+                    }
+                    let command = encoder.finish();
+                    #[cfg(feature = "tracy")]
+                    let _span = bevy::log::info_span!("actor.geometry_submit").entered();
+                    queue.submit([command]);
+                }
+                for index in plan.writes {
+                    #[cfg(feature = "tracy")]
+                    let _span = bevy::log::info_span!(
+                        "actor.geometry_write",
+                        page = index,
+                        bytes = vertices.segments[index].len() * stride
+                    )
+                    .entered();
+                    queue.profiled_write_buffer(
+                        buffer,
+                        (vertices.offsets[index] * stride) as u64,
+                        bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices.segments[index]),
                     );
                 }
-                let command = encoder.finish();
-                #[cfg(feature = "tracy")]
-                let _span = bevy::log::info_span!("actor.geometry_submit").entered();
-                queue.submit([command]);
-            }
+            },
+        );
+        if uploaded.is_none() {
+            self.vertices = ActorRigVertexSegments::default();
+            return false;
+        }
+        if let Some(buffer) = replacement {
             self.buffer = Some(buffer);
         }
-        let buffer = self
-            .buffer
-            .as_ref()
-            .expect("nonempty pages allocate a buffer");
-        for index in plan.writes {
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "actor.geometry_write",
-                page = index,
-                bytes = vertices.segments[index].len() * stride,
-            )
-            .entered();
-            queue.profiled_write_buffer(
-                buffer,
-                (vertices.offsets[index] * stride) as u64,
-                bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices.segments[index]),
-            );
-        }
         self.vertices = vertices.clone();
+        true
     }
 
     /// Returns the storage buffer bound by the actor and hand passes.
@@ -192,6 +217,26 @@ fn vertex_buffer_capacity(vertices: usize, binding_vertices: usize) -> usize {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn rig_allocation_failure_retains_previous_buffer_and_snapshot() {
+        let (device, queue) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let queue = RenderQueue::new(queue);
+        let old = ActorRigVertexSegments::from_vertices(page(4, 1.0));
+        let mut mirror = SegmentedVertexBuffer::default();
+        mirror.sync(&device, &queue, "test actor rig", &old);
+        let previous = mirror.buffer().unwrap().id();
+        let _failure = super::super::allocation::inject(|label, _| label == "test actor rig");
+        assert!(!mirror.sync(
+            &device,
+            &queue,
+            "test actor rig",
+            &ActorRigVertexSegments::from_vertices(page(64, 2.0)),
+        ));
+        assert_eq!(mirror.buffer().unwrap().id(), previous);
+        assert_eq!(mirror.vertices.len(), old.len());
+    }
 
     #[test]
     fn buffer_growth_stays_within_the_device_binding() {

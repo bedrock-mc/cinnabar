@@ -13,7 +13,7 @@ pub(crate) mod touch_pointer;
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
-    drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+    flush_chat_network, flush_inventory_network, inventory::drive_world_inventory_keys,
 };
 pub(crate) use sign_editor::drive_sign_editor;
 

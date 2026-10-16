@@ -245,6 +245,43 @@ pub struct PredictedSlotChange {
     pub to: VerifiedNetworkItemStack,
 }
 
+/// Builds the inventory delta BDS requires before accepting `BookEdit` for a
+/// fresh writable book.
+///
+/// Vanilla initialises a new book & quill with an air use whose `NewItem`
+/// carries an empty `pages` list; without it BDS drops later edits and a
+/// reopened book reads empty. `None` when the stack is empty or already
+/// carries `pages`.
+#[must_use]
+pub fn writable_book_init_change(
+    from: &VerifiedNetworkItemStack,
+    legacy_request_id: i32,
+) -> Option<PredictedSlotChange> {
+    if from.is_empty() || !crate::book_needs_init(from.extra_data()) {
+        return None;
+    }
+    let extra = crate::book_init_extra(from.extra_data())?;
+    let digest: [u8; 32] = {
+        use sha2::Digest;
+        sha2::Sha256::digest(&extra).into()
+    };
+    let stack = crate::NetworkItemStack {
+        network_id: from.network_id(),
+        metadata: from.metadata(),
+        stack_network_id: from.stack_network_id(),
+        count: from.count(),
+        nbt_digest: digest,
+        block_runtime_id: from.block_runtime_id(),
+        extra_data: extra,
+    };
+    let to = VerifiedNetworkItemStack::try_new(stack, digest).ok()?;
+    Some(PredictedSlotChange {
+        legacy_request_id,
+        from: from.clone(),
+        to,
+    })
+}
+
 /// The wire form of an absolute block position.
 fn block_pos([x, y, z]: [i32; 3]) -> BlockPos {
     BlockPos {

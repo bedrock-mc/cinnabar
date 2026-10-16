@@ -187,4 +187,90 @@ mod tests {
         assert!(!ledger.settle_use_slot_change(5, 0, &change));
         assert_eq!(ledger.slot_state(5), Some(PlayerInventorySlot::Unknown));
     }
+
+    /// Builds a known writable-book slot and its proposed initialization.
+    fn fresh_book() -> (
+        PlayerInventoryLedger,
+        InventoryEvent,
+        protocol::PredictedSlotChange,
+    ) {
+        let mut ledger = PlayerInventoryLedger::default();
+        ledger.apply(&InventoryEvent::Authority(
+            protocol::InventoryAuthority::Server,
+        ));
+        let entries = protocol::vanilla_item_registry();
+        let network_id = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:writable_book")
+            .unwrap()
+            .network_id;
+        ledger.apply_registry(&protocol::ItemRegistryEvent { entries });
+        let original = NetworkItemStack {
+            network_id,
+            count: 1,
+            stack_network_id: 41,
+            ..NetworkItemStack::empty()
+        };
+        let event = InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 2,
+            },
+            stack: original.clone(),
+            storage_item: None,
+        });
+        ledger.apply(&event);
+        let digest = original.nbt_digest;
+        let from = protocol::VerifiedNetworkItemStack::try_new(original, digest).unwrap();
+        let change =
+            protocol::writable_book_init_change(&from, protocol::next_legacy_request_id().unwrap())
+                .unwrap();
+        (ledger, event, change)
+    }
+
+    #[test]
+    fn admitted_book_initialization_updates_the_next_drop_descriptor() {
+        let (mut ledger, event, change) = fresh_book();
+        let revision = ledger.authoritative_slot_revision(2).unwrap();
+        assert!(ledger.settle_use_slot_change(2, revision, &change));
+        let updated = ledger.displayed_stack(2).unwrap();
+        assert_eq!(updated.count, change.from.count());
+        assert_eq!(updated.stack_network_id, change.from.stack_network_id());
+        assert_eq!(updated.extra_data.as_ref(), change.to.extra_data());
+        assert_eq!(updated.nbt_digest, change.to.nbt_digest());
+        assert!(!ledger.settle_use_slot_change(2, revision, &change));
+        ledger.begin_world_drop(2, None).unwrap();
+        let (packet, _) = ledger.pending_batch().unwrap().unwrap();
+        let transaction =
+            protocol::test_support::transactions::observe_transaction(&packet).unwrap();
+        assert_eq!(
+            transaction.actions[0].from_item.user_data.as_slice(),
+            change.to.extra_data()
+        );
+        ledger.apply(&event);
+        assert!(protocol::book_needs_init(
+            &ledger.displayed_stack(2).unwrap().extra_data
+        ));
+        assert!(!ledger.settle_use_slot_change(2, revision, &change));
+    }
+
+    #[test]
+    fn book_initialization_rejects_unmatched_sources_and_pending_inventory_actions() {
+        for pending in [false, true] {
+            let (mut ledger, _, mut change) = fresh_book();
+            let original = ledger.displayed_stack(2).unwrap().clone();
+            let revision = ledger.authoritative_slot_revision(2).unwrap();
+            if pending {
+                ledger.begin_world_drop(2, None).unwrap();
+            } else {
+                let other_stack_id = change.from.stack_network_id() + 1;
+                change.from = change.from.renamed(other_stack_id);
+                change =
+                    protocol::writable_book_init_change(&change.from, change.legacy_request_id)
+                        .unwrap();
+            }
+            assert!(!ledger.settle_use_slot_change(2, revision, &change));
+            assert_eq!(ledger.confirmed_stack(Cell::Inventory(2)), Some(&original));
+        }
+    }
 }

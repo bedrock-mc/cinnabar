@@ -98,6 +98,9 @@ pub(super) fn build(
             "skipped malformed server block definitions"
         );
     }
+    if bridge::latency_trace::active().is_some() {
+        stream.observe_commits(super::world_ingress::trace_committed);
+    }
     stream.set_server_animation_compiler(server_animation::compile_stop);
     stream.set_world_default_game_mode(world_default_game_mode);
     stream.set_display_interval(display_interval);

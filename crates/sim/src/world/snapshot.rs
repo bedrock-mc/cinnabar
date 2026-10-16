@@ -79,6 +79,15 @@ impl CollisionWorld for CollisionSnapshot {
         self.world().block_physics(block)
     }
 
+    /// Uses the retained palette pages without constructing material-sample identities.
+    fn visit_block_materials(
+        &self,
+        block: [i32; 3],
+        visitor: &mut dyn FnMut(BlockPhysicsFacts),
+    ) -> Result<(), WorldQueryError> {
+        self.world().visit_block_materials(block, visitor)
+    }
+
     fn primary_is_air(
         &self,
         block: [i32; 3],

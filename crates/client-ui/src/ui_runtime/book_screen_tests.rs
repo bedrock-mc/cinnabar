@@ -1,6 +1,109 @@
 //! Book commits retain edits while the transport is full.
 use super::*;
 
+/// Publishes a fresh writable book without requiring a resource carrier.
+fn held_book() -> (player_state::PlayerState, UiRuntime) {
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    let entries = protocol::vanilla_item_registry();
+    let network_id = entries
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:writable_book")
+        .unwrap()
+        .network_id;
+    let ledger = player.inventory.ledger_mut();
+    ledger.apply(&protocol::InventoryEvent::Authority(
+        protocol::InventoryAuthority::Server,
+    ));
+    ledger.apply_registry(&protocol::ItemRegistryEvent { entries });
+    ledger.apply(&protocol::InventoryEvent::Content(
+        protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+            slots: vec![protocol::NetworkItemStack {
+                network_id,
+                count: 1,
+                stack_network_id: 9,
+                ..protocol::NetworkItemStack::empty()
+            }]
+            .into(),
+            storage_item: protocol::NetworkItemStack::empty(),
+        },
+    ));
+    (player, runtime)
+}
+
+#[test]
+fn book_opening_waits_for_admission_and_initializes_only_once() {
+    let (mut player, mut runtime) = held_book();
+    let original = player
+        .inventory
+        .ledger()
+        .displayed_stack(0)
+        .unwrap()
+        .clone();
+    assert!(runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |_| false));
+    assert!(runtime.screen.book.is_none());
+    assert_eq!(
+        player.inventory.ledger().displayed_stack(0),
+        Some(&original)
+    );
+    let mut packets = Vec::new();
+    assert!(
+        runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |packet| {
+            packets.push(packet);
+            true
+        })
+    );
+    assert!(runtime.screen.book.as_ref().unwrap().editable);
+    let initialized = player
+        .inventory
+        .ledger()
+        .displayed_stack(0)
+        .unwrap()
+        .clone();
+    assert!(!protocol::book_needs_init(&initialized.extra_data));
+    runtime.finish_book(&mut player, false);
+    assert!(runtime.open_held_book(&mut player, None, |_| panic!(
+        "initialized book must not send initialization again"
+    )));
+    runtime.screen.book.as_mut().unwrap().type_text("saved");
+    runtime.finish_book(&mut player, false);
+    packets.push(runtime.take_client_packet().unwrap());
+    assert!(runtime.take_client_packet().is_none());
+    assert!(protocol::test_support::transactions::observe_transaction(&packets[0]).is_some());
+    assert_eq!(
+        packets[1].kind(),
+        protocol::book_edit_packet(0, &BookEdit::DeletePage { page: 1 })
+            .unwrap()
+            .kind()
+    );
+    assert_eq!(
+        player.inventory.ledger().displayed_stack(0),
+        Some(&initialized)
+    );
+}
+
+#[test]
+fn fresh_book_does_not_open_without_a_pose_or_while_its_slot_has_a_pending_drop() {
+    let (mut player, mut runtime) = held_book();
+    assert!(runtime.open_held_book(&mut player, None, |_| panic!("missing pose must not send")));
+    assert!(runtime.screen.book.is_none());
+    player
+        .inventory
+        .ledger_mut()
+        .begin_world_drop(0, None)
+        .unwrap();
+    assert!(
+        !runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |_| panic!(
+            "pending drop must not send"
+        ))
+    );
+    assert!(runtime.screen.book.is_none());
+}
+
 #[test]
 fn an_unencodable_page_preserves_the_editor_and_publishes_no_partial_commit() {
     for sign in [false, true] {

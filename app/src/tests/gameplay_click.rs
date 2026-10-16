@@ -1,4 +1,5 @@
 //! A left click during gameplay must reach the attack producers through the production input chain.
+mod books;
 mod latency;
 use bevy::{
     input::{ButtonInput, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, touch::Touches},

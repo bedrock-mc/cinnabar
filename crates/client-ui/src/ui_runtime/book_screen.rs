@@ -224,8 +224,14 @@ impl UiRuntime {
         self.chat_focused = false;
     }
 
-    /// Opens the book in the selected hotbar slot; whether one was there.
-    pub fn open_held_book(&mut self, player_runtime: &player_state::PlayerState) -> bool {
+    /// Handles the selected book, opening it only after any initialization is admitted.
+    /// A rejected send leaves the book closed and its inventory stack unchanged.
+    pub fn open_held_book(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        position: Option<[f32; 3]>,
+        send: impl FnOnce(Packet) -> bool,
+    ) -> bool {
         let Some(slot) = player_runtime.selected_hotbar_slot() else {
             return false;
         };
@@ -253,6 +259,50 @@ impl UiRuntime {
             book.title.as_deref().unwrap_or_default().to_owned(),
             book.author.as_deref().unwrap_or_default().to_owned(),
         );
+        if editable && protocol::book_needs_init(&stack.extra_data) {
+            let ledger = player_runtime.inventory.ledger();
+            if ledger.slot_pending(slot)
+                || ledger.resync_required()
+                || player_runtime
+                    .inventory
+                    .pending_hotbar_selection()
+                    .is_some()
+            {
+                return true;
+            }
+            let Some((position, revision)) = position.zip(ledger.authoritative_slot_revision(slot))
+            else {
+                return true;
+            };
+            let Ok(from) =
+                protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+            else {
+                return true;
+            };
+            let Some(change) = protocol::next_legacy_request_id()
+                .and_then(|id| protocol::writable_book_init_change(&from, id))
+            else {
+                return true;
+            };
+            let Ok(packet) = protocol::click_air_packet(
+                protocol::HeldItemRequest {
+                    selected_slot: slot,
+                    selected_item: from,
+                    player_position: position,
+                },
+                Some(change.clone()),
+            ) else {
+                return true;
+            };
+            if !send(packet)
+                || !player_runtime
+                    .inventory
+                    .ledger_mut()
+                    .settle_use_slot_change(slot, revision, &change)
+            {
+                return true;
+            }
+        }
         self.open_book(state);
         true
     }

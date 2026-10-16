@@ -99,6 +99,13 @@ impl DirectOcclusionFrame {
         terrain_pass
     }
 
+    /// Requests current-frame depth while keeping color draws in their original pass.
+    pub(super) fn force_depth_pass(&mut self) {
+        if let Some(view) = &mut self.view {
+            view.terrain_pass = true;
+        }
+    }
+
     pub(in crate::chunk) fn push(&mut self, entity: Entity, solid: bool) {
         self.candidates.push((entity, solid));
     }
@@ -183,6 +190,10 @@ struct TerrainPassPlan {
 #[derive(Resource)]
 pub(in crate::chunk) struct DirectOcclusion {
     kernels: CullKernels,
+    masks: super::unit_mask::UnitMasks,
+    same_frame: bool,
+    capture_masks: bool,
+    depth_pipelines: HashMap<CachedRenderPipelineId, CachedRenderPipelineId>,
     storage: Option<OcclusionStorage>,
     readbacks: Vec<wgpu::Buffer>,
     table: CullSlots,
@@ -202,16 +213,51 @@ pub(in crate::chunk) struct DirectOcclusion {
 }
 
 impl DirectOcclusion {
+    /// Whether this run uses a current-frame depth prepass and GPU-written unit masks.
+    pub(in crate::chunk) fn same_frame(&self) -> bool {
+        self.same_frame
+    }
+
+    /// Prepares a page's current-frame mask bindings after occlusion storage is uploaded.
+    pub(in crate::chunk) fn prepare_unit_masks(
+        &self,
+        device: &wgpu::Device,
+        page: &wgpu::Buffer,
+        bindings: &mut Option<super::unit_mask::UnitMaskBindings>,
+    ) {
+        if self.same_frame {
+            self.masks.prepare(
+                device,
+                page,
+                self.storage.as_ref().map(|s| &s.occluded),
+                bindings,
+            );
+        }
+    }
+
+    /// The selected current-frame occluders, independent of color pass order.
+    pub(in crate::chunk) fn occluder_order(&self, view: Entity) -> Option<&[(Entity, MainEntity)]> {
+        self.plan
+            .as_ref()
+            .filter(|p| self.same_frame && p.view == view)
+            .map(|p| p.solid.as_slice())
+    }
+
     /// Current early-pass solid order, after applying this frame's occlusion verdicts.
     pub(in crate::chunk) fn solid_order(&self, view: Entity) -> Option<&[(Entity, MainEntity)]> {
         self.plan
             .as_ref()
-            .filter(|plan| plan.view == view)
+            .filter(|plan| !self.same_frame && plan.view == view)
             .map(|plan| plan.solid.as_slice())
     }
     fn new(device: &RenderDevice) -> Self {
         Self {
             kernels: CullKernels::new(device.wgpu_device()),
+            masks: super::unit_mask::UnitMasks::new(device.wgpu_device()),
+            same_frame: cfg!(target_os = "macos")
+                && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("1"),
+            capture_masks: crate::gpu_timing::query_health_requested(),
+            depth_pipelines: default(),
             storage: None,
             readbacks: Vec::new(),
             table: CullSlots::default(),
@@ -250,7 +296,7 @@ impl DirectOcclusion {
 
     /// Whether `view` skips `entity`'s opaque terrain this frame.
     pub(in crate::chunk) fn skips(&self, view: Entity, entity: Entity) -> bool {
-        self.skip_view == Some(view) && self.skipped.contains(&entity)
+        !self.same_frame && self.skip_view == Some(view) && self.skipped.contains(&entity)
     }
 
     fn sync_records(
@@ -332,12 +378,19 @@ impl DirectOcclusion {
         write_dirty_records(&mut self.table, queue, &storage.records);
     }
 
+    /// Consumes settled readbacks for legacy history and optional current-frame work diagnostics.
+    #[expect(
+        clippy::print_stderr,
+        reason = "opt-in terrain visibility work diagnostics"
+    )]
     fn apply_verdicts(&mut self) {
         let Self {
             verdicts,
             readbacks,
             history,
             stats,
+            same_frame,
+            capture_masks,
             ..
         } = self;
         verdicts.drain(|slot, tag| {
@@ -354,15 +407,14 @@ impl DirectOcclusion {
             )
             .entered();
             let buffer = &readbacks[slot];
-            history.apply(
-                tag,
-                bytemuck::cast_slice(
-                    &buffer
-                        .slice(..)
-                        .get_mapped_range()
-                        .expect("readback buffer is mapped"),
-                ),
-            );
+            {
+                let data = buffer.slice(..).get_mapped_range().expect("readback buffer is mapped");
+                let words: &[u32] = bytemuck::cast_slice(&data);
+                history.apply(tag, words);
+                if *same_frame && *capture_masks {
+                    eprintln!("CINNABAR_TERRAIN_VISIBILITY {}", serde_json::json!({ "frame":tag.frame, "slots":tag.slots, "hidden_slots":tag.hidden_slots(words) }));
+                }
+            }
             buffer.unmap();
             stats.verdicts_applied += 1;
         });
@@ -394,6 +446,8 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    cache: Res<PipelineCache>,
+    draws: Res<DrawFunctions<Opaque3d>>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -438,7 +492,7 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
         let Ok((allocation, _)) = allocations.get(entity) else {
             continue;
         };
-        if occlusion.history.skips(allocation.metadata_index, &current) {
+        if !occlusion.same_frame && occlusion.history.skips(allocation.metadata_index, &current) {
             occlusion.skipped.insert(entity);
         } else if has_solid && queued.terrain_pass {
             solid.push((entity, allocation.key));
@@ -448,6 +502,10 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
     occlusion.stats.skipped = occlusion.skipped.len() as u32;
     occlusion.stats.solid_drawn = solid.len() as u32;
     if !queued.terrain_pass {
+        return;
+    }
+    // Newly queued variants have no readable descriptor until the cache processes them.
+    if occlusion.same_frame && cache.get_render_pipeline(queued.solid_pipeline).is_none() {
         return;
     }
     let solid = front_to_back_cube_entities(solid, &extracted.rangefinder3d())
@@ -490,6 +548,9 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             );
             occlusion.bind_group = Some((group, prepared.depth));
         }
+        if occlusion.same_frame && !occlusion.capture_masks {
+            return None;
+        }
         let tag = VerdictTag {
             frame: occlusion.frame,
             basis: current,
@@ -501,10 +562,31 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
         }
         slot
     });
+    let (solid_pipeline, solid_draw) = if occlusion.same_frame {
+        let id = *occlusion
+            .depth_pipelines
+            .entry(queued.solid_pipeline)
+            .or_insert_with(|| {
+                let mut descriptor = cache
+                    .get_render_pipeline_descriptor(queued.solid_pipeline)
+                    .clone();
+                descriptor.label = Some("terrain visibility depth".into());
+                descriptor.fragment = None;
+                cache.queue_render_pipeline(descriptor)
+            });
+        (
+            id,
+            draws
+                .read()
+                .id::<pipeline::units::commands::DrawTerrainOccluders>(),
+        )
+    } else {
+        (queued.solid_pipeline, queued.solid_draw)
+    };
     occlusion.plan = Some(TerrainPassPlan {
         view: queued.entity,
-        solid_pipeline: queued.solid_pipeline,
-        solid_draw: queued.solid_draw,
+        solid_pipeline,
+        solid_draw,
         solid,
         verdict,
         slots,
@@ -612,6 +694,16 @@ pub(crate) fn terrain_pass(
     let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
     let render_context = &mut render_context;
     let occlusion = world.resource::<DirectOcclusion>();
+    let batches = world.resource::<pipeline::units::TerrainUnitBatches>();
+    if occlusion.same_frame {
+        batches.encode_masks(
+            view_entity,
+            &occlusion.masks,
+            world.resource::<RenderDevice>().wgpu_device(),
+            render_context.command_encoder(),
+            None,
+        );
+    }
     let Some(plan) = occlusion
         .plan
         .as_ref()
@@ -619,10 +711,23 @@ pub(crate) fn terrain_pass(
     else {
         return Ok(());
     };
+    if occlusion.same_frame
+        && world
+            .resource::<PipelineCache>()
+            .get_render_pipeline(plan.solid_pipeline)
+            .is_none()
+    {
+        return Ok(());
+    }
+    let color = if occlusion.same_frame {
+        Vec::new()
+    } else {
+        vec![Some(scene_target.color_attachment(target, false))]
+    };
     {
         let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("terrain solid pass"),
-            color_attachments: &[Some(scene_target.color_attachment(target, false))],
+            color_attachments: &color,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
@@ -674,8 +779,10 @@ pub(crate) fn terrain_pass(
             }
         }
     }
-    let (Some(slot), Some(prepared), Some((group, _)), Some(storage)) = (
-        plan.verdict,
+    if !occlusion.same_frame && plan.verdict.is_none() {
+        return Ok(());
+    }
+    let (Some(prepared), Some((group, _)), Some(storage)) = (
         occlusion.pyramid.as_ref(),
         occlusion.bind_group.as_ref(),
         occlusion.storage.as_ref(),
@@ -689,13 +796,24 @@ pub(crate) fn terrain_pass(
     occlusion
         .kernels
         .encode_occlusion(encoder, group, plan.slots);
-    encoder.copy_buffer_to_buffer(
-        &storage.occluded,
-        0,
-        &occlusion.readbacks[slot],
-        0,
-        occlusion_bytes(storage.capacity),
-    );
+    if occlusion.same_frame {
+        batches.encode_masks(
+            view_entity,
+            &occlusion.masks,
+            world.resource::<RenderDevice>().wgpu_device(),
+            encoder,
+            Some(&storage.occluded),
+        );
+    }
+    if let Some(slot) = plan.verdict {
+        encoder.copy_buffer_to_buffer(
+            &storage.occluded,
+            0,
+            &occlusion.readbacks[slot],
+            0,
+            occlusion_bytes(storage.capacity),
+        );
+    }
     plan.encoded.store(true, Ordering::Release);
     Ok(())
 }
@@ -741,3 +859,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
         );
     install_graph(render_app.world_mut());
 }
+
+#[cfg(test)]
+#[path = "direct_visibility_tests.rs"]
+mod visibility_tests;

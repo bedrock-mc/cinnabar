@@ -25,6 +25,8 @@ pub(crate) struct RawPacket {
     backing_len: usize, // bytes of the batch allocation this entry shares
     /// The packet tap's handle, set when the transport splits the entry from its batch.
     pub(crate) record: Option<PacketRecordId>,
+    /// The core batch frame and slot it was split from, for the latency trace; startup is frame 0.
+    pub(crate) trace_position: (u64, u32),
 }
 
 impl RawPacket {
@@ -80,6 +82,7 @@ impl RawPacket {
             backing_len: inner_frame.len(),
             inner_frame,
             record: self.record,
+            trace_position: self.trace_position,
         }
     }
 
@@ -180,6 +183,7 @@ fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, Se
         inner_frame: frame.frame().clone(),
         backing_len,
         record: None,
+        trace_position: (0, 0),
     })
 }
 

@@ -72,7 +72,7 @@ fn bit(words: &[u32], slot: usize) -> bool {
         .is_some_and(|word| word >> (slot % 32) & 1 != 0)
 }
 
-fn sized_input(camera: &Camera, hiz_mips: u32, size: [u32; 2]) -> CullViewInput {
+pub(super) fn sized_input(camera: &Camera, hiz_mips: u32, size: [u32; 2]) -> CullViewInput {
     CullViewInput {
         viewport: [0.0, 0.0, size[0] as f32, size[1] as f32],
         depth_size: size,

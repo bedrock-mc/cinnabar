@@ -956,6 +956,51 @@ fn plain_click_air_has_no_actions_or_legacy_request() {
     assert!(transaction.actions.actions.is_empty());
 }
 
+/// A fresh writable book initialises with an empty pages list, as BDS requires.
+#[test]
+fn fresh_book_click_air_carries_empty_pages_and_legacy_request() {
+    use protocol::book_needs_init;
+    let extra: Arc<[u8]> = Arc::from([]);
+    assert!(book_needs_init(&extra));
+    let digest: [u8; 32] = Sha256::digest(&extra).into();
+    let from = VerifiedNetworkItemStack::try_new(
+        NetworkItemStack {
+            network_id: 386,
+            metadata: 0,
+            stack_network_id: 41,
+            count: 1,
+            nbt_digest: digest,
+            block_runtime_id: 0,
+            extra_data: extra,
+        },
+        digest,
+    )
+    .unwrap();
+    let change = protocol::writable_book_init_change(&from, -6).expect("fresh book inits");
+    assert_eq!(change.from, from);
+    assert_eq!(change.to.count(), 1);
+    assert!(!protocol::book_needs_init(change.to.extra_data()));
+    assert_eq!(protocol::item_book(change.to.extra_data()).pages.len(), 0);
+    let mut request = held_request();
+    request.selected_item = from;
+    let built = decoded_inventory_packet(click_air_packet(request, Some(change)).unwrap());
+    assert_eq!(built.legacy_request_id.0, -6);
+    let slots = built.legacy_set_item_slots.expect("legacy set slots");
+    assert_eq!(slots[0].slots.as_ref(), [3]);
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+        built.transaction
+    else {
+        panic!("item use");
+    };
+    assert_eq!(transaction.actions.actions.len(), 1);
+    let action = &transaction.actions.actions[0];
+    assert_eq!(action.slot.0, 3);
+    assert!(action.from_item.user_data_buffer.is_empty());
+    assert!(!action.to_item.user_data_buffer.is_empty());
+    assert!(!protocol::book_needs_init(&action.to_item.user_data_buffer));
+    assert_eq!(transaction.item.stack_size.0, 1);
+}
+
 #[test]
 fn aim_assist_rotation_actions_are_attack_and_release() {
     assert!(protocol::is_aim_assist_rotation_action(&decode_one(

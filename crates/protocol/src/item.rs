@@ -38,8 +38,8 @@ pub use display::{
 };
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
-    ItemAnvilData, ItemNbtEdit, edit_item_extra, item_anvil_data, item_custom_name,
-    item_repair_cost,
+    ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
+    item_custom_name, item_repair_cost,
 };
 
 /// The single item shape 1.26.40 puts on the wire.

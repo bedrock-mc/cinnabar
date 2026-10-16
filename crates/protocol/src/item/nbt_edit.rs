@@ -274,6 +274,47 @@ pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]
     Some(Arc::from(out))
 }
 
+/// Whether a writable book's user data lacks the root `pages` list BDS requires
+/// before it accepts `BookEdit` packets for a fresh book.
+///
+/// A fresh book & quill carries no compound or a compound without `pages`;
+/// an initialised book already carries the list, even when it is empty.
+#[must_use]
+pub fn book_needs_init(extra_data: &[u8]) -> bool {
+    let Some((_, entries, _)) = read_extra_entries(extra_data) else {
+        return false;
+    };
+    !entries
+        .iter()
+        .any(|entry| entry.tag == TAG_LIST && entry.name == b"pages")
+}
+
+/// Builds user data with an empty root `pages` list, preserving every other
+/// root tag and the trailing lists. `None` when the stack already carries
+/// `pages` or its user data is malformed.
+#[must_use]
+pub fn book_init_extra(extra_data: &[u8]) -> Option<Arc<[u8]>> {
+    let (root_name, mut entries, trailer) = read_extra_entries(extra_data)?;
+    if entries
+        .iter()
+        .any(|entry| entry.tag == TAG_LIST && entry.name == b"pages")
+    {
+        return None;
+    }
+    let mut payload = vec![TAG_COMPOUND];
+    payload.extend_from_slice(&0i32.to_le_bytes());
+    set_entry(&mut entries, b"pages", Some((TAG_LIST, payload)));
+    let mut out = Vec::with_capacity(extra_data.len() + 64);
+    out.extend_from_slice(&(-1i16).to_le_bytes());
+    out.push(1);
+    out.push(TAG_COMPOUND);
+    write_string(&mut out, &root_name)?;
+    write_entries(&mut out, &entries)?;
+    out.extend_from_slice(trailer);
+    super::super::inventory::validate_item_nbt_size(out.len()).ok()?;
+    Some(Arc::from(out))
+}
+
 /// Splits user data into its root name, compound entries and unchanged trailer.
 fn read_extra_entries(extra_data: &[u8]) -> Option<(Vec<u8>, Vec<Entry>, &[u8])> {
     let extra = if extra_data.is_empty() {
@@ -478,5 +519,17 @@ mod tests {
                 .as_ref(),
             extra.as_slice()
         );
+    }
+
+    #[test]
+    fn fresh_books_need_init_and_gain_an_empty_pages_list() {
+        assert!(book_needs_init(&[]));
+        let init = book_init_extra(&[]).expect("empty book inits");
+        assert!(!book_needs_init(&init));
+        assert!(book_init_extra(&init).is_none());
+        assert_eq!(crate::item_book(&init).pages.len(), 0);
+        assert!(init.ends_with(&[0; 8]));
+        assert!(!book_needs_init(&[5, 0]));
+        assert!(book_init_extra(&[5, 0]).is_none());
     }
 }

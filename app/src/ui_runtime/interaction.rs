@@ -7,7 +7,7 @@ pub(crate) mod chat_modifiers;
 pub(super) mod command_macros;
 mod drop_swing;
 pub(crate) mod input_capture;
-mod inventory;
+pub(crate) mod inventory;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -32,8 +32,7 @@ use bevy::{
 };
 
 use client_shell::menu::settings_options::control_bindings::{
-    binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
-    hotbar_control_slots,
+    binding_gamepad, binding_key, binding_mouse, binding_mouse_button, hotbar_control_slots,
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
@@ -49,7 +48,6 @@ use client_ui::ui_runtime::interaction::{
     ChatFlushError, PointerRouter, PressRoute, dispatch_chat_ui_action, dispatch_inventory_hotbar,
     flush_chat_sends, flush_inventory_send, is_chat_edit_shortcut, paste_chat_shortcut,
 };
-use drop_swing::DropSwing;
 use input_capture::{
     ordered_pointer_presses, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
     suppress_gameplay_input_for_inventory,
@@ -291,63 +289,6 @@ pub(crate) fn inventory_consumes_key(
                 key,
                 KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::PageUp | KeyCode::PageDown
             ))
-}
-
-/// In-world inventory keys: Q drops one item from the selected hotbar cell
-/// (Control+Q the whole stack) and a right-click with a book in hand opens it.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Player authority is borrowed separately from UI state."
-)]
-pub(crate) fn drive_world_inventory_keys(
-    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    gamepads: Query<&Gamepad>,
-    window: Single<&Window, With<PrimaryWindow>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    menu: Option<Res<client_shell::menu::MenuRuntime>>,
-    presentation: Option<Res<UiPresentationResource>>,
-    mut runtime: ResMut<UiRuntimeResource>,
-    emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
-    swing: DropSwing,
-    touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
-) {
-    if emote_input.is_some_and(|consumed| consumed.0) {
-        return;
-    }
-    let drop = binding_pressed(menu.as_deref(), BindingId::Drop, &keys, &mouse)
-        || binding_gamepad(menu.as_deref(), BindingId::Drop, &gamepads);
-    let use_book = binding_pressed(menu.as_deref(), BindingId::Use, &keys, &mouse)
-        || touch.is_some_and(|touch| touch.pressed(semantic_input::touch::USE));
-    if !window.focused
-        || client_shell::screen_policy::absorbs_input(
-            &player_runtime,
-            Some(&runtime),
-            menu.as_deref(),
-            presentation.as_deref().map(|presentation| &presentation.0),
-        )
-        || !(drop || use_book)
-        || player_runtime
-            .facts
-            .player_game_mode()
-            .is_some_and(|mode| !mode.shows_hotbar())
-    {
-        return;
-    }
-    if (use_book && runtime.open_held_book(&player_runtime)) || !drop {
-        return;
-    }
-    let Some(slot) = player_runtime.selected_hotbar_slot() else {
-        return;
-    };
-    let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    if runtime
-        .inventory_ledger_mut(&mut player_runtime)
-        .begin_world_drop(slot, (!control).then_some(1))
-        .is_ok()
-    {
-        swing.swing(&player_runtime);
-    }
 }
 
 /// Drops keyboard input another owner handles while keeping inventory modifiers in step

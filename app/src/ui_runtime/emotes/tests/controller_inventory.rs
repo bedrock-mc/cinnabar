@@ -1,6 +1,6 @@
 //! Closing-frame wheel ownership covers raw inventory consumers after the wheel.
 use super::*;
-use crate::ui_runtime::interaction::drive_world_inventory_keys;
+use crate::ui_runtime::interaction::inventory::drive_world_inventory_keys;
 use inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
 use protocol::{
     ContainerIdentity, InventoryContentEvent, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
@@ -9,6 +9,16 @@ use std::sync::Arc;
 
 fn inventory_harness(identifier: &str) -> Harness {
     let mut h = Harness::new();
+    let (network, captured) = client_runtime::network::NetworkHandle::<
+        crate::runtime::network::resource_packs::PackApplication,
+    >::stub_capturing_packets();
+    let mut movement = client_interaction::movement::MovementTicker::default();
+    movement.reset(1, 0, [0.0, 70.0, 0.0]);
+    movement.set_source(gameplay::movement::MovementSource::Physics);
+    h.app
+        .insert_resource(network)
+        .insert_resource(movement)
+        .insert_non_send(captured);
     h.app.add_systems(
         Update,
         drive_world_inventory_keys

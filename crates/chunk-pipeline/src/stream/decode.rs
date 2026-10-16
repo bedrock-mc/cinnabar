@@ -19,6 +19,7 @@ impl WorldStream {
             Ok(DecodeCommit::BlockUpdates(event)) => {
                 self.apply_prepared(event);
                 self.reapply_deferred_predictions();
+                self.order.announce_applied();
                 if !self.polling {
                     self.apply_ready();
                 }

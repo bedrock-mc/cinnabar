@@ -64,6 +64,31 @@ impl BlobCacheResolver {
             pending_accounted_bytes: 0,
             ready_accounted_bytes: 0,
             retained_column_slots: 0,
+            trace_origins: None,
+        }
+    }
+
+    /// Attributes items accepted from now on to the core frame and slot `origin`.
+    pub(crate) fn trace_origin(&mut self, origin: (u64, u32)) {
+        self.trace_origins
+            .get_or_insert_with(Default::default)
+            .current = origin;
+    }
+
+    /// The traced origin of the item [`Self::pop_ready_ingress`] returned last; `(0, 0)` for a
+    /// recovery the resolver produced itself or when not tracing.
+    pub(crate) fn popped_trace_origin(&self) -> (u64, u32) {
+        self.trace_origins
+            .as_ref()
+            .map_or((0, 0), |origins| origins.popped)
+    }
+
+    /// Notes `sequence`'s traced origin as its item leaves the resolver.
+    fn pop_trace_origin(&mut self, sequence: Option<u64>) {
+        if let Some(origins) = &mut self.trace_origins {
+            origins.popped = sequence
+                .and_then(|sequence| origins.by_sequence.remove(&sequence))
+                .unwrap_or_default();
         }
     }
 
@@ -480,6 +505,7 @@ impl BlobCacheResolver {
 
     pub(crate) fn pop_ready_ingress(&mut self) -> Option<ResolverReady> {
         if let Some(recovery) = self.pop_recovery_ready() {
+            self.pop_trace_origin(None);
             return Some(ResolverReady::WorldEvent(WorldEvent::ChunkResync(recovery)));
         }
         let cached_sequence = self
@@ -508,6 +534,7 @@ impl BlobCacheResolver {
             self.retained_column_slots -= ready.columns.len();
             self.refresh_pending_accounting()
                 .expect("retained ready accounting cannot overflow after a pop");
+            self.pop_trace_origin(Some(sequence));
             return Some(ready.value);
         }
         if let Some(sequence) = next_sequence
@@ -519,6 +546,7 @@ impl BlobCacheResolver {
                 .expect("immediate sequence was present");
             self.refresh_pending_accounting()
                 .expect("retained immediate accounting cannot overflow after a pop");
+            self.pop_trace_origin(Some(sequence));
             return Some(ready.value);
         }
         None
@@ -756,6 +784,19 @@ impl BlobCacheResolver {
         self.next_ready_sequence = sequence
             .checked_add(1)
             .ok_or(BlobCacheError::ByteCountOverflow)?;
+        if let Some(origins) = &mut self.trace_origins {
+            if origins.by_sequence.len() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
+                // Abandoned and reset items leave entries behind; keep only live sequences.
+                let (pending, ready, immediate) =
+                    (&self.pending, &self.ready, &self.immediate_ready);
+                origins.by_sequence.retain(|sequence, _| {
+                    pending.contains_key(sequence)
+                        || ready.contains_key(sequence)
+                        || immediate.contains_key(sequence)
+                });
+            }
+            origins.by_sequence.insert(sequence, origins.current);
+        }
         Ok(sequence)
     }
 

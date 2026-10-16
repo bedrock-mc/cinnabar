@@ -48,7 +48,7 @@ impl TerrainUnit {
             stream_start: self.stream_start,
             quad_count: self.quad_count,
             origin_slot: self.origin_slot,
-            padding: 0,
+            hidden: 0,
         }
     }
 
@@ -74,7 +74,8 @@ pub struct VisibleTerrainUnit {
     pub stream_start: u32,
     pub quad_count: u32,
     pub origin_slot: u32,
-    pub padding: u32,
+    /// Nonzero only when the current frame conservatively rejects this geometry.
+    pub hidden: u32,
 }
 
 impl VisibleTerrainUnit {
@@ -82,7 +83,8 @@ impl VisibleTerrainUnit {
     #[must_use]
     pub fn quad(self, vertex_index: u32) -> Option<(u32, u32)> {
         let quad = vertex_index / 4;
-        (quad < self.quad_count).then(|| (self.stream_start + quad, vertex_index % 4))
+        (self.hidden == 0 && quad < self.quad_count)
+            .then(|| (self.stream_start + quad, vertex_index % 4))
     }
 }
 

@@ -167,3 +167,16 @@ fn review_sign_commit_survives_transport_backpressure() {
     assert_eq!(sent, 1);
     assert!(!editor.is_open());
 }
+
+#[test]
+fn unchanged_close_still_sends_to_release_the_server_lock() {
+    let mut editor = SignEditor::default();
+    editor.open(SignEdit::new([1, 2, 3], true, NbtCompound::default()));
+    let mut sent = 0;
+    assert!(editor.finish(|_| {
+        sent += 1;
+        Ok(())
+    }));
+    assert_eq!(sent, 1);
+    assert!(!editor.is_open());
+}

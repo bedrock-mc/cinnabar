@@ -72,7 +72,7 @@ fn admitted_item_transaction_precedes_the_same_tick_start_using_input() {
         &mut ticker,
         1,
         Some(evidence()),
-        |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
     )
     .unwrap();
     let packets = captured.drain();
@@ -129,7 +129,7 @@ fn riptide_release_follows_completed_inputs_and_precedes_the_launch_input() {
             ticker,
             budget,
             Some(evidence()),
-            |identity, packet, guard| {
+            |identity, packet, guard, _| {
                 written.push(identity);
                 network.send_physics_packet(identity, packet, guard)
             },
@@ -206,7 +206,7 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
             ticker,
             1,
             Some(evidence()),
-            |identity, packet, guard| {
+            |identity, packet, guard, _| {
                 written = Some(identity);
                 network.send_physics_packet(identity, packet, guard)
             },
@@ -359,7 +359,7 @@ fn discarded_riptide_release_cancels_pending_and_replayed_launch() {
                 &mut ticker,
                 11,
                 Some(evidence()),
-                |identity, packet, guard| {
+                |identity, packet, guard, _| {
                     written.push(identity);
                     network.send_physics_packet(identity, packet, guard)
                 },
@@ -456,7 +456,7 @@ fn an_assisted_release_keeps_slowdown_until_its_facing_tick_is_simulated() {
         &mut ticker,
         8,
         Some(evidence()),
-        |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
     )
     .unwrap();
     captured.drain();
@@ -531,7 +531,7 @@ fn assisted_release_uses_the_same_charge_clock_as_holding() {
                         &mut ticker,
                         8,
                         Some(evidence()),
-                        |identity, packet, guard| {
+                        |identity, packet, guard, _| {
                             network.send_physics_packet(identity, packet, guard)
                         },
                     )

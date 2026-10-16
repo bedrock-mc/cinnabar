@@ -34,6 +34,25 @@ pub struct VerdictTag {
     pub slots: u32,
 }
 
+impl VerdictTag {
+    /// Counts only the captured slots, excluding stale bits beyond the dispatched range.
+    pub fn hidden_slots(&self, words: &[u32]) -> u32 {
+        let full_words = (self.slots / u32::BITS) as usize;
+        let mut hidden = words
+            .iter()
+            .take(full_words)
+            .map(|word| word.count_ones())
+            .sum();
+        let remainder = self.slots % u32::BITS;
+        if remainder != 0
+            && let Some(word) = words.get(full_words)
+        {
+            hidden += (word & ((1 << remainder) - 1)).count_ones();
+        }
+        hidden
+    }
+}
+
 /// Per-slot runs of occluded verdicts under the latest basis.
 #[derive(Debug, Default)]
 pub struct OcclusionHistory {
@@ -110,5 +129,30 @@ impl OcclusionHistory {
 
     fn current(&self, basis: &OcclusionBasis) -> bool {
         self.basis == Some(*basis) && basis.world == self.world
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visibility_counts_exclude_freed_tail_slots() {
+        for slots in [0, 1, 31, 32, 33, 64] {
+            let tag = VerdictTag {
+                frame: 1,
+                basis: OcclusionBasis {
+                    eye: [0.0; 3],
+                    view_rotation: [0.0; 9],
+                    clip_from_view: [0.0; 16],
+                    viewport: [0; 4],
+                    depth_size: [0; 2],
+                    depth_samples: 1,
+                    world: 0,
+                },
+                slots,
+            };
+            assert_eq!(tag.hidden_slots(&[u32::MAX; 3]), slots);
+        }
     }
 }

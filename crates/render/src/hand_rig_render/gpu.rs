@@ -159,7 +159,10 @@ pub(super) fn prepare(
         return;
     };
     let size = [viewport.z, viewport.w];
-    upload_geometry(&mut gpu, &device, &queue, frame);
+    if !upload_geometry(&mut gpu, &device, &queue, frame) {
+        deactivate(&mut gpu);
+        return;
+    }
     upload_pose(&mut gpu, &device, &queue, staging.as_deref(), frame);
     upload_skin(&mut gpu, &device, &queue, frame);
     upload_atlas(&mut gpu, &device, &queue, frame);
@@ -251,26 +254,34 @@ pub(super) fn upload_geometry(
     device: &RenderDevice,
     queue: &RenderQueue,
     frame: &HandRigFrame,
-) {
+) -> bool {
     if gpu.geometry_revision == Some(frame.rig.geometry_revision)
         && gpu.vertices.buffer().is_some()
         && gpu.spans.is_some()
     {
-        return;
+        return true;
     }
-    gpu.vertices.sync(
+    if !gpu.vertices.sync(
         device,
         queue,
         "first-person rig vertices",
         &frame.rig.geometry_vertices,
-    );
-    gpu.spans = Some(storage(
+    ) {
+        return false;
+    }
+    let Some(spans) = crate::actor::gpu::allocation::buffer_with_data(
         device,
+        queue,
         "first-person rig spans",
-        &frame.rig.geometry_spans,
-    ));
+        bytemuck::cast_slice(&frame.rig.geometry_spans),
+        BufferUsages::STORAGE,
+    ) else {
+        return false;
+    };
+    gpu.spans = Some(spans);
     gpu.geometry_revision = Some(frame.rig.geometry_revision);
     gpu.bind_group = None;
+    true
 }
 
 /// Uploads the current rig pose and instance stream into retained buffers.
@@ -615,19 +626,6 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
         &cache.get_bind_group_layout(&gpu.layout),
         &entries,
     ));
-}
-
-/// Creates an immutable storage buffer for the supplied packed geometry.
-pub(super) fn storage<T: bytemuck::Pod>(
-    device: &RenderDevice,
-    label: &'static str,
-    data: &[T],
-) -> Buffer {
-    device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some(label),
-        contents: bytemuck::cast_slice(data),
-        usage: BufferUsages::STORAGE,
-    })
 }
 
 /// Keeps one pipeline per supported sample count and colour format.
