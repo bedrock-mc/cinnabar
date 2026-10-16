@@ -41,6 +41,7 @@ type sessionConn struct {
 	traceFrames int64    // Batch frames written to the client
 	traceIDs    []uint32 // packet IDs of the forming batch
 	traceRead   int64    // when the forming batch's upstream batch was read
+	traceKey    uint64   // the forming batch's upstream message
 }
 
 type sessionRead struct {
@@ -164,10 +165,10 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 	return nil
 }
 
-// traceBatchRead stamps the forming batch with when its upstream batch was read.
-func (session *sessionConn) traceBatchRead(readAt int64) {
+// traceBatchRead stamps the forming batch with when its upstream batch was read and its message.
+func (session *sessionConn) traceBatchRead(readAt int64, key uint64) {
 	session.writeMu.Lock()
-	session.traceRead = readAt
+	session.traceRead, session.traceKey = readAt, key
 	session.writeMu.Unlock()
 }
 
@@ -241,8 +242,8 @@ func (session *sessionConn) flushLocked() error {
 	_, err := session.conn.Write(session.pending)
 	if session.trace != nil {
 		session.traceFrames++
-		session.trace.RecordIDs(latencytrace.Inbound, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now(), session.traceIDs)
-		session.traceIDs, session.traceRead = session.traceIDs[:0], 0
+		session.trace.RecordIDs(latencytrace.Inbound, session.traceIDs, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now(), int64(session.traceKey))
+		session.traceIDs, session.traceRead, session.traceKey = session.traceIDs[:0], 0, 0
 	}
 	// Write has returned, so the buffer is reused unless one large batch grew it.
 	if cap(session.pending) > bridgecontract.SessionPackChunkBytes {

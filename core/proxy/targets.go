@@ -73,7 +73,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 	started := time.Now()
 	conn, err := network.DialContext(bounded, address)
 	if err == nil {
-		conn = traceRakNet(conn)
+		conn = traceRakNet(ctx, conn)
 		// Separates a transport stall from a login stall when a join hangs.
 		slog.Info("upstream transport connected", "target", redact.Private(address), "elapsed_ms", time.Since(started).Milliseconds())
 	}

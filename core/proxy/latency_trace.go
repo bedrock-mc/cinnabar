@@ -3,7 +3,10 @@ package proxy
 import (
 	"context"
 	"encoding/binary"
+	"hash/fnv"
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
@@ -15,7 +18,7 @@ import (
 // traceRoundTripInterval spaces RakNet RTT samples in the trace.
 const traceRoundTripInterval = time.Second
 
-// tracingDialer opens upstream UDP sockets that record each datagram's send and receipt.
+// tracingDialer opens upstream UDP sockets that record each datagram and the RakNet frames in it.
 type tracingDialer struct{ trace *latencytrace.Trace }
 
 func (dialer tracingDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
@@ -34,7 +37,7 @@ type tracedDatagrams struct {
 func (conn *tracedDatagrams) Read(b []byte) (int, error) {
 	n, err := conn.Conn.Read(b)
 	if n > 0 {
-		conn.trace.Record(latencytrace.UDPRead, conn.trace.Now(), int64(n), int64(b[0]), 0, 0)
+		traceDatagram(conn.trace, latencytrace.UDPRead, 0, b[:n])
 	}
 	return n, err
 }
@@ -42,40 +45,253 @@ func (conn *tracedDatagrams) Read(b []byte) (int, error) {
 func (conn *tracedDatagrams) Write(b []byte) (int, error) {
 	n, err := conn.Conn.Write(b)
 	if n > 0 {
-		conn.trace.Record(latencytrace.UDPWrite, conn.trace.Now(), int64(n), int64(b[0]), 0, 0)
+		traceDatagram(conn.trace, latencytrace.UDPWrite, 1, b[:n])
 	}
 	return n, err
+}
+
+// traceDatagram records a datagram and, for a connected data datagram, each RakNet frame in it.
+func traceDatagram(trace *latencytrace.Trace, kind byte, direction int64, datagram []byte) {
+	now := trace.Now()
+	sequence := int64(-1)
+	const valid, ack, nack = 0x80, 0x40, 0x20
+	data := datagram[0]&valid != 0 && datagram[0]&(ack|nack) == 0 && len(datagram) >= 4
+	if data {
+		sequence = int64(uint32(datagram[1]) | uint32(datagram[2])<<8 | uint32(datagram[3])<<16)
+	}
+	trace.Record(kind, now, int64(len(datagram)), int64(datagram[0]), sequence)
+	if !data {
+		return
+	}
+	for _, frame := range rakNetFrames(datagram[4:]) {
+		trace.Record(latencytrace.Frame, direction, sequence, int64(frame.key), frame.splitID, frame.splitIndex, frame.splitCount)
+	}
+}
+
+// rakNetFrame is one encapsulated frame's identity; key is set where the frame starts a message.
+type rakNetFrame struct {
+	key                             uint64
+	splitID, splitIndex, splitCount int64
+}
+
+// rakNetFrames reads the frame headers of a data datagram's body, stopping at a malformed one.
+func rakNetFrames(body []byte) (frames []rakNetFrame) {
+	for len(body) >= 3 {
+		flags := body[0]
+		reliability := flags >> 5
+		length := (int(binary.BigEndian.Uint16(body[1:3])) + 7) / 8
+		offset := 3
+		if reliability == 2 || reliability == 3 || reliability == 4 || reliability == 6 || reliability == 7 {
+			offset += 3 // message index
+		}
+		if reliability == 1 || reliability == 4 {
+			offset += 3 // sequence index
+		}
+		if reliability == 1 || reliability == 3 || reliability == 4 || reliability == 7 {
+			offset += 4 // order index and channel
+		}
+		frame := rakNetFrame{splitID: -1}
+		if flags&0x10 != 0 {
+			if len(body) < offset+10 {
+				return frames
+			}
+			frame.splitCount = int64(binary.BigEndian.Uint32(body[offset:]))
+			frame.splitID = int64(binary.BigEndian.Uint16(body[offset+4:]))
+			frame.splitIndex = int64(binary.BigEndian.Uint32(body[offset+6:]))
+			offset += 10
+		}
+		if len(body) < offset+length {
+			return frames
+		}
+		if frame.splitIndex == 0 {
+			frame.key = messageKey(body[offset : offset+length])
+		}
+		frames = append(frames, frame)
+		body = body[offset+length:]
+	}
+	return frames
+}
+
+// messageKey digests a RakNet message's first 16 bytes, which a message's first frame also
+// starts with; game messages are encrypted, so the digest identifies without exposing content.
+func messageKey(message []byte) uint64 {
+	digest := fnv.New64a()
+	_, _ = digest.Write(message[:min(len(message), 16)])
+	return digest.Sum64() >> 1 // a non-negative trace value
+}
+
+// upstreamTrace links one upstream connection's RakNet messages to the batches read from it.
+// gophertunnel queues the packets it accepted from each play-phase message as one batch, in
+// order; the message starting with StartGame also carries the login packets deferred to it.
+type upstreamTrace struct {
+	accepted     atomic.Int64 // packets accepted from the message being handled
+	sawStartGame atomic.Bool  // the message being handled holds StartGame
+	playing      bool         // receive goroutine only: StartGame has been handled
+
+	mu      sync.Mutex
+	queued  []tracedMessage // handled messages whose batch has not been fully read, oldest first
+	current tracedMessage   // the message being handled
+	lastOut uint64          // key of the last message written upstream
+}
+
+type tracedMessage struct {
+	key     uint64
+	playing bool
+	taken   int64 // packets already read from its batch
+	packets int64 // packets accepted, once known
+}
+
+type upstreamTraceKey struct{}
+
+// upstreamTraces finds a dialled upstream's trace from the session the relay reads.
+var upstreamTraces sync.Map // packetSession -> *upstreamTrace
+
+// traceUpstream prepares one upstream dial's trace when tracing is on: the dialer counts the
+// packets it accepts, and the returned context hands the trace to the RakNet transport.
+func traceUpstream(ctx context.Context, dialer minecraft.Dialer) (context.Context, minecraft.Dialer, *upstreamTrace) {
+	if latencytrace.Active() == nil {
+		return ctx, dialer, nil
+	}
+	upstream := new(upstreamTrace)
+	accept := dialer.AcceptPacketHeader
+	dialer.AcceptPacketHeader = func(header packet.Header) bool {
+		accepted := accept == nil || accept(header)
+		if accepted {
+			upstream.accepted.Add(1)
+			if header.PacketID == packet.IDStartGame {
+				upstream.sawStartGame.Store(true)
+			}
+		}
+		return accepted
+	}
+	return context.WithValue(ctx, upstreamTraceKey{}, upstream), dialer, upstream
+}
+
+// register lets the relay find this trace from the dialled session until the session closes.
+func (upstream *upstreamTrace) register(session upstreamSession) {
+	if upstream == nil || session == nil {
+		return
+	}
+	upstreamTraces.Store(session, upstream)
+	if closing, ok := session.(interface{ Context() context.Context }); ok {
+		context.AfterFunc(closing.Context(), func() { upstreamTraces.Delete(session) })
+	}
+}
+
+// lookupUpstreamTrace returns the trace of the dialled session beneath session's observers.
+func lookupUpstreamTrace(session packetSession) *upstreamTrace {
+	base := unwrapUpstream(session)
+	if base == nil {
+		return nil
+	}
+	if upstream, ok := upstreamTraces.Load(base); ok {
+		return upstream.(*upstreamTrace)
+	}
+	return nil
+}
+
+// begin starts tracking the message gophertunnel is about to handle.
+func (upstream *upstreamTrace) begin(key uint64) {
+	upstream.mu.Lock()
+	upstream.current = tracedMessage{key: key, playing: upstream.playing}
+	upstream.mu.Unlock()
+}
+
+// finish closes the message being handled, returning how many packets were accepted from it.
+func (upstream *upstreamTrace) finish() int64 {
+	packets := upstream.accepted.Swap(0)
+	startGame := upstream.sawStartGame.Swap(false)
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	message := upstream.current
+	message.packets = packets
+	message.playing = message.playing || startGame
+	if message.playing && message.packets > message.taken {
+		upstream.queued = append(upstream.queued, message)
+	}
+	upstream.current = tracedMessage{}
+	upstream.playing = upstream.playing || startGame
+	return packets
+}
+
+// batchMessage attributes a batch of n packets read from the upstream to its message's key.
+func (upstream *upstreamTrace) batchMessage(n int) uint64 {
+	if upstream == nil {
+		return 0
+	}
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	if len(upstream.queued) != 0 {
+		head := &upstream.queued[0]
+		key := head.key
+		if head.taken += int64(n); head.taken >= head.packets {
+			upstream.queued = upstream.queued[1:]
+		}
+		return key
+	}
+	// The batch was queued before the receive goroutine finished its message.
+	upstream.current.taken += int64(n)
+	return upstream.current.key
 }
 
 // tracedRakNet records when each RakNet message reaches gophertunnel and when its batch was
 // handled, which is when gophertunnel's single reader asks for the next message.
 type tracedRakNet struct {
 	*raknet.Conn
-	trace   *latencytrace.Trace
-	arrived int64
-	size    int64
+	trace    *latencytrace.Trace
+	upstream *upstreamTrace
+	arrived  int64
+	size     int64
+	key      uint64
 }
 
 // traceRakNet wraps conn when tracing is on and conn is a RakNet connection.
-func traceRakNet(conn net.Conn) net.Conn {
+func traceRakNet(ctx context.Context, conn net.Conn) net.Conn {
 	trace := latencytrace.Active()
 	rakConn, ok := conn.(*raknet.Conn)
 	if trace == nil || !ok {
 		return conn
 	}
-	return &tracedRakNet{Conn: rakConn, trace: trace}
+	upstream, _ := ctx.Value(upstreamTraceKey{}).(*upstreamTrace)
+	if upstream == nil {
+		upstream = new(upstreamTrace) // dials without a dialer hook still record their messages
+	}
+	return &tracedRakNet{Conn: rakConn, trace: trace, upstream: upstream}
 }
 
 func (conn *tracedRakNet) ReadPacket() ([]byte, error) {
 	if conn.arrived != 0 {
-		conn.trace.Record(latencytrace.Message, conn.arrived, conn.trace.Now(), conn.size, 0, 0)
+		packets := conn.upstream.finish()
+		conn.trace.Record(latencytrace.Message, conn.arrived, conn.trace.Now(), conn.size, int64(conn.key), packets)
 		conn.arrived = 0
 	}
 	b, err := conn.Conn.ReadPacket()
 	if err == nil {
-		conn.arrived, conn.size = conn.trace.Now(), int64(len(b))
+		conn.arrived, conn.size, conn.key = conn.trace.Now(), int64(len(b)), messageKey(b)
+		conn.upstream.begin(conn.key)
 	}
 	return b, err
+}
+
+// Write records each message gophertunnel hands to RakNet.
+func (conn *tracedRakNet) Write(b []byte) (int, error) {
+	key := messageKey(b)
+	n, err := conn.Conn.Write(b)
+	conn.trace.Record(latencytrace.Sent, conn.trace.Now(), int64(key), int64(len(b)))
+	conn.upstream.mu.Lock()
+	conn.upstream.lastOut = key
+	conn.upstream.mu.Unlock()
+	return n, err
+}
+
+// traceStartupBatch attributes a batch the session startup read to its message.
+func traceStartupBatch(upstream packetSession, batch []minecraft.RawPacket) {
+	trace := latencytrace.Active()
+	if trace == nil {
+		return
+	}
+	key := lookupUpstreamTrace(upstream).batchMessage(len(batch))
+	trace.Record(latencytrace.StartupBatch, trace.Now(), int64(key), int64(len(batch)))
 }
 
 // relayTrace times one relay direction's batches; nil when tracing is off.
@@ -85,6 +301,8 @@ type relayTrace struct {
 	conn      int64
 	seq       int64
 	readAt    int64
+	key       uint64 // the inbound batch's message, or the outbound batch's once written
+	upstream  *upstreamTrace
 	ids       []uint32
 	latencies []int64 // NetworkStackLatency timestamps in the current batch
 	rtt       func() time.Duration
@@ -100,8 +318,11 @@ func newRelayTrace(source, destination packetSession, fromDownstream bool) *rela
 	if session, ok := source.(*sessionConn); ok && fromDownstream {
 		relay.conn = session.traceConn
 	}
-	if !fromDownstream {
+	if fromDownstream {
+		relay.upstream = lookupUpstreamTrace(destination)
+	} else {
 		relay.rtt = upstreamLatency(source)
+		relay.upstream = lookupUpstreamTrace(source)
 	}
 	return relay
 }
@@ -122,15 +343,16 @@ func (relay *relayTrace) read(batch []minecraft.RawPacket, readAt int64, destina
 		return
 	}
 	for _, timestamp := range relay.latencies {
-		relay.trace.Record(latencytrace.StackLatency, 0, readAt, timestamp, 0, 0)
+		relay.trace.Record(latencytrace.StackLatency, 0, readAt, timestamp)
 	}
+	key := relay.upstream.batchMessage(len(batch))
 	if session, ok := destination.(*sessionConn); ok {
-		session.traceBatchRead(readAt)
+		session.traceBatchRead(readAt, key)
 	}
 	if relay.rtt != nil && readAt-relay.rttAt >= int64(traceRoundTripInterval) {
 		relay.rttAt = readAt
 		if rtt := sampleRoundTrip(relay.rtt); rtt > 0 {
-			relay.trace.Record(latencytrace.RoundTrip, readAt, int64(rtt), 0, 0, 0)
+			relay.trace.Record(latencytrace.RoundTrip, readAt, int64(rtt))
 		}
 	}
 }
@@ -142,25 +364,37 @@ func (relay *relayTrace) forwarded() {
 	}
 	now := relay.trace.Now()
 	relay.seq++
-	relay.trace.RecordIDs(latencytrace.Outbound, relay.conn, relay.seq, relay.readAt, now, 0, relay.ids)
+	var key uint64
+	if relay.upstream != nil {
+		relay.upstream.mu.Lock()
+		key, relay.upstream.lastOut = relay.upstream.lastOut, 0
+		relay.upstream.mu.Unlock()
+	}
+	relay.trace.RecordIDs(latencytrace.Outbound, relay.ids, relay.conn, relay.seq, relay.readAt, now, int64(key))
 	for _, timestamp := range relay.latencies {
-		relay.trace.Record(latencytrace.StackLatency, 1, now, timestamp, 0, 0)
+		relay.trace.Record(latencytrace.StackLatency, 1, now, timestamp)
 	}
 }
 
 // upstreamLatency returns the half-RTT estimator beneath the relay's observing wrappers, which
 // hide it; nil when the transport has none.
 func upstreamLatency(session packetSession) func() time.Duration {
+	if estimator, ok := unwrapUpstream(session).(interface{ Latency() time.Duration }); ok {
+		return estimator.Latency
+	}
+	return nil
+}
+
+// unwrapUpstream returns the dialled session beneath the relay's observing wrappers.
+func unwrapUpstream(session packetSession) packetSession {
 	for {
 		switch wrapper := session.(type) {
-		case interface{ Latency() time.Duration }:
-			return wrapper.Latency
 		case *transferObservingSession:
 			session = wrapper.upstreamSession
 		case *disconnectObservingSession:
 			session = wrapper.upstreamSession
 		default:
-			return nil
+			return session
 		}
 	}
 }

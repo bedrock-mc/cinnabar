@@ -17,12 +17,17 @@ import (
 )
 
 // Event kinds and their fields; times are trace-clock nanoseconds.
+// A message key is a digest of a RakNet message's first bytes, which are encrypted; it links a
+// message to the datagram frames that carried it without recording payload.
 const (
-	UDPRead       = 'U' // t, bytes, first byte
-	UDPWrite      = 'W' // t, bytes, first byte
-	Message       = 'M' // RakNet message: arrival, decoded (next read began), bytes
-	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, write began, written; packet IDs
-	Outbound      = 'O' // client frame upstream: conn, seq, read, handed to RakNet; packet IDs
+	UDPRead       = 'U' // t, bytes, first byte, RakNet datagram sequence (-1 for ACK, NACK, offline)
+	UDPWrite      = 'W' // t, bytes, first byte, RakNet datagram sequence (-1 for ACK, NACK, offline)
+	Frame         = 'F' // direction (0 in, 1 out), datagram sequence, message key (0 past the first fragment), split ID (-1 unsplit), split index, split count
+	Message       = 'M' // RakNet message in: arrival, decoded (next read began), bytes, key, packets gophertunnel accepted
+	Sent          = 'N' // RakNet message out: t, key, bytes
+	StartupBatch  = 'S' // batch the session startup read: t, message key, packets
+	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, write began, written, message key; packet IDs
+	Outbound      = 'O' // client frame upstream: conn, seq, read, handed to RakNet, message key; packet IDs
 	StackLatency  = 'L' // NetworkStackLatency: direction (0 in, 1 out), t, timestamp field
 	RoundTrip     = 'R' // t, RakNet RTT in ns
 	queueCapacity = 1 << 16
@@ -43,7 +48,8 @@ type Trace struct {
 
 type record struct {
 	kind   byte
-	values [5]int64
+	values [6]int64
+	count  int
 	ids    []uint32
 }
 
@@ -103,14 +109,20 @@ func (trace *Trace) Now() int64 { return trace.anchorUnix + int64(time.Since(tra
 // NextConn numbers a bridge connection, from 1.
 func (trace *Trace) NextConn() int64 { return trace.conns.Add(1) }
 
-// Record queues an event without blocking; a full queue drops it and counts the drop.
-func (trace *Trace) Record(kind byte, a, b, c, d, e int64) {
-	trace.enqueue(record{kind: kind, values: [5]int64{a, b, c, d, e}})
+// Record queues an event of up to six values without blocking; a full queue drops it and
+// counts the drop.
+func (trace *Trace) Record(kind byte, values ...int64) {
+	trace.RecordIDs(kind, nil, values...)
 }
 
 // RecordIDs is Record with a packet ID list, which it copies.
-func (trace *Trace) RecordIDs(kind byte, a, b, c, d, e int64, ids []uint32) {
-	trace.enqueue(record{kind: kind, values: [5]int64{a, b, c, d, e}, ids: append([]uint32(nil), ids...)})
+func (trace *Trace) RecordIDs(kind byte, ids []uint32, values ...int64) {
+	value := record{kind: kind, count: min(len(values), 6)}
+	copy(value.values[:], values)
+	if len(ids) != 0 {
+		value.ids = append([]uint32(nil), ids...)
+	}
+	trace.enqueue(value)
 }
 
 func (trace *Trace) enqueue(value record) {
@@ -162,10 +174,10 @@ func (trace *Trace) write(file *os.File, role string) {
 	}
 }
 
-// appendRecord formats `kind v0 v1 v2 v3 v4[ id,id...]` and a newline.
+// appendRecord formats `kind v0 v1 ...[ id,id...]` and a newline.
 func appendRecord(line []byte, value record) []byte {
 	line = append(line, value.kind)
-	for _, field := range value.values {
+	for _, field := range value.values[:value.count] {
 		line = append(line, ' ')
 		line = strconv.AppendInt(line, field, 10)
 	}

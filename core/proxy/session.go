@@ -299,6 +299,7 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 		if err != nil {
 			return nil, nil, err
 		}
+		traceStartupBatch(upstream, batch)
 		for index, raw := range batch {
 			if size += len(raw.Data); size > streamnet.MaxFrameLen {
 				return nil, nil, errors.New("proxy: session startup packets exceed one frame")

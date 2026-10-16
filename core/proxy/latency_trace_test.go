@@ -38,3 +38,71 @@ func TestUpstreamLatencySeesThroughObservers(t *testing.T) {
 		t.Fatal("an upstream without an estimator has none")
 	}
 }
+
+// A datagram's frames carry the key of the message they start and their split identity.
+func TestRakNetFramesKeyTheMessagesTheyStart(t *testing.T) {
+	message := []byte{0xfe, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+	frame := func(flags byte, extra []byte, content []byte) []byte {
+		out := []byte{flags, byte(len(content) * 8 >> 8), byte(len(content) * 8)}
+		out = append(out, extra...)
+		return append(out, content...)
+	}
+	ordered := []byte{1, 0, 0, 2, 0, 0, 0} // message index, order index, channel
+	split := []byte{0, 0, 0, 2, 0, 7, 0, 0, 0, 0}
+	splitLater := []byte{0, 0, 0, 2, 0, 7, 0, 0, 0, 1}
+	body := frame(3<<5, ordered, message)
+	body = append(body, frame(3<<5|0x10, append(ordered, split...), message[:10])...)
+	body = append(body, frame(3<<5|0x10, append(ordered, splitLater...), message[10:])...)
+	frames := rakNetFrames(body)
+	want := []rakNetFrame{
+		{key: messageKey(message), splitID: -1},
+		{key: messageKey(message[:10]), splitID: 7, splitIndex: 0, splitCount: 2},
+		{key: 0, splitID: 7, splitIndex: 1, splitCount: 2},
+	}
+	if len(frames) != len(want) {
+		t.Fatalf("frames = %+v, want %+v", frames, want)
+	}
+	for i := range want {
+		if frames[i] != want[i] {
+			t.Fatalf("frame %d = %+v, want %+v", i, frames[i], want[i])
+		}
+	}
+	if messageKey(message) != messageKey(append(message[:16:16], 99)) {
+		t.Fatal("a split message's first fragment must key like the reassembled message")
+	}
+}
+
+// Batches map to the messages that produced them, across StartGame, messages without accepted
+// packets, a batch read before its message closed, and one message read as two batches.
+func TestUpstreamTraceAttributesBatchesToTheirMessages(t *testing.T) {
+	upstream := new(upstreamTrace)
+	message := func(key uint64, packets int64, startGame bool) {
+		upstream.begin(key)
+		upstream.accepted.Add(packets)
+		upstream.sawStartGame.Store(startGame)
+	}
+	message(1, 2, false) // login, handled internally
+	upstream.finish()
+	message(2, 3, true)
+	upstream.finish()
+	if key := upstream.batchMessage(5); key != 2 {
+		t.Fatalf("startup batch key = %d, want the StartGame message", key)
+	}
+	message(3, 0, false) // only subclient packets
+	upstream.finish()
+	message(4, 2, false)
+	if key := upstream.batchMessage(2); key != 4 {
+		t.Fatalf("early batch key = %d, want the message still being handled", key)
+	}
+	upstream.finish()
+	message(5, 4, false)
+	upstream.finish()
+	for _, n := range []int{1, 3} {
+		if key := upstream.batchMessage(n); key != 5 {
+			t.Fatalf("split batch key = %d, want 5", key)
+		}
+	}
+	if len(upstream.queued) != 0 {
+		t.Fatalf("queued = %+v, want every batch read", upstream.queued)
+	}
+}
