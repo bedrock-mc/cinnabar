@@ -100,8 +100,8 @@ func newRelayTrace(source, destination packetSession, fromDownstream bool) *rela
 	if session, ok := source.(*sessionConn); ok && fromDownstream {
 		relay.conn = session.traceConn
 	}
-	if upstream, ok := source.(interface{ Latency() time.Duration }); ok && !fromDownstream {
-		relay.rtt = upstream.Latency
+	if !fromDownstream {
+		relay.rtt = upstreamLatency(source)
 	}
 	return relay
 }
@@ -145,6 +145,23 @@ func (relay *relayTrace) forwarded() {
 	relay.trace.RecordIDs(latencytrace.Outbound, relay.conn, relay.seq, relay.readAt, now, 0, relay.ids)
 	for _, timestamp := range relay.latencies {
 		relay.trace.Record(latencytrace.StackLatency, 1, now, timestamp, 0, 0)
+	}
+}
+
+// upstreamLatency returns the half-RTT estimator beneath the relay's observing wrappers, which
+// hide it; nil when the transport has none.
+func upstreamLatency(session packetSession) func() time.Duration {
+	for {
+		switch wrapper := session.(type) {
+		case interface{ Latency() time.Duration }:
+			return wrapper.Latency
+		case *transferObservingSession:
+			session = wrapper.upstreamSession
+		case *disconnectObservingSession:
+			session = wrapper.upstreamSession
+		default:
+			return nil
+		}
 	}
 }
 

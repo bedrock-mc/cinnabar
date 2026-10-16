@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -19,5 +20,21 @@ func TestStackLatencyTimestampReadsTheProbe(t *testing.T) {
 	}
 	if _, ok := stackLatencyTimestamp(minecraft.RawPacket{ID: packet.IDText, Data: buf.Bytes()}); ok {
 		t.Fatal("another packet must not read as a probe")
+	}
+}
+
+type latencyUpstream struct{ upstreamSession }
+
+func (latencyUpstream) Latency() time.Duration { return 7 * time.Millisecond }
+
+// The relay samples RTT through the transfer and disconnect observers that wrap a session upstream.
+func TestUpstreamLatencySeesThroughObservers(t *testing.T) {
+	wrapped := observeDisconnects(observeTransfers(latencyUpstream{}, new(TransferState), nil), func(DisconnectInfo) {})
+	latency := upstreamLatency(wrapped)
+	if latency == nil || latency() != 7*time.Millisecond {
+		t.Fatal("the wrapped upstream's estimator must be found")
+	}
+	if upstreamLatency(observeTransfers(struct{ upstreamSession }{}, new(TransferState), nil)) != nil {
+		t.Fatal("an upstream without an estimator has none")
 	}
 }
