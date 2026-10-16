@@ -13,7 +13,7 @@ fn flush_movement(world: &mut World, limit: usize) {
             &mut movement,
             limit,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
     });

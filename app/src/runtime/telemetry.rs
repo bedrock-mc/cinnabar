@@ -41,6 +41,7 @@ use render_scene::{
 use render_scene::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
 use world::SubChunkKey;
 
+mod movement_trace;
 mod visibility_snapshot;
 
 #[cfg(feature = "acceptance")]
@@ -262,13 +263,7 @@ pub(crate) fn send_player_auth_inputs(
     if acceptance.deadline_reached(Instant::now()) {
         movement.begin_terminal_drain();
     }
-    let trace = bridge::latency_trace::active().map(|trace| {
-        let sampled = real_time
-            .as_ref()
-            .and_then(|time| time.last_update())
-            .map_or(0, |instant| trace.at(instant));
-        (trace, sampled)
-    });
+    let trace = bridge::latency_trace::active();
     let evidence_context = input
         .snapshot()
         .zip(local_frame.snapshot())
@@ -309,12 +304,18 @@ pub(crate) fn send_player_auth_inputs(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet, mining_guard| match trace {
-            Some((trace, sampled)) => trace.record_admitted(
-                bridge::latency_trace::kind::TICK_SENT,
-                &[identity.tick.get() as i64, sampled],
-                || network.send_physics_packet(identity, packet, mining_guard),
-            ),
+        |identity, packet, mining_guard, sampled_at| match trace {
+            Some(trace) => {
+                let sampled = real_time
+                    .as_deref()
+                    .and_then(|time| movement_trace::sample_instant(time, sampled_at))
+                    .map_or(0, |instant| trace.at(instant));
+                trace.record_admitted(
+                    bridge::latency_trace::kind::TICK_SENT,
+                    &[identity.tick.get() as i64, sampled],
+                    || network.send_physics_packet(identity, packet, mining_guard),
+                )
+            }
             None => network.send_physics_packet(identity, packet, mining_guard),
         },
     );

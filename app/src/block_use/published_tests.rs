@@ -233,7 +233,7 @@ fn produce_air_use(world: &mut World) {
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
     });

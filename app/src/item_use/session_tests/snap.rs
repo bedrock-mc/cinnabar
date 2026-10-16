@@ -66,7 +66,7 @@ fn assert_release_after_snap(
         &mut ticker,
         1,
         Some(evidence()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             written = Some(identity);
             network.send_physics_packet(identity, packet, guard)
         },
@@ -149,7 +149,7 @@ fn assert_release_after_snap(
         &mut ticker,
         1,
         Some(evidence()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             flags.push(
                 protocol::player_auth_input_trace_sample(&packet)
                     .unwrap()

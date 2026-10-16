@@ -31,7 +31,7 @@ pub mod kind {
     pub const EXTRACTED: u8 = b'x';
     /// Render world finished presenting that frame: frame count, t.
     pub const PRESENTED: u8 = b'p';
-    /// PlayerAuthInput admitted to the outbound queue: tick, frame time sample, t.
+    /// PlayerAuthInput admitted to the outbound queue: tick, original sampling frame time, t.
     pub const TICK_SENT: u8 = b'k';
     /// Outbound frame batch handed to the bridge: t begin, t flushed, packets.
     pub const OUTBOUND_FLUSH: u8 = b'f';
