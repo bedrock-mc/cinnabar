@@ -646,6 +646,15 @@ Full transport parity remains incomplete. Host-resolver timing and address admis
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
 
+## Liquid surfaces beneath opaque roofs
+
+Liquid tops below opaque roofs remain visible when any surface corner is below
+the roof boundary. Stacked compatible liquids and fully raised surfaces against
+opaque roofs retain their culling. Original-art meshing regressions cover water,
+lava, sloped surfaces and shared side insets. Local BDS rendering now matches the
+closed surfaces observed with the official Android client. Broader liquid parity
+and hardware performance gates remain open.
+
 ## Flowing water texels
 
 Replicated flipbooks compile the frame's upper-left `1 / replicate` square at full

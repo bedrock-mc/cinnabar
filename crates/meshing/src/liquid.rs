@@ -598,8 +598,10 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let gradient = flow_gradient(&sampler, neighbourhood, block, cell);
                 let origin = [x as u8, y as u8, z as u8];
                 let above = add(block, [0, 1, 0]);
+                // A roof only covers surfaces raised to its bottom boundary.
                 let top_emitted = !compatible(&sampler, neighbourhood, above, cell.identity)
-                    && !sampler.solid(neighbourhood, above, Face::NegativeY);
+                    && (heights != [LiquidLevel::FULL_HEIGHT; 4]
+                        || !sampler.solid(neighbourhood, above, Face::NegativeY));
                 if top_emitted {
                     let material = cell.top_material(gradient != [0, 0]);
                     push_quad(
