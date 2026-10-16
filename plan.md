@@ -8961,8 +8961,9 @@ Attacks at actors, air or blocks send the item-directed transaction with aim and
 allowing the server to apply damage and Lunge movement. Component, admission,
 catalog/reset and real-carrier animation regressions pass. Matched live captures
 show the jab, charged hold and default-Java third-person arm; server-confirmed
-Lunge moves the fixed client without movement input. The complete matched-version
-native comparison remains incomplete. See
+Lunge moves the fixed client without movement input. Hotbar shading now follows
+admitted attack-category cooldowns, including other displayed stacks in the same
+category. The complete matched-version native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
 ## Third-person held attachables

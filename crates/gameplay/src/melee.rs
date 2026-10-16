@@ -98,6 +98,19 @@ impl MeleeRuntime {
         self.actor_in_front
     }
 
+    /// Remaining fraction of an admitted attack category at the completed player tick.
+    pub fn cooldown_progress(&self, cooldown: &protocol::ItemAttackCooldown, tick: u64) -> f32 {
+        if cooldown.ticks == 0 {
+            return 0.0;
+        }
+        self.attack_cooldowns
+            .iter()
+            .find(|(category, _)| *category == cooldown.category)
+            .map_or(0.0, |(_, until)| {
+                (until.saturating_sub(tick) as f32 / cooldown.ticks as f32).min(1.0)
+            })
+    }
+
     /// An attack press not yet resolved; a use press waits for it, as an attack handled first
     /// holds off the use.
     pub fn press_pending(&self) -> bool {

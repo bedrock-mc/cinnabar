@@ -66,6 +66,7 @@ type PublishExtras<'w, 's> = (
         Res<'w, NetworkHandle<PackApplication>>,
         Option<ResMut<'w, render_scene::UiGlintSettings>>,
         Res<'w, client_interaction::item_use::ItemUseRuntime>,
+        Res<'w, client_interaction::melee::MeleeRuntime>,
         Res<'w, client_interaction::movement::MovementTicker>,
         Res<'w, client_interaction::movement::LocalPhysicsController>,
     ),
@@ -109,6 +110,7 @@ pub(crate) fn prepare_ui_runtime(
             network,
             glint_settings,
             item_use,
+            melee,
             movement,
             physics,
         ),
@@ -319,6 +321,7 @@ pub(crate) fn prepare_ui_runtime(
         &runtime,
         client_world.stream.as_ref(),
         &item_use,
+        &melee,
         movement.completed_tick(),
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.

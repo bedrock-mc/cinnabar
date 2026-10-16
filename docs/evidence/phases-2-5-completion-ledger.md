@@ -340,6 +340,10 @@ This adds no live visual evidence and leaves the UI acceptance gate open.
 | Performance/resource witness | Not started |
 | Final status | Open |
 
+Attack-category cooldown shading has owning timer and hotbar-publication regressions
+for admission rollback, shared categories and expiry. A local spear jab reproduces
+the missing overlay against the official client; broader HUD parity remains open.
+
 ## P5.3-CHAT
 
 | Field | Evidence |
