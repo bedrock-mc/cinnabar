@@ -1040,7 +1040,8 @@ screen-effect parity remain incomplete.
 Server-enabled flight also remains active in ordinary modes without MayFly;
 that permission still controls starting flight locally. A native Android
 1.26.50.4 Swim.gg post-death comparison verifies upward flight for this server
-combination. Other toggle edges and the full movement parity gate remain
+combination. A fresh fixed-client death cycle also verifies ascent and hovering
+after jump release. Other toggle edges and the full movement parity gate remain
 incomplete.
 
 Spectator mode now keeps forced flight without the ordinary flight-toggle grant,
