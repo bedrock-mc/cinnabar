@@ -66,3 +66,12 @@ fn current_frame_is_submitted_before_pacing_in_either_install_order() {
         assert_eq!(app.world().resource::<Submission>().frames, [expected]);
     }
 }
+
+/// A frame counts as presented only when presenting took a swap-chain texture held before
+/// rendering; no surface, or a present the renderer skipped, is not a presented frame.
+#[test]
+fn presentation_needs_a_released_swap_chain() {
+    assert!(super::presented(1, 0));
+    assert!(!super::presented(0, 0), "no window held a surface");
+    assert!(!super::presented(1, 1), "the renderer skipped presenting");
+}

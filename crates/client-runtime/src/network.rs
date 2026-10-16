@@ -3,7 +3,8 @@
 use bevy::app::{App, MainScheduleOrder};
 use bevy::diagnostic::FrameCount;
 use bevy::ecs::schedule::ScheduleLabel;
-use bevy::prelude::{Deref, DerefMut, IntoScheduleConfigs, Res, Resource};
+use bevy::prelude::{Deref, DerefMut, IntoScheduleConfigs, Query, Res, ResMut, Resource};
+use bevy::render::view::ExtractedWindow;
 use bevy::render::{Render, RenderApp, RenderSystems};
 use std::path::PathBuf;
 
@@ -127,24 +128,60 @@ pub fn configure_network_frame_flush<P: Send + Sync + 'static>(app: &mut App) {
     }
 }
 
-/// Records each presented frame in the latency trace while tracing; needs the render sub-app.
+/// Records each frame that reached a window's swap chain in the latency trace while tracing;
+/// needs the render sub-app.
 pub(crate) fn trace_presented_frames(app: &mut App) {
     if bridge::latency_trace::active().is_none() {
         return;
     }
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-        render_app.add_systems(Render, trace_frame_presented.in_set(RenderSystems::Cleanup));
+        render_app.init_resource::<HeldSwapChains>().add_systems(
+            Render,
+            (
+                count_held_swap_chains
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Render),
+                trace_frame_presented.in_set(RenderSystems::Cleanup),
+            ),
+        );
     }
 }
+
+/// Windows holding an acquired swap-chain texture before rendering.
+#[derive(Resource, Default)]
+struct HeldSwapChains(usize);
 
 /// Stamps the frame count extraction is about to copy, so it pairs with the presented frame.
 fn trace_frame_handoff(frames: Option<Res<FrameCount>>) {
     trace_frame(bridge::latency_trace::kind::EXTRACTED, frames);
 }
 
-/// Runs after the render world submitted and presented the extracted frame.
-fn trace_frame_presented(frames: Option<Res<FrameCount>>) {
-    trace_frame(bridge::latency_trace::kind::PRESENTED, frames);
+fn count_held_swap_chains(windows: Query<&ExtractedWindow>, mut held: ResMut<HeldSwapChains>) {
+    held.0 = held_swap_chains(&windows);
+}
+
+/// Records the frame only when rendering handed a held swap-chain texture to the window, which
+/// presenting takes; a frame without a surface or a skipped present is not shown.
+fn trace_frame_presented(
+    frames: Option<Res<FrameCount>>,
+    windows: Query<&ExtractedWindow>,
+    held: Res<HeldSwapChains>,
+) {
+    if presented(held.0, held_swap_chains(&windows)) {
+        trace_frame(bridge::latency_trace::kind::PRESENTED, frames);
+    }
+}
+
+fn held_swap_chains(windows: &Query<&ExtractedWindow>) -> usize {
+    windows
+        .iter()
+        .filter(|window| window.swap_chain_texture.is_some())
+        .count()
+}
+
+/// Whether presenting released any of the swap-chain textures held before rendering.
+fn presented(held_before: usize, held_after: usize) -> bool {
+    held_after < held_before
 }
 
 fn trace_frame(kind: u8, frames: Option<Res<FrameCount>>) {
