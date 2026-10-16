@@ -72,7 +72,7 @@ fn featured_art_badges_the_card_only_while_playing_and_only_over_https() {
         let payload =
             serde_json::to_value(State::Playing.activity(1, Some(&badged(rejected)), None))
                 .unwrap();
-        assert!(payload["assets"].get("small_image").is_none(), "{rejected}");
+        assert_eq!(payload["assets"]["small_image"], GRASS_BLOCK_ICON_URL, "{rejected}");
     }
 }
 
@@ -135,8 +135,7 @@ fn activity_states_keep_start_time_and_exclude_account_and_join_data() {
     let mut states = Vec::new();
     for state in [State::Menus, State::Joining, State::Playing] {
         let payload = serde_json::to_value(state.activity(1234, None, None)).unwrap();
-        // Discord already titles the card with the application's name.
-        assert!(payload.get("details").is_none());
+        assert_eq!(payload["details"], MINECRAFT_VERSION);
         assert_eq!(payload["timestamps"]["start"], 1234);
         assert_eq!(payload["assets"]["large_image"], LARGE_IMAGE_URL);
         assert_eq!(payload["assets"]["large_text"], launcher::PRODUCT_NAME);
