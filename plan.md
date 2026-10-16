@@ -880,8 +880,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   separating the actor's colour for exposure remains incomplete.
 - Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
   reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
-  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
-  acceptance remain unmeasured; no performance gate closes.
+  remain open. Enabled views retain exact per-pixel motion/depth resolves and row/tile velocity targets.
+  Repeated exposure taps share those resolves; each reduction scans at most one tile edge per invocation.
+  Full-scene hardware frame-budget acceptance remains open; no performance gate closes.
 
 ## Item frames
 
