@@ -164,7 +164,7 @@ impl EquipmentRuntime {
             location,
             0,
         );
-        style.apply(&mut presentation.submission);
+        style.apply_held(&mut presentation.submission);
         Some(FirstPersonItem {
             presentation: super::push::attachable_glint(presentation, item),
             camera_space: java_camera.is_some(),

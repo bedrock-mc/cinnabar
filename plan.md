@@ -8826,6 +8826,11 @@ native comparison remains incomplete. See
 
 ## Third-person held attachables
 
+Incomplete: held attachables publish one selected layer per hand. Authored
+dissolve depth/color passes use a drawable ordinary-material fallback, retaining
+overlay suppression; coupled multi-pass coverage remains unsupported in both
+first and third person. This does not close a material or held-item parity gate.
+
 Held models evaluate authored scripts and texture meshes against the owner's
 posed bones, including aiming skeleton bows. Third-person bow draws supply the
 owner's use duration, draw frame, and render delta through release. Unchanged

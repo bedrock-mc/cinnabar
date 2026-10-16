@@ -29,6 +29,24 @@ impl LayerStyle {
         }
     }
 
+    /// Keeps single-draw held models visible when authored dissolve passes need a companion.
+    /// Apply their overlay policy before selecting the drawable ordinary-material fallback.
+    pub(super) fn apply_held(self, submission: &mut ActorRigSubmission) {
+        self.apply(submission);
+        if matches!(
+            self.material,
+            assets::EntityRenderMaterial::DissolveDepth
+                | assets::EntityRenderMaterial::DissolveColor
+        ) {
+            submission.material.kind = assets::EntityRenderMaterial::Default;
+            submission
+                .material
+                .state
+                .get_or_insert_with(Default::default)
+                .disable_overlay = true;
+        }
+    }
+
     /// Applies authored style, preserving stack glint, dye fallback and inherited world light.
     pub(super) fn apply(self, submission: &mut ActorRigSubmission) {
         submission.material.kind = self.material;
