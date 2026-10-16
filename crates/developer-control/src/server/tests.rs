@@ -87,3 +87,46 @@ fn bad_commands_from_authenticated_callers_keep_the_connection() {
     assert!(outcome.unwrap_err().starts_with("bad command"));
     assert!(!close);
 }
+
+#[test]
+fn repeated_start_drop_releases_each_listening_socket() {
+    let path = scratch("lifetime");
+    for _ in 0..4 {
+        let server = ControlServer::start(&path).unwrap();
+        let port = Endpoint::read(&path).unwrap().port;
+        drop(server);
+        assert!(!path.exists());
+        let rebound = TcpListener::bind((Ipv4Addr::LOCALHOST, port));
+        assert!(rebound.is_ok(), "dropped server still owns port {port}");
+    }
+}
+
+#[test]
+fn spawn_failure_does_not_publish_an_endpoint() {
+    let path = scratch("spawn-failure");
+    let result = ControlServer::start_with(&path, |_| {
+        Err(io::Error::other("injected worker spawn failure"))
+    });
+    assert!(result.is_err());
+    assert!(!path.exists());
+}
+
+#[test]
+fn publication_failure_joins_the_started_listener() {
+    let dir = std::env::temp_dir().join(format!("cinnabar-endpoint-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    let (finished, completion) = crossbeam_channel::bounded(1);
+    let result = ControlServer::start_with(&dir, |job| {
+        Ok(thread::spawn(move || {
+            job();
+            finished.send(()).unwrap();
+        }))
+    });
+    assert!(result.is_err());
+    assert!(
+        completion.try_recv().is_ok(),
+        "startup returned before its worker exited"
+    );
+    std::fs::remove_file(dir.with_extension("tmp")).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}

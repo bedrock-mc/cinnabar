@@ -13,6 +13,8 @@ use std::{
 pub const CLIENT_SESSION_START: &str = "CLIENT_SESSION_START";
 /// Prefix of the header line that starts each core process in `core.log`.
 pub const CORE_SESSION_START: &str = "CORE_SESSION_START";
+/// Most header bytes inspected to identify a log segment.
+pub const HEADER_BYTES: usize = 4096;
 /// Largest log section copied into a crash folder.
 pub const MAX_SECTION_BYTES: u64 = 1 << 20;
 

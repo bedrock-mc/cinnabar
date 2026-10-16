@@ -3,13 +3,10 @@
 use std::{
     ffi::OsString,
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
@@ -19,6 +16,9 @@ use diagnostics::session_log::SharedLog;
 use serde::Deserialize;
 
 use super::fs_retry;
+
+mod process;
+use process::CompilerChild;
 
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
@@ -150,7 +150,17 @@ impl Compiler<'_> {
 
     /// Runs the compiler, passing each stdout line to `line` and keeping both streams in the log;
     /// a failure carries the last stderr line.
-    fn run(&self, args: &[OsString], mut line: impl FnMut(&str)) -> Result<()> {
+    fn run(&self, args: &[OsString], line: impl FnMut(&str)) -> Result<()> {
+        self.run_with_wait(args, line, Child::try_wait)
+    }
+
+    /// Runs with an explicit status poller; a polling error still stops and reaps the compiler.
+    fn run_with_wait(
+        &self,
+        args: &[OsString],
+        mut line: impl FnMut(&str),
+        mut wait: impl FnMut(&mut Child) -> io::Result<Option<ExitStatus>>,
+    ) -> Result<()> {
         if self.cancel.load(Ordering::Relaxed) {
             return Err(Cancelled.into());
         }
@@ -169,44 +179,29 @@ impl Compiler<'_> {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         fs::create_dir_all(&self.workspace)?;
-        let mut child = command.spawn().context("start the asset compiler")?;
-        let stdout = child
-            .stdout
-            .take()
-            .context("capture asset compiler output")?;
-        let stderr = child
-            .stderr
-            .take()
-            .context("capture asset compiler errors")?;
-        let (lines, received) = mpsc::channel();
         let out_log = self.log_writer();
-        let out = std::thread::spawn(move || {
-            copy_lines(stdout, out_log, |text| {
-                let _ = lines.send(text.to_owned());
-            })
-        });
         let err_log = self.log_writer();
-        let tail = std::thread::spawn(move || copy_lines(stderr, err_log, |_| {}));
-        let status = loop {
+        let (mut child, received) = CompilerChild::spawn(&mut command, out_log, err_log)?;
+        let result = loop {
             while let Ok(text) = received.try_recv() {
                 line(&text);
             }
-            if let Some(status) = child.try_wait()? {
-                break status;
+            match child.poll_with(&mut wait) {
+                Ok(Some(status)) => break Ok(status),
+                Err(error) => break Err(error),
+                Ok(None) => {}
             }
             if self.cancel.load(Ordering::Relaxed) {
-                cancel_child(&mut child);
-                return Err(Cancelled.into());
+                break Err(Cancelled.into());
             }
             if let Ok(text) = received.recv_timeout(CANCEL_POLL) {
                 line(&text);
             }
         };
-        let _ = out.join();
+        let (status, last_line) = child.finish(result)?;
         for text in received.try_iter() {
             line(&text);
         }
-        let last_line = tail.join().ok().flatten();
         if self.cancel.load(Ordering::Relaxed) {
             return Err(Cancelled.into());
         }
@@ -218,29 +213,6 @@ impl Compiler<'_> {
             None => anyhow!("the asset compiler exited with {status}"),
         })
     }
-}
-
-/// Copies `output` into `log` one whole line per write, so lines from both streams never
-/// interleave, hands each line to `each`, and returns the last non-blank one.
-fn copy_lines(
-    output: impl Read,
-    mut log: impl Write,
-    mut each: impl FnMut(&str),
-) -> Option<String> {
-    let mut last = None;
-    for line in BufReader::new(output).split(b'\n') {
-        let Ok(mut line) = line else {
-            break;
-        };
-        line.push(b'\n');
-        let _ = log.write_all(&line);
-        let text = String::from_utf8_lossy(&line).trim().to_owned();
-        each(&text);
-        if !text.is_empty() {
-            last = Some(text);
-        }
-    }
-    last
 }
 
 /// Copies the published carriers into `staged` so carriers that are still current carry over.
@@ -313,31 +285,6 @@ pub(super) fn recover(final_dir: &Path) {
     }
 }
 
-/// Stops the isolated setup process tree and reaps its immediate child.
-fn cancel_child(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    if let Some(pid) = i32::try_from(child.id())
-        .ok()
-        .and_then(rustix::process::Pid::from_raw)
-    {
-        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
-    }
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("taskkill");
-        #[cfg(not(debug_assertions))]
-        launcher_host::desktop::windows::hide_console(&mut command);
-        let _ = command
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,13 +294,13 @@ mod tests {
 
     /// The session log a shell compiler in `dir` writes.
     #[cfg(unix)]
-    fn compiler_log(dir: &Path) -> Family {
+    pub(super) fn compiler_log(dir: &Path) -> Family {
         Family::new(dir.join("logs"), "first-run", "log")
     }
 
     /// A compiler whose kit binary is `/bin/sh`, so tests drive it with `-c <script>`.
     #[cfg(unix)]
-    fn shell_compiler<'a>(dir: &Path, cancel: &'a AtomicBool) -> Compiler<'a> {
+    pub(super) fn shell_compiler<'a>(dir: &Path, cancel: &'a AtomicBool) -> Compiler<'a> {
         let compiler = carriers::kit_compiler(dir);
         fs::create_dir_all(compiler.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink("/bin/sh", compiler).unwrap();
@@ -369,7 +316,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn script(text: &str) -> Vec<OsString> {
+    /// Arguments for the test kit's shell compiler.
+    pub(super) fn script(text: &str) -> Vec<OsString> {
         vec!["-c".into(), text.into()]
     }
 

@@ -179,17 +179,21 @@ fn upload_page(
     staging: Option<&TerrainUploadStaging>,
     uploaded: &mut Uploaded,
 ) {
-    let header = page.layout.header();
+    let count = references.len() as u32;
+    let header = page.layout.header(count);
     let record_bytes = size_of::<VisibleTerrainUnit>() as u64;
     let mut writes: Vec<crate::upload_staging::BufferWrite<'_>> = Vec::new();
-    if all {
+    if all || page.count != count {
         writes.push((&page.buffer, 0, bytemuck::bytes_of(&header)));
+        uploaded.descriptors += record_bytes;
+    }
+    if all {
         writes.push((
             &page.buffer,
             record_bytes,
             bytemuck::cast_slice(descriptors),
         ));
-        uploaded.descriptors += record_bytes * (1 + descriptors.len() as u64);
+        uploaded.descriptors += record_bytes * descriptors.len() as u64;
     } else {
         for range in dirty_ranges(dirty) {
             uploaded.descriptors += range.len() as u64 * record_bytes;
@@ -217,5 +221,5 @@ fn upload_page(
         page.references.clear();
         page.references.extend_from_slice(references);
     }
-    page.count = references.len() as u32;
+    page.count = count;
 }

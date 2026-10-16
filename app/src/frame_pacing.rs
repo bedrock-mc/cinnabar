@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use bevy::{
     ecs::system::NonSendMarker,
     prelude::{Entity, Local, MessageReader, Query, Res, ResMut, Resource, With},
-    window::{PrimaryWindow, Window, WindowOccluded},
+    window::{PresentMode, PrimaryWindow, Window, WindowOccluded},
     winit::WINIT_WINDOWS,
 };
 use render::FramePacing;
@@ -88,6 +88,7 @@ impl FramePacingRuntime {
         FramePacing {
             rate,
             precise: activity == WindowActivity::Focused,
+            display_sync: intent == PresentationIntent::Synchronized,
         }
     }
 
@@ -132,13 +133,17 @@ pub(crate) fn update_frame_pacing(
         }
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
-    let next = runtime.pacing(
+    let mut next = runtime.pacing(
         presentation.intent(),
         presentation.limit(),
         display
             .0
             .with_vrr_preference(settings.user_settings_update().1.video.vrr),
         focused,
+    );
+    next.display_sync = matches!(
+        presentation.window_present_mode(),
+        PresentMode::Fifo | PresentMode::FifoRelaxed | PresentMode::AutoVsync
     );
     if *pacing != next {
         *pacing = next;

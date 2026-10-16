@@ -91,6 +91,9 @@ impl MenuRuntime {
                 }
                 self.dialog = Some(MenuDialog::StorageDelete);
             }
+            StorageAction::OpenFolder(folder) => {
+                launcher_host::desktop::open_folder(folder.dir(&self.layout));
+            }
             StorageAction::ConfirmDelete => {
                 if self.dialog != Some(MenuDialog::StorageDelete) {
                     return;

@@ -8,7 +8,9 @@ pub(in crate::chunk) mod sources;
 #[cfg(test)]
 mod tests;
 
-use render_model::terrain_units::{IndexedUnitPage, QUADS_PER_UNIT, VisibleTerrainUnit};
+use render_model::terrain_units::{
+    IndexedUnitPage, QUADS_PER_UNIT, UNITS_PER_INSTANCE, VisibleTerrainUnit,
+};
 
 use crate::chunk::*;
 use buffers::UnitPage;
@@ -25,16 +27,16 @@ pub(in crate::chunk) fn supported(mode: ChunkDrawMode, limits: &wgpu::Limits) ->
         && limits.max_buffer_size >= index_count() as u64 * size_of::<u32>() as u64
 }
 
-/// The shared winding repeated once for every quad in a unit.
+/// The shared winding repeated across the consecutive units of one instance.
 pub(in crate::chunk) fn indices() -> Vec<u32> {
-    (0..QUADS_PER_UNIT)
+    (0..QUADS_PER_UNIT * UNITS_PER_INSTANCE)
         .flat_map(|quad| STATIC_QUAD_INDICES.map(|index| quad * 4 + index))
         .collect()
 }
 
-/// Number of indices submitted for each unit, including its rejected tail.
+/// Number of indices submitted for each grouped instance, including rejected tails.
 pub(in crate::chunk) const fn index_count() -> u32 {
-    QUADS_PER_UNIT * STATIC_QUAD_INDICES.len() as u32
+    QUADS_PER_UNIT * UNITS_PER_INSTANCE * STATIC_QUAD_INDICES.len() as u32
 }
 
 /// Work queued or prepared in this frame, summed across views and opaque streams.

@@ -65,6 +65,21 @@ impl UiPresentationRuntime {
 
     /// Supplies the world-query adapter's projected nametag anchors for this frame.
     pub fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let badges = anchors.iter().filter(|tag| tag.cinnabar_badge).count();
+            let previous = self
+                .nametag_anchors
+                .iter()
+                .filter(|tag| tag.cinnabar_badge)
+                .count();
+            if (anchors.len(), badges) != (self.nametag_anchors.len(), previous) {
+                tracing::debug!(
+                    tags = anchors.len(),
+                    badges,
+                    "Cinnabar name-tag badges updated"
+                );
+            }
+        }
         self.nametag_anchors = anchors;
     }
 

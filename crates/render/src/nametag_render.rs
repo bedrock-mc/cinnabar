@@ -94,6 +94,7 @@ fn phase_batch_range(index: usize) -> Range<u32> {
 }
 
 pub(crate) fn install_nametag_render(app: &mut App) {
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<NametagPipeline>(app);
     app.init_resource::<NametagSceneResource>()
         .add_plugins(ExtractResourcePlugin::<NametagSceneResource>::default());
@@ -183,6 +184,8 @@ fn init_nametag_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 fn prepare_nametags(
     scene: Res<NametagSceneResource>,
     render_queue: Res<RenderQueue>,
+    render_device: Res<RenderDevice>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     mut gpu: ResMut<NametagGpu>,
 ) {
     if scene.is_changed() || gpu.is_added() || render_queue.is_changed() {
@@ -190,10 +193,15 @@ fn prepare_nametags(
         gpu.total = total as u32;
         record_batches(&scene.records[..total], &mut gpu.batches);
         if total > 0 {
-            render_queue.profiled_write_buffer(
-                &gpu.record_buffer,
-                0,
-                bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
+            crate::upload_staging::write_batch(
+                staging.as_deref(),
+                &render_device,
+                &render_queue,
+                &[(
+                    &gpu.record_buffer,
+                    0,
+                    bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
+                )],
             );
         }
     }

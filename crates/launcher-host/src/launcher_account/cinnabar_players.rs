@@ -18,22 +18,20 @@ use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
 
 use super::{Snapshot, publish, runtime};
 
-/// A short gap coalesces roster churn; the core enforces the negotiated XUID budget.
+/// A short gap coalesces roster churn; the core enforces the negotiated identifier budget.
 const LOOKUP_SPACING: Duration = Duration::from_secs(3);
-/// How long a resolved XUID stays answered before it is asked again.
+/// How long a resolved identifier stays answered before it is asked again.
 const RESOLVED_TTL: Duration = Duration::from_millis(CINNABAR_API_CACHE_TTL_MS as u64);
 /// Pause after the core reports the API unavailable.
 const UNAVAILABLE_RETRY: Duration = Duration::from_secs(15);
 /// Pause after the API refuses a lookup over its rate limit.
 const RATE_LIMITED_RETRY: Duration = Duration::from_secs(60);
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(20);
-/// Most XUIDs the API accepts; longer strings are never real XUIDs.
-const MAX_XUID_DIGITS: usize = 20;
 
-/// One session's roster XUIDs, replaced whole on every roster change.
+/// One session's roster identifiers, replaced whole on every roster change.
 pub(super) struct Roster {
     pub session: u64,
-    pub xuids: Vec<String>,
+    pub identities: Vec<String>,
 }
 
 /// One answer's fixed refresh threshold and expiry, set when it arrives.
@@ -43,7 +41,7 @@ struct Answer {
     found: bool,
 }
 
-/// Which roster XUIDs to ask about next and what each lookup answered.
+/// Which roster identifiers to ask about next and what each lookup answered.
 pub(super) struct Lookups {
     session: Option<u64>,
     roster: Vec<String>,
@@ -69,7 +67,7 @@ impl Default for Lookups {
 }
 
 impl Lookups {
-    /// Replaces the roster with its deduplicated valid XUIDs; a new session forgets every answer.
+    /// Replaces the roster with its deduplicated valid identifiers; a new session forgets every answer.
     pub(super) fn set_roster(&mut self, roster: Roster) {
         if self.session != Some(roster.session) {
             self.session = Some(roster.session);
@@ -79,15 +77,27 @@ impl Lookups {
         }
         let mut seen = HashSet::new();
         self.roster = roster
-            .xuids
+            .identities
             .into_iter()
-            .filter(|xuid| valid_xuid(xuid) && seen.insert(xuid.clone()))
+            .filter(|xuid| {
+                (bridge::valid_cinnabar_xuid(xuid) || bridge::valid_cinnabar_uuid(xuid))
+                    && seen.insert(xuid.clone())
+            })
             .collect();
         self.resolved.retain(|xuid, _| seen.contains(xuid));
         self.refresh.retain(|xuid| seen.contains(xuid));
+        tracing::debug!(
+            players = self.roster.len(),
+            uuids = self
+                .roster
+                .iter()
+                .filter(|id| bridge::valid_cinnabar_uuid(id))
+                .count(),
+            "Cinnabar roster accepted"
+        );
     }
 
-    /// The next batch of unresolved or expired XUIDs once the pacing allows another lookup.
+    /// The next batch of unresolved or expired identifiers once the pacing allows another lookup.
     pub(super) fn next_batch(&mut self, now: Instant) -> Option<Vec<String>> {
         if self.not_before.is_some_and(|at| now < at) {
             return None;
@@ -131,7 +141,7 @@ impl Lookups {
         Some(batch)
     }
 
-    /// Records a lookup's answer for every XUID it asked about.
+    /// Records a lookup's answer for every identifier it asked about.
     pub(super) fn resolve(
         &mut self,
         now: Instant,
@@ -206,11 +216,6 @@ impl Lookups {
     }
 }
 
-/// Accepts only decimal XUIDs with the protocol's bounded length.
-fn valid_xuid(xuid: &str) -> bool {
-    !xuid.is_empty() && xuid.len() <= MAX_XUID_DIGITS && xuid.bytes().all(|b| b.is_ascii_digit())
-}
-
 /// Starts the lookup worker; it stops when the returned sender is dropped.
 pub(super) fn start(socket_dir: PathBuf, shared: Arc<Mutex<Snapshot>>) -> Sender<Roster> {
     let (rosters, requests) = unbounded();
@@ -259,15 +264,30 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                     let Some(session) = pending.take() else { return; };
                     if lookups.session == Some(session) {
                         match answer {
-                            Ok(Ok(Ok(answer))) => {
+                            Ok(Ok(Ok(mut answer))) => {
+                                tracing::debug!(resolved = answer.resolved.len(), resolved_uuids = answer.resolved_uuids.len(), found = answer.cinnabar.len(), found_uuids = answer.cinnabar_uuids.len(), "Cinnabar lookup completed");
+                                answer.resolved.extend(answer.resolved_uuids);
+                                answer.cinnabar.extend(answer.cinnabar_uuids);
                                 lookups.ttl = Duration::from_millis(answer.cache_ttl_ms.max(1));
                                 lookups.resolve(Instant::now(), session, &answer.resolved, &answer.cinnabar);
                             }
                             Ok(Ok(Err(BridgeError::ControlRpc { code, .. }))) if code == RPC_CINNABAR_RATE_LIMITED => {
+                                tracing::debug!("Cinnabar lookup rate limited");
                                 lookups.fail(Instant::now(), RATE_LIMITED_RETRY);
                             }
-                            _ => lookups.fail(Instant::now(), UNAVAILABLE_RETRY),
+                            failure => {
+                                let outcome = match failure {
+                                    Err(_) => "worker_stopped",
+                                    Ok(Err(_)) => "timeout",
+                                    Ok(Ok(Err(BridgeError::ControlRpc { .. }))) => "control_rejected",
+                                    _ => "control_failed",
+                                };
+                                tracing::debug!(outcome, "Cinnabar lookup failed");
+                                lookups.fail(Instant::now(), UNAVAILABLE_RETRY);
+                            }
                         }
+                    } else {
+                        tracing::debug!("Cinnabar lookup discarded after session change");
                     }
                 }
                 default(wait) => {}
@@ -281,6 +301,7 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                 if snapshot.cinnabar_roster_key.map(|key| key.0) == lookups.session {
                     let players = lookups.players(now);
                     if *snapshot.cinnabar_players != players {
+                        tracing::debug!(found = players.len(), "Cinnabar badges published");
                         snapshot.cinnabar_players = Arc::new(players);
                     }
                 }
@@ -289,6 +310,14 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                 && let Some(batch) = lookups.next_batch(now)
             {
                 pending = lookups.session;
+                tracing::debug!(
+                    players = batch.len(),
+                    uuids = batch
+                        .iter()
+                        .filter(|id| bridge::valid_cinnabar_uuid(id))
+                        .count(),
+                    "Cinnabar lookup started"
+                );
                 if send.send(batch).is_err() {
                     return;
                 }
@@ -304,8 +333,40 @@ mod tests {
     fn roster(session: u64, xuids: &[&str]) -> Roster {
         Roster {
             session,
-            xuids: xuids.iter().map(|xuid| (*xuid).to_owned()).collect(),
+            identities: xuids.iter().map(|xuid| (*xuid).to_owned()).collect(),
         }
+    }
+
+    /// UUID-only roster identities must be requested and cached just like XUIDs.
+    #[test]
+    fn uuid_only_roster_gets_looked_up_and_published() {
+        let now = Instant::now();
+        let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &[uuid]));
+        let batch = lookups
+            .next_batch(now)
+            .expect("UUID-only roster was discarded");
+        assert_eq!(batch, [uuid]);
+        lookups.resolve(now, 1, &batch, &batch);
+        assert_eq!(lookups.players(now), HashSet::from([uuid.into()]));
+    }
+
+    /// Mixed rosters ask once per key and cache XUID and UUID answers independently.
+    #[test]
+    fn mixed_roster_caches_each_identifier() {
+        let now = Instant::now();
+        let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(
+            1,
+            &["11", uuid, "00112233-4455-6677-8899-AABBCCDDEEFF"],
+        ));
+        let batch = lookups.next_batch(now).unwrap();
+        assert_eq!(batch, ["11", uuid]);
+        lookups.resolve(now, 1, &batch, &[uuid.into()]);
+        assert_eq!(lookups.players(now), HashSet::from([uuid.into()]));
+        assert!(lookups.next_batch(now + LOOKUP_SPACING).is_none());
     }
 
     /// A resolved XUID is not asked again until its answer expires, and only valid unique XUIDs are sent.
@@ -338,7 +399,7 @@ mod tests {
         let many: Vec<String> = (0..300).map(|n| n.to_string()).collect();
         lookups.set_roster(Roster {
             session: 1,
-            xuids: many,
+            identities: many,
         });
         let first = lookups.next_batch(start).unwrap();
         assert_eq!(first.len(), CINNABAR_API_MAX_LOOKUP_XUIDS);
@@ -375,7 +436,7 @@ mod tests {
         let mut lookups = Lookups::default();
         lookups.set_roster(Roster {
             session: 1,
-            xuids: xuids.clone(),
+            identities: xuids.clone(),
         });
         lookups.resolve(start, 1, &xuids, &xuids);
         let mut now = start + RESOLVED_TTL;
@@ -493,3 +554,6 @@ mod tests {
         assert_eq!(lookups.next_wake(start), None);
     }
 }
+
+#[cfg(all(test, unix))]
+mod worker_tests;

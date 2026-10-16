@@ -1,9 +1,14 @@
 //! Win32 calls behind the client's OS integration, replacing PowerShell and `cmd` spawns.
 
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, ptr};
+use std::{
+    ffi::{OsStr, OsString},
+    os::windows::ffi::OsStringExt,
+    path::PathBuf,
+    ptr,
+};
 
 use windows_sys::Win32::{
-    Foundation::{S_FALSE, S_OK},
+    Foundation::{ERROR_INVALID_PARAMETER, S_FALSE, S_OK},
     System::{
         Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize},
         SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
@@ -76,20 +81,22 @@ pub fn physical_memory() -> Option<u64> {
 
 /// Shows the Open dialog; `Ok(None)` on cancel, `Err` with the dialog error code on failure.
 /// `filter` is a double-NUL-terminated list of `name\0patterns\0` pairs.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
     file_chooser(title, filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Shows the Open dialog with multiple selection; an empty list means cancellation.
 /// `filter` has the same double-NUL-terminated format as `pick_file`.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_files(title: &str, filter: &str) -> Result<Vec<PathBuf>, u32> {
     file_chooser(title, filter, true)
 }
 
 /// Shares the native dialog setup while preserving each caller's selection mode.
 fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf>, u32> {
+    let filter = super::windows_filter::encode(filter).map_err(|()| ERROR_INVALID_PARAMETER)?;
     let _apartment = ComApartment::enter();
-    let filter = filter.encode_utf16().collect::<Vec<_>>();
     let title = wide(title);
     let capacity = if multiple {
         MULTI_FILE_CAPACITY
@@ -99,7 +106,7 @@ fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf
     let mut file = vec![0u16; capacity];
     let mut dialog = OPENFILENAMEW {
         lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        lpstrFilter: filter.as_ptr(),
+        lpstrFilter: filter.as_ref().map_or(ptr::null(), |units| units.as_ptr()),
         nFilterIndex: 1,
         lpstrFile: file.as_mut_ptr(),
         nMaxFile: file.len() as u32,
@@ -162,9 +169,16 @@ pub fn message_box(kind: MessageKind, title: &str, body: &str) -> Option<bool> {
 }
 
 /// Opens `target` with its registered handler, as `cmd /C start` would without the shell parsing.
-pub fn shell_open(target: &str) -> bool {
+pub fn shell_open(target: impl AsRef<OsStr>) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
     let _apartment = ComApartment::enter();
-    let (verb, target) = (wide("open"), wide(target));
+    let verb = wide("open");
+    let target: Vec<u16> = target
+        .as_ref()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     // SAFETY: both strings are NUL-terminated and outlive the call; null means defaults.
     let result = unsafe {
         ShellExecuteW(

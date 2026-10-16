@@ -80,3 +80,17 @@ fn native_navigation_cancel_and_session_reset_preserve_equipped_preferences() {
     assert!(!state.is_open());
     assert_eq!(state.slots(), &slots);
 }
+
+#[test]
+fn restarting_at_the_same_clock_value_has_a_new_broadcast_identity() {
+    let mut state = EmoteState::default();
+    state.open();
+    state.activate_slot(0, 100);
+    let first = state.playback().unwrap();
+    state.stop();
+    state.open();
+    state.activate_slot(0, 100);
+    let second = state.playback().unwrap();
+    assert_eq!(first.start_millis, second.start_millis);
+    assert_ne!(first.revision, second.revision);
+}

@@ -48,10 +48,11 @@ impl ModPanel {
             self.vector_drag = None;
             return Some(Vec::new());
         };
+        let local = region.local(point);
         let fractions = [
-            region.fraction_at(point[0]),
+            region.fraction_at(local[0]),
             if region.rect.h > 0. {
-                ((point[1] - region.rect.y) / region.rect.h).clamp(0., 1.)
+                ((local[1] - region.rect.y) / region.rect.h).clamp(0., 1.)
             } else {
                 0.
             },

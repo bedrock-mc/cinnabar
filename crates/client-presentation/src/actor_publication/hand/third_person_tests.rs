@@ -108,6 +108,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     swing_progress: None,
                     renders_game: true,
                     hide_hand: false,
+                    remote_emotes: Vec::new(),
                     custom_emote: match case {
                         BodyCase::Emote => Some((actor_animation::CustomEmote::Twerk, 0.1)),
                         BodyCase::InvalidEmote => Some((actor_animation::CustomEmote::Twerk, -1.0)),

@@ -178,6 +178,15 @@ function insertLayer(index, entry) {
   if (state.open && state.open.layer >= index) state.open.layer++;
 }
 
+/** Remove a workspace layer while keeping the open document attached to its original layer. */
+function removeLayer(index) {
+  state.editor.remove_layer(index);
+  state.layers.splice(index, 1);
+  if (state.open?.layer === index) state.open = null;
+  else if (state.open?.layer > index) state.open.layer--;
+  afterLoad();
+}
+
 // ---------- loading packs ----------
 
 /** Load a folder and insert its pending handles at the workspace's layer index. */
@@ -490,12 +499,7 @@ function renderLayers() {
     const remove = document.createElement("button");
     remove.textContent = "×";
     remove.title = "Remove layer";
-    remove.onclick = () => {
-      state.editor.remove_layer(index);
-      state.layers.splice(index, 1);
-      if (state.open?.layer === index) state.open = null;
-      afterLoad();
-    };
+    remove.onclick = () => removeLayer(index);
     li.append(name, remove);
     list.append(li);
   });
