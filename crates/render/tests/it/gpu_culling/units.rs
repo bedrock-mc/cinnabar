@@ -109,11 +109,13 @@ fn draw_units(
         }
         let buffer = gpu.words(&words, wgpu::BufferUsages::STORAGE);
         if mask.is_some() {
+            let mut bindings = None;
+            masks.prepare(&gpu.device, &buffer, mask, &mut bindings);
             masks.encode(
                 &gpu.device,
                 &mut mask_encoder,
-                &buffer,
-                mask,
+                bindings.as_ref().unwrap(),
+                true,
                 range.len() as u32,
             );
         }

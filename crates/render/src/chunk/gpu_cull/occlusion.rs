@@ -34,6 +34,25 @@ pub struct VerdictTag {
     pub slots: u32,
 }
 
+impl VerdictTag {
+    /// Counts only the captured slots, excluding stale bits beyond the dispatched range.
+    pub fn hidden_slots(&self, words: &[u32]) -> u32 {
+        let full_words = (self.slots / u32::BITS) as usize;
+        let mut hidden = words
+            .iter()
+            .take(full_words)
+            .map(|word| word.count_ones())
+            .sum();
+        let remainder = self.slots % u32::BITS;
+        if remainder != 0
+            && let Some(word) = words.get(full_words)
+        {
+            hidden += (word & ((1 << remainder) - 1)).count_ones();
+        }
+        hidden
+    }
+}
+
 /// Per-slot runs of occluded verdicts under the latest basis.
 #[derive(Debug, Default)]
 pub struct OcclusionHistory {

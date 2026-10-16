@@ -108,7 +108,9 @@ impl TerrainUnitBatches {
     ) {
         if let Some(view) = self.views.get(&entity) {
             for page in view.streams.iter().flat_map(|s| &s.pages) {
-                kernel.encode(device, encoder, &page.buffer, bits, page.count);
+                if let Some(bindings) = &page.masks {
+                    kernel.encode(device, encoder, bindings, bits.is_some(), page.count);
+                }
             }
         }
     }

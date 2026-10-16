@@ -122,7 +122,14 @@ pub(in crate::chunk) fn prepare_units(
             stats.draws += batch.pages.len() as u64;
             stats.units += (batch.references.len() + batch.fallback.len()) as u64;
             stats.padded_quads += batch.padded_quads;
-            for page in &batch.pages {
+            for page in &mut batch.pages {
+                if let Some(occlusion) = &occlusion {
+                    occlusion.prepare_unit_masks(
+                        device.wgpu_device(),
+                        &page.buffer,
+                        &mut page.masks,
+                    );
+                }
                 let group = u64::from(render_model::terrain_units::UNITS_PER_INSTANCE);
                 let count = u64::from(page.count);
                 stats.padded_quads +=

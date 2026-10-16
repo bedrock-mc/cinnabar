@@ -218,6 +218,23 @@ impl DirectOcclusion {
         self.same_frame
     }
 
+    /// Prepares a page's current-frame mask bindings after occlusion storage is uploaded.
+    pub(in crate::chunk) fn prepare_unit_masks(
+        &self,
+        device: &wgpu::Device,
+        page: &wgpu::Buffer,
+        bindings: &mut Option<super::unit_mask::UnitMaskBindings>,
+    ) {
+        if self.same_frame {
+            self.masks.prepare(
+                device,
+                page,
+                self.storage.as_ref().map(|s| &s.occluded),
+                bindings,
+            );
+        }
+    }
+
     /// The selected current-frame occluders, independent of color pass order.
     pub(in crate::chunk) fn occluder_order(&self, view: Entity) -> Option<&[(Entity, MainEntity)]> {
         self.plan
@@ -395,7 +412,7 @@ impl DirectOcclusion {
                 let words: &[u32] = bytemuck::cast_slice(&data);
                 history.apply(tag, words);
                 if *same_frame && *capture_masks {
-                    eprintln!("CINNABAR_TERRAIN_VISIBILITY {}", serde_json::json!({ "frame":tag.frame, "slots":tag.slots, "hidden_slots":words.iter().map(|w|w.count_ones()).sum::<u32>() }));
+                    eprintln!("CINNABAR_TERRAIN_VISIBILITY {}", serde_json::json!({ "frame":tag.frame, "slots":tag.slots, "hidden_slots":tag.hidden_slots(words) }));
                 }
             }
             buffer.unmap();
@@ -485,6 +502,10 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
     occlusion.stats.skipped = occlusion.skipped.len() as u32;
     occlusion.stats.solid_drawn = solid.len() as u32;
     if !queued.terrain_pass {
+        return;
+    }
+    // Newly queued variants have no readable descriptor until the cache processes them.
+    if occlusion.same_frame && cache.get_render_pipeline(queued.solid_pipeline).is_none() {
         return;
     }
     let solid = front_to_back_cube_entities(solid, &extracted.rangefinder3d())
@@ -758,6 +779,9 @@ pub(crate) fn terrain_pass(
             }
         }
     }
+    if !occlusion.same_frame && plan.verdict.is_none() {
+        return Ok(());
+    }
     let (Some(prepared), Some((group, _)), Some(storage)) = (
         occlusion.pyramid.as_ref(),
         occlusion.bind_group.as_ref(),
@@ -835,3 +859,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
         );
     install_graph(render_app.world_mut());
 }
+
+#[cfg(test)]
+#[path = "direct_visibility_tests.rs"]
+mod visibility_tests;
