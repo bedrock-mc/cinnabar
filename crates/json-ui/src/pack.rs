@@ -4,8 +4,9 @@
 //! it names replaces the old value, a `controls` array replaces the children, and
 //! `modifications` edits arrays in place (insert/remove/replace/move/swap by
 //! control name for `controls`, by a `where` field match for other arrays). A
-//! control the base lacks is simply added. Overlay `_global_variables.json`
-//! values override the base's.
+//! control the base lacks is simply added. A different explicit `@base` starts a
+//! new definition, without the previous definition's properties or children.
+//! Overlay `_global_variables.json` values override the base's.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -224,6 +225,7 @@ fn descendant<'a>(control: &'a mut RawControl, path: &str) -> Option<&'a mut Raw
     })
 }
 
+/// Merge a valid overlay body, discarding the old definition when its template changes.
 fn merge_into(
     existing: &mut RawControl,
     base: Option<String>,
@@ -238,8 +240,13 @@ fn merge_into(
             return;
         }
     };
-    if base.is_some() {
-        existing.base = base;
+    if let Some(base) = base {
+        if existing.base.as_ref() != Some(&base) {
+            existing.props.clear();
+            existing.children.clear();
+            existing.has_controls = false;
+        }
+        existing.base = Some(base);
     }
     for (property, value) in body {
         match property.as_str() {
