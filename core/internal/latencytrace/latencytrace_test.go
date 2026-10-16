@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 // Close writes every queued record in order, with its fields and packet IDs.
@@ -44,5 +46,28 @@ func TestNowIsMonotonicFromTheAnchor(t *testing.T) {
 	first := trace.Now()
 	if first < trace.anchorUnix || trace.Now() < first {
 		t.Fatalf("clock %d before anchor %d or running backwards", first, trace.anchorUnix)
+	}
+}
+
+// Finish drains the process trace opened from the environment and leaves tracing off.
+func TestFinishWritesTheProcessTrace(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(bridgecontract.LatencyTraceEnv, dir)
+	trace := Active()
+	if trace == nil {
+		t.Fatal("the environment names a trace directory")
+	}
+	trace.Record(RoundTrip, 1, 2, 0, 0, 0)
+	Finish()
+	Finish()
+	if Active() != nil {
+		t.Fatal("a finished trace stays off")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("core-%d.trace", os.Getpid())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(data), "R 1 2 0 0 0\n") {
+		t.Fatalf("trace = %q, want the queued record", data)
 	}
 }

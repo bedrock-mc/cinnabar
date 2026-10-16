@@ -38,6 +38,7 @@ type Trace struct {
 	conns      atomic.Int64
 	stop       chan struct{}
 	done       chan struct{}
+	closeOnce  sync.Once
 }
 
 type record struct {
@@ -46,21 +47,35 @@ type record struct {
 	ids    []uint32
 }
 
-var active = sync.OnceValue(func() *Trace {
-	dir := os.Getenv(bridgecontract.LatencyTraceEnv)
-	if dir == "" {
-		return nil
-	}
-	trace, err := Open(dir, "core")
-	if err != nil {
-		slog.Warn("latency trace disabled", "error", err)
-		return nil
-	}
-	return trace
-})
+var (
+	activeOnce  sync.Once
+	activeTrace atomic.Pointer[Trace]
+)
 
-// Active returns the process trace, or nil when tracing is off.
-func Active() *Trace { return active() }
+// Active returns the process trace, or nil when tracing is off or finished.
+func Active() *Trace {
+	activeOnce.Do(func() {
+		dir := os.Getenv(bridgecontract.LatencyTraceEnv)
+		if dir == "" {
+			return
+		}
+		trace, err := Open(dir, "core")
+		if err != nil {
+			slog.Warn("latency trace disabled", "error", err)
+			return
+		}
+		activeTrace.Store(trace)
+	})
+	return activeTrace.Load()
+}
+
+// Finish writes and closes the process trace, if one was opened, and keeps tracing off after.
+func Finish() {
+	activeOnce.Do(func() {})
+	if trace := activeTrace.Swap(nil); trace != nil {
+		trace.Close()
+	}
+}
 
 // Open starts a trace file named after role and the process ID in dir.
 func Open(dir, role string) (*Trace, error) {
@@ -106,9 +121,9 @@ func (trace *Trace) enqueue(value record) {
 	}
 }
 
-// Close writes every queued event and closes the file.
+// Close writes every queued event and closes the file; later calls do nothing.
 func (trace *Trace) Close() {
-	close(trace.stop)
+	trace.closeOnce.Do(func() { close(trace.stop) })
 	<-trace.done
 }
 

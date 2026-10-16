@@ -76,6 +76,13 @@ pub fn active() -> Option<&'static Trace> {
         .as_ref()
 }
 
+/// Writes and closes the process trace if one was opened; later events are dropped.
+pub fn finish() {
+    if let Some(Some(trace)) = ACTIVE.get() {
+        trace.finish();
+    }
+}
+
 impl Trace {
     /// Starts `<role>-<pid>.trace` in `dir` with its own writer thread.
     pub fn open(dir: &Path, role: &str) -> std::io::Result<Self> {
@@ -164,11 +171,18 @@ impl Trace {
     }
 }
 
-/// Formats each record as `kind v0 v1 ...`, flushing at least every [`FLUSH_INTERVAL`].
-fn write_records(mut out: BufWriter<File>, header: &str, queue: &Receiver<Record>) {
+/// Formats each record as `kind v0 v1 ...`, flushing every [`FLUSH_INTERVAL`] however busy the
+/// queue is, and once more when every sender is gone.
+fn write_records(mut out: impl Write, header: &str, queue: &Receiver<Record>) {
     let _ = out.write_all(header.as_bytes());
+    let mut flush_at = Instant::now() + FLUSH_INTERVAL;
     loop {
-        match queue.recv_timeout(FLUSH_INTERVAL) {
+        let now = Instant::now();
+        if now >= flush_at {
+            let _ = out.flush();
+            flush_at = now + FLUSH_INTERVAL;
+        }
+        match queue.recv_timeout(flush_at.saturating_duration_since(now)) {
             Ok(record) => {
                 let _ = write!(out, "{}", record.kind as char);
                 for value in &record.values[..record.len as usize] {
@@ -176,9 +190,7 @@ fn write_records(mut out: BufWriter<File>, header: &str, queue: &Receiver<Record
                 }
                 let _ = out.write_all(b"\n");
             }
-            Err(RecvTimeoutError::Timeout) => {
-                let _ = out.flush();
-            }
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -188,6 +200,42 @@ fn write_records(mut out: BufWriter<File>, header: &str, queue: &Receiver<Record
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Counts flushes, so a test can see them while records keep arriving.
+    struct CountingWriter(std::sync::Arc<AtomicU64>);
+
+    impl Write for CountingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    /// A queue that never idles for a whole interval still flushes on the interval's deadline.
+    #[test]
+    fn busy_queue_still_flushes_on_its_deadline() {
+        let flushes = std::sync::Arc::new(AtomicU64::new(0));
+        let (records, queue) = sync_channel(QUEUE_CAPACITY);
+        let writer = {
+            let flushes = std::sync::Arc::clone(&flushes);
+            std::thread::spawn(move || write_records(CountingWriter(flushes), "", &queue))
+        };
+        let record = || Record {
+            kind: kind::COMMITTED,
+            values: [0; 6],
+            len: 0,
+        };
+        test_time::eventually("a flush while records keep arriving", || {
+            records.send(record()).unwrap();
+            flushes.load(Ordering::Relaxed) > 0
+        });
+        drop(records);
+        writer.join().unwrap();
+    }
 
     /// Records reach the file in order with their fields, on a clock past the anchor.
     #[test]
