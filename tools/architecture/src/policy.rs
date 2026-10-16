@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Policy {
     pub(super) production_rust_max: usize,
     pub(super) module_root_max: usize,
@@ -66,6 +67,7 @@ pub(super) struct IdentifierException {
 
 /// Tests never sleep, and listed crates never read the clock outside tests.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct TimingRules {
     #[serde(default)]
     pub(super) clock_free_crates: Vec<String>,
@@ -75,6 +77,7 @@ pub(super) struct TimingRules {
 
 /// A test file that may sleep until it is converted; the reason says why.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SleepException {
     pub(super) path: String,
     pub(super) reason: String,
@@ -82,18 +85,21 @@ pub(super) struct SleepException {
 
 /// Temporary, individually named forwarding APIs retained during an ownership migration.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ReexportAllowance {
     pub(super) path: String,
     pub(super) exports: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct LineBaseline {
     pub(super) path: String,
     pub(super) max: usize,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct VendoredRule {
     pub(super) path: String,
     pub(super) ownership_record: String,
@@ -104,12 +110,14 @@ pub(super) struct VendoredRule {
 
 /// Original art exempt from `forbidden_artifacts`; its record must name the path.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct OwnedArtifact {
     pub(super) path: String,
     pub(super) ownership_record: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct CrateRule {
     pub(super) name: String,
     pub(super) path: String,
@@ -135,6 +143,7 @@ pub(super) struct CrateRule {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct MarkerRule {
     pub(super) literal: String,
     pub(super) kind: MarkerKind,
@@ -153,6 +162,7 @@ pub(super) enum MarkerKind {
 
 /// Production module paths and authoritative owned types forbidden at one boundary.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ModuleBoundary {
     pub(super) path: String,
     #[serde(default)]
@@ -168,8 +178,12 @@ pub(super) struct ModuleBoundary {
 
 /// A named immutable presentation snapshot may own a copy of one specific type.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct OwnershipException {
     pub(super) path: String,
     pub(super) owner: String,
     pub(super) owned_type: String,
 }
+
+#[cfg(test)]
+mod tests;

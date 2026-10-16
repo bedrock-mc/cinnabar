@@ -1,6 +1,8 @@
 //! Storage screen state and commands; disk work belongs to the host.
 use std::path::PathBuf;
 
+use crate::install_layout::InstallLayout;
+
 pub const SECTION_INDEX: u8 = super::settings_sections::SettingSection::StorageManagement
     .definition()
     .index;
@@ -36,6 +38,7 @@ pub struct StorageView {
     pub pending_delete: Option<(PathBuf, Vec<PathBuf>)>,
     pub return_from_world: bool,
     pub error: Option<String>,
+    pub opens_folders: bool, // the host can show a `StorageFolder` in a file manager
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,6 +50,24 @@ pub enum StorageAction {
     RequestDelete,
     RequestScreenshots,
     ConfirmDelete,
+    OpenFolder(StorageFolder),
+}
+
+/// A user data folder Storage can reveal in the OS file manager.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StorageFolder {
+    Worlds,
+    ResourcePacks,
+}
+
+impl StorageFolder {
+    /// Returns the directory this folder names in `layout`.
+    pub fn dir(self, layout: &InstallLayout) -> PathBuf {
+        match self {
+            Self::Worlds => layout.local_worlds_dir(),
+            Self::ResourcePacks => layout.global_resource_packs_dir(),
+        }
+    }
 }
 
 impl StorageView {
@@ -56,6 +77,27 @@ impl StorageView {
             "world" => &self.worlds,
             "cache" => &self.cached,
             _ => &[],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folders_open_the_layout_dirs_that_hold_worlds_and_imported_packs() {
+        let layout = crate::test_support::scratch("storage-folders");
+        assert_eq!(
+            StorageFolder::Worlds.dir(&layout),
+            layout.local_worlds_dir()
+        );
+        assert_eq!(
+            StorageFolder::ResourcePacks.dir(&layout),
+            layout.global_resource_packs_dir()
+        );
+        for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
+            assert!(folder.dir(&layout).starts_with(&layout.user_data_root));
         }
     }
 }

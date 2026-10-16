@@ -102,6 +102,7 @@ impl FrameInputs {
 #[derive(Clone, Copy)]
 pub(super) struct ResolvedTarget {
     pub(super) crosshair: Crosshair,
+    pub(super) direction: [f32; 3],
     pub(super) action_rotation: Option<Quat>,
 }
 
@@ -136,32 +137,6 @@ pub(super) fn resolve_crosshair(
         ),
         context.mod_interaction.as_deref(),
     );
-    let observed =
-        hand_interaction_selection(player).and_then(|selection| {
-            match observe_block_ray(
-                &frame.origin,
-                &context.ui,
-                &context.client_world,
-                &context.collisions,
-                selection,
-                player.facts.player_game_mode(),
-                (
-                    input_mode,
-                    block_pick_reach(reach, actor_reach),
-                    (input.authority_generation, input.frame_sequence),
-                    position_authority,
-                ),
-            ) {
-                Ok(observed) => observed,
-                Err(BlockRayUnavailable) => {
-                    gameplay::movement::note_click_drop(
-                        "attack",
-                        "block_ray_unreadable_treated_as_clear",
-                    );
-                    None
-                }
-            }
-        });
     let origin = ray.origin().to_array();
     let mount = context.ui.gameplay_hud().mount_unique_id();
     let eligible = |identity: ActorLifetimeId| {
@@ -186,6 +161,7 @@ pub(super) fn resolve_crosshair(
             actor_reach,
         )
     };
+    let mut obstruction_origin = frame.origin.clone();
     let actor = match frame.assisted {
         Some(target) => match target.kind {
             TargetKind::Actor(identity) => eligible(identity)
@@ -194,16 +170,45 @@ pub(super) fn resolve_crosshair(
                         && frame.actors.iter().any(|actor| actor.identity == identity)
                         && target.within_pick_range(ray.origin(), actor_reach as f32)
                 })
-                .map(|_| ActorHit {
-                    runtime_id: identity.runtime_id,
-                    distance: f64::from(pick_distance(origin, target.point.to_array())),
-                    point: target.point.to_array(),
+                .map(|_| {
+                    obstruction_origin.assist_direction(target.point - ray.origin());
+                    ActorHit {
+                        runtime_id: identity.runtime_id,
+                        distance: f64::from(pick_distance(origin, target.point.to_array())),
+                        point: target.point.to_array(),
+                    }
                 })
                 .or_else(normal),
             TargetKind::Block { .. } => None,
         },
         None => normal(),
     };
+    let observed =
+        hand_interaction_selection(player).and_then(|selection| {
+            match observe_block_ray(
+                &obstruction_origin,
+                &context.ui,
+                &context.client_world,
+                &context.collisions,
+                selection,
+                player.facts.player_game_mode(),
+                (
+                    input_mode,
+                    block_pick_reach(reach, actor_reach),
+                    (input.authority_generation, input.frame_sequence),
+                    position_authority,
+                ),
+            ) {
+                Ok(observed) => observed,
+                Err(BlockRayUnavailable) => {
+                    gameplay::movement::note_click_drop(
+                        "attack",
+                        "block_ray_unreadable_treated_as_clear",
+                    );
+                    None
+                }
+            }
+        });
     Some(ResolvedTarget {
         crosshair: classify(
             actor,
@@ -211,6 +216,7 @@ pub(super) fn resolve_crosshair(
             attack_reach,
         ),
         action_rotation: frame.action_rotation,
+        direction: ray.direction().to_array(),
     })
 }
 

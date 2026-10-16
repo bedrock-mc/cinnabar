@@ -23,6 +23,7 @@ fn authored() -> Panel {
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]})
     };
     panel.surface = Some(Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
@@ -250,6 +251,7 @@ fn reference_size_keeps_bottom_control_visible_and_clickable_in_small_viewports(
     let mut panel = panel();
     panel.reference_size = Some([495.0, 304.0]);
     panel.surface = Some(Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"dialog":{
@@ -326,6 +328,7 @@ fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_
             "size":["100%","100%"],"radius":0,"color":color})
     };
     panel.surface = Some(Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"panel","size":["100%","100%"],"controls":[{"continue":{
@@ -494,7 +497,7 @@ fn two_axis_capture_clamps_and_commits_release_without_resuming() {
         max: 100.,
         step: 1.,
     });
-    spec.surface = Some(ui::mod_panel::Surface {screen:"vector_test.root".into(),bindings:Default::default(),document:json!({"namespace":"vector_test","root":{"type":"panel","size":[200,150],"controls":[{"area":{"type":"button","size":[100,100],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.vector:1:4","mapping_type":"pressed"}]}}]}}).to_string()});
+    spec.surface = Some(ui::mod_panel::Surface {transitions:Default::default(),screen:"vector_test.root".into(),bindings:Default::default(),document:json!({"namespace":"vector_test","root":{"type":"panel","size":[200,150],"controls":[{"area":{"type":"button","size":[100,100],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.vector:1:4","mapping_type":"pressed"}]}}]}}).to_string()});
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()

@@ -77,14 +77,14 @@ fn attack_fields_do_not_overtake_movement_from_an_older_frame() {
     assert!(captured.drain().is_empty());
     flush_movement(&mut world, 1);
     world
-        .run_system_cached(crate::melee::produce_melee)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
     let first = captured.drain();
     assert_eq!(first.len(), 1);
     assert!(protocol::player_auth_input_trace_sample(&first[0]).is_some());
     flush_movement(&mut world, gameplay::movement::OUTBOX_CAPACITY);
     world
-        .run_system_cached(crate::melee::produce_melee)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
     let packets = captured.drain();
     let tx = packets.iter().find_map(observe_transaction).unwrap();

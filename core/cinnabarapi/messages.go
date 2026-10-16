@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"errors"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"regexp"
 )
 
@@ -26,6 +27,8 @@ const (
 	typeLookup       = "lookup"
 	typeLookupResult = "lookup_result"
 	typeRelease      = "release"
+	typeEmote        = "emote"
+	typeEmoteState   = "emote_state"
 )
 
 // codeRateLimited is the error code for a refused lookup.
@@ -35,6 +38,7 @@ const codeRateLimited = "rate_limited"
 const keepalivePing = "ping"
 
 var (
+	uuidPattern    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	xuidPattern    = regexp.MustCompile(`^[0-9]{1,20}$`)
 	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 )
@@ -68,21 +72,28 @@ type visibilityMessage struct {
 type lookupMessage struct {
 	Type  string   `json:"type"`
 	ID    uint32   `json:"id"`
-	XUIDs []string `json:"xuids"`
+	XUIDs []string `json:"xuids,omitempty"`
+	UUIDs []string `json:"uuids,omitempty"`
 }
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
+	XUID       string  `json:"xuid"`
+	UUID       string  `json:"uuid"`
+	EmoteID    *string `json:"emote_id"`
+	ElapsedMS  uint32  `json:"elapsed_ms"`
+	ValidForMS uint64  `json:"valid_for_ms"`
 	parameters
-	Build       uint64   `json:"build"`
-	Type        string   `json:"type"`
-	Nonce       string   `json:"nonce"`
-	Code        string   `json:"code"`
-	ID          *uint32  `json:"id"`
-	Cinnabar    []string `json:"cinnabar"`
-	Channel     string   `json:"channel"`
-	Version     string   `json:"version"`
-	PublishedAt string   `json:"published_at"`
+	Build         uint64   `json:"build"`
+	Type          string   `json:"type"`
+	Nonce         string   `json:"nonce"`
+	Code          string   `json:"code"`
+	ID            *uint32  `json:"id"`
+	Cinnabar      []string `json:"cinnabar"`
+	CinnabarUUIDs []string `json:"cinnabar_uuids"`
+	Channel       string   `json:"channel"`
+	Version       string   `json:"version"`
+	PublishedAt   string   `json:"published_at"`
 }
 
 // sign returns the unpadded base64url raw r||s ES384 signature over the proof prefix and nonce.
@@ -113,4 +124,25 @@ func (c Config) Valid() bool {
 		return false
 	}
 	return c.ClientBuild <= maxBuildNumber && len(c.ClientVersion) <= maxVersionLen && versionPattern.MatchString(c.ClientVersion)
+}
+
+// ValidUUID reports whether uuid has the canonical lowercase form the API accepts.
+func ValidUUID(uuid string) bool { return uuidPattern.MatchString(uuid) }
+
+// ValidLookup checks the combined identifier bound and both wire formats.
+func ValidLookup(xuids, uuids []string) bool {
+	if len(xuids)+len(uuids) == 0 || len(xuids)+len(uuids) > bridgecontract.CinnabarAPIMaxLookupXUIDs {
+		return false
+	}
+	for _, xuid := range xuids {
+		if !ValidXUID(xuid) {
+			return false
+		}
+	}
+	for _, uuid := range uuids {
+		if !ValidUUID(uuid) {
+			return false
+		}
+	}
+	return true
 }

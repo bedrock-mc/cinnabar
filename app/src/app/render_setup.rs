@@ -86,18 +86,12 @@ mod tests {
     }
 
     #[test]
-    fn primary_window_queues_one_frame_with_vsync_and_two_without() {
+    fn primary_window_requests_the_vsync_frame_latency() {
         // Windows request FIFO until the surface is probed, whatever VSync choice they serve.
-        for (vsync, queued) in [(true, 1), (false, 2)] {
-            let window = primary_window(
-                String::new(),
-                PresentMode::Fifo,
-                render::frame_latency_for_vsync(vsync),
-            );
-            assert_eq!(
-                window.desired_maximum_frame_latency.map(NonZeroU32::get),
-                Some(queued)
-            );
+        for vsync in [true, false] {
+            let latency = render::frame_latency_for_vsync(vsync);
+            let window = primary_window(String::new(), PresentMode::Fifo, latency);
+            assert_eq!(window.desired_maximum_frame_latency, Some(latency));
             assert_eq!(window.present_mode, PresentMode::Fifo);
             assert_eq!(
                 window.resize_constraints.min_width,

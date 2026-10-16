@@ -10,7 +10,7 @@ use bevy::{
 
 use crate::block_use::produce_block_use;
 use crate::item_use::produce_item_use;
-use crate::melee::{prepare_melee, produce_melee};
+use crate::melee::{prepare_melee, produce_attacks};
 use crate::movement::advance_local_physics;
 use crate::runtime::movement_evidence::emit_movement_evidence;
 use crate::runtime::shutdown::finish_acceptance_run;
@@ -24,7 +24,6 @@ use crate::semantic_controls::{
     synchronize_semantic_input_authority,
 };
 use crate::session::recover_session_failure;
-use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
 use client_runtime::publication::{
     PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -252,7 +251,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         schedule_precedes(
             graph,
             system_node(graph, emit_movement_evidence, "emit_movement_evidence"),
-            system_node(graph, produce_melee, "produce_melee"),
+            system_node(graph, produce_attacks, "produce_attacks"),
         ),
         "the exact build/session/PREG/BREG identity marker must precede attack production",
     );
@@ -260,7 +259,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         schedule_precedes(
             graph,
             system_node(graph, prepare_melee, "prepare_melee"),
-            system_node(graph, produce_survival_mining, "produce_survival_mining"),
+            system_node(graph, produce_attacks, "produce_attacks"),
         ),
         "an attacked actor must veto mining the block behind it",
     );
@@ -286,13 +285,13 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     );
     assert_system_in_stage(
         graph,
-        produce_survival_mining,
-        "produce_survival_mining",
+        produce_attacks,
+        "produce_attacks",
         ClientFrameSet::NetworkSend,
     );
     let block_cues = system_node(graph, crate::audio::drive_block_cues, "drive_block_cues");
     for producer in [
-        system_node(graph, produce_survival_mining, "produce_survival_mining"),
+        system_node(graph, produce_attacks, "produce_attacks"),
         system_node(graph, produce_block_use, "produce_block_use"),
     ] {
         assert!(
@@ -644,6 +643,7 @@ fn drive_unified_publication_fixture(
                             generation,
                             dirty_since,
                         },
+                        render_api::TerrainRemovalKind::Empty,
                         permit.expect("real known-air admission attaches a zero-byte permit"),
                     )
                     .unwrap();
@@ -1005,6 +1005,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
                 generation: 2,
                 dirty_since: now,
             },
+            render_api::TerrainRemovalKind::Withdrawn,
             removal_permit,
         )
         .unwrap();

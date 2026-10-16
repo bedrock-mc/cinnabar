@@ -80,9 +80,10 @@ func (s Status) open() bool { return s.State == StateStarting || s.State == Stat
 
 // Local holds the launcher's latest report for the proxy and friend hosting.
 type Local struct {
-	mu      sync.Mutex
-	status  Status
-	changed chan struct{} // closed and replaced on every report
+	mu         sync.Mutex
+	status     Status
+	generation uint64        // distinguishes reopening the same world after coalesced reports
+	changed    chan struct{} // closed and replaced on every report
 }
 
 func NewLocal() *Local {
@@ -97,6 +98,9 @@ func (l *Local) SetLocal(status Status) (opened bool, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	opened = status.open() && !(l.status.open() && l.status.World.ID == status.World.ID)
+	if opened || (status.State == StateStarting && l.status.State == StateRunning) {
+		l.generation++
+	}
 	l.status = status
 	close(l.changed)
 	l.changed = make(chan struct{})
@@ -112,6 +116,55 @@ func (l *Local) Running() (world World, running bool, changed <-chan struct{}) {
 		world = *l.status.World
 	}
 	return world, running, l.changed
+}
+
+// Session binds advertised world metadata and routing to one opening of a local world.
+type Session struct {
+	World      World
+	local      *Local
+	generation uint64
+}
+
+// RunningSession captures a running world and its opening identity with the next-change channel.
+func (l *Local) RunningSession() (session Session, running bool, changed <-chan struct{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.status.State == StateRunning {
+		return Session{World: *l.status.World, local: l, generation: l.generation}, true, l.changed
+	}
+	return Session{}, false, l.changed
+}
+
+// Current reports whether this exact opening and advertised metadata still run.
+func (s Session) Current() bool {
+	if s.local == nil {
+		return false
+	}
+	s.local.mu.Lock()
+	defer s.local.mu.Unlock()
+	return s.currentLocked()
+}
+
+// currentLocked checks the captured opening while its Local mutex is held.
+func (s Session) currentLocked() bool {
+	return s.local.status.State == StateRunning && s.local.generation == s.generation &&
+		*s.local.status.World == s.World
+}
+
+// ConnectionTarget returns only this running session's route, never a replacement world's target.
+func (s Session) ConnectionTarget(ctx context.Context) (ConnectionTarget, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return ConnectionTarget{}, false, err
+	}
+	if s.local == nil {
+		return ConnectionTarget{}, false, ErrNotOpen
+	}
+	s.local.mu.Lock()
+	defer s.local.mu.Unlock()
+	if !s.currentLocked() {
+		return ConnectionTarget{}, false, ErrNotOpen
+	}
+	return *s.local.status.Target, true, nil
 }
 
 // ConnectionTarget reports the running world's address and transport, waiting out a start; ok is
