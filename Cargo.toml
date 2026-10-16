@@ -153,15 +153,15 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
-# Preserve FIFO pacing, batched indirect validation and lazy logging on wgpu 30.0.1.
+# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
 
-wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "b0902c38b1da996b8d2f8d67b6ed687b27acbbdc" }
 
 [profile.dev]
 opt-level = 1

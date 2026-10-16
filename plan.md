@@ -1,3 +1,17 @@
+## Restore and share custom emote playback
+
+The articulated emote snapshot now carries the matching prepared body and clothing meshes.
+The account API exchanges nearby watches, starts, phases and stops; authenticated identities
+resolve only to current actor lifetimes. Shared poses override native/Java body animation for
+their lifetime and also drive clothing, capes and equipment. Visibility opt-out and bounded
+leases retire playback without depending on a game server's emote relay. Local clips no longer
+send their owned identifiers as Bedrock emote packets.
+Regression coverage includes mesh/pose agreement, cached mesh reuse, remote pose isolation,
+start/stop, same-clock restarts, lease expiry, API identity, subscriptions and visibility.
+Linux Vulkan headless local-world frames show bent knees and planted level soles through the
+hip pulse. Sharing requires deployment of the API extension. Exact native/Lunar parity, Windows visual
+acceptance and hardware performance qualification remain incomplete.
+
 ## Held input across HUD toggles
 
 Display-setting replacements retain the controls revision when controls are unchanged.
@@ -1099,6 +1113,30 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Frame attribution and unchanged GPU uploads
 
+- macOS reserves three native drawable slots for either presentation mode. The
+  native Metal backend uses display-link drawable delivery on supported AppKit
+  surfaces, with bounded prefetch and cancellation before reconfiguration.
+  Smooth 120 Hz acceptance remains open.
+
+- Metal completion markers feed bounded GPU queue predictions into input admission,
+  delaying the next input sample until CPU work can feed the GPU without a frame
+  backlog. Completed host timestamps reanchor predictions; missing or stale samples
+  retain CPU pacing. Synchronized surfaces skip GPU extrapolation and reset stale
+  history on mode changes; display-dependent gaps must not become predicted work.
+  Incomplete: paired hardware responsiveness and frame-budget
+  acceptance remain open.
+- Conservative actor and block-entity occlusion projects each box's angular bounds
+  once, retaining complete slab coverage, rounding margins and bounded fail-open
+  probes. Geometry tests cover interior holes across axes and translated coordinates.
+  Incomplete: hardware frame-time and streaming hitch acceptance remain open.
+- Sorted transparency records its contiguous colour-space passes into one command
+  buffer, removing worker waits around draws serialized by the phase's shared lock.
+  Regression tests cover draw order, submission counts and empty viewports.
+- Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
+  scene read, while translucent pixels retain premultiplied gamma blending. Native
+  pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
+  paired hardware frame-time improvement and the 120 Hz acceptance gate remain open.
+
 - Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
   120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
   manual recording clocks keep their requested steps. Live movement acceptance remains open.
@@ -1133,7 +1171,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
-  headroom; regression tests cover resumption and zero steady-state drain allocations.
+  headroom. Bounded lookahead lets light events pass stalled terrain while the shared
+  conflict tracker keeps dependent mutations and barriers ordered. Latency echoes flush
+  when their control fence clears, preserving earlier movement ordering. Deterministic
+  regressions cover these paths; hardware join and transfer latency remain unverified.
 - Rolling frame recordings retain recent completed spans and received counters, carry input
   identities into render submission, and queue every hard-hitch window with completeness
   metadata. Slow reports format outside recorder locks on the console thread. Full exports move
@@ -2183,7 +2224,7 @@ player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
-local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
+owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the
 native first-person hand and remote actor animations intact. Slot preferences
 persist through Change Emotes, and gameplay input cancels playback. Identified
@@ -8800,11 +8841,12 @@ furnace UI options remain incomplete; the full furnace parity gate stays open.
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
 frame, with block occlusion and bounded queue retries. A live cow interaction
-produces a server-confirmed milk bucket. Selecting an equipped emote sends its
-catalog identifier and duration once in that frame; idle and cancellation send
-no start packet. Marketplace clip ownership/playback, remote custom-emote
-synchronization, and the complete villager trade UI remain incomplete. These
-producer fixes do not close those parity gates.
+produces a server-confirmed milk bucket. Selecting an equipped custom emote starts
+local playback and reports its catalog identifier and phase over the authenticated
+Cinnabar API. Stops, visibility and bounded leases retire shared playback without
+sending custom identifiers to a Bedrock server. Marketplace clip ownership/playback
+and the complete villager trade UI remain incomplete. These producer fixes do not
+close those parity gates.
 
 The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
 radial leaves, column UVs and offsets, selection and breaking overlays, picking,

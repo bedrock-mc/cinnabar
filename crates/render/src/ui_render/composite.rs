@@ -711,3 +711,7 @@ pub(crate) fn install_present_node(world: &mut World) {
 #[cfg(test)]
 #[path = "composite_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "composite_raster_tests.rs"]
+mod raster_tests;

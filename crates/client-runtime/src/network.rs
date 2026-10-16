@@ -6,14 +6,14 @@ use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::{Deref, DerefMut, IntoScheduleConfigs, Query, Res, ResMut, Resource};
 use bevy::render::view::ExtractedWindow;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
-use std::path::PathBuf;
+use std::{collections::VecDeque, path::PathBuf};
 
 /// A Bevy resource retaining the domain's exact command and event queues.
 #[derive(Resource, Deref, DerefMut)]
 pub struct NetworkHandle<P: Send + Sync + 'static> {
     #[deref]
     inner: client_session::NetworkHandle<P>,
-    pending_world_ingress: Option<client_session::WorldIngress>,
+    pending_world_ingress: VecDeque<client_session::WorldIngress>,
     core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
 }
 
@@ -21,19 +21,19 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
     fn from(inner: client_session::NetworkHandle<P>) -> Self {
         Self {
             inner,
-            pending_world_ingress: None,
+            pending_world_ingress: VecDeque::new(),
             core_socket_dir: None,
         }
     }
 }
 
 impl<P: Send + Sync + 'static> NetworkHandle<P> {
-    /// Borrows the session FIFO and its blocked head, retained until admission reopens.
+    /// Borrows the session FIFO and the bounded payloads retained by ingress lookahead.
     pub fn world_ingress_mut(
         &mut self,
     ) -> (
         &mut tokio::sync::mpsc::Receiver<client_session::WorldIngress>,
-        &mut Option<client_session::WorldIngress>,
+        &mut VecDeque<client_session::WorldIngress>,
     ) {
         (
             self.inner.world_events_mut(),
@@ -41,18 +41,18 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
         )
     }
 
-    /// Counts every unconsumed event, including the head retained outside the channel.
+    /// Counts every unconsumed event, including payloads retained outside the channel.
     pub fn pending_event_count(&self) -> usize {
         self.inner
             .pending_event_count()
-            .saturating_add(usize::from(self.pending_world_ingress.is_some()))
+            .saturating_add(self.pending_world_ingress.len())
     }
 
     /// Adopts the domain queues and the endpoint used by this live session.
     pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
         Self {
             inner,
-            pending_world_ingress: None,
+            pending_world_ingress: VecDeque::new(),
             core_socket_dir: Some(socket_dir),
         }
     }

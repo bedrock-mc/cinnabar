@@ -413,8 +413,16 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn vsync_keeps_one_frame_in_flight_and_unpaced_presentation_keeps_two() {
         assert_eq!(frame_latency_for_vsync(true).get(), 1);
+        assert_eq!(frame_latency_for_vsync(false).get(), 2);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn metal_has_room_to_prefetch_a_drawable_with_either_present_mode() {
+        assert_eq!(frame_latency_for_vsync(true).get(), 2);
         assert_eq!(frame_latency_for_vsync(false).get(), 2);
     }
 

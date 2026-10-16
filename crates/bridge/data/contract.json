@@ -79,6 +79,7 @@
     {"rust_name": "RPC_SERVICES_DISABLED", "go_name": "RPCServicesDisabled", "value": -32023, "rust_type": "i64", "doc": "Control error code for services disabled."},
     {"rust_name": "RPC_CINNABAR_RATE_LIMITED", "go_name": "RPCCinnabarRateLimited", "value": -32024, "rust_type": "i64", "doc": "Control error code for a Cinnabar lookup the API rate-limited."},
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
+    {"rust_name": "METHOD_CINNABAR_EMOTES", "go_name": "MethodCinnabarEmotes", "value": "cinnabar_emotes.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emote playback."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
     {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.cinnabar-api.workers.dev", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
     {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
@@ -260,6 +261,98 @@
         {"name": "version", "go_name": "Version", "type": "string", "doc": "App version; rolling channels reuse one across builds."},
         {"name": "build", "go_name": "Build", "type": "u64", "default": true, "doc": "Signed manifest build number; absent in older v1 notices."},
         {"name": "published_at", "go_name": "PublishedAt", "type": "string", "doc": "When the API recorded the release."}
+      ]
+    },
+    {
+      "rust_name": "CinnabarEmoteState",
+      "go_name": "CinnabarEmoteState",
+      "doc": "Nearby subscriptions and the local custom emote, cleared when the game session ends.",
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "fields": [
+        {
+          "name": "xuids",
+          "go_name": "XUIDs",
+          "type": "strings",
+          "doc": "Nearby Xbox account identifiers."
+        },
+        {
+          "name": "uuids",
+          "go_name": "UUIDs",
+          "type": "strings",
+          "doc": "Nearby UUIDs when the server omitted Xbox identifiers."
+        },
+        {
+          "name": "emote_id",
+          "go_name": "EmoteID",
+          "type": "string",
+          "doc": "Owned clip identifier; empty stops playback."
+        },
+        {
+          "name": "elapsed_ms",
+          "go_name": "ElapsedMS",
+          "type": "u32",
+          "doc": "Elapsed playback time at this report."
+        },
+        {
+          "name": "playback_id",
+          "go_name": "PlaybackID",
+          "type": "u64",
+          "doc": "Local start identity, including same-clip restarts."
+        }
+      ]
+    },
+    {
+      "rust_name": "CinnabarRemoteEmote",
+      "go_name": "CinnabarRemoteEmote",
+      "doc": "An authenticated nearby player animation with a remaining lease.",
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "fields": [
+        {
+          "name": "xuid",
+          "go_name": "XUID",
+          "type": "string",
+          "doc": "Authenticated Xbox account identifier."
+        },
+        {
+          "name": "uuid",
+          "go_name": "UUID",
+          "type": "string",
+          "doc": "Account UUID derived by the API."
+        },
+        {
+          "name": "emote_id",
+          "go_name": "EmoteID",
+          "type": "string",
+          "doc": "Owned clip identifier."
+        },
+        {
+          "name": "elapsed_ms",
+          "go_name": "ElapsedMS",
+          "type": "u64",
+          "doc": "Playback time at this snapshot."
+        },
+        {
+          "name": "valid_for_ms",
+          "go_name": "ValidForMS",
+          "type": "u64",
+          "doc": "Remaining playback lease."
+        }
       ]
     }
   ],

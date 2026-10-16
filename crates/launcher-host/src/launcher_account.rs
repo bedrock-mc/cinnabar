@@ -32,6 +32,7 @@ mod home_promo;
 
 mod artwork;
 mod cinnabar_players;
+mod emotes;
 mod feeds;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
@@ -74,6 +75,7 @@ struct Snapshot {
     xbox_presence: bridge::XboxPresenceState,
     /// The Cinnabar API identity and visibility the events worker keeps the core configured with.
     cinnabar_api: Option<bridge::CinnabarApiConfig>,
+    emotes: emotes::Exchange,
     /// Roster identifiers the API reports as Cinnabar players; replaced whole on change.
     cinnabar_players: Arc<std::collections::HashSet<String>>,
     /// The `(session, revision)` roster last sent to the lookup worker.
@@ -106,6 +108,7 @@ struct Snapshot {
 impl Snapshot {
     /// Retires values tied to the old account before accepting responses for another identity.
     fn retire_account_data(&mut self) {
+        self.emotes = emotes::Exchange::default();
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.realms = None;
         self.friends = None;
@@ -196,6 +199,7 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         let (art, wake) = (artwork.clone(), home_wake.clone());
         thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
+        let _ = emotes::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || {
             profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)

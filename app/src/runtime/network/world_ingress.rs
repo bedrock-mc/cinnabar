@@ -39,7 +39,7 @@ pub(super) fn trace_committed(fifo: u64) {
     }
 }
 
-/// Drains in FIFO order, rechecking stream capacity after each event and stopping at a barrier.
+/// Drains available lanes while the stream preserves dependencies and transfer barriers.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drain(
     network: &mut NetworkHandle<PackApplication>,
@@ -54,29 +54,18 @@ pub(super) fn drain(
     let mut drain = WorldIngressDrain::new(Instant::now() + WORLD_INGRESS_DRAIN_BUDGET);
     loop {
         let (receiver, pending) = network.world_ingress_mut();
-        let Some(ingress) = drain.next(
+        let ingress = match drain.next(
             receiver,
             pending,
-            |ingress| {
-                client_world
-                    .stream
-                    .as_ref()
-                    .is_none_or(|stream| match ingress {
-                        client_session::WorldIngress::Event(sequenced) => {
-                            stream.can_admit(&sequenced.event)
-                        }
-                        client_session::WorldIngress::LevelChunk { event, .. } => {
-                            // The payload stays in its separate Bytes buffer; only metadata is cloned.
-                            stream.can_admit(&WorldEvent::LevelChunk(event.clone()))
-                        }
-                        client_session::WorldIngress::FastTransferBarrier { .. } => {
-                            stream.light_admission_capacity() > 0
-                        }
-                    })
-            },
-            Instant::now(),
-        ) else {
-            break;
+            client_world.stream.as_mut(),
+            Instant::now,
+        ) {
+            Ok(Some(ingress)) => ingress,
+            Ok(None) => break,
+            Err(error) => {
+                record_fatal_error(fatal_error, format!("world ingress rejected data: {error}"));
+                break;
+            }
         };
         if let Some(trace) = bridge::latency_trace::active() {
             let (session, fifo) = ingress.identity();

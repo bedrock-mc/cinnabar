@@ -6,17 +6,49 @@ use assets::{
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex, OnceLock};
 
-type Entry = ([u8; 32], Option<Arc<SkinGeometry>>);
+/// Geometry and immutable vertices prepared together for the emote skeleton.
+#[derive(Clone)]
+pub(super) struct Model {
+    pub geometry: Arc<SkinGeometry>,
+    pub mesh: render_model::ActorRigGeometry,
+}
 
-pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Arc<SkinGeometry>> {
+type Entry = ([u8; 32], Option<Model>);
+/// Covers every selected player and persona layer without an eight-skin cache thrashing during shared playback.
+const MAX_MODELS: usize =
+    render_model::MAX_RENDERED_PLAYERS * (1 + render_api::MAX_SKIN_ANIMATION_LAYERS) + 1;
+
+/// Counts retained prepared vertex and pivot bytes against the actor catalog's existing bound.
+fn mesh_bytes(model: &Option<Model>) -> usize {
+    model.as_ref().map_or(0, |model| {
+        std::mem::size_of_val(model.mesh.vertices.as_ref())
+            + std::mem::size_of_val(model.mesh.bone_pivots.as_ref())
+    })
+}
+
+/// Reuses the exact mesh for each articulated geometry across playback samples.
+pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
     static CACHE: OnceLock<Mutex<Vec<Entry>>> = OnceLock::new();
     let mut cache = CACHE.get_or_init(Mutex::default).lock().ok()?;
     if let Some((_, model)) = cache.iter().find(|(digest, _)| *digest == source.digest) {
         return model.clone();
     }
-    let model = build(source).map(Arc::new);
-    if cache.len() == 8 {
-        cache.remove(0);
+    let model = build(source).and_then(|geometry| {
+        let mesh = render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok()?;
+        Some(Model {
+            geometry: Arc::new(geometry),
+            mesh,
+        })
+    });
+    let bytes = mesh_bytes(&model);
+    if bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES {
+        return None;
+    }
+    let mut retained: usize = cache.iter().map(|(_, model)| mesh_bytes(model)).sum();
+    while cache.len() >= MAX_MODELS
+        || retained + bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
+    {
+        retained -= mesh_bytes(&cache.remove(0).1);
     }
     cache.push((source.digest, model.clone()));
     model

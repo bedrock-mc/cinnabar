@@ -69,3 +69,55 @@ fn a_frame_never_exceeds_its_plane_and_cell_budget() {
     assert_eq!(budget.remaining(), 0);
     assert!(calls <= 31);
 }
+
+/// Every point in a projected silhouette must still encounter an exposed opaque cell.
+#[test]
+fn projected_interior_holes_draw_across_axes_and_translations() {
+    for offset in [0.0, 4096.0, -4096.0] {
+        for axis in 0..3 {
+            for sign in [-1.0, 1.0] {
+                let transform = |p: [f32; 3]| {
+                    let mut out = [offset; 3];
+                    for i in 0..3 {
+                        out[(i + axis) % 3] += p[i] * sign;
+                    }
+                    out
+                };
+                let eye = transform(EYE);
+                let a = transform(LOW);
+                let b = transform(HIGH);
+                let low = std::array::from_fn(|i| a[i].min(b[i]));
+                let high = std::array::from_fn(|i| a[i].max(b[i]));
+                let wall = offset as i32 + if sign > 0.0 { 5 } else { -6 };
+                assert!(
+                    OcclusionBudget::default().hides_box(eye, low, high, |p, _| p[axis] == wall)
+                );
+                let plane = (wall + i32::from(sign < 0.0)) as f64;
+                for u in 0..=4 {
+                    for v in 0..=4 {
+                        let mut point = low.map(f64::from);
+                        point[(axis + 1) % 3] +=
+                            f64::from(high[(axis + 1) % 3] - low[(axis + 1) % 3]) * f64::from(u)
+                                / 4.0;
+                        point[(axis + 2) % 3] +=
+                            f64::from(high[(axis + 2) % 3] - low[(axis + 2) % 3]) * f64::from(v)
+                                / 4.0;
+                        let t =
+                            (plane - f64::from(eye[axis])) / (point[axis] - f64::from(eye[axis]));
+                        let mut hole = [0; 3];
+                        hole[axis] = wall;
+                        for a in [(axis + 1) % 3, (axis + 2) % 3] {
+                            hole[a] = (f64::from(eye[a]) + t * (point[a] - f64::from(eye[a])))
+                                .floor() as i32;
+                        }
+                        assert!(
+                            !OcclusionBudget::default()
+                                .hides_box(eye, low, high, |p, _| p[axis] == wall && p != hole),
+                            "axis={axis} sign={sign} hole={hole:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

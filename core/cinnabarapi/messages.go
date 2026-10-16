@@ -27,6 +27,8 @@ const (
 	typeLookup       = "lookup"
 	typeLookupResult = "lookup_result"
 	typeRelease      = "release"
+	typeEmote        = "emote"
+	typeEmoteState   = "emote_state"
 )
 
 // codeRateLimited is the error code for a refused lookup.
@@ -76,6 +78,11 @@ type lookupMessage struct {
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
+	XUID       string  `json:"xuid"`
+	UUID       string  `json:"uuid"`
+	EmoteID    *string `json:"emote_id"`
+	ElapsedMS  uint32  `json:"elapsed_ms"`
+	ValidForMS uint64  `json:"valid_for_ms"`
 	parameters
 	Build         uint64   `json:"build"`
 	Type          string   `json:"type"`
