@@ -487,7 +487,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input"]
+allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 # The portable JSON-UI engine; hosts supply reads, the clock and worker threads through its sources.

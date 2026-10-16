@@ -1,3 +1,6 @@
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod action;
 #[path = "../../src/action.rs"]
 #[allow(dead_code)]

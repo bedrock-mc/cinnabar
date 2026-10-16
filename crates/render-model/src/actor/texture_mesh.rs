@@ -37,8 +37,8 @@ pub fn attachable_geometry(
                 cube,
                 index as u32,
                 (geometry.texture_width, geometry.texture_height),
-                bone.mirror.unwrap_or(false),
-                bone.inflate.map_or(0.0, |v| v.get()),
+                false,
+                0.0,
             )?;
         }
         for mesh in &bone.texture_meshes {

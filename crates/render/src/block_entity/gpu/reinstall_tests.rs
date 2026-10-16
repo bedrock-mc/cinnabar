@@ -1,6 +1,6 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
-use render_model::{BlockEntityScene, MAP_CELL, SceneClock};
+use render_model::{BlockEntityScene, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, SceneClock};
 
 use crate::gpu_snapshot;
 
@@ -64,8 +64,14 @@ fn identical_atlas_reinstall_uploads_the_new_session_canvas_on_the_gpu() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture("block-entity reinstall upload") else {
         return;
     };
-    let bytes =
-        assets::encode_block_entity_catalog(b"{}", 1024, 1, &vec![255; 1024 * 4], &[]).unwrap();
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
+        1,
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 4],
+        &[],
+    )
+    .unwrap();
     let assets = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
     let mut scene = BlockEntityScene::default();
     let mut world = World::new();

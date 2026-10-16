@@ -61,7 +61,7 @@ impl<J: ImageJob> Worker<J> {
 #[cfg(target_arch = "wasm32")]
 #[derive(Default)]
 pub struct ImageJobDriver {
-    decode_next: bool,
+    next: usize,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -69,11 +69,18 @@ impl ImageJobDriver {
     /// Runs one finite read or decode after the host has yielded. Indivisible job cost still
     /// needs a browser frame-budget check; this method does not make CPU work preemptible.
     pub fn run_one(&mut self) -> bool {
-        self.decode_next = !self.decode_next;
-        if self.decode_next {
-            crate::atlas::native_sheets::run_one() || crate::atlas::source_reads::run_one()
-        } else {
-            crate::atlas::source_reads::run_one() || crate::atlas::native_sheets::run_one()
+        let workers: &[fn() -> bool] = &[
+            crate::atlas::native_sheets::run_one,
+            crate::atlas::source_reads::run_one,
+            crate::atlas::fitted::run_one,
+        ];
+        for offset in 0..workers.len() {
+            let index = (self.next + offset) % workers.len();
+            if workers[index]() {
+                self.next = (index + 1) % workers.len();
+                return true;
+            }
         }
+        false
     }
 }

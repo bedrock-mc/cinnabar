@@ -175,7 +175,8 @@ pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
-    AtlasRect, BlockEntityAtlas, MAP_CELL, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
+    TextureRef,
 };
 pub use block_entity::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,

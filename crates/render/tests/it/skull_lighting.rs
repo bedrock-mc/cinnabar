@@ -7,7 +7,7 @@ use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
 use render_model::{
     BlockEntityKind, BlockEntityLight, BlockEntityScene, BlockEntitySubmission, LightmapInputs,
-    SceneClock, SkullKind, SkullModel, SkullMount,
+    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock, SkullKind, SkullModel, SkullMount,
 };
 
 fn center_pixel() -> usize {
@@ -18,9 +18,9 @@ fn center_pixel() -> usize {
 fn assets(texel: [u8; 4]) -> assets::RuntimeBlockEntityAssets {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
         64,
-        64,
-        &texel.repeat(64 * 64),
+        &texel.repeat(MIN_DYNAMIC_ATLAS_WIDTH as usize * 64),
         &[assets::BlockEntityPlacement {
             name: "textures/entity/steve".into(),
             x: 0,
@@ -399,9 +399,9 @@ fn crystal_beam_lighting_normals_do_not_cull_the_beam_from_below() {
     };
     let encoded = assets::encode_block_entity_catalog(
         b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
         16,
-        16,
-        &[200, 120, 60, 255].repeat(16 * 16),
+        &[200, 120, 60, 255].repeat(MIN_DYNAMIC_ATLAS_WIDTH as usize * 16),
         &[assets::BlockEntityPlacement {
             name: assets::CRYSTAL_BEAM_TEXTURE.into(),
             x: 0,
