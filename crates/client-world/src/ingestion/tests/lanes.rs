@@ -647,3 +647,91 @@ fn terrain_footprints_are_sorted_distinct_and_inline_for_one_column() {
     );
     assert!(classify(&chat(), CONTEXT).columns.is_empty());
 }
+
+/// Lookahead reservations have their own bounded credit and release it on normal admission.
+#[test]
+fn retained_ingress_is_bounded_and_releases_its_reservation() {
+    let mut state = OrderedCommitState::new(1);
+    for sequence in 1..=MAX_ADMITTED_WORLD_EVENTS as u64 {
+        state
+            .retain_ingress(
+                sequence,
+                Footprint::terrain([ChunkKey::new(0, sequence as i32, 0)], true),
+                MAX_ADMITTED_WORLD_EVENTS,
+                0,
+            )
+            .unwrap();
+    }
+    let next = MAX_ADMITTED_WORLD_EVENTS as u64 + 1;
+    assert!(
+        state
+            .retain_ingress(
+                next,
+                Footprint::session(Consumers::UI),
+                MAX_ADMITTED_WORLD_EVENTS,
+                0
+            )
+            .is_err()
+    );
+    state.release_ingress(1);
+    state
+        .admit(1, Footprint::terrain([ChunkKey::new(0, 1, 0)], true), 0)
+        .unwrap();
+    state
+        .retain_ingress(
+            next,
+            Footprint::session(Consumers::UI),
+            MAX_ADMITTED_WORLD_EVENTS,
+            0,
+        )
+        .unwrap();
+    assert_eq!(state.heavy_count(), 1);
+    assert_eq!(
+        state.retained_sequence_records(),
+        MAX_ADMITTED_WORLD_EVENTS + 1
+    );
+}
+
+/// Reserved light credit is bounded, cannot be stolen, and is released on handoff.
+#[test]
+fn retained_light_ingress_credits_are_bounded_and_reusable() {
+    let mut state = OrderedCommitState::new(1);
+    let light = Footprint::session(Consumers::CONTROLS);
+    state.admit(1, light.clone(), 0).unwrap();
+    let last = MAX_ADMITTED_WORLD_EVENTS as u64 + 1;
+    for sequence in 2..=last {
+        let reserved = state
+            .retain_ingress(sequence, light.clone(), MAX_ADMITTED_WORLD_EVENTS, 0)
+            .unwrap();
+        assert_eq!(reserved, sequence < last);
+    }
+    assert_eq!(state.light_capacity(0), 0);
+    assert_eq!(state.retained_ingress_light_capacity(2, 0), 1);
+    assert_eq!(state.retained_ingress_light_capacity(last, 0), 0);
+    assert!(!state.reserve_ingress_light(last, 0));
+    state
+        .admit(
+            last + 1,
+            Footprint::terrain([ChunkKey::new(0, 0, 0)], true),
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        state.heavy_count(),
+        1,
+        "reserved light credit must not spend terrain credit"
+    );
+    state.cancel_admission(1);
+    assert!(state.reserve_ingress_light(last, 0));
+    assert_eq!(state.light_capacity(0), 0);
+    state.release_ingress(2);
+    assert_eq!(state.light_capacity(0), 1);
+    state.admit(2, light, 0).unwrap();
+    assert_eq!(state.light_capacity(0), 0);
+    assert_eq!(state.retained_ingress_light_capacity(3, 0), 1);
+    assert_eq!(
+        state.retained_ingress_light_capacity(3, 1),
+        0,
+        "consumer fanout still counts against admission"
+    );
+}

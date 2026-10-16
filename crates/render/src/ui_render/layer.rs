@@ -13,6 +13,7 @@ use bevy::{
 use render_model::UiScissor;
 use std::ops::Range;
 
+#[derive(Clone, Copy)]
 pub(super) struct UiLayerDraw<'a> {
     pub(super) world: &'a World,
     pub(super) gpu: &'a UiGpu,
@@ -26,6 +27,8 @@ pub(super) struct UiLayerDraw<'a> {
     pub(super) viewport: Option<&'a Viewport>,
     pub(super) skip: Option<&'a Range<u32>>,
     pub(super) clear: Option<&'a RenderPipeline>,
+    /// Keeps the layer's earlier pixels instead of clearing it before a full redraw.
+    pub(super) keep: bool,
 }
 
 impl<'a> UiLayerDraw<'a> {
@@ -120,7 +123,7 @@ pub(super) fn draw_ui_layer(
                 depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
-                    load: if encoded || damage.is_some() {
+                    load: if encoded || damage.is_some() || draw.keep {
                         LoadOp::Load
                     } else {
                         LoadOp::Clear(Default::default())

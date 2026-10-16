@@ -87,6 +87,7 @@ pub(super) fn visual(
             | ModelFamily::Wall
             | ModelFamily::Pane
             | ModelFamily::Door
+            | ModelFamily::Gate
     ) || (record.model_family == ModelFamily::Vine
         || record.traits.intersects(
             BlockTraits::SCAFFOLDING

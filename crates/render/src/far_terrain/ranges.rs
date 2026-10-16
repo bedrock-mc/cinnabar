@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 /// Free ranges kept sorted and coalesced; everything from `end` on is free too.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct QuadRanges {
     free: Vec<Range<u32>>,
     end: u32,
@@ -33,23 +33,24 @@ impl QuadRanges {
     }
 
     /// Returns `range`, merging it with free neighbours and trimming the end.
-    pub(super) fn release(&mut self, range: Range<u32>) {
+    pub(super) fn release(&mut self, mut range: Range<u32>) {
         if range.is_empty() {
             return;
         }
-        let index = self.free.partition_point(|free| free.start < range.start);
-        self.free.insert(index, range);
-        let mut merged: Vec<Range<u32>> = Vec::with_capacity(self.free.len());
-        for range in self.free.drain(..) {
-            match merged.last_mut() {
-                Some(last) if last.end == range.start => last.end = range.end,
-                _ => merged.push(range),
-            }
+        let mut index = self.free.partition_point(|free| free.start < range.start);
+        if index > 0 && self.free[index - 1].end == range.start {
+            index -= 1;
+            range.start = self.free[index].start;
+            self.free.remove(index);
         }
-        if let Some(last) = merged.pop_if(|last| last.end == self.end) {
-            self.end = last.start;
+        if index < self.free.len() && self.free[index].start == range.end {
+            range.end = self.free.remove(index).end;
         }
-        self.free = merged;
+        if range.end == self.end {
+            self.end = range.start;
+        } else {
+            self.free.insert(index, range);
+        }
     }
 
     /// One past the highest allocated quad.
@@ -62,6 +63,20 @@ impl QuadRanges {
 #[cfg(test)]
 mod tests {
     use super::QuadRanges;
+
+    /// Releasing beside an existing hole needs no replacement free-list allocation.
+    #[test]
+    fn adjacent_release_does_not_allocate() {
+        let mut ranges = QuadRanges::default();
+        let blocks: Vec<_> = (0..64).map(|_| ranges.allocate(3)).collect();
+        for range in blocks.iter().step_by(2) {
+            ranges.release(range.clone());
+        }
+        let (_, allocations) = test_alloc::count(|| ranges.release(blocks[1].clone()));
+        eprintln!("adjacent release: allocations={allocations}");
+        assert_eq!(allocations, 0);
+        assert_eq!(ranges.allocate(9), 0..9);
+    }
 
     /// Freed space is reused first and coalesces, so churn does not grow the buffer.
     #[test]

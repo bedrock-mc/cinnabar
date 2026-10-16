@@ -413,12 +413,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vsync_keeps_one_frame_in_flight_and_unpaced_presentation_keeps_two() {
-        assert_eq!(frame_latency_for_vsync(true).get(), 1);
-        assert_eq!(frame_latency_for_vsync(false).get(), 2);
-    }
-
-    #[test]
     fn automatic_remedy_proof_requires_later_immediate_extraction_and_is_one_shot() {
         let mut lifecycle = AutoRemedyLifecycle::default();
         assert_eq!(

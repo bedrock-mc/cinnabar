@@ -83,6 +83,7 @@ fn release_ticks(
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     move_and_use(&mut world, !release);
     produce_air_use(&mut world);
     assert_eq!(

@@ -7,8 +7,11 @@ use std::sync::Arc;
 #[cfg(test)]
 mod cache_tests;
 mod clip;
+mod editable;
 mod motion;
 mod reveal;
+#[cfg(test)]
+mod selection_tests;
 mod sprites;
 mod typing;
 pub(super) use motion::Effects;
@@ -297,6 +300,20 @@ impl<'a> Canvas<'a> {
                 color,
             },
         )?;
+        Ok(())
+    }
+
+    /// Inverts pixels inside the current clip only while the surface is fully opaque.
+    pub(super) fn invert(&mut self, bounds: Bounds) -> Result<(), PaintError> {
+        if self.alpha >= 1.0 && bounds[2] > bounds[0] && bounds[3] > bounds[1] {
+            self.push(
+                bounds,
+                UiVisual::InvertedSprite {
+                    texture_page: self.solid_page,
+                    uv: [0, 0, 1, 1],
+                },
+            )?;
+        }
         Ok(())
     }
 

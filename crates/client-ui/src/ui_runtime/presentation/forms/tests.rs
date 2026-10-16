@@ -153,17 +153,16 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
         .unwrap();
     super::snapshot::write(&before, "late-font-before");
-    runtime.set_session_glyphs(Some(Arc::new(super::super::SessionGlyphSheets {
-        cells: vec![assets::CellGlyph {
+    runtime.set_session_glyphs(Some(Arc::new(super::super::SessionGlyphSheets::new(vec![
+        assets::CellGlyph {
             codepoint: 'A',
             size: [16, 16],
             rgba8: vec![255; 16 * 16 * 4].into_boxed_slice(),
             bearing: [0, 0],
             advance_64: 16 * 64,
             draw_size_64: [16 * 64, 16 * 64],
-        }],
-        ..Default::default()
-    })));
+        },
+    ]))));
     let after = presentation
         .build(&player_runtime, &runtime, 1, [1280, 720], dpi)
         .unwrap();

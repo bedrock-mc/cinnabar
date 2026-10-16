@@ -137,6 +137,114 @@ fn processed_sprint_rewrites_keep_the_effective_attribute() {
     );
 }
 
+/// Server effect replacement keeps sprint held and obeys the same FIFO as attributes.
+#[test]
+fn speed_effect_replacement_resends_and_ordering_preserve_one_sprint_factor() {
+    use protocol::{
+        ActorEffectAction::{Add, Remove, Update},
+        ActorEffectEvent,
+    };
+    let mut authority = started(0.1);
+    authority.set_sprinting(true);
+    let mut event = ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 42,
+        action: Add,
+        effect_id: protocol_ids::Effect::Speed.wire_value(),
+        amplifier: 2,
+        particles: false,
+        ambient: false,
+        duration_ticks: 600,
+        tick: 100,
+    };
+    authority.apply_effect(7, 2, event);
+    let speed_iii = authority.current();
+    assert!((speed_iii.unwrap() - 0.208).abs() < 1e-7);
+    for (session, sequence, dimension) in [(6, 3, 0), (7, 2, 0), (7, 3, 1)] {
+        event.dimension = dimension;
+        event.amplifier = 1;
+        authority.apply_effect(session, sequence, event);
+        assert_eq!(authority.current(), speed_iii);
+    }
+    event.dimension = 0;
+    event.action = Remove;
+    authority.apply_effect(7, 3, event);
+    event.action = Add;
+    authority.apply_effect(7, 4, event);
+    authority.set_sprinting(true);
+    let speed_ii = authority.current();
+    assert!((speed_ii.unwrap() - 0.182).abs() < 1e-7);
+    assert!(!authority.apply(7, 3, 0, attribute(0.13, 0.1, None)));
+
+    event.action = Update;
+    event.amplifier = i32::MAX;
+    authority.apply_effect(7, 5, event);
+    assert_eq!(authority.current(), speed_ii);
+    // A later attribute packet replaces all effect and sprint modifiers.
+    assert!(authority.apply(7, 6, 0, attribute(f64::from(0.17_f32), 0.1, None)));
+    authority.set_sprinting(true);
+    assert_eq!(authority.current(), Some(f64::from(0.17_f32)));
+    authority.set_sprinting(false);
+    authority.set_sprinting(true);
+    assert!((authority.current().unwrap() - 0.13).abs() < 1e-7);
+}
+
+#[test]
+fn speed_effect_before_the_first_attribute_uses_the_default_and_local_sprint() {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(7, 0);
+    authority.set_sprinting(true);
+    authority.apply_effect(
+        7,
+        1,
+        protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 42,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: protocol_ids::Effect::Speed.wire_value(),
+            amplifier: 2,
+            particles: false,
+            ambient: false,
+            duration_ticks: 600,
+            tick: 100,
+        },
+    );
+    assert!((authority.current().unwrap() - 0.208).abs() < 1e-7);
+    authority.replace_dimension(7, 1);
+    assert_eq!(authority.current(), None);
+}
+
+/// Effect admission checks the actual sprint factor and retains the last safe state.
+#[test]
+fn speed_effect_rejects_an_unsafe_current_with_a_custom_sprint_factor() {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(7, 0);
+    let default = super::MAX_SIMULABLE_MOVEMENT_SPEED as f32 / 4.0;
+    let current = f64::from(default * 3.0);
+    let received = attribute(current, default, Some(3.0));
+    assert!(authority.apply(7, 1, 0, received));
+    authority.adopt_server_sprinting(Some(true));
+    let mut event = protocol::ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 42,
+        action: protocol::ActorEffectAction::Add,
+        effect_id: protocol_ids::Effect::Speed.wire_value(),
+        amplifier: 4,
+        particles: false,
+        ambient: false,
+        duration_ticks: 600,
+        tick: 100,
+    };
+    authority.apply_effect(7, 2, event);
+    assert_eq!(authority.current(), Some(current));
+    assert_eq!(authority.active_speed_effect, None);
+    assert!(!authority.apply(7, 2, 0, received));
+
+    event.amplifier = 0;
+    authority.apply_effect(7, 3, event);
+    assert_eq!(authority.current(), Some(f64::from(default * 1.2 * 3.0)));
+}
+
 /// Liquid speeds arrive in the same attribute packet as movement and keep values a later update omits.
 #[test]
 fn liquid_speeds_order_independently_and_keep_omitted_values() {

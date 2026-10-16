@@ -7,6 +7,7 @@ use assets::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
+use std::time::Duration;
 
 // Held repeats are checked on simulation ticks against a monotonic deadline.
 const SLOW_REPEAT_MILLIS: u64 = 300;
@@ -16,7 +17,7 @@ const MOVING_REPEAT_MAX_MILLIS: u64 = 180;
 const MOVING_REPEAT_BLOCK_MILLIS: f32 = 900.0;
 const SURVIVAL_REPEAT_FLOOR_MILLIS: u64 = 100;
 /// How far behind now a moving repeat's schedule may lag.
-const REPEAT_MAX_LAG_MILLIS: u64 = 180;
+const REPEAT_MAX_LAG: Duration = Duration::from_millis(180);
 /// Placement boxes shrink by this much per side before the actor test.
 const PLACEMENT_ACTOR_EPSILON: f32 = 1.0e-5;
 
@@ -248,7 +249,7 @@ pub struct BlockUseRuntime {
     pub inventory: HeldPlacementInventory,
     latched_press: bool,
     waiting_for_authority: bool,
-    last_use_millis: Option<u64>,
+    last_use: Option<Duration>,
     /// The last success was a block interaction.
     slow_repeat: bool,
     last_attempt_tick: Option<u64>,
@@ -265,7 +266,8 @@ pub struct BlockUseRuntime {
 /// One held-use repeat's timing inputs.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RepeatClock {
-    pub now_millis: u64,
+    /// Monotonic elapsed time, retaining the caller's sub-millisecond precision.
+    pub now: Duration,
     pub sneaking: bool,
     /// Full 3D speed in blocks per second.
     pub speed: f32,
@@ -275,13 +277,13 @@ pub struct RepeatClock {
 impl RepeatClock {
     /// Noncreative modes share the survival repeat floor and pick reach.
     pub fn for_game_mode(
-        now_millis: u64,
+        now: Duration,
         sneaking: bool,
         speed: f32,
         game_mode: Option<protocol::PlayerGameMode>,
     ) -> Self {
         Self {
-            now_millis,
+            now,
             sneaking,
             speed,
             survival: game_mode != Some(protocol::PlayerGameMode::Creative),
@@ -290,7 +292,7 @@ impl RepeatClock {
 
     /// Times a build action from the tick-end state it observes.
     pub fn for_state(
-        now_millis: u64,
+        now: Duration,
         state: &crate::movement::UnsentSampleView,
         game_mode: Option<protocol::PlayerGameMode>,
     ) -> Self {
@@ -301,7 +303,7 @@ impl RepeatClock {
             .map(|axis| axis * axis)
             .sum::<f32>()
             .sqrt();
-        Self::for_game_mode(now_millis, state.sneaking, speed, game_mode)
+        Self::for_game_mode(now, state.sneaking, speed, game_mode)
     }
 }
 
@@ -368,7 +370,7 @@ impl BlockUseRuntime {
     pub fn admit(
         &mut self,
         trigger: ItemUseTrigger,
-        due: u64,
+        due: Duration,
         tick: u64,
         local_use: LocalUse,
         clock: RepeatClock,
@@ -398,12 +400,17 @@ impl BlockUseRuntime {
     }
 
     /// The trigger due now, with the repeat's due time; at most one attempt per tick.
-    pub fn due(&self, held: bool, tick: u64, clock: RepeatClock) -> Option<(ItemUseTrigger, u64)> {
+    pub fn due(
+        &self,
+        held: bool,
+        tick: u64,
+        clock: RepeatClock,
+    ) -> Option<(ItemUseTrigger, Duration)> {
         if self.waiting_for_authority {
             return None;
         }
         if self.latched_press {
-            return Some((ItemUseTrigger::PlayerInput, clock.now_millis));
+            return Some((ItemUseTrigger::PlayerInput, clock.now));
         }
         if !held || self.last_attempt_tick == Some(tick) {
             return None;
@@ -414,10 +421,10 @@ impl BlockUseRuntime {
             clock.speed,
             clock.survival,
         );
-        let due = self
-            .last_use_millis
-            .map_or(0, |last| last.saturating_add(interval));
-        (clock.now_millis > due).then_some((ItemUseTrigger::SimulationTick, due))
+        let due = self.last_use.map_or(Duration::ZERO, |last| {
+            last.saturating_add(Duration::from_millis(interval))
+        });
+        (clock.now > due).then_some((ItemUseTrigger::SimulationTick, due))
     }
 
     /// Whether the use press resolved on `tick` interacted with a block.
@@ -445,7 +452,7 @@ impl BlockUseRuntime {
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
-        due: u64,
+        due: Duration,
         tick: u64,
         local_use: LocalUse,
         clock: RepeatClock,
@@ -463,11 +470,11 @@ impl BlockUseRuntime {
             return;
         }
         let moving = clock.speed.is_finite() && clock.speed > 0.0;
-        self.last_use_millis = Some(match trigger {
+        self.last_use = Some(match trigger {
             ItemUseTrigger::SimulationTick if moving => {
-                due.max(clock.now_millis.saturating_sub(REPEAT_MAX_LAG_MILLIS))
+                due.max(clock.now.saturating_sub(REPEAT_MAX_LAG))
             }
-            ItemUseTrigger::SimulationTick | ItemUseTrigger::PlayerInput => clock.now_millis,
+            ItemUseTrigger::SimulationTick | ItemUseTrigger::PlayerInput => clock.now,
         });
         self.slow_repeat = local_use == LocalUse::Interact;
     }

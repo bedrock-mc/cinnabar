@@ -3,7 +3,9 @@
 mod input;
 mod template;
 
-use crate::{ModUi, RowIcons, mod_widgets::template as cards};
+use crate::{
+    ModUi, RowIcons, mod_panel::transitions::SurfaceTransitions, mod_widgets::template as cards,
+};
 use json_ui::{Catalog, Context, DataSource, Scalar, ViewState};
 use std::sync::Arc;
 use ui::{
@@ -15,6 +17,7 @@ use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
         FormEngine, ScreenArt,
+        glass::{GlassRenderer, paint_world_backdrop},
         item_renderer::ItemRenderer,
         screen::{CustomRenderer, PaintFrame},
     },
@@ -41,6 +44,7 @@ pub(super) struct HudEditor {
     data: Arc<DataSource>,
     frame: Option<EngineFrame>,
     view: ViewState,
+    transitions: SurfaceTransitions,
 }
 
 impl ModUi {
@@ -68,6 +72,7 @@ impl ModUi {
             data: Arc::new(DataSource::new()),
             frame: None,
             view: ViewState::default(),
+            transitions: SurfaceTransitions::default(),
         });
         Ok(())
     }
@@ -147,6 +152,12 @@ impl ModUi {
             }
         }
         let mut data = editor.data();
+        if let Some(surface) = &editor.draft.surface {
+            editor
+                .transitions
+                .advance(surface, paint_frame.now, !self.reduced_motion);
+            editor.transitions.write(&mut data);
+        }
         let mut icons = Vec::<IconRef>::new();
         for (index, icon) in resolved.as_slice().iter().enumerate() {
             let scalar = if let Some(icon) = icon {
@@ -163,11 +174,25 @@ impl ModUi {
         }
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let language = paint_frame.language;
+        let world = editor
+            .draft
+            .surface
+            .as_ref()
+            .map(|surface| editor.transitions.world_backdrop(surface))
+            .unwrap_or_default();
+        if let Err(error) = paint_world_backdrop(paint_frame, world) {
+            paint_frame.nodes.truncate(rollback.0);
+            *paint_frame.next = rollback.1;
+            editor.finish(false);
+            tracing::warn!(%error, "HUD editor disabled after rendering failure");
+            return;
+        }
         let mut items = ItemRenderer {
             icons: &icons,
             id_aux: &[],
         };
-        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
+        let mut glass = GlassRenderer::new(world);
+        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut items, &mut glass];
         let art = ScreenArt {
             view: Some(&editor.view),
             ..Default::default()

@@ -35,58 +35,101 @@ function Start-LoggedProcess {
         [Parameter(Mandatory = $true)][string]$StderrPath
     )
 
-    $fileOptions = [IO.FileOptions]::Asynchronous -bor [IO.FileOptions]::WriteThrough
-    $stdoutStream = [IO.FileStream]::new(
-        $StdoutPath,
-        [IO.FileMode]::Create,
-        [IO.FileAccess]::Write,
-        [IO.FileShare]::ReadWrite,
-        1,
-        $fileOptions
-    )
-    $stderrStream = [IO.FileStream]::new(
-        $StderrPath,
-        [IO.FileMode]::Create,
-        [IO.FileAccess]::Write,
-        [IO.FileShare]::ReadWrite,
-        1,
-        $fileOptions
-    )
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Executable
-    $startInfo.Arguments = (@($Arguments | ForEach-Object { ConvertTo-CommandArgument $_ }) -join ' ')
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.CreateNoWindow = $false
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    try {
-        if (-not $process.Start()) {
-            throw "failed to start $Executable"
-        }
-    }
-    catch {
-        $stdoutStream.Dispose()
-        $stderrStream.Dispose()
-        throw
-    }
-    return [pscustomobject]@{
-        Process = $process
+    $handle = [pscustomobject]@{
+        Process = $null
         StdoutPath = $StdoutPath
         StderrPath = $StderrPath
-        StdoutStream = $stdoutStream
-        StderrStream = $stderrStream
-        StdoutCopy = $process.StandardOutput.BaseStream.CopyToAsync($stdoutStream)
-        StderrCopy = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
+        StdoutStream = $null
+        StderrStream = $null
+        StdoutCopy = $null
+        StderrCopy = $null
         StdoutMarkerCursor = [pscustomobject]@{
             Offset = [long]0
             PartialLine = ''
             LineNumber = [uint64]0
         }
     }
+    $started = $false
+    try {
+        $handle.StdoutStream = New-ProcessLogStream -Path $StdoutPath
+        $handle.StderrStream = New-ProcessLogStream -Path $StderrPath
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $Executable
+        $startInfo.Arguments = (@($Arguments | ForEach-Object { ConvertTo-CommandArgument $_ }) -join ' ')
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.CreateNoWindow = $false
+        $handle.Process = [Diagnostics.Process]::new()
+        $handle.Process.StartInfo = $startInfo
+        $started = $handle.Process.Start()
+        if (-not $started) { throw "failed to start $Executable" }
+        $handle.StdoutCopy = Start-ProcessLogCopy -Source $handle.Process.StandardOutput.BaseStream -Destination $handle.StdoutStream
+        $handle.StderrCopy = Start-ProcessLogCopy -Source $handle.Process.StandardError.BaseStream -Destination $handle.StderrStream
+        return $handle
+    }
+    catch {
+        $failure = $_
+        Invoke-IndependentProcessCleanup -PrimaryFailure $failure -Actions @(
+            { if ($started) { Stop-BoundedProcess -Handle $handle -Kind app } },
+            { Complete-ProcessLogs -Handle $handle },
+            { if ($null -ne $handle.Process) { $handle.Process.Dispose() } }
+        )
+        throw $failure
+    }
+}
+
+# Opens one continuously visible asynchronous process log, owned by the returned handle.
+function New-ProcessLogStream {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return [IO.FileStream]::new(
+        $Path, [IO.FileMode]::Create, [IO.FileAccess]::Write,
+        [IO.FileShare]::ReadWrite, 1,
+        ([IO.FileOptions]::Asynchronous -bor [IO.FileOptions]::WriteThrough)
+    )
+}
+
+# Starts one drain without transferring ownership of either stream.
+function Start-ProcessLogCopy {
+    param($Source, $Destination)
+    return $Source.CopyToAsync($Destination)
+}
+
+# Attempts every action, preserving an in-flight error and reporting all cleanup failures.
+function Invoke-IndependentProcessCleanup {
+    param([scriptblock[]]$Actions, $PrimaryFailure = $null)
+    $failures = [Collections.Generic.List[Exception]]::new()
+    foreach ($action in $Actions) {
+        try { & $action | Out-Null }
+        catch {
+            $failures.Add($_.Exception)
+            Write-Warning "process cleanup failed: $_" -WarningAction Continue
+        }
+    }
+    if ($null -eq $PrimaryFailure -and $failures.Count -gt 0) {
+        throw [AggregateException]::new('Process cleanup failed', $failures.ToArray())
+    }
+}
+
+# Finalizes reporting and each child independently, retaining the original run error.
+function Complete-RemoteAcceptanceRun {
+    param($Manifest, [string]$ManifestPath, [bool]$RunSucceeded,
+        $ClientHandle, $CoreHandle, [bool]$ClientLogsCompleted,
+        [bool]$CoreLogsCompleted, $PrimaryFailure = $null)
+    Invoke-IndependentProcessCleanup -PrimaryFailure $PrimaryFailure -Actions @(
+        { if (-not $RunSucceeded) {
+            $Manifest.status = 'failed'
+            Write-AcceptanceJson -Path $ManifestPath -Value $Manifest
+        } },
+        { if ($null -ne $ClientHandle) { Stop-BoundedProcess -Handle $ClientHandle -Kind app } },
+        { if ($null -ne $ClientHandle -and -not $ClientLogsCompleted) { Complete-ProcessLogs $ClientHandle } },
+        { if ($null -ne $ClientHandle) { $ClientHandle.Process.Dispose() } },
+        { if ($null -ne $CoreHandle) { Stop-BoundedProcess -Handle $CoreHandle -Kind core } },
+        { if ($null -ne $CoreHandle -and -not $CoreLogsCompleted) { Complete-ProcessLogs $CoreHandle } },
+        { if ($null -ne $CoreHandle) { $CoreHandle.Process.Dispose() } }
+    )
 }
 
 function Test-RakNetUnconnectedPong {
@@ -352,29 +395,25 @@ function Wait-ProcessOutputMarker {
     throw "timed out waiting for '$Marker'; process exit=$($Handle.Process.HasExited) log=$($Handle.StdoutPath)"
 }
 
+# Drains both copy tasks and disposes both streams, including partially built handles.
 function Complete-ProcessLogs {
     param($Handle)
-    if ($null -eq $Handle) {
-        return
-    }
+    if ($null -eq $Handle) { return }
     foreach ($copy in @($Handle.StdoutCopy, $Handle.StderrCopy)) {
+        if ($null -eq $copy) { continue }
         try {
             if (-not $copy.Wait(10000)) {
-                Write-Warning 'timed out flushing a child log stream'
+                Write-Warning 'timed out flushing a child log stream' -WarningAction Continue
             }
         }
-        catch {
-            Write-Warning "child log stream failed: $_"
-        }
+        catch { Write-Warning "child log stream failed: $_" -WarningAction Continue }
     }
-    foreach ($stream in @($Handle.StdoutStream, $Handle.StderrStream)) {
-        try {
-            $stream.Flush($true)
-        }
-        finally {
-            $stream.Dispose()
-        }
-    }
+    Invoke-IndependentProcessCleanup -Actions @(
+        { if ($null -ne $Handle.StdoutStream) { $Handle.StdoutStream.Flush($true) } },
+        { if ($null -ne $Handle.StdoutStream) { $Handle.StdoutStream.Dispose() } },
+        { if ($null -ne $Handle.StderrStream) { $Handle.StderrStream.Flush($true) } },
+        { if ($null -ne $Handle.StderrStream) { $Handle.StderrStream.Dispose() } }
+    )
 }
 
 function Stop-BoundedProcess {

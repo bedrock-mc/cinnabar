@@ -61,6 +61,17 @@ pub struct ActorFrameInput {
     pub renders_game: bool,
     pub hide_hand: bool,
     pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
+    /// API-authenticated playback already resolved to this session's actor lifetimes.
+    pub remote_emotes: Vec<RemoteEmote>,
+}
+
+/// Render-only remote playback bound to one spawned actor, preventing runtime-ID reuse.
+#[derive(Clone, Copy, Debug)]
+pub struct RemoteEmote {
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub emote: actor_animation::CustomEmote,
+    pub elapsed: f64,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -234,6 +245,7 @@ pub fn prepare_actor_render_frame(
             java_posed: &bodies.java_posed,
             combat_visuals: state.combat_visuals,
             local_emote_pose: bodies.local_emote_pose.as_ref(),
+            remote_emote_poses: &bodies.remote_emote_poses,
             native_body_sampled: bodies.native_body_sampled,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
