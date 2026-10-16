@@ -200,6 +200,9 @@ pub(crate) fn prepare(
     ) else {
         return;
     };
+    if instances_changed {
+        state.binding = None;
+    }
     let Some(bones_changed) = state.bones.upload(
         device,
         bytemuck::cast_slice(&state.history.bones),

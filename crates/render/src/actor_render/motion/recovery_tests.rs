@@ -3,7 +3,7 @@ use bevy::{
     math::{Mat4, UVec4},
     render::texture::CachedTexture,
 };
-use std::sync::Arc;
+use std::{cell::Cell, rc::Rc, sync::Arc};
 
 struct Fixture {
     device: RenderDevice,
@@ -111,4 +111,57 @@ fn failed_msaa_replacement_discards_incompatible_motion_view() {
             "an incompatible texture must not reach downstream resolve bindings"
         );
     }
+}
+
+#[test]
+fn partial_motion_upload_rebuilds_bindings_on_recovery_without_another_resize() {
+    let mut fixture = Fixture::new();
+    let depth = depth(&fixture.device, 1);
+    fixture.prepare(&depth, false);
+    fixture.frame.rig =
+        crate::motion_blur::actor_history::tests::frame(Vec3::ZERO, [0.0, 2.0, 1.0]);
+    fixture.prepare(&depth, true);
+    let old = fixture.state.as_ref().unwrap();
+    let old_binding = old.binding.as_ref().unwrap().id();
+    let old_instances = old.instances.buffer.id();
+    let old_bones = old.bones.buffer.id();
+    let instance = fixture.frame.rig.instances[0];
+    fixture.frame.rig.instances = Arc::from([instance, instance]);
+    let entry = fixture.frame.rig.manifest[0].clone();
+    let mut newcomer = entry.clone();
+    newcomer.identity.runtime_id += 1;
+    newcomer.instance_index = 1;
+    fixture.frame.rig.manifest = Arc::from([entry, newcomer]);
+    let failed = Rc::new(Cell::new(false));
+    {
+        let observed = Rc::clone(&failed);
+        let _failure = allocation::inject(move |label, bytes| {
+            let fail = label == "actor velocity upload"
+                && bytes == render_model::ACTOR_BONE_MATRIX_BYTES as u64;
+            observed.set(observed.get() || fail);
+            fail
+        });
+        fixture.prepare(&depth, true);
+    }
+    assert!(
+        failed.get(),
+        "the bone upload must reach the injected failure"
+    );
+    let partial = fixture.state.as_ref().unwrap();
+    assert!(!partial.ready);
+    assert_ne!(
+        partial.instances.buffer.id(),
+        old_instances,
+        "the first upload committed its growth"
+    );
+    let grown_instances = partial.instances.buffer.id();
+    fixture.prepare(&depth, true);
+    let recovered = fixture.state.as_ref().unwrap();
+    assert_eq!(recovered.instances.buffer.id(), grown_instances);
+    assert_eq!(recovered.bones.buffer.id(), old_bones);
+    assert_ne!(
+        recovered.binding.as_ref().unwrap().id(),
+        old_binding,
+        "recovery must bind the grown instance buffer even without another resize"
+    );
 }
