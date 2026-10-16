@@ -106,7 +106,8 @@ fn update(
         && crate::presence_target::invite_joinable(&address)
         && !already_there(world.target.as_ref(), &address)
     {
-        info!("joining {address} from a Discord invite");
+        // The address stays out of the log, which crash reports copy.
+        info!("joining a server from a Discord invite");
         menu.request_connect(address);
     }
 }

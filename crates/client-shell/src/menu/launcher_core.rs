@@ -5,14 +5,16 @@ use crate::local_worlds::LocalWorlds;
 use bevy::prelude::{Commands, Resource};
 use bridge::bridge_endpoint_exists;
 use launcher::menu::auth::AuthState;
-use launcher_host::{auth::AuthSupervisor, launcher_core::LauncherCore};
+use launcher_host::{
+    auth::AuthSupervisor, launcher_core::LauncherCore, lifecycle::core_health::RestartBackoff,
+};
 #[cfg(test)]
 use launcher_host::{core_process::CoreProcessGuard, session_cleanup::SessionDirectoryGuard};
-use std::path::PathBuf;
 #[cfg(test)]
+use std::process::{Command, Stdio};
 use std::{
-    process::{Command, Stdio},
-    time::Duration,
+    path::PathBuf,
+    time::{Duration, Instant},
 };
 /// Allows auth updates beside a separate direct game core, but protects games this core owns.
 pub(super) fn account_core_idle(
@@ -42,14 +44,23 @@ impl AccountCore {
 #[derive(Default, Resource)]
 pub struct LauncherCoreSlot {
     core: Option<LauncherCore>,
-    /// Sign-in mode whose spawn failed; retried only once the mode changes.
+    /// Sign-in mode whose spawn failed, or whose core kept exiting; retried only once the mode
+    /// changes or a profile refresh asks for it.
     failed: Option<bool>,
     retiring: Option<crossbeam_channel::Receiver<()>>,
+    /// Paces restarts of a core that exits on its own.
+    backoff: RestartBackoff,
+    /// When the current core was spawned, by the `now` that spawned it.
+    started: Option<Instant>,
+    /// The earliest restart after such an exit.
+    restart_at: Option<Instant>,
 }
 
 impl LauncherCoreSlot {
     /// Keep the core matching the validated sign-in while idle, and attach the
-    /// account and local-world clients once it is serving.
+    /// account and local-world clients once it is serving. A core that exited is restarted
+    /// after its [`RestartBackoff`] delay, measured from `now`, and not again once the backoff
+    /// gives up.
     pub(super) fn drive(
         &mut self,
         commands: &mut Commands,
@@ -57,6 +68,7 @@ impl LauncherCoreSlot {
         idle: bool,
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
+        now: Instant,
     ) {
         if let Some(retiring) = &self.retiring {
             if matches!(
@@ -67,13 +79,35 @@ impl LauncherCoreSlot {
             }
             self.retiring = None;
         }
-        if self.core.as_mut().is_some_and(|core| core._guard.exited()) {
-            bevy::log::warn!("launcher core exited; reconnecting its control clients when idle");
+        if let Some((status, authenticated)) = self
+            .core
+            .as_mut()
+            .and_then(|core| Some((core._guard.exit_status()?, core.authenticated)))
+        {
+            let ran_for = self.started.map_or(Duration::ZERO, |started| {
+                now.saturating_duration_since(started)
+            });
+            match self.backoff.next_delay(ran_for) {
+                Some(delay) => {
+                    bevy::log::warn!(
+                        "launcher core exited ({status}); restarting it in {delay:?} when idle"
+                    );
+                    self.restart_at = Some(now + delay);
+                    self.failed = None;
+                }
+                None => {
+                    bevy::log::warn!(
+                        "launcher core exited ({status}) again soon after starting; not restarting it until sign-in changes or a refresh"
+                    );
+                    self.restart_at = None;
+                    self.failed = Some(authenticated);
+                }
+            }
             self.retire(commands, menu, worlds.as_deref_mut());
-            self.failed = None;
         }
         if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
             self.failed = None;
+            self.restart_at = None;
         }
         if idle
             && menu.accounts.operation.is_some()
@@ -135,7 +169,11 @@ impl LauncherCoreSlot {
                 });
                 return;
             }
-            if (current != Some(wanted) || path_changed) && self.failed != Some(wanted) {
+            let restart_due = self.restart_at.is_none_or(|at| now >= at);
+            if (current != Some(wanted) || path_changed)
+                && self.failed != Some(wanted)
+                && restart_due
+            {
                 self.retire(commands, menu, worlds.as_deref_mut());
                 match LauncherCore::spawn(
                     &menu.layout,
@@ -146,6 +184,8 @@ impl LauncherCoreSlot {
                 ) {
                     Ok(core) => {
                         self.core = Some(core);
+                        self.started = Some(now);
+                        self.restart_at = None;
                         self.failed = None;
                     }
                     Err(error) => {
@@ -276,7 +316,7 @@ mod tests {
                 attached: true,
             }),
             failed: None,
-            retiring: None,
+            ..Default::default()
         };
         let mut menu = MenuRuntime::new_with_layout(
             false,

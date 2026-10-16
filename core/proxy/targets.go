@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -66,7 +67,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 	conn, err := network.DialContext(bounded, address)
 	if err == nil {
 		// Separates a transport stall from a login stall when a join hangs.
-		slog.Info("upstream transport connected", "target", address, "elapsed_ms", time.Since(started).Milliseconds())
+		slog.Info("upstream transport connected", "target", redact.Private(address), "elapsed_ms", time.Since(started).Milliseconds())
 	}
 	if err != nil && ctx.Err() == nil && !time.Now().Before(budgetDeadline) {
 		err = fmt.Errorf("proxy: %s did not accept the connection within %s (%w): %w", address, budget, context.DeadlineExceeded, err)

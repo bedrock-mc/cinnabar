@@ -9,8 +9,10 @@ native dialogs if no window opens) asks consent, downloads the pinned `bedrock-s
 carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
 pack archive is kept so carrier-only updates need no download. Status: `logs/first-run-status.json`;
-details: `logs/first-run.log`. On macOS and Linux a launch without a terminal (e.g. from Finder)
-sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per launch and past 8 MiB.
+details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
+whether or not a terminal is attached. Each launch archives the previous session as
+`client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues
+in a fresh file, and the newest 10 archives up to 64 MiB are kept.
 
 | Target | Command | Signing (env only) |
 | --- | --- | --- |
@@ -161,8 +163,51 @@ The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri
 code and URL; no packaging-specific UI exists.
 
 ## Crash reports
-A panic hook writes `crashes/*.json` (message, backtrace, core log tail) for local debugging; the newest
-reports are kept and nothing is uploaded.
+The client starts a crash monitor first: the same executable re-run as `cinnabar --crash-monitor
+<socket> <parent pid> <crash dir>`, which logs to `logs/crash-monitor.log` and exits with the
+client. Its socket sits in a directory only the player can enter (`$XDG_RUNTIME_DIR/cinnabar` or
+`cinnabar-<uid>` under the temporary directory; the user's temporary directory on Windows), and it
+keeps only messages that carry the random token the client handed it on its stdin, along with
+the client's arguments for Restart, which reruns the monitor's own executable (or the AppImage).
+A panic or native fault only asks it for a minidump. A panic's folder is written as soon as its
+dump arrives; if the client lives on, nothing is shown and a later crash gets its own folder.
+A native fault's folder is written once the client is gone. Each folder,
+`crashes/<UTC yyyymmdd-hhmmss>-<session id>/` under the user data directory, holds `crash.dmp`
+(thread stacks, thread and module lists), `report.json` (schema 1: kind, message, thread,
+backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session ID,
+renderer attempt and game state — session phase, server kind without its address, dimension,
+server pack count; native faults add a `native` object), plus `client.log` and `core.log` with
+this session's part of each log, up to 1 MiB apiece, `packets.txt` (the last 4,096 packet
+headers by name), `decode-samples/` (bodies of packets the session rejected, when any) and
+`flight.log` (the last 2,000 lines of the log flight recorder, `debug` for network, session,
+core and packs). The last three come from the session's `crashes/.live-<session id>/` staging
+directory, whose rings are mapped files that outlive any crash; the crash window lists the last
+packets in its details. When the client dies, the monitor opens the
+crash window (Restart, Copy report, Open folder, Close, Join our Discord) for the fault, or for
+the panic that ended it. A client that dies without a dump (a fail-fast abort such as
+`0xC0000409`, an out-of-memory or external kill) gets a `kind: abort` report from its exit status;
+a clean exit (code 0, or 130 after Ctrl+C) gets none. When `main` fails in a Windows GUI build,
+the window shows the error: as `Cinnabar couldn't start` (`kind: startup`) before the game showed
+its first frames, such as on a missing carrier, and as `Cinnabar stopped` (`kind: runtime`) after.
+When the main loop finishes no frame for 10 s outside a world join, the monitor writes one
+`kind: hang` folder per stall, with a minidump of every thread on Windows and Linux (macOS reports
+say why they have none), and leaves the client running without a window; killing the hung client
+then shows that folder instead of writing an abort report.
+Without a GPU for the window the monitor uses a native dialog with the same actions. Until the
+monitor is connected, or where it cannot run (Android), the client writes the folder itself, and
+a monitor that connects later reports nothing more; folders from fatal Unix signals then end in
+`-signal` and, written with async-signal-safe calls only, lack the three staging files. The
+newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
+`CINNABAR_FULL_DUMP=1` writes full-memory dumps (Windows). `devtool diag` bundles the latest
+session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
+uploaded.
+
+A `bedrock-core` process that crashes while the client lives (a Go panic or fatal error, or an
+exit other than 0 or its own logged failure status 1 that the client did not ask for) gets a
+`kind: core` folder written by the client, with `core-crash.txt` holding the Go runtime's
+panic and every goroutine's stack; no crash window opens, since the client shows its own
+disconnect. Every core's stderr goes to `logs/core.log`, one file per client session, each line
+labelled with the process role and pid.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and

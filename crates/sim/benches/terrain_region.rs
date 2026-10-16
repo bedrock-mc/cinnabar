@@ -1,5 +1,4 @@
 //! Host-side terrain region construction over mixed terrain.
-
 #[path = "terrain_region/fixture.rs"]
 mod fixture;
 

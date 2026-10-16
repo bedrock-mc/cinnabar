@@ -41,7 +41,7 @@ use {
         ChunkTextureAssets, VisibilityDiagnosticsInput,
     },
 };
-mod logging;
+pub(crate) mod logging;
 pub(crate) mod session;
 mod startup;
 use startup::bind_direct_session_directory;
@@ -142,7 +142,7 @@ const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
 
 mod authority;
 mod executor;
-mod interaction;
+pub(crate) mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 /// Registers the production actor observation and publication boundaries.
@@ -367,7 +367,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
-    let app = logging::startup_app();
+    let app = App::new();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -641,6 +641,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             login_settings: crate::session::login_settings(&menu, None),
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
+            log_dir: menu.layout().log_dir(),
+            record_session: menu.settings_snapshot().0.record_network_session(),
         })
         .context("spawn Bedrock network worker")
         {
@@ -714,8 +716,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.disable::<bevy::log::LogPlugin>();
-    app.add_plugins(plugins);
+    logging::add_default_plugins(&mut app, plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
@@ -725,6 +726,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
+    app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
@@ -953,12 +955,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::developer_control::configure(&mut app);
     app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
-    app.init_resource::<client_state::PresenceObservation>()
-        .add_systems(
-            Last,
-            crate::shell_adapters::publish_presence_observation
-                .before(client_state::ShellFrameSet::Presence),
-        );
+    crate::shell_adapters::configure_observations(&mut app);
     session::configure_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
@@ -966,6 +963,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     executor::configure_frame_schedule_executors(&mut app);
     app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
         .add_systems(First, crate::lifecycle::acknowledge_startup);
+    crate::lifecycle::heartbeat::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     let exit = crate::runtime::frame_profile::run(&mut app);

@@ -98,8 +98,8 @@ pub(super) fn current_target(
         authority
             .remote_actors()
             .filter(|actor| match aim.target.map(|target| target.kind) {
-                Some(client_presentation::aim_assist::TargetKind::Actor(id)) => {
-                    actor.runtime_id == id
+                Some(client_presentation::aim_assist::TargetKind::Actor(lifetime)) => {
+                    actor.runtime_id == lifetime.runtime_id
                 }
                 Some(client_presentation::aim_assist::TargetKind::Block { .. }) => false,
                 None => true,

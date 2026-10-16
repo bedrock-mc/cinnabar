@@ -53,7 +53,7 @@ impl EquipmentRuntime {
                     .map(|_| HandItemAlphaMode::Cutout)
             })
             .or_else(|| match item.kind {
-                HeldKind::Block(visual) => self.block_alpha.get(&visual).copied(),
+                HeldKind::Block(visual) => self.block_alpha_mode(visual),
                 _ => None,
             })
             .unwrap_or_default()

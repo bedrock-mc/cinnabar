@@ -9,6 +9,12 @@ use std::{
 
 /// Names the `started` marker the launched client creates after its first complete frames.
 pub const STARTUP_ENV: &str = "CINNABAR_UPDATE_STARTUP_FILE";
+/// The variable an AppImage runtime sets to the image it runs from.
+pub const APPIMAGE: &str = "APPIMAGE";
+/// The variables an AppImage runtime sets for the program it starts; a launch that does not go
+/// through that runtime must not inherit them.
+pub const APPIMAGE_RUNTIME_ENV: [&str; 5] =
+    [APPIMAGE, "APPDIR", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD"];
 /// The marker's filename; the client accepts no other path from the environment.
 pub const STARTED: &str = "started";
 /// Longest silence, before startup or since the last preparation heartbeat, that counts as stalled;
@@ -39,7 +45,7 @@ pub fn client_command(target: &Path) -> Command {
     #[cfg(target_os = "linux")]
     {
         command.arg("--appimage-extract-and-run");
-        for name in ["APPIMAGE", "APPDIR", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD"] {
+        for name in APPIMAGE_RUNTIME_ENV {
             command.env_remove(name);
         }
     }

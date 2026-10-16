@@ -329,6 +329,7 @@ impl ActorStore {
                     unique_id,
                     username: std::sync::Arc::clone(&feed.username),
                     verified: false,
+                    xuid: "".into(),
                     skin: feed.skin.clone(),
                 },
                 None,
@@ -649,6 +650,7 @@ impl ActorStore {
                             unique_id,
                             username,
                             verified,
+                            xuid,
                             skin,
                         } => {
                             let admitted = self.upsert_profile(
@@ -657,6 +659,7 @@ impl ActorStore {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
+                                    xuid: xuid.clone(),
                                     skin: skin.clone(),
                                 },
                                 spawned.as_ref(),
@@ -672,8 +675,21 @@ impl ActorStore {
                     }
                 }
                 if capacity_rejected {
+                    tracing::debug!(
+                        players = self.players.len(),
+                        "Cinnabar world roster capacity rejected"
+                    );
                     ActorApplyResult::CapacityRejected
                 } else {
+                    tracing::debug!(
+                        players = self.players.len(),
+                        identities = self
+                            .players
+                            .values()
+                            .filter(|profile| !profile.xuid.is_empty())
+                            .count(),
+                        "Cinnabar world roster committed"
+                    );
                     ActorApplyResult::Updated
                 }
             }
@@ -924,7 +940,8 @@ impl ActorStore {
         }
     }
 
-    pub(super) fn lifetime(&self, runtime_id: u64) -> Option<ActorLifetimeId> {
+    /// Resolves the full identity of the actor currently using this runtime ID.
+    pub(crate) fn lifetime(&self, runtime_id: u64) -> Option<ActorLifetimeId> {
         self.actors
             .get(&runtime_id)
             .map(|actor| self.lifetime_for(actor))

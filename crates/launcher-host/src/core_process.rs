@@ -6,13 +6,16 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
 use {
-    crate::lifecycle::children::{self, Spawned, StopOutcome},
+    crate::lifecycle::{
+        children::{self, Spawned, StopOutcome},
+        core_output::CoreRole,
+    },
     launcher::install_layout::InstallLayout,
 };
 
@@ -74,11 +77,10 @@ impl CoreProcessGuard {
         self.child.as_ref().map(Spawned::id)
     }
 
-    /// Whether the child has already exited on its own.
-    pub fn exited(&mut self) -> bool {
-        self.child
-            .as_ref()
-            .is_some_and(|child| matches!(child.try_wait(), Ok(Some(_))))
+    /// The tracked core's exit status once it has exited; `None` while it runs, without a
+    /// core, or when its status cannot be read.
+    pub fn exit_status(&mut self) -> Option<ExitStatus> {
+        self.child.as_ref()?.try_wait().ok().flatten()
     }
 
     /// [`Self::stop`] on a reaper thread, running `then` once the core is gone,
@@ -155,7 +157,7 @@ pub fn spawn_core_for_address(
             .arg("-server-trust-file")
             .arg(layout.server_trust_file());
     }
-    children::spawn(&mut command)
+    crate::lifecycle::core_output::spawn(&mut command, CoreRole::Game)
         .with_context(|| format!("spawn {} for {address}", executable.display()))
 }
 
@@ -185,11 +187,7 @@ pub fn core_command_for_address(
         .arg("-device-file")
         .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(
-            crate::lifecycle::core_health::open_core_log(layout)
-                .map_or_else(Stdio::null, Stdio::from),
-        );
+        .stdout(Stdio::null());
     // Passed only when the spawning session provably owns the verified blob
     // cache whose resolver advertises cache support downstream: the core's
     // upstream advertisement must never lead the downstream one.
@@ -291,7 +289,7 @@ mod tests {
             assert!(
                 command
                     .get_args()
-                    .all(|argument| argument != "-xbox-presence")
+                    .all(|argument| argument != "-xbox-presence" && argument != "-cinnabar-api")
             );
         }
     }

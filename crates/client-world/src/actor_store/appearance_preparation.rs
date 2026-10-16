@@ -146,12 +146,14 @@ fn same_profile_allocation(a: &PlayerProfile, b: &PlayerProfile) -> bool {
         unique_id: a_id,
         username: a_name,
         verified: a_verified,
+        xuid: _,
         skin: a_skin,
     } = a;
     let PlayerProfile {
         unique_id: b_id,
         username: b_name,
         verified: b_verified,
+        xuid: _,
         skin: b_skin,
     } = b;
     if a_id != b_id || a_verified != b_verified || a_name != b_name {

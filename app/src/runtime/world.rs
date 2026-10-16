@@ -17,6 +17,7 @@ use {
 mod committed_ui;
 mod control_apply;
 mod dimension;
+mod input_locks;
 mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
@@ -26,8 +27,10 @@ pub(crate) use dimension::advance_dimension_transfer;
 mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
+mod terrain_generation;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
+pub(crate) use terrain_generation::synchronize_terrain_generation;
 
 #[cfg(feature = "acceptance")]
 use acceptance::committed_control::{
@@ -120,6 +123,8 @@ pub(crate) struct ClientWorld {
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
     pub(crate) pack_entities: Option<Arc<assets::SessionEntityPack>>,
+    /// Worker-computed terrain inputs used to select the far-terrain cache namespace.
+    pub(crate) terrain_resource_identity: [u8; 32],
     /// Worker-built pack pages, reused only while their base artwork and pack remain current.
     pub(crate) prepared_actor_artwork:
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
@@ -150,6 +155,7 @@ impl ClientWorld {
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
+            terrain_resource_identity: [0; 32],
             prepared_actor_artwork: None,
             session_items: None,
             pending_surface_spawn: None,
@@ -321,6 +327,8 @@ type WorldPollInputs<'w, 's> = (
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     Local<'s, gameplay::movement::CorrectionContextLog>,
     Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
+    ResMut<'w, client_interaction::movement::LocomotionState>,
+    ResMut<'w, client_presentation::camera::look::LookSmoother>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -347,6 +355,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         server_camera_view,
         mut correction_log,
         mut item_use,
+        mut locomotion,
+        mut look_smoother,
     ): WorldPollInputs<'_, '_>,
 ) {
     let _timer = profiler
@@ -426,6 +436,17 @@ pub(crate) fn reconcile_world_stream_before_physics(
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
+            input_locks::apply_committed_input_locks(
+                clock.session_generation(),
+                locks,
+                &mut player_runtime.facts,
+                &mut local_physics,
+                &mut locomotion,
+                &mut look_smoother,
+            );
+            continue;
+        }
         if let CommittedControlEvent::DimensionChangeAck {
             dimension_epoch, ..
         } = control
@@ -629,7 +650,7 @@ pub(crate) fn drive_world_stream(
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
-    mut rendered_session: Local<Option<u64>>,
+    mut rendered_session: Local<Option<(u64, u64)>>,
     mut visibility: ResMut<CaveVisibilityCache>,
     camera_publication: Option<
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
@@ -657,13 +678,15 @@ pub(crate) fn drive_world_stream(
     let active_session = client_world
         .stream
         .as_ref()
-        .map(|stream| stream.authority().actor_session_id());
-    if *rendered_session != active_session {
-        render_queue.reset_session();
-        acknowledgements.clear();
+        .map(WorldStream::terrain_generation);
+    if synchronize_terrain_generation(
+        &mut rendered_session,
+        active_session,
+        &mut render_queue,
+        &acknowledgements,
+    ) {
         *visibility = CaveVisibilityCache::default();
         diagnostic_quads.0.clear();
-        *rendered_session = active_session;
     }
     let Some(stream) = client_world.stream.as_mut() else {
         ui_runtime.clear_disconnected_block_cracks();

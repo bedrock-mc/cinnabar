@@ -1,10 +1,12 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
 mod icons;
-pub(crate) mod picker;
 mod worker;
 
 use bevy::prelude::*;
+use client_shell::local_worlds::LocalWorlds;
+use launcher::local_worlds::Input;
+use launcher_host::local_worlds::is_world_archive;
 use std::{path::PathBuf, sync::Arc};
 use {crate::runtime::network::PackReload, client_shell::menu::MenuRuntime};
 
@@ -85,13 +87,15 @@ impl From<Overlay<'_>> for PublishedOverlay {
 /// Delivers UI/file commands and publishes completed immutable snapshots.
 ///
 /// The published snapshot is a function of the worker's snapshot and the reload overlay, so
-/// it is rebuilt only when either changes instead of being cloned every frame.
+/// it is rebuilt only when either changes instead of being cloned every frame. Dropped world
+/// files go to the Worlds tab while it shows and every other drop imports as a pack.
 fn drive(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
     mut reload: ResMut<PackReload>,
     mut drops: MessageReader<bevy::window::FileDragAndDrop>,
     mut published: Local<Option<PublishedOverlay>>,
+    worlds: Option<ResMut<LocalWorlds>>,
 ) {
     let mut snapshot_changed = false;
     for request in menu.take_minecraft_import_requests() {
@@ -100,9 +104,22 @@ fn drive(
             menu.fail_minecraft_import(action, WORKER_UNAVAILABLE);
         }
     }
+    let mut world_files = Vec::new();
     for event in drops.read() {
         if let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = event {
-            worker.send(worker::Command::Import(path_buf.clone()));
+            if is_world_archive(path_buf) {
+                world_files.push(path_buf.clone());
+            } else {
+                worker.send(worker::Command::Import(path_buf.clone()));
+            }
+        }
+    }
+    if !world_files.is_empty() {
+        match worlds {
+            Some(mut worlds) if menu.showing_worlds() => {
+                worlds.input(Input::ImportFiles(world_files));
+            }
+            _ => info!("dropped world files import from the Worlds tab only"),
         }
     }
     for action in std::mem::take(&mut menu.global_resource_actions) {

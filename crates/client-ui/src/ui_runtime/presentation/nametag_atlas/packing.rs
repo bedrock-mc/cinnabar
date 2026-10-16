@@ -192,15 +192,21 @@ impl NametagAtlas {
         let mut index = 0;
         while index < self.cells.len() {
             let cell = &self.cells[index];
-            if !candidate.shelves.contains(&cell.shelf) || self.requested.contains(&cell.text) {
+            if !candidate.shelves.contains(&cell.shelf)
+                || cell
+                    .text
+                    .as_ref()
+                    .is_none_or(|text| self.requested.contains(text))
+            {
                 index += 1;
                 continue;
             }
             let removed = self.cells.swap_remove(index);
             removed_lines = true;
-            self.lines.remove(&removed.text);
-            if let Some(moved) = self.cells.get(index) {
-                *self.lines.get_mut(&moved.text).expect("retained cell") = index;
+            self.lines
+                .remove(removed.text.as_ref().expect("evicted text cell"));
+            if let Some(moved) = self.cells.get(index).and_then(|cell| cell.text.as_ref()) {
+                *self.lines.get_mut(moved).expect("retained cell") = index;
             }
         }
         let end_y = self.shelves[candidate.shelves.end - 1].y
@@ -225,7 +231,11 @@ impl NametagAtlas {
         let mut occupied = vec![Vec::new(); self.shelves.len()];
         let mut unused = vec![false; self.shelves.len()];
         for cell in &self.cells {
-            if self.requested.contains(&cell.text) {
+            if cell
+                .text
+                .as_ref()
+                .is_none_or(|text| self.requested.contains(text))
+            {
                 occupied[cell.shelf].push(cell.line.cell);
             } else {
                 unused[cell.shelf] = true;

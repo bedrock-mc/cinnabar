@@ -29,6 +29,7 @@ use super::{
     },
     process::{Instance, Launch, Process, StartSpec, launch},
     provision::{RuntimeInfo, install_dir},
+    store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
 };
 
@@ -93,7 +94,7 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         "-v".to_owned(),
         format!(
             "{}:/data/worlds/{}",
-            args.spec.dir.join("db").display(),
+            args.spec.dir.join(LEVEL_DIR).display(),
             world.id
         ),
     ];
@@ -225,7 +226,7 @@ impl BdsRunner {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         link_versioned_binary(&binary, &version)?;
-        create_private_dir(&spec.dir.join("db"))
+        create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
         let port = free_bds_port(max_players, self.host_port)?;
         if self.lan_visible {

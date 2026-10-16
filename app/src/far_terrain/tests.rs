@@ -5,7 +5,8 @@ use super::*;
 
 const SERVER: &str = "remote:play.example.net:19132";
 
-fn flat(height: i16) -> EncodedSummary {
+/// Encodes a uniformly colored, original surface summary at the requested height.
+pub(super) fn flat(height: i16) -> EncodedSummary {
     let mut summary = ColumnSummary::default();
     summary.cells_mut().fill(SurfaceCell {
         height,
@@ -26,7 +27,7 @@ fn join(cache: &mut FarTerrainCache, now: Instant) {
 }
 
 /// Builds an empty session with far terrain on and the minimum full-detail radius.
-fn far_terrain_app(render_distance: u8) -> App {
+pub(super) fn far_terrain_app(render_distance: u8) -> App {
     let mut settings = RuntimeSettings::default();
     let mut user = settings.user_settings_update().1.clone();
     user.video.far_terrain = render_api::far_terrain::FarTerrainMode::On;

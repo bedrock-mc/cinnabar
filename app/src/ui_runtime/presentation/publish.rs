@@ -354,6 +354,9 @@ pub(crate) fn prepare_ui_runtime(
             physical_size,
         );
     }
+    runtime
+        .player_roster
+        .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = menu_runtime
         .settings_snapshot()
         .0
@@ -444,6 +447,13 @@ pub(crate) fn prepare_ui_runtime(
                 {
                     tags.push(tag);
                 }
+            }
+            for tag in &mut tags {
+                tag.set_cinnabar_badge(
+                    authority
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
+                );
             }
             tags
         })

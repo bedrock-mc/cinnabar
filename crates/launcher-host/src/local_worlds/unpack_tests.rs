@@ -26,7 +26,7 @@ fn parallel_extraction_writes_every_file() {
         .collect();
     let archive = archive_file(dir.path(), &listing);
     let root = dir.path().join("root");
-    extract_archive(&root, &archive, &BDS_LIMITS).expect("extract");
+    extract_archive(&root, &archive, &BDS_LIMITS, &|| false).expect("extract");
     for (name, body) in &files {
         assert_eq!(&fs::read(root.join(name)).expect(name), body, "{name}");
     }
@@ -36,6 +36,8 @@ fn parallel_extraction_writes_every_file() {
 #[test]
 fn listings_over_the_limits_write_nothing() {
     let limits = UnpackLimits {
+        label: "archive",
+        refuse_links: false,
         max_entries: 3,
         max_file_bytes: 1000,
         max_total_bytes: 1500,
@@ -65,7 +67,7 @@ fn listings_over_the_limits_write_nothing() {
         let root = dir.path().join("root");
         fs::create_dir_all(&root).expect("root");
         assert!(
-            extract_archive(&root, &archive, &limits).is_err(),
+            extract_archive(&root, &archive, &limits, &|| false).is_err(),
             "{case} accepted"
         );
         let written = fs::read_dir(root).expect("root").count();
@@ -77,11 +79,11 @@ fn listings_over_the_limits_write_nothing() {
 fn entry_names_stay_inside_the_install() {
     let root = Path::new("/install");
     assert_eq!(
-        entry_target(root, "a/./b/../c").expect("inside"),
+        entry_target(root, "a/./b/../c", "archive").expect("inside"),
         root.join("a").join("c")
     );
     for name in ["/etc/passwd", "../x", "a/../../x"] {
-        assert!(entry_target(root, name).is_err(), "{name}");
+        assert!(entry_target(root, name, "archive").is_err(), "{name}");
     }
     assert!(install_dir_name("1.26.52.3") && install_dir_name("1.26.41.0.partial"));
     assert!(!install_dir_name("not-a-version") && !install_dir_name("downloads"));
