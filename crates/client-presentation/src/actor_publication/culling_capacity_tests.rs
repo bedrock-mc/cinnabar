@@ -187,9 +187,38 @@ fn player_world(
             )
             .unwrap();
     }
-    stream.prepare_actor_appearance_fixture();
+    prepare_player_crowd(&mut stream, visible as usize);
     stream.advance_actor_interpolation_frame(3);
     stream
+}
+
+/// Awaits workers and drives bounded appearance publication until the entire crowd is drawable.
+fn prepare_player_crowd(stream: &mut WorldStream, expected: usize) {
+    for _ in 0..expected {
+        stream.prepare_actor_appearance_fixture();
+        // Model-free skins also publish over several frames, without pending worker jobs.
+        stream.advance_actor_interpolation_frame(0);
+        if stream
+            .authority()
+            .actor_rigs()
+            .filter(|rig| rig.pose_evaluated && !rig.render.is_empty())
+            .count()
+            == expected
+        {
+            break;
+        }
+    }
+    let rigs: Vec<_> = stream.authority().actor_rigs().collect();
+    assert_eq!(
+        rigs.len(),
+        expected,
+        "every roster appearance must be admitted"
+    );
+    assert!(
+        rigs.iter()
+            .all(|rig| rig.pose_evaluated && !rig.render.is_empty()),
+        "every crowd member must have a completed controller result before capacity sampling"
+    );
 }
 
 /// Supplies a complete ordinary actor event with deterministic lifetime and transform.
@@ -313,6 +342,11 @@ fn assert_player_capacity(custom_model: bool, offscreen: usize) {
         let mut frame = stream.authority().actor_render_frame(alpha);
         assert!(frame.may_replace_body_geometry(1));
         let selected = frame.layers(1).unwrap();
+        assert_eq!(
+            selected.len(),
+            1,
+            "prepared crowd has one selected render layer"
+        );
         assert_eq!(selected[0].geometry.is_some(), alpha > 0.75);
         let (sampled, geometries) = caches.sample(&stream, &artwork, alpha);
         let actor = sampled
@@ -334,6 +368,16 @@ fn assert_player_capacity(custom_model: bool, offscreen: usize) {
         }
         let batch =
             select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
+        let visible_draw = batch
+            .submissions
+            .iter()
+            .find(|draw| draw.input.identity.runtime_id == visible)
+            .expect("visible player reaches bounded skin selection");
+        assert_eq!(
+            visible_draw.route,
+            ActorRigRoute::Compiled,
+            "offscreen skins must not displace the visible player from residency"
+        );
         assert_eq!(batch.skin_layers.len(), 1);
         assert_eq!(batch.submissions.len(), 1);
         assert_eq!(batch.submissions[0].input.identity.runtime_id, visible);
