@@ -170,6 +170,18 @@ pub const STATES: &[State] = &[
         fixture: || chat_background(100),
     },
     State {
+        name: "chat-history-width",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_history_width,
+    },
+    State {
+        name: "chat-history-width-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: chat_history_width,
+    },
+    State {
         name: "chat-command-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -401,6 +413,22 @@ fn chat_background(percent: i32) -> Fixture {
 /// Shows the command input and suggestions with chat backgrounds set to zero percent.
 fn chat_command_background() -> Fixture {
     chat_completion("/", &["/give", "/help", "/say"])
+}
+
+/// Shows equal-width history backgrounds and a message that wraps inside them.
+fn chat_history_width() -> Fixture {
+    let mut fixture = chat_background(50);
+    if let Fixture::Chat { messages, .. } = &mut fixture {
+        messages.push_back(ui::ChatMessage {
+            fifo_sequence: messages.len() as u64 + 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: "A longer chat message wraps inside the history box while every visible line keeps the same background width.".into(),
+            parameters: Arc::from([]),
+        });
+    }
+    fixture
 }
 
 /// Shows completions after an anonymous draft with transparent message backgrounds.
