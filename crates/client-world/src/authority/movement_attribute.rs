@@ -106,14 +106,18 @@ impl MovementSpeedAttribute {
 
     /// Applies a server Speed effect change, preserving sprint and custom modifiers.
     /// Attribute packets remain authoritative and can replace this modifier afterward.
+    /// Updating or removing an absent modifier leaves current untouched.
     pub fn apply_speed_effect(&mut self, action: protocol::ActorEffectAction, amplifier: i32) {
         use protocol::ActorEffectAction;
         match action {
+            ActorEffectAction::Update | ActorEffectAction::Remove
+                if self.speed_effect_modifier.is_none() =>
+            {
+                return;
+            }
             ActorEffectAction::Add | ActorEffectAction::Update => {
-                if action == ActorEffectAction::Add || self.speed_effect_modifier.is_some() {
-                    self.speed_effect_modifier =
-                        Some(1.0 + (amplifier as f32 + 1.0) * SPEED_EFFECT_STEP);
-                }
+                self.speed_effect_modifier =
+                    Some(1.0 + (amplifier as f32 + 1.0) * SPEED_EFFECT_STEP);
             }
             ActorEffectAction::Remove => self.speed_effect_modifier = None,
             ActorEffectAction::Unknown(_) => return,
@@ -273,6 +277,20 @@ mod tests {
         .unwrap();
         speed.set_sprint_modifier(None);
         assert_eq!(speed.current, f64::from(0.25_f32));
+    }
+
+    /// An absent Speed modifier leaves the server's distinct current untouched.
+    #[test]
+    fn speed_effect_without_an_installed_modifier_preserves_server_current() {
+        use protocol::ActorEffectAction::{Remove, Update};
+
+        let authoritative =
+            MovementSpeedAttribute::from_attribute(&packet(0.17, 0.1, &[])).unwrap();
+        for action in [Update, Remove] {
+            let mut speed = authoritative;
+            speed.apply_speed_effect(action, 2);
+            assert_eq!(speed, authoritative, "{action:?}");
+        }
     }
 
     /// Speed changes preserve other operations, sprint, and effective bounds.
