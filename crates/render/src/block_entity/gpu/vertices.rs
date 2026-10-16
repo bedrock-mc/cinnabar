@@ -233,6 +233,7 @@ mod tests {
         assert!(ranges.is_empty());
         next.push(BlockEntityVertex::default());
         assert!(changed_ranges(&original, &next, &mut ranges));
-        assert_eq!(ranges, [0..next.len()]);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0], 0..next.len());
     }
 }
