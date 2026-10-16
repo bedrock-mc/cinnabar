@@ -120,26 +120,30 @@ func messageKey(message []byte) uint64 {
 	return digest.Sum64() >> 1 // a non-negative trace value
 }
 
-// upstreamTrace links one upstream connection's RakNet messages to the batches read from it.
-// gophertunnel queues the packets it accepted from each play-phase message as one batch, in
-// order; the message starting with StartGame also carries the login packets deferred to it.
+// upstreamTrace links one upstream connection's RakNet messages to the batches the relay reads.
+// After StartGame, gophertunnel queues the packets it accepted from each message as one batch,
+// in order. Startup batches mix packets deferred from several login messages, so they are traced
+// with an unknown origin and every message through StartGame is dropped once they are read.
 type upstreamTrace struct {
 	accepted     atomic.Int64 // packets accepted from the message being handled
 	sawStartGame atomic.Bool  // the message being handled holds StartGame
-	playing      bool         // receive goroutine only: StartGame has been handled
 
-	mu      sync.Mutex
-	queued  []tracedMessage // handled messages whose batch has not been fully read, oldest first
-	current tracedMessage   // the message being handled
-	lastOut uint64          // key of the last message written upstream
+	mu        sync.Mutex
+	queued    []tracedMessage // handled messages whose batch has not been fully read, oldest first
+	current   tracedMessage   // the message being handled
+	startupAt bool            // startup was read before the StartGame message finished
+	lastOut   uint64          // key of the last message written upstream
 }
 
 type tracedMessage struct {
-	key     uint64
-	playing bool
-	taken   int64 // packets already read from its batch
-	packets int64 // packets accepted, once known
+	key       uint64
+	startGame bool
+	taken     int64 // packets already read from its batch
+	packets   int64 // packets accepted, once known
 }
+
+// unknownOrigin is the message key of a batch whose source message is not tracked.
+const unknownOrigin = -1
 
 type upstreamTraceKey struct{}
 
@@ -193,7 +197,7 @@ func lookupUpstreamTrace(session packetSession) *upstreamTrace {
 // begin starts tracking the message gophertunnel is about to handle.
 func (upstream *upstreamTrace) begin(key uint64) {
 	upstream.mu.Lock()
-	upstream.current = tracedMessage{key: key, playing: upstream.playing}
+	upstream.current = tracedMessage{key: key}
 	upstream.mu.Unlock()
 }
 
@@ -204,14 +208,35 @@ func (upstream *upstreamTrace) finish() int64 {
 	upstream.mu.Lock()
 	defer upstream.mu.Unlock()
 	message := upstream.current
-	message.packets = packets
-	message.playing = message.playing || startGame
-	if message.playing && message.packets > message.taken {
+	message.packets, message.startGame = packets, startGame
+	switch {
+	case upstream.startupAt:
+		// Startup was read before this message finished: drop it, and everything through
+		// StartGame, from the play-phase queue.
+		upstream.startupAt = !startGame
+	case message.packets > message.taken:
 		upstream.queued = append(upstream.queued, message)
 	}
 	upstream.current = tracedMessage{}
-	upstream.playing = upstream.playing || startGame
 	return packets
+}
+
+// startupRead drops every message through StartGame once the session startup has read the batch
+// holding it; those batches mixed deferred login packets.
+func (upstream *upstreamTrace) startupRead() {
+	if upstream == nil {
+		return
+	}
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	for index, message := range upstream.queued {
+		if message.startGame {
+			upstream.queued = upstream.queued[index+1:]
+			return
+		}
+	}
+	upstream.queued = upstream.queued[:0]
+	upstream.startupAt = true
 }
 
 // batchMessage attributes a batch of n packets read from the upstream to its message's key.
@@ -284,14 +309,17 @@ func (conn *tracedRakNet) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// traceStartupBatch attributes a batch the session startup read to its message.
-func traceStartupBatch(upstream packetSession, batch []minecraft.RawPacket) {
+// traceStartupBatch records a batch the session startup read, with an unknown origin, and once
+// the batch holding StartGame is read, drops the messages it consumed from the play-phase queue.
+func traceStartupBatch(upstream packetSession, batch []minecraft.RawPacket, holdsStartGame bool) {
 	trace := latencytrace.Active()
 	if trace == nil {
 		return
 	}
-	key := lookupUpstreamTrace(upstream).batchMessage(len(batch))
-	trace.Record(latencytrace.StartupBatch, trace.Now(), int64(key), int64(len(batch)))
+	trace.Record(latencytrace.StartupBatch, trace.Now(), unknownOrigin, int64(len(batch)))
+	if holdsStartGame {
+		lookupUpstreamTrace(upstream).startupRead()
+	}
 }
 
 // relayTrace times one relay direction's batches; nil when tracing is off.

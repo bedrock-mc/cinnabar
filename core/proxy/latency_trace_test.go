@@ -72,8 +72,9 @@ func TestRakNetFramesKeyTheMessagesTheyStart(t *testing.T) {
 	}
 }
 
-// Batches map to the messages that produced them, across StartGame, messages without accepted
-// packets, a batch read before its message closed, and one message read as two batches.
+// Play-phase batches map to the messages that produced them: messages through StartGame leave
+// the queue once startup is read, messages without accepted packets queue nothing, a batch read
+// before its message closed takes that message, and one message can be read as two batches.
 func TestUpstreamTraceAttributesBatchesToTheirMessages(t *testing.T) {
 	upstream := new(upstreamTrace)
 	message := func(key uint64, packets int64, startGame bool) {
@@ -83,26 +84,60 @@ func TestUpstreamTraceAttributesBatchesToTheirMessages(t *testing.T) {
 	}
 	message(1, 2, false) // login, handled internally
 	upstream.finish()
-	message(2, 3, true)
+	message(2, 1, false) // DimensionData, deferred to the startup batch
 	upstream.finish()
-	if key := upstream.batchMessage(5); key != 2 {
-		t.Fatalf("startup batch key = %d, want the StartGame message", key)
-	}
-	message(3, 0, false) // only subclient packets
+	message(3, 3, true)
 	upstream.finish()
-	message(4, 2, false)
-	if key := upstream.batchMessage(2); key != 4 {
+	upstream.startupRead()
+	message(4, 0, false) // only subclient packets
+	upstream.finish()
+	message(5, 2, false)
+	if key := upstream.batchMessage(2); key != 5 {
 		t.Fatalf("early batch key = %d, want the message still being handled", key)
 	}
 	upstream.finish()
-	message(5, 4, false)
+	message(6, 4, false)
 	upstream.finish()
 	for _, n := range []int{1, 3} {
-		if key := upstream.batchMessage(n); key != 5 {
-			t.Fatalf("split batch key = %d, want 5", key)
+		if key := upstream.batchMessage(n); key != 6 {
+			t.Fatalf("split batch key = %d, want 6", key)
 		}
 	}
 	if len(upstream.queued) != 0 {
 		t.Fatalf("queued = %+v, want every batch read", upstream.queued)
+	}
+}
+
+// Startup read before the StartGame message finished still drops that message and its elders.
+func TestUpstreamTraceDropsStartGameFinishedAfterStartup(t *testing.T) {
+	upstream := new(upstreamTrace)
+	upstream.begin(1)
+	upstream.accepted.Add(2)
+	upstream.finish()
+	upstream.begin(2)
+	upstream.accepted.Add(3)
+	upstream.sawStartGame.Store(true)
+	upstream.startupRead()
+	upstream.finish()
+	upstream.begin(3)
+	upstream.accepted.Add(1)
+	upstream.finish()
+	if key := upstream.batchMessage(1); key != 3 || len(upstream.queued) != 0 {
+		t.Fatalf("first relay batch key = %d, queued %+v; want message 3 alone", key, upstream.queued)
+	}
+}
+
+// The handoff carries the core's trace ID only while tracing, keeping untraced handoffs unchanged.
+func TestHandoffCarriesTheTraceConnection(t *testing.T) {
+	traced, err := encodeSessionHandoff(sessionHandoff{TraceConn: 81604378625}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untraced, err := encodeSessionHandoff(sessionHandoff{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(traced, []byte(`"trace_conn":81604378625`)) || bytes.Contains(untraced, []byte("trace_conn")) {
+		t.Fatalf("traced %q, untraced %q", traced, untraced)
 	}
 }
