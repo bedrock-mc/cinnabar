@@ -296,7 +296,7 @@ immediate. Authored surfaces can bind `#row_N_hover` and
 `#row_N_toggle_progress` (numbers from 0 to 1), `#row_N_toggle_color` and
 `#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
 from `[2, 2]` to `[12, 2]`). These values follow native input without waiting for a
-component update. `ModUi::mod_panel_motion_active` reports unsettled feedback for
+component update. Turning off the Screen animations setting makes them change at once. `ModUi::mod_panel_motion_active` reports unsettled feedback for
 callers that suspend idle drawing. Arbitrary authored animation graphs remain
 unsupported.
 
@@ -336,10 +336,105 @@ and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
 document at 96 KiB, 1,024 nodes and depth 32.
 Bindings update without rebuilding unchanged catalog geometry.
 
+An optional `transitions` map eases numeric bindings instead of replacing them at
+once, like CSS transitions. Each key names a binding; its value has `duration`
+(seconds, 0–5), optional `easing`, optional `from` and optional `exit`:
+
+```json
+"transitions": {
+  "#drawer_offset": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6], "exit": [0, 6] },
+  "#drawer_alpha": { "duration": 0.18, "easing": "out_cubic", "from": 0, "exit": 0 }
+}
+```
+
+`easing` is a JSON-UI curve name (default `linear`) or CSS cubic-bezier points
+`[x1, y1, x2, y2]` with both x values in 0–1 and y values within ±4. When a
+binding changes, the host eases from the value currently on screen, so a reversed
+hover or toggle continues smoothly rather than restarting. Arrays ease each
+component. `from`, a number or 2–4-number array, is shown when the binding
+first appears, so the surface eases in each time the panel opens or its surface
+route changes; without it the first value appears at once. Text, Boolean values
+and a change of array length apply at once. A transition may name a binding that
+a later update supplies. Bind eased values to any numeric property, such as
+`#offset`, `#alpha`, `#color` or `#size_binding_x_absolute`.
+
+`exit`, a number or 2–4-number array of the binding's length, is where the
+binding eases when the personal panel closes. Input, pointer capture and
+gameplay focus are released at once, while the surface keeps drawing with the
+same duration and easing until every transition settles, then disappears.
+Bindings without `exit` keep their values. Reopening during an exit eases back
+from the values on screen. A panel with no `exit` values, or whose exit would
+not move anything, closes at once as before. Exits play only for the panel's
+own close, not when the HUD editor owned the surface, when the extension clears
+its panel, or when rendering fails. An update with the same route continues the
+exit with its new bindings; a route change while closing ends it at once, and a
+route change while open swaps surfaces at once, easing the new route in from its
+`from` values. `ModUi::mod_panel_motion_active` reports transitions and exits
+still in progress, and `ModUi::mod_panel_painting` reports a closed panel that is
+still drawing.
+
+When the player turns off the Screen animations setting, transitions, exits
+and `motion: true` feedback change at once, including values already moving.
+
+A control may declare `cinnabar_transform` to scale and rotate how it and all its
+descendants are drawn, like CSS `transform`, without changing layout:
+
+```json
+"cinnabar_transform": { "scale": 1.15, "rotation": 45, "origin": [0.5, 0.5] }
+```
+
+`scale` is a number or `[x, y]` pair within 0–4 (default 1), `rotation` is
+clockwise degrees within ±360 (default 0), and `origin` is an `[x, y]` pair of
+fractions of the control's box within −1–2 (default the centre). Every field is
+optional, so `{}` declares a control whose transform only bindings set. Nested
+transforms compose like CSS. The binding targets `#cinnabar_scale`,
+`#cinnabar_rotation` and `#cinnabar_origin` replace one field on a control that
+declares the property, so `transitions` can animate a press scale of `0.975`, a
+hover scale of `1.15`, a panel entrance from `0.97` or a chevron turning to `45`:
+
+```json
+"bindings": [{ "binding_name": "#chevron_turn", "binding_name_override": "#cinnabar_rotation" }]
+```
+
+Bound values outside the bounds are clamped. Presses, hover, slider and scroll
+drags use the drawn position, so a scaled or rotated button is hit where it
+appears. A scaled control's `clips_children` and scroll views clip to their
+scaled boxes. Clips are axis-aligned, so a control that may rotate (a non-zero
+`rotation` or a `#cinnabar_rotation` binding) cannot be or contain a clipping
+control or scroll view; validation rejects the surface instead. Rounded
+rectangles and vector art are rebuilt at their drawn size, keeping a one-pixel
+antialiased edge; other art and text scale their vertices. Text keeps
+sampling its glyph atlas as at any other size, and distance-field faces keep
+one-pixel edges; pixel faces sample nearest texels. Plain solid quads have no
+antialiasing, so rotate a `cinnabar_rounded_rectangle` rather than a filled
+image. Only extension surfaces honour the property; resource packs and server
+UI ignore it.
+
+A control may declare `cinnabar_filter` to blur how it and all its descendants are
+drawn, as one image, like CSS `filter: blur()`:
+
+```json
+"cinnabar_filter": { "blur": 5 },
+"bindings": [{ "binding_name": "#menu_blur", "binding_name_override": "#cinnabar_blur" }]
+```
+
+`blur` is a Gaussian standard deviation in GUI pixels within 0–16 (default 0); the
+`#cinnabar_blur` binding target replaces it on a control that declares the property, so a
+transition with `"from": 5` blurs a menu in as it opens. Bound values are clamped. Filters
+cannot nest, and a blur binding without the property is rejected. A zero blur draws the
+subtree directly at no extra cost. Layout and hits are unchanged, and the blur spreads up
+to three standard deviations beyond what the subtree draws. While the blurred subtree's
+layer redraws, the client draws the subtree offscreen, downsamples it within those bounds
+and composites it blurred in its place; an unchanged layer reuses the result. Controls in
+other layers that interleave with the subtree split it into separately blurred groups.
+Glass inside a filtered subtree blurs its tint, border and highlight with the subtree,
+while its backdrop keeps sampling the world.
+
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has
 an initial ordinary `panel` and a `surfaces` object mapping route identifiers to
-`{ "screen": "namespace.name", "document": "..." }`. The loading worker checks
+`{ "screen": "namespace.name", "document": "..." }`, optionally with
+`transitions`. The loading worker checks
 every document and action against the shared control schema before
 publication. Bundles accept up to 128 surfaces and 8 MiB of source data.
 `ModHost::set_panel_bundle` prepares the same contract for host-owned integrations.
@@ -371,7 +466,8 @@ All fields are optional. `controls` updates only existing identifiers: toggles
 take a Boolean `value`, sliders a finite in-range `value`, keybinds `key` and/or
 `capturing`, and choices a valid `index`. Any control can update its `label`.
 Omitted controls retain their values. `surface` selects a prepared route;
-`bindings`, when supplied, fully replaces custom scalars while the host continues
+`bindings`, when supplied, fully replaces custom scalars and starts any declared
+transitions toward the new values, while the host continues
 to generate `#row_N` facts from the controls. Invalid batches change nothing, and
 valid batches commit only after a successful callback. Same-route updates retain
 the catalog, scroll offset and captured drag. The legacy `set-content` contract
@@ -385,6 +481,53 @@ border `border_width` GUI pixels wide (default 1). The fill stops at the border,
 translucent fills do not paint underneath it. Edge coverage spans one physical pixel at
 every display density, including subpixel borders and square inner corners.
 Coverage is centered on the authored outline; layout and hit bounds stay fixed.
+
+`cinnabar_glass` draws a frosted panel: the world behind its rounded outline blurred and
+filtered like CSS `backdrop-filter`, then a tint, border and top highlight above it:
+
+```json
+{"type":"custom","renderer":"cinnabar_glass","size":[300,200],"radius":13,
+ "blur":13,"saturation":1.12,"color":[0.04,0.07,0.11,0.78],
+ "border_color":[0.8,0.88,1,0.1],"highlight_color":[0.94,0.96,1,0.14]}
+```
+
+`blur` is a Gaussian standard deviation in GUI pixels within 0–32 (default 0), and
+`saturation` and `brightness` are CSS `saturate()` and `brightness()` factors within
+0–2 (default 1), applied to sRGB-encoded values. `radius`, `color`, `border_color` and
+`border_width` match `cinnabar_rounded_rectangle`; `color` defaults to transparent.
+`highlight_color` draws a `highlight_width` GUI-pixel line (default 1) along the inside of
+the top edge that thins out down each top corner, like CSS `inset 0 1px 0`. Literal values
+outside their bounds are rejected; values bound through `#blur`, `#saturation`,
+`#brightness`, `#color`, `#border_color`, `#highlight_color` or `#radius` win over the
+authored ones and are clamped, so transitions can animate them. The node's `#alpha` fades
+the backdrop with the tint. Under `cinnabar_transform` the panel, its blur and its
+highlight scale and rotate with it, and the backdrop is sampled where the panel is drawn.
+
+Surface bindings named `#world_blur` (GUI pixels, 0–32), `#world_brightness` and
+`#world_saturation` (0–2) blur and filter the whole world behind the open personal panel or
+HUD editor; other values are rejected. Declare transitions on them to ease the world in
+and out, as the panel opens and, with `exit`, as it closes:
+
+```json
+"bindings": { "#world_blur": 3, "#world_brightness": 0.62 },
+"transitions": {
+  "#world_blur": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": 0, "exit": 0 },
+  "#world_brightness": { "duration": 0.25, "from": 1, "exit": 1 }
+}
+```
+
+Glass sees the world through this backdrop: its blur adds in quadrature and its factors
+multiply. Both act on the 3-D scene only. HUD elements, other UI beneath a panel and
+nested glass are not blurred and stay sharp through the tint, as the mockup's HUD layer
+does. Only extension surfaces draw glass or a world backdrop; resource packs and server
+UI cannot name the renderer.
+
+The client blurs the world once per frame, and only while a glass panel or world
+backdrop is published: it downsamples the post-processed scene into a half-resolution
+dual-Kawase pyramid of up to eight levels, then copies the scene into the next frame
+target while each backdrop shape samples the level its blur needs. Retained UI layers
+never hold world pixels, so a moving world redraws no UI. Without glass no pass runs and
+no pyramid stays allocated. `CINNABAR_GPU_UI=1` reports the passes as `gpu_ui_backdrop`.
 
 `cinnabar_vector_path` draws caller-authored geometry without registering product
 icons in the runtime. `view_box` is `[x, y, width, height]`; `paths` contains arrays
@@ -927,8 +1070,8 @@ open. A held or interrupted drag remains a draft. Escape closes the personal
 panel in this mode; completed placements have already been delivered, and the
 unfinished gesture is discarded. Omitting `autosave` preserves Save/Cancel.
 
-The optional editor `surface` has the same bounded document and bindings as a
-personal panel surface. Its client-authored chrome replaces the built-in shade,
+The optional editor `surface` has the same bounded document, bindings and
+transitions as a personal panel surface. Its client-authored chrome replaces the built-in shade,
 grid, toolbar, and help while native previews and drag bounds remain. Editor
 actions accept `hud.save`, `hud.cancel`, `hud.close`, `hud.reset`, `hud.grid`, and
 bounded `hud.card:N`. `hud.close` dismisses the whole panel, preserving completed

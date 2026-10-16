@@ -248,6 +248,7 @@ fn expanded_panels_still_reject_controls_above_the_capacity() {
 /// Supplies a small extension-authored screen with one declared button route.
 fn surface(action: &str) -> Surface {
     Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"action":{
@@ -442,9 +443,52 @@ fn bounded_large_external_catalog_rejects_one_excess_control() {
 #[test]
 fn resolved_template_routes_still_require_declared_panel_controls() {
     let mut spec = panel();
-    spec.surface=Some(Surface {screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
+    spec.surface=Some(Surface {transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
     assert!(spec.validate().is_err());
     let surface = spec.surface.as_mut().unwrap();
     surface.document = surface.document.replace("mod.control:7", "mod.control:0");
     assert!(spec.validate().is_ok());
+}
+
+/// A surface whose panel carries `transform` and a bound scale over a `child` control.
+fn transformed(transform: serde_json::Value, child: &str) -> Surface {
+    Surface {
+        transitions: Default::default(),
+        screen: "extension.screen".into(),
+        document: serde_json::json!({"namespace":"extension","screen":{
+            "type":"screen","size":["100%","100%"],"controls":[{"card":{
+                "type":"panel","size":[40,20],"cinnabar_transform":transform,
+                "bindings":[{"binding_name":"#press","binding_name_override":"#cinnabar_scale",
+                    "binding_type":"global"}],
+                "controls":[{"inner":{"type":child,"size":[10,10]}}]
+            }}]
+        }})
+        .to_string(),
+        bindings: Default::default(),
+    }
+}
+
+#[test]
+fn surfaces_keep_bounded_transforms_and_reject_rotated_clips() {
+    let scaled = transformed(serde_json::json!({"scale": 0.97}), "scroll_view");
+    scaled.validate().unwrap();
+    assert!(
+        scaled
+            .resolved_document()
+            .unwrap()
+            .contains("cinnabar_transform"),
+        "the canonical document keeps the transform"
+    );
+    transformed(serde_json::json!({"rotation": 45}), "label")
+        .validate()
+        .unwrap();
+    for (transform, child) in [
+        (serde_json::json!({"rotation": 45}), "scroll_view"),
+        (serde_json::json!({"scale": 5}), "label"),
+    ] {
+        assert!(
+            transformed(transform.clone(), child).validate().is_err(),
+            "{transform} over {child}"
+        );
+    }
 }

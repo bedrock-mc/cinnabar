@@ -261,7 +261,13 @@ pub(crate) fn emit_own(
             }
             _ => dest,
         };
-        let clipped = paint.intersect(node.clip);
+        // A transformed draw culls where it paints, against its screen-space clip.
+        let clip = node.paint.clip.unwrap_or(node.clip);
+        let painted = node
+            .paint
+            .transform
+            .map_or(paint, |transform| transform.bounds(paint));
+        let clipped = painted.intersect(clip);
         let floats =
             matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
         let moves_geometry = node
@@ -283,7 +289,7 @@ pub(crate) fn emit_own(
                 name: node.control.name.clone(),
                 key: node.key.clone(),
                 dest: dest.into(),
-                clip: node.clip.into(),
+                clip: clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
                 anim: node.anim.clone(),
@@ -392,7 +398,7 @@ fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
 
 /// Layout and tree keys a custom renderer never reads; every other property
 /// is renderer configuration and travels with the draw.
-const STRUCTURAL: [&str; 11] = [
+const STRUCTURAL: [&str; 13] = [
     "controls",
     "bindings",
     "anims",
@@ -404,6 +410,8 @@ const STRUCTURAL: [&str; 11] = [
     "layer",
     "button_mappings",
     "type",
+    crate::transform::TRANSFORM_PROPERTY,
+    crate::filter::FILTER_PROPERTY,
 ];
 
 /// Merges a custom control's authored properties and property bag for its renderer.

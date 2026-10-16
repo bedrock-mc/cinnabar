@@ -148,9 +148,24 @@ pub struct Catalog {
     /// First-file parse state and namespace inherited by later layers at that path.
     files: BTreeMap<String, FileRead>,
     diagnostics: Vec<String>,
+    /// Keeps Cinnabar paint transforms and filters; pack and server catalogs drop them.
+    paint_transforms: bool,
 }
 
 impl Catalog {
+    /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`] and
+    /// [`crate::filter::FILTER_PROPERTY`], for Cinnabar extension surfaces only. Other
+    /// catalogs resolve as if the properties were never authored.
+    pub fn with_paint_transforms(mut self) -> Self {
+        self.paint_transforms = true;
+        self
+    }
+
+    /// Whether resolved controls keep their paint transforms.
+    pub fn paint_transforms(&self) -> bool {
+        self.paint_transforms
+    }
+
     /// Load `_ui_defs.json`, `_global_variables.json`, and every listed `ui/*.json`
     /// in declared load order. `ui_dir` is the pack's `ui/` directory. Missing or
     /// malformed individual files are skipped and recorded; the two index files
