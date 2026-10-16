@@ -259,18 +259,6 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
-        name: "settings-video-distance",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FarTerrain),
-    },
-    State {
-        name: "settings-video-full-detail",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FullDetailDistance),
-    },
-    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -483,16 +471,6 @@ fn settings_video() -> Fixture {
 fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
     Arc::make_mut(&mut view.storage).opens_folders = true;
-    Fixture::Menu(Box::new(view))
-}
-
-/// Reveals the distance controls through the same focus scrolling as the client.
-fn settings_video_option(id: SettingId) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        id.index() as u16,
-        view.settings_options.value(id),
-    ));
     Fixture::Menu(Box::new(view))
 }
 

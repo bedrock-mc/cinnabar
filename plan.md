@@ -1,3 +1,11 @@
+## Fence gate targeting
+
+Gate picking uses the same thin directional bounds as its outline for closed, open
+and in-wall states. Rays can pass through empty cell space to the lower gate in a
+stack. Movement boxes and carried-block visuals keep their separate geometry.
+Regression coverage includes every registered gate state in both runtime ID modes.
+Broader block-family parity remains incomplete.
+
 ## Restore and share custom emote playback
 
 The articulated emote snapshot now carries the matching prepared body and clothing meshes.
@@ -167,6 +175,10 @@ job costs remain unverified. No browser release or parity gate closes here.
 
 ## Far terrain (LOD)
 
+**Disabled, incomplete:** far terrain and the full-detail radius are off, with no Video settings,
+until their streaming bugs are fixed; values older builds saved are ignored. The design below is
+kept for re-enabling.
+
 `far-terrain` summarises each column the server sent: the height of every cell's highest
 visible block, its average texture colour tinted by biome, and any water depth, with water
 blended over its floor. World workers summarise a column when all of its sections have arrived,
@@ -240,7 +252,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or a full-detail distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -1108,6 +1120,8 @@ these changes do not close the movement, camera, or actor parity gates.
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Repeat deadlines retain sub-millisecond clock precision so the first eligible
+  simulation tick can attempt placement.
 - Presses resolve when they arrive and held repeats only on frames that simulate a tick,
   both before the frame's physics and from the last completed tick's end state, so the next
   tick's movement collides with a placed block. Incomplete: a frame

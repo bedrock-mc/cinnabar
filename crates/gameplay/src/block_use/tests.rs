@@ -1,6 +1,6 @@
 use crate::test_support::block_fact;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use protocol::{ItemUseTrigger, NetworkItemStack, PlayerGameMode, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
@@ -13,6 +13,7 @@ use client_world::game_mode_capabilities::GameModeCapabilities;
 
 mod classification;
 mod held_placement;
+mod repeat_clock;
 mod respawn_anchor;
 
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
@@ -44,9 +45,10 @@ fn held_repeats_follow_stance_speed_and_the_survival_floor() {
     assert_eq!(repeat_interval_millis(false, false, 10.0, true), 100);
 }
 
+/// Samples a whole-millisecond test clock with the requested resolved speed.
 fn clock(now_millis: u64, speed: f32) -> RepeatClock {
     RepeatClock {
-        now_millis,
+        now: Duration::from_millis(now_millis),
         sneaking: false,
         speed,
         survival: true,
@@ -72,7 +74,10 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
     // A fresh placement repeats at the slow interval, then the line is established.
     assert_eq!(runtime.due(true, 2, clock(1_300, 0.0)), None);
     let (trigger, due) = runtime.due(true, 3, clock(1_301, 0.0)).unwrap();
-    assert_eq!((trigger, due), (ItemUseTrigger::SimulationTick, 1_300));
+    assert_eq!(
+        (trigger, due),
+        (ItemUseTrigger::SimulationTick, Duration::from_millis(1_300))
+    );
     runtime.intention.record(
         false,
         [0, 63, 0],
@@ -93,17 +98,17 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
     // Still: anchored to now. Moving: to the due time, lagging at most 180 ms.
     assert_eq!(runtime.due(true, 4, clock(1_501, 0.0)), None);
     let (trigger, due) = runtime.due(true, 4, clock(1_502, 5.0)).unwrap();
-    assert_eq!(due, 1_481);
+    assert_eq!(due, Duration::from_millis(1_481));
     runtime.record(trigger, due, 4, LocalUse::Place, clock(1_502, 5.0));
-    assert_eq!(runtime.last_use_millis, Some(1_481));
+    assert_eq!(runtime.last_use, Some(Duration::from_millis(1_481)));
     runtime.record(
         ItemUseTrigger::SimulationTick,
-        1_600,
+        Duration::from_millis(1_600),
         5,
         LocalUse::Place,
         clock(2_000, 5.0),
     );
-    assert_eq!(runtime.last_use_millis, Some(1_820));
+    assert_eq!(runtime.last_use, Some(Duration::from_millis(1_820)));
     // One attempt per tick; a failure keeps the schedule and retries next tick.
     assert_eq!(runtime.due(true, 5, clock(5_000, 5.0)), None);
     let (trigger, due) = runtime.due(true, 6, clock(5_000, 5.0)).unwrap();
@@ -388,13 +393,13 @@ fn a_position_authority_change_revokes_the_press_but_preserves_repeat_timing() {
         PositionAuthorityGeneration::new(0),
     ));
     runtime.latched_press = true;
-    runtime.last_use_millis = Some(900);
+    runtime.last_use = Some(Duration::from_millis(900));
     runtime.synchronize((
         SessionGeneration::new(7),
         PositionAuthorityGeneration::new(1),
     ));
     assert_eq!(runtime.due(false, 1, clock(1_000, 0.0)), None);
-    assert_eq!(runtime.last_use_millis, Some(900));
+    assert_eq!(runtime.last_use, Some(Duration::from_millis(900)));
     assert_eq!(runtime.due(true, 1, clock(1_000, 0.0)), None);
 }
 
@@ -412,14 +417,14 @@ fn review_refused_use_preserves_the_press_and_success_schedule() {
     runtime.observe_use(true, true, false, true);
     assert!(!runtime.admit(
         ItemUseTrigger::PlayerInput,
-        1000,
+        Duration::from_millis(1000),
         1,
         LocalUse::Interact,
         clock(1000, 0.0),
         false
     ));
     assert!(runtime.due(false, 2, clock(1001, 0.0)).is_some());
-    assert_eq!(runtime.last_use_millis, None);
+    assert_eq!(runtime.last_use, None);
     assert!(!runtime.interacted_at(1));
 }
 
@@ -437,7 +442,7 @@ fn unlined_repeats_keep_the_initial_delay() {
     );
     runtime.record(
         ItemUseTrigger::PlayerInput,
-        1000,
+        Duration::from_millis(1000),
         1,
         LocalUse::Place,
         clock(1000, 0.0),
@@ -452,7 +457,7 @@ fn unlined_repeats_keep_the_initial_delay() {
     );
     runtime.record(
         ItemUseTrigger::SimulationTick,
-        1300,
+        Duration::from_millis(1300),
         8,
         LocalUse::Place,
         clock(1350, 0.0),
@@ -556,22 +561,27 @@ fn held_orientation_uses_compiled_attachment_and_rail_facts() {
 #[test]
 fn adventure_held_repeats_keep_the_noncreative_floor() {
     let mut runtime = BlockUseRuntime::default();
-    let mut clock = RepeatClock::for_game_mode(1_000, false, 20.0, Some(PlayerGameMode::Adventure));
+    let mut clock = RepeatClock::for_game_mode(
+        Duration::from_millis(1_000),
+        false,
+        20.0,
+        Some(PlayerGameMode::Adventure),
+    );
     runtime.record(
         ItemUseTrigger::PlayerInput,
-        1_000,
+        Duration::from_millis(1_000),
         1,
         LocalUse::Place,
         clock,
     );
-    clock.now_millis = 1_050;
+    clock.now = Duration::from_millis(1_050);
     assert_eq!(runtime.due(true, 2, clock), None);
-    clock.now_millis = 1_100;
+    clock.now = Duration::from_millis(1_100);
     assert_eq!(runtime.due(true, 3, clock), None);
-    clock.now_millis = 1_150;
+    clock.now = Duration::from_millis(1_150);
     assert_eq!(
         runtime.due(true, 4, clock),
-        Some((ItemUseTrigger::SimulationTick, 1_100))
+        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(1_100)))
     );
 }
 
@@ -589,10 +599,15 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
     assert_eq!(LocalUse::for_actor(&player, true), LocalUse::Interact);
     assert_eq!(LocalUse::for_actor(&villager, false), LocalUse::Interact);
     let mut runtime = BlockUseRuntime::default();
-    let clock = RepeatClock::for_game_mode(1_000, false, 0.0, Some(PlayerGameMode::Survival));
+    let clock = RepeatClock::for_game_mode(
+        Duration::from_millis(1_000),
+        false,
+        0.0,
+        Some(PlayerGameMode::Survival),
+    );
     runtime.record(
         ItemUseTrigger::PlayerInput,
-        1_000,
+        Duration::from_millis(1_000),
         1,
         LocalUse::for_actor(&player, false),
         clock,

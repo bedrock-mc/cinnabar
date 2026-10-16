@@ -36,6 +36,7 @@ mod tests {
     use super::*;
     use crate::block_use::{LocalUse, RepeatClock};
     use protocol::ItemUseTrigger;
+    use std::time::Duration;
 
     #[test]
     fn refused_stop_preserves_destination_and_replays_a_quick_press_after_admission() {
@@ -58,14 +59,14 @@ mod tests {
         assert_eq!(runtime.last_success_destination(), None);
         assert!(runtime.observe_use(false, false, false, true));
         let clock = RepeatClock {
-            now_millis: 1_000,
+            now: Duration::from_millis(1_000),
             sneaking: false,
             speed: 0.0,
             survival: true,
         };
         assert_eq!(
             runtime.due(false, 1, clock),
-            Some((ItemUseTrigger::PlayerInput, 1_000))
+            Some((ItemUseTrigger::PlayerInput, Duration::from_millis(1_000)))
         );
     }
 
@@ -89,7 +90,7 @@ mod tests {
         assert!(runtime.admit_stop(true));
         assert!(!runtime.observe_use(false, false, false, true));
         let clock = RepeatClock {
-            now_millis: 1_000,
+            now: Duration::from_millis(1_000),
             sneaking: false,
             speed: 0.0,
             survival: true,
@@ -126,14 +127,14 @@ mod tests {
             assert_eq!(runtime.stop_packets(42, false).len(), 1);
             assert!(runtime.admit_stop(true));
             let clock = RepeatClock {
-                now_millis: 1_000,
+                now: Duration::from_millis(1_000),
                 sneaking: false,
                 speed: 0.0,
                 survival: true,
             };
             assert_eq!(
                 runtime.due(false, 1, clock),
-                refused.then_some((ItemUseTrigger::PlayerInput, 1_000)),
+                refused.then_some((ItemUseTrigger::PlayerInput, Duration::from_millis(1_000))),
             );
         }
     }
@@ -159,7 +160,7 @@ mod tests {
         assert!(runtime.selection_changed(&selection));
         assert!(!runtime.stopping());
         let clock = RepeatClock {
-            now_millis: 1_000,
+            now: Duration::from_millis(1_000),
             sneaking: false,
             speed: 0.0,
             survival: true,
@@ -167,7 +168,7 @@ mod tests {
         assert!(runtime.observe_use(false, false, false, true));
         assert_eq!(
             runtime.due(false, 1, clock),
-            Some((ItemUseTrigger::PlayerInput, 1_000))
+            Some((ItemUseTrigger::PlayerInput, Duration::from_millis(1_000)))
         );
     }
 
