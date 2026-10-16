@@ -1,14 +1,12 @@
 //! Locates a reporting session after another client has archived its open logs.
 
-use super::{CORE_SESSION_START, read_since, read_tail};
+use super::{CORE_SESSION_START, HEADER_BYTES, read_since, read_tail};
 use std::{
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom},
     path::Path,
 };
 
-/// Most header bytes inspected to identify a session.
-pub(crate) const HEADER_BYTES: usize = 4096;
 const SESSION_FIELD: &str = "session=";
 
 /// Whether the retained header prefix belongs to `session_id`, using a bounded header read.
@@ -32,7 +30,7 @@ pub(crate) fn matches_header(header: &[u8], marker: &str, session_id: &str) -> b
         .any(|field| field.strip_prefix(SESSION_FIELD) == Some(session_id))
 }
 
-/// Opens this session's current or retained segments, ordered by their modification time.
+/// Opens this session's current or retained segments, in archive order, with the current file last.
 fn files(path: &Path, marker: &str, session_id: &str) -> io::Result<Vec<File>> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let stem = path.file_stem().unwrap_or_default().to_string_lossy();
@@ -47,15 +45,18 @@ fn files(path: &Path, marker: &str, session_id: &str) -> io::Result<Vec<File>> {
         let entry = entry?;
         let candidate = entry.path();
         let name = entry.file_name();
-        if candidate != path
-            && !(candidate.extension() == ext
-                && name
-                    .to_string_lossy()
-                    .strip_prefix(stem.as_ref())
-                    .is_some_and(|rest| rest.starts_with('-')))
-        {
-            continue;
-        }
+        let key = if candidate == path {
+            (true, String::new(), 0)
+        } else {
+            let Some((stamp, suffix)) = crate::log_archive::key(
+                &name.to_string_lossy(),
+                &stem,
+                &ext.unwrap_or_default().to_string_lossy(),
+            ) else {
+                continue;
+            };
+            (false, stamp, suffix)
+        };
         let Ok(mut file) = File::open(&candidate) else {
             continue;
         };
@@ -65,11 +66,10 @@ fn files(path: &Path, marker: &str, session_id: &str) -> io::Result<Vec<File>> {
         if !belongs(&mut file, marker, session_id)? {
             continue;
         }
-        let modified = file.metadata()?.modified().ok();
-        files.push((modified, candidate, file));
+        files.push((key, file));
     }
-    files.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-    Ok(files.into_iter().map(|(_, _, file)| file).collect())
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files.into_iter().map(|(_, file)| file).collect())
 }
 
 /// Keeps an open reference to the newest owned segment before a signal can arrive.
@@ -144,6 +144,32 @@ pub(crate) fn core(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostics_audit_equal_mtimes_preserve_rotation_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let current = dir.path().join("core.log");
+        for (name, event) in [
+            ("core-20260101-000000.log", "first"),
+            ("core-20260101-000000-2.log", "second"),
+            ("core-20260101-000000-10.log", "third"),
+            ("core.log", "last"),
+        ] {
+            let path = dir.path().join(name);
+            fs::write(&path, format!("CORE_SESSION_START session=own\n{event}\n")).unwrap();
+            File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(std::time::UNIX_EPOCH)
+                .unwrap();
+        }
+        let text = String::from_utf8(core(&current, "own", 1024, 0).unwrap()).unwrap();
+        let positions: Vec<_> = ["first", "second", "third", "last"]
+            .map(|event| text.find(event).unwrap())
+            .into();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]), "{text}");
+    }
 
     #[test]
     fn core_logs_follow_the_reporting_client_across_other_launches() {

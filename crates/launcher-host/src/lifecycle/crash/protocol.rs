@@ -44,6 +44,8 @@ pub const RUNTIME_FAILURE: u32 = 7;
 /// The [`EXIT`] code the `atexit` hook announces: `main` returned or something called `exit`
 /// without announcing a code of its own, as the runtime does after a panic on the main thread.
 pub const AT_EXIT: i32 = i32::MIN;
+/// The runtime status of an unhandled Rust panic, also used when teardown is cut short.
+pub const PANIC_EXIT_CODE: u8 = 101;
 /// The [`EXIT`] code of a client that wrote its crash folder itself before the monitor
 /// connected, so the monitor must not add another.
 pub const SELF_REPORTED: i32 = i32::MIN + 1;
@@ -66,6 +68,9 @@ pub struct Launch {
     pub restart: Restart,
     /// The client's main-loop progress, when it could share it.
     pub hang: Option<HangWatch>,
+    /// Staging protected by the monitor before it announces readiness, through report writes.
+    #[serde(default)]
+    pub staging: Option<PathBuf>,
 }
 
 /// Where the client publishes main-loop progress and how long a stall must last to be a hang;

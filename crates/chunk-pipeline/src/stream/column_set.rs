@@ -13,6 +13,8 @@ pub(super) struct ColumnSubChunkSet {
     ordered_columns: BTreeMap<ChunkKey, u64>,
     /// Advances when a column first gains a section, including after eviction.
     column_generation: u64,
+    /// Advances on every actual section-membership change, independently of column age.
+    membership_revision: u64,
     len: usize,
     hash: OnceLock<u64>,
 }
@@ -47,6 +49,7 @@ impl ColumnSubChunkSet {
         };
         column.insert(at, key);
         self.len += 1;
+        self.membership_revision += 1;
         self.hash.take();
         true
     }
@@ -66,6 +69,7 @@ impl ColumnSubChunkSet {
             self.ordered_columns.remove(&chunk);
         }
         self.len -= 1;
+        self.membership_revision += 1;
         self.hash.take();
         true
     }
@@ -80,6 +84,10 @@ impl ColumnSubChunkSet {
         assert!(replacement.iter().all(|key| key.chunk() == column));
         replacement.sort_unstable();
         replacement.dedup();
+        if self.columns.get(&column).map_or(&[][..], Vec::as_slice) == replacement {
+            return;
+        }
+        self.membership_revision += 1;
         let added = replacement.len();
         let removed = if replacement.is_empty() {
             self.ordered_columns.remove(&column);
@@ -134,6 +142,11 @@ impl ColumnSubChunkSet {
         self.column_generation
     }
 
+    /// Identifies exact section membership without changing column-age checkpoints.
+    pub(super) fn membership_revision(&self) -> u64 {
+        self.membership_revision
+    }
+
     /// Reports whether the current column existed at a captured membership generation.
     pub(super) fn existed_at(&self, column: ChunkKey, generation: u64) -> bool {
         self.ordered_columns
@@ -145,6 +158,7 @@ impl ColumnSubChunkSet {
     pub(super) fn retire(&mut self) -> Self {
         let retired = std::mem::take(self);
         self.column_generation = retired.column_generation;
+        self.membership_revision = retired.membership_revision + u64::from(retired.len != 0);
         retired
     }
 
@@ -175,6 +189,7 @@ impl ColumnSubChunkSet {
             self.columns.clear();
             self.ordered_columns.clear();
             self.len = 0;
+            self.membership_revision += 1;
             self.hash.take();
         }
     }

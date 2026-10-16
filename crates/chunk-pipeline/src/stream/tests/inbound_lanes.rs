@@ -113,6 +113,64 @@ fn full_light_consumers_do_not_use_terrain_admission() {
     assert!(stream.can_admit(&remote_move(9)));
 }
 
+/// Retained teleports must enter their lane even when later moves wait on them.
+#[test]
+fn retained_light_ingress_reserves_capacity_before_later_moves() {
+    let mut stream = block_entity_visual_stream();
+    let full =
+        (MAX_ADMITTED_HEAVY_EVENTS + client_world::ingestion::MAX_DEFERRED_WORLD_EVENTS) as u64;
+    for sequence in 1..=full {
+        stream
+            .submit(sequence, inline_air_event(sequence as i32))
+            .unwrap();
+    }
+    let chunk_sequence = full + 1;
+    let chunk = inline_air_event(1000);
+    let teleport_sequence = full + 2;
+    let teleport = WorldEvent::MovePlayer(MovePlayerEvent {
+        runtime_id: 1,
+        position: [100.5, 80.0, 100.5],
+        mode: MovePlayerMode::Teleport,
+        ..Default::default()
+    });
+    for (sequence, event) in [(chunk_sequence, &chunk), (teleport_sequence, &teleport)] {
+        stream
+            .retain_ingress(
+                sequence,
+                stream.ingress_footprint(event),
+                MAX_ADMITTED_WORLD_EVENTS,
+            )
+            .unwrap();
+    }
+    let mut waiting = Vec::new();
+    for sequence in teleport_sequence + 1..=teleport_sequence + MAX_ADMITTED_WORLD_EVENTS as u64 {
+        let movement = remote_move(9);
+        if stream.can_admit(&movement) {
+            stream.submit(sequence, movement).unwrap();
+        } else {
+            waiting.push((sequence, movement));
+        }
+    }
+    complete_pending_decode_jobs(&mut stream);
+    stream.release_ingress(chunk_sequence);
+    stream.submit(chunk_sequence, chunk).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.release_ingress(teleport_sequence);
+    assert!(
+        stream.can_admit(&teleport),
+        "later moves consumed the teleport's credit"
+    );
+    stream.submit(teleport_sequence, teleport).unwrap();
+    for (sequence, movement) in waiting {
+        assert!(stream.can_admit(&movement));
+        stream.submit(sequence, movement).unwrap();
+    }
+    assert_eq!(
+        stream.committed_sequence(),
+        teleport_sequence + MAX_ADMITTED_WORLD_EVENTS as u64
+    );
+}
+
 #[test]
 fn actor_move_after_a_block_decode_on_another_column_commits_without_waiting() {
     let mut stream = block_entity_visual_stream();
@@ -510,4 +568,46 @@ fn correction_after_a_teleport_in_the_same_pass_waits_for_earlier_terrain() {
         !stream.order.is_finished(3),
         "the correction waits for the chunk"
     );
+}
+
+/// Retained ingress supplies dependencies while its payload still waits outside admission.
+#[test]
+fn retained_ingress_keeps_block_and_block_entity_updates_behind_their_chunk() {
+    let mut stream = block_entity_visual_stream();
+    let chunk = inline_air_event(0);
+    stream
+        .retain_ingress(
+            1,
+            stream.ingress_footprint(&chunk),
+            MAX_ADMITTED_WORLD_EVENTS,
+        )
+        .unwrap();
+    stream.submit(2, block_update(0, 1)).unwrap();
+    stream
+        .submit(
+            3,
+            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                dimension: 0,
+                position: [0, -64, 0],
+                nbt: Vec::new(),
+            }),
+        )
+        .unwrap();
+    stream.submit(4, remote_move(9)).unwrap();
+    assert!(!stream.order.is_finished(2));
+    assert!(!stream.order.is_finished(3));
+    assert!(stream.order.is_finished(4));
+    let entity = take_decode_job(&mut stream, |job| {
+        matches!(job, super::DecodeJob::BlockEntityUpdate { .. })
+    });
+    complete_decode_job(&mut stream, entity);
+    assert!(
+        !stream.order.is_finished(3),
+        "decoded block entities still wait for their chunk"
+    );
+    assert!(!stream.order.is_finished(2));
+    stream.release_ingress(1);
+    stream.submit(1, chunk).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), 4);
 }

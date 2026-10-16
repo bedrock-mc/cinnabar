@@ -1,4 +1,5 @@
 use super::*;
+use render_model::terrain_units::QUADS_PER_UNIT;
 
 /// Uses actual unit splitting so changing counts also exercises a partial final unit.
 fn section(entity: Entity, start: u32, quads: u32, generation: u64) -> Arc<SectionUnits> {
@@ -40,13 +41,16 @@ fn changing_one_section_keeps_other_slots_and_only_uploads_changed_descriptors()
     let mut world = World::new();
     let [a, b] = [(); 2].map(|_| world.spawn_empty().id());
     let mut cache = Descriptors::default();
-    let mut sources = [section(a, 10, 65, 1), section(b, 200, 129, 1)];
+    let mut sources = [
+        section(a, 10, QUADS_PER_UNIT + 1, 1),
+        section(b, 200, 2 * QUADS_PER_UNIT + 1, 1),
+    ];
     assert!(sync(&mut cache, &sources, 8));
     let b_slots = cache.sections[&b].slots.clone();
     let b_records = visible(&cache, &[b]);
     assert!(sync(&mut cache, &sources, 8));
     assert!(cache.dirty.is_empty());
-    sources[0] = section(a, 400, 65, 2);
+    sources[0] = section(a, 400, QUADS_PER_UNIT + 1, 2);
     assert!(sync(&mut cache, &sources, 8));
     assert_eq!(cache.sections[&b].slots, b_slots);
     assert_eq!(visible(&cache, &[b]), b_records);
@@ -123,14 +127,20 @@ fn shrinking_before_growth_reuses_slots_even_when_the_growing_section_is_first()
     let mut cache = Descriptors::default();
     assert!(sync(
         &mut cache,
-        &[section(a, 0, 1, 1), section(b, 100, 129, 1)],
+        &[
+            section(a, 0, 1, 1),
+            section(b, 100, 2 * QUADS_PER_UNIT + 1, 1)
+        ],
         4
     ));
     let a_slot = cache.sections[&a].slots[0];
     let b_slot = cache.sections[&b].slots[0];
     assert!(sync(
         &mut cache,
-        &[section(a, 0, 129, 2), section(b, 100, 1, 2)],
+        &[
+            section(a, 0, 2 * QUADS_PER_UNIT + 1, 2),
+            section(b, 100, 1, 2)
+        ],
         4
     ));
     assert_eq!(cache.records.len(), 4);
@@ -147,11 +157,11 @@ fn removal_reuse_and_new_generation_cannot_leave_old_visible_descriptors() {
     let kept_source = section(kept, 100, 1, 1);
     assert!(sync(
         &mut cache,
-        &[section(old, 0, 65, 1), kept_source.clone()],
+        &[section(old, 0, QUADS_PER_UNIT + 1, 1), kept_source.clone()],
         3
     ));
     let kept_slot = cache.sections[&kept].slots.clone();
-    let replacement_source = section(replacement, 800, 65, 2);
+    let replacement_source = section(replacement, 800, QUADS_PER_UNIT + 1, 2);
     assert!(sync(
         &mut cache,
         &[kept_source, replacement_source.clone()],
@@ -175,10 +185,18 @@ fn capacity_fallback_and_empty_views_release_retained_slots() {
     let mut world = World::new();
     let a = world.spawn_empty().id();
     let mut cache = Descriptors::default();
-    assert!(sync(&mut cache, &[section(a, 0, 65, 1)], 2));
-    assert!(!sync(&mut cache, &[section(a, 0, 129, 2)], 2));
+    assert!(sync(&mut cache, &[section(a, 0, QUADS_PER_UNIT + 1, 1)], 2));
+    assert!(!sync(
+        &mut cache,
+        &[section(a, 0, 2 * QUADS_PER_UNIT + 1, 2)],
+        2
+    ));
     assert!(cache.records.is_empty() && cache.sections.is_empty());
-    assert!(sync(&mut cache, &[section(a, 500, 65, 3)], 2));
+    assert!(sync(
+        &mut cache,
+        &[section(a, 500, QUADS_PER_UNIT + 1, 3)],
+        2
+    ));
     assert_eq!(cache.dirty, [0, 1]);
     assert!(sync(&mut cache, &[], 2));
     assert!(cache.records.is_empty() && cache.sections.is_empty() && cache.free.is_empty());
