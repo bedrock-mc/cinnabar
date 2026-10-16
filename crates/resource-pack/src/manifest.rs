@@ -58,11 +58,11 @@ pub(crate) fn read_manifest(
     let root: Value =
         serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedManifest)?;
     let format = match &root["format_version"] {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.trim().parse().ok(),
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
         _ => None,
     };
-    if !matches!(format, Some(1..=3)) {
+    if !format.is_some_and(|format| (1.0..=3.0).contains(&format) && format.fract() == 0.0) {
         return Err(AdmissionError::UnsupportedManifestFormat);
     }
     let header = &root["header"];
@@ -132,6 +132,26 @@ mod tests {
             read_manifest(text.as_bytes(), ID, "1.2.3").err(),
             Some(AdmissionError::UnsupportedManifestFormat)
         );
+    }
+
+    #[test]
+    fn accepts_whole_numeric_manifest_formats_without_accepting_fractional_versions() {
+        let resources = r#"{"type": "resources"}"#;
+        for format in ["2.0", "1.0", "3.0", "2e0"] {
+            let text = manifest(format, "[1, 2, 3]", resources);
+            assert!(
+                read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
+                "format {format}"
+            );
+        }
+        for format in ["2.5", "-2.0", "0.0", "4.0", "1e100"] {
+            let text = manifest(format, "[1, 2, 3]", resources);
+            assert_eq!(
+                read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+                Some(AdmissionError::UnsupportedManifestFormat),
+                "format {format}"
+            );
+        }
     }
 
     #[test]

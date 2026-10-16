@@ -8673,6 +8673,11 @@ does not close the broader native body-motion or live visual parity gate. See
 
 ## Server pack compatibility
 
+Manifest format numbers accept integral decimal and exponent notation, including
+`2.0`, within the existing supported range. Fractional and unsupported formats
+remain rejected. Native Android 1.26.50.4 admits the observed decimal-format pack;
+fixed-client live acceptance and broader admission parity remain pending.
+
 Resource-pack admission accepts corrected chunk-transfer sizes within its archive
 and selected-stack byte limits. Repeated offer identities consume the count and
 byte budgets once, retaining the first entry's size estimate. Required packs retain
