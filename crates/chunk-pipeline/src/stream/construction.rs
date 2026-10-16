@@ -240,6 +240,12 @@ impl WorldStream {
         self.order.retain_ingress(sequence, footprint, capacity)
     }
 
+    /// Borrows a retained payload's dependencies without classifying or copying its columns.
+    /// Panics if the sequence does not hold an ingress reservation.
+    pub fn retained_ingress_footprint(&self, sequence: u64) -> &Footprint {
+        self.order.retained_ingress_footprint(sequence)
+    }
+
     /// Removes a retained payload's reservation immediately before normal submission.
     pub fn release_ingress(&mut self, sequence: u64) {
         self.order.release_ingress(sequence);
@@ -278,8 +284,16 @@ impl WorldStream {
             return true;
         }
         let footprint = self.ingress_footprint(event);
+        self.can_admit_with_footprint(event, &footprint)
+    }
+
+    /// Reports lane headroom using this event's freshly classified or retained footprint.
+    pub fn can_admit_with_footprint(&self, event: &WorldEvent, footprint: &Footprint) -> bool {
+        if self.remaining_admission_capacity() > 0 {
+            return true;
+        }
         if footprint.heavy {
-            if self.defers_preparation(event, &footprint) {
+            if self.defers_preparation(event, footprint) {
                 self.order.deferred_capacity() > 0
             } else {
                 self.order.heavy_capacity() > 0

@@ -2,7 +2,7 @@
 
 use chunk_pipeline::WorldStream;
 use client_session::WorldIngress;
-use client_world::ingestion::WorldStreamError;
+use client_world::ingestion::{Footprint, WorldStreamError};
 use protocol::WorldEvent;
 use std::{
     collections::VecDeque,
@@ -54,11 +54,16 @@ impl WorldIngressDrain {
         }
         for index in 0..pending.len() {
             let ingress = &pending[index];
-            if index > 0 && barrier(ingress, stream.as_deref()) {
+            let footprint = stream
+                .as_deref()
+                .map(|stream| stream.retained_ingress_footprint(sequence(ingress)));
+            let is_barrier = matches!(ingress, WorldIngress::FastTransferBarrier { .. })
+                || footprint.is_some_and(|footprint| footprint.barrier);
+            if index > 0 && is_barrier {
                 return Ok(None);
             }
-            if (index == 0 || bypasses_terrain(ingress, stream.as_deref()))
-                && admits(ingress, stream.as_deref())
+            if (index == 0 || footprint.is_none_or(bypasses_terrain))
+                && admits(ingress, stream.as_deref(), footprint)
             {
                 let ingress = pending.remove(index).expect("the retained ingress exists");
                 if let Some(stream) = stream.as_deref_mut() {
@@ -66,7 +71,7 @@ impl WorldIngressDrain {
                 }
                 return Ok(Some(self.admitted(ingress)));
             }
-            if barrier(ingress, stream.as_deref()) {
+            if is_barrier {
                 return Ok(None);
             }
         }
@@ -74,16 +79,17 @@ impl WorldIngressDrain {
             let Ok(ingress) = receiver.try_recv() else {
                 return Ok(None);
             };
-            if (pending.is_empty() || bypasses_terrain(&ingress, stream.as_deref()))
-                && admits(&ingress, stream.as_deref())
-            {
+            if pending.is_empty() && admits(&ingress, stream.as_deref(), None) {
                 return Ok(Some(self.admitted(ingress)));
             }
             let stream = stream
                 .as_deref_mut()
                 .expect("absent streams accept ingress");
-            let is_barrier = barrier(&ingress, Some(stream));
             let footprint = footprint(&ingress, stream);
+            if bypasses_terrain(&footprint) && admits(&ingress, Some(stream), Some(&footprint)) {
+                return Ok(Some(self.admitted(ingress)));
+            }
+            let is_barrier = footprint.barrier;
             stream.retain_ingress(
                 sequence(&ingress),
                 footprint,
@@ -105,31 +111,31 @@ impl WorldIngressDrain {
 }
 
 /// Checks the event's own admission lane without copying a chunk's payload buffer.
-fn admits(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
-    stream.is_none_or(|stream| match ingress {
-        WorldIngress::Event(event) => stream.can_admit(&event.event),
-        WorldIngress::LevelChunk { event, .. } => {
-            stream.can_admit(&WorldEvent::LevelChunk(event.clone()))
+fn admits(
+    ingress: &WorldIngress,
+    stream: Option<&WorldStream>,
+    footprint: Option<&Footprint>,
+) -> bool {
+    stream.is_none_or(|stream| {
+        let can_admit = |event: &WorldEvent| {
+            footprint.map_or_else(
+                || stream.can_admit(event),
+                |footprint| stream.can_admit_with_footprint(event, footprint),
+            )
+        };
+        match ingress {
+            WorldIngress::Event(event) => can_admit(&event.event),
+            WorldIngress::LevelChunk { event, .. } => {
+                can_admit(&WorldEvent::LevelChunk(event.clone()))
+            }
+            WorldIngress::FastTransferBarrier { .. } => stream.light_admission_capacity() > 0,
         }
-        WorldIngress::FastTransferBarrier { .. } => stream.light_admission_capacity() > 0,
     })
 }
 
 /// Allows light session events past retained terrain without reordering terrain preparation.
-fn bypasses_terrain(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
-    stream.is_none_or(|stream| {
-        let footprint = footprint(ingress, stream);
-        !footprint.heavy
-            && !footprint.barrier
-            && !footprint.retention
-            && footprint.columns.is_empty()
-    })
-}
-
-/// Stops lookahead at definitions and dimension changes, whose preparation changes lane context.
-fn barrier(ingress: &WorldIngress, stream: Option<&WorldStream>) -> bool {
-    matches!(ingress, WorldIngress::FastTransferBarrier { .. })
-        || stream.is_some_and(|stream| footprint(ingress, stream).barrier)
+fn bypasses_terrain(footprint: &Footprint) -> bool {
+    !footprint.heavy && !footprint.barrier && !footprint.retention && footprint.columns.is_empty()
 }
 
 /// Uses the stream's classification for both payload representations and transfer markers.

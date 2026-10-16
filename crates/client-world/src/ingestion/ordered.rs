@@ -319,6 +319,17 @@ impl OrderedCommitState {
         Ok(())
     }
 
+    /// Borrows a retained payload's recorded dependencies until its reservation is released.
+    /// Panics if the sequence does not hold an ingress reservation.
+    pub fn retained_ingress_footprint(&self, sequence: u64) -> &Footprint {
+        let entry = self
+            .entries
+            .get(&sequence)
+            .filter(|entry| entry.held == Held::Ingress)
+            .expect("only retained ingress has an ingress footprint");
+        &entry.footprint
+    }
+
     /// Releases a lookahead reservation immediately before its payload is admitted normally.
     pub fn release_ingress(&mut self, sequence: u64) {
         assert!(

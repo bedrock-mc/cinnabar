@@ -284,3 +284,67 @@ fn world_ingress_cursor_receives_without_allocating() {
     assert_eq!(allocated, 0);
     assert!(first && second && capped && third && empty);
 }
+
+/// Unchanged multi-column terrain stays allocation-free while later light packets pass.
+#[test]
+fn retained_multi_column_ingress_rescans_without_allocating() {
+    use client_world::ingestion::MAX_DEFERRED_WORLD_EVENTS;
+    use test_alloc::thread_allocations;
+
+    let mut stream = stream();
+    let full = (MAX_ADMITTED_HEAVY_EVENTS + MAX_DEFERRED_WORLD_EVENTS) as u64;
+    for sequence in 1..=full {
+        stream.submit(sequence, level_chunk(sequence)).unwrap();
+    }
+    let blocked = 8;
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(WORLD_EVENT_CAPACITY);
+    for sequence in full + 1..=full + blocked {
+        sender
+            .try_send(event(
+                sequence,
+                WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: [3, 1, 2, 1]
+                        .map(|x| protocol::SubChunkEntryEvent {
+                            position: [x, 0, 0],
+                            result: protocol::SubChunkResult::AllAir,
+                            diagnostics: None,
+                        })
+                        .into(),
+                }),
+            ))
+            .unwrap();
+    }
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    assert!(
+        frame_drain(now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending.len(), blocked as usize);
+
+    for _ in 0..3 {
+        let before = thread_allocations();
+        let next = frame_drain(now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .unwrap();
+        let allocations = thread_allocations() - before;
+        assert!(next.is_none());
+        assert_eq!(allocations, 0, "unchanged stalled terrain allocated");
+    }
+    let mut drain = frame_drain(now);
+    for sequence in full + blocked + 1..=full + blocked + 3 {
+        sender.try_send(remote_move(sequence)).unwrap();
+        let before = thread_allocations();
+        let next = drain
+            .next(&mut receiver, &mut pending, Some(&mut stream), now)
+            .unwrap()
+            .unwrap();
+        let allocations = thread_allocations() - before;
+        assert_eq!(submit(&mut stream, next), sequence);
+        assert_eq!(allocations, 0, "lookahead past stalled terrain allocated");
+        assert_eq!(pending.len(), blocked as usize);
+    }
+}
