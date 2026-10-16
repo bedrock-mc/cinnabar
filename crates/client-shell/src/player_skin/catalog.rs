@@ -31,6 +31,8 @@ struct Preferences {
     #[serde(default)]
     selected_cape: Option<String>,
     #[serde(default)]
+    selected_hat: Option<String>,
+    #[serde(default)]
     capes: Vec<ImportedCape>,
 }
 
@@ -189,6 +191,10 @@ pub fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> DressingRoomV
         selected,
         capes: capes.into(),
         selected_cape,
+        selected_hat: preferences
+            .selected_hat
+            .as_deref()
+            .and_then(render_api::Hat::from_id),
         ..Default::default()
     }
 }
@@ -272,6 +278,7 @@ fn save(layout: &InstallLayout, view: &DressingRoomView) -> Result<(), String> {
             })
             .collect(),
         selected_cape: view.selected_cape().map(|entry| entry.id.clone()),
+        selected_hat: view.selected_hat.map(|hat| hat.id().to_owned()),
         capes: view
             .capes
             .iter()
@@ -465,3 +472,18 @@ fn standard_skin(
 
 #[cfg(test)]
 mod tests;
+
+/// Saves a local cosmetic atomically; a failed write restores the equipped choice.
+pub fn select_hat(
+    layout: &InstallLayout,
+    view: &mut DressingRoomView,
+    hat: Option<render_api::Hat>,
+) -> Result<(), String> {
+    let previous = view.selected_hat;
+    view.selected_hat = hat;
+    if let Err(error) = save(layout, view) {
+        view.selected_hat = previous;
+        return Err(error);
+    }
+    Ok(())
+}

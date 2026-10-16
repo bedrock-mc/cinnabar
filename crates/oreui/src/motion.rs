@@ -19,7 +19,7 @@ pub(super) enum Surface {
     Settings(u8),
     ResourcePack(u128, bool),
     Mod(u64, bool),
-    Wardrobe(bool),
+    Wardrobe(launcher::dressing_room::DressingRoomSection),
     Play(u8),
     ServerDetails(usize, bool),
     Inbox(u8),

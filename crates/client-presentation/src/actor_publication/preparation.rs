@@ -19,6 +19,7 @@ pub struct ActorFrameState {
     published_artwork: Option<Arc<crate::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(super) actor_clock: ActorFrameClock,
     pub(super) session_artwork: Option<render_model::ActorArtworkPages>,
+    pub(super) hat_state: super::hats::HatState,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
     pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
@@ -47,6 +48,11 @@ pub struct ActorFrameState {
 }
 
 impl ActorFrameState {
+    /// Wind angle shared by the world attachment and the HUD paperdoll for this frame.
+    pub fn hat_bend(&self) -> f32 {
+        self.hat_state.bend
+    }
+
     /// Shares the exact accepted artwork snapshot with client-owned actor publishers.
     pub fn actor_artwork<'a>(
         &'a self,
@@ -131,6 +137,7 @@ pub fn advance_actor_frame(
         skin_rigs,
         skin_layers,
         cape_state,
+        hat_state,
         poses,
         layer_poses,
         java_hand,
@@ -174,8 +181,13 @@ pub fn advance_actor_frame(
         }
         *skin_layers = Default::default();
         *cape_state = Default::default();
+        *hat_state = Default::default();
         *published_session = session_id;
     }
+    let speed = input.local_feed.as_ref().map_or(0.0, |feed| {
+        render_model::hats::forward_speed(feed.velocity, feed.yaw)
+    });
+    hat_state.advance(input.hat, speed, time.delta_secs());
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
     let items = session_id.and_then(|_| client_world.session_items.clone());
     let same = |left: Option<*const ()>, right: Option<*const ()>| left == right;

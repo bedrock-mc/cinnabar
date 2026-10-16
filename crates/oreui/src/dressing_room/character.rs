@@ -30,7 +30,10 @@ pub(super) fn draw(
     canvas.fill(badge, theme::PRIMARY_ROLE.shadow)?;
     canvas.text_centred("EQUIPPED", badge, CAPTION, TEXT, false)?;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
-    let custom = if cape_tab {
+    let hat_tab = view.dressing_room.section == DressingRoomSection::Hats;
+    let custom = if hat_tab {
+        false
+    } else if cape_tab {
         view.dressing_room
             .selected_cape()
             .is_some_and(|cape| cape.imported)
@@ -73,7 +76,13 @@ pub(super) fn draw(
         [left, hint_bottom, right, hint_bottom + canvas.r(EDGE)],
         theme::BEVEL_LIGHT,
     )?;
-    let (name, caption) = if cape_tab {
+    let (name, caption) = if hat_tab {
+        view.dressing_room
+            .selected_hat
+            .map_or(("No hat", "Your original look"), |hat| {
+                (hat.name(), "Flexible ears. Made to move.")
+            })
+    } else if cape_tab {
         view.dressing_room
             .selected_cape()
             .map_or(("No cape", "A clean silhouette."), |cape| {
@@ -108,7 +117,7 @@ pub(super) fn draw(
         CAPTION,
         TEXT_DIMMER,
     )?;
-    if !cape_tab {
+    if !cape_tab && !hat_tab {
         let skin = view.dressing_room.selected_skin();
         let mut y = details_top + canvas.r(6.2);
         if custom && skin.is_some_and(|skin| skin.model != SkinModel::Custom) {

@@ -545,3 +545,40 @@ fn editor_errors_remain_visible_inside_the_modal_without_covering_controls() {
         }
     }
 }
+
+#[test]
+fn hats_offer_equip_remove_and_tabs_without_skin_management_actions() {
+    for width in [360.0, 1280.0] {
+        let mut view = view(STARTER_SKIN_NAMES.len());
+        let wardrobe = Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = DressingRoomSection::Hats;
+        wardrobe.selected_hat = Some(render_api::Hat::BunnyEars);
+        let offsets = if width < 600.0 {
+            HashMap::from([("dressing_room_hats".into(), 320.0)])
+        } else {
+            HashMap::new()
+        };
+        let (_, hits, _) = paint(offsets, |canvas| {
+            super::draw(canvas, &view, [width, 720.0]).unwrap();
+        });
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == command(Action::SelectHat(None)))
+        );
+        assert!(
+            hits.iter().any(|(action, _)| *action
+                == command(Action::SelectHat(Some(render_api::Hat::BunnyEars))))
+        );
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action
+                    == command(Action::SetSection(DressingRoomSection::Skins)))
+        );
+        assert!(!hits.iter().any(|(action, _)| matches!(
+            action,
+            MenuAction::DressingRoom(
+                Action::Import | Action::ImportCape | Action::SetModel(_) | Action::BeginRename(_)
+            )
+        )));
+    }
+}

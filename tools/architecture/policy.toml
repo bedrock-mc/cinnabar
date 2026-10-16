@@ -37,6 +37,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/java-hud/textures/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "crates/render-model/src/hats/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
+
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
 path = "crates/assets/data/entity-facts-v2193.bin"

@@ -14,6 +14,9 @@ pub(super) struct LivePlayer {
     geometry: Option<ActorRigGeometry>,
     pub(super) vertices: Vec<ActorVertex>,
     pub(super) cape_vertices: Vec<ActorVertex>,
+    pub(super) hat_vertices: Vec<ActorVertex>,
+    hat_pose: render_model::hats::HatPoseCache,
+    pub(super) hat_bend: f32,
     bones: Vec<RenderBoneTransform>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
@@ -23,6 +26,14 @@ pub(super) struct LivePlayer {
 }
 
 impl UiPresentationRuntime {
+    /// Shares the actor frame's wind angle without advancing a second animation clock.
+    pub fn set_preview_hat_bend(&mut self, bend: f32) {
+        if self.gui_models.live_player.hat_bend != bend {
+            self.gui_models.live_player.hat_bend = bend;
+            self.last_frame = None;
+        }
+    }
+
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
     pub fn capture_hud_player(
         &mut self,
@@ -45,6 +56,7 @@ impl UiPresentationRuntime {
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
+        live.hat_vertices.clear();
         live.parts = [None; 6];
         live.fire_size = None;
         live.outer_y = if swimming {
@@ -138,6 +150,22 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis;
         project_vertices(geometry, &live.bones, frame, &mut live.vertices);
+        if let Some(hat) = self.menu_preview_model.hat
+            && let Some(index) = rig
+                .bone_names
+                .iter()
+                .position(|bone| bone.eq_ignore_ascii_case("head"))
+            && let Some(head) = live.bones.get(index)
+        {
+            let pose = live.hat_pose.pose(hat, *head, live.hat_bend);
+            project_vertices(
+                &render_model::hats::rig(hat).geometry,
+                &pose,
+                frame,
+                &mut live.hat_vertices,
+            );
+            discard_collapsed_faces(&mut live.hat_vertices);
+        }
         if draw_cape && let Some(cape) = &self.gui_models.cape {
             let pose = cape.pose(
                 rig.bone_names,

@@ -143,6 +143,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
         for java_mode in [false, true] {
             for alpha in [0.05, 0.75] {
                 let input = super::super::ActorFrameInput {
+                    hat: None,
                     local_feed: None,
                     predicted_eye: None,
                     predicted_feet: None,
@@ -429,6 +430,7 @@ fn sample_shared_bodies<'a>(
     remote_emotes: Vec<super::super::RemoteEmote>,
 ) -> super::super::bodies::SampledBodies<'a> {
     let input = super::super::ActorFrameInput {
+        hat: None,
         local_feed: None,
         predicted_eye: None,
         predicted_feet: None,

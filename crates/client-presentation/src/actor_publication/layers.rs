@@ -231,6 +231,7 @@ pub(super) fn apply_style_and_visibility(
         // Hiding skin layers keeps armor and held items visible.
         if (identity.layer == render_model::ACTOR_LAYER_BODY
             || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+            || identity.layer == render_model::hats::ACTOR_LAYER_HAT
             || crate::presentation::skin_layers::is_skin_layer(identity.layer)
             || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
             && actor.is_some_and(|actor| actor.is_invisible())

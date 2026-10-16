@@ -1,3 +1,15 @@
+## Hats wardrobe
+
+The wardrobe offers removable original bunny ears independently of skins and capes.
+Continuous ear meshes use a chain of small upper-half bends and ease upright when stopping;
+head transforms and the wind angle are shared by world and HUD presentation.
+The stepped pixel silhouettes attach directly to the head without a band; the gallery
+uses compact square preview tiles. The editable Blockbench project exports to the
+runtime geometry JSON, with conformance tests.
+Shared surface rings prevent visible joint gaps at rest or in motion.
+This is client-owned cosmetic behavior. The Linux wardrobe and in-world standing and forward-motion states were visually
+checked with software Vulkan. Hardware performance qualification remains incomplete.
+
 ## Fence gate targeting
 
 Gate picking uses the same thin directional bounds as its outline for closed, open

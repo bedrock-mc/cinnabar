@@ -171,6 +171,8 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
+    presentation.set_preview_hat(menu_skin.hat);
+    presentation.set_preview_hat_bend(hand_rig.hat_bend());
     let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,

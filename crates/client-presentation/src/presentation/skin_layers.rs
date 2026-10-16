@@ -16,7 +16,8 @@ use super::{
 };
 
 /// Animated skin layers follow the cape and precede generic render-controller layers.
-pub const SKIN_LAYER_BASE: u8 = super::cape::ACTOR_LAYER_CAPE + 1;
+pub const SKIN_LAYER_BASE: u8 = render_model::hats::ACTOR_LAYER_HAT + 1;
+const _: () = assert!(render_model::hats::ACTOR_LAYER_HAT == super::cape::ACTOR_LAYER_CAPE + 1);
 
 /// Whether an instance belongs to a player's animated skin, rather than equipment.
 pub fn is_skin_layer(layer: u8) -> bool {

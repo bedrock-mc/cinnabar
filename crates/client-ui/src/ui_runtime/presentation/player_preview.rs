@@ -16,6 +16,7 @@ pub(super) mod controller;
 mod equipment;
 mod fitting;
 pub mod geometry;
+pub(super) mod hats;
 pub(super) mod model;
 mod skin;
 pub use cape::render_cape_thumbnail;

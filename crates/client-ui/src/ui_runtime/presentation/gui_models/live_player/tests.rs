@@ -296,3 +296,30 @@ fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
         [1.0, 0.0, 0.0, 0.25]
     );
 }
+
+#[test]
+fn hud_hat_uses_the_shared_head_pose_wind_angle_and_removal() {
+    let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
+        "bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
+    let stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation.set_preview_hat(Some(render_api::Hat::BunnyEars));
+    presentation.capture_hud_player(Some(&stream), false);
+    let upright = presentation.gui_models.live_player.hat_vertices.clone();
+    assert!(!upright.is_empty());
+    presentation.set_preview_hat_bend(0.9);
+    presentation.capture_hud_player(Some(&stream), false);
+    let folded = &presentation.gui_models.live_player.hat_vertices;
+    assert_eq!(upright.len(), folded.len());
+    assert!(
+        upright
+            .iter()
+            .zip(folded)
+            .any(|(old, new)| old.position != new.position)
+    );
+    presentation.set_preview_hat(None);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert!(presentation.gui_models.live_player.hat_vertices.is_empty());
+}

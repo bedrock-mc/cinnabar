@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["dep:render-api"]
+test-support = []
 tracy = []
 
 [dependencies]
@@ -15,7 +15,7 @@ bridge = { path = "../bridge" }
 image.workspace = true
 launcher = { path = "../launcher" }
 protocol = { path = "../protocol" }
-render-api = { path = "../render-api", optional = true }
+render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }

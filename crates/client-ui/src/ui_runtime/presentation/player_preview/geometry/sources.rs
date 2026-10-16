@@ -67,6 +67,20 @@ impl<'a> MeshSources<'a> {
         }
     }
 
+    /// Adds an independently textured head attachment to the shared depth pass.
+    pub(in crate::ui_runtime::presentation) fn with_attachment(
+        mut self,
+        vertices: &'a [ActorVertex],
+        icon: IconRef,
+    ) -> Self {
+        self.layers.push(Layer {
+            vertices: Cow::Borrowed(vertices),
+            icon,
+            tint: None,
+        });
+        self
+    }
+
     /// Counts triangle corners and batches from the same layers the projection consumes.
     pub(in crate::ui_runtime::presentation) fn counts(&self) -> Option<(usize, usize)> {
         let mut vertices = 0usize;

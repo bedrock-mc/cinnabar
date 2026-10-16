@@ -486,3 +486,37 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
     assert!(actions.contains(&MenuAction::DressingRoom(Action::BeginRename(selected))));
     assert!(actions.contains(&MenuAction::DressingRoom(Action::BeginDelete(selected))));
 }
+
+#[test]
+fn hat_selection_updates_local_presentation_without_sending_a_skin_change() {
+    use launcher::dressing_room::DressingRoomSection;
+    let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
+    let mut local = menu.player_skin.clone();
+    let mut world = None;
+    menu.activate(MenuAction::Navigate(MenuScreen::DressingRoom));
+    wait(&mut menu, &mut local, &mut world);
+    menu.activate(MenuAction::DressingRoom(Action::SetSection(
+        DressingRoomSection::Hats,
+    )));
+    assert!(
+        menu.dressing_room_focus()
+            .contains(&MenuAction::DressingRoom(Action::SelectHat(None)))
+    );
+    assert!(
+        !menu
+            .dressing_room_focus()
+            .contains(&MenuAction::DressingRoom(Action::Import))
+    );
+    let before = local.standard_skin();
+    menu.activate(MenuAction::DressingRoom(Action::SelectHat(Some(
+        render_api::Hat::BunnyEars,
+    ))));
+    wait(&mut menu, &mut local, &mut world);
+    assert_eq!(local.hat, Some(render_api::Hat::BunnyEars));
+    assert_eq!(menu.player_skin.hat, local.hat);
+    assert_eq!(local.standard_skin(), before);
+    assert!(menu.skin_packet_pending.is_none());
+    menu.activate(MenuAction::DressingRoom(Action::SelectHat(None)));
+    wait(&mut menu, &mut local, &mut world);
+    assert_eq!(local.hat, None);
+}

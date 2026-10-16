@@ -73,6 +73,7 @@ pub(super) struct ArtworkSet {
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
+    pub(super) hats: Vec<render_api::Hat>,
 }
 
 impl ArtworkSet {
@@ -89,6 +90,7 @@ impl ArtworkSet {
                 .iter()
                 .zip(&other.images)
                 .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+            && self.hats == other.hats
             && self.capes.len() == other.capes.len()
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
@@ -285,12 +287,22 @@ enum Source {
     Bytes(String, Arc<[u8]>),
     Skin(SkinArtwork),
     Cape(CapeArtwork),
+    Hat(render_api::Hat, bool),
 }
 
 impl Source {
     /// Includes replacement pack bytes so a reload cannot reuse an older image.
     fn key(&self) -> DecodeKey {
         match self {
+            Self::Hat(hat, thumbnail) => (
+                if *thumbnail {
+                    hat.thumbnail_key()
+                } else {
+                    hat.texture_key()
+                },
+                THUMBNAIL_SIDE,
+                None,
+            ),
             Self::Skin(skin) => skin.decode_key(),
             Self::Cape(cape) => cape.decode_key(),
             Self::File(path, side) => (path.clone(), *side, None),
@@ -323,6 +335,9 @@ impl DecodeCache {
             .iter()
             .map(|source| {
                 let art = match source {
+                    Source::Hat(hat, thumbnail) => {
+                        super::player_preview::hats::decode(*hat, *thumbnail)
+                    }
                     Source::Skin(skin) => skin.decode(),
                     Source::Cape(cape) => cape.decode(),
                     Source::File(path, side) => decode(Path::new(path), *side),
@@ -391,6 +406,13 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .cloned()
         .map(Source::Cape)
         .collect();
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        set.hats
+            .iter()
+            .flat_map(|hat| [Source::Hat(*hat, false), Source::Hat(*hat, true)])
+            .take(remaining),
+    );
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
     let remaining = MAX_ARTWORKS - all.len();

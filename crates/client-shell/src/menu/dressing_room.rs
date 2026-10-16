@@ -24,6 +24,7 @@ enum Job {
     Rename(usize, String),
     Delete(usize),
     SelectCape(Option<usize>),
+    SelectHat(Option<render_api::Hat>),
     ImportCape(Option<PathBuf>),
     RenameCape(usize, String),
     DeleteCape(usize),
@@ -189,6 +190,7 @@ fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> R
         Job::Rename(index, name) => catalog::rename(layout, view, index, &name),
         Job::Delete(index) => catalog::delete(layout, view, index),
         Job::SelectCape(index) => catalog::select_cape(layout, view, index),
+        Job::SelectHat(hat) => catalog::select_hat(layout, view, hat),
         Job::ImportCape(None) => picker::pick(true)
             .and_then(|path| path.map_or(Ok(()), |path| catalog::import_cape(layout, view, &path))),
         Job::ImportCape(Some(path)) => catalog::import_cape(layout, view, &path),
@@ -250,6 +252,7 @@ impl MenuRuntime {
             Action::Import => self.queue_skin_job(Job::Import(None)),
             Action::ImportCape => self.queue_skin_job(Job::ImportCape(None)),
             Action::SelectCape(index) => self.queue_skin_job(Job::SelectCape(index)),
+            Action::SelectHat(hat) => self.queue_skin_job(Job::SelectHat(hat)),
             Action::SetModel(model) => self.queue_skin_job(Job::Model(model)),
             Action::BeginRename(index) => self.begin_skin_editor(
                 index,
@@ -296,7 +299,7 @@ impl MenuRuntime {
     /// Publishes completed appearance work to local state and retries the current skin packet.
     pub fn poll_dressing_room(
         &mut self,
-        local: Option<&mut crate::player_skin::LocalPlayerSkin>,
+        mut local: Option<&mut crate::player_skin::LocalPlayerSkin>,
         stream: Option<&mut chunk_pipeline::WorldStream>,
         send: Option<&SkinPacketSender<'_>>,
         session: u64,
@@ -328,6 +331,12 @@ impl MenuRuntime {
                     self.skin_update_pending = true;
                     self.skin_outbound = None;
                     self.skin_packet_pending = result.packet;
+                }
+                if self.player_skin.hat != result.view.selected_hat {
+                    self.player_skin.hat = result.view.selected_hat;
+                    if let Some(local) = local.as_deref_mut() {
+                        local.hat = self.player_skin.hat;
+                    }
                 }
                 self.dressing_room = Arc::new(result.view);
             }
@@ -415,13 +424,10 @@ impl MenuRuntime {
             return actions;
         }
         actions.extend(
-            [
-                launcher::dressing_room::DressingRoomSection::Skins,
-                launcher::dressing_room::DressingRoomSection::Capes,
-            ]
-            .into_iter()
-            .filter(|section| *section != self.dressing_room.section)
-            .map(|section| MenuAction::DressingRoom(Action::SetSection(section))),
+            launcher::dressing_room::DressingRoomSection::ALL
+                .into_iter()
+                .filter(|section| *section != self.dressing_room.section)
+                .map(|section| MenuAction::DressingRoom(Action::SetSection(section))),
         );
         if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Capes {
             actions.extend([
@@ -443,6 +449,15 @@ impl MenuRuntime {
                     MenuAction::DressingRoom(Action::BeginDeleteCape(index)),
                 ]);
             }
+            return actions;
+        }
+        if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Hats {
+            actions.push(MenuAction::DressingRoom(Action::SelectHat(None)));
+            actions.extend(
+                render_api::Hat::ALL
+                    .iter()
+                    .map(|hat| MenuAction::DressingRoom(Action::SelectHat(Some(*hat)))),
+            );
             return actions;
         }
         actions.push(MenuAction::DressingRoom(Action::Import));

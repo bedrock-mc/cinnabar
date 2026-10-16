@@ -54,6 +54,7 @@ pub enum Action {
     Import,
     ImportCape,
     SelectCape(Option<usize>),
+    SelectHat(Option<render_api::Hat>),
     SetModel(SkinModel),
     BeginRename(usize),
     BeginDelete(usize),
@@ -64,12 +65,28 @@ pub enum Action {
     Cancel,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum DressingRoomSection {
-    #[default]
-    Skins,
-    Capes,
+/// Declares navigation and its captions from one catalog.
+macro_rules! wardrobe_sections {
+    ($first:ident => $first_label:literal $(, $section:ident => $label:literal)* $(,)?) => {
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub enum DressingRoomSection {
+            #[default]
+            $first,
+            $($section,)*
+        }
+
+        impl DressingRoomSection {
+            pub const ALL: [Self; [$first_label, $($label,)*].len()] = [Self::$first, $(Self::$section,)*];
+
+            /// Tab caption shared by the wardrobe's navigation controls.
+            pub const fn label(self) -> &'static str {
+                match self { Self::$first => $first_label, $(Self::$section => $label,)* }
+            }
+        }
+    };
 }
+
+wardrobe_sections! { Skins => "Skins", Capes => "Capes", Hats => "Hats" }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkinEditorMode {
@@ -123,6 +140,7 @@ pub struct DressingRoomView {
     pub editor: Option<SkinEditor>,
     pub capes: Arc<[DressingRoomCape]>,
     pub selected_cape: Option<usize>,
+    pub selected_hat: Option<render_api::Hat>,
 }
 
 impl DressingRoomView {

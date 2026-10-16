@@ -9,6 +9,7 @@ pub(crate) struct MenuPreviewModel {
     source: Option<Arc<render_api::SkinGeometrySource>>,
     pub(crate) vertices: Option<Arc<[ActorVertex]>>,
     pub(crate) cape: Option<render_api::CapeImage>,
+    pub(crate) hat: Option<render_api::Hat>,
     pub(crate) cape_key: Option<String>,
     pub(super) bounds: Option<super::fitting::OrbitBounds>,
     body_bounds: Option<super::fitting::OrbitBounds>,
@@ -49,6 +50,27 @@ impl MenuPreviewModel {
 }
 
 impl super::UiPresentationRuntime {
+    /// Updates headwear without reloading skin geometry or regenerating skin textures.
+    pub fn set_preview_hat(&mut self, hat: Option<render_api::Hat>) {
+        if self.menu_preview_model.hat == hat {
+            return;
+        }
+        self.menu_preview_model.hat = hat;
+        let mut bounds = self
+            .menu_preview_model
+            .body_bounds
+            .unwrap_or_else(super::fitting::standard);
+        if self.menu_preview_model.cape.is_some() {
+            bounds = bounds.with_static_geometry(super::cape::rest_vertices());
+        }
+        if let Some(hat) = hat {
+            bounds = bounds.with_static_geometry(&render_model::hats::rig(hat).rest_vertices);
+        }
+        self.menu_preview_model.bounds = Some(bounds);
+        self.last_frame = None;
+        self.player_preview_source_hash = None;
+    }
+
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
     pub fn set_menu_preview_skin(&mut self, skin: &render_api::StandardSkin) -> bool {
         let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
@@ -76,7 +98,15 @@ impl super::UiPresentationRuntime {
                     .with_static_geometry(super::cape::rest_vertices()),
             );
         }
+        if let Some(hat) = self.menu_preview_model.hat {
+            bounds = Some(
+                bounds
+                    .unwrap_or_else(super::fitting::standard)
+                    .with_static_geometry(&render_model::hats::rig(hat).rest_vertices),
+            );
+        }
         self.menu_preview_model = MenuPreviewModel {
+            hat: self.menu_preview_model.hat,
             source: skin.geometry.clone(),
             cape_key: if cape_matches {
                 self.menu_preview_model.cape_key.clone()

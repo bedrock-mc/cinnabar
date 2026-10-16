@@ -1,5 +1,15 @@
 # Phases 2-5 Completion Ledger
 
+## Original wardrobe hats
+
+Local headwear has an independent persisted selection, a wardrobe gallery and shared
+head attachment geometry for world and HUD presentation. Bunny ears use bounded,
+elapsed-time wind motion distributed across continuous upper-half surface rings.
+Stepped pixel surfaces attach directly to the head, with compact square gallery previews.
+Shared-edge regression coverage prevents joint gaps. This adds no Bedrock parity claim;
+Linux wardrobe and in-world standing and forward-motion rendering were inspected
+with software Vulkan. Hardware performance qualification remains incomplete.
+
 Settings mod cards now show permission summaries, explicit requested-grant consent
 and a compact customization grid. Capability metadata supplies gameplay warnings;
 batch grant edits preserve the existing registration format and enforcement.

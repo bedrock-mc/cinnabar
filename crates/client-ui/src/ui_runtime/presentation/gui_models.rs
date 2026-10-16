@@ -318,6 +318,9 @@ impl UiPresentationRuntime {
         self.gui_models.cape = render_model::cape::CapeRig::resolve(entities);
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
+        for hat in render_api::Hat::ALL {
+            render_model::hats::rig(*hat);
+        }
         self.gui_models.enabled = true;
         self.place_pack_armor();
         Ok(())
@@ -623,14 +626,25 @@ impl UiPresentationRuntime {
             };
             self.menu_artwork_icon(key).map(|icon| (vertices, icon))
         });
-        Some(player_preview::geometry::MeshSources::new(
+        let mut sources = player_preview::geometry::MeshSources::new(
             body,
             skin,
             &self.player_preview_gear,
             armor,
             self.gui_fire_frame(),
             cape,
-        ))
+        );
+        if let Some(hat) = self.menu_preview_model.hat
+            && let Some(icon) = self.menu_artwork_icon(&hat.texture_key())
+        {
+            let vertices = if self.player_preview_view == player_preview::PreviewView::Hud {
+                self.gui_models.live_player.hat_vertices.as_slice()
+            } else {
+                &render_model::hats::rig(hat).rest_vertices
+            };
+            sources = sources.with_attachment(vertices, icon);
+        }
+        Some(sources)
     }
 
     /// Projects the prepared body and only the hand models admitted for this frame.

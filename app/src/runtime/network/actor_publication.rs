@@ -146,6 +146,7 @@ pub(crate) fn advance_actor_frame(
         physics.render_feet_position(),
     );
     let input = ActorFrameInput {
+        hat: skin.hat,
         local_feed,
         predicted_eye,
         predicted_feet,

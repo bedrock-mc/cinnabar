@@ -694,6 +694,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
             prepared_actor_artwork: &mut prepared_artwork,
         },
         super::super::ActorFrameInput {
+            hat: None,
             local_feed: None,
             predicted_eye: Some([0.0, 65.62, 0.0]),
             predicted_feet: Some([0.0, 64.0, 0.0]),

@@ -664,3 +664,28 @@ fn legacy_png_preferences_restore_without_engine_metadata() {
         render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
     );
 }
+
+#[test]
+fn hats_persist_independently_of_the_selected_skin_and_can_be_removed() {
+    let layout = layout();
+    native_fixture(&layout);
+    let fallback = LocalPlayerSkin::generated_default("fixture");
+    let mut view = load(&layout, &fallback);
+    let original = view.active_skin();
+    select_hat(&layout, &mut view, Some(render_api::Hat::BunnyEars)).unwrap();
+    assert_eq!(
+        view.active_skin(),
+        original,
+        "headwear does not alter the skin payload"
+    );
+    let mut reloaded = load(&layout, &fallback);
+    assert_eq!(reloaded.selected_hat, Some(render_api::Hat::BunnyEars));
+    select(&layout, &mut reloaded, 1).unwrap();
+    assert_eq!(
+        load(&layout, &fallback).selected_hat,
+        Some(render_api::Hat::BunnyEars)
+    );
+    select_hat(&layout, &mut reloaded, None).unwrap();
+    assert_eq!(load(&layout, &fallback).selected_hat, None);
+    fs::remove_dir_all(layout.user_data_root).unwrap();
+}
