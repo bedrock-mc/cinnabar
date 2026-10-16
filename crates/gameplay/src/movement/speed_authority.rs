@@ -258,6 +258,10 @@ impl LocalMovementSpeedAuthority {
             attribute
         });
         attribute.apply_speed_effect(action, active_speed_effect.unwrap_or_default());
+        if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&attribute.current) {
+            super::diagnostics::note_skipped_authority("movement_speed", attribute.current);
+            return;
+        }
         for factor in [None, Some(sim::SPRINT_SPEED_MULTIPLIER as f32)] {
             let mut recalculated = attribute;
             recalculated.set_sprint_modifier(factor);

@@ -214,6 +214,37 @@ fn speed_effect_before_the_first_attribute_uses_the_default_and_local_sprint() {
     assert_eq!(authority.current(), None);
 }
 
+/// Effect admission checks the actual sprint factor and retains the last safe state.
+#[test]
+fn speed_effect_rejects_an_unsafe_current_with_a_custom_sprint_factor() {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(7, 0);
+    let default = super::MAX_SIMULABLE_MOVEMENT_SPEED as f32 / 4.0;
+    let current = f64::from(default * 3.0);
+    let received = attribute(current, default, Some(3.0));
+    assert!(authority.apply(7, 1, 0, received));
+    authority.adopt_server_sprinting(Some(true));
+    let mut event = protocol::ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 42,
+        action: protocol::ActorEffectAction::Add,
+        effect_id: protocol_ids::Effect::Speed.wire_value(),
+        amplifier: 4,
+        particles: false,
+        ambient: false,
+        duration_ticks: 600,
+        tick: 100,
+    };
+    authority.apply_effect(7, 2, event);
+    assert_eq!(authority.current(), Some(current));
+    assert_eq!(authority.active_speed_effect, None);
+    assert!(!authority.apply(7, 2, 0, received));
+
+    event.amplifier = 0;
+    authority.apply_effect(7, 3, event);
+    assert_eq!(authority.current(), Some(f64::from(default * 1.2 * 3.0)));
+}
+
 /// Liquid speeds arrive in the same attribute packet as movement and keep values a later update omits.
 #[test]
 fn liquid_speeds_order_independently_and_keep_omitted_values() {
