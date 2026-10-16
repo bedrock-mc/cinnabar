@@ -135,7 +135,7 @@ fn lily_pad_rotation(position: vec3<i32>) -> u32 {
     return (((h * 0x285b825u + 11u) * h) >> 16u) & 3u;
 }
 
-// Each instance selects one CPU-visible unit; reject padding before reconstructing geometry.
+// Consecutive units share an instance; reject padding before fetching a descriptor or geometry.
 @if(TERRAIN_UNITS)
 @group(2) @binding(0) var<storage, read> terrain_units: array<vec4<u32>>;
 
@@ -146,10 +146,17 @@ fn vertex_unit(
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
     // Header locates packed visibility references beside stable descriptor slots.
+    let unit_index = instance_index * TERRAIN_UNITS_PER_INSTANCE
+        + vertex_index / (TERRAIN_UNIT_QUADS * 4u);
+    if (unit_index >= terrain_units[0].y) {
+        var invisible: VertexOutput;
+        invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+        return invisible;
+    }
     let references = terrain_units[0].x;
-    let slot = terrain_units[references + instance_index / 4u][instance_index % 4u];
+    let slot = terrain_units[references + unit_index / 4u][unit_index % 4u];
     let unit = terrain_units[1u + slot];
-    let quad = vertex_index / 4u;
+    let quad = (vertex_index / 4u) % TERRAIN_UNIT_QUADS;
     if (quad >= unit.y) {
         var invisible: VertexOutput;
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);

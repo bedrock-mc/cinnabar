@@ -83,8 +83,21 @@ fn inspect_executed_frame(world: &mut World) {
     let gpu = world.resource::<ActorGpu>();
     let frame = world.resource::<ActorRenderFrame>();
     assert_eq!(gpu.frame_generation, frame.rig.frame_generation);
-    for (prepared, source) in gpu.instances.iter().zip(frame.rig.instances.iter()) {
+    for (index, (prepared, source)) in gpu
+        .instances
+        .iter()
+        .zip(frame.rig.instances.iter())
+        .enumerate()
+    {
+        let mut receipt = gpu.manifest[index].clone();
+        assert_eq!(receipt.previous_bone_base, prepared.previous_bone_base);
+        assert_eq!(receipt.current_bone_base, prepared.current_bone_base);
+        receipt.previous_bone_base = frame.rig.manifest[index].previous_bone_base;
+        receipt.current_bone_base = frame.rig.manifest[index].current_bone_base;
+        assert_eq!(receipt, frame.rig.manifest[index]);
         let mut prepared = *prepared;
+        prepared.previous_bone_base = source.previous_bone_base;
+        prepared.current_bone_base = source.current_bone_base;
         prepared.material &= !crate::actor::material::LATE_DISSOLVE_COLOR;
         assert_eq!(&prepared, source);
     }
@@ -145,7 +158,7 @@ fn inspect_executed_frame(world: &mut World) {
         .take_drawn()
         .expect("all current spans were executed");
     assert_eq!(drawn.frame_generation, frame.rig.frame_generation);
-    assert_eq!(drawn.manifest.as_ref(), frame.rig.manifest.as_ref());
+    assert_eq!(drawn.manifest.as_ref(), gpu.manifest.as_ref());
     assert!(drawn.is_exact());
     world.resource_mut::<PreviousReceipt>().0 = Some((batch, executed));
     world

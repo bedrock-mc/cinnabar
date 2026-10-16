@@ -2,7 +2,7 @@ use super::*;
 use render_scene::RuntimeStage;
 
 /// Transfer workload for the frame completion regression.
-const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
+pub(super) const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {

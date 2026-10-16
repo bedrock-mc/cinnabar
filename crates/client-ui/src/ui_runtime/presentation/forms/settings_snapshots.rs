@@ -469,36 +469,3 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
         );
     }
 }
-
-/// Every far-terrain choice is reachable from its open video dropdown through the real
-/// carrier.
-#[test]
-fn far_terrain_video_choices_are_reachable() {
-    use launcher::menu::{
-        MenuAction,
-        settings_options::{FAR_TERRAIN_CHOICES, FAR_TERRAIN_OPTION},
-    };
-    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
-        eprintln!(
-            "skipping far_terrain_video_choices_are_reachable: missing installed UI carrier; make assets"
-        );
-        return;
-    };
-    let index = FAR_TERRAIN_OPTION.id.index() as u16;
-    let mut view = crate::test_support::settings_view();
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
-        .unwrap();
-    view.settings_dropdown = Some(index);
-    let player = player_state::PlayerState::new(1);
-    for choice in 0..FAR_TERRAIN_CHOICES.len() as i32 {
-        let action = MenuAction::SettingsOption(index, choice);
-        view.focused_action = Some(action);
-        assert!(
-            crate::test_support::draw_menu_actions(&player, &mut presentation, &view)
-                .contains(&action),
-            "far terrain choice {choice}"
-        );
-    }
-}

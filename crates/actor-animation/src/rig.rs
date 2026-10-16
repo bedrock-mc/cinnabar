@@ -52,7 +52,7 @@ pub struct ActorRigSnapshot<'a> {
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.
     pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
-    /// Immutable worker-built vertices matching `skin_geometry`; absent when that mesh is invalid.
+    /// Immutable prepared vertices matching `skin_geometry`; absent when that mesh is invalid.
     pub skin_mesh: Option<&'a render_model::ActorRigGeometry>,
     pub skin_layers: &'a [SkinRenderLayer],
     /// Swing and equip progress at the previous and current completed tick.

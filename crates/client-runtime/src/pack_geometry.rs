@@ -3,18 +3,23 @@ use bevy::prelude::*;
 use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkTextureReload};
 use std::sync::{Arc, Mutex, mpsc};
 
+type GeometrySource = (
+    render_scene::ChunkTextureAssetIdentity,
+    u64,
+    Option<meshing::ChunkBiomeTintIdentity>,
+);
+
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
 
 #[derive(Default)]
 pub struct GeometryPreparation {
-    pending: Option<(render_scene::ChunkTextureAssetIdentity, MeshReceiver)>,
-    source_tint: Option<meshing::ChunkBiomeTintIdentity>,
+    pending: Option<(GeometrySource, MeshReceiver)>,
 }
 
 impl GeometryPreparation {
     /// Prepares all dependent meshes before asking the renderer to stage the replacement.
     /// Returns whether the candidate's GPU completion may authorize publication.
-    /// False keeps publication waiting while obsolete work retires or a snapshot is unavailable.
+    /// False keeps publication waiting while a current snapshot is unavailable.
     pub fn request(
         &mut self,
         candidate: &ChunkTextureAssets,
@@ -23,53 +28,39 @@ impl GeometryPreparation {
         chunks: &Query<&mut ChunkRenderInstance>,
         gpu: &ChunkTextureReload,
     ) -> Result<bool, String> {
-        if let Some((identity, receiver)) = &self.pending {
-            let tint_changed = *identity == candidate.identity()
-                && stream.map(chunk_pipeline::WorldStream::biome_tint_identity) != self.source_tint;
-            if *identity == candidate.identity() && !tint_changed {
-                match receiver
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .try_recv()
-                {
-                    Ok(geometry) => gpu.request_geometry(candidate.clone(), geometry),
-                    Err(mpsc::TryRecvError::Disconnected)
-                        if gpu.status(candidate.identity()).is_none()
-                            && gpu.geometry().is_none() =>
-                    {
-                        return Err("Resource pack geometry worker stopped".into());
-                    }
-                    _ => {}
-                }
-                return Ok(true);
-            }
-            // Finish a submitted GPU build before reusing the candidate identity. Its result
-            // belongs to the old biome snapshot and must never authorize publication.
-            if tint_changed
-                && gpu
-                    .requested()
-                    .is_some_and(|requested| requested.identity() == candidate.identity())
-                && gpu.status(candidate.identity()).is_none()
-            {
-                return Ok(false);
-            }
-            // Dropping a receiver cannot cancel its build; finish it before starting another.
-            if matches!(
-                receiver
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .try_recv(),
-                Err(mpsc::TryRecvError::Empty)
-            ) {
-                return Ok(false);
-            }
+        let epoch = gpu.geometry_epoch();
+        let source = (
+            candidate.identity(),
+            epoch,
+            stream.map(chunk_pipeline::WorldStream::biome_tint_identity),
+        );
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|(previous, _)| *previous != source)
+        {
             self.pending = None;
-            if tint_changed {
-                gpu.cancel_except(current.identity());
+            gpu.cancel_except(current.identity());
+        }
+        if let Some((_, receiver)) = &self.pending {
+            match receiver
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .try_recv()
+            {
+                Ok(geometry) => gpu.request_geometry(epoch, candidate.clone(), geometry),
+                Err(mpsc::TryRecvError::Disconnected)
+                    if gpu.status(candidate.identity()).is_none() && gpu.geometry().is_none() =>
+                {
+                    return Err("Resource pack geometry worker stopped".into());
+                }
+                _ => {}
             }
+            return Ok(true);
         }
         let Some(stream) = stream else {
             gpu.request_geometry(
+                epoch,
                 candidate.clone(),
                 chunks.iter().cloned().collect::<Vec<_>>().into(),
             );
@@ -79,7 +70,7 @@ impl GeometryPreparation {
         if current.assets().has_same_geometry(candidate.assets())
             && current.assets().biome_assets() == candidate.assets().biome_assets()
         {
-            gpu.request_geometry(candidate.clone(), instances.into());
+            gpu.request_geometry(epoch, candidate.clone(), instances.into());
             return Ok(true);
         }
         let old_tint = stream.biome_tint_identity();
@@ -96,11 +87,10 @@ impl GeometryPreparation {
         let Some(snapshot) = snapshot else {
             return Ok(false);
         };
-        gpu.hold_geometry();
-        self.source_tint = Some(old_tint);
+        gpu.hold_geometry(epoch);
         let assets = candidate.assets().clone();
         let (sender, receiver) = mpsc::sync_channel(1);
-        self.pending = Some((candidate.identity(), Mutex::new(receiver)));
+        self.pending = Some((source, Mutex::new(receiver)));
         std::thread::spawn(move || {
             let _zone =
                 bevy::log::info_span!("pack_apply.remesh", chunks = instances.len()).entered();
@@ -188,14 +178,52 @@ mod tests {
     }
 
     #[test]
-    fn biome_change_waits_for_cpu_geometry_then_retries() {
+    fn stale_cpu_snapshot_never_blocks_the_new_session() {
+        for completed in [false, true] {
+            let (stream, _) = changed_biomes();
+            let current = ChunkTextureAssets::default();
+            let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let obsolete: Arc<[ChunkRenderInstance]> = Arc::from([]);
+            if completed {
+                sender.send(Arc::clone(&obsolete)).unwrap();
+            }
+            let mut preparation = GeometryPreparation {
+                pending: Some((
+                    (candidate.identity(), 0, Some(stream.biome_tint_identity())),
+                    Mutex::new(receiver),
+                )),
+            };
+            let mut world = World::new();
+            let mut state =
+                bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+            let chunks = state.get_mut(&mut world).unwrap();
+            let gpu = ChunkTextureReload::default();
+            gpu.hold_geometry(gpu.geometry_epoch());
+            gpu.discard_geometry();
+            preparation
+                .request(&candidate, &current, Some(&stream), &chunks, &gpu)
+                .unwrap();
+            assert!(
+                gpu.geometry().is_some(),
+                "the new session must not wait for an obsolete worker"
+            );
+            assert!(!Arc::ptr_eq(&obsolete, &gpu.geometry().unwrap()));
+            assert!(sender.send(Arc::from([])).is_err());
+        }
+    }
+
+    #[test]
+    fn biome_change_drops_cpu_geometry_without_waiting() {
         let (stream, before) = changed_biomes();
         let current = ChunkTextureAssets::default();
         let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
-            pending: Some((candidate.identity(), Mutex::new(receiver))),
-            source_tint: Some(before),
+            pending: Some((
+                (candidate.identity(), 0, Some(before)),
+                Mutex::new(receiver),
+            )),
         };
         let mut world = World::new();
         let mut state =
@@ -205,8 +233,7 @@ mod tests {
         preparation
             .request(&candidate, &current, Some(&stream), &chunks, &gpu)
             .expect("new biome definitions must not fail the pack reload");
-        assert!(gpu.requested().is_none());
-        sender.send(Arc::from([])).unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
         preparation
             .request(&candidate, &current, Some(&stream), &chunks, &gpu)
             .expect("retired geometry must be replaced");
@@ -215,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn biome_change_retires_gpu_geometry_before_reusing_the_candidate() {
+    fn biome_change_replaces_gpu_geometry_without_waiting() {
         for succeeded in [true, false] {
             let (stream, before) = changed_biomes();
             let current = ChunkTextureAssets::default();
@@ -223,21 +250,23 @@ mod tests {
             let (sender, receiver) = mpsc::sync_channel(1);
             drop(sender);
             let mut preparation = GeometryPreparation {
-                pending: Some((candidate.identity(), Mutex::new(receiver))),
-                source_tint: Some(before),
+                pending: Some((
+                    (candidate.identity(), 0, Some(before)),
+                    Mutex::new(receiver),
+                )),
             };
             let mut world = World::new();
             let mut state =
                 bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
             let chunks = state.get_mut(&mut world).unwrap();
             let gpu = ChunkTextureReload::default();
-            gpu.request_geometry(candidate.clone(), Arc::from([]));
+            gpu.request_geometry(gpu.geometry_epoch(), candidate.clone(), Arc::from([]));
             let obsolete = gpu.preparation().unwrap();
             preparation
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
-                .expect("an obsolete GPU build must wait without failing the reload");
+                .expect("an obsolete GPU build must not block the reload");
             assert!(gpu.geometry_pending());
-            gpu.finish(&obsolete, succeeded);
+            assert!(!gpu.finish(&obsolete, succeeded));
             preparation
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
                 .expect("an obsolete GPU result must be replaced");
@@ -250,13 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn review_superseded_geometry_waits_for_the_existing_worker() {
+    fn superseded_geometry_drops_the_existing_worker() {
         let current = ChunkTextureAssets::default();
         let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
-            pending: Some((current.identity(), Mutex::new(receiver))),
-            source_tint: None,
+            pending: Some(((current.identity(), 0, None), Mutex::new(receiver))),
         };
         let mut world = World::new();
         let mut state =
@@ -266,12 +294,7 @@ mod tests {
         preparation
             .request(&candidate, &current, None, &chunks, &gpu)
             .unwrap();
-        assert_eq!(
-            preparation.pending.as_ref().map(|(identity, _)| *identity),
-            Some(current.identity())
-        );
-        assert!(gpu.geometry().is_none());
-        sender.send(Arc::from([])).unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
         preparation
             .request(&candidate, &current, None, &chunks, &gpu)
             .unwrap();

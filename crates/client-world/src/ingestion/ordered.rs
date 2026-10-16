@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
+mod ingress;
+
 use protocol::{BlockUpdateEvent, SyncedBlockUpdateEvent, WorldEvent};
 
 use super::{
@@ -58,6 +60,10 @@ enum Held {
     Heavy,
     /// Ordered behind earlier terrain without decode admission yet.
     Deferred,
+    /// A retained payload; light packets may already own admission credit.
+    Ingress {
+        light_reserved: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -116,6 +122,9 @@ pub struct OrderedCommitState {
     light: usize,
     heavy: usize,
     deferred: usize,
+    ingress: usize,
+    /// Light slots reserved by payloads still owned by the ingress adapter.
+    ingress_light: usize,
     pending_sub_chunks: Option<PendingSubChunkCommit>,
     /// The block batch awaiting decode, with the last sequence it merged.
     blocking_block_updates: Option<(u64, u64)>,
@@ -139,6 +148,8 @@ impl OrderedCommitState {
             light: 0,
             heavy: 0,
             deferred: 0,
+            ingress: 0,
+            ingress_light: 0,
             pending_sub_chunks: None,
             blocking_block_updates: None,
             block_update_range_end: None,
@@ -335,9 +346,10 @@ impl OrderedCommitState {
     /// Every unfinished event holds exactly one bounded admission lane until it finishes.
     fn debug_check_accounting(&self) {
         debug_assert_eq!(self.unfinished, self.entries.len());
+        debug_assert!(self.ingress_light <= self.ingress);
         debug_assert_eq!(
             self.unfinished,
-            self.light + self.heavy + self.deferred,
+            self.light + self.heavy + self.deferred + self.ingress,
             "an unfinished event is uncharged"
         );
     }
@@ -376,6 +388,10 @@ impl OrderedCommitState {
             Held::Light => self.light -= 1,
             Held::Heavy => self.heavy -= 1,
             Held::Deferred => self.deferred -= 1,
+            Held::Ingress { light_reserved } => {
+                self.ingress -= 1;
+                self.ingress_light -= usize::from(light_reserved);
+            }
         }
         self.debug_check_accounting();
     }
@@ -842,7 +858,20 @@ impl OrderedCommitState {
     /// Light-lane headroom left after retained committed consumers.
     #[must_use]
     pub const fn light_capacity(&self, retained_commits: usize) -> usize {
-        MAX_ADMITTED_WORLD_EVENTS.saturating_sub(self.light.saturating_add(retained_commits))
+        self.light_capacity_with_reservations(retained_commits, self.ingress_light)
+    }
+
+    /// Counts ordinary and reserved light credit against the same consumer bound.
+    const fn light_capacity_with_reservations(
+        &self,
+        retained_commits: usize,
+        reservations: usize,
+    ) -> usize {
+        MAX_ADMITTED_WORLD_EVENTS.saturating_sub(
+            self.light
+                .saturating_add(retained_commits)
+                .saturating_add(reservations),
+        )
     }
 
     /// Heavy decode admission headroom.

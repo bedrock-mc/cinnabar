@@ -13,6 +13,15 @@ impl TextMeasure for Resources {
             .plain_text();
         [plain.chars().count() as f64 * 6.0, 9.0]
     }
+
+    /// Wraps fixed-width characters at the label's available width.
+    fn wrapped(&self, text: &str, max_width: f64) -> [f64; 2] {
+        let [width, height] = self.extent(text);
+        [
+            width.min(max_width),
+            height * (width / max_width).ceil().max(1.0),
+        ]
+    }
 }
 
 impl TextureSource for Resources {
@@ -156,5 +165,130 @@ fn suggestion_rows_shift_left_to_fit_at_the_right_edge() {
     for rect in rects {
         assert_eq!(rect.w, Resources.extent("longest")[0] + 1.0);
         assert_eq!(rect.x + rect.w, 360.0);
+    }
+}
+
+/// Supplies only the history templates that the built-in pack inherits from its carrier.
+fn history_catalog() -> Catalog {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/history_base.json",
+        r##"{
+            "namespace": "chat",
+            "messages_scrolling_panel": {
+                "type": "panel",
+                "controls": [{"rows": {
+                    "type": "stack_panel", "size": ["100%", "100%c"],
+                    "factory": {"name": "messages_factory",
+                        "control_ids": {"chat_screen_messages": "chat.messages_text"}}
+                }}]
+            },
+            "messages_text": {
+                "type": "panel", "size": ["100%", "100%c"],
+                "controls": [{"text": {
+                    "type": "label", "text": "#text", "localize": false,
+                    "bindings": [{"binding_name": "#text"}]
+                }}]
+            }
+        }"##,
+    );
+    catalog.overlay_text(
+        "ui/hud_base.json",
+        r##"{"namespace": "hud", "chat_label": {
+            "type": "label", "text": "#text", "localize": false,
+            "bindings": [{"binding_name": "#text"}]
+        }}"##,
+    );
+    for (path, namespace, bytes) in crate::hud::JAVA_HUD_PACK {
+        let text = std::str::from_utf8(bytes).unwrap();
+        if namespace.is_empty() {
+            catalog.overlay_globals_text(text);
+        } else {
+            catalog.overlay_text(path, text);
+        }
+    }
+    catalog
+}
+
+#[test]
+fn history_width_is_fixed_in_gui_units_for_hud_and_open_chat() {
+    let catalog = history_catalog();
+    let env = LayoutEnv {
+        text: &Resources,
+        textures: &Resources,
+    };
+    let text = "x".repeat(53);
+    let mut data = DataSource::new();
+    for name in ["#hud_visible", "#chat_visible", "#hud_propagate_alpha"] {
+        data.set_global(name, Scalar::Bool(true));
+    }
+    data.set_global("#hud_alpha", Scalar::Num(1.0));
+    data.set_global("#chat_background_opacity", Scalar::Num(0.5));
+    for (factory, id) in [
+        ("chat_item_factory", "chat_item"),
+        ("messages_factory", "chat_screen_messages"),
+    ] {
+        data.set_factory(
+            factory,
+            ["short", text.as_str()]
+                .map(|text| FactoryItem::new(id, 0.0).value("#text", Scalar::Text(text.into())))
+                .into(),
+        );
+    }
+    for (physical, preference, expected_width) in [
+        ([360, 240], None, 320.0),
+        ([854, 459], None, 320.0),
+        ([1280, 720], None, 640.0),
+        ([1920, 1080], None, 1280.0),
+        ([2560, 1440], None, 1600.0),
+        ([1280, 720], Some(1), 320.0),
+        ([1920, 1080], Some(2), 640.0),
+    ] {
+        let scale = f64::from(ui::gui_scale(physical, preference));
+        let viewport = physical.map(|side| f64::from(side) / scale);
+        for top in [false, true] {
+            let context = crate::chat_position::placed(crate::menu_screens::retail_context(), top);
+            for reference in [
+                if top { "hud.top_chat" } else { "hud.java_chat" },
+                "chat.java_chat_content",
+            ] {
+                let root = json_ui::resolve(&catalog, reference, &context)
+                    .control
+                    .unwrap();
+                let bound = json_ui::bind(
+                    &root,
+                    &data,
+                    &CatalogLibrary {
+                        catalog: &catalog,
+                        context: &context,
+                    },
+                );
+                let nodes = json_ui::emit(&json_ui::layout(&bound, viewport, &env), &env);
+                let backgrounds: Vec<_> = nodes
+                    .iter()
+                    .filter(|node| {
+                        node.name == "chat_background"
+                            || node.name == "background" && node.key.contains("messages_panel")
+                    })
+                    .collect();
+                assert_eq!(backgrounds.len(), 2, "{reference}");
+                for node in &backgrounds {
+                    assert_eq!(
+                        node.dest.w * scale,
+                        expected_width,
+                        "{reference} at {physical:?}, {preference:?}"
+                    );
+                }
+                let labels: Vec<_> = nodes
+                    .iter()
+                    .filter(|node| {
+                        matches!(&node.draw, Draw::Text { text: value, .. } if value == &text)
+                    })
+                    .collect();
+                assert_eq!(labels.len(), 1);
+                assert_eq!(labels[0].dest.w * scale, expected_width - 8.0 * scale);
+                assert!(labels[0].dest.h > 9.0, "the long message must wrap");
+            }
+        }
     }
 }

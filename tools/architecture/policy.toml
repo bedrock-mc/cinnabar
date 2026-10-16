@@ -1123,7 +1123,6 @@ sleep_exceptions = [
     { path = "crates/launcher-host/src/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
     { path = "crates/client-audio/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
     { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
-    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
     { path = "crates/chunk-pipeline/src/stream/tests/neighbour_deadlines.rs", reason = "manual timing run past the real unsent-column grace" },
     { path = "crates/chunk-pipeline/src/stream/tests/streaming_harness.rs", reason = "paces frames for the streaming harness" },
@@ -1345,6 +1344,11 @@ baselines = []
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/transform.rs"
+literal = "rotation"
+reason = "Field name of the Cinnabar `cinnabar_transform` surface property, not a vanilla identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/gameplay/src/placement_state.rs"

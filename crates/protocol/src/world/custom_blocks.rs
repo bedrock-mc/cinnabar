@@ -405,6 +405,10 @@ impl CustomBlocks {
         let mut vanilla_blocks = Vec::new();
         let mut skipped = 0;
         for (name, bytes) in definitions {
+            if name.is_empty() {
+                skipped += 1;
+                continue;
+            }
             let Some(root) = read_root(bytes) else {
                 skipped += 1;
                 continue;
