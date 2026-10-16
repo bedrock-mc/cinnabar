@@ -25,7 +25,7 @@ const (
 	Frame         = 'F' // direction (0 in, 1 out), datagram sequence, message key (0 past the first fragment), split ID (-1 unsplit), split index, split count
 	Message       = 'M' // RakNet message in: arrival, decoded (next read began), bytes, key, packets gophertunnel accepted
 	Sent          = 'N' // RakNet message out: t, key, bytes
-	StartupBatch  = 'S' // batch the session startup read: t, message key, packets
+	StartupBatch  = 'S' // batch the session startup read: t, -1 (origin unknown: deferred login packets), packets
 	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, write began, written, message key; packet IDs
 	Outbound      = 'O' // client frame upstream: conn, seq, read, handed to RakNet, message key; packet IDs
 	StackLatency  = 'L' // NetworkStackLatency: direction (0 in, 1 out), t, timestamp field
@@ -106,8 +106,9 @@ func Open(dir, role string) (*Trace, error) {
 // within a process are monotonic and both processes share one epoch.
 func (trace *Trace) Now() int64 { return trace.anchorUnix + int64(time.Since(trace.anchor)) }
 
-// NextConn numbers a bridge connection, from 1.
-func (trace *Trace) NextConn() int64 { return trace.conns.Add(1) }
+// NextConn returns a bridge connection ID unique across core processes: the process ID above a
+// per-process count from 1. The client adopts it from the handoff.
+func (trace *Trace) NextConn() int64 { return int64(os.Getpid())<<24 | trace.conns.Add(1) }
 
 // Record queues an event of up to six values without blocking; a full queue drops it and
 // counts the drop.

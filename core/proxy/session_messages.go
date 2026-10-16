@@ -34,9 +34,10 @@ type sessionTarget struct {
 // sessionHandoff is everything the client needs before play; StartGame travels in the startup packets.
 type sessionHandoff struct {
 	Identity      sessionIdentity `json:"identity"`
-	ClientCache   bool            `json:"client_cache"`   // the upstream login advertised blob-cache support
-	PacksRequired bool            `json:"packs_required"` // the offer or the stack required the packs
-	Packs         []sessionPack   `json:"packs"`          // application order; uncached archives follow as PackData
+	ClientCache   bool            `json:"client_cache"`         // the upstream login advertised blob-cache support
+	PacksRequired bool            `json:"packs_required"`       // the offer or the stack required the packs
+	Packs         []sessionPack   `json:"packs"`                // application order; uncached archives follow as PackData
+	TraceConn     int64           `json:"trace_conn,omitempty"` // latency-trace ID both processes stamp on this connection
 }
 
 // sessionIdentity is the upstream login's canonical player identity.

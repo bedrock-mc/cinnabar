@@ -48,7 +48,6 @@ pub struct Trace {
     anchor_unix: i64,
     records: Mutex<Option<SyncSender<Record>>>,
     dropped: AtomicU64,
-    conns: AtomicU64,
     writer: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -104,7 +103,6 @@ impl Trace {
             anchor_unix,
             records: Mutex::new(Some(records)),
             dropped: AtomicU64::new(0),
-            conns: AtomicU64::new(0),
             writer: Mutex::new(Some(writer)),
         })
     }
@@ -119,11 +117,6 @@ impl Trace {
     #[must_use]
     pub fn at(&self, instant: Instant) -> i64 {
         self.anchor_unix + instant.saturating_duration_since(self.anchor).as_nanos() as i64
-    }
-
-    /// Numbers a bridge connection, from 1.
-    pub fn next_conn(&self) -> u64 {
-        self.conns.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Queues an event without blocking; a full queue drops it and counts the drop.

@@ -121,6 +121,10 @@ pub struct SessionHandoff {
     pub packs_required: bool,
     /// Archives to apply, in application order.
     pub packs: Vec<HandoffPack>,
+    /// The core's latency-trace ID for this connection, stamped on both processes' records; 0
+    /// when the core is not tracing.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trace_conn: u64,
     /// Every packet the core received through StartGame, in order; StartGame is last.
     #[serde(skip)]
     pub startup: Vec<Bytes>,
@@ -366,3 +370,8 @@ fn invalid(reason: &'static str) -> BridgeError {
 
 #[cfg(test)]
 mod tests;
+
+/// Whether an optional numeric field holds its absent value.
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}

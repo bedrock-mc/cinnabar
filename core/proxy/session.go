@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -249,6 +250,7 @@ func (server *sessionServer) prepare(
 		ClientCache:   server.prepared.upstreamClientCache && downstream.clientCache,
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
+		TraceConn:     session.traceConn,
 	}
 	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs
@@ -299,7 +301,9 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 		if err != nil {
 			return nil, nil, err
 		}
-		traceStartupBatch(upstream, batch)
+		traceStartupBatch(upstream, batch, slices.ContainsFunc(batch, func(raw minecraft.RawPacket) bool {
+			return raw.ID == packet.IDStartGame
+		}))
 		for index, raw := range batch {
 			if size += len(raw.Data); size > streamnet.MaxFrameLen {
 				return nil, nil, errors.New("proxy: session startup packets exceed one frame")

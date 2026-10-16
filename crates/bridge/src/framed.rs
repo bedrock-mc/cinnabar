@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
@@ -134,7 +135,7 @@ const QUEUED_FRAMES: usize = 16;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
-    let trace_conn = crate::latency_trace::active().map_or(0, |trace| trace.next_conn());
+    let trace_conn = crate::latency_trace::active().map(|_| Arc::new(AtomicU64::new(0)));
     let (reader, frames, writer) = prepare_bounded(read, write, maximum, None, trace_conn);
     tokio::spawn(writer);
     (reader, frames)
@@ -146,17 +147,17 @@ pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     write: W,
     maximum: usize,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
-    prepare_bounded(read, write, maximum, None, 0)
+    prepare_bounded(read, write, maximum, None, None)
 }
 
-/// Keeps byte permits until flush, admitting a frame larger than the budget alone. A nonzero
-/// `trace_conn` records this connection's batch frames in the latency trace.
+/// Keeps byte permits until flush, admitting a frame larger than the budget alone. A `trace_conn`
+/// records this connection's batch frames in the latency trace once the core's ID is set in it.
 pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: R,
     write: W,
     maximum: usize,
     budget: Option<usize>,
-    trace_conn: u64,
+    trace_conn: Option<Arc<AtomicU64>>,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
     assert!(budget.is_none_or(|bytes| bytes > 0 && bytes <= u32::MAX as usize));
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
@@ -165,7 +166,7 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),
-        FrameTrace::new(trace_conn),
+        FrameTrace::new(trace_conn.clone()),
     );
     (
         FramedReader {
@@ -190,10 +191,17 @@ pub struct FramedReader<R = PlatformReadHalf> {
 }
 
 impl<R> FramedReader<R> {
-    /// This connection's latency-trace number, or 0 when it is not traced.
+    /// The core's latency-trace ID for this connection, or 0 when it is not traced.
     #[must_use]
     pub fn trace_conn(&self) -> u64 {
-        self.trace.conn
+        self.trace.id()
+    }
+
+    /// Adopts the latency-trace ID the core sent in its handoff, for this reader and its writer.
+    pub fn set_trace_conn(&self, id: u64) {
+        if let Some(conn) = &self.trace.conn {
+            conn.store(id, Ordering::Relaxed);
+        }
     }
 }
 
@@ -214,21 +222,28 @@ impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     }
 }
 
-/// Numbers one direction's batch frames in the latency trace; inert for connection 0.
+/// Numbers one direction's batch frames in the latency trace; inert until the core's ID is set.
 struct FrameTrace {
-    conn: u64,
+    conn: Option<Arc<AtomicU64>>, // shared by a connection's reader and writer
     frames: u64,
 }
 
 impl FrameTrace {
-    fn new(conn: u64) -> Self {
+    fn new(conn: Option<Arc<AtomicU64>>) -> Self {
         Self { conn, frames: 0 }
+    }
+
+    fn id(&self) -> u64 {
+        self.conn
+            .as_ref()
+            .map_or(0, |conn| conn.load(Ordering::Relaxed))
     }
 
     /// Records a frame of `len` bytes starting with `head` under `kind` when it is a batch on a
     /// traced connection.
     fn batch(&mut self, kind: u8, head: Option<&u8>, len: usize) {
-        if self.conn == 0 || head != Some(&crate::contract::KIND_BATCH) {
+        let conn = self.id();
+        if conn == 0 || head != Some(&crate::contract::KIND_BATCH) {
             return;
         }
         let Some(trace) = crate::latency_trace::active() else {
@@ -237,12 +252,7 @@ impl FrameTrace {
         self.frames += 1;
         trace.record(
             kind,
-            &[
-                self.conn as i64,
-                self.frames as i64,
-                trace.now(),
-                len as i64,
-            ],
+            &[conn as i64, self.frames as i64, trace.now(), len as i64],
         );
     }
 }
@@ -344,7 +354,7 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
     // First byte and length of the frames in this flush, kept only while tracing.
     let mut traced = Vec::new();
     while let Some(first) = frames.recv().await {
-        if trace.conn != 0 {
+        if trace.conn.is_some() {
             traced.push((first.frame.first().copied(), first.frame.len()));
         }
         let mut written = writer.feed(first.frame).await;
@@ -353,7 +363,7 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
             && pending.len() < QUEUED_FRAMES
             && let Ok(next) = frames.try_recv()
         {
-            if trace.conn != 0 {
+            if trace.conn.is_some() {
                 traced.push((next.frame.first().copied(), next.frame.len()));
             }
             written = writer.feed(next.frame).await;

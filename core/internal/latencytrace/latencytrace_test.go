@@ -71,3 +71,16 @@ func TestFinishWritesTheProcessTrace(t *testing.T) {
 		t.Fatalf("trace = %q, want the queued record", data)
 	}
 }
+
+// Connection IDs stay distinct across core processes, so a reconnect's new core cannot reuse one.
+func TestNextConnCarriesTheProcess(t *testing.T) {
+	trace, err := Open(t.TempDir(), "conn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer trace.Close()
+	first, second := trace.NextConn(), trace.NextConn()
+	if first>>24 != int64(os.Getpid()) || second != first+1 {
+		t.Fatalf("ids %d, %d do not carry pid %d and a count", first, second, os.Getpid())
+	}
+}
