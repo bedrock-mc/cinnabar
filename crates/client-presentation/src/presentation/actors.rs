@@ -24,7 +24,7 @@ pub use locator::actor_emitter_transform;
 mod admission;
 pub use admission::within_actor_candidate_cube;
 pub(crate) use admission::{
-    actor_is_render_candidate, rig_may_replace_geometry, sample_candidate_scale,
+    actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
 };
 mod tick_cache;
 pub use tick_cache::PoseConversions;
@@ -36,8 +36,6 @@ pub struct ActorRigPresentation {
     pub submission: ActorRigSubmission,
     pub skin_rgba8: Option<SkinRgba8>,
     pub artwork: Option<ActorArtworkLocation>,
-    /// A controller can draw beyond the base model's visibility box this frame.
-    pub may_replace_geometry: bool,
     /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
     pub authored_scale: f32,
     /// Body yaw used by the world transform, before axis scaling and death tilt.
@@ -74,7 +72,7 @@ pub fn update_actor_rig_scene(
 
 /// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
 /// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
-/// Controllers that can replace the base mesh bypass proofs using its bounds.
+/// Controllers and persona meshes that can extend the base defer its bounds proof.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -92,9 +90,9 @@ pub fn rig_may_be_visible(
     ) else {
         return true;
     };
-    // The base box cannot prove exclusion for geometry a controller may replace.
+    // The base box cannot prove exclusion for replacement or persona geometry.
     // Feet-based candidate and distance admission still apply above.
-    if rig_may_replace_geometry(rig, frame.as_deref()) {
+    if !rig.skin_layers.is_empty() || rig_may_replace_geometry(rig, frame.as_deref()) {
         return true;
     }
     // Per-axis scale and the death tilt never lengthen the up axis past the largest axis scale.
@@ -310,7 +308,6 @@ fn tick_presentation(
             },
             skin_rgba8,
             artwork: None,
-            may_replace_geometry: false,
             authored_scale: rig.scale,
             world_yaw_degrees: 0.0,
             head_over_body: 0.0,
@@ -338,7 +335,6 @@ fn place(
         ],
     )?;
     let mut presentation = tick.presentation;
-    presentation.may_replace_geometry = rig_may_replace_geometry(rig, None);
     let submission = &mut presentation.submission;
     let identity = &mut submission.input.identity;
     identity.ingress_sequence = actor.spawn_revision.max(actor.movement_revision);
@@ -426,7 +422,6 @@ pub fn local_diagnostic_presentation(
     });
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
-        may_replace_geometry: false,
         submission: ActorRigSubmission {
             material: Default::default(),
             culling_bounds: Default::default(),
@@ -501,7 +496,7 @@ pub fn local_actor_presentation_for_visibility(
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
+/// Selects already-admitted bodies, reserving the local skin before bounded remote skins.
 pub fn select_actor_presentations(
     local_runtime_id: u64,
     local_visible: bool,
@@ -545,14 +540,7 @@ pub fn select_actor_presentations_for_view(
             selected.push(remote);
             continue;
         }
-        let visible = if remote.may_replace_geometry {
-            // Layer sampling follows selection, so the base box cannot prove exclusion yet.
-            let feet = remote.submission.world_from_actor.map(|row| row[3]);
-            view.is_none_or(|view| view.contains_distance(feet))
-        } else {
-            actor_rig_submission_is_visible(&remote.submission, view)
-        };
-        if !visible {
+        if !actor_rig_submission_is_visible(&remote.submission, view) {
             continue;
         }
         selected.push(remote);

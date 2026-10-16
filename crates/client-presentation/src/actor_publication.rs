@@ -36,7 +36,7 @@ use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
 use crate::{
     actor_clock::authoritative_local_actor_eye,
     dropped_items::DroppedItemPublisher,
-    presentation::{actors::select_actor_presentations_for_view, equipment::EquipmentRuntime},
+    presentation::{actors::select_actor_presentations, equipment::EquipmentRuntime},
 };
 use bevy::prelude::{Query, Transform, With};
 
@@ -207,12 +207,12 @@ pub fn prepare_actor_render_frame(
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    // Remote bodies passed frame-model admission before bounded skin registration.
+    let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible,
         local,
         bodies.remotes,
-        cull_view,
     );
     if let Some(stream) = stream {
         state
@@ -346,6 +346,9 @@ pub fn prepare_actor_render_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;

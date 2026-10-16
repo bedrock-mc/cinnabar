@@ -534,8 +534,18 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
             }]);
         presentation.artwork = locations[0];
         presentation.submission.route = ActorRigRoute::Compiled;
-        presentation.may_replace_geometry = rig_may_replace_geometry(&rig, Some(&frame));
         assert!(!actor_rig_submission_is_visible(
+            &presentation.submission,
+            view
+        ));
+        let base_bounds = presentation.submission.culling_bounds;
+        assert!(admit_frame_bounds(
+            &mut presentation,
+            &rig,
+            view,
+            Some(&mut frame)
+        ));
+        assert!(actor_rig_submission_is_visible(
             &presentation.submission,
             view
         ));
@@ -544,9 +554,9 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         assert_eq!(
             selected.submissions.len(),
             1,
-            "replacement survives the later pre-layer selection too"
+            "resolved replacement bounds survive bounded selection"
         );
-        presentation.may_replace_geometry = false;
+        presentation.submission.culling_bounds = base_bounds;
         assert!(
             select_actor_presentations_for_view(999, false, None, [presentation], view)
                 .submissions
