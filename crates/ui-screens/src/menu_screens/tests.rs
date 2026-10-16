@@ -59,6 +59,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         widget: Default::default(),
         collections: Vec::new(),
         modal_root: None,
+        transform: None,
     }
 }
 

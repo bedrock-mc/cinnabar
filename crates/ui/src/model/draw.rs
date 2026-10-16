@@ -12,13 +12,85 @@ pub(super) struct DrawSpace<'a> {
     pub(super) clip: UiRect,
     pub(super) projection: Option<&'a UiWorldProjection>,
     pub(super) node: super::UiNodeId,
+    /// The node's paint transform in frame coordinates, applied to every emitted vertex.
+    pub(super) transform: Option<FrameAffine>,
+    /// The filter group every emitted alpha batch draws into.
+    pub(super) filter: Option<u32>,
+}
+
+impl DrawSpace<'_> {
+    /// The filter group a batch of `blend` draws into: only alpha draws filter, while
+    /// inverted, backdrop and filter geometry keep their own compositing.
+    pub(super) fn filter_for(&self, blend: UiBlendMode) -> Option<u32> {
+        self.filter.filter(|_| blend == UiBlendMode::Alpha)
+    }
+}
+
+/// A 2-D affine map in frame coordinates: `p -> linear * p + translation`, `linear`
+/// column-major `[a, b, c, d]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct FrameAffine {
+    pub(super) linear: [f32; 4],
+    pub(super) translation: [f32; 2],
+}
+
+impl FrameAffine {
+    /// `transform`, authored in coordinates local to a node, as a frame map for a node laid
+    /// out at `bounds` under `scale` frame units per node unit.
+    pub(super) fn for_node(transform: &super::UiTransform, bounds: UiRect, scale: f32) -> Self {
+        let [a, b, c, d] = transform.linear;
+        let origin = [bounds.min().x(), bounds.min().y()];
+        let moved = [a * origin[0] + c * origin[1], b * origin[0] + d * origin[1]];
+        Self {
+            linear: transform.linear,
+            translation: [
+                origin[0] - moved[0] + scale * transform.translation[0],
+                origin[1] - moved[1] + scale * transform.translation[1],
+            ],
+        }
+    }
+
+    /// Maps each vertex's screen position, preserving its homogeneous `clip_w`.
+    fn apply(&self, vertices: &mut [UiVertex]) {
+        let [a, b, c, d] = self.linear;
+        for vertex in vertices {
+            let w = vertex.clip_w;
+            if w == 0.0 {
+                continue;
+            }
+            let [x, y] = vertex.position.map(|value| value / w);
+            vertex.position = [
+                (a * x + c * y + self.translation[0]) * w,
+                (b * x + d * y + self.translation[1]) * w,
+            ];
+        }
+    }
 }
 
 /// Design-pixel lean of an italic glyph's top edge, scaled by the layout
 /// scale. Native visual confirmation pending.
 const ITALIC_SHEAR_PX: f32 = 1.0;
 
+/// Emits `visual` at `bounds`, then moves its vertices by the space's paint transform; the
+/// batch clip stays a frame-space scissor.
 pub(super) fn emit_visual(
+    visual: &UiVisual,
+    bounds: UiRect,
+    clip: DrawSpace<'_>,
+    effects: TextEffects<'_>,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
+    let start = vertices.len();
+    emit_untransformed(visual, bounds, clip, effects, vertices, indices, batches)?;
+    if let Some(transform) = clip.transform.filter(|_| clip.projection.is_none()) {
+        transform.apply(&mut vertices[start..]);
+    }
+    Ok(())
+}
+
+fn emit_untransformed(
     visual: &UiVisual,
     bounds: UiRect,
     clip: DrawSpace<'_>,
@@ -279,7 +351,8 @@ fn emit_text(
     let device_grid = (wrap.snap_glyphs_to_device_pixels
         && wrap.device_scale_65536 != 0
         && rotation.is_none()
-        && clip.projection.is_none())
+        && clip.projection.is_none()
+        && clip.transform.is_none())
     .then_some(wrap.device_scale_65536 as f32 / 65_536.0);
     let shadow_pass = match shadow {
         TextShadow::None => None,
@@ -620,6 +693,7 @@ fn emit_colored_quad(
                 .is_some_and(|projection| projection.depth_write)
         && batch.world_projection == clip.projection.is_some()
         && batch.isolated_depth_scope.is_none()
+        && batch.filter_group == clip.filter_for(blend)
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -647,6 +721,7 @@ fn emit_colored_quad(
             .is_some_and(|projection| projection.depth_write),
         world_projection: clip.projection.is_some(),
         isolated_depth_scope: None,
+        filter_group: clip.filter_for(blend),
         index_range: start..end,
     });
     Ok(())

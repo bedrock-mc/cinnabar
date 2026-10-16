@@ -441,6 +441,30 @@ crates only. `client-ui` keeps authority, item-icon and container projection, sc
 publication, and adapts runtime state into paint frames and typed inputs. This move has not been
 compiled or executed and closes no parity gate.
 
+## Mod surface motion
+
+Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points,
+an optional opening value and an optional exit value that personal-panel surfaces ease to
+when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
+feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
+to scale about an origin and rotate their drawing and hits without changing layout,
+bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
+subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred and
+filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
+`#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
+pyramid of the post-processed scene serves every backdrop in a frame, built only while one
+is published. `cinnabar_filter` blurs a control's subtree as one image through an offscreen
+group, animatable through `#cinnabar_blur`. These are Cinnabar extensions for mod
+surfaces; server-pack JSON-UI is unchanged.
+
+Incomplete toward expressive mod menus:
+- The shared scene blur and element blur are unmeasured on the reference hardware tiers.
+- Backdrops blur only the 3-D scene: UI beneath a glass panel, including the HUD and nested
+  glass, stays sharp.
+- Exits between routes: replacing an open panel's surface swaps it at once without playing
+  the old surface's exit values.
+
 ## Extension crate ownership
 
 `client-extensions` owns local component loading and load-order merging, environment
@@ -1089,7 +1113,7 @@ these changes do not close the movement, camera, or actor parity gates.
 - Named schedule traces and bounded frame recordings separate main work, render
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.
-- Ordinary direct terrain draws retain CPU-selected units of at most 64 quads,
+- Ordinary direct terrain draws group retained CPU-selected units into indexed instances,
   retain unchanged section descriptors in stable GPU slots, and upload ordered
   visibility references separately after current occlusion results. Both regions
   share one storage binding. Changed sections update only their descriptor spans;
@@ -1180,6 +1204,15 @@ these changes do not close the movement, camera, or actor parity gates.
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
+- Attachments belong to individual boom rigs. Selecting first person after an
+  attached tutorial returns to the player; attaching alone does not select a
+  camera. Clear and detach release only the selected rig's attachment.
+- Server input locks commit in packet order independently of camera selection.
+  Camera, movement, jump, sneak, dismount and directional locks filter input;
+  raw movement vectors remain available and unlocking restores held controls.
+  Mount permission routing and exact attachment actor-loss behavior remain incomplete.
+  Dimension, respawn, game-mode and initialization interactions, plus the full
+  current-version aim-assist and presentation-effects audit, remain unverified.
 - Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain

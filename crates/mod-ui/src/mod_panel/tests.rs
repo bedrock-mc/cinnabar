@@ -6,6 +6,7 @@ fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) 
     let mut content = panel();
     content.title = title.into();
     content.surface = Some(ui::mod_panel::Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({
             "namespace": "extension",
@@ -295,11 +296,11 @@ fn close_button_resets_scroll_and_feedback_before_reopening() {
             if motion_enabled {
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.0);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.0, true);
                 current.motion.scroll("list", 40.0, 30.0, 100.0);
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.03);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.03, true);
                 current
                     .motion
                     .write(&current.panel, Arc::make_mut(&mut current.data));
@@ -366,11 +367,11 @@ fn closed_and_settled_panels_reuse_feedback_data() {
             let current = ui.mod_panel.as_mut().unwrap();
             current
                 .motion
-                .advance(&current.panel, &mut current.view, None, 1.0);
+                .advance(&current.panel, &mut current.view, None, 1.0, true);
             current.motion.scroll("list", 0.0, 30.0, 100.0);
             current
                 .motion
-                .advance(&current.panel, &mut current.view, None, 1.03);
+                .advance(&current.panel, &mut current.view, None, 1.03, true);
             assert!(current.motion.active());
         }
         for _ in 0..3 {
@@ -394,10 +395,10 @@ fn closing_panel_restores_settled_hover_bindings() {
         let current = ui.mod_panel.as_mut().unwrap();
         current
             .motion
-            .advance(&current.panel, &mut current.view, Some(0), 1.0);
+            .advance(&current.panel, &mut current.view, Some(0), 1.0, true);
         current
             .motion
-            .advance(&current.panel, &mut current.view, Some(0), 1.2);
+            .advance(&current.panel, &mut current.view, Some(0), 1.2, true);
         current
             .motion
             .write(&current.panel, Arc::make_mut(&mut current.data));
@@ -432,10 +433,10 @@ fn reopening_panel_restores_settled_feedback_bindings() {
                 current.viewport = [600.0, 400.0];
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.0);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.0, true);
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.2);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.2, true);
                 current
                     .motion
                     .write(&current.panel, Arc::make_mut(&mut current.data));
@@ -450,10 +451,10 @@ fn reopening_panel_restores_settled_feedback_bindings() {
                 let current = ui.mod_panel.as_mut().unwrap();
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.2);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.2, true);
                 current
                     .motion
-                    .advance(&current.panel, &mut current.view, Some(0), 1.24);
+                    .advance(&current.panel, &mut current.view, Some(0), 1.24, true);
                 current
                     .motion
                     .write(&current.panel, Arc::make_mut(&mut current.data));
@@ -571,4 +572,162 @@ fn long_numeric_draft_keeps_caret_visible_at_both_ends() {
     let text = "123456789012345678901234";
     assert_eq!(edit::visible_draft(text, false, 0, 42.), "|123456");
     assert_eq!(edit::visible_draft(text, false, 24, 42.), "901234|");
+}
+
+/// A panel whose surface `#fade` binding eases from 1 to `exit` when the panel closes.
+fn exiting_panel(exit: Option<f64>) -> Panel {
+    use ui::mod_panel::{Surface, SurfaceTransition, SurfaceValue};
+
+    let mut content = panel();
+    content.surface = Some(Surface {
+        screen: "extension.screen".into(),
+        document: serde_json::json!({
+            "namespace": "extension",
+            "screen": {"type": "screen", "size": ["100%", "100%"], "controls": []}
+        })
+        .to_string(),
+        bindings: std::collections::BTreeMap::from([("#fade".into(), SurfaceValue::Number(1.0))]),
+        transitions: std::collections::BTreeMap::from([(
+            "#fade".into(),
+            SurfaceTransition {
+                duration: 0.2,
+                easing: Default::default(),
+                from: None,
+                exit: exit.map(SurfaceValue::Number),
+            },
+        )]),
+    });
+    content
+}
+
+/// Opens `content` with captured pointer input and samples its transitions as a painted
+/// frame would.
+fn open_painted(ui: &mut ModUi, content: &Panel) {
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(content))
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    let current = ui.mod_panel.as_mut().unwrap();
+    let surface = current.panel.surface.as_ref().unwrap();
+    current.motion.transitions.advance(surface, 1.0, true);
+    current.view.scroll.insert("list".into(), 40.0);
+    current.pointer = Some([10.0, 10.0]);
+    current.held = true;
+    current.drag = Some(1);
+}
+
+/// Closing a painted surface with exit values releases input at once but keeps it drawing,
+/// repeated closes continue the exit, and reopening resumes from the displayed values.
+#[test]
+fn closing_with_exit_values_releases_input_and_keeps_the_surface_drawing() {
+    let mut ui = ModUi::default();
+    open_painted(&mut ui, &exiting_panel(Some(0.0)));
+    ui.set_mod_panel_open(false);
+    for _ in 0..3 {
+        assert!(!ui.mod_panel_open());
+        assert!(ui.mod_panel_painting());
+        assert!(ui.mod_panel_motion_active());
+        let exiting = ui.mod_panel.as_ref().unwrap();
+        assert_eq!(
+            (exiting.drag, exiting.pointer, exiting.held),
+            (None, None, false)
+        );
+        assert_eq!(exiting.view.scroll_offset("list"), 40.0);
+        ui.set_mod_panel_open(false);
+    }
+    assert!(ui.mod_panel_events([10.0, 10.0], true, true).is_empty());
+    assert!(!ui.mod_panel_open());
+
+    ui.set_mod_panel_open(true);
+    assert!(ui.mod_panel_open());
+    let reopened = ui.mod_panel.as_ref().unwrap();
+    assert!(!reopened.exiting());
+    assert_eq!(reopened.view.scroll_offset("list"), 40.0);
+
+    ui.set_mod_panel_open(false);
+    assert!(ui.mod_panel_painting());
+    ui.configure_motion(false);
+    ui.set_mod_panel_open(false);
+    assert!(!ui.mod_panel_painting());
+    assert!(!ui.mod_panel_motion_active());
+    assert_eq!(
+        ui.mod_panel.as_ref().unwrap().view.scroll_offset("list"),
+        0.0
+    );
+}
+
+/// Without exit values, before the first paint, with animations off or while the HUD editor
+/// owns the surface, closing removes the panel at once.
+#[test]
+fn panels_without_an_exit_to_play_close_at_once() {
+    let closed_at_once = |ui: &mut ModUi| {
+        ui.set_mod_panel_open(false);
+        let closed = ui.mod_panel.as_ref().unwrap();
+        !ui.mod_panel_open()
+            && !ui.mod_panel_painting()
+            && !ui.mod_panel_motion_active()
+            && closed.frame.is_none()
+            && closed.view.scroll_offset("list") == 0.0
+    };
+    let mut ui = ModUi::default();
+    open_painted(&mut ui, &exiting_panel(None));
+    assert!(closed_at_once(&mut ui));
+
+    let mut ui = ModUi::default();
+    open_painted(&mut ui, &exiting_panel(Some(1.0)));
+    assert!(closed_at_once(&mut ui));
+
+    let mut ui = ModUi::default();
+    ui.set_mod_panel(
+        PanelUiOwner::Environment(0),
+        Some(&exiting_panel(Some(0.0))),
+    )
+    .unwrap();
+    ui.set_mod_panel_open(true);
+    assert!(closed_at_once(&mut ui));
+
+    let mut ui = ModUi::default();
+    ui.configure_motion(false);
+    open_painted(&mut ui, &exiting_panel(Some(0.0)));
+    assert!(closed_at_once(&mut ui));
+
+    let mut ui = ModUi::default();
+    open_painted(&mut ui, &exiting_panel(Some(0.0)));
+    ui.open_mod_hud_editor(&ui::mod_hud::Hud::default())
+        .unwrap();
+    assert!(closed_at_once(&mut ui));
+    assert!(!ui.mod_hud_editor_open());
+}
+
+/// A binding update keeps an exit going; a route change ends it, so a closed panel never
+/// shows a route it did not display.
+#[test]
+fn route_changes_end_an_exit_and_binding_updates_continue_it() {
+    use ui::mod_panel::SurfaceValue;
+
+    let mut ui = ModUi::default();
+    let content = exiting_panel(Some(0.0));
+    open_painted(&mut ui, &content);
+    ui.set_mod_panel_open(false);
+    let mut updated = content.clone();
+    updated
+        .surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#fade".into(), SurfaceValue::Number(0.5));
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&updated))
+        .unwrap();
+    assert!(ui.mod_panel_painting());
+
+    let mut rerouted = updated.clone();
+    rerouted.surface.as_mut().unwrap().screen = "extension.other".into();
+    rerouted.surface.as_mut().unwrap().document = serde_json::json!({
+        "namespace": "extension",
+        "other": {"type": "screen", "size": [80, 60], "controls": []}
+    })
+    .to_string();
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&rerouted))
+        .unwrap();
+    assert!(!ui.mod_panel_painting());
+    assert!(!ui.mod_panel_motion_active());
 }
