@@ -1,8 +1,8 @@
-//! Orders tick-bound interaction payloads and later frame-time presses in the session FIFO.
+//! Orders frame-time presses and tick-bound interaction payloads in the session FIFO.
 use super::*;
 
-/// Drains completed movement before admitting frame-time attacks and item uses.
-pub(super) fn configure(app: &mut App) {
+/// Admits attacks before their frame's movement, then drains inputs before item uses.
+pub(crate) fn configure(app: &mut App) {
     app.add_systems(
         Update,
         (
@@ -12,12 +12,11 @@ pub(super) fn configure(app: &mut App) {
             #[cfg(not(feature = "acceptance"))]
             crate::runtime::telemetry::discard_completed_movement_evidence,
             crate::melee::prepare_melee,
-            produce_survival_mining,
+            produce_attacks,
             crate::item_use::prepare_item_release,
             #[cfg(feature = "tracy")]
             crate::tracy::plot_physics_to_send,
             send_player_auth_inputs,
-            produce_melee,
             crate::item_use::produce_item_use,
             crate::pick_block::produce_pick_block,
         )

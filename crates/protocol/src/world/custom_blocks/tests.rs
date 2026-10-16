@@ -94,6 +94,21 @@ fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
 }
 
 #[test]
+fn empty_block_names_do_not_allocate_palette_states() {
+    let empty_compound = [10, 0, 0];
+    let blocks = super::CustomBlocks::from_definitions([
+        ("", empty_compound.as_slice()),
+        ("test:block", empty_compound.as_slice()),
+        ("", empty_compound.as_slice()),
+    ]);
+
+    assert_eq!(blocks.blocks.len(), 1);
+    assert_eq!(blocks.blocks[0].name.as_ref(), "test:block");
+    assert_eq!(blocks.total_states(), 1);
+    assert_eq!(blocks.skipped, 2);
+}
+
+#[test]
 fn placement_trait_and_enum_properties_multiply_states() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "properties"));

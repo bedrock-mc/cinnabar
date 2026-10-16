@@ -12,6 +12,7 @@ use json_ui::{
 };
 use server_experience::{
     manifest::template_root,
+    policy::MAX_UI_VALUES,
     screen::{self, GuiSize},
 };
 
@@ -118,7 +119,7 @@ pub(super) struct TemplateScreen {
     pub(super) size: Option<GuiSize>,
     /// The latest `Modal::texts` revision taken into `pending_texts`.
     texts_applied: u64,
-    /// Host texts for edit boxes, by `text_box_name`, waiting for a drawn frame.
+    /// Latest host text per edit box awaiting a frame, in last-write order within the modal budget.
     pending_texts: Vec<(String, String)>,
     /// Each edit box's text last reported, by `text_box_name`.
     reported: BTreeMap<String, String>,
@@ -153,6 +154,8 @@ impl TemplateScreen {
             self.revision = Some(modal.revision);
             self.data = Arc::new(data_source(modal));
             self.bound = None;
+            self.pending_texts
+                .retain(|(control, _)| modal.texts.contains_key(control));
             let mut texts: Vec<_> = modal
                 .texts
                 .iter()
@@ -161,7 +164,10 @@ impl TemplateScreen {
             texts.sort_by_key(|(_, (revision, _))| *revision);
             for (control, (revision, text)) in texts {
                 self.texts_applied = *revision;
-                self.pending_texts.push((control.clone(), text.clone()));
+                self.pending_texts.retain(|(pending, _)| pending != control);
+                if self.pending_texts.len() < MAX_UI_VALUES {
+                    self.pending_texts.push((control.clone(), text.clone()));
+                }
             }
         }
         changed
@@ -426,13 +432,7 @@ impl TemplateScreen {
                     scale: f64::from(frame.scale),
                 });
                 self.frame = frame;
-                if let Some(frame) = &self.frame {
-                    for (control, text) in self.pending_texts.drain(..) {
-                        self.dispatcher
-                            .set_edit_text(&frame.hits, &mut self.view, &control, &text);
-                        self.reported.insert(control, text);
-                    }
-                }
+                self.apply_pending_texts();
                 self.frame.is_some()
             }
             Err(error) => {
@@ -446,6 +446,18 @@ impl TemplateScreen {
 }
 
 impl TemplateScreen {
+    /// Applies each latest host text once after a frame exists, preserving writes while closed.
+    fn apply_pending_texts(&mut self) {
+        let Some(frame) = &self.frame else {
+            return;
+        };
+        for (control, text) in self.pending_texts.drain(..) {
+            self.dispatcher
+                .set_edit_text(&frame.hits, &mut self.view, &control, &text);
+            self.reported.insert(control, text);
+        }
+    }
+
     /// Releases selection removed from the allowed hits, then applies focus against those hits.
     pub(super) fn finish_input(&mut self, unfiltered: &[HitRegion]) {
         let lost = self.view.components.selected().is_some_and(|key| {

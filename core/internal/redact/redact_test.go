@@ -95,3 +95,18 @@ func TestPackIdentityKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestFilenamePorts keeps every shared filename exemption from exposing explicit endpoints.
+func TestFilenamePorts(t *testing.T) {
+	for _, extension := range rules.extensions {
+		file := "fixture." + extension
+		if got := Text(file); got != file {
+			t.Fatalf("filename %s: %s", file, got)
+		}
+		for _, port := range []string{"1", "9", "80", "19132", "65535"} {
+			if got := Text(file + ":" + port); got != rules.placeholder {
+				t.Errorf("endpoint %s:%s: %s", file, port, got)
+			}
+		}
+	}
+}

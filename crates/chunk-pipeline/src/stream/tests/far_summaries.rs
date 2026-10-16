@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// A dimension round trip must not deliver the old world's queued or retired summaries.
+#[test]
+fn dimension_round_trip_cancels_old_far_summaries() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.dispatch_far_summaries();
+    for (sequence, dimension) in [(2, 1), (3, 0)] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+    }
+    let mut summaries = Vec::new();
+    test_time::eventually("previous dimension summary work finishes", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut summaries);
+        stream.far_summaries_idle()
+    });
+    assert!(
+        summaries.is_empty(),
+        "old-world summaries reached the destination: {summaries:?}"
+    );
+    stream
+        .submit(4, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let current = drain_until(&mut stream, 1);
+    assert_eq!(current[0].column, ChunkKey::new(0, 2, 0));
+}
+
 fn stream(enabled: bool) -> WorldStream {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
