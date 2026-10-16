@@ -115,14 +115,14 @@ struct Life {
     cancel_start: Option<CancelHandle>,
     /// Disconnects once the start in progress has finished, including stopping a cancelled server.
     start_done: Option<Receiver<()>>,
-    /// Servers still saving or cleaning up after a close; an open waits for all of them, so no
+    /// Servers still saving or cleaning up after a close or exit; an open waits for all of them, so no
     /// world's files or backend resources are shared with a new server.
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
 }
 
-/// A closed world whose server has not finished stopping.
+/// A world whose exited or closing server has not finished backend cleanup.
 #[derive(Clone)]
 struct Retiring {
     world_id: String,
@@ -459,7 +459,7 @@ impl Manager {
         }
     }
 
-    /// Fails the world when its server exits while it is still the running one.
+    /// Fails the running world while retaining its backend cleanup barrier for any later open.
     fn watch(&self, instance: &Arc<dyn Instance>) {
         let _ = instance.exited().recv();
         let mut life = lock(&self.inner.life);
@@ -469,9 +469,21 @@ impl Manager {
             .is_some_and(|running| Arc::ptr_eq(running, instance));
         if current && life.state == WorldState::Running {
             tracing::error!("the local world server exited unexpectedly");
+            let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
+            if let Some(world) = &life.world {
+                let retiring = Retiring {
+                    world_id: world.id.clone(),
+                    done,
+                };
+                life.retiring.push(retiring);
+            }
             life.instance = None;
             life.failure = Some("local world server exited unexpectedly".to_owned());
             self.set_state(&mut life, WorldState::Failed);
+            drop(life);
+            // stop joins the backend's shared cleanup even when its process has already exited.
+            self.stop_instance(instance.as_ref());
+            drop(cleaning);
         }
     }
 
@@ -481,8 +493,8 @@ impl Manager {
         }
     }
 
-    /// Stops the open world (saving it) or clears a failure; it returns without waiting for the
-    /// server, which has already been asked to stop.
+    /// Stops the open world (saving it) or clears a failure, normally without waiting.
+    /// If a stop worker cannot start, completes cleanup inline before releasing its barrier.
     pub fn close(&self) {
         let mut life = lock(&self.inner.life);
         let state = life.state;
@@ -519,13 +531,17 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
+                let fallback_done = stopping_done.clone();
                 let spawned = self.background(move |manager| {
                     manager.stop_instance(stopping.as_ref());
                     drop(stopping_done);
                     manager.idle_if_current(generation);
                 });
                 if !spawned {
-                    self.idle(&mut life);
+                    drop(life);
+                    self.stop_instance(instance.as_ref());
+                    drop(fallback_done);
+                    self.idle_if_current(generation);
                 }
             }
             WorldState::Idle | WorldState::Stopping => {}

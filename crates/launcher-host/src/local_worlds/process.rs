@@ -44,7 +44,8 @@ pub(crate) trait Instance: Send + Sync {
     fn set_paused(&self, paused: bool) -> io::Result<()>;
     /// Asks the server to save and stop without waiting.
     fn request_stop(&self);
-    /// Stops gracefully, killing the server once `timeout` passes.
+    /// Stops gracefully, killing the server once `timeout` passes, and joins backend cleanup
+    /// before returning even when the process already exited or stopping reports an error.
     fn stop(&self, timeout: Duration) -> Result<(), String>;
     /// Disconnects once the server has exited.
     fn exited(&self) -> Receiver<()>;

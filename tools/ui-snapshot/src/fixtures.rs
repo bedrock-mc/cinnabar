@@ -179,6 +179,12 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::play_worlds_importing,
     },
     State {
+        name: "world-edit-after-delete-back",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::world_edit_after_delete_back,
+    },
+    State {
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
