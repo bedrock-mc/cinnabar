@@ -60,6 +60,7 @@ pub struct EntityShadowRenderPlugin;
 
 impl Plugin for EntityShadowRenderPlugin {
     fn build(&self, app: &mut App) {
+        crate::upload_staging::install(app);
         crate::pipeline_warmup::register::<EntityShadowGpu>(app);
         load_internal_asset!(
             app,
@@ -73,6 +74,7 @@ impl Plugin for EntityShadowRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        crate::upload_staging::install(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };

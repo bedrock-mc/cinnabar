@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/foundation"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
@@ -48,16 +49,16 @@ const validBlockedFoundation = `{
 }`
 
 func TestRegistryFoundationAcceptsExactBlockedEvidence(t *testing.T) {
-	result, err := ValidateRegistryFoundation(strings.NewReader(validBlockedFoundation))
+	result, err := foundation.ValidateRegistryFoundation(strings.NewReader(validBlockedFoundation))
 	if err != nil {
 		t.Fatalf("validate blocked foundation: %v", err)
 	}
-	if result.Status != FoundationBlocked {
-		t.Fatalf("status = %q, want %q", result.Status, FoundationBlocked)
+	if result.Status != foundation.FoundationBlocked {
+		t.Fatalf("status = %q, want %q", result.Status, foundation.FoundationBlocked)
 	}
-	want := []MissingProjection{
-		MissingRetailBlockProjection,
-		MissingAuthoritativeLightProjection,
+	want := []foundation.MissingProjection{
+		foundation.MissingRetailBlockProjection,
+		foundation.MissingAuthoritativeLightProjection,
 	}
 	if strings.Join(result.MissingStrings(), ",") != strings.Join(missingStrings(want), ",") {
 		t.Fatalf("missing = %v, want %v", result.Missing, want)
@@ -71,7 +72,7 @@ func TestRegistryFoundationRejectsMalformedAndTrailingJSON(t *testing.T) {
 		"trailing":  validBlockedFoundation + ` {}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
+			if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
 				t.Fatal("accepted invalid JSON")
 			}
 		})
@@ -91,7 +92,7 @@ func TestRegistryFoundationRejectsVersionHashMagicAndLegacyOutputs(t *testing.T)
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
+			if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
 				t.Fatal("accepted invalid foundation")
 			}
 		})
@@ -101,7 +102,7 @@ func TestRegistryFoundationRejectsVersionHashMagicAndLegacyOutputs(t *testing.T)
 func TestRegistryFoundationRejectsForbiddenRegistrySurface(t *testing.T) {
 	forbidden := "P" + "REG"
 	input := strings.Replace(validBlockedFoundation, `"block": "BREG1003"`, `"block": "BREG1003", "`+forbidden+`": "`+forbidden+`1001"`, 1)
-	if _, err := ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(input)); err == nil {
 		t.Fatal("accepted forbidden registry field")
 	}
 }
@@ -116,21 +117,21 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
   "projection_bindings": {
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }`, ``, 1)
-	if _, err := ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
 		t.Fatal("accepted ready foundation without projection bindings")
 	}
 	ready = validReadyFoundation()
-	result, err := ValidateRegistryFoundation(strings.NewReader(ready))
+	result, err := foundation.ValidateRegistryFoundation(strings.NewReader(ready))
 	if err != nil {
 		t.Fatalf("reject separately bound ready foundation: %v", err)
 	}
-	if result.Status != FoundationReady || len(result.Missing) != 0 {
+	if result.Status != foundation.FoundationReady || len(result.Missing) != 0 {
 		t.Fatalf("ready result = %#v", result)
 	}
 	wrongBiome := strings.Replace(ready,
 		"e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
-	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
 		t.Fatal("accepted ready foundation with a different biome projection binding")
 	}
 	blockHash, err := targetpin.BlockHash()
@@ -139,7 +140,7 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 	}
 	wrongBlock := strings.Replace(ready, blockHash,
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
-	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBlock)); err == nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(wrongBlock)); err == nil {
 		t.Fatal("accepted ready foundation with a different block projection binding")
 	}
 }
@@ -158,7 +159,7 @@ func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
 		}
 		before[output] = payload
 	}
-	if _, err := ValidateRegistryFoundation(strings.NewReader(validBlockedFoundation)); err != nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(validBlockedFoundation)); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
 	for _, output := range outputs {
@@ -275,7 +276,7 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 	}
 }
 
-func missingStrings(values []MissingProjection) []string {
+func missingStrings(values []foundation.MissingProjection) []string {
 	result := make([]string, len(values))
 	for i, value := range values {
 		result[i] = string(value)
@@ -345,10 +346,10 @@ func TestRegistryFoundationFollowsTargetBlockPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	if _, err := ValidateRegistryFoundation(strings.NewReader(strings.Replace(ready, original, changed, 1))); err != nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(strings.Replace(ready, original, changed, 1))); err != nil {
 		t.Fatalf("rejected current target block binding: %v", err)
 	}
-	if _, err := ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
+	if _, err := foundation.ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
 		t.Fatal("accepted stale target block binding")
 	}
 }

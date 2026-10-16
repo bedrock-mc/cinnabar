@@ -121,6 +121,7 @@ type MainUploadPriorities = RetainedUploadPriorities<(SubChunkKey, bool), (u32, 
 
 #[derive(SystemParam)]
 pub(in crate::chunk) struct RenderQueueRuntime<'w, 's> {
+    terrain_scene: Option<Res<'w, render_scene::FarTerrainScene>>,
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
     immediate_terrain: Option<
@@ -154,6 +155,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         return;
     }
     let RenderQueueRuntime {
+        terrain_scene,
         gpu_removals,
         acknowledgements,
         mut immediate_terrain,
@@ -216,6 +218,45 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     let mut total_bytes = 0;
     let mut zero_byte_applications = 0;
     for (key, priority, removal) in ready.iter().copied() {
+        let token = if removal {
+            queue.removals.get(&key).and_then(|pending| pending.token)
+        } else {
+            queue.pending.get(&key).and_then(|pending| pending.token)
+        };
+        let empty = removal
+            || queue
+                .pending
+                .get(&key)
+                .is_some_and(|pending| pending.mesh.is_empty());
+        if empty
+            && let Some(scene) = terrain_scene.as_ref()
+            && let Some(target) = scene.target.as_ref()
+            && target.contains(key.chunk())
+        {
+            if let Some(expected) = target
+                .near
+                .get(&key.chunk())
+                .and_then(|keys| keys.get(&key))
+            {
+                if token.is_some_and(|token| token.generation < *expected) {
+                    // A cancelled withdrawal must not despawn a newer near target's old cover.
+                    if removal {
+                        queue.removals.remove(&key);
+                    } else if let Some(pending) = queue.pending.remove(&key) {
+                        queue.pending_bytes = queue
+                            .pending_bytes
+                            .saturating_sub(pending_upload_byte_len(&pending));
+                    }
+                    continue;
+                }
+            } else if !scene
+                .residency
+                .may_remove_near(far_terrain::ColumnPos::new(key.x, key.z))
+            {
+                // Physical deletion follows the render-side draw switch, never its main ack.
+                continue;
+            }
+        }
         if removal {
             let permitted = queue
                 .removals
@@ -256,6 +297,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             if let Some(permit) = render_permit {
                 gpu_removals
                     .push(PendingGpuRemoval {
+                        publications: terrain_scene
+                            .as_ref()
+                            .and_then(|scene| scene.publications.clone()),
+                        kind: pending.kind,
                         key,
                         token,
                         priority,
@@ -263,6 +308,16 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
+                if let Some(source) = terrain_scene
+                    .as_ref()
+                    .and_then(|scene| scene.publications.as_ref())
+                {
+                    source.record(
+                        key,
+                        token.generation,
+                        pending.kind == render_api::TerrainRemovalKind::Empty,
+                    );
+                }
                 acknowledgements.complete(key, token, Instant::now());
                 if let Some(immediate) = immediate_terrain.as_deref_mut() {
                     immediate.0.push((key, token.generation));
@@ -327,6 +382,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             if let Some(permit) = render_permit {
                 gpu_removals
                     .push(PendingGpuRemoval {
+                        publications: terrain_scene
+                            .as_ref()
+                            .and_then(|scene| scene.publications.clone()),
+                        kind: render_api::TerrainRemovalKind::Empty,
                         key,
                         token: pending.token,
                         priority: pending.priority,
@@ -334,6 +393,12 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = pending.token {
+                if let Some(source) = terrain_scene
+                    .as_ref()
+                    .and_then(|scene| scene.publications.as_ref())
+                {
+                    source.record(key, token.generation, true);
+                }
                 acknowledgements.complete(key, token, Instant::now());
                 if let Some(immediate) = immediate_terrain.as_deref_mut() {
                     immediate.0.push((key, token.generation));

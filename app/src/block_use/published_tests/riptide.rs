@@ -209,6 +209,7 @@ fn ordinary_release(charge_ticks: u64) {
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     world
         .resource_mut::<Time<Real>>()
         .advance_by(simulation_clock::TICK_DURATION);

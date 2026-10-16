@@ -250,7 +250,9 @@ fn superseded_artwork_batches_keep_the_decode_cache_bounded() {
     for revision in 0..2000_u32 {
         let color = [revision as u8, (revision >> 8) as u8, 20, 255];
         let set = ArtworkSet {
-            oversized: vec![("changing".into(), png(8, 8, color).into())],
+            oversized: [("changing".into(), png(8, 8, color).into())]
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
         cache.decode(&cache.missing(&set), &set);
@@ -267,7 +269,9 @@ fn cancelled_artwork_batches_evict_obsolete_paths() {
     let bytes: Arc<[u8]> = png(8, 8, [10, 20, 30, 255]).into();
     for revision in 0..2000 {
         let set = ArtworkSet {
-            oversized: vec![(format!("changing-{revision}"), Arc::clone(&bytes))],
+            oversized: [(format!("changing-{revision}"), Arc::clone(&bytes))]
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
         cache.decode(&cache.missing(&set), &set);
@@ -280,7 +284,9 @@ fn replacing_pack_bytes_invalidates_decoded_artwork() {
     let mut cache = DecodeCache::default();
     for color in [[200, 30, 40, 255], [20, 220, 30, 255]] {
         let set = ArtworkSet {
-            oversized: vec![(TITLE_KEY.to_owned(), png(900, 300, color).into())],
+            oversized: [(TITLE_KEY.to_owned(), png(900, 300, color).into())]
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
         cache.decode(&cache.missing(&set), &set);
@@ -308,7 +314,7 @@ fn oversized_server_textures_keep_full_resolution() {
     let bytes: std::sync::Arc<[u8]> = png(1992, 669, [200, 30, 40, 255]).into();
     let set = ArtworkSet {
         paths: Vec::new(),
-        oversized: vec![(TITLE_KEY.to_owned(), bytes)],
+        oversized: [(TITLE_KEY.to_owned(), bytes)].into_iter().collect(),
         ..Default::default()
     };
     let mut cache = DecodeCache::default();

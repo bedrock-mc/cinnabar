@@ -222,3 +222,48 @@ fn local_refresh_changed_geometry_seeds_ui_from_original_authored_inputs() {
         refresh_again(&actors, &mut store);
     }
 }
+
+/// Returning local rigs retain the same controller, geometry, HUD and replay effects as serial.
+#[test]
+fn returning_local_rig_keeps_stateful_refresh_and_geometry_effects_serial() {
+    for configure in [controller, geometry] {
+        let (actors, mut serial) = local_fixture_with(true, true, configure);
+        let (_, mut parallel) = local_fixture_with(true, true, configure);
+        serial.schedule.serial = true;
+        let skin = crate::test_support::skin_source(crate::test_support::SKIN_MODEL);
+        let away = ActorAnimationView {
+            planes: [[-1.0, 0.0, 0.0, -100.0]; 6],
+            camera: [0.0; 3],
+            player_distance: 100.0,
+            entity_radius: 72.0,
+        };
+        for tick in 0..10 {
+            for store in [&mut serial, &mut parallel] {
+                let context = |_: &TestActor| ActorTickContext {
+                    is_local: true,
+                    is_local_first_person: tick % 2 == 0,
+                    animation_elapsed_ticks: Some(if tick == 6 { 4 } else { 1 }),
+                    skin_geometry: (tick >= 6).then(|| Arc::clone(&skin)),
+                    ..Default::default()
+                };
+                let hidden = (2..6).contains(&tick);
+                store.advance_tick(
+                    &actors,
+                    hidden.then_some(&away),
+                    (!hidden).then_some(1),
+                    true,
+                    true,
+                    context,
+                );
+                if !hidden {
+                    store.refresh_local_view(&actors, 1, context);
+                }
+            }
+            assert_eq!(
+                crate::schedule::tests::fingerprint(&parallel),
+                crate::schedule::tests::fingerprint(&serial),
+                "tick {tick}"
+            );
+        }
+    }
+}

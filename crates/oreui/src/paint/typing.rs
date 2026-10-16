@@ -19,6 +19,12 @@ impl Canvas<'_> {
         let Some(layout) = self.line_layout(value, width, style)? else {
             return Ok(());
         };
+        let y = Self::centered_line_y(&layout, bounds);
+        self.placed_text_typing(value, layout, [bounds[0], y], bounds, color, insertion)
+    }
+
+    /// Centers the layout's ink, with its line box as the fallback for blank text.
+    pub(in super::super) fn centered_line_y(layout: &ui::TextLayout, bounds: Bounds) -> f32 {
         let ink = layout
             .glyphs()
             .iter()
@@ -29,10 +35,25 @@ impl Canvas<'_> {
                     bottom.max(g.bounds_64[3] as f32 / 64.0),
                 ]
             });
-        if !ink[0].is_finite() {
-            return Ok(());
-        }
-        let y = (bounds[1] + bounds[3] - ink[0] - ink[1]) * 0.5;
+        let ink = if ink[0].is_finite() {
+            ink
+        } else {
+            [0.0, layout.size_64()[1] as f32 / 64.0]
+        };
+        (bounds[1] + bounds[3] - ink[0] - ink[1]) * 0.5
+    }
+
+    /// Draws an already placed layout and clips animated segments to its viewport.
+    pub(in super::super) fn placed_text_typing(
+        &mut self,
+        value: &str,
+        layout: Arc<ui::TextLayout>,
+        at: [f32; 2],
+        bounds: Bounds,
+        color: Rgba,
+        insertion: Option<Insertion>,
+    ) -> Result<(), PaintError> {
+        let width = layout.size_64()[0] as f32 / 64.0;
         let insertion = insertion.filter(|i| {
             i.progress < 1.0
                 && value
@@ -41,12 +62,12 @@ impl Canvas<'_> {
         });
         let Some(insertion) = insertion else {
             return self
-                .place_text(layout, [bounds[0], y], width + 1.0, color, false)
+                .place_text(layout, at, width + 1.0, color, false)
                 .map(|_| ());
         };
         let Some(glyphs) = layout.glyphs().get(insertion.characters) else {
             return self
-                .place_text(layout, [bounds[0], y], width + 1.0, color, false)
+                .place_text(layout, at, width + 1.0, color, false)
                 .map(|_| ());
         };
         let span = glyphs
@@ -57,26 +78,26 @@ impl Canvas<'_> {
                     right.max(g.bounds_64[2] as f32 / 64.0),
                 ]
             });
-        let start = (bounds[0] + span[0]).clamp(bounds[0], bounds[2]);
-        let end = (bounds[0] + span[1]).clamp(start, bounds[2]);
+        let start = (at[0] + span[0]).clamp(bounds[0], bounds[2]);
+        let end = (at[0] + span[1]).clamp(start, bounds[2]);
         self.clipped_line(
             [bounds[0], bounds[1], start, bounds[3]],
             layout.clone(),
-            [bounds[0], y],
+            at,
             width,
             color,
         )?;
         self.clipped_line(
             [start, bounds[1], end, bounds[3]],
             layout.clone(),
-            [bounds[0], y + self.r(0.12) * (1.0 - insertion.progress)],
+            [at[0], at[1] + self.r(0.12) * (1.0 - insertion.progress)],
             width,
             opacity(color, 0.55 + 0.45 * insertion.progress),
         )?;
         self.clipped_line(
             [end, bounds[1], bounds[2], bounds[3]],
             layout,
-            [bounds[0], y],
+            at,
             width,
             color,
         )

@@ -83,6 +83,29 @@ impl OcclusionBudget {
         };
         let u = (axis + 1) % 3;
         let v = (axis + 2) % 3;
+        // Every tested plane has the same angular silhouette; only its distance changes.
+        let slopes = [u, v].map(|a| {
+            let mut range = ProjectionSlopes {
+                axis: a,
+                low: f64::INFINITY,
+                high: f64::NEG_INFINITY,
+                margin: ROUNDING_MARGIN,
+            };
+            for across in [low[a], high[a]] {
+                for depth in [low[axis], high[axis]] {
+                    let slope = (across - eye[a]) / (depth - eye[axis]);
+                    range.low = range.low.min(slope);
+                    range.high = range.high.max(slope);
+                    range.margin = range
+                        .margin
+                        .max(2.0 * ROUNDING_MARGIN * (1.0 + slope.abs()));
+                }
+            }
+            if !positive {
+                std::mem::swap(&mut range.low, &mut range.high);
+            }
+            range
+        });
         for step in 0..MAX_PLANES {
             if !self.charge() {
                 return false;
@@ -99,26 +122,10 @@ impl OcclusionBudget {
                 break;
             }
             let plane = f64::from(cell + i32::from(!positive));
-            let mut min = [f64::INFINITY; 2];
-            let mut max = [f64::NEG_INFINITY; 2];
-            let mut margin = [ROUNDING_MARGIN; 2];
-            for corner in 0..8 {
-                let point: [f64; 3] = std::array::from_fn(|a| {
-                    if corner & (1 << a) == 0 {
-                        low[a]
-                    } else {
-                        high[a]
-                    }
-                });
-                let t = (plane - eye[axis]) / (point[axis] - eye[axis]);
-                for (i, a) in [u, v].into_iter().enumerate() {
-                    let projected = eye[a] + t * (point[a] - eye[a]);
-                    min[i] = min[i].min(projected);
-                    max[i] = max[i].max(projected);
-                    let slope = ((point[a] - eye[a]) / (point[axis] - eye[axis])).abs();
-                    margin[i] = margin[i].max(2.0 * ROUNDING_MARGIN * (1.0 + slope));
-                }
-            }
+            let delta = plane - eye[axis];
+            let min = slopes.map(|range| eye[range.axis] + delta * range.low);
+            let max = slopes.map(|range| eye[range.axis] + delta * range.high);
+            let margin = slopes.map(|range| range.margin);
             let min: [i32; 2] = std::array::from_fn(|i| (min[i] - margin[i]).floor() as i32);
             let max: [i32; 2] = std::array::from_fn(|i| (max[i] + margin[i]).floor() as i32);
             let mut covered = true;
@@ -146,6 +153,15 @@ impl OcclusionBudget {
         }
         false
     }
+}
+
+/// Angular bounds of a box along one axis perpendicular to the proof direction.
+#[derive(Clone, Copy)]
+struct ProjectionSlopes {
+    axis: usize,
+    low: f64,
+    high: f64,
+    margin: f64,
 }
 
 #[cfg(test)]
