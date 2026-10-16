@@ -20,6 +20,63 @@ fn remaining(runtime: &UiRuntime, effect_id: i32, millis: u64) -> Option<Option<
         .map(|effect| effect.remaining_ticks(tick))
 }
 
+/// A health update with a separately supplied wire timestamp and receive order.
+fn health_attributes(
+    sequence: u64,
+    local_millis: u64,
+    server_tick: u64,
+    current: f32,
+) -> SequencedLocalAttributes {
+    SequencedLocalAttributes {
+        attributes: Arc::from([protocol::ActorAttribute {
+            name: Arc::from("minecraft:health"),
+            min: 0.0,
+            max: 20.0,
+            current,
+            default: Some(20.0),
+            modifiers: Arc::from([]),
+        }]),
+        ..attributes(sequence, local_millis, server_tick)
+    }
+}
+
+#[test]
+fn zero_tick_health_after_timestamped_updates_keeps_the_session_and_effect_clock() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    runtime
+        .apply_local_attributes(&mut player, health_attributes(1, 1_000, 15_079, 20.0))
+        .unwrap();
+    runtime
+        .apply_local_effect(1, 2, effect(ActorEffectAction::Add, 1, 100, 15_079), 1_000)
+        .unwrap();
+    runtime
+        .apply_local_attributes(&mut player, health_attributes(3, 1_050, 0, 18.0))
+        .unwrap();
+    let health = runtime.hud().health().unwrap();
+    assert_eq!(health.current(), 18 * health.scale());
+    assert_eq!(runtime.estimated_server_tick(1_050), Some(15_080));
+    assert_eq!(remaining(&runtime, 1, 1_050), Some(Some(99)));
+    assert!(matches!(
+        runtime.apply_local_attributes(&mut player, health_attributes(4, 1_100, 15_078, 1.0)),
+        Err(UiRuntimeError::NonMonotonicServerTick {
+            previous: 15_079,
+            actual: 15_078,
+        })
+    ));
+    runtime
+        .apply_local_attributes(&mut player, health_attributes(4, 1_100, 15_080, 17.0))
+        .unwrap();
+    let health = runtime.hud().health().unwrap();
+    assert_eq!(health.current(), 17 * health.scale());
+    assert_eq!(runtime.estimated_server_tick(1_100), Some(15_081));
+    assert!(matches!(
+        runtime.apply_local_attributes(&mut player, health_attributes(3, 1_150, 0, 1.0)),
+        Err(UiRuntimeError::StaleFifoSequence { .. })
+    ));
+    assert_eq!(runtime.hud().health(), Some(health));
+}
+
 #[test]
 fn zero_and_lagging_attributes_preserve_countdown_and_fractional_elapsed_time() {
     for advancing_wire_ticks in [false, true] {

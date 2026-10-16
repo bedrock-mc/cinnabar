@@ -884,6 +884,7 @@ impl UiRuntime {
             });
         }
         if let (Some(previous), Some(actual)) = (self.last_server_tick, server_tick)
+            && actual != 0
             && actual < previous
         {
             return Err(UiRuntimeError::NonMonotonicServerTick { previous, actual });

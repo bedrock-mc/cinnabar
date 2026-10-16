@@ -652,7 +652,11 @@ fn nontimed_objective_event_with_server_tick_keeps_tick_ordering_authority() {
     first.server_tick = Some(20);
     runtime.apply(&mut player_runtime, first).unwrap();
 
-    let mut stale = envelope(1, 2, display("kills"));
+    let mut unspecified = envelope(1, 2, display("points"));
+    unspecified.server_tick = Some(0);
+    runtime.apply(&mut player_runtime, unspecified).unwrap();
+
+    let mut stale = envelope(1, 3, display("kills"));
     stale.server_tick = Some(19);
     assert_eq!(
         runtime.apply(&mut player_runtime, stale),

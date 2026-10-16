@@ -7183,6 +7183,14 @@ UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
 below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
+Zero-timestamp local attribute updates may follow specified server ticks without
+ending the session or rewinding effect countdowns. The shared presentation clock
+preserves the last nonzero packet fence; FIFO, session, local-time and specified
+backward-tick rejection remain enforced. The captured CubeCraft failure sequence
+replays through its final zero-tick damage update without ending the session. A
+fresh live match remains pending; this bounded receive-path correction does not
+close the full HUD parity gate.
+
 Hunger shakes use renderer-local updates and neutral/upward offsets, independent of
 food packet ticks. The complete native HUD motion gallery, including heart timing,
 remains incomplete; this correction does not close the Phase 5.7 parity gate.

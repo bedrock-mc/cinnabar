@@ -143,7 +143,6 @@ impl UiRuntime {
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
         if let Some(server_tick) = envelope.server_tick {
-            self.last_server_tick = Some(server_tick);
             self.observe_presentation_tick(server_tick, envelope.local_millis);
         }
         Ok(outcome)
