@@ -10,19 +10,27 @@ const { webcrypto } = require("node:crypto");
 /** Load the browser host with an idle WASM initializer and minimal DOM controls. */
 async function host() {
   const nodes = new Map();
-  const node = (id) => {
-    if (!nodes.has(id)) nodes.set(id, {
-      value: "", checked: false, files: [],
+  const element = () => {
+    const classes = new Set();
+    return {
+      value: "", checked: false, files: [], children: [],
+      classList: { add: (name) => classes.add(name), contains: (name) => classes.has(name) },
       querySelectorAll: () => [{ value: "1" }, { value: "0" }, { value: "0" }],
-      replaceChildren() {}, append() {}, click() {}, remove() {},
-    });
+      replaceChildren(...children) { this.children = children; },
+      append(...children) { this.children.push(...children); },
+      click() { return this.onclick?.({ target: this, preventDefault() {} }); },
+      remove() {},
+    };
+  };
+  const node = (id) => {
+    if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
   };
   const context = vm.createContext({
     console, TextEncoder, TextDecoder, Uint8Array, Blob, crypto: webcrypto,
     URL: { createObjectURL: () => "blob:pack", revokeObjectURL() {} },
     setTimeout: () => 0, clearTimeout() {},
-    document: { getElementById: node, createElement: () => node("anchor"), body: node("body") },
+    document: { getElementById: node, createElement: element, body: node("body"), querySelector: () => ({ hidden: true }) },
     localStorage: { getItem: () => null, setItem() {} },
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
   });
@@ -30,15 +38,13 @@ async function host() {
     this.setExport("default", () => new Promise(() => {}));
     this.setExport("Editor", class {});
   }, { context });
-  const ui = new vm.SyntheticModule([
-    "EditorView", "basicSetup", "EditorState", "placeholder", "javascript",
-    "forceLinting", "linter", "lintGutter", "oneDark",
-  ], function () {
-    for (const name of this.namespace ? Object.keys(this.namespace) : []) this.setExport(name, {});
+  const controls = codeMirror();
+  const ui = new vm.SyntheticModule(Object.keys(controls), function () {
+    for (const [name, value] of Object.entries(controls)) this.setExport(name, value);
   }, { context });
   const url = pathToFileURL(path.resolve(__dirname, "../web/app.js"));
   const source = await fs.readFile(url, "utf8");
-  const app = new vm.SourceTextModule(`${source}\nexport { state, addLayer, supplyWanted, setupExport, refreshExport };`, {
+  const app = new vm.SourceTextModule(`${source}\nexport { state, addLayer, supplyWanted, setupExport, refreshExport, renderLayers, renderFiles };\nexport function attachCode(view) { code = view; }`, {
     context, identifier: url.href,
   });
   await app.link(async (specifier, parent) => {
@@ -50,7 +56,31 @@ async function host() {
     });
   });
   await app.evaluate();
-  return { ...app.namespace, node };
+  const code = new controls.EditorView({ state: controls.EditorState.create({ doc: "", extensions: [] }) });
+  app.namespace.attachCode(code);
+  return { ...app.namespace, node, code };
+}
+
+/** Model document replacement and typing through the host's actual update listener. */
+function codeMirror() {
+  const EditorState = {
+    create({ doc, extensions }) { return { doc: { toString: () => doc }, extensions }; },
+  };
+  class EditorView {
+    static updateListener = { of: (listener) => ({ listener }) };
+    constructor({ state }) { this.state = state; }
+    setState(state) { this.state = state; }
+    dispatch({ changes }) {
+      const before = this.state.doc.toString();
+      const text = before.slice(0, changes.from) + changes.insert + before.slice(changes.to);
+      this.state = EditorState.create({ doc: text, extensions: this.state.extensions });
+      for (const extension of this.state.extensions) extension?.listener?.({ docChanged: true });
+    }
+  }
+  return {
+    EditorView, EditorState, basicSetup: {}, placeholder: () => ({}), javascript: () => ({}),
+    forceLinting() {}, linter: () => ({}), lintGutter: () => ({}), oneDark: {},
+  };
 }
 
 /** Make a browser File stand-in that records each lazy read. */
@@ -80,6 +110,115 @@ function editor() {
     bump_pack: (pack) => pack,
   };
 }
+
+/** Model independent workspace layers so a host edit/export reveals its actual destination. */
+function layeredEditor(names) {
+  const bridge = editor();
+  bridge.layers = names.map((name) => ({
+    name, files: new Map([["ui/screen.json", JSON.stringify({ namespace: name.toLowerCase(), screen: { type: "screen" } })]]),
+    edited: new Set(),
+  }));
+  bridge.files = () => JSON.stringify(bridge.layers.map((layer, index) => ({
+    layer: index, name: layer.name,
+    files: [...layer.files.keys()].map((path) => ({ path, edited: layer.edited.has(path) })),
+  })));
+  bridge.screens = () => "[]";
+  bridge.file_text = (index, path) => bridge.layers[index]?.files.get(path);
+  bridge.remove_layer = (index) => bridge.layers.splice(index, 1);
+  bridge.edit = (index, path, text) => {
+    const layer = bridge.layers[index];
+    if (!layer) return;
+    layer.files.set(path, text);
+    layer.edited.add(path);
+  };
+  bridge.export_plan = (request) => {
+    const { layer } = JSON.parse(request);
+    return JSON.stringify({
+      plan: { files: Object.fromEntries(bridge.layers[layer]?.files ?? []), notes: [], skipped: [] },
+      manifest: {}, warnings: [],
+    });
+  };
+  bridge.export_pack = (request) => {
+    const { layer } = JSON.parse(request);
+    const selected = bridge.layers[layer];
+    bridge.exported = { name: selected.name, files: new Map(selected.files) };
+    return new Uint8Array();
+  };
+  return bridge;
+}
+
+/** Populate the actual layer/file controls from independent original fixture documents. */
+function showLayers(app, names) {
+  app.state.editor = layeredEditor(names);
+  app.state.layers = names.map((name) => ({ name, files: new Map() }));
+  app.renderLayers();
+  app.renderFiles();
+}
+
+/** Submit a full owned-layer export through the browser's real export handler. */
+async function exportLayer(app, index) {
+  app.node("export-mode").value = "full";
+  app.node("export-format").value = "mcpack";
+  app.node("export-layer").value = String(index);
+  app.node("export-own").checked = true;
+  await app.node("export-form").onsubmit({ preventDefault() {} });
+  return app.state.editor.exported;
+}
+
+test("removing another layer keeps edits and exports in the open document's layer", async () => {
+  for (const { names, removed, expected } of [
+    { names: ["A", "B", "C"], removed: 0, expected: 0 },
+    { names: ["A", "B"], removed: 0, expected: 0 },
+    { names: ["A", "B", "C"], removed: 2, expected: 1 },
+  ]) {
+    const app = await host();
+    showLayers(app, names);
+    const bridge = app.state.editor;
+    const originalB = bridge.layers[1];
+    const originalC = bridge.layers[2];
+    const originalCText = originalC?.files.get("ui/screen.json");
+    app.node("files").children.find((row) => row.title === "B: ui/screen.json").click();
+    const before = app.code.state.doc.toString();
+    app.node("layers").children[removed].children[1].click();
+    assert.equal(app.state.open.layer, expected);
+    assert.equal(app.code.state.doc.toString(), before);
+    assert.equal(app.node("files").children.find((row) => row.title === "B: ui/screen.json").classList.contains("open"), true);
+    const edited = JSON.stringify({ namespace: "b", screen: { type: "screen", visible: false } });
+    app.code.dispatch({ changes: { from: 0, to: before.length, insert: edited } });
+    assert.equal(originalB.files.get("ui/screen.json"), edited);
+    assert.equal(originalB.edited.has("ui/screen.json"), true);
+    if (originalC) {
+      assert.equal(originalC.files.get("ui/screen.json"), originalCText);
+      assert.equal(originalC.edited.size, 0);
+    }
+    app.setupExport();
+    const exported = await exportLayer(app, expected);
+    assert.equal(exported.name, "B");
+    assert.equal(exported.files.get("ui/screen.json"), edited);
+    if (removed === 0 && originalC) {
+      const untouched = await exportLayer(app, 1);
+      assert.equal(untouched.name, "C");
+      assert.equal(untouched.files.get("ui/screen.json"), originalCText);
+    }
+  }
+});
+
+test("removing the open layer closes its document instead of selecting its replacement", async () => {
+  const app = await host();
+  showLayers(app, ["A", "B", "C"]);
+  app.node("files").children.find((row) => row.title === "B: ui/screen.json").click();
+  const buffer = app.code.state.doc.toString();
+  const replacement = app.state.editor.layers[2];
+  app.node("layers").children[1].children[1].click();
+  assert.equal(app.state.open, null);
+  assert.equal(app.code.state.doc.toString(), buffer);
+  assert.equal(app.node("files").children.some((row) => row.classList.contains("open")), false);
+  assert.equal(replacement.edited.size, 0);
+  app.setupExport();
+  const exported = await exportLayer(app, 1);
+  assert.equal(exported.name, "C");
+  assert.equal(exported.files.get("ui/screen.json"), replacement.files.get("ui/screen.json"));
+});
 
 test("folder requests use exact pack-relative paths when names share a suffix", async () => {
   const app = await host();

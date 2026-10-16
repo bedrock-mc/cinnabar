@@ -230,30 +230,18 @@ pub fn spawn_outliving(command: &mut Command) -> io::Result<Spawned> {
 /// connection a C library opened without the flag (Tracy's listener would stall every capture).
 #[cfg(unix)]
 fn seal_inherited_sockets() {
-    use rustix::{
-        fd::BorrowedFd,
-        fs::{FileType, fstat},
-        io::{FdFlags, fcntl_getfd, fcntl_setfd},
-        process::{Resource, getrlimit},
-    };
+    use rustix::process::{Resource, getrlimit};
     let limit = getrlimit(Resource::Nofile)
         .current
         .unwrap_or(1024)
         .min(4096);
     for raw in 3..limit as i32 {
-        // SAFETY: the descriptor is borrowed only for these calls; if another thread closes it
-        // meanwhile they fail, or set the flag on a reused descriptor, which is equally harmless.
-        let fd = unsafe { BorrowedFd::borrow_raw(raw) };
-        let Ok(flags) = fcntl_getfd(fd) else {
-            continue;
-        };
-        if !flags.contains(FdFlags::CLOEXEC)
-            && fstat(fd).is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode).is_socket())
-        {
-            let _ = fcntl_setfd(fd, flags | FdFlags::CLOEXEC);
-        }
+        let _ = socket_seal::seal(raw);
     }
 }
+
+#[cfg(unix)]
+mod socket_seal;
 
 /// Ends every child this process spawned; for exit paths.
 pub fn stop_all(graceful: Duration) {

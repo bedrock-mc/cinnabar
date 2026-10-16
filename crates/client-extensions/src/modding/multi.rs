@@ -358,6 +358,10 @@ fn claim_controls(frame: &ControlFrame, claimed: &[String], panel_owner: bool) -
             .collect()
     };
     ControlFrame {
+        seconds: frame.seconds,
+        focused: frame.focused,
+        gameplay: frame.gameplay,
+        panel_open: frame.panel_open,
         keys_pressed: free(&frame.keys_pressed),
         keys_held: free(&frame.keys_held),
         events: if panel_owner {
@@ -365,7 +369,6 @@ fn claim_controls(frame: &ControlFrame, claimed: &[String], panel_owner: bool) -
         } else {
             Vec::new()
         },
-        ..frame.clone()
     }
 }
 

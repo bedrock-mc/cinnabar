@@ -76,11 +76,14 @@ impl CommittedGameplayState<'_> {
             control,
             CommittedControlEvent::PlayerListChanged { .. }
                 | CommittedControlEvent::DimensionChangeAck { .. }
+                | CommittedControlEvent::ClientInputLocks { .. }
         ) {
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
             self.effects.apply(self.session_generation, sequence, event);
+            self.speed
+                .apply_effect(self.session_generation, sequence, event);
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::LocalMovementSpeed {
@@ -387,6 +390,7 @@ impl CommittedGameplayState<'_> {
                 SpatialReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::ClientInputLocks { .. }
             | CommittedControlEvent::DimensionChangeAck { .. }
             | CommittedControlEvent::WorldClocks { .. }
             | CommittedControlEvent::WeatherCycle { .. }

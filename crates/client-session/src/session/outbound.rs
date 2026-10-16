@@ -1,7 +1,6 @@
-//! The outbound task: batches each frame's packets and writes them without waiting on inbound.
+//! Writes delimited packet batches without waiting on inbound traffic.
 //!
-//! Vanilla also flushes a batch early once no more than 20% of its bytes are compressible.
-//! Every packet a client sends is compressible, so only the end-of-frame flush applies.
+//! Frame completion and committed latency fences submit batch delimiters.
 
 use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;

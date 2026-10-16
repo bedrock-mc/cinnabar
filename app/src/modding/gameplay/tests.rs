@@ -12,6 +12,8 @@ use protocol::{
 
 use super::*;
 
+mod input_locks;
+
 #[test]
 fn production_camera_and_extension_schedule_is_acyclic_without_carriers() {
     let path = std::env::temp_dir().join(format!(

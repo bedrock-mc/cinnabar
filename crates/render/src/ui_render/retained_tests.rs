@@ -260,6 +260,8 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
     let mut world = retained_world();
     world.init_resource::<super::composite::UiLayerStore>();
     world.init_resource::<super::composite::UiCompositePipeline>();
+    world.init_resource::<super::backdrop::UiBackdropPipeline>();
+    world.init_resource::<super::backdrop::UiBackdropStore>();
     world.init_resource::<super::model_depth::UiModelDepths>();
     world.init_resource::<UiGlintSettings>();
     let owner = world
