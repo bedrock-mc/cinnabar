@@ -19,10 +19,11 @@ use bevy::{
 #[cfg(test)]
 mod tests;
 
-/// One queued frame with display pacing, two to overlap CPU and GPU work without VSync.
+/// Metal reserves three native drawables so its display callback can prefetch during rendering.
+/// Other backends keep one queued frame with VSync and two without it.
 #[must_use]
 pub const fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
-    if vsync {
+    if vsync && !cfg!(target_os = "macos") {
         NonZeroU32::MIN
     } else {
         NonZeroU32::new(2).expect("two is nonzero")

@@ -1127,6 +1127,30 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Frame attribution and unchanged GPU uploads
 
+- macOS reserves three native drawable slots for either presentation mode. The
+  native Metal backend uses display-link drawable delivery on supported AppKit
+  surfaces, with bounded prefetch and cancellation before reconfiguration.
+  Smooth 120 Hz acceptance remains open.
+
+- Metal completion markers feed bounded GPU queue predictions into input admission,
+  delaying the next input sample until CPU work can feed the GPU without a frame
+  backlog. Completed host timestamps reanchor predictions; missing or stale samples
+  retain CPU pacing. Synchronized surfaces skip GPU extrapolation and reset stale
+  history on mode changes; display-dependent gaps must not become predicted work.
+  Incomplete: paired hardware responsiveness and frame-budget
+  acceptance remain open.
+- Conservative actor and block-entity occlusion projects each box's angular bounds
+  once, retaining complete slab coverage, rounding margins and bounded fail-open
+  probes. Geometry tests cover interior holes across axes and translated coordinates.
+  Incomplete: hardware frame-time and streaming hitch acceptance remain open.
+- Sorted transparency records its contiguous colour-space passes into one command
+  buffer, removing worker waits around draws serialized by the phase's shared lock.
+  Regression tests cover draw order, submission counts and empty viewports.
+- Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
+  scene read, while translucent pixels retain premultiplied gamma blending. Native
+  pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
+  paired hardware frame-time improvement and the 120 Hz acceptance gate remain open.
+
 - Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
   120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
   manual recording clocks keep their requested steps. Live movement acceptance remains open.
@@ -1161,7 +1185,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
-  headroom; regression tests cover resumption and zero steady-state drain allocations.
+  headroom. Bounded lookahead lets light events pass stalled terrain while the shared
+  conflict tracker keeps dependent mutations and barriers ordered. Latency echoes flush
+  when their control fence clears, preserving earlier movement ordering. Deterministic
+  regressions cover these paths; hardware join and transfer latency remain unverified.
 - Rolling frame recordings retain recent completed spans and received counters, carry input
   identities into render submission, and queue every hard-hitch window with completeness
   metadata. Slow reports format outside recorder locks on the console thread. Full exports move

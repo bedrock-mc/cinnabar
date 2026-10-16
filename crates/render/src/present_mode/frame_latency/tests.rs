@@ -24,9 +24,9 @@ impl HasDisplayHandle for TestWindow {
 }
 
 /// Creates matching main/render windows and a retained output attachment on the NOOP device.
-fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
+fn worlds(initial: NonZeroU32) -> (World, Entity, NormalizedRenderTarget) {
     let mut main = MainWorld::default();
-    let latency = Some(frame_latency_for_vsync(vsync));
+    let latency = Some(initial);
     let entity = main
         .spawn(Window {
             desired_maximum_frame_latency: latency,
@@ -90,11 +90,15 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
     (world, render_entity, target)
 }
 
-/// Both toggle directions invalidate retained outputs even when the present mode is unchanged.
+/// Both latency change directions invalidate retained outputs with an unchanged present mode.
 #[test]
 fn live_frame_latency_changes_release_cached_surface_outputs() {
-    for initial_vsync in [false, true] {
-        let (mut world, entity, target) = worlds(initial_vsync);
+    for (initial, next) in [(1, 2), (2, 1)] {
+        let (initial, next) = (
+            NonZeroU32::new(initial).unwrap(),
+            NonZeroU32::new(next).unwrap(),
+        );
+        let (mut world, entity, target) = worlds(initial);
         world.run_system_once(extract_frame_latency).unwrap();
         world.run_system_once(recreate_surfaces).unwrap();
         assert!(
@@ -112,14 +116,11 @@ fn live_frame_latency_changes_release_cached_surface_outputs() {
             .entity_mut(main_entity)
             .get_mut::<Window>()
             .unwrap()
-            .desired_maximum_frame_latency = Some(frame_latency_for_vsync(!initial_vsync));
+            .desired_maximum_frame_latency = Some(next);
         world.run_system_once(extract_frame_latency).unwrap();
         world.run_system_once(recreate_surfaces).unwrap();
         let extracted = world.get::<ExtractedWindow>(entity).unwrap();
-        assert_eq!(
-            extracted.desired_maximum_frame_latency,
-            Some(frame_latency_for_vsync(!initial_vsync))
-        );
+        assert_eq!(extracted.desired_maximum_frame_latency, Some(next));
         assert!(extracted.swap_chain_texture_view.is_none());
         assert!(
             !world
