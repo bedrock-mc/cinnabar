@@ -9005,10 +9005,13 @@ version = "0.1.20"
 dependencies = [
  "assets",
  "image",
+ "inventory 0.1.20",
  "json-ui",
  "jsonui-editor",
  "launcher",
  "oreui",
+ "player-state",
+ "protocol",
  "render-model",
  "serde_json",
  "tempfile",
