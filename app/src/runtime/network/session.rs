@@ -34,6 +34,7 @@ pub struct NetworkConfig {
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
 pub fn spawn_network(
     config: NetworkConfig,
+    packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
     let socket_dir = config.socket_dir.clone();
     let registry_base = config.registry_base;
@@ -102,6 +103,7 @@ pub fn spawn_network(
             packet_trace: emit_packet_trace,
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
+        packet_relay,
     )
     .map(|inner| NetworkHandle::connected(inner, socket_dir))
 }

@@ -134,7 +134,7 @@ pub(super) fn prepare_join(
     bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
     let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
-    if preparation.has_applied_packs() {
+    if preparation.has_packs() {
         chunk_pipeline::on_idle_world_cores(prepare)
     } else {
         prepare()

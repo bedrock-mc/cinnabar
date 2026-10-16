@@ -115,6 +115,7 @@ impl InstalledMod {
 pub enum Status {
     Starting,
     Running,
+    NextJoin,
     Failed(String),
     ReloadFailed(String),
 }

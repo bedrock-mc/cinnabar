@@ -543,3 +543,99 @@ fn two_axis_capture_clamps_and_commits_release_without_resuming() {
             .is_empty()
     );
 }
+
+/// Relative dragging preserves the grab offset, keeps its initial value across updates,
+/// and commits a release outside the handle without later resuming the capture.
+#[test]
+fn relative_two_axis_drag_preserves_the_grab_offset_and_clamps_release() {
+    let mut spec = panel();
+    spec.reference_size = Some([400.0, 300.0]);
+    spec.controls.push(Control::Slider {
+        id: "vertical".into(),
+        label: "Vertical".into(),
+        value: 40.0,
+        min: 0.0,
+        max: 100.0,
+        step: 1.0,
+    });
+    let Control::Slider { value, .. } = &mut spec.controls[1] else {
+        unreachable!()
+    };
+    *value = 30.0;
+    spec.surface = Some(Surface { transitions: Default::default(), screen: "drag.root".into(),
+        bindings: Default::default(), document: json!({"namespace":"drag","root":{
+            "type":"panel","size":[400,300],"controls":[{"handle":{
+                "type":"button","offset":[80,50],"size":[100,50],"button_mappings":[{
+                    "from_button_id":"button.menu_select","to_button_id":"mod.drag:1:4","mapping_type":"pressed"
+                }]
+            }}]}}).to_string() });
+    let mut presentation = mini_engine_presentation();
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    let at = point(&presentation, "mod.drag:1:4", 0.8);
+    assert_eq!(
+        presentation.mod_ui_mut().mod_panel_events(at, true, true),
+        [
+            Event {
+                id: "strength".into(),
+                value: 30.0
+            },
+            Event {
+                id: "vertical".into(),
+                value: 40.0
+            },
+        ],
+        "press samples retain the exact current position"
+    );
+    let scale = presentation
+        .mod_ui()
+        .mod_panel_state()
+        .unwrap()
+        .frame
+        .unwrap()
+        .scale;
+    let events = presentation.mod_ui_mut().mod_panel_events(
+        [at[0] + 40.0 * scale, at[1] - 30.0 * scale],
+        false,
+        true,
+    );
+    assert_eq!(
+        events,
+        [
+            Event {
+                id: "strength".into(),
+                value: 43.0
+            },
+            Event {
+                id: "vertical".into(),
+                value: 28.0
+            }
+        ]
+    );
+    let events = presentation
+        .mod_ui_mut()
+        .mod_panel_events([20000.0, -20000.0], false, false);
+    assert_eq!(
+        events,
+        [
+            Event {
+                id: "strength".into(),
+                value: 100.0
+            },
+            Event {
+                id: "vertical".into(),
+                value: 0.0
+            }
+        ]
+    );
+    assert!(
+        presentation
+            .mod_ui_mut()
+            .mod_panel_events(at, false, true)
+            .is_empty()
+    );
+}

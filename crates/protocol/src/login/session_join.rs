@@ -18,6 +18,7 @@ use crate::{
     ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
     ResourcePackHandoff, ServerTransferEvent,
 };
+use crate::{PacketRelay, packet_relay};
 
 impl LoginSequence {
     /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
@@ -25,7 +26,8 @@ impl LoginSequence {
     /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
     /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
     /// `finish_loading` after presenting the world. `tap` sees every session packet from the
-    /// first handed-off startup packet on, in both directions.
+    /// first handed-off startup packet on, in both directions. A `relay` may replace batches
+    /// and supply packs before preparation begins.
     #[expect(
         clippy::too_many_arguments,
         reason = "each argument is an independent caller choice for one join"
@@ -37,6 +39,7 @@ impl LoginSequence {
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
+        relay: Option<Arc<dyn PacketRelay>>,
         tap: Option<Arc<dyn PacketTap>>,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> R + Send + 'static,
     ) -> Result<(PlaySession, R), ProtocolError> {
@@ -60,11 +63,20 @@ impl LoginSequence {
             .map_err(bridge_error)?;
         let (handoff, archives) =
             receive_handoff(&mut reader, settings.resource_pack_cache_dir.as_deref()).await?;
-        let packs = resource_pack_handoff(&handoff, archives)?;
+        let mut packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
         reader.set_trace_conn(handoff.trace_conn);
         let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
+        if let Some(relay) = relay {
+            let client_data = request.client_data.to_string();
+            let identity = handoff.identity.clone();
+            let added =
+                packet_relay::start(Arc::clone(&relay), identity, client_data, &handoff.startup)
+                    .await;
+            packs = packs.with_relay_packs(added);
+            transport.set_relay(relay);
+        }
         let mut preparation = None;
         let spawned =
             match super::startup::await_spawn(&mut transport, |start_game, item_registry| {
@@ -84,6 +96,7 @@ impl LoginSequence {
                     return Err(error);
                 }
             };
+        transport.finish_startup();
         let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
         // Keep reading while the packs prepare, so the server's backlog never stalls the core.
         let prepared = tokio::select! {

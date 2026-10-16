@@ -34,6 +34,8 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// An externally supplied bounded native mod panel.
+    ModPanel(Box<ui::mod_panel::Panel>),
     /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
     #[cfg(feature = "test-support")]
     CraftOverlap {

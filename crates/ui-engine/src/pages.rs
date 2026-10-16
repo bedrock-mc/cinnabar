@@ -14,8 +14,8 @@ use crate::engine::screen::PaintError;
 /// Dynamic page offset holding the session's server item icons.
 pub const SESSION_ICON_PAGE: usize = render_model::UI_SESSION_ICON_PAGE_OFFSET;
 /// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
-pub const GLYPH_PAGES: usize = 8;
-pub const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
+pub const GLYPH_PAGES: usize = render_model::UI_SESSION_GLYPH_PAGES;
+pub const FIRST_GLYPH_PAGE: usize = render_model::UI_SESSION_GLYPH_PAGE_OFFSET;
 /// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
 pub const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.

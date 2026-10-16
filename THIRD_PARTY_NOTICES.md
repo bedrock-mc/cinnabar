@@ -434,3 +434,14 @@ SOFTWARE.
   (`webpki-roots`), Unicode-3.0 (`yoke`) and MPL-2.0 (`option-ext`). `wholesym` always links an
   HTTP client for symbol servers; `devtool symbolicate` configures none and never uses it.
 - Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.
+
+## Inter
+
+- File: `assets/fonts/InterVariable.ttf`
+- Source: https://github.com/rsms/inter
+- Version: 4.1, commit `e3a3d4c57d5ecc01453a575621882a384c1995a3`
+- Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+- License: SIL Open Font License 1.1; full text in `assets/licenses/Inter-OFL-1.1.txt`.
+- Font SHA-256: `4989b125924991b90d05b2d16e0e388c48f7d5bb8b30539bbf9c755278d0ccaf`
+
+Authored native panels may select Inter with `font_type: "mod_panel_sans"`.

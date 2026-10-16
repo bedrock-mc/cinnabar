@@ -9,7 +9,10 @@ use render_model::UiTexturePage;
 use super::{UiPresentationRuntime, dynamic_textures};
 use ui_engine::pages::FIRST_GLYPH_PAGE;
 
-use render_model::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
+#[cfg(test)]
+mod tests;
+
+use render_model::UI_SESSION_GLYPH_PAGE_SIDE as PAGE_SIDE;
 
 /// The session's glyph cells, cropped from the winning sheets.
 #[derive(Debug)]

@@ -99,7 +99,7 @@ func TestRelayPlayerSkinUsesUpstreamIdentityAndPreservesPayload(t *testing.T) {
 				if delayedReader {
 					delay = new(PacketDelay)
 				}
-				if err := pumpPacketsWithDelay(context.Background(), delay, down, wrapped, test.fromDownstream); !errors.Is(err, io.EOF) {
+				if err := pumpPacketsWithDelay(context.Background(), delay, nil, down, wrapped, test.fromDownstream); !errors.Is(err, io.EOF) {
 					t.Fatalf("relay error = %v, want EOF", err)
 				}
 				batches := up.flushedBatches()

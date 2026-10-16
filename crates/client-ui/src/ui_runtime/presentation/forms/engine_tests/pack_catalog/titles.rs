@@ -270,3 +270,81 @@ pub(super) fn published_frame(
     snapshot::write(&input, name);
     pack_harness::drawn_texts(&presentation.last_frame.as_ref().unwrap().nodes)
 }
+
+#[test]
+fn subtitle_bindings_keep_fields_beyond_the_visible_label_limit() {
+    if vanilla("subtitle_bindings_keep_fields_beyond_the_visible_label_limit").is_none() {
+        return;
+    }
+    let pack = layer(br##"{
+        "namespace":"hud",
+        "root_panel":{"modifications":[{
+            "array_name":"controls","operation":"insert_front","value":[{
+                "field":{"type":"label","text":"#field","size":[180,12],"bindings":[
+                    {"binding_name":"#hud_subtitle_text_string","binding_name_override":"#payload"},
+                    {"binding_type":"view","source_property_name":"(%.32s * (#payload - (%.896s * #payload)))","target_property_name":"#field"}
+                ]}
+            }]
+        }]}
+    }"##);
+    let subtitle = format!("{}Inventory field is present", " ".repeat(896));
+    let frame = published_frame(&pack, " ", &subtitle, "", "long-subtitle-field");
+    assert!(
+        frame
+            .iter()
+            .any(|text| text == "Inventory field is present"),
+        "late HUD fields must reach their pack bindings: {frame:?}"
+    );
+}
+
+#[test]
+fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
+    if vanilla("subtitle_binding_survives_the_native_title_fade_and_works_without_a_title")
+        .is_none()
+    {
+        return;
+    }
+    let pack = layer(br##"{
+        "namespace":"hud",
+        "root_panel":{"modifications":[{"array_name":"controls","operation":"insert_front","value":[{
+            "overlay":{"type":"label","text":"#text","size":[180,12],"bindings":[
+                {"binding_name":"#hud_subtitle_text_string","binding_name_override":"#text"}
+            ]}
+        }]}]}
+    }"##);
+    for with_title in [false, true] {
+        let mut presentation =
+            crate::test_support::engine_presentation_with(pack_harness::font()).unwrap();
+        let player = player_state::PlayerState::new(1);
+        let mut runtime = UiRuntime::new(1);
+        runtime.set_server_ui(Some(Arc::new(ServerUiPack {
+            ui_layers: vec![pack.clone()],
+            ..Default::default()
+        })));
+        if with_title {
+            runtime.hud.set_title(Arc::from("Transient title"), 1, 0);
+        }
+        runtime
+            .hud
+            .set_subtitle(Arc::from("Retained overlay"), 2, 0);
+        runtime.hud.expire(10_000);
+        presentation
+            .build(
+                &player,
+                &runtime,
+                10_000,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let texts = pack_harness::drawn_texts(&presentation.last_frame.as_ref().unwrap().nodes);
+        assert!(
+            texts.contains(&"Retained overlay".to_owned()),
+            "subtitle input disappeared: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&"Transient title".to_owned()),
+            "native title must finish its fade"
+        );
+    }
+}

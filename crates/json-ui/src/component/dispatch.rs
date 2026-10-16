@@ -451,7 +451,7 @@ impl Dispatcher {
         input: &ButtonInput<'_>,
         out: &mut Dispatch,
     ) {
-        if region.kind == HitKind::Button && region.enabled {
+        if (region.kind == HitKind::Button || region.widget.toggle.is_some()) && region.enabled {
             if input.down {
                 view.pressed = Some(region.key.clone());
             } else if view.is_pressed(&region.key) {

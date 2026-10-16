@@ -105,14 +105,22 @@ func unwrapUpstream(session packetSession) packetSession {
 	}
 }
 
-// sampleRoundTrip doubles a transport's half-RTT estimate; adapters without one report zero.
-func sampleRoundTrip(latency func() time.Duration) (rtt time.Duration) {
+// sampleLatency preserves unknown latency and tolerates adapters without an estimator.
+func sampleLatency(latency func() time.Duration) (half time.Duration) {
+	if latency == nil {
+		return 0
+	}
 	defer func() {
 		if recover() != nil {
-			rtt = 0
+			half = 0
 		}
 	}()
-	return 2 * latency()
+	return latency()
+}
+
+// sampleRoundTrip doubles a transport's half-RTT estimate; adapters without one report zero.
+func sampleRoundTrip(latency func() time.Duration) time.Duration {
+	return 2 * sampleLatency(latency)
 }
 
 // stackLatencyTimestamp reads a NetworkStackLatency packet's timestamp field.

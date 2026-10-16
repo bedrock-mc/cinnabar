@@ -28,6 +28,50 @@ fn finite_slider_and_physical_key_are_accepted() {
     assert!(panel().validate().is_ok());
 }
 
+#[test]
+fn relative_axis_extent_bindings_require_a_declared_positive_numeric_value() {
+    let mut panel = panel();
+    panel.surface = Some(Surface {
+        screen:"extent.root".into(),
+        document:serde_json::json!({"namespace":"extent","root":{
+            "type":"button","size":[10,10],"button_mappings":[{
+                "from_button_id":"button.menu_select","to_button_id":"mod.drag_axis:0:x:#resize_extent","mapping_type":"pressed"
+            }]
+        }}).to_string(),
+        bindings:Default::default(),transitions:Default::default()
+    });
+    assert!(
+        panel.validate().is_err(),
+        "missing extent is not an implicit zero"
+    );
+    for value in [
+        SurfaceValue::Bool(true),
+        SurfaceValue::Text("112".into()),
+        SurfaceValue::Vector(vec![112.0, 112.0]),
+        SurfaceValue::Number(0.0),
+        SurfaceValue::Number(-1.0),
+        SurfaceValue::Number(f64::NAN),
+        SurfaceValue::Number(1_000_001.0),
+    ] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), value);
+        assert!(panel.validate().is_err());
+    }
+    for value in [0.5, 112.0, 224.0, 1_000_000.0] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), SurfaceValue::Number(value));
+        assert!(panel.validate().is_ok(), "extent={value}");
+    }
+}
+
 /// Route and scalar changes preserve the schema, and invalid batches leave it untouched.
 #[test]
 fn sparse_panel_updates_validate_every_change_before_replacement() {

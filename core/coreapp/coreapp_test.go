@@ -1,4 +1,4 @@
-package main
+package coreapp
 
 import (
 	"bytes"
@@ -251,6 +251,35 @@ func TestResourcePackCacheFlagsAreOptInAndBounded(t *testing.T) {
 
 // TestUpstreamClientCacheIsOptInAndReachesServe pins the default-off core
 // flag and proves the parsed option reaches proxy.Serve configuration.
+// stubInterceptor is an Interceptor that never joins a session.
+type stubInterceptor struct{}
+
+func (stubInterceptor) InterceptSession(context.Context, *proxy.InterceptedSession) (proxy.SessionInterceptor, error) {
+	return nil, nil
+}
+
+// An extending binary's interceptor reaches the relay configuration; the stock core sets none.
+func TestOptionsInterceptorReachesServe(t *testing.T) {
+	for _, want := range []proxy.Interceptor{nil, stubInterceptor{}} {
+		err := run(
+			context.Background(),
+			[]string{"-socket-dir", "run", "-upstream", "localhost:19132"},
+			io.Discard,
+			io.Discard,
+			func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+			withInterceptor(func(_ context.Context, cfg proxy.Config) error {
+				if cfg.Interceptor != want {
+					t.Fatalf("serve received interceptor %#v, want %#v", cfg.Interceptor, want)
+				}
+				return errors.New("stop after config check")
+			}, want),
+		)
+		if err == nil || !strings.Contains(err.Error(), "stop after config check") {
+			t.Fatalf("run() error = %v, want deterministic stop after config check", err)
+		}
+	}
+}
+
 func TestUpstreamClientCacheIsOptInAndReachesServe(t *testing.T) {
 	disabled, err := parseFlags(nil, io.Discard)
 	if err != nil || disabled.upstreamClientCache {

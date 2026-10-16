@@ -70,10 +70,8 @@ pub(super) fn observe(path: &Path) -> Observation {
 pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, String> {
     let mut digest = Sha256::new();
     digest.update(serde_json::to_vec(&registration).map_err(|error| error.to_string())?);
-    let component = read_bounded_source(
-        &registration.component,
-        mod_host::MAX_COMPONENT_SOURCE_BYTES,
-    )?;
+    let component = mod_host::read_source(&registration.component)
+        .map_err(|error| format!("Mod could not be read: {error}"))?;
     digest.update(Sha256::digest(&component));
     let font = if registration.grants.controls {
         registration

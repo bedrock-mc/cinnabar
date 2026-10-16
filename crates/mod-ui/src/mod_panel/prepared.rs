@@ -15,9 +15,50 @@ pub enum PanelUiOwner {
     Environment(usize),
     /// The independently registered component, including all of its replacements.
     Registration(u64),
+    /// A trusted packet mod instance belonging to one live network session.
+    PacketSession(u64),
 }
 
 impl crate::ModUi {
+    /// Publishes a worker-prepared panel as one update. Revisions preserve the active
+    /// owner's visibility and let the panel retain motion for the same authored screen.
+    /// Registration replacement still uses `set_prepared_panel_ui` to retire its old UI.
+    pub fn set_prepared_mod_panel(
+        &mut self,
+        owner: PanelUiOwner,
+        prepared: Arc<PreparedPanelUi>,
+        panel: &Panel,
+    ) -> Result<(), String> {
+        let route = prepared.route(panel);
+        if route.is_none()
+            && (panel.surface.is_some()
+                || prepared.bundle.panel.surface.is_some()
+                || !template::same_template(&prepared.bundle.panel, panel))
+        {
+            return Err("panel does not match its prepared catalog".into());
+        }
+        panel.validate_values()?;
+        if !self
+            .prepared_panel_ui
+            .get(&owner)
+            .is_some_and(|current| Arc::ptr_eq(&current.prepared, &prepared))
+        {
+            self.cancel_mod_hud_editor();
+            self.prepared_panel_ui
+                .insert(owner, PreparedOwner::new(prepared));
+        }
+        self.set_mod_panel(owner, Some(panel))?;
+        if let Some(current) = self.mod_panel.as_mut() {
+            current.prepared = route.clone();
+            if current.edit.is_none()
+                && let Some(route) = route
+            {
+                current.catalog = Some(Arc::clone(&route.catalog));
+            }
+        }
+        Ok(())
+    }
+
     /// Replaces or removes one owner's catalog without evicting another active owner's routes.
     pub fn set_prepared_panel_ui(
         &mut self,
@@ -79,7 +120,8 @@ pub struct PreparedPanelUi {
     routes: Vec<Arc<PreparedRoute>>,
 }
 
-pub(super) struct PreparedRoute {
+/// A validated static screen route, reusable across scalar-only updates.
+pub struct PreparedRoute {
     /// Position in the owning generation's immutable route list.
     index: usize,
     source: Surface,
@@ -119,7 +161,7 @@ impl PreparedPanelUi {
     }
 
     /// Matches only the exact validated source and its original control action schema.
-    pub(super) fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
+    pub fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
         if !template::same_template(&self.bundle.panel, panel) {
             return None;
         }

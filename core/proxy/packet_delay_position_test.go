@@ -24,7 +24,7 @@ func TestPacketDelayPositionAdvancesOnlyAfterSuccessfulUpstreamFlush(t *testing.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		done := make(chan error, 1)
-		go func() { done <- pumpPacketsWithDelay(ctx, delay, src, dst, true, session) }()
+		go func() { done <- pumpPacketsWithDelay(ctx, delay, nil, src, dst, true, session) }()
 		first := &packet.PlayerAuthInput{Position: mgl32.Vec3{1, 70, 3}}
 		src.batchReads <- batchResult{packets: []packet.Packet{first}}
 		synctest.Wait()
@@ -140,7 +140,7 @@ func TestPacketDelayPositionOffDoesNotDecodeMovement(t *testing.T) {
 		dst := newFakeUpstream(nil)
 		src.batchReads <- batchResult{packets: []packet.Packet{&packet.PlayerAuthInput{Position: mgl32.Vec3{1, 2, 3}}}}
 		src.batchReads <- batchResult{err: io.EOF}
-		if err := pumpPacketsWithDelay(context.Background(), delay, src, dst, true); !errors.Is(err, io.EOF) {
+		if err := pumpPacketsWithDelay(context.Background(), delay, nil, src, dst, true); !errors.Is(err, io.EOF) {
 			t.Fatal(err)
 		}
 		if src.decoded != 0 {

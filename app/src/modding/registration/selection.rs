@@ -89,6 +89,7 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
             });
             let status = match recorded {
                 Some(recorded) if recorded.state == "loaded" => Status::Running,
+                Some(recorded) if recorded.state == "next-join" => Status::NextJoin,
                 Some(recorded) if recorded.state == "reload-error" => {
                     Status::ReloadFailed(recorded.message.clone().unwrap_or_default())
                 }

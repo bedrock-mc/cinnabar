@@ -67,10 +67,7 @@ impl ModPanel {
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        let hit =
-            frame.hits.iter().rev().find(|region| {
-                region.enabled && region.pressed.is_some() && region.contains(point)
-            });
+        let hit = json_ui::hit_test(&frame.hits, point);
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
             self.view.hovered = hovered.map(str::to_owned);

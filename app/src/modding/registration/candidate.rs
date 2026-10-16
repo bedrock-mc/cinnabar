@@ -2,12 +2,13 @@
 
 use super::*;
 
+pub(super) enum Runtime {
+    Frame(crate::modding::admission::PreparedMod),
+    Packet(Arc<mod_host::packet_mod::CompiledPacketMod>),
+}
+
 pub(super) struct Candidate {
-    pub(super) host: ModHost,
-    pub(super) font: Option<Arc<RuntimeFontCatalog>>,
-    pub(super) panel_ui: Option<Arc<mod_ui::PreparedPanelUi>>,
-    pub(super) branding:
-        Option<Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>>,
+    pub(super) runtime: Runtime,
     pub(super) identity: [u8; 32],
     pub(super) registration: Entry,
 }
@@ -30,6 +31,27 @@ pub(super) fn build_candidate_with_settings(
         font: font_bytes,
         ui,
     } = snapshot;
+    if mod_host::SourceKind::of(&component) == mod_host::SourceKind::Packet
+        || registration.grants.packets
+    {
+        let cache = crate::modding::packets::cache_directory(
+            registration
+                .component
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        );
+        let compiled = mod_host::packet_mod::CompiledPacketMod::compile(
+            &component,
+            &registration.grants,
+            Some(&cache),
+        )
+        .map_err(|error| format!("{error:#}"))?;
+        return Ok(Candidate {
+            runtime: Runtime::Packet(Arc::new(compiled)),
+            identity,
+            registration,
+        });
+    }
     let prepared = crate::modding::admission::prepare(
         &registration.component,
         &component,
@@ -39,10 +61,7 @@ pub(super) fn build_candidate_with_settings(
         settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
     )?;
     Ok(Candidate {
-        host: prepared.host,
-        font: prepared.font,
-        panel_ui: prepared.panel_ui,
-        branding: prepared.branding,
+        runtime: Runtime::Frame(prepared),
         identity,
         registration,
     })

@@ -30,7 +30,15 @@ fn commands_parse_from_their_wire_form() {
     assert_eq!(
         parse(json!({ "cmd": "connect", "address": "127.0.0.1:19132" })).unwrap(),
         Command::Connect {
-            address: "127.0.0.1:19132".into()
+            address: "127.0.0.1:19132".into(),
+            auth_cache: None,
+        }
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "connect", "address": "example.invalid:19132", "auth_cache": "/test/private-token.json" })).unwrap(),
+        Command::Connect {
+            address: "example.invalid:19132".into(),
+            auth_cache: Some("/test/private-token.json".into()),
         }
     );
     assert_eq!(

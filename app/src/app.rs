@@ -48,7 +48,6 @@ use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use client_presentation::{
-    actor_publication::publish_actor_render_frame,
     camera::FlyCameraUpdateSet,
     local_player::{LocalPlayerFrameSet, publish_interaction_origin},
 };
@@ -75,7 +74,6 @@ use {
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
             network::{
-                advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
                 receive_network_events,
                 session::{NetworkConfig, spawn_network},
             },
@@ -144,42 +142,8 @@ mod executor;
 pub(crate) mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
-/// Registers the production actor observation and publication boundaries.
-pub(crate) fn configure_actor_render_systems(app: &mut App) {
-    app.init_resource::<crate::block_entities::SpawnerDisplayPublisher>()
-        .init_resource::<client_presentation::actor_publication::ActorFrameState>()
-        .add_systems(
-            Update,
-            (
-                advance_actor_frame,
-                crate::runtime::network::publish_local_actor_damage,
-            )
-                .chain()
-                .in_set(ClientFrameSet::ActorPreparation),
-        )
-        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
-        .add_systems(
-            Update,
-            crate::runtime::network::advance_actor_motion
-                .after(ClientFrameSet::Camera)
-                .before(ClientFrameSet::Interaction),
-        )
-        .add_systems(
-            Update,
-            (
-                prepare_actor_render_frame,
-                crate::block_entities::prepare_spawner_actors,
-            )
-                .chain()
-                .in_set(ClientFrameSet::ActorFinalization),
-        )
-        .add_systems(
-            Update,
-            (publish_actor_render_frame, publish_entity_shadows)
-                .chain()
-                .in_set(ClientFrameSet::ActorPublication),
-        );
-}
+mod actor_setup;
+pub(crate) use actor_setup::configure_actor_render_systems;
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(not(feature = "acceptance"))]
@@ -625,24 +589,32 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.language.as_deref(),
     );
     crate::runtime::network::await_overlay_texture_device();
+    let packet_mods = crate::modding::packets::from_environment();
     let network = if connection_requested {
-        match spawn_network(NetworkConfig {
-            registry_base: crate::runtime::network::session_registries::RegistryBase::new(
-                &runtime_assets,
-                &collision_registries,
-            ),
-            session_generation: simulation_clock::identity::SessionGeneration::new(1),
-            socket_dir,
-            display_name: args.display_name.clone(),
-            client_random_id: client_random_id.expect("connection requested"),
-            client_blob_cache: client_blob_cache.cache(),
-            player_skin: local_player_skin.clone(),
-            login_settings: crate::session::login_settings(&menu, None),
-            actor_artwork: Some(actor_artwork.clone()),
-            ui_catalog: Some(ui_catalog.0.clone()),
-            log_dir: menu.layout().log_dir(),
-            record_session: menu.settings_snapshot().0.record_network_session(),
-        })
+        match spawn_network(
+            NetworkConfig {
+                registry_base: crate::runtime::network::session_registries::RegistryBase::new(
+                    &runtime_assets,
+                    &collision_registries,
+                ),
+                session_generation: simulation_clock::identity::SessionGeneration::new(1),
+                socket_dir,
+                display_name: args.display_name.clone(),
+                client_random_id: client_random_id.expect("connection requested"),
+                client_blob_cache: client_blob_cache.cache(),
+                player_skin: local_player_skin.clone(),
+                login_settings: {
+                    let mut settings = crate::session::login_settings(&menu, None);
+                    settings.server_address = args.address.clone().unwrap_or_default();
+                    settings
+                },
+                actor_artwork: Some(actor_artwork.clone()),
+                ui_catalog: Some(ui_catalog.0.clone()),
+                log_dir: menu.layout().log_dir(),
+                record_session: menu.settings_snapshot().0.record_network_session(),
+            },
+            packet_mods.session_relay(),
+        )
         .context("spawn Bedrock network worker")
         {
             Ok(network) => network,
@@ -695,6 +667,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
     let mut app = app;
+    app.insert_resource(packet_mods);
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,

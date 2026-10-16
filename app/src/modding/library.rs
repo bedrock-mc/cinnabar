@@ -10,9 +10,9 @@ use client_shell::menu::MenuRuntime;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use launcher::mods::{Action, ActiveMod, COMPONENT_EXTENSION, InstalledMod, Library, Permission};
 use launcher_host::desktop::picker::{self, Filter};
-use mod_host::ModHost;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -87,7 +87,8 @@ fn run(
     mut retire: impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) {
     let mut requests = 0;
-    let mut library = scan(mods, registration, String::new());
+    let mut metadata = BTreeMap::new();
+    let mut library = scan_cached(mods, registration, String::new(), &mut metadata);
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(super::RELOAD_INTERVAL) {
@@ -109,7 +110,7 @@ fn run(
             Err(RecvTimeoutError::Timeout) => library.message.clone(),
             Err(RecvTimeoutError::Disconnected) => return,
         };
-        let next = scan(mods, registration, message);
+        let next = scan_cached(mods, registration, message, &mut metadata);
         if next != library {
             library = next;
             let _ = outgoing.send(library.clone());
@@ -216,9 +217,9 @@ fn import(mods: &Path, source: &Path) -> Result<String, String> {
     if name.starts_with('.') {
         return Err("Mod file names must not start with a dot.".into());
     }
-    let bytes = mod_host::local_files::read(source, mod_host::MAX_COMPONENT_SOURCE_BYTES)
-        .map_err(|error| format!("Could not read {name}: {error}"))?;
-    ModHost::validate_component(&bytes)
+    let bytes =
+        mod_host::read_source(source).map_err(|error| format!("Could not read {name}: {error}"))?;
+    mod_host::validate_source(&bytes, Some(&super::packets::cache_directory(mods)))
         .map_err(|error| format!("{name} is not a valid mod: {error:#}"))?;
     publish_component(mods, name, &bytes)?;
     Ok(name.to_owned())
@@ -352,10 +353,22 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
 
 /// Builds card metadata, permissions and statuses from each component's declarations and the
 /// host's canonical registration and grants.
+#[cfg(test)]
 fn scan(mods: &Path, registration: &Path, message: String) -> Library {
+    scan_cached(mods, registration, message, &mut BTreeMap::new())
+}
+
+/// File identities invalidate cached declarations so unchanged large mods are not reread on polls.
+fn scan_cached(
+    mods: &Path,
+    registration: &Path,
+    message: String,
+    metadata: &mut BTreeMap<u64, (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata)>,
+) -> Library {
     let mut installed = installed(mods);
     let current = registered(registration);
     include_active(&mut installed, &current);
+    metadata.retain(|id, _| installed.iter().any(|(item, _)| item.id == *id));
     let active = current
         .iter()
         .filter(|current| current.entry.enabled)
@@ -374,11 +387,14 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
             .iter()
             .find(|current| same_path(path, &current.entry.component))
             .map(|current| &current.entry.grants);
-        let (requested, metadata) = match mod_host::declarations(path) {
-            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
-            Err(_) => (None, Default::default()),
-        };
-        item.metadata = metadata;
+        let (requested, declared_metadata) =
+            metadata
+                .entry(item.id)
+                .or_insert_with(|| match mod_host::declarations(path) {
+                    Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
+                    Err(_) => (None, Default::default()),
+                });
+        item.metadata = declared_metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {

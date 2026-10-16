@@ -289,6 +289,8 @@ pub(crate) struct SessionResources<'w> {
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
+    packet_mods: Option<Res<'w, crate::modding::packets::PacketMods>>,
+    mod_registration: Option<Res<'w, crate::modding::registration::Watcher>>,
 }
 
 impl SessionResources<'_> {
@@ -435,6 +437,14 @@ fn poll_join(
     if controller.join.is_none() {
         return;
     }
+    // The join must capture admitted mods, including on a cold cache or a transfer.
+    if session
+        .mod_registration
+        .as_ref()
+        .is_some_and(|watcher| watcher.preparing())
+    {
+        return;
+    }
     let client_random_id = match controller.poll_client_random_id() {
         Ok(Some(id)) => id,
         Ok(None) => return,
@@ -446,6 +456,7 @@ fn poll_join(
         }
     };
     let attempt = controller.join.take().expect("pending join");
+    let server_address = attempt.address.clone();
     use client_session::connection::JoinPoll;
     match attempt.poll(controller.generation, controller.connecting, || {
         controller.core.exit_status()
@@ -475,7 +486,8 @@ fn poll_join(
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
             }
-            let login_settings = login_settings(menu, session.input.as_deref());
+            let mut login_settings = login_settings(menu, session.input.as_deref());
+            login_settings.server_address = server_address;
             if let Err(error) = start_network(
                 commands,
                 menu,
@@ -486,6 +498,10 @@ fn poll_join(
                 client_random_id,
                 session.actor_artwork.as_deref().map(|artwork| &artwork.0),
                 session.ui_catalog.as_deref(),
+                session
+                    .packet_mods
+                    .as_ref()
+                    .and_then(|mods| mods.session_relay()),
                 crate::runtime::network::session_registries::RegistryBase::new(
                     &session.client_world.runtime_assets,
                     &session.collisions,
@@ -513,6 +529,7 @@ pub(crate) fn login_settings(
     input: Option<&client_state::SemanticInputSnapshot>,
 ) -> protocol::LoginSettings {
     protocol::LoginSettings {
+        server_address: String::new(),
         language_code: pack_runtime::pack_language::active_language_code(),
         input_mode: input
             .and_then(|input| input.snapshot())
@@ -542,22 +559,28 @@ fn start_network(
     client_random_id: protocol::ClientRandomId,
     actor_artwork: Option<&render_model::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
+    packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
     registry_base: crate::runtime::network::session_registries::RegistryBase,
 ) -> Result<(), String> {
-    let replacement = crate::runtime::network::session::spawn_network(NetworkConfig {
-        registry_base,
-        session_generation: simulation_clock::identity::SessionGeneration::new(session_generation),
-        socket_dir,
-        display_name: menu.display_name().to_owned(),
-        client_random_id,
-        client_blob_cache: cache.cache(),
-        player_skin: menu.player_skin().clone(),
-        login_settings,
-        actor_artwork: actor_artwork.cloned(),
-        ui_catalog: ui_catalog.map(|base| base.0.clone()),
-        log_dir: menu.layout().log_dir(),
-        record_session: menu.settings_snapshot().0.record_network_session(),
-    })
+    let replacement = crate::runtime::network::session::spawn_network(
+        NetworkConfig {
+            registry_base,
+            session_generation: simulation_clock::identity::SessionGeneration::new(
+                session_generation,
+            ),
+            socket_dir,
+            display_name: menu.display_name().to_owned(),
+            client_random_id,
+            client_blob_cache: cache.cache(),
+            player_skin: menu.player_skin().clone(),
+            login_settings,
+            actor_artwork: actor_artwork.cloned(),
+            ui_catalog: ui_catalog.map(|base| base.0.clone()),
+            log_dir: menu.layout().log_dir(),
+            record_session: menu.settings_snapshot().0.record_network_session(),
+        },
+        packet_relay,
+    )
     .map_err(|error| error.to_string())?;
     commands.insert_resource(
         client_interaction::movement::MovementTicker::with_epoch_publisher(

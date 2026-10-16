@@ -195,6 +195,9 @@ pub enum GlobalPackAction {
 pub enum Command {
     Connect {
         address: String,
+        /// Explicit private OAuth cache for an authorized integration test; None uses the menu account.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth_cache: Option<PathBuf>,
     },
     Disconnect,
     Input(InputCommand),

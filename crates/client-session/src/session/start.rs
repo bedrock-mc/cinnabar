@@ -1,7 +1,8 @@
 use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;
 
-/// Starts the login task and hands admitted world state to the play pump.
+/// Starts the login task and hands admitted world state to the play pump. A `packet_relay`
+/// sees every batch of the session.
 pub fn spawn_network<P: Send + 'static>(
     config: NetworkConfig,
     prepare_presentation: impl FnOnce(
@@ -12,6 +13,7 @@ pub fn spawn_network<P: Send + 'static>(
     + Send
     + 'static,
     observation: SessionTrace,
+    packet_relay: Option<Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<P>, std::io::Error> {
     let session_generation = config.session_generation;
     let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -56,6 +58,7 @@ pub fn spawn_network<P: Send + 'static>(
                         Some(config.client_blob_cache.clone()),
                         Some(config.player_skin),
                         &config.login_settings,
+                        packet_relay,
                         Some(packet_tap),
                         move |handoff, game_data| {
                             let packs = unless_cancelled(&cancelled, || {

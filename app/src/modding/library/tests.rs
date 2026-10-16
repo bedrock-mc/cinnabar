@@ -1,4 +1,7 @@
 use super::*;
+use mod_host::ModHost;
+
+mod native_import;
 
 /// Writes a binary component with the host's declared-request custom section.
 fn requested_component(path: &Path, request: &mod_host::ModGrants) {
@@ -1007,4 +1010,45 @@ fn scanned_cards_show_declared_metadata_or_the_file_stem() {
     assert_eq!(plain.metadata, Default::default());
     assert_eq!(zoom.name(), "zoom");
     assert_eq!(zoom.metadata.version.as_deref(), Some("1.2.0"));
+}
+
+#[test]
+fn importing_a_large_packet_source_keeps_bytes_and_permissions_default_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let path = root.path().join("large.wasm");
+    let fixture = include_str!("../../../../crates/mod-host/src/packet_mod/tests/guest.wat")
+        .replace("$IMPORTS", "")
+        .replace("$START", "");
+    let mut bytes = wat::parse_str(fixture).unwrap();
+    // A large inert custom section models a runtime's size without changing its guest behavior.
+    let mut section = vec![0; mod_host::MAX_COMPONENT_SOURCE_BYTES + 1];
+    section[0] = 0; // Empty custom-section name.
+    bytes.push(0);
+    let mut length = section.len();
+    loop {
+        let next = (length & 127) as u8;
+        length >>= 7;
+        bytes.push(next | if length != 0 { 128 } else { 0 });
+        if length == 0 {
+            break;
+        }
+    }
+    bytes.extend(section);
+    fs::write(&path, &bytes).unwrap();
+    import(&mods, &path).unwrap();
+    assert_eq!(fs::read(mods.join("large.wasm")).unwrap(), bytes);
+    let declared = mod_host::declarations(&mods.join("large.wasm"))
+        .unwrap()
+        .requested
+        .unwrap()
+        .unwrap();
+    assert!(declared.packets);
+    let selected = root.path().join("config");
+    selection::select(&selected, &mods.join("large.wasm"), true, "enable".into()).unwrap();
+    let entry = selection::registered(&selected).pop().unwrap().entry;
+    assert!(
+        !entry.grants.packets,
+        "importing and enabling never silently grant packet authority"
+    );
 }

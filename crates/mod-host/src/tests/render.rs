@@ -165,6 +165,8 @@ fn render_is_denied_by_default_even_with_other_grants() {
         keys: true,
         block_highlights: false,
         fullbright: false,
+        packets: true,
+        wasi: true,
     };
     let (_dir, mut host) = load(&calls, &init, &frame, grants);
     host.frame(false).unwrap();

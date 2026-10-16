@@ -55,7 +55,7 @@ pub(super) struct ModPanel {
     pages: usize,
     rows: usize,
     drag: Option<usize>,
-    vector_drag: Option<String>,
+    vector_drag: Option<vector::Drag>,
     scroll_drag: Option<(String, f64)>,
     view: ViewState,
     data: Arc<DataSource>,
@@ -134,6 +134,14 @@ impl ModUi {
         }
         if let Some(current) = self.mod_panel.as_mut() {
             if !same_shape {
+                let transitions = (current.owner == owner
+                    && current
+                        .panel
+                        .surface
+                        .as_ref()
+                        .zip(panel.surface.as_ref())
+                        .is_some_and(|(previous, next)| previous.screen == next.screen))
+                .then(|| std::mem::take(&mut current.motion.transitions));
                 current.owner = owner;
                 current.edit = None;
                 current.screen = CachedScreen::default();
@@ -150,6 +158,9 @@ impl ModUi {
                 }
                 current.view = ViewState::default();
                 current.motion = motion::PanelMotion::default();
+                if let Some(transitions) = transitions {
+                    current.motion.transitions = transitions;
+                }
                 current.pointer = None;
                 current.prepared = prepared.clone();
                 current.catalog = prepared.as_ref().map(|route| Arc::clone(&route.catalog));
@@ -210,6 +221,13 @@ impl ModUi {
     /// Whether the panel is open and owns input; false while a closed panel plays its exit.
     pub fn mod_panel_open(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| panel.open)
+    }
+
+    /// Whether focused keys are owned by guest behavior instead of the native close shortcut.
+    pub fn mod_panel_capture_key(&self) -> bool {
+        self.mod_panel
+            .as_ref()
+            .is_some_and(|panel| panel.panel.capture_key)
     }
 
     /// Whether the panel draws: open, or closed while bindings ease to their exit values.

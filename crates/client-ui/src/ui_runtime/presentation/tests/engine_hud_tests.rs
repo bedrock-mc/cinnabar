@@ -19,6 +19,7 @@ mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
+mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;
 

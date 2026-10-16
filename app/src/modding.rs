@@ -35,7 +35,9 @@ mod admission;
 mod environment_loader;
 mod hud_editor;
 mod library;
-mod registration;
+mod packet_menu;
+pub(crate) mod packets;
+pub(crate) mod registration;
 mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
@@ -168,7 +170,12 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     configure_systems(app, true);
                 }
             }
-            Err(error) => warn!("Local extension watcher unavailable: {error}"),
+            Err(error) => {
+                warn!("Local extension watcher unavailable: {error}");
+                if !configured && app.world().contains_resource::<packets::PacketMods>() {
+                    configure_systems(app, false);
+                }
+            }
         }
     }
 }
@@ -205,6 +212,12 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 /// Loads components and packages in order, each with its own grants; one failing to load
 /// leaves the rest.
 fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
+    if let Some(selection) = multi::packet_mod_entry(&mods) {
+        app.world_mut().init_resource::<packets::PacketMods>();
+        app.world_mut()
+            .resource_mut::<packets::PacketMods>()
+            .select_environment(selection);
+    }
     install(app, multi::load_entries(mods));
 }
 
@@ -396,6 +409,7 @@ type ModOutputs<'w> = (
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 struct ModObservation<'w, 's> {
+    packets: Option<Res<'w, packets::PacketMods>>,
     environment_loader: Option<Res<'w, environment_loader::Loader>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
@@ -434,6 +448,7 @@ fn drive_mod(
     observation: ModObservation,
 ) {
     let ModObservation {
+        packets,
         environment_loader,
         watcher,
         render_scene,
@@ -467,9 +482,21 @@ fn drive_mod(
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
     else {
+        if let Some(delta) = packets
+            .as_ref()
+            .filter(|packets| packets.native_frame_available())
+            .and_then(|packets| {
+                packets.native_frame(gameplay.native_frame(captured && !absorbed, &ui))
+            })
+        {
+            gameplay.apply(delta);
+        }
         return;
     };
     if extension.suspended {
+        if let Some(packets) = packets.as_ref() {
+            packets.native_frame(None);
+        }
         return;
     }
     let mut reloaded = false;
@@ -617,7 +644,18 @@ fn drive_mod(
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
     interaction.attack_pulse = merged.attack_pulse && gameplay.pulse_attack();
-    if let Some(delta) = merged.delta {
+    let regular_camera = (0..extension.hosts.host_count()).any(|index| {
+        let host = extension.hosts.host(index);
+        host.is_active() && host.has_camera_output()
+    });
+    let native_delta = packets
+        .as_ref()
+        .filter(|packets| packets.native_frame_available())
+        .and_then(|packets| {
+            packets
+                .native_frame(gameplay.native_frame(captured && !absorbed && !regular_camera, &ui))
+        });
+    if let Some(delta) = merged.delta.or(native_delta) {
         gameplay.apply(delta);
     }
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
@@ -671,21 +709,27 @@ fn drive_mod(
     if let Err(error) = presentation.mod_ui_mut().set_mod_crosshair(crosshair) {
         warn!("Cinnabar extension crosshair rejected: {error}");
     }
-    let owner = extension.hosts.panel_owner();
-    presentation.set_mod_menu_branding(extension.menu_branding());
-    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
-        warn!("Cinnabar extension panel font rejected: {error}");
+    if !packets
+        .as_ref()
+        .is_some_and(|packets| packets.menu_owns_panel())
+    {
+        let owner = extension.hosts.panel_owner();
+        presentation.set_mod_menu_branding(extension.menu_branding());
+        if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone())
+        {
+            warn!("Cinnabar extension panel font rejected: {error}");
+        }
+        if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+            extension.panel_ui_owner(owner),
+            extension.hosts.host(owner).panel(),
+        ) {
+            warn!("Cinnabar extension panel rejected: {error}");
+            extension.hosts.host_mut(owner).set_panel_open(false);
+        }
+        presentation
+            .mod_ui_mut()
+            .set_mod_panel_open(extension.hosts.host(owner).panel_open());
     }
-    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-        extension.panel_ui_owner(owner),
-        extension.hosts.host(owner).panel(),
-    ) {
-        warn!("Cinnabar extension panel rejected: {error}");
-        extension.hosts.host_mut(owner).set_panel_open(false);
-    }
-    presentation
-        .mod_ui_mut()
-        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
     let editor_session = gameplay.hud_editor_session(&ui);
     hud_editor::publish(
         &mut extension,

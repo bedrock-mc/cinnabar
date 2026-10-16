@@ -1,6 +1,8 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 mod declarations;
+mod source;
+pub use source::{SourceKind, read_source, validate_source};
 mod grants;
 pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
 pub mod helper;
@@ -17,6 +19,7 @@ pub mod local_files;
 pub mod module_observations;
 mod outputs;
 pub mod package;
+pub mod packet_mod;
 mod runtime;
 mod screens;
 pub mod server;

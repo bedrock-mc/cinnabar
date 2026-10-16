@@ -19,6 +19,9 @@ pub(super) fn place_by_anchor(
     siblings: [f64; 2],
     env: &LayoutEnv,
 ) -> Rect {
+    if let Some(rect) = crate::position::place(control, parent_rect, size) {
+        return rect;
+    }
     let from = anchor_from(control);
     // An anchored offset pins `anchor_to` to `anchor_from`.
     let to = if anchored_offset(control).is_some() {

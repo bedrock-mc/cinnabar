@@ -3,10 +3,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod bindings;
 mod cosmetic;
 mod editor_style;
+mod geometry;
+pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
 pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
 pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
+pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;

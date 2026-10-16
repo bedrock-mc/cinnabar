@@ -23,7 +23,7 @@ func TestPacketDelayFIFOAndPipeline(t *testing.T) {
 			src.useBatchReads = true
 			start := time.Now()
 			done := make(chan error, 1)
-			go func() { done <- pumpPacketsWithDelay(context.Background(), delay, src, dst, direction) }()
+			go func() { done <- pumpPacketsWithDelay(context.Background(), delay, nil, src, dst, direction) }()
 			for i := range 4 {
 				src.batchReads <- batchResult{packets: []packet.Packet{&packet.NetworkStackLatency{Timestamp: int64(i)}}}
 			}
@@ -64,7 +64,7 @@ func TestPacketDelayDisableResetAndExpiryDrain(t *testing.T) {
 				src, dst := newFakeDownstream(nil), newFakeUpstream(nil)
 				src.useBatchReads = true
 				done := make(chan error, 1)
-				go func() { done <- pumpPacketsWithDelay(context.Background(), delay, src, dst, true) }()
+				go func() { done <- pumpPacketsWithDelay(context.Background(), delay, nil, src, dst, true) }()
 				src.batchReads <- batchResult{packets: stamps(1)[0]}
 				src.batchReads <- batchResult{err: io.EOF}
 				synctest.Wait()
@@ -136,7 +136,7 @@ func TestPacketDelayCancellationAndBoundedReadAhead(t *testing.T) {
 		dst := newFakeUpstream(nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
-		go func() { done <- pumpPacketsWithDelay(ctx, delay, src, dst, true) }()
+		go func() { done <- pumpPacketsWithDelay(ctx, delay, nil, src, dst, true) }()
 		go func() {
 			for range 100 {
 				select {
@@ -166,7 +166,7 @@ func TestPacketDelayChangedDeadlineKeepsFIFO(t *testing.T) {
 		src.useBatchReads = true
 		done := make(chan error, 1)
 		start := time.Now()
-		go func() { done <- pumpPacketsWithDelay(context.Background(), delay, src, dst, true) }()
+		go func() { done <- pumpPacketsWithDelay(context.Background(), delay, nil, src, dst, true) }()
 		src.batchReads <- batchResult{packets: stamps(1)[0]}
 		synctest.Wait()
 		time.Sleep(10 * time.Millisecond)
@@ -208,7 +208,7 @@ func TestPacketDelayNewRelaySessionResetsLease(t *testing.T) {
 		down.batchReads <- batchResult{packets: stamps(1)[0]}
 		down.batchReads <- batchResult{err: io.EOF}
 		start := time.Now()
-		if err := relayPackets(context.Background(), down, up, func() { _ = down.Close(); _ = up.Close() }, delay); err != nil {
+		if err := relayPackets(context.Background(), down, up, func() { _ = down.Close(); _ = up.Close() }, delay, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !time.Now().Equal(start) {
@@ -234,7 +234,7 @@ func TestPacketDelayOldRelayExitCannotResetNewSession(t *testing.T) {
 				<-release
 				_ = oldDown.Close()
 				_ = oldUp.Close()
-			}, delay)
+			}, delay, nil)
 		}()
 		<-stopping
 		newDown, newUp := newFakeDownstream(nil), newFakeUpstream(nil)
@@ -242,7 +242,7 @@ func TestPacketDelayOldRelayExitCannotResetNewSession(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		newDone := make(chan error, 1)
 		go func() {
-			newDone <- relayPackets(ctx, newDown, newUp, func() { _ = newDown.Close(); _ = newUp.Close() }, delay)
+			newDone <- relayPackets(ctx, newDown, newUp, func() { _ = newDown.Close(); _ = newUp.Close() }, delay, nil)
 		}()
 		synctest.Wait()
 		_ = delay.Set(400)

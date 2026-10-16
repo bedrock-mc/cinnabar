@@ -54,6 +54,15 @@ impl UiPresentationRuntime {
         self.safe_area = safe_area;
     }
 
+    /// Authored native panels use fixed design-pixel units inside the platform safe area.
+    pub fn mod_panel_viewport(&self, logical_size: [f32; 2]) -> [f32; 2] {
+        [
+            (logical_size[0] - self.safe_area.left() - self.safe_area.right()).max(0.0),
+            (logical_size[1] - self.safe_area.top() - self.safe_area.bottom()).max(0.0),
+        ]
+        .map(|extent| extent / ui::FONT_DESIGN_PIXEL_TEXELS as f32)
+    }
+
     /// Borrows the captured HUD values for the app's publication adapters.
     pub fn hud_frame(&self) -> &HudFrame {
         &self.hud_frame

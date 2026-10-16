@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 pub fn definitions() -> Value {
+    let text = json!({ "type": "string" });
     let strings = json!({ "type": "array", "items": { "type": "string" } });
     let controls = json!({
         "type": "array", "items": { "type": "string" },
@@ -65,7 +66,8 @@ pub fn definitions() -> Value {
                     "world_dir": { "type": "string" },
                     "args": strings
                 } },
-                "allow_remote": { "type": "boolean" }
+                "allow_remote": { "type": "boolean" },
+                "auth_cache": { "type": "string", "description": "Authorized private OAuth cache for this test join; omitted uses the launcher account." }
             } }
         },
         {
@@ -93,12 +95,12 @@ pub fn definitions() -> Value {
         {
             "name": "import_skin",
             "description": "Import a PNG, paired geometry JSON, or skin pack through the Dressing Room worker. The path is resolved against the checkout; poll state for completion.",
-            "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"], "additionalProperties": false }
+            "inputSchema": { "type": "object", "properties": { "path": text }, "required": ["path"], "additionalProperties": false }
         },
         {
             "name": "chat",
             "description": "Send a chat line as the player; a leading / sends a command (e.g. /showcase souls).",
-            "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] }
+            "inputSchema": { "type": "object", "properties": { "text": text }, "required": ["text"] }
         },
         {
             "name": "camera_path",

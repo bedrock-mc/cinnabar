@@ -1105,3 +1105,26 @@ subject to the simulator's ground contact and jump cooldown rules.
 `cancel-jump` commits an explicit cancellation even outside gameplay, allowing a
 component to revoke a sub-tick pulse as soon as its module is disabled. Cancellation
 wins over jump pulses in the same callback and never clears physical jump input.
+
+## Trusted packet mods
+
+Settings → Mods → Import mod also accepts raw WASI packet reactors, including
+Go `wasip1` reactors, up to the packet host's 256 MiB source limit. Ordinary
+component mods retain their existing limits. Import validates the packet ABI
+without starting the guest; permission toggles remain off by default.
+
+Grant Packets and, for WASI reactors, WASI before enabling the mod. Only one
+packet mod can be enabled at a time. “Ready for your next server join” means
+the compiled source will start in a fresh instance when you next join a server.
+Reloading changes the next session; disabling or revoking a grant immediately
+revokes existing instances. Compilation and instance work run off the frame
+thread, and failed or trapped mods fall back to ordinary packet forwarding.
+Server batches through spawn pass through the mod under the join deadline,
+including registries and other startup data arriving after the StartGame handoff.
+The login owner switches later batches to the shorter play deadline when spawn
+completes. Ticks retain their play deadline.
+
+Developer launches can select a reactor with `CINNABAR_PACKET_MOD`, with
+the packet grant and `CINNABAR_PACKET_MOD_WASI=1` for WASI, or select a packet
+entry from `CINNABAR_MOD_SET`.
+Settings registration uses the same prepared-source and session relay path.

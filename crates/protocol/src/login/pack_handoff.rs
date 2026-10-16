@@ -62,6 +62,8 @@ impl ResourcePackArchive {
 pub struct ResourcePackHandoff {
     archives: Vec<ResourcePackArchive>,
     required: bool,
+    /// Packs a packet relay adds; validated apart, so they never fail a required server stack.
+    relay_packs: Vec<crate::RelayPack>,
 }
 
 impl ResourcePackHandoff {
@@ -70,7 +72,19 @@ impl ResourcePackHandoff {
         Self {
             archives,
             required: false,
+            relay_packs: Vec::new(),
         }
+    }
+
+    /// Adds the packs a packet relay returned when the session started.
+    pub fn with_relay_packs(mut self, packs: Vec<crate::RelayPack>) -> Self {
+        self.relay_packs = packs;
+        self
+    }
+
+    /// Takes the packet relay's packs, leaving the server's archives.
+    pub fn take_relay_packs(&mut self) -> Vec<crate::RelayPack> {
+        std::mem::take(&mut self.relay_packs)
     }
 
     /// Marks the packs server-required, so a client that cannot apply one refuses the join.

@@ -4,8 +4,10 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-mod surface;
+mod axis;
+pub(crate) mod surface;
 mod update;
+pub use axis::{AxisExtent, AxisRoute};
 pub use surface::{
     MAX_TRANSITION_SECONDS, Surface, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
 };
@@ -23,6 +25,8 @@ pub const MAX_PANEL_CHOICES: usize = 8;
 pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
+/// A shipped, smoothly sampled sans face for authored native panels.
+pub const SANS_FONT_NAME: &str = "mod_panel_sans";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -198,14 +202,17 @@ impl Panel {
                         .parse::<usize>()
                         .ok()
                         .is_some_and(|index| index < self.controls.len())
-                } else if let Some(axis) = action.strip_prefix("mod.axis:") {
-                    axis.split_once(':').is_some_and(|(index, axis)| {
-                        matches!(axis, "x" | "y")
-                            && index.parse::<usize>().ok().is_some_and(|i| {
-                                matches!(self.controls.get(i), Some(Control::Slider { .. }))
-                            })
-                    })
-                } else if let Some(indices) = action.strip_prefix("mod.vector:") {
+                } else if let Some(axis) = AxisRoute::parse(&action) {
+                    matches!(
+                        self.controls.get(axis.control),
+                        Some(Control::Slider { .. })
+                    ) && axis
+                        .extent
+                        .is_none_or(|extent| extent.resolve(&surface.bindings).is_some())
+                } else if let Some(indices) = action
+                    .strip_prefix("mod.vector:")
+                    .or_else(|| action.strip_prefix("mod.drag:"))
+                {
                     indices.split_once(':').is_some_and(|(x, y)| {
                         let index = |s: &str| {
                             s.parse::<usize>().ok().filter(|i| {

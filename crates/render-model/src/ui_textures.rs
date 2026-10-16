@@ -22,6 +22,10 @@ pub const UI_MODEL_ATLAS_PAGE_OFFSET: usize = UI_PLAYER_SKIN_PAGE_OFFSET + 1;
 pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 7;
 pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
     UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES;
+/// Bounded session-font allocation, shared by the default and named bitmap fonts.
+pub const UI_SESSION_GLYPH_PAGE_OFFSET: usize = UI_SESSION_ICON_PAGE_OFFSET + 1;
+pub const UI_SESSION_GLYPH_PAGES: usize = 8;
+pub const UI_SESSION_GLYPH_PAGE_SIDE: u32 = 512;
 pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
@@ -40,7 +44,10 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
     * render_api::MAX_STANDARD_SKIN_SIDE as usize
     + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
     + MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
-    - (MAX_UI_MODEL_ATLAS_PAGES + 2)
+    + UI_SESSION_GLYPH_PAGES
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+    - (MAX_UI_MODEL_ATLAS_PAGES + UI_SESSION_GLYPH_PAGES + 2)
         * UI_DYNAMIC_PAGE_SIDE as usize
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
@@ -475,6 +482,8 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
     (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+        || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+            .contains(&offset)
         || (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
             .contains(&offset)
 }
@@ -494,6 +503,11 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
     }
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
+    }
+    if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+        .contains(&offset)
+    {
+        return [width, height] == [UI_SESSION_GLYPH_PAGE_SIDE; 2];
     }
     if offset == UI_PLAYER_SKIN_PAGE_OFFSET {
         let classic = render_api::CLASSIC_SKIN_SIDE as u32;

@@ -105,6 +105,11 @@ impl UiPresentationRuntime {
             let host = self.scene_host();
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
+            // Every cursor style belongs to gameplay input, including pack image
+            // replacements. Personal modal surfaces own input outside the scene stack.
+            let crosshair_visible = stack.receives_input(Scene::Gameplay)
+                && !self.screens.mod_ui.mod_panel_open()
+                && !self.screens.mod_ui.experience_modal_open();
             if host.over_world {
                 self.append_item_activation(
                     runtime,
@@ -141,6 +146,9 @@ impl UiPresentationRuntime {
                     }
                     Scene::Crosshair | Scene::Hud => {
                         let crosshair = *scene == Scene::Crosshair;
+                        if crosshair && !crosshair_visible {
+                            continue;
+                        }
                         self.append_engine_hud(
                             player_runtime,
                             runtime,

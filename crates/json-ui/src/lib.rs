@@ -33,6 +33,7 @@ mod localize;
 mod lru;
 mod merge;
 mod pack;
+pub mod position;
 mod predicate;
 mod resolve;
 mod scene;

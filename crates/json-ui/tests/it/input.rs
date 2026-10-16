@@ -488,6 +488,31 @@ fn innermost_global_mapping_wins() {
     );
 }
 
+#[test]
+fn a_selection_only_edit_mapping_does_not_replace_the_screens_global_cancel() {
+    let inner = ctrl(
+        "edit",
+        "edit_box",
+        json!({
+            "size": [40,20],
+            "button_mappings": [{
+                "from_button_id": "button.menu_cancel", "to_button_id": "button.text_edit_box_deselected",
+                "mapping_type": "global", "handle_select": false, "handle_deselect": true
+            }]
+        }),
+        Vec::new(),
+    );
+    let mut root = screen(vec![inner]);
+    root.properties.insert("button_mappings".to_owned(), json!([{
+        "from_button_id": "button.menu_cancel", "to_button_id": "button.menu_exit", "mapping_type": "global"
+    }]));
+    let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
+    assert_eq!(
+        global_mapping(&laid, "button.menu_cancel").as_deref(),
+        Some("button.menu_exit")
+    );
+}
+
 struct CellLibrary;
 impl json_ui::ControlLibrary for CellLibrary {
     fn resolve(&self, _reference: &json_ui::ControlRef) -> Option<ResolvedControl> {

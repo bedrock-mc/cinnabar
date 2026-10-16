@@ -1,4 +1,4 @@
-package main
+package coreapp
 
 import (
 	"io"
