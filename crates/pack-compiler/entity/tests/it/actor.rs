@@ -30,6 +30,8 @@ mod material_states;
 mod multitexture;
 #[path = "actor/server_pack_budgets.rs"]
 mod server_pack_budgets;
+#[path = "actor/sulfur_cube.rs"]
+mod sulfur_cube;
 #[path = "actor/wind_charge.rs"]
 mod wind_charge;
 #[path = "actor/wolf.rs"]

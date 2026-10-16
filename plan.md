@@ -3892,6 +3892,11 @@ are authored but unrun at the user's request. Native
 `#item_name_text_offset` controller binding remains
 incomplete; this correction preserves the approved built-in pack geometry.
 
+Sulfur-cube body and shell material aliases retain their cutout and blended states.
+The pinned adult and baby shell rasters preserve fractional opacity through actor
+carrier admission. Incomplete: absorbed-block scale and attachment placement remain
+unverified; restoring the shell does not close the full sulfur-cube rendering gate.
+
 2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
 wildcard material with `slime_outer`. The compiler previously ignored bone-specific
 rules, drawing both coincident opposing lens faces with the body material. Per-bone

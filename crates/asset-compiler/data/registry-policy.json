@@ -6817,6 +6817,8 @@
       "experience_orb": "AlphaTest",
       "player_spectator": "AlphaBlend",
       "slime_outer": "AlphaBlend",
+      "sulfur_cube": "AlphaTestNoCull",
+      "sulfur_cube_outer": "AlphaBlend",
       "breeze_wind": "Wind",
       "charged_creeper": "Charged",
       "ender_dragon": "Dragon",
