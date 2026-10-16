@@ -42,6 +42,13 @@ pub fn probe_head_medium(world: &impl CollisionWorld, eye: Vec3) -> HeadMedium {
                 return HeadMedium::PowderSnow;
             }
         }
+        if sample
+            .primary()
+            .flags
+            .contains(BlockPhysicsFlags::SCAFFOLDING)
+        {
+            return HeadMedium::Air;
+        }
     }
     let centre = SimVec3::new(f64::from(eye.x), f64::from(eye.y), f64::from(eye.z));
     let radius = SimVec3::new(EYE_PROBE_RADIUS, EYE_PROBE_RADIUS, EYE_PROBE_RADIUS);
@@ -364,6 +371,10 @@ impl VisionEffects {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "overlay_medium_tests.rs"]
+mod medium_tests;
 
 #[cfg(test)]
 mod tests {
