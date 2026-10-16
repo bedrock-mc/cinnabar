@@ -8268,7 +8268,7 @@ arbitrary container return flags and exact native close/flush timing remain open
 These corrections do not close the overall Phase 5 inventory parity gate.
 
 Storage-close regressions cover empty/full player inventories, pending/accepted
-takes, both close-acknowledgement orders, and later inventory gestures. The
+takes, both close-acknowledgement orders, inactive personal inputs, and later inventory gestures. The
 close-with-cursor lock is reproduced in the owning ledger. Live kit-server
 acceptance and an overflow-only trigger remain unverified.
 

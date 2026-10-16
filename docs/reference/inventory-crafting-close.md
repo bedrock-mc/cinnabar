@@ -28,6 +28,8 @@ Chest and server-menu closes use the same cursor cleanup, including Drop when
 the player inventory is full. Previously that path only ran for workbenches and
 client-authoritative storage, leaving a held chest cursor to require recovery
 and block later inventory gestures and world interactions.
+Storage cursor cleanup does not move retained inputs from an inactive personal
+crafting grid, and an invalid identity there cannot abort the cursor return.
 
 Arbitrary container return flags, structural NBT merging, native collection
 ordering and every server-initiated-close recovery path remain outside this scoped change.

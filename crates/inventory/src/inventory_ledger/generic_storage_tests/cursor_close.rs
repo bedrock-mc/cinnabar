@@ -1,5 +1,7 @@
 use super::*;
-use crate::inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT};
+use crate::inventory_ledger::{
+    InventoryTarget, PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
+};
 use protocol::{StackRequestAction, StackRequestContainer};
 
 /// Accepts the cursor cleanup, with an optional destination in the player inventory.
@@ -123,4 +125,57 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
             }
         }
     }
+}
+
+/// Restates a retained personal crafting input independently of the open chest.
+fn personal_input(stack_id: i32) -> InventoryEvent {
+    let slot = *protocol::CRAFTING_INPUT_SLOTS.start();
+    InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity {
+                window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                slot_type: protocol::ui_slot_container_name(slot),
+                dynamic_id: None,
+            },
+            slot: u16::from(slot),
+        },
+        stack: stack(5, 3, stack_id),
+        storage_item: None,
+    })
+}
+
+/// A chest close cannot move a personal crafting input the chest does not expose.
+#[test]
+fn storage_close_does_not_return_inactive_personal_input() {
+    let mut ledger = ready(super::super::SMALL_STORAGE_SLOT_COUNT, 980);
+    ledger.apply(&player_content());
+    ledger.apply(&personal_input(92));
+    ledger.request_storage_close();
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(
+        ledger
+            .target_stack(InventoryTarget::Craft(
+                *protocol::CRAFTING_INPUT_SLOTS.start()
+            ))
+            .is_some()
+    );
+}
+
+/// An invalid identity in an inactive grid cannot abort a chest's cursor return.
+#[test]
+fn storage_close_returns_cursor_despite_inactive_input_identity() {
+    let mut ledger = ready(super::super::SMALL_STORAGE_SLOT_COUNT, 980);
+    ledger.apply(&player_content());
+    let take = ledger.begin_storage_click(2).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&accepted_storage_take(take, 980));
+    ledger.apply(&personal_input(0));
+    ledger.request_storage_close();
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.pending_request_count(), 1);
+    assert!(
+        matches!(ledger.newest_request().unwrap().actions.as_slice(),
+        [StackRequestAction::Place { amount: 3, source, .. }]
+        if source.container == StackRequestContainer::Cursor)
+    );
 }
