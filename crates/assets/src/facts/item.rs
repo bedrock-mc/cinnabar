@@ -4,6 +4,8 @@ pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 /// Native filled-map identity used for session admission outside the retail census.
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
+/// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
+pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
 
 use crate::{
     item::{

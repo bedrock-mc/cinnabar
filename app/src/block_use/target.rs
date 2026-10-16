@@ -46,6 +46,10 @@ pub(super) fn observe_use_target(
         reach,
     );
     let selection = verified_use_selection(player_runtime, &context.ui)?;
+    let identifier = stream
+        .authority()
+        .item_identifier(selection.item.network_id());
+    let liquids = gameplay::block_use::uses_liquid_pick(&selection.item, identifier.as_deref());
     let orientation_hit = held_block_store_id(stream, selection.item.block_runtime_id())
         .filter(|block| {
             gameplay::block_use::orientation_sensitive(
@@ -62,6 +66,7 @@ pub(super) fn observe_use_target(
         &context.collisions,
         selection,
         player_runtime.facts.player_game_mode(),
+        liquids,
         (
             input_mode,
             reach,
