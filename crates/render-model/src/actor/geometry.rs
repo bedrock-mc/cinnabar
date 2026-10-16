@@ -20,21 +20,22 @@ const ENTITY_FACES: [[usize; 4]; 6] = [
 
 /// Emits a cube in the rig frame: authored X is mirrored so the model's right side is +X,
 /// matching the renderer's right-handed actor space.
+/// Extra mirror/inflate are caller adjustments; carrier/skin cubes already resolve bone defaults.
 pub fn append_entity_cube_vertices(
     vertices: &mut Vec<ActorRigVertex>,
     cube: &EntityGeometryCube,
     bone_index: u32,
     texture_size: (u16, u16),
-    bone_mirror: bool,
-    bone_inflate: f32,
+    extra_mirror: bool,
+    extra_inflate: f32,
 ) -> Result<(), ActorRigGeometryError> {
     append_cube_vertices(
         vertices,
         cube,
         bone_index,
         texture_size,
-        bone_mirror,
-        bone_inflate,
+        extra_mirror,
+        extra_inflate,
         None,
     )
 }
@@ -54,15 +55,7 @@ pub(super) fn append_entity_bone_cube_vertices(
             rotation.map(|value| value.get()),
         )
     });
-    append_cube_vertices(
-        vertices,
-        cube,
-        bone_index,
-        texture_size,
-        bone.mirror.unwrap_or(false),
-        bone.inflate.map_or(0.0, |inflate| inflate.get()),
-        bind,
-    )
+    append_cube_vertices(vertices, cube, bone_index, texture_size, false, 0.0, bind)
 }
 
 fn append_cube_vertices(
@@ -70,13 +63,13 @@ fn append_cube_vertices(
     cube: &EntityGeometryCube,
     bone_index: u32,
     texture_size: (u16, u16),
-    bone_mirror: bool,
-    bone_inflate: f32,
+    extra_mirror: bool,
+    extra_inflate: f32,
     bind: Option<([f32; 3], [f32; 3])>,
 ) -> Result<(), ActorRigGeometryError> {
     let origin = cube.origin.map(|value| value.get());
     let size = cube.size.map(|value| value.get());
-    let inflate = cube.inflate.get() + bone_inflate;
+    let inflate = cube.inflate.get() + extra_inflate;
     if origin
         .iter()
         .chain(size.iter())
@@ -131,7 +124,7 @@ fn append_cube_vertices(
         }
     }
     let corners = corners.map(mirror_x);
-    let mirror = cube.mirror ^ bone_mirror;
+    let mirror = cube.mirror ^ extra_mirror;
     let face_uvs = entity_face_uvs(cube, texture_size)?;
     // A mirrored cube reflects each face across the cube's X midplane, carrying its UVs.
     let face_corners = ENTITY_FACES.map(|face| {

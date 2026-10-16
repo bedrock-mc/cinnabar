@@ -322,3 +322,86 @@ fn owned_custom_emote_skips_invalid_phases_and_mismatched_models() {
     rig.current = &[];
     assert!(sample_custom_emote(&rig, CustomEmote::Twerk, 0.0, 0.0).is_none());
 }
+
+/// A parsed authored marker with cubeless legs must not imply generated companion joints.
+fn partial_marker_fixture() -> Fixture {
+    Fixture::from_skin(
+        assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.partial_emote"}}"#,
+            r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
+            "identifier":"geometry.partial_emote","texture_width":16,"texture_height":16},"bones":[
+            {"name":"body","pivot":[0,24,0]},
+            {"name":"head","parent":"body","pivot":[0,24,0]},
+            {"name":"leftarm","parent":"body","pivot":[5,22,0]},
+            {"name":"rightarm","parent":"body","pivot":[-5,22,0]},
+            {"name":"leftleg","pivot":[1.9,12,0]},
+            {"name":"rightleg","pivot":[-1.9,12,0]},
+            {"name":"leftleg.cinnabar_knee","parent":"leftleg","pivot":[1.9,6,0]}]}]}"#,
+        )
+        .unwrap()
+        .unwrap(),
+    )
+}
+
+#[test]
+fn partial_authored_knee_markers_use_the_ordinary_emote_pose() {
+    let f = partial_marker_fixture();
+    let pose = sample_custom_emote(&f.rig(), CustomEmote::Twerk, 0.0, 0.1).unwrap();
+    assert!(pose.articulated.is_none());
+    assert_eq!(pose.current.len(), f.names.len());
+    assert!(pose.current.iter().all(|bone| {
+        bone.translation_scale
+            .iter()
+            .chain(&bone.rotation)
+            .all(|value| value.is_finite())
+    }));
+    assert_ne!(pose.current[f.index("body")], f.rest[f.index("body")]);
+}
+
+#[test]
+fn partial_authored_knee_markers_in_an_independent_skin_layer_are_safe() {
+    let f = Fixture::new();
+    let partial = Fixture::from_skin(
+        assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.leg_layer"}}"#,
+            r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
+                "identifier":"geometry.leg_layer","texture_width":16,"texture_height":16},"bones":[
+                {"name":"leftleg","pivot":[1.9,12,0]},
+                {"name":"leftleg.cinnabar_knee","parent":"leftleg","pivot":[1.9,6,0]},
+                {"name":"leftleg.cinnabar_ankle","parent":"leftleg.cinnabar_knee","pivot":[1.9,2,0]},
+                {"name":"rightleg","pivot":[-1.9,12,0]},
+                {"name":"rightleg.cinnabar_knee","parent":"rightleg","pivot":[-1.9,6,0]},
+                {"name":"rightleg.cinnabar_ankle","parent":"rightleg.cinnabar_knee","pivot":[-1.9,2,0]}]}]}"#,
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    let layers = [SkinRenderLayer {
+        image: render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
+            width: 16,
+            height: 16,
+            rgba8: Arc::from([]),
+            frames: 1,
+            blinking: false,
+        },
+        geometry: Arc::clone(&partial.skin),
+        mesh: None,
+        previous: partial.rest.clone().into(),
+        current: partial.rest.clone().into(),
+        rest: partial.rest.clone().into(),
+        hidden_bones: Arc::from([]),
+        uv_anim: [0.0, 0.0, 1.0, 1.0],
+    }];
+    let mut rig = f.rig();
+    rig.skin_layers = &layers;
+    let pose = sample_custom_emote(&rig, CustomEmote::Twerk, 0.0, 0.1).unwrap();
+    assert!(Arc::ptr_eq(&pose.skin_layers[0].geometry, &partial.skin));
+    assert_eq!(pose.skin_layers[0].current.len(), partial.names.len());
+    assert!(pose.skin_layers[0].current.iter().all(|bone| {
+        bone.translation_scale
+            .iter()
+            .chain(&bone.rotation)
+            .all(|value| value.is_finite())
+    }));
+}

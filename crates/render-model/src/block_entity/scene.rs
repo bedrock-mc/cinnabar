@@ -238,7 +238,8 @@ impl BlockEntityScene {
     /// Installs worker-built artwork for a new session, clearing cached sign and map canvases.
     pub fn install_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         if let Some(text) = self.text.as_mut() {
-            text.reset(artwork.atlas.size()[0]);
+            text.reset(artwork.atlas.size()[0])
+                .expect("prepared artwork admits dynamic atlas rows");
         }
         self.reload_prepared_assets(artwork);
     }
@@ -254,10 +255,11 @@ impl BlockEntityScene {
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         self.prepared = Some(artwork.clone());
         let mut atlas = artwork.atlas.clone();
-        let text = self
-            .text
-            .get_or_insert_with(|| DynamicCells::new(atlas.size()[0]));
-        text.resize_width(atlas.size()[0]);
+        let text = self.text.get_or_insert_with(|| {
+            DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
+        });
+        text.resize_width(atlas.size()[0])
+            .expect("prepared artwork admits dynamic atlas rows");
         atlas.set_text_pages(text.text_pages());
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));
@@ -519,6 +521,7 @@ fn emit_submission(
 mod tests {
     use super::*;
     use crate::block_entity::{
+        MIN_DYNAMIC_ATLAS_WIDTH,
         chest::{ChestModel, ChestPair, ChestVariant},
         mesh::Facing,
     };
@@ -534,9 +537,9 @@ mod tests {
             };
         let bytes = assets::encode_block_entity_catalog(
             b"{}",
-            128,
+            MIN_DYNAMIC_ATLAS_WIDTH,
             64,
-            &vec![255u8; 128 * 64 * 4],
+            &vec![255u8; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
             &[
                 placement("textures/entity/chest/normal", 0, 64, 64),
                 placement("textures/environment/destroy_stage_0", 64, 16, 16),
