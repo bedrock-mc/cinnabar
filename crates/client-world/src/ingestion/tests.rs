@@ -366,9 +366,10 @@ fn completion_observer_waits_for_the_whole_sub_chunk_batch() {
     assert_eq!(completed(), [7]);
 }
 
-/// A worker-decoded block batch completes at its matching decode, not at its commit step.
+/// A worker-decoded block batch completes once its caller applied the decode, not at its commit
+/// step or the decode's arrival.
 #[test]
-fn completion_observer_sees_async_block_batches_at_their_decode() {
+fn completion_observer_sees_async_block_batches_once_applied() {
     let mut state = OrderedCommitState::new(1);
     state.observe_completions(record_completion);
     queue(
@@ -402,5 +403,8 @@ fn completion_observer_sees_async_block_batches_at_their_decode() {
             },
         )
         .unwrap();
+    assert!(completed().is_empty());
+    state.announce_applied();
+    state.announce_applied();
     assert_eq!(completed(), [1]);
 }
