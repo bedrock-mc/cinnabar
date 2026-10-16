@@ -1,4 +1,4 @@
-//! Original client-local emotes; no Marketplace/Lunar animation data is included.
+//! Original Cinnabar emotes; no Marketplace/Lunar animation data is included.
 //! The owned emote channels reuse native named skeleton and hierarchy composition.
 use super::{
     ActorRigSnapshot, BoneTransform, RenderTextureLayer, RuntimeBone, SkinRenderLayer, geometry,
@@ -37,8 +37,9 @@ impl CustomEmote {
     pub const fn looping(self) -> bool {
         true
     }
+    /// Owned clips may be shared with nearby Cinnabar clients through the account API.
     pub const fn local_only(self) -> bool {
-        true
+        false
     }
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|emote| emote.id() == id)
@@ -47,7 +48,7 @@ impl CustomEmote {
 
 /// Render-only poses owned by this sample, including clothing/persona geometries.
 /// Feed `snapshot` into the ordinary *third-person* body publication path only.
-/// Keep the native snapshot for the first-person hand and all remote actors.
+/// Keep the native snapshot for the first-person hand and actors without custom playback.
 #[derive(Clone, Debug)]
 pub struct CustomEmotePose {
     pub previous: Arc<[BoneTransform]>,
@@ -60,6 +61,7 @@ pub struct CustomEmotePose {
 #[derive(Clone, Debug)]
 pub(super) struct CustomEmoteRig {
     pub geometry: Arc<assets::SkinGeometry>,
+    pub mesh: render_model::ActorRigGeometry,
     pub names: Arc<[Box<str>]>,
     pub rest: Arc<[BoneTransform]>,
 }
@@ -72,6 +74,7 @@ impl CustomEmotePose {
         original.skin_layers = &self.skin_layers;
         if let Some(rig) = &self.articulated {
             original.skin_geometry = Some(&rig.geometry);
+            original.skin_mesh = Some(&rig.mesh);
             original.bone_names = &rig.names;
             original.rest = &rig.rest;
         }
@@ -113,15 +116,16 @@ pub fn sample_custom_emote(
     }
     let leg_height =
         bones[names.iter().position(|name| name.as_ref() == "leftleg")?].pivot[1].abs();
-    let articulated_geometry = rig.skin_geometry.and_then(articulated::model);
-    let (bones, names) = if let Some(model) = &articulated_geometry {
-        geometry::skeleton(&model.bones)?
+    let articulated_model = rig.skin_geometry.and_then(articulated::model);
+    let (bones, names) = if let Some(model) = &articulated_model {
+        geometry::skeleton(&model.geometry.bones)?
     } else {
         (bones, names)
     };
-    let articulated = if let Some(geometry) = articulated_geometry {
+    let articulated = if let Some(model) = articulated_model {
         Some(CustomEmoteRig {
-            geometry,
+            geometry: model.geometry,
+            mesh: model.mesh,
             names: names.clone().into(),
             rest: compose_pose(&bones, &[])?.into(),
         })
@@ -156,7 +160,8 @@ pub fn sample_custom_emote(
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
         if let Some(model) = articulated::model(&layer.geometry) {
-            layer.geometry = model;
+            layer.geometry = model.geometry;
+            layer.mesh = Some(model.mesh);
         }
         let (bones, names) = geometry::skeleton(&layer.geometry.bones)?;
         let (previous, current) = pair(
@@ -217,14 +222,39 @@ fn targets(
     seconds: f64,
     leg_height: f32,
 ) -> Vec<Option<BoneTransform>> {
-    if names
-        .iter()
-        .any(|name| name.as_ref() == "leftleg.cinnabar_knee")
-    {
-        return bent_knee_targets(bones, names, rest, emote, seconds, leg_height);
+    if let Some(joints) = ArticulatedJoints::resolve(names) {
+        return bent_knee_targets(bones, names, rest, emote, seconds, leg_height, joints);
     }
     match emote {
         CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
+    }
+}
+
+/// Indices required by the bent-knee solver, resolved independently for each skeleton.
+struct ArticulatedJoints {
+    body: usize,
+    legs: [[usize; 3]; 2],
+}
+
+impl ArticulatedJoints {
+    /// Declines partial authored markers so they use the ordinary named-bone pose.
+    fn resolve(names: &[Box<str>]) -> Option<Self> {
+        let find = |name: &str| names.iter().position(|part| part.as_ref() == name);
+        Some(Self {
+            body: find("body")?,
+            legs: [
+                [
+                    find("leftleg")?,
+                    find("leftleg.cinnabar_knee")?,
+                    find("leftleg.cinnabar_ankle")?,
+                ],
+                [
+                    find("rightleg")?,
+                    find("rightleg.cinnabar_knee")?,
+                    find("rightleg.cinnabar_ankle")?,
+                ],
+            ],
+        })
     }
 }
 
@@ -235,16 +265,13 @@ fn bent_knee_targets(
     emote: CustomEmote,
     seconds: f64,
     height: f32,
+    joints: ArticulatedJoints,
 ) -> Vec<Option<BoneTransform>> {
     let angle = (seconds.rem_euclid(emote.duration_seconds()) / emote.duration_seconds()
         * std::f64::consts::TAU) as f32;
     let hip_y = height * (0.625 + 0.10 * angle.cos());
     let hip_z = height * (0.33 + 0.10 * angle.cos());
-    let body = names
-        .iter()
-        .position(|name| name.as_ref() == "body")
-        .unwrap();
-    let torso_height = rest[body].translation_scale[1] - height;
+    let torso_height = rest[joints.body].translation_scale[1] - height;
     let shoulder_y = height * 0.625 + torso_height * 37.0_f32.to_radians().cos();
     let lean = ((shoulder_y - hip_y) / torso_height)
         .clamp(-1.0, 1.0)
@@ -284,17 +311,8 @@ fn bent_knee_targets(
             Some(target)
         })
         .collect();
-    for name in ["leftleg", "rightleg"] {
-        let leg = names.iter().position(|part| part.as_ref() == name).unwrap();
-        let knee = names
-            .iter()
-            .position(|part| part.as_ref() == format!("{name}.cinnabar_knee"))
-            .unwrap();
+    for [leg, knee, ankle] in joints.legs {
         let x = rest[leg].translation_scale[0];
-        let ankle = names
-            .iter()
-            .position(|part| part.as_ref() == format!("{name}.cinnabar_ankle"))
-            .unwrap();
         let foot_height = rest[ankle].translation_scale[1];
         let thigh_length = height - rest[knee].translation_scale[1];
         let shin_length = rest[knee].translation_scale[1] - foot_height;
@@ -434,7 +452,7 @@ mod catalog_tests {
             assert_eq!(CustomEmote::from_id(emote.id()), Some(*emote));
             assert!(!emote.label().is_empty());
             assert!(emote.duration_seconds().is_finite() && emote.duration_seconds() > 0.0);
-            assert!(emote.looping() && emote.local_only());
+            assert!(emote.looping() && !emote.local_only());
             assert_eq!(
                 CustomEmote::ALL
                     .iter()

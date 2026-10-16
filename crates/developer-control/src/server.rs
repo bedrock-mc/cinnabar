@@ -44,26 +44,41 @@ impl Reply {
 pub struct ControlServer {
     endpoint_path: PathBuf,
     pending: Receiver<Pending>,
+    _listener: listener::ListenerWorker,
 }
+
+mod listener;
 
 impl ControlServer {
     /// Binds 127.0.0.1 on an OS-chosen port and publishes a fresh token at `endpoint_path`.
     pub fn start(endpoint_path: &Path) -> io::Result<Self> {
+        Self::start_with(endpoint_path, |job| {
+            thread::Builder::new()
+                .name("developer-control".into())
+                .spawn(job)
+        })
+    }
+
+    /// Publishes only after the listener worker owns a wakeable shutdown path.
+    fn start_with(
+        endpoint_path: &Path,
+        spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<thread::JoinHandle<()>>,
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let port = listener.local_addr()?.port();
         let token: Arc<str> = random_token().into();
+        let (sender, pending) = crossbeam_channel::unbounded();
+        let worker = listener::ListenerWorker::start(listener, Arc::clone(&token), sender, spawn)?;
         Endpoint {
-            port: listener.local_addr()?.port(),
+            port,
             token: token.to_string(),
             pid: std::process::id(),
         }
         .write(endpoint_path)?;
-        let (sender, pending) = crossbeam_channel::unbounded();
-        thread::Builder::new()
-            .name("developer-control".into())
-            .spawn(move || accept(listener, token, sender))?;
         Ok(Self {
             endpoint_path: endpoint_path.to_owned(),
             pending,
+            _listener: worker,
         })
     }
 
@@ -76,19 +91,6 @@ impl ControlServer {
 impl Drop for ControlServer {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.endpoint_path);
-    }
-}
-
-fn accept(listener: TcpListener, token: Arc<str>, sender: Sender<Pending>) {
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        if !stream.peer_addr().is_ok_and(|peer| is_loopback(&peer)) {
-            continue;
-        }
-        let (token, sender) = (Arc::clone(&token), sender.clone());
-        let _ = thread::Builder::new()
-            .name("developer-control-connection".into())
-            .spawn(move || serve(stream, &token, &sender));
     }
 }
 

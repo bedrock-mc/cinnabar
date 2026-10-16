@@ -20,12 +20,15 @@ use {crate::text_metrics::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 mod banner_renderer;
 mod dependencies;
 mod fill_renderers;
+mod filter;
 mod formatting_colors;
+pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
 #[cfg(test)]
 mod ownership_tests;
 pub mod pack_catalog;
+mod paint_transform;
 pub mod pixel_snap;
 mod render;
 mod rounded;
@@ -538,6 +541,12 @@ pub struct Canvas<'a> {
     next: &'a mut u32,
     clip: Option<([f32; 4], UiNodeId)>,
     animator: std::sync::MutexGuard<'a, json_ui::Animator>,
+    /// Multiplies authored lengths of a coverage mesh baked at a transformed size.
+    length_scale: f32,
+    /// The paint transform left for the current draw's nodes, in logical px.
+    residual: Option<json_ui::transform::Affine>,
+    /// The filter group receiving the current draws.
+    filter: Option<filter::OpenFilter>,
 }
 
 impl<'a> Canvas<'a> {
@@ -716,7 +725,21 @@ impl Canvas<'_> {
         self.push(visual, bounds)
     }
 
+    /// Paints one draw node, then moves what it pushed by its paint transform.
     fn paint(
+        &mut self,
+        node: &DrawNode,
+        renderers: &mut [&mut dyn CustomRenderer],
+    ) -> Result<(), PaintError> {
+        let start = self.nodes.len();
+        let painted = self.paint_draw(node, renderers);
+        self.transform_painted(start);
+        self.tag_filtered(start);
+        self.length_scale = 1.0;
+        painted
+    }
+
+    fn paint_draw(
         &mut self,
         node: &DrawNode,
         renderers: &mut [&mut dyn CustomRenderer],
@@ -755,6 +778,18 @@ impl Canvas<'_> {
             )
         } else {
             self.snapped(&drawn.dest)
+        };
+        let dest = match &drawn.transform {
+            Some(transform) => {
+                let Some(placement) = paint_transform::place(&node.draw, transform, dest, self.px)
+                else {
+                    return Ok(());
+                };
+                self.residual = placement.residual;
+                self.length_scale = placement.length_scale;
+                placement.dest
+            }
+            None => dest,
         };
         let opacity = drawn.opacity;
         if self

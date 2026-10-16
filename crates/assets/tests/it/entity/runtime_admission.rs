@@ -27,3 +27,77 @@ fn encoded_admission_reports_the_identity_of_its_carrier() {
     assert!(admitted.carrier_identity().is_some());
     assert_eq!(format!("{admitted:?}"), format!("{decoded:?}"));
 }
+
+#[test]
+fn optional_geometry_fields_roundtrip_through_strict_preflight_and_admission() {
+    use assets::{EntityGeometryBounds, EntityGeometryScalar};
+
+    let bounds = EntityGeometryBounds {
+        center: [EntityGeometryScalar::ZERO; 3],
+        half_extents: [EntityGeometryScalar::new(2.0).unwrap(); 3],
+    };
+    for animation_no_head_bob in [false, true] {
+        for visible_bounds in [None, Some(bounds)] {
+            let mut compiled = inherited_geometry_fixture();
+            compiled.geometries[0].animation_no_head_bob = animation_no_head_bob;
+            compiled.geometries[0].visible_bounds = visible_bounds;
+            let admitted = RuntimeEntityAssets::from_compiled(compiled.clone()).unwrap();
+            let encoded = encode_entity_blob(&compiled).unwrap();
+            let decoded = RuntimeEntityAssets::decode(&encoded).unwrap();
+            assert_eq!(decoded.geometries(), admitted.geometries());
+            assert_eq!(decoded.encode().unwrap().as_ref(), encoded.as_ref());
+        }
+    }
+}
+
+#[test]
+fn admitted_mixed_case_bone_parents_keep_head_and_full_model_boxes() {
+    use assets::{EntityGeometryScalar, block_entity_geometry::heads::HeadModel};
+
+    let scalar = |value| EntityGeometryScalar::new(value).unwrap();
+    let mut compiled = inherited_geometry_fixture();
+    let mut body = compiled.geometries[0].bones[0].clone();
+    body.name = "body".into();
+    body.parent = None;
+    body.pivot = Some([scalar(0.0); 3]);
+    body.rotation = Some([0.0, 90.0, 0.0].map(scalar));
+    body.cubes[0].origin = [scalar(0.0); 3];
+    body.cubes[0].size = [scalar(2.0); 3];
+    body.cubes[0].rotation = [scalar(0.0); 3];
+    body.cubes[0].inflate = scalar(0.0);
+    let mut head = body.clone();
+    head.name = "head".into();
+    head.parent = Some("Body".into());
+    head.rotation = None;
+    head.cubes[0].origin = [1.0, 2.0, 3.0].map(scalar);
+    let mut ear = head.clone();
+    ear.name = "ear".into();
+    ear.parent = Some("HeAd".into());
+    ear.cubes[0].origin = [1.0, 5.0, 3.0].map(scalar);
+    compiled.geometries[0].bones = [body, head, ear].into();
+    let runtime = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let geometry = &runtime.geometries()[0];
+    let model = HeadModel::build_tree(geometry, Some("hEaD"), 1.0, false).unwrap();
+    assert_eq!(model.boxes.len(), 2);
+    let corners = model.boxes[0].corners();
+    for (axis, expected) in [(0, [-5.0, -3.0]), (1, [2.0, 4.0]), (2, [-3.0, -1.0])] {
+        let min = corners
+            .iter()
+            .map(|corner| corner[axis])
+            .fold(f32::INFINITY, f32::min);
+        let max = corners
+            .iter()
+            .map(|corner| corner[axis])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!((min - expected[0]).abs() < 1e-5);
+        assert!((max - expected[1]).abs() < 1e-5);
+    }
+    assert_eq!(HeadModel::build(geometry, 1.0).unwrap().boxes.len(), 2);
+    assert_eq!(
+        HeadModel::build_tree(geometry, None, 1.0, false)
+            .unwrap()
+            .boxes
+            .len(),
+        3
+    );
+}

@@ -528,10 +528,10 @@ impl ActiveFrameProbe {
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
     ) -> usize {
         let scope = self.scope();
-        let draws = draws.into_iter().collect::<Vec<_>>();
-        scope.current().map_or(draws.len(), |probe| {
-            probe.record_mdi_draws(draws.iter().copied())
-        })
+        match scope.current() {
+            Some(probe) => probe.record_mdi_draws(draws),
+            None => draws.into_iter().count(),
+        }
     }
 
     pub(in crate::chunk) fn record_mdi_streams(
@@ -540,10 +540,10 @@ impl ActiveFrameProbe {
         streams: ChunkStreamMask,
     ) -> usize {
         let scope = self.scope();
-        let draws = draws.into_iter().collect::<Vec<_>>();
-        scope.current().map_or(draws.len(), |probe| {
-            probe.record_mdi_streams(draws.iter().copied(), streams)
-        })
+        match scope.current() {
+            Some(probe) => probe.record_mdi_streams(draws, streams),
+            None => draws.into_iter().count(),
+        }
     }
 
     pub(in crate::chunk) fn record_transparent_draw(
@@ -552,10 +552,10 @@ impl ActiveFrameProbe {
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
     ) -> usize {
         let scope = self.scope();
-        let draws = draws.into_iter().collect::<Vec<_>>();
-        scope.current().map_or(draws.len(), |probe| {
-            probe.record_transparent_draw(generation, draws.iter().copied())
-        })
+        match scope.current() {
+            Some(probe) => probe.record_transparent_draw(generation, draws),
+            None => draws.into_iter().count(),
+        }
     }
 
     pub(in crate::chunk) fn take_completed(&self) -> Option<CompletedFrameProbe> {
@@ -667,3 +667,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         }
     });
 }
+
+#[cfg(test)]
+#[path = "frame_probe_wrapper_tests.rs"]
+mod wrapper_tests;

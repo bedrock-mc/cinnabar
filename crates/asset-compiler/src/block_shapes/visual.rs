@@ -125,7 +125,6 @@ pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Shap
                 bounds([0.0; 3], [1.0, thickness, 1.0])
             }
         }
-        _ if record.model_family == assets::ModelFamily::Gate => UNIT,
         _ => return None,
     })
 }

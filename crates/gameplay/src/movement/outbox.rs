@@ -452,10 +452,17 @@ impl MovementTicker {
             .map(UnsentSampleView::from_queued)
     }
 
+    /// Whether an interaction precedes the first unsent input, without needing pose history.
+    pub fn is_first_unsent_tick(&self, tick: u64) -> bool {
+        self.outbox
+            .front()
+            .is_some_and(|sample| sample.snapshot.tick == tick)
+    }
+
     /// Pairs an attack with the state before the first input it precedes.
     /// Older unsent inputs must drain before an attack can use a later state.
     pub fn interaction_before_tick(&self, tick: u64) -> Option<InteractionSample> {
-        if self.outbox.front()?.snapshot.tick != tick {
+        if !self.is_first_unsent_tick(tick) {
             return None;
         }
         let previous = self.tick_ends.get(tick.checked_sub(1)?)?;
@@ -647,6 +654,13 @@ impl MovementTicker {
     /// Action flags for the tick being built; corrections keep them, authority changes drop them.
     pub(super) fn take_next_tick_flags(&mut self) -> protocol::PlayerInputFlags {
         std::mem::replace(&mut self.next_tick_flags, protocol::PlayerInputFlags::NONE)
+    }
+
+    /// Whether committed destroy maintenance already owns this unsent input.
+    pub(crate) fn carries_survival_mining(&self, tick: u64) -> bool {
+        self.outbox
+            .iter()
+            .any(|sample| sample.snapshot.tick == tick && sample.mining.is_some())
     }
 
     /// Attaches one destroy tick to its exact unsent sample; it is committed from then on.

@@ -24,9 +24,9 @@ impl HasDisplayHandle for TestWindow {
 }
 
 /// Creates matching main/render windows and a retained output attachment on the NOOP device.
-fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
+fn worlds(initial: NonZeroU32) -> (World, Entity, NormalizedRenderTarget) {
     let mut main = MainWorld::default();
-    let latency = Some(frame_latency_for_vsync(vsync));
+    let latency = Some(initial);
     let entity = main
         .spawn(Window {
             desired_maximum_frame_latency: latency,
@@ -90,11 +90,34 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
     (world, render_entity, target)
 }
 
-/// Both toggle directions invalidate retained outputs even when the present mode is unchanged.
+/// Only display-link delivery reserves a second VSync frame; fallback paths keep one.
+#[test]
+fn vsync_reserves_a_prefetch_slot_only_for_display_link_delivery() {
+    assert_eq!(frame_latency(true, false).get(), 1);
+    assert_eq!(frame_latency(true, true).get(), 2);
+    assert_eq!(frame_latency(false, false).get(), 2);
+    assert_eq!(frame_latency(false, true).get(), 2);
+}
+
+/// Platforms without display-link delivery, including macOS before 14, keep one VSync frame.
+#[test]
+fn vsync_latency_follows_the_backend_delivery_path() {
+    let expected = if metal_display_link_delivery() { 2 } else { 1 };
+    assert_eq!(frame_latency_for_vsync(true).get(), expected);
+    assert_eq!(frame_latency_for_vsync(false).get(), 2);
+    #[cfg(not(target_os = "macos"))]
+    assert!(!metal_display_link_delivery());
+}
+
+/// Both latency change directions invalidate retained outputs with an unchanged present mode.
 #[test]
 fn live_frame_latency_changes_release_cached_surface_outputs() {
-    for initial_vsync in [false, true] {
-        let (mut world, entity, target) = worlds(initial_vsync);
+    for (initial, next) in [(1, 2), (2, 1)] {
+        let (initial, next) = (
+            NonZeroU32::new(initial).unwrap(),
+            NonZeroU32::new(next).unwrap(),
+        );
+        let (mut world, entity, target) = worlds(initial);
         world.run_system_once(extract_frame_latency).unwrap();
         world.run_system_once(recreate_surfaces).unwrap();
         assert!(
@@ -112,14 +135,11 @@ fn live_frame_latency_changes_release_cached_surface_outputs() {
             .entity_mut(main_entity)
             .get_mut::<Window>()
             .unwrap()
-            .desired_maximum_frame_latency = Some(frame_latency_for_vsync(!initial_vsync));
+            .desired_maximum_frame_latency = Some(next);
         world.run_system_once(extract_frame_latency).unwrap();
         world.run_system_once(recreate_surfaces).unwrap();
         let extracted = world.get::<ExtractedWindow>(entity).unwrap();
-        assert_eq!(
-            extracted.desired_maximum_frame_latency,
-            Some(frame_latency_for_vsync(!initial_vsync))
-        );
+        assert_eq!(extracted.desired_maximum_frame_latency, Some(next));
         assert!(extracted.swap_chain_texture_view.is_none());
         assert!(
             !world
