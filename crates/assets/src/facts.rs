@@ -1,6 +1,7 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
+pub mod liquid;
 pub mod rules;
 pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
 mod placement;

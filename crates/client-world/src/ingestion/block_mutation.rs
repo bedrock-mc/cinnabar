@@ -1,6 +1,6 @@
 //! Primary block transitions and their implicit secondary water updates.
 
-use assets::{NetworkIdMode, block_liquids::pinned_facts};
+use assets::{NetworkIdMode, facts::liquid::pinned_facts};
 use hashbrown::HashMap;
 use world::{
     BlockUpdate, ChunkStore, MutationError, PreparedSubChunkMutation, SubChunk, SubChunkKey,
