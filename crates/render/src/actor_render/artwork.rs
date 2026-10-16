@@ -166,7 +166,8 @@ impl GpuArtwork {
         self.pages.reserve(pages.pages.len());
         for (index, (page, source)) in pages.pages.iter().zip(sources).enumerate() {
             let previous = previous.get_mut(index).and_then(Option::take);
-            let mut gpu = if let Some(gpu) = retained.get(&source) {
+            let mut gpu = if let Some(mut gpu) = retained.get(&source) {
+                gpu.source = source;
                 gpu
             } else if let Some(gpu) = allocate_page(device, queue, page, source, previous.is_none())
             {
