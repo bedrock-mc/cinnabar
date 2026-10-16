@@ -12,6 +12,7 @@ mod biome_noise;
 pub mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
+pub mod block_liquids;
 mod block_names;
 pub mod block_presentation_state;
 pub mod block_shapes;

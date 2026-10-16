@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use protocol::SyncedBlockUpdateEvent;
-use world::{ChunkStore, MutationError, SUB_CHUNK_SIDE, SubChunkKey};
+use world::{MutationError, SUB_CHUNK_SIDE, SubChunkKey};
 
 use super::{
     BlockMutationBatch, DecodeIds, PreparedBlockMutations,
@@ -60,11 +60,12 @@ pub(super) fn prepare_synced_block_mutations(
         let mut previous = BTreeMap::new();
         for batch in crack_batches {
             let section = previous.entry(batch.key).or_insert(batch.previous);
-            let mutation = ChunkStore::prepare_sub_chunk_blocks(
+            let mutation = super::prepare_block_mutation(
                 batch.key,
                 section.as_deref(),
                 &batch.updates,
                 ids.air,
+                ids.mode,
             )?;
             *section = mutation.replacement().cloned().map(Arc::new);
             prepared.crack_intermediates.push(mutation);

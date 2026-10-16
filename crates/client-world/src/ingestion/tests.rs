@@ -5,6 +5,7 @@ use protocol::{BlockUpdateEvent, WorldEvent};
 use super::*;
 
 mod block_bursts;
+mod waterlogging;
 
 mod lanes;
 

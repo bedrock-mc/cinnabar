@@ -141,14 +141,19 @@ pub(super) fn compile(
     let mut expansion =
         BTreeMap::<String, (BlockTraits, ShapeTraits, BTreeSet<String>, BTreeSet<String>)>::new();
     for ((block, record), state) in source.iter().zip(records).zip(&states) {
-        let (traits, survival, shapes) = rules::evaluate(
+        let (mut traits, survival, shapes) = rules::evaluate(
             &block.name,
             state,
             record.model_family,
             record.flags,
             &policy.block_rules,
         );
+        traits.set(
+            BlockTraits::CAN_CONTAIN_LIQUID_SOURCE,
+            block.can_contain_liquid_source,
+        );
         let mut applied = BTreeSet::new();
+        applied.insert("pinned-liquid-containment".into());
         let mut provisional = BTreeSet::new();
         if let Some(rule) = policy
             .model_family_rules
@@ -396,6 +401,7 @@ mod tests {
             friction: 0.0,
             emission: 0,
             filter: 0,
+            can_contain_liquid_source: false,
         }
     }
 
