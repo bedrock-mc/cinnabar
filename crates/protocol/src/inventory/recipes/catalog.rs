@@ -1,21 +1,31 @@
 use super::{
     budget::{Credits, MAX_RECORDS, Permit},
-    model::{RecipeHandle, RecipeUpdate},
-    screen::{MAX_SCREEN_RECIPES, ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
+    model::{Batch, RecipeHandle, RecipeUpdate},
+    screen::{ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
 };
 use std::{mem::size_of, sync::Arc};
+
+mod screens;
 
 #[derive(Debug)]
 struct Entry {
     id: u32,
     handle: Option<RecipeHandle>,
+    /// Station names retain the same decoded owner and credit as crafting handles.
+    screen_batch: Option<Arc<Batch>>,
 }
 
+/// Catalog snapshots share the index, screen vectors and their complete reservation.
 #[derive(Debug)]
 struct CatalogEntries {
+    // Drop merged views before their source owners can release decoded-name credits.
+    screen: ScreenRecipes,
     entries: Vec<Entry>,
     _permit: Permit,
 }
+
+/// Conservative allowance for the shared catalog owner, Arc and permit metadata.
+const MERGE_METADATA_BYTES: usize = 128;
 
 /// Admitted wire recipes and their retained lifetime credits.
 #[derive(Debug, Default, Clone)]
@@ -24,7 +34,6 @@ pub struct RecipeCatalog {
     sequence: u64,
     revision: u64,
     storage: Option<Arc<CatalogEntries>>,
-    screen: ScreenRecipes,
     available: bool,
     exhausted: bool,
 }
@@ -37,7 +46,6 @@ impl RecipeCatalog {
     }
     fn retire(&mut self) {
         self.storage = None;
-        self.screen = ScreenRecipes::default();
         self.available = false;
         match self.revision.checked_add(1) {
             Some(next) => self.revision = next,
@@ -47,23 +55,21 @@ impl RecipeCatalog {
     /// One stonecutter, cartography or smithing recipe by network id.
     #[must_use]
     pub fn screen_recipe(&self, id: u32) -> Option<&ScreenRecipe> {
-        let index = self
-            .screen
-            .recipes
-            .binary_search_by_key(&id, |recipe| recipe.id)
-            .ok()?;
-        self.screen.recipes.get(index)
+        let recipes = self.screen_recipe_entries();
+        let index = recipes.binary_search_by_key(&id, |recipe| recipe.id).ok()?;
+        recipes.get(index)
     }
 
     /// Catalog positions are valid until the catalog revision changes.
     pub fn screen_recipe_entries(&self) -> &[ScreenRecipe] {
-        &self.screen.recipes
+        self.storage
+            .as_ref()
+            .map_or(&[][..], |storage| storage.screen.recipes.as_slice())
     }
 
     /// Every retained recipe of one screen kind.
     pub fn screen_recipes(&self, kind: ScreenRecipeKind) -> impl Iterator<Item = &ScreenRecipe> {
-        self.screen
-            .recipes
+        self.screen_recipe_entries()
             .iter()
             .filter(move |recipe| recipe.kind == kind)
     }
@@ -71,28 +77,15 @@ impl RecipeCatalog {
     /// The network id of the item-repair multi-recipe the anvil names.
     #[must_use]
     pub fn repair_multi_recipe_id(&self) -> Option<u32> {
-        let mut repairs = self.screen.multi.iter().filter(|multi| multi.is_repair());
+        let mut repairs = self
+            .storage
+            .as_ref()?
+            .screen
+            .multi
+            .iter()
+            .filter(|multi| multi.is_repair());
         let repair = repairs.next()?;
         repairs.next().is_none().then_some(repair.id)
-    }
-
-    fn merge_screens(&mut self, update: &RecipeUpdate, clear: bool) {
-        if clear {
-            self.screen = ScreenRecipes::default();
-        }
-        let batch = update.batch.as_ref().expect("admitted update");
-        let empty = ScreenRecipes::default();
-        let incoming = update.screen.as_deref().unwrap_or(&empty);
-        self.screen.recipes = merge_views(
-            &self.screen.recipes,
-            &incoming.recipes,
-            &batch.records,
-            |r| r.id,
-        );
-        self.screen.recipes.truncate(MAX_SCREEN_RECIPES);
-        self.screen.multi = merge_views(&self.screen.multi, &incoming.multi, &batch.records, |r| {
-            r.id
-        });
     }
 
     pub fn revision(&self) -> u64 {
@@ -169,7 +162,18 @@ impl RecipeCatalog {
         };
         let charge = capacity
             .checked_mul(size_of::<Entry>())
-            .and_then(|n| n.checked_add(128));
+            .and_then(|n| {
+                let empty = ScreenRecipes::default();
+                let old = if batch.clear {
+                    &empty
+                } else {
+                    self.storage
+                        .as_ref()
+                        .map_or(&empty, |storage| &storage.screen)
+                };
+                n.checked_add(screens::merged_charge(old, &batch.screen, &batch.records)?)
+            })
+            .and_then(|n| n.checked_add(MERGE_METADATA_BYTES));
         let Some(permit) = charge.and_then(|n| credits.reserve(n)) else {
             self.retire();
             return true;
@@ -185,6 +189,7 @@ impl RecipeCatalog {
                 merged.push(Entry {
                     id: old[previous].id,
                     handle: old[previous].handle.clone(),
+                    screen_batch: old[previous].screen_batch.clone(),
                 });
                 previous += 1;
             }
@@ -197,65 +202,54 @@ impl RecipeCatalog {
                     batch: Arc::clone(batch),
                     index,
                 }),
+                screen_batch: screens::contains(&batch.screen, record.id)
+                    .then(|| Arc::clone(batch)),
             });
         }
         for entry in &old[previous..] {
             merged.push(Entry {
                 id: entry.id,
                 handle: entry.handle.clone(),
+                screen_batch: entry.screen_batch.clone(),
             });
         }
         if merged.len() > MAX_RECORDS {
             self.retire();
             return true;
         }
+        let empty = ScreenRecipes::default();
+        let old_screen = if batch.clear {
+            &empty
+        } else {
+            self.storage
+                .as_ref()
+                .map_or(&empty, |storage| &storage.screen)
+        };
+        let Some(screen) = screens::merge(old_screen, &batch.screen, &batch.records) else {
+            self.retire();
+            return true;
+        };
         self.storage = Some(Arc::new(CatalogEntries {
             entries: merged,
+            screen,
             _permit: permit,
         }));
-        self.merge_screens(update, batch.clear);
         self.available = true;
         self.revision += 1; // checked exhaustion above, before any new authority.
         true
     }
 }
 
-/// Merge sorted views while every advertised ID, including a tombstone, replaces its old view.
-fn merge_views<T: Clone>(
-    old: &[T],
-    incoming: &[T],
-    records: &[super::model::Record],
-    id: impl Fn(&T) -> u32,
-) -> Vec<T> {
-    let mut retained = Vec::with_capacity(old.len() + incoming.len());
-    let mut record = 0;
-    let mut next = 0;
-    for value in old {
-        let key = id(value);
-        while next < incoming.len() && id(&incoming[next]) < key {
-            retained.push(incoming[next].clone());
-            next += 1;
-        }
-        while record < records.len() && records[record].id < key {
-            record += 1;
-        }
-        if record == records.len() || records[record].id != key {
-            retained.push(value.clone());
-        }
-    }
-    retained.extend_from_slice(&incoming[next..]);
-    retained
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::model::{Batch, Output, Recipe, Record};
     use super::*;
+    mod screen_credits;
 
     fn update(owner: &Arc<Credits>, clear: bool) -> RecipeUpdate {
         RecipeUpdate {
-            screen: None,
             batch: Some(Arc::new(Batch {
+                screen: ScreenRecipes::default(),
                 records: vec![Record {
                     id: 17,
                     recipe: Some(Recipe {
@@ -283,7 +277,9 @@ mod tests {
     #[test]
     fn sorted_view_merge_keeps_omitted_ids_and_removes_interleaved_tombstones() {
         let records = [2, 3, 6, 8].map(|id| Record { id, recipe: None });
-        let result = merge_views(&[1, 3, 5, 8, 9], &[2, 6], &records, |id| *id);
+        let result: Vec<_> = screens::merged_views(&[1, 3, 5, 8, 9], &[2, 6], &records, |id| *id)
+            .copied()
+            .collect();
         assert_eq!(result, [1, 2, 5, 6, 9]);
     }
 
@@ -296,7 +292,10 @@ mod tests {
         assert!(catalog.apply_with_credits(1, 1, &update, &owner));
         let handle = catalog.recipe(17).unwrap();
         drop(update);
-        assert_eq!(owner.used(), 512 + size_of::<Entry>() + 128);
+        assert_eq!(
+            owner.used(),
+            512 + size_of::<Entry>() + MERGE_METADATA_BYTES
+        );
         catalog.begin_session(2);
         assert_eq!(owner.used(), 512);
         assert_eq!(handle.network_id(), 17);
@@ -314,7 +313,7 @@ mod tests {
         drop(first);
         let old = current.clone();
         let last_old = old.clone();
-        let charge = 512 + size_of::<Entry>() + 128;
+        let charge = 512 + size_of::<Entry>() + MERGE_METADATA_BYTES;
         assert_eq!(owner.used(), charge);
         assert!(Arc::ptr_eq(
             current.storage.as_ref().unwrap(),
@@ -351,7 +350,7 @@ mod tests {
         current.apply_with_credits(1, 1, &first, &owner);
         drop(first);
         let old = current.clone();
-        let charge = 512 + size_of::<Entry>() + 128;
+        let charge = 512 + size_of::<Entry>() + MERGE_METADATA_BYTES;
         let replacement = update(&owner, true);
         let occupied = owner.reserve(4096 - owner.used()).unwrap();
         current.apply_with_credits(1, 2, &replacement, &owner);
@@ -397,8 +396,8 @@ mod tests {
         let charge = MAX_RECORDS * size_of::<Record>() + 512;
         let permit = owner.reserve(charge).unwrap();
         let replacement = RecipeUpdate {
-            screen: None,
             batch: Some(Arc::new(Batch {
+                screen: ScreenRecipes::default(),
                 records: (100..100 + MAX_RECORDS as u32)
                     .map(|id| Record { id, recipe: None })
                     .collect(),

@@ -392,7 +392,7 @@ impl ChatAutocompleteCatalog {
         } else {
             let mut flat: Vec<Arc<str>> = Vec::new();
             for suggestion in self.enums.values().flatten() {
-                if suggestion.starts_with(token) && !flat.contains(suggestion) {
+                if contains_partial(suggestion, token) && !flat.contains(suggestion) {
                     flat.push(Arc::clone(suggestion));
                 }
             }
@@ -654,7 +654,12 @@ fn extend_players(out: &mut Vec<Arc<str>>, players: &[Arc<str>], partial: &str, 
 }
 
 fn extend_matching(out: &mut Vec<Arc<str>>, values: &[Arc<str>], partial: &str) {
-    out.extend(values.iter().filter(|v| has_prefix(v, partial)).cloned());
+    out.extend(
+        values
+            .iter()
+            .filter(|v| contains_partial(v, partial))
+            .cloned(),
+    );
 }
 
 fn visible(command: &CommandSpec, context: CompletionContext<'_>) -> bool {

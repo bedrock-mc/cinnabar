@@ -178,6 +178,7 @@ fn a_reopen_waits_for_cleanup_after_the_old_server_exits() {
     let (runner, cleanup) = FakeRunner::cleaning();
     let runner = Arc::new(runner);
     let fixture = with_runner(&runner);
+    let release_cleanup = cleanup;
     let manager = &fixture.manager;
     let world = manager.create(&flat("w")).expect("create");
     manager.open(&world.id, None).expect("open");
@@ -193,7 +194,7 @@ fn a_reopen_waits_for_cleanup_after_the_old_server_exits() {
         "the exit released the world before its cleanup finished"
     );
     manager.open(&world.id, None).expect("reopen");
-    drop(cleanup);
+    drop(release_cleanup);
     wait_for(manager, WorldState::Running);
     assert!(
         !runner.overlapped.load(std::sync::atomic::Ordering::SeqCst),
@@ -345,6 +346,43 @@ fn an_unexpected_exit_fails_the_world() {
     wait_for(manager, WorldState::Running);
     runner.last().exit();
     wait_for(manager, WorldState::Failed);
+}
+
+#[test]
+fn an_unexpected_exit_keeps_cleanup_ahead_of_reopen_and_delete() {
+    for clear_failure in [false, true] {
+        let (runner, cleanup) = FakeRunner::cleaning();
+        let runner = Arc::new(runner);
+        let fixture = with_runner(&runner);
+        let release_cleanup = cleanup;
+        let manager = &fixture.manager;
+        let world = manager.create(&flat("w")).expect("create");
+        manager.open(&world.id, None).expect("open");
+        wait_for(manager, WorldState::Running);
+        let old = runner.last();
+        old.exit();
+        wait_for(manager, WorldState::Failed);
+        assert!(matches!(manager.delete(&world.id), Err(WorldError::InUse)));
+        assert!(
+            lock(&manager.inner.life)
+                .retiring
+                .iter()
+                .any(|retiring| retiring.world_id == world.id && !retiring.done()),
+            "failure must retain cleanup ownership before accepting a reopen"
+        );
+        if clear_failure {
+            manager.close();
+            assert_eq!(manager.status().state, WorldState::Idle);
+        }
+        manager.open(&world.id, None).expect("reopen");
+        drop(release_cleanup);
+        wait_for(manager, WorldState::Running);
+        assert!(old.finished());
+        assert!(
+            !runner.overlapped.load(std::sync::atomic::Ordering::SeqCst),
+            "the replacement started before the crashed server finished cleanup"
+        );
+    }
 }
 
 /// An exit that skips destructors still asks the running server to stop its own way.

@@ -1,5 +1,8 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+#[cfg(feature = "test-support")]
+mod crafting;
+mod edit_selection;
 mod panorama;
 
 use std::{
@@ -35,6 +38,12 @@ pub const CAPTURE_SECONDS: f64 = 1.0;
 static REGISTRY: LazyLock<ScreenRegistry> = LazyLock::new(|| {
     let mut registry = ScreenRegistry::new(ui_screens::menu_screens::retail_context());
     registry.screen(ui_screens::chat_screen::CHAT_SCREEN);
+    #[cfg(feature = "test-support")]
+    registry.screen(
+        ui_screens::containers::ScreenLayout::Personal { book: true }
+            .screen()
+            .0,
+    );
     ui_screens::hud::register(&mut registry);
     ui_screens::chat_screen::register(&mut registry);
     registry
@@ -56,9 +65,15 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } | Fixture::TabList(_) => false,
+        Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
+        #[cfg(feature = "test-support")]
+        Fixture::CraftOverlap { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
+    #[cfg(feature = "test-support")]
+    let craft_icons = matches!(&fixture, Fixture::CraftOverlap { .. })
+        .then(|| crafting::icons(&mut carriers.pages))
+        .transpose()?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
         state.size,
@@ -84,6 +99,23 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         renderers: &mut [],
     };
     match fixture {
+        #[cfg(feature = "test-support")]
+        Fixture::CraftOverlap { selected } => {
+            let mut engine = json_engine(&carriers)?;
+            crafting::paint(
+                &engine,
+                &carriers.lang,
+                &craft_icons.unwrap(),
+                selected,
+                &mut frame,
+            )?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::EditSelection => {
+            let mut engine = json_engine(&carriers)?;
+            edit_selection::paint(&mut engine, &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)

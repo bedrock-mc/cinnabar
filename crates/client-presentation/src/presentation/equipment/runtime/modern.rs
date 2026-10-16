@@ -49,6 +49,7 @@ impl EquipmentRuntime {
             .render
             .iter()
             .find(|layer| layer.texture_slot == 0)?;
+        let style = super::style::LayerStyle::from_layer(selected);
         let geometry_index = selected.geometry.unwrap_or(evaluated.geometry);
         let pose = if selected.pose.is_empty() {
             evaluated.pose
@@ -151,22 +152,21 @@ impl EquipmentRuntime {
             self.attachable_meshes.insert(key, rig);
             rig
         };
+        let mut presentation = layer_presentation(
+            body,
+            if input.off_hand {
+                LAYER_OFF_HAND
+            } else {
+                LAYER_MAIN_HAND
+            },
+            rig,
+            placed,
+            location,
+            0,
+        );
+        style.apply_held(&mut presentation.submission);
         Some(FirstPersonItem {
-            presentation: super::push::attachable_glint(
-                layer_presentation(
-                    body,
-                    if input.off_hand {
-                        LAYER_OFF_HAND
-                    } else {
-                        LAYER_MAIN_HAND
-                    },
-                    rig,
-                    placed,
-                    location,
-                    0,
-                ),
-                item,
-            ),
+            presentation: super::push::attachable_glint(presentation, item),
             camera_space: java_camera.is_some(),
             alpha_mode: render_model::HandItemAlphaMode::Cutout,
             java_camera,

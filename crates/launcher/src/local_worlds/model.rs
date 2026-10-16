@@ -590,7 +590,7 @@ impl WorldsMenu {
                 vec![Effect::Close]
             }
             Screen::ConfirmDelete => {
-                self.busy = false;
+                self.busy = self.mutation_pending;
                 self.screen = Screen::Edit;
                 Vec::new()
             }

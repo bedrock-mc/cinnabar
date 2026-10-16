@@ -200,3 +200,39 @@ fn finish_rejects_pages_that_together_exceed_the_terrain_byte_budget() {
         assert!(builder.finish().is_none());
     }
 }
+
+/// The reporter's mixed-size five-pack stack fits the 64 MiB floor:
+/// thousands of small sprites share small tiles while the HD tail keeps its
+/// own pages, so no route refuses on bytes.
+#[test]
+fn reporter_histogram_fits_the_storage_floor() {
+    let view = view(&[]);
+    let keys = assets::material_keys::MaterialKeys::default();
+    let mut builder = builder(&view, &keys);
+    builder.texture_policy = TexturePolicy::for_terrain(2048, 0);
+    builder.max_layers = 2048;
+    builder.overlay.max_page_layers = 2048;
+    // Measured size classes (own tile side, route count) from the report.
+    let histogram = [
+        (16u32, 3116usize),
+        (32, 325),
+        (64, 518),
+        (128, 214),
+        (256, 11),
+    ];
+    let mut admitted = 0;
+    for (side, count) in histogram {
+        for index in 0..count {
+            let key = format!("route{side}_{index}");
+            builder
+                .store_frames(&key, 0, hd_frames(side, 1), None)
+                .unwrap_or_else(|_| panic!("{key} refused"));
+            admitted += 1;
+        }
+    }
+    assert_eq!(admitted, 3116 + 325 + 518 + 214 + 11);
+    assert!(builder.upload_bytes <= builder.texture_policy.storage_bytes());
+    let compiled = builder.finish().expect("fits the floor");
+    assert_eq!(compiled.gaps.missing_textures, 0);
+    assert_eq!(compiled.gaps.saturated_textures, 0);
+}

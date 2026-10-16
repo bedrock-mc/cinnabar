@@ -188,6 +188,53 @@ fn delete_lives_behind_edit_and_needs_confirmation() {
 }
 
 #[test]
+fn back_keeps_submitted_deletion_busy_until_its_reply() {
+    for reply in [
+        Event::Deleted("id1".to_owned()),
+        Event::Failed("delete failed".to_owned()),
+    ] {
+        let mut menu = loaded(&["a", "b"]);
+        menu.update(Input::BeginEdit(1));
+        menu.update(Input::RequestDelete);
+        assert_eq!(
+            menu.update(Input::ConfirmDelete),
+            vec![Effect::Delete("id1".to_owned())]
+        );
+        assert!(menu.update(Input::Back).is_empty());
+        assert_eq!((menu.screen(), menu.busy()), (Screen::Edit, true));
+        for input in [
+            Input::PlayFromEdit,
+            Input::RequestDelete,
+            Input::ConfirmDelete,
+            Input::SubmitEdit,
+            Input::Back,
+        ] {
+            assert!(
+                menu.update(input).is_empty(),
+                "a submitted delete owns the pending mutation"
+            );
+            assert!(menu.busy());
+        }
+        let succeeded = matches!(reply, Event::Deleted(_));
+        assert!(menu.apply(reply).is_empty());
+        assert!(!menu.busy());
+        if succeeded {
+            assert_eq!(menu.screen(), Screen::List);
+            assert_eq!(menu.worlds().len(), 1);
+        } else {
+            assert_eq!(menu.screen(), Screen::Error);
+            assert_eq!(menu.worlds().len(), 2);
+            assert!(menu.update(Input::Back).is_empty());
+            assert_eq!(menu.screen(), Screen::Edit);
+            assert_eq!(
+                menu.update(Input::PlayFromEdit),
+                vec![Effect::Open("id1".to_owned())]
+            );
+        }
+    }
+}
+
+#[test]
 fn edit_prefills_validates_and_sends_only_changes() {
     let mut menu = loaded(&["Old"]);
     menu.update(Input::BeginEdit(0));

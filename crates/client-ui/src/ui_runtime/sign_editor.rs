@@ -287,15 +287,14 @@ impl SignEditor {
         self.active.as_mut()
     }
 
+    /// Sends the edit back on close, even when unchanged: the server holds the sign
+    /// until the client's `BlockActorData` arrives, so skipping an unchanged edit
+    /// leaves the sign locked and it cannot be reopened.
     /// Keeps a completed edit open until the transport accepts its packet.
     pub fn finish(&mut self, send: impl FnOnce(protocol::Packet) -> Result<(), ()>) -> bool {
         let Some(edit) = self.active.clone() else {
             return true;
         };
-        if !edit.changed() {
-            self.close();
-            return true;
-        }
         let position = edit.position();
         let accepted = match edit.into_encoded_nbt() {
             Ok(nbt) => send(protocol::sign_edit_packet(position, &nbt)).is_ok(),

@@ -210,7 +210,9 @@ pub(super) fn apply_style_and_visibility(
                 actor
             }
         };
-        if let Some(style) = style {
+        if !submission.material.allows_overlay() {
+            submission.overlay_rgba8 = 0;
+        } else if let Some(style) = style {
             let armor = (3..=6).contains(&identity.layer);
             let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
             let attackable = style.attackable_actor == Some(identity.runtime_id)

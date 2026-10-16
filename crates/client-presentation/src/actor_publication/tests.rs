@@ -223,7 +223,7 @@ impl sim::CollisionWorld for JumpFloor {
 /// after a reset or a frame that completes several movement ticks. The body must still
 /// travel with the camera through the entire jump, retaining its rig's authored axes.
 #[test]
-fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
+fn local_jump_body_and_flames_share_physical_feet_in_both_third_person_views() {
     use std::time::Duration;
 
     use crate::presentation::actors::{local_diagnostic_presentation, select_actor_presentations};
@@ -233,10 +233,13 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
     const REMOTE_ID: u64 = LOCAL_ID + 1;
     let anchor = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
     let look = bevy::math::Quat::from_rotation_y(0.4);
-    for perspective in [
+    for (perspective, java) in [
         PerspectiveMode::ThirdPersonBack,
         PerspectiveMode::ThirdPersonFront,
-    ] {
+    ]
+    .into_iter()
+    .flat_map(|perspective| [false, true].map(|java| (perspective, java)))
+    {
         let mut physics = JumpPhysics(
             sim::PlayerState::new(sim::Vec3::new(0.0, 1.0, 0.0)),
             sim::MovementMode::Walking,
@@ -254,6 +257,16 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
             air_network_id: 0,
             block_network_ids_are_hashes: false,
         });
+        let (mut flames, _) = super::flames::WorldActorFlames::prepare(
+            render_model::ActorArtworkPages::default(),
+            Some(&super::flames::tests::texture()),
+        );
+        let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+        avatar.begin_session(
+            simulation_clock::identity::SessionGeneration::new(1),
+            LOCAL_ID,
+        );
+        let mut visibility = crate::local_player::LocalAvatarVisibilityCarrier::default();
         let mut actor_clock = crate::actor_clock::ActorFrameClock::default();
         // Physics can reset independently of the actor clock after a correction.
         actor_clock.advance(Duration::from_millis(17));
@@ -269,6 +282,9 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
             .enumerate()
         {
             let elapsed = Duration::from_millis(millis);
+            if index == 5 {
+                physics_clock.reset();
+            }
             let frame = physics_clock.advance(elapsed);
             for tick in 0..frame.ticks {
                 previous_position = physics.0.position;
@@ -311,6 +327,25 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
             )
             .unwrap();
             stream.sync_local_player_pose(&feed);
+            stream
+                .submit(
+                    index as u64 + 1,
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                        protocol::ActorMetadataUpdateEvent {
+                            dimension: 0,
+                            runtime_id: LOCAL_ID,
+                            metadata: Arc::from([protocol::ActorMetadata {
+                                key: protocol_ids::ActorDataKey::Flags.wire_value(),
+                                value: protocol::ActorMetadataValue::Flags(
+                                    1 << protocol_ids::ActorFlag::OnFire.wire_value(),
+                                ),
+                            }]),
+                            properties: Arc::from([]),
+                            tick: index as u64 + 1,
+                        },
+                    )),
+                )
+                .unwrap();
             let step = actor_clock.advance(elapsed);
             stream.advance_actor_interpolation_frame(step.ticks);
             let actor_feet = stream
@@ -320,7 +355,7 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
                 .interpolated_position(step.partial_tick)
                 .unwrap();
             let mut local = local_diagnostic_presentation(
-                1,
+                stream.authority().actor_session_id(),
                 0,
                 LOCAL_ID,
                 render_api::PoseGeneration::new(1),
@@ -379,7 +414,16 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
             )
             .unwrap();
             let remote_submission = remote.submission.clone();
-            let batch = select_actor_presentations(LOCAL_ID, true, Some(local), [remote]);
+            avatar.publish_view_visibility(perspective, eye, feet, look, &mut visibility);
+            let local_feet = super::flames::LocalFlameFeet::capture(
+                Some(&local),
+                visibility.snapshot().copied(),
+            );
+            if java {
+                super::java::lift(&mut local.submission.world_from_actor, false, true);
+                assert!((local.submission.world_from_actor[1][3] - feet.y).abs() > 1e-4);
+            }
+            let mut batch = select_actor_presentations(LOCAL_ID, true, Some(local), [remote]);
             let selected_remote = batch
                 .submissions
                 .iter()
@@ -390,6 +434,43 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
                 remote_submission.world_from_actor
             );
             assert_eq!(selected_remote.input, remote_submission.input);
+            let (yaw, _, _) = camera.rotation.to_euler(bevy::math::EulerRot::YXZ);
+            flames.append(
+                Some(stream.authority()),
+                yaw,
+                step.partial_tick,
+                local_feet,
+                &mut batch,
+            );
+            assert_eq!(
+                batch.submissions.len(),
+                3,
+                "burning local body adds one flame layer"
+            );
+            let flame = batch.submissions.last().unwrap();
+            assert_eq!(flame.input.identity.runtime_id, LOCAL_ID);
+            let (low, high) = stream
+                .authority()
+                .actor(LOCAL_ID)
+                .unwrap()
+                .bounding_box_at([0.0; 3])
+                .unwrap();
+            let (width, height) = (high[0] - low[0], high[1] - low[1]);
+            let depth = render_model::actor::flame::flame_depth(width, height)
+                * width
+                * render_model::actor::flame::FLAME_SCALE;
+            let (sin, cos) = (yaw + std::f32::consts::PI).sin_cos();
+            let flame_feet = Vec3::from_array(flame.world_from_actor.map(|row| row[3]))
+                - Vec3::new(sin * depth, 0.0, cos * depth);
+            assert!(
+                flame_feet.abs_diff_eq(feet, 1e-5),
+                "{perspective:?}, Java {java}, frame {index}"
+            );
+            assert!(
+                view_from_world
+                    .transform_point3(flame_feet)
+                    .abs_diff_eq(reference, 1e-5)
+            );
         }
         assert!(
             catch_up && rose && fell && raw_origin_drifted,
@@ -691,6 +772,43 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
             assert!(Arc::ptr_eq(
                 &submission.input.previous_bones,
                 &original[index].input.previous_bones
+            ));
+        }
+        for (kind, disable_overlay, allows_overlay) in [
+            (assets::EntityRenderMaterial::DissolveDepth, false, false),
+            (assets::EntityRenderMaterial::DissolveColor, false, false),
+            (assets::EntityRenderMaterial::Default, true, false),
+            (assets::EntityRenderMaterial::Default, false, true),
+        ] {
+            batch.submissions.clone_from(&original);
+            let armor = &mut batch.submissions[1];
+            armor.material.kind = kind;
+            armor.material.state = Some(assets::EntityRenderMaterialState {
+                disable_overlay,
+                ..Default::default()
+            });
+            armor.material.dissolve_multiplier = 0.4;
+            let material = armor.material;
+            let tint = armor.tint;
+            super::layers::apply_style_and_visibility(&mut batch, Some(&stream), Some(&style));
+            let armor = &batch.submissions[1];
+            assert_eq!(
+                armor.overlay_rgba8,
+                if allows_overlay {
+                    render_model::pack_overlay_rgba8(if hurt {
+                        style.hurt_armor_color.unwrap()
+                    } else {
+                        style.attackable_color.unwrap()
+                    })
+                } else {
+                    0
+                }
+            );
+            assert_eq!(armor.material, material);
+            assert_eq!(armor.tint, tint);
+            assert!(Arc::ptr_eq(
+                &armor.input.current_bones,
+                &original[1].input.current_bones
             ));
         }
     }

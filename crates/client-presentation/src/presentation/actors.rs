@@ -23,7 +23,9 @@ mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
 pub use admission::within_actor_candidate_cube;
-pub(crate) use admission::{actor_is_render_candidate, sample_candidate_scale};
+pub(crate) use admission::{
+    actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
+};
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -56,10 +58,9 @@ pub fn update_actor_rig_scene(
     partial_tick: f32,
     batch: ActorPresentationBatch,
 ) -> &ActorRenderFrame {
-    // The app adapter has already applied the renderer's exact culling helper
-    // to remotes before enforcing capacity. Passing no second cull view keeps
-    // the movement-owned visible local reservation unconditional in both third-person
-    // modes while the render-owned builder still validates every other field.
+    // Remote admission already checked distance and usable model bounds before capacity.
+    // Rechecking base bounds here would lose controller replacements and the movement-owned
+    // local reservation. The render-owned builder still validates every other field.
     scene.update_rigs_with_artwork(
         partial_tick,
         None,
@@ -71,7 +72,7 @@ pub fn update_actor_rig_scene(
 
 /// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
 /// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
-/// Controllers that can replace the base mesh bypass terrain proofs using its bounds.
+/// Controllers and persona meshes that can extend the base defer its bounds proof.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -89,6 +90,11 @@ pub fn rig_may_be_visible(
     ) else {
         return true;
     };
+    // The base box cannot prove exclusion for replacement or persona geometry.
+    // Feet-based candidate and distance admission still apply above.
+    if !rig.skin_layers.is_empty() || rig_may_replace_geometry(rig, frame.as_deref()) {
+        return true;
+    }
     // Per-axis scale and the death tilt never lengthen the up axis past the largest axis scale.
     let largest_axis = rig
         .axis_scale
@@ -98,13 +104,6 @@ pub fn rig_may_be_visible(
     let bounds = rig.culling_bounds();
     if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
-    }
-    if rig.render.iter().any(|layer| layer.geometry.is_some())
-        || frame
-            .as_ref()
-            .is_some_and(|frame| frame.may_replace_body_geometry(rig.actor.runtime_id))
-    {
-        return true;
     }
     let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
@@ -497,7 +496,7 @@ pub fn local_actor_presentation_for_visibility(
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
+/// Selects already-admitted bodies, reserving the local skin before bounded remote skins.
 pub fn select_actor_presentations(
     local_runtime_id: u64,
     local_visible: bool,
