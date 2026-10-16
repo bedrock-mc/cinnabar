@@ -1,3 +1,17 @@
+## Restore and share custom emote playback
+
+The articulated emote snapshot now carries the matching prepared body and clothing meshes.
+The account API exchanges nearby watches, starts, phases and stops; authenticated identities
+resolve only to current actor lifetimes. Shared poses override native/Java body animation for
+their lifetime and also drive clothing, capes and equipment. Visibility opt-out and bounded
+leases retire playback without depending on a game server's emote relay. Local clips no longer
+send their owned identifiers as Bedrock emote packets.
+Regression coverage includes mesh/pose agreement, cached mesh reuse, remote pose isolation,
+start/stop, same-clock restarts, lease expiry, API identity, subscriptions and visibility.
+Linux Vulkan headless local-world frames show bent knees and planted level soles through the
+hip pulse. Sharing requires deployment of the API extension. Exact native/Lunar parity, Windows visual
+acceptance and hardware performance qualification remain incomplete.
+
 ## Held input across HUD toggles
 
 Display-setting replacements retain the controls revision when controls are unchanged.
@@ -49,8 +63,15 @@ Published form draw nodes share immutable snapshots. A bounded engine cache reta
 base texture paths and renderer names for the exact snapshot and omission values; overlays,
 renderer callbacks, source resolution and atlas residency still update every prepare.
 Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
-rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
-edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
+rendered comparisons and measured dependency-discovery cost remain pending.
+
+Oversized artwork sources retain sorted, immutable metadata with shared encoded bytes. Painted
+frames reuse that metadata and request artwork only after source ownership changes. Provider
+replacement retires stale fallback artwork; image polling, page publication and completed
+gallery work continue independently. Focused artwork and atlas regressions pass (34 and 9
+cases), and touched-crate clippy passes. Rendered comparisons and measured artwork
+publication cost remain pending. Edit-text/report copies and other form work remain separate;
+no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
@@ -2179,7 +2200,7 @@ player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
-local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
+owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the
 native first-person hand and remote actor animations intact. Slot preferences
 persist through Change Emotes, and gameplay input cancels playback. Identified
@@ -8796,11 +8817,12 @@ furnace UI options remain incomplete; the full furnace parity gate stays open.
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
 frame, with block occlusion and bounded queue retries. A live cow interaction
-produces a server-confirmed milk bucket. Selecting an equipped emote sends its
-catalog identifier and duration once in that frame; idle and cancellation send
-no start packet. Marketplace clip ownership/playback, remote custom-emote
-synchronization, and the complete villager trade UI remain incomplete. These
-producer fixes do not close those parity gates.
+produces a server-confirmed milk bucket. Selecting an equipped custom emote starts
+local playback and reports its catalog identifier and phase over the authenticated
+Cinnabar API. Stops, visibility and bounded leases retire shared playback without
+sending custom identifiers to a Bedrock server. Marketplace clip ownership/playback
+and the complete villager trade UI remain incomplete. These producer fixes do not
+close those parity gates.
 
 The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
 radial leaves, column UVs and offsets, selection and breaking overlays, picking,
