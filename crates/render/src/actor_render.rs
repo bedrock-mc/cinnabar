@@ -528,12 +528,15 @@ fn prepare_actor_resources(
             });
             return;
         }
-        gpu.bind_group = None;
-        gpu.skins.sync(&frame.skins, &render_device, &render_queue);
+        let views_changed = gpu.skins.sync(&frame.skins, &render_device, &render_queue);
         if !gpu.skins.is_synced(&frame.skins) {
+            gpu.bind_group = None;
             gpu.instance_count = 0;
             gpu.frame_generation = u64::MAX;
             return;
+        }
+        if views_changed {
+            gpu.bind_group = None;
         }
         gpu.skin_revision = frame.skin_revision;
     }

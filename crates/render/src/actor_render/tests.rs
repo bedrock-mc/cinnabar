@@ -308,6 +308,45 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
     assert!(world.resource::<ActorGpu>().artwork_current);
 }
 
+/// Texels written into an already allocated skin layer keep the actor bindings.
+#[test]
+fn in_place_skin_updates_keep_the_actor_bind_group() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    let mut frame = generic_frame();
+    frame.skins = one_resident_skin();
+    frame.skin_revision = 1;
+    world.insert_resource(frame);
+    world
+        .run_system_once(super::prepare_actor_resources)
+        .unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let layout = device.create_bind_group_layout("test actor layout", &[]);
+    world.resource_mut::<ActorGpu>().bind_group =
+        Some(device.create_bind_group("test actor bindings", &layout, &[]));
+
+    let skin = render_api::SkinRgba8::from(vec![7; render_model::STANDARD_SKIN_BYTES]);
+    let mut residency = render_model::ActorSkinResidency::default();
+    residency.classes[0] = Arc::from([Some(render_model::ResidentSkin {
+        texels: Arc::clone(skin.pixels()),
+        skin,
+        admission: 2,
+    })]);
+    let mut frame = world.resource_mut::<render_scene::ActorRenderFrame>();
+    frame.skins = Arc::new(residency);
+    frame.skin_revision = 2;
+    world
+        .run_system_once(super::prepare_actor_resources)
+        .unwrap();
+    let gpu = world.resource::<ActorGpu>();
+    assert_eq!(gpu.skin_revision, 2);
+    assert!(gpu.bind_group.is_some());
+}
+
 fn app_with_noop_render_sub_app() -> App {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut render_app = SubApp::new();
