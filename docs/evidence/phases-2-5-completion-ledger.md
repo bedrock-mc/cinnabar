@@ -1,5 +1,14 @@
 # Phases 2-5 Completion Ledger
 
+## Command-block terrain materials
+
+Facing and conditional selectors now retain their front/back panels, oriented
+side arrows and atlas-bound animation strips. Compiler regressions cover every
+registered command variant, boundary culling and carrier roundtrips. Render-fact,
+exact regeneration and focused compile checks pass. Local BDS frames and animation
+phases pass against the official Android reference. Broader pack/platform parity
+and hardware performance gates remain open; the command-block editor is unfinished.
+
 ## Liquid surfaces beneath opaque roofs
 
 Lowered water and lava tops remain visible below solid blocks, with shared side

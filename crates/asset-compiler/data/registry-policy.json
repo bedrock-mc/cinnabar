@@ -3280,6 +3280,16 @@
       ]
     },
     {
+      "id": "render-command-block",
+      "fact": "render:CommandBlock",
+      "status": "provisional",
+      "members": [
+        "minecraft:command_block",
+        "minecraft:chain_command_block",
+        "minecraft:repeating_command_block"
+      ]
+    },
+    {
       "id": "render-barrel",
       "fact": "render:Barrel",
       "status": "provisional",

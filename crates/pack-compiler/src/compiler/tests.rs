@@ -18,6 +18,8 @@ mod bubble_column;
 mod campfire;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
+#[path = "tests/command_block.rs"]
+mod command_block;
 #[path = "tests/coral.rs"]
 mod coral;
 #[path = "tests/crop_families.rs"]

@@ -149,6 +149,7 @@ struct VisualCompiler {
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
+    command_block_templates: BTreeMap<([u32; 6], usize), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
@@ -201,6 +202,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.barrel_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
+        ordered_rule!(super::command_block::compile_rule(
+            record,
+            inputs,
+            &mut self.command_block_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads

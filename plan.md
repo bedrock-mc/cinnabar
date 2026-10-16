@@ -596,6 +596,17 @@ server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
 
+## Command-block terrain materials
+
+Command blocks select front, back and conditional side materials from their facing
+and conditional state, with full opaque boundary faces and oriented arrow UVs.
+Original-art compiler regressions cover all registered variants, side directions,
+cap orientation, neighbour culling, atlas-bound animation strips and carrier
+roundtrips. Local BDS rendered panels, arrows and animation phases pass against
+the official Android reference. Render admission remains provisional for broader
+pack and platform parity; hardware performance gates stay open. The command-block
+editor remains unimplemented.
+
 ## Lever terrain geometry
 
 Levers compile separate mounting bases and power-selected pitched handles for

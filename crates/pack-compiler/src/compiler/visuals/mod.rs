@@ -12,6 +12,7 @@ pub(in crate::compiler) mod campfire;
 pub(in crate::compiler) mod candle_cake;
 pub(in crate::compiler) mod carpets;
 pub(in crate::compiler) mod chains;
+pub(in crate::compiler) mod command_block;
 pub(in crate::compiler) mod container_geometry;
 pub(in crate::compiler) mod context;
 pub(in crate::compiler) mod coral;
