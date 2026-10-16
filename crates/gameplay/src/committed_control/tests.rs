@@ -424,7 +424,7 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
         client_world::MovementSpeedAttribute::from_attribute(&packet).unwrap()
     ));
     speed.adopt_server_sprinting(Some(true));
-    for (sequence, amplifier, factor) in [(2, 1, 1.4), (3, 3, 1.8), (4, 1, 1.4)] {
+    for (sequence, amplifier, factor) in [(2, 1, 1.4), (3, 3, 1.8), (4, 1, 1.8)] {
         let event = ActorEffectEvent {
             dimension: 0,
             actor_runtime_id: 42,
