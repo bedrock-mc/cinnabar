@@ -314,3 +314,108 @@ fn section_membership_stamps_track_insert_remove_replace_and_retire() {
     stream.known_air.retire();
     assert_eq!(stream.terrain_publication_source(), empty);
 }
+
+/// Delivered air outside mesh range still masks cached far terrain at render publication.
+#[test]
+fn distant_delivered_air_reaches_the_render_mask() {
+    let column = ChunkKey::new(0, 10, 0);
+    for replacement in [
+        request_level_chunk_event(
+            0,
+            column.x,
+            column.z,
+            LevelChunkMode::Inline { count: 0 },
+            1,
+        ),
+        request_level_chunk_event(
+            0,
+            column.x,
+            column.z,
+            LevelChunkMode::LimitedRequests { highest: 0 },
+            1,
+        ),
+        inline_air_event(column.x),
+    ] {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        });
+        stream.set_far_terrain_enabled(true);
+        stream
+            .submit(1, inline_block_entity_event(column.x, 7, Vec::new()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        stream.set_full_detail_radius(Some(1));
+        assert!(!stream.wants_mesh(column));
+        let mut publication = far_terrain::TerrainPublication::default();
+        let position = far_terrain::ColumnPos::new(column.x, column.z);
+        assert!(!render_mask(&stream, &mut publication).contains(position));
+
+        stream.submit(2, replacement).unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(!stream.wants_mesh(column));
+        assert!(stream.near_empty_columns().any(|key| key == column));
+        let keys: Vec<_> = stream
+            .terrain_publication_sections()
+            .filter(|key| key.chunk() == column)
+            .collect();
+        assert!(
+            !keys.is_empty(),
+            "the delivered column has section evidence"
+        );
+        for key in keys {
+            assert_eq!(
+                stream.terrain_removal_kind(key),
+                render_api::TerrainRemovalKind::Empty
+            );
+            let generation = stream
+                .revisions
+                .dirty(key)
+                .map(|dirty| dirty.revision)
+                .or_else(|| stream.applied_mesh_generations.get(&key).copied())
+                .expect("the demoted section has a publication generation");
+            assert_ne!(generation, 0);
+            publication.publish_empty(key, generation);
+        }
+        assert!(
+            render_mask(&stream, &mut publication).contains(position),
+            "valid empty receipts must hide cached terrain beyond mesh range"
+        );
+
+        stream
+            .submit(3, inline_block_entity_event(column.x, 7, Vec::new()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(
+            !render_mask(&stream, &mut publication).contains(position),
+            "a solid resend outside mesh range restores far terrain"
+        );
+
+        stream.evict_column(column);
+        assert!(
+            !render_mask(&stream, &mut publication).contains(position),
+            "retired empty receipts cannot cover an unloaded column"
+        );
+    }
+}
+
+/// Builds the render owner's effective mask with cached far terrain available everywhere.
+fn render_mask(
+    stream: &WorldStream,
+    publication: &mut far_terrain::TerrainPublication,
+) -> far_terrain::NearMask {
+    let target = stream.terrain_publication_target(16);
+    publication.publish(&target, &Default::default(), |_| true);
+    far_terrain::NearMask::from_columns(
+        [target.centre.x, target.centre.z],
+        target.horizon,
+        publication
+            .near_columns()
+            .map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
+    )
+}

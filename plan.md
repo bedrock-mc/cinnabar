@@ -194,9 +194,10 @@ the lowest neighbouring surface, rebuild at most every 250 ms when their columns
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
 the selected tiles and covering fallbacks during bounded replacements; a still camera uploads
 and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
-Near column admission and the far mask publish together before draw queues run. Empty-section
-receipts survive feature toggles within their stream and dimension visit, stay bounded by
-retained sections, refresh on every section-membership change, and expire on replacement or
+Near column admission and the far mask publish together before draw queues run. Delivered-air
+columns remain in the publication target outside the mesh radius, so their valid empty
+receipts hide cached terrain. Empty-section receipts survive feature toggles within their
+stream and dimension visit, stay bounded by retained sections, refresh on every section-membership change, and expire on replacement or
 withdrawal. Valid decoded summaries prove coverage per column; missing, invalid or partial
 summaries cannot prove an entire tile empty or retire its visible fallback. Resource geometry
 and material tables publish together after pending removals and their fences allow the swap;

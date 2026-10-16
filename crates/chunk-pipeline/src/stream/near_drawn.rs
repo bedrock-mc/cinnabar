@@ -44,14 +44,16 @@ impl WorldStream {
         )
     }
 
-    /// Describes loaded near columns from their owning source and dirty-revision indexes.
+    /// Describes near geometry and delivered air from source and dirty-revision indexes.
     pub fn terrain_publication_target(&self, horizon: i32) -> far_terrain::TerrainTarget {
         let near = self
             .loaded_columns
             .iter()
             .copied()
             .filter(|column| {
-                column.dimension == self.current_dimension() && self.wants_mesh(*column)
+                column.dimension == self.current_dimension()
+                    && (self.wants_mesh(*column)
+                        || self.near_drawn.columns.get(column) == Some(&Coverage::Empty))
             })
             .filter_map(|column| {
                 let keys = self
