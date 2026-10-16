@@ -1,5 +1,6 @@
 use super::super::jobs::ImageJob;
 use super::*;
+use crate::{atlas::ServerAtlas, sources::ImageWork};
 
 /// An original two-by-two source whose decoded pixels are known.
 fn source() -> Source {
@@ -75,4 +76,40 @@ fn unavailable_workers_report_failure_without_inline_decode() {
     assert_eq!(jobs.pending(), Some("missing"));
     assert_eq!(jobs.collect(), Some(("missing".into(), None)));
     assert!(jobs.pending().is_none());
+}
+
+#[test]
+fn page_eviction_and_decode_completion_keep_source_snapshots() {
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(512, 512, image::Rgba([1, 2, 3, 255]))
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let source = super::super::source(encoded.into_inner().into()).unwrap();
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_image_work(ImageWork::inline());
+    for key in ["a", "b"] {
+        atlas.sources.insert(key.into(), source.clone());
+    }
+    atlas.oversized.insert("a", &source.bytes);
+    let waiting = atlas.oversized();
+    let (sender, receiver) = crossbeam_channel::bounded(1);
+    atlas.decodes.jobs.request_to("a", &source, Some(&sender));
+    receiver.try_recv().unwrap().run();
+    assert_eq!(atlas.decodes.jobs.pending(), Some("a"));
+    assert!(atlas.decodes.pixels.is_empty());
+    atlas.require(["a"]);
+    assert!(atlas.decodes.jobs.pending().is_none());
+    assert_eq!(&atlas.decodes.pixels["a"][..4], [1, 2, 3, 255]);
+    assert!(atlas.placement("a").is_some());
+    assert!(atlas.oversized().shares_storage(&waiting));
+    atlas.require(["b"]);
+    assert!(atlas.placement("a").is_none());
+    let evicted = atlas.oversized();
+    assert_eq!(
+        evicted.len(),
+        2,
+        "full-resolution sources outlive fitted-page residency"
+    );
+    atlas.require(["a"]);
+    assert!(atlas.placement("b").is_none());
+    assert!(atlas.oversized().shares_storage(&evicted));
 }
