@@ -8,6 +8,7 @@ use render_scene::actor::{
 
 use std::mem::size_of;
 mod artwork;
+mod bones;
 mod dissolve;
 pub(crate) mod motion;
 pub(crate) mod phase;
@@ -93,6 +94,7 @@ fn install_actor_render(app: &mut App) {
         .init_resource::<render_scene::ActorPipelineReadiness>()
         .init_resource::<ActorRuntimeWitness>();
     crate::lighting::install(app);
+    crate::upload_staging::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -167,6 +169,7 @@ pub(crate) struct ActorGpu {
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
+    bones: bones::BoneResidency,
     geometry_vertices: crate::actor::gpu::SegmentedVertexBuffer,
     geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
@@ -255,6 +258,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        bones: bones::BoneResidency::default(),
         geometry_vertices: default(),
         geometry_span_buffer: None,
         instance_count: 0,
@@ -278,11 +282,13 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_actor_resources(
     frame: Res<ActorRenderFrame>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ActorGpu>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
@@ -299,9 +305,10 @@ fn prepare_actor_resources(
         tracker.clear();
         gpu.artwork_identity = frame.artwork.identity();
         gpu.frame_generation = u64::MAX;
+        gpu.bones.clear();
     }
     let skins_resident = player_skins_resident(&frame);
-    let structurally_valid = !rig.instances.is_empty()
+    let mut structurally_valid = !rig.instances.is_empty()
         && rig.instances.len() <= render_model::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
         && rig.previous_bones.len() <= render_model::actor::MAX_ACTOR_POSE_BONES
@@ -313,6 +320,7 @@ fn prepare_actor_resources(
         gate.clear();
         tracker.clear();
         gpu.frame_generation = u64::MAX;
+        gpu.bones.clear();
         // A new skin model or item mesh uploads only its own vertices.
         gpu.geometry_vertices.sync(
             &render_device,
@@ -356,46 +364,61 @@ fn prepare_actor_resources(
             gate.clear();
             tracker.clear();
         }
-        if structurally_valid {
-            let instances = dissolve::instances(&rig.instances, &rig.manifest);
+        let prepared = structurally_valid
+            .then(|| {
+                let instances = dissolve::instances(&rig.instances, &rig.manifest);
+                gpu.bones.prepare(rig, instances)
+            })
+            .flatten();
+        structurally_valid &= prepared.is_some();
+        if let Some(prepared) = prepared {
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(
                 "actor.frame_upload",
                 generation = rig.frame_generation,
                 instances = rig.instances.len(),
                 bones = rig.current_bones.len(),
-                bytes = std::mem::size_of_val(&*rig.instances)
-                    + std::mem::size_of_val(&*rig.previous_bones)
-                    + std::mem::size_of_val(&*rig.current_bones),
+                bone_bytes = prepared.uploaded_bytes(),
+                bone_writes = prepared.previous.len() + prepared.current.len(),
+                compacted = prepared.compacted,
+                bytes = std::mem::size_of_val(&*rig.instances) + prepared.uploaded_bytes(),
             )
             .entered();
-            render_queue.profiled_write_buffer(
-                &gpu.instance_buffer,
-                0,
-                bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
+            crate::upload_staging::write_batch(
+                staging.as_deref(),
+                &render_device,
+                &render_queue,
+                &[(
+                    &gpu.instance_buffer,
+                    0,
+                    bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+                )],
             );
-            render_queue.profiled_write_buffer(
-                &gpu.previous_bone_buffer,
-                0,
-                bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.previous_bones),
-            );
-            render_queue.profiled_write_buffer(
-                &gpu.current_bone_buffer,
-                0,
-                bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),
-            );
+            gpu.bones.writes(&prepared, |current, offset, bytes| {
+                let buffer = if current {
+                    &gpu.current_bone_buffer
+                } else {
+                    &gpu.previous_bone_buffer
+                };
+                crate::upload_staging::write_batch(
+                    staging.as_deref(),
+                    &render_device,
+                    &render_queue,
+                    &[(buffer, offset, bytes)],
+                );
+            });
             #[cfg(feature = "tracy")]
             drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
-            gpu.manifest = std::sync::Arc::clone(&rig.manifest);
+            gpu.manifest = prepared.manifest;
             draw_spans(
                 &mut gpu.spans,
                 &frame.instance_pages,
-                &instances,
+                &prepared.instances,
                 &rig.geometry_spans,
             );
-            gpu.instances = instances;
+            gpu.instances = prepared.instances;
             let ActorGpu {
                 sorted,
                 spans,
@@ -404,6 +427,7 @@ fn prepare_actor_resources(
             } = &mut *gpu;
             sorted.prepare(spans, manifest);
         } else {
+            gpu.bones.clear();
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);

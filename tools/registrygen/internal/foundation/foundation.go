@@ -1,4 +1,5 @@
-package main
+// Package foundation validates the bounded registry foundation contract.
+package foundation
 
 import (
 	"encoding/hex"
@@ -92,6 +93,7 @@ type projectionBinding struct {
 	SHA256 string `json:"sha256"`
 }
 
+// ValidateRegistryFoundation decodes one bounded, strict manifest and validates its current pins.
 func ValidateRegistryFoundation(reader io.Reader) (FoundationCheckResult, error) {
 	limited := io.LimitReader(reader, maxFoundationBytes+1)
 	payload, err := io.ReadAll(limited)

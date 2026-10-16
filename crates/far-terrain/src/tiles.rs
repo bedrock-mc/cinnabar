@@ -32,6 +32,14 @@ impl TileKey {
         [self.x * self.width_blocks(), self.z * self.width_blocks()]
     }
 
+    /// Whether two tile squares share any horizontal area.
+    #[must_use]
+    pub fn overlaps(self, other: Self) -> bool {
+        let ([ax, az], aw) = (self.origin(), self.width_blocks());
+        let ([bx, bz], bw) = (other.origin(), other.width_blocks());
+        ax < bx + bw && bx < ax + aw && az < bz + bw && bz < az + aw
+    }
+
     /// The tile at `level` holding block `x`, `z`.
     #[must_use]
     pub const fn containing(level: u8, x: i32, z: i32) -> Self {

@@ -302,6 +302,16 @@ impl Default for FarTerrainFeed {
 }
 
 impl WorldStream {
+    /// Ends delivery from the previous dimension, including eviction snapshots and late workers.
+    pub(super) fn reset_far_terrain_dimension(&mut self) {
+        let feed = &mut self.far_terrain;
+        feed.pending.clear();
+        feed.queued.clear();
+        feed.retiring.clear();
+        feed.unloaded.clear();
+        feed.inbox.cancel_pending();
+    }
+
     /// Discards old resource or namespace generations and resummarizes complete resident columns.
     pub fn reload_far_terrain_resources(&mut self) {
         let feed = &mut self.far_terrain;

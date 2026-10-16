@@ -11,6 +11,7 @@ pub(crate) mod prepared;
 mod scrolling;
 pub(crate) mod surface;
 mod template;
+pub(crate) mod transitions;
 mod vector;
 mod widgets;
 
@@ -30,7 +31,11 @@ use data::control_data;
 use ui_engine::frame::EngineFrame;
 use ui_engine::{
     cached_screen::CachedScreen,
-    engine::{FormEngine, ScreenArt, screen::PaintFrame},
+    engine::{
+        FormEngine, ScreenArt,
+        glass::{GlassRenderer, paint_world_backdrop},
+        screen::{CustomRenderer, PaintFrame},
+    },
 };
 
 const SCREEN: &str = "cinnabar_personal.panel";
@@ -57,6 +62,7 @@ pub(super) struct ModPanel {
     pointer: Option<[f32; 2]>,
     held: bool,
     edit: Option<edit::Editor>,
+    /// Native feedback and surface transitions, including an exit after closing.
     motion: motion::PanelMotion,
     motion_data_dirty: bool,
     prepared: Option<Arc<prepared::PreparedRoute>>,
@@ -183,28 +189,49 @@ impl ModUi {
     }
 
     /// Changes visibility once per transition and restores animated feedback when closing.
+    /// Closing releases input at once; a painted surface whose transitions declare exit values
+    /// keeps drawing until they settle, unless the HUD editor owned the panel surface.
+    /// Reopening during that exit eases back from the displayed values.
     pub fn set_mod_panel_open(&mut self, open: bool) {
+        let exit = !self.reduced_motion && !self.mod_hud_editor_open();
         if !open {
             self.cancel_mod_hud_editor();
         }
         if let Some(panel) = self.mod_panel.as_mut() {
             if open {
                 panel.open = true;
+                panel.motion.transitions.cancel_exit();
             } else {
-                panel.close();
+                panel.close(exit);
             }
         }
     }
 
+    /// Whether the panel is open and owns input; false while a closed panel plays its exit.
     pub fn mod_panel_open(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| panel.open)
     }
 
-    /// Native feedback needs frames only while the opt-in panel motion is active.
+    /// Whether the panel draws: open, or closed while bindings ease to their exit values.
+    pub fn mod_panel_painting(&self) -> bool {
+        self.mod_panel
+            .as_ref()
+            .is_some_and(|panel| panel.open || panel.exiting())
+    }
+
+    /// Native feedback, surface transitions and exits need frames only while they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| {
-            panel.open && panel.panel.motion && (panel.motion_data_dirty || panel.motion.active())
+            panel.exiting()
+                || panel.open
+                    && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
         })
+    }
+
+    /// Follows the Screen animations setting. When disabled, surface transitions, exits and
+    /// `motion: true` panel feedback change at once, including values already moving.
+    pub fn configure_motion(&mut self, enabled: bool) {
+        self.reduced_motion = !enabled;
     }
 
     pub fn mod_panel_toggle_key(&self) -> Option<&str> {
@@ -231,23 +258,29 @@ impl ModUi {
             }
             return events;
         }
+        let exit = !self.reduced_motion;
         self.mod_panel.as_mut().map_or_else(Vec::new, |panel| {
-            panel.pointer_events(position, pressed, held)
+            panel.pointer_events(position, pressed, held, exit)
         })
     }
 
-    /// Draws the open panel, fitted to its authored reference size; the caller draws the HUD
-    /// editor instead while it owns the panel surface.
+    /// Draws the open or exiting panel, fitted to its authored reference size; the caller draws
+    /// the HUD editor instead while it owns the panel surface.
     pub fn paint_mod_panel(
         &mut self,
         engine: Option<&FormEngine>,
         paint_frame: &mut PaintFrame<'_>,
     ) {
-        let Some(panel) = self.mod_panel.as_mut().filter(|panel| panel.open) else {
+        let animate = !self.reduced_motion;
+        let Some(panel) = self
+            .mod_panel
+            .as_mut()
+            .filter(|panel| panel.open || panel.exiting())
+        else {
             return;
         };
         let Some(renderer) = engine else {
-            panel.close();
+            panel.close(false);
             return;
         };
         let content = paint_frame.content;
@@ -269,7 +302,7 @@ impl ModUi {
         if viewport[0] < 120.0
             || viewport[1] - layout::top_offset(viewport) - 12.0 < CHROME_HEIGHT + ROW_HEIGHT + 8.0
         {
-            panel.close();
+            panel.close(false);
             return;
         }
         let rows = (((viewport[1] - layout::top_offset(viewport) - CHROME_HEIGHT - 12.0)
@@ -313,12 +346,13 @@ impl ModUi {
                     panel.screen = CachedScreen::default();
                 }
                 Err(error) => {
-                    panel.close();
+                    panel.close(false);
                     tracing::warn!(%error, "personal extension panel rejected");
                     return;
                 }
             }
         }
+        let mut changed = false;
         if panel.panel.motion {
             if let Some(frame) = &panel.frame {
                 for (key, metrics) in &frame.report.scrolls {
@@ -341,19 +375,47 @@ impl ModUi {
                         .or_else(|| action.strip_prefix("mod.edit:"))
                 })
                 .and_then(|index| index.parse().ok());
-            let changed =
-                panel
-                    .motion
-                    .advance(&panel.panel, &mut panel.view, hovered, paint_frame.now);
-            if changed || panel.motion_data_dirty {
-                panel
-                    .motion
-                    .write(&panel.panel, Arc::make_mut(&mut panel.data));
-                panel.motion_data_dirty = false;
-            }
+            changed = panel.motion.advance(
+                &panel.panel,
+                &mut panel.view,
+                hovered,
+                paint_frame.now,
+                animate,
+            );
+        }
+        if let Some(surface) = &panel.panel.surface {
+            changed |= panel
+                .motion
+                .transitions
+                .advance(surface, paint_frame.now, animate);
+        }
+        if !panel.open && !panel.motion.transitions.active() {
+            // The exit has settled: remove the surface without drawing its final values.
+            panel.close(false);
+            return;
+        }
+        if panel.animated() && (changed || panel.motion_data_dirty) {
+            panel
+                .motion
+                .write(&panel.panel, Arc::make_mut(&mut panel.data));
+            panel.motion_data_dirty = false;
         }
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
+        let world = panel
+            .panel
+            .surface
+            .as_ref()
+            .map(|surface| panel.motion.transitions.world_backdrop(surface))
+            .unwrap_or_default();
+        if let Err(error) = paint_world_backdrop(paint_frame, world) {
+            out_of_render(panel, paint_frame, rollback);
+            tracing::warn!(%error, "personal extension panel disabled after rendering failure");
+            return;
+        }
+        let mut glass = GlassRenderer::new(world);
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut glass];
+        let paint_frame = &mut paint_frame.with_renderers(&mut renderers);
         let language = paint_frame.language;
         let art = ScreenArt {
             view: Some(&panel.view),
@@ -402,29 +464,43 @@ impl ModUi {
 fn out_of_render(panel: &mut ModPanel, paint_frame: &mut PaintFrame<'_>, rollback: (usize, u32)) {
     paint_frame.nodes.truncate(rollback.0);
     *paint_frame.next = rollback.1;
-    panel.close();
+    panel.close(false);
 }
 
 impl ModPanel {
-    /// Closes an open panel once, clearing input, scroll state, and animated feedback.
-    fn close(&mut self) {
-        if !self.open {
+    /// Closes an open panel once, releasing input at once. With `exit`, a painted surface whose
+    /// transitions declare exit values keeps its frame and scroll while they ease there; the
+    /// panel is otherwise removed at once, clearing scroll state and animated feedback. Without
+    /// `exit`, this also ends an exit in progress, which a repeated animated close continues.
+    fn close(&mut self, exit: bool) {
+        if !self.open && (exit || !self.exiting()) {
             return;
         }
-        let reset_feedback = self.motion.needs_feedback_reset();
-        self.open = false;
-        self.cancel_edit();
+        let reset_feedback = self.motion.needs_feedback_reset() || self.exiting();
+        if self.open {
+            self.open = false;
+            self.cancel_edit();
+            self.cancel_pointer_input();
+            if exit
+                && let Some(surface) = &self.panel.surface
+                && self.motion.transitions.begin_exit(surface)
+            {
+                self.view.focused = None;
+                self.motion_data_dirty = true;
+                return;
+            }
+        }
         self.frame = None;
-        self.drag = None;
-        self.vector_drag = None;
-        self.scroll_drag = None;
         self.view = ViewState::default();
         self.motion = motion::PanelMotion::default();
-        self.pointer = None;
-        self.held = false;
         if reset_feedback {
             self.refresh_data();
         }
+    }
+
+    /// Whether the closed panel still draws while bindings ease to their exit values.
+    fn exiting(&self) -> bool {
+        !self.open && self.motion.transitions.exiting()
     }
 
     /// Publishes typed control values and host viewport dimensions together.
@@ -435,6 +511,16 @@ impl ModPanel {
         }
         self.data = Arc::new(data);
         self.motion_data_dirty = true;
+    }
+
+    /// Whether native feedback or declared surface transitions rewrite published bindings.
+    fn animated(&self) -> bool {
+        self.panel.motion
+            || self
+                .panel
+                .surface
+                .as_ref()
+                .is_some_and(|surface| !surface.transitions.is_empty())
     }
 
     fn last_page(&self) -> usize {

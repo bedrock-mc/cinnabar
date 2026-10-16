@@ -105,7 +105,8 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
     })
 }
 
-fn solid_test_mesh() -> ChunkMesh {
+/// Builds one solid section with the original diagnostic fixture assets.
+pub(super) fn solid_test_mesh() -> ChunkMesh {
     let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2], &RawBlockIds { air: 0 });
     meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(0),
@@ -183,7 +184,7 @@ mod gpu_growth;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
 #[path = "gpu/publication_tests.rs"]
-mod gpu_publication;
+pub(super) mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
 #[path = "gpu/queue_biome_tests.rs"]

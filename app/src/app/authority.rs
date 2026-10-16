@@ -29,6 +29,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
+    app.init_resource::<client_interaction::movement::LocomotionState>();
     app.add_systems(
         bevy::prelude::Startup,
         (

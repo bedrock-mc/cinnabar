@@ -18,6 +18,7 @@ pub(super) enum PresetKind {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(super) struct PresetOverrides {
+    pub(super) attached: Option<i64>,
     pub(super) stationary: Option<Pose>,
     pub(super) target_settings: TargetSettings,
     pub(super) focus: Option<TargetFocus>,

@@ -72,7 +72,7 @@ fn wander(rng: &mut Rng, actors: &mut HashMap<u64, TestActor>) {
 }
 
 /// Every rig's full retained state plus the store-wide counters.
-fn fingerprint(store: &ActorAnimationStore) -> String {
+pub(super) fn fingerprint(store: &ActorAnimationStore) -> String {
     format!(
         "{:?}\n{:?} {:?} {} {}",
         store.rigs,
@@ -243,7 +243,7 @@ mod refresh_tests;
 
 /// A rig whose first bone's X translation is the negated keyframe value, after an optional
 /// pre-animation loop of `pre_animation` iterations.
-fn rig_assets(
+pub(super) fn rig_assets(
     symbols: &[(assets::MolangSymbolKind, &str)],
     keyframe: Vec<assets::MolangOp>,
     keyframe_stack: u8,
@@ -294,7 +294,7 @@ fn rig_assets(
 }
 
 /// A rig whose first bone translates by one unit per tick of actor age.
-fn clock_assets(pre_animation: Option<f32>) -> Arc<RuntimeEntityAssets> {
+pub(super) fn clock_assets(pre_animation: Option<f32>) -> Arc<RuntimeEntityAssets> {
     use assets::MolangOp;
     rig_assets(
         &[(assets::MolangSymbolKind::Query, "query.life_time")],
@@ -309,7 +309,7 @@ fn clock_assets(pre_animation: Option<f32>) -> Arc<RuntimeEntityAssets> {
 }
 
 /// The view `x <= 10`, with generous distances.
-fn near_view() -> ActorAnimationView {
+pub(super) fn near_view() -> ActorAnimationView {
     ActorAnimationView {
         planes: [[-1.0, 0.0, 0.0, 10.0]; 6],
         camera: [0.0; 3],

@@ -24,6 +24,7 @@ fn drive(
         (0.0, None),
         width.map_or(1280, |width| width.0),
         crate::observations::InputObservation(Some(&routed.0)),
+        Default::default(),
         auto,
         settings,
         time,
