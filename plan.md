@@ -3902,7 +3902,8 @@ incomplete; this correction preserves the approved built-in pack geometry.
 
 Legacy lowercase `scalex`, `scaley` and `scalez` scripts use the same compiled scale
 programs as the modern spellings. Malformed optional values retain their counted
-fallback. Incomplete: native precedence when both spellings are supplied and the
+fallback. The grown wither now uses its authored scale in the matched local fixture.
+Incomplete: native precedence when both spellings are supplied and the
 remaining wither spawn, armor and death behavior still need matched verification.
 
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
