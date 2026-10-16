@@ -1113,10 +1113,12 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Frame attribution and unchanged GPU uploads
 
-- macOS reserves three native drawable slots for either presentation mode. The
-  native Metal backend uses display-link drawable delivery on supported AppKit
-  surfaces, with bounded prefetch and cancellation before reconfiguration.
-  Smooth 120 Hz acceptance remains open.
+- With VSync, macOS 14 and later reserve a third native drawable for display-link
+  prefetch; older systems and other backends keep one queued frame. The native
+  Metal backend delivers drawables through the display link on supported AppKit
+  surfaces at the configured latency, follows the hosting screen's refresh rate,
+  discards updates past their submission deadline and cancels before
+  reconfiguration. Smooth 120 Hz acceptance remains open.
 
 - Metal completion markers feed bounded GPU queue predictions into input admission,
   delaying the next input sample until CPU work can feed the GPU without a frame

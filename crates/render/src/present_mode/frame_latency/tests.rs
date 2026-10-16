@@ -90,6 +90,25 @@ fn worlds(initial: NonZeroU32) -> (World, Entity, NormalizedRenderTarget) {
     (world, render_entity, target)
 }
 
+/// Only display-link delivery reserves a second VSync frame; fallback paths keep one.
+#[test]
+fn vsync_reserves_a_prefetch_slot_only_for_display_link_delivery() {
+    assert_eq!(frame_latency(true, false).get(), 1);
+    assert_eq!(frame_latency(true, true).get(), 2);
+    assert_eq!(frame_latency(false, false).get(), 2);
+    assert_eq!(frame_latency(false, true).get(), 2);
+}
+
+/// Platforms without display-link delivery, including macOS before 14, keep one VSync frame.
+#[test]
+fn vsync_latency_follows_the_backend_delivery_path() {
+    let expected = if metal_display_link_delivery() { 2 } else { 1 };
+    assert_eq!(frame_latency_for_vsync(true).get(), expected);
+    assert_eq!(frame_latency_for_vsync(false).get(), 2);
+    #[cfg(not(target_os = "macos"))]
+    assert!(!metal_display_link_delivery());
+}
+
 /// Both latency change directions invalidate retained outputs with an unchanged present mode.
 #[test]
 fn live_frame_latency_changes_release_cached_surface_outputs() {
