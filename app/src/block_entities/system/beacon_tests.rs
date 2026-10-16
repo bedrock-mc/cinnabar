@@ -119,9 +119,9 @@ fn fixture(beacon_count: usize, eye: Vec3, fill_portals: bool) -> World {
     let beam_assets = assets::RuntimeBlockEntityAssets::decode(
         &assets::encode_block_entity_catalog(
             b"{}",
+            render_model::MIN_DYNAMIC_ATLAS_WIDTH,
             16,
-            16,
-            &[255; 16 * 16 * 4],
+            &vec![255; render_model::MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4],
             &[assets::BlockEntityPlacement {
                 name: "textures/entity/beacon_beam".into(),
                 x: 0,

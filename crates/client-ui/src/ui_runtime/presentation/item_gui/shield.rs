@@ -6,7 +6,7 @@ use assets::gui_item::{
     SHIELD_ALPHA_CUTOFF, SHIELD_FACE_CORNERS as FACE_CORNERS, SHIELD_ROOT_BONE as ROOT_BONE,
     shield_face_uvs as face_uvs,
 };
-use assets::{EntityGeometry, EntityGeometryBone, EntityGeometryCube, EquipmentTexture};
+use assets::{EntityGeometry, EntityGeometryCube, EquipmentTexture};
 use ui::{UiMesh, UiMeshVertex};
 
 use {
@@ -52,14 +52,7 @@ pub(super) fn mesh(
         if cube.rotation.iter().any(|value| value.get() != 0.0) {
             return None;
         }
-        append_cube(
-            &mut vertices,
-            &mut indices,
-            geometry,
-            bone,
-            cube,
-            texture_ref,
-        )?;
+        append_cube(&mut vertices, &mut indices, geometry, cube, texture_ref)?;
     }
     if indices.is_empty() {
         return None;
@@ -83,13 +76,12 @@ fn append_cube(
     vertices: &mut Vec<UiMeshVertex>,
     indices: &mut Vec<u32>,
     geometry: &EntityGeometry,
-    bone: &EntityGeometryBone,
     cube: &EntityGeometryCube,
     texture: IconRef,
 ) -> Option<()> {
     let origin = cube.origin.map(|value| value.get());
     let size = cube.size.map(|value| value.get());
-    let inflate = cube.inflate.get() + bone.inflate.map_or(0.0, |value| value.get());
+    let inflate = cube.inflate.get();
     let min: [f32; 3] = std::array::from_fn(|axis| origin[axis] - inflate);
     let max: [f32; 3] = std::array::from_fn(|axis| origin[axis] + size[axis] + inflate);
     let corners = [
@@ -103,7 +95,7 @@ fn append_cube(
         [min[0], max[1], max[2]],
     ]
     .map(project);
-    let mirror = cube.mirror ^ bone.mirror.unwrap_or(false);
+    let mirror = cube.mirror;
     let uvs = face_uvs(cube);
     for (face, corners_index) in FACE_CORNERS.into_iter().enumerate() {
         let Some(uvs) = uvs[face] else { continue };

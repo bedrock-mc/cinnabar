@@ -15,5 +15,6 @@
     "PlayerHunger": "minecraft:player.hunger",
     "UnderwaterMovement": "minecraft:underwater_movement"
   },
-  "sprint_speed_modifier_id": "d208fc00-42aa-4aad-9276-d5446530de43"
+  "sprint_speed_modifier_id": "d208fc00-42aa-4aad-9276-d5446530de43",
+  "speed_effect_modifier_id": "91aeaa56-376b-4498-935b-2f7f68070635"
 }

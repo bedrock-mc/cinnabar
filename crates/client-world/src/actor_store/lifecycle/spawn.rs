@@ -57,7 +57,7 @@ impl ActorStore {
             &self.custom_actor_facts,
         );
         let fact = self.resolve_entity_fact(&spawn.kind);
-        let mut actor = ActorSnapshot::from_spawn(spawn, sequence, fact);
+        let mut actor = ActorSnapshot::from_spawn(spawn, sequence, fact, &mut self.hitbox_budget);
         actor.interaction_traits = interaction_traits;
         self.bind_actor_seat(&actor);
         self.effect_members.update(&mut actor);

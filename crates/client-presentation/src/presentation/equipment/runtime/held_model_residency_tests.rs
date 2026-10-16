@@ -1,7 +1,7 @@
 //! Partial model artwork must keep the held item's available icon.
 
 use super::*;
-use render_model::java_animation::JavaHand;
+use render_model::{MIN_DYNAMIC_ATLAS_WIDTH, java_animation::JavaHand};
 
 /// Builds a valid synthetic pot atlas with independently optional base and side textures.
 fn pot_assets(base: bool, side: bool) -> RuntimeBlockEntityAssets {
@@ -21,9 +21,14 @@ fn pot_assets(base: bool, side: bool) -> RuntimeBlockEntityAssets {
         height: size[1] as u32,
     })
     .collect::<Vec<_>>();
-    let bytes =
-        assets::encode_block_entity_catalog(b"{}", 64, 128, &vec![255; 64 * 128 * 4], &placements)
-            .unwrap();
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
+        128,
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 128 * 4],
+        &placements,
+    )
+    .unwrap();
     RuntimeBlockEntityAssets::decode(&bytes).unwrap()
 }
 

@@ -8,11 +8,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use super::process_owner::OwnerState;
 use super::{
     MARKER_FILE_NAME, ReleaseOutcome, ScopedSessionDirectory, SessionDirectoryError,
     SessionDirectoryGuard, StaleReclaimPolicy, StaleReclaimReport, parse_catalog_file_name,
-    parse_session_dir_name, reclaim_stale_entries,
+    parse_session_dir_name,
 };
+
+/// Existing fake-PID cleanup fixtures use an explicit dead process view, never host PID guesses.
+fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleReclaimReport {
+    super::reclaim_stale_entries_with(root, policy, &|_| OwnerState::Dead)
+}
+
+#[path = "session_cleanup_tests/liveness.rs"]
+mod liveness;
 
 /// A unique temporary root removed on drop.
 struct TempRoot(PathBuf);

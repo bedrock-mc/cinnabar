@@ -1,6 +1,6 @@
 // Code generated from canonical protocol manifest v2. DO NOT EDIT.
 
-//! Wire runtime for Rust codec contract v1 (`docs/rust-codec-contract.md`).
+//! Wire runtime for Rust codec contract v2 (`docs/rust-codec-contract.md`).
 //!
 //! Decoding is slice-based: every declared length is checked against the
 //! remaining input and the reader's [`Limits`] before anything is allocated,
@@ -67,6 +67,8 @@ pub enum DecodeError {
     },
     InvalidBitset(&'static str),
     NbtDepthExceeded,
+    /// A recursive schema edge exceeded the client-owned decoded-tree depth budget.
+    RecursiveDepthExceeded,
     NbtMalformed(&'static str),
     UnknownPacketId(u32),
     /// A known packet id that the sending peer is not permitted to use.
@@ -125,6 +127,12 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidBitset(reason) => write!(f, "invalid bitset: {reason}"),
             Self::NbtDepthExceeded => write!(f, "NBT nesting exceeds {MAX_NBT_DEPTH}"),
+            Self::RecursiveDepthExceeded => {
+                write!(
+                    f,
+                    "recursive value depth exceeds {MAX_RECURSIVE_VALUE_DEPTH}"
+                )
+            }
             Self::NbtMalformed(reason) => write!(f, "malformed NBT: {reason}"),
             Self::UnknownPacketId(id) => write!(f, "unknown packet id {id}"),
             Self::UnexpectedDirection(id) => {
@@ -287,6 +295,7 @@ pub struct Reader<'a> {
     pos: usize,
     shared: Option<&'a bytes::Bytes>,
     limits: &'a Limits,
+    recursive_depth: usize,
 }
 
 impl<'a> Reader<'a> {
@@ -296,6 +305,7 @@ impl<'a> Reader<'a> {
             pos: 0,
             shared: None,
             limits: &UNBOUNDED,
+            recursive_depth: 0,
         }
     }
 
@@ -1304,6 +1314,27 @@ impl Encode for bytes::Bytes {
 impl Decode for bytes::Bytes {
     fn decode(reader: &mut Reader<'_>) -> DecodeResult<Self> {
         reader.read_shared_bytes(FieldId::NONE)
+    }
+}
+/// Client-owned ceiling on recursive schema edges along a decoded value's path.
+/// This bounds decoder stack use and the resulting owned tree's clone/drop depth;
+/// it is independent of collection/byte limits and is not a native protocol maximum.
+pub const MAX_RECURSIVE_VALUE_DEPTH: usize = 64;
+
+impl Reader<'_> {
+    /// Decodes one recursive child, restoring depth capacity on success or a decode error.
+    /// Refusal consumes no child bytes; cursor changes made by `decode` are not rolled back.
+    pub fn with_recursive_value<T>(
+        &mut self,
+        decode: impl FnOnce(&mut Self) -> DecodeResult<T>,
+    ) -> DecodeResult<T> {
+        if self.recursive_depth == MAX_RECURSIVE_VALUE_DEPTH {
+            return Err(DecodeError::RecursiveDepthExceeded);
+        }
+        self.recursive_depth += 1;
+        let result = decode(self);
+        self.recursive_depth -= 1;
+        result
     }
 }
 // ---------------------------------------------------------------------------

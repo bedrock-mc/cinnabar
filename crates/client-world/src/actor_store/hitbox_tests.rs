@@ -4,7 +4,9 @@ use std::sync::Arc;
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue};
 use world::{NbtCompound, NbtValue};
 
-use super::{ActorStore, tests::spawn};
+use super::{ActorApplyResult, ActorStore, tests::spawn};
+
+mod budget;
 
 /// One `Hitboxes` entry as `(min, max, pivot)`.
 type Entry = ([f32; 3], [f32; 3], [f32; 3]);
@@ -122,7 +124,7 @@ fn malformed_hitbox_entries_are_skipped() {
 }
 
 /// Applies another metadata packet without replacing the actor.
-fn update(store: &mut ActorStore, sequence: u64, metadata: ActorMetadata) {
+fn update(store: &mut ActorStore, sequence: u64, metadata: ActorMetadata) -> ActorApplyResult {
     store.apply(
         1,
         sequence,
@@ -133,7 +135,7 @@ fn update(store: &mut ActorStore, sequence: u64, metadata: ActorMetadata) {
             properties: Arc::from([]),
             tick: 0,
         }),
-    );
+    )
 }
 
 #[test]

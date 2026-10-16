@@ -8,12 +8,15 @@ use super::{
     atlas::{ParticleAtlas, Placement},
     def::TextureSource,
     emitter::{Emitter, Outputs, ParticleSound, SpawnRequest},
+    event_budget::{EventOverflows, MAX_QUEUED_SOUNDS},
     library::EffectLibrary,
     world::ParticleWorld,
 };
 
 mod biome_tinted;
 mod bookkeeping;
+#[cfg(test)]
+mod event_tests;
 
 use bookkeeping::Bookkeeping;
 
@@ -43,9 +46,6 @@ const TILE_VARIABLE_NAMES: [[&str; 4]; 5] = tile_variable_names! {
     "ground_particle_texture_coordinate", "ground_particle_texture_size";
     "surface_particle_texture_coordinate", "surface_particle_texture_size";
 };
-/// Undrained sound requests kept before the oldest are dropped.
-const MAX_QUEUED_SOUNDS: usize = 256;
-
 #[derive(Default)]
 pub struct ParticleSystem {
     /// Winning client-entity aliases and authored controller-state effects.
@@ -65,6 +65,8 @@ pub struct ParticleSystem {
     pub(super) draw_scratch: super::draw::DrawScratch,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
+    /// Cumulative authored-event admission losses; work counts skipped roots, not their descendants.
+    pub event_overflows: EventOverflows,
 }
 
 impl ParticleSystem {
@@ -332,7 +334,11 @@ impl ParticleSystem {
 
     /// Advances lifetimes and accounts for removals before admitting nested effects.
     fn step(&mut self, dt: f32, world: &dyn ParticleWorld) {
-        let mut output = Outputs::default();
+        self.step_with_output(dt, world, Outputs::default());
+    }
+
+    /// Shares one output allowance across creation, deferred dispatch and all existing emitters.
+    fn step_with_output(&mut self, dt: f32, world: &dyn ParticleWorld, mut output: Outputs) {
         let live = self.live_particles();
         let mut budget = MAX_LIVE_PARTICLES.saturating_sub(live);
         let mut boxes = std::mem::take(&mut self.boxes);
@@ -353,12 +359,22 @@ impl ParticleSystem {
                 true
             }
         });
-        self.sounds.append(&mut output.sounds);
-        if self.sounds.len() > MAX_QUEUED_SOUNDS {
-            let excess = self.sounds.len() - MAX_QUEUED_SOUNDS;
-            self.sounds.drain(..excess);
-        }
         self.seed = self.seed.wrapping_add(1);
+        self.accept_outputs(output);
+    }
+
+    /// Publishes bounded outputs after lifetime retention, keeping the latest undrained sounds.
+    fn accept_outputs(&mut self, mut output: Outputs) {
+        let excess = (self.sounds.len() + output.sounds.len()).saturating_sub(MAX_QUEUED_SOUNDS);
+        self.sounds.drain(..excess);
+        self.sounds.extend(output.sounds);
+        output.budget.overflow.sounds = output.budget.overflow.sounds.saturating_add(excess as u64);
+        if self.event_overflows == EventOverflows::default()
+            && output.budget.overflow != EventOverflows::default()
+        {
+            tracing::warn!(overflow = ?output.budget.overflow, "particle event admission limit reached");
+        }
+        self.event_overflows.add(output.budget.overflow);
         for request in output.spawns {
             self.spawn(&request);
         }

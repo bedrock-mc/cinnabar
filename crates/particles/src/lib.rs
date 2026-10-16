@@ -7,6 +7,7 @@ mod def;
 mod dragon_egg;
 mod draw;
 mod emitter;
+mod event_budget;
 mod library;
 mod molang;
 mod particle;
@@ -21,6 +22,7 @@ pub use atlas::{ATLAS_SIDE, AtlasPatch, particle_textures_fit};
 pub use dragon_egg::dragon_egg_teleport_requests;
 pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
+pub use event_budget::EventOverflows;
 pub use molang::Queries;
 pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{
@@ -34,6 +36,8 @@ pub use world::{BlockIdentity, BlockList, EmptyWorld, Fluid, ParticleWorld};
 
 #[cfg(test)]
 mod eating_tests;
+#[cfg(test)]
+mod event_tests;
 #[cfg(test)]
 mod explosion_tests;
 #[cfg(test)]

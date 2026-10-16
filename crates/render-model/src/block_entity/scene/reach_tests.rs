@@ -1,4 +1,5 @@
 use super::*;
+use crate::block_entity::MIN_DYNAMIC_ATLAS_WIDTH;
 use crate::{BannerMount, ChestPair, ChestVariant, Facing, SignFace, SignMount};
 
 /// An atlas holding every texture the anchored models below sample.
@@ -21,9 +22,9 @@ fn scene() -> BlockEntityScene {
     placements.sort_by(|a, b| a.name.cmp(&b.name));
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        1024,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         256,
-        &vec![255; 1024 * 256 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 256 * 4],
         &placements,
     )
     .unwrap();

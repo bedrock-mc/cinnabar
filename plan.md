@@ -175,6 +175,10 @@ job costs remain unverified. No browser release or parity gate closes here.
 
 ## Far terrain (LOD)
 
+**Disabled, incomplete:** far terrain and the full-detail radius are off, with no Video settings,
+until their streaming bugs are fixed; values older builds saved are ignored. The design below is
+kept for re-enabling.
+
 `far-terrain` summarises each column the server sent: the height of every cell's highest
 visible block, its average texture colour tinted by biome, and any water depth, with water
 blended over its floor. World workers summarise a column when all of its sections have arrived,
@@ -248,7 +252,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or a full-detail distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -1324,6 +1328,8 @@ these changes do not close the movement, camera, or actor parity gates.
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
   Sprint transitions recalculate movement speed from attribute defaults and other
   modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
+  Server Speed effect changes refresh that value while sprint stays held.
+  Local Speed modifier expiry without a server update remains incomplete.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
