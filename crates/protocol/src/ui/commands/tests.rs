@@ -187,6 +187,34 @@ fn enum_values_complete_after_the_command() {
 }
 
 #[test]
+fn enum_values_match_substrings_case_insensitively() {
+    let catalog = catalog();
+    // "survival" contains "iva" mid-word; prefix-only filtering would miss it.
+    assert_eq!(suggest(&catalog, "/gamemode iva"), ["survival"]);
+    assert_eq!(suggest(&catalog, "/gamemode IVA"), ["survival"]);
+    // Soft enums share the same substring rule ("shop" contains "hop").
+    assert_eq!(suggest(&catalog, "/warp hop"), ["shop"]);
+    assert_eq!(
+        ChatAutocompleteCatalog::suggestion_match("/gamemode iva", "survival"),
+        Some(4..7)
+    );
+}
+
+#[test]
+fn flat_enums_match_substrings_case_insensitively() {
+    let mut catalog = ChatAutocompleteCatalog::default();
+    catalog
+        .apply(ChatAutocompleteEvent {
+            enum_name: Arc::from("effects"),
+            action: ChatAutocompleteAction::Replace,
+            suggestions: Arc::from([Arc::from("night_vision"), Arc::from("speed")]),
+        })
+        .unwrap();
+    assert_eq!(suggest(&catalog, "vis"), ["night_vision"]);
+    assert_eq!(suggest(&catalog, "VIS"), ["night_vision"]);
+}
+
+#[test]
 fn target_parameters_offer_players_and_selectors() {
     let catalog = catalog();
     let players = [Arc::from("Steve"), Arc::from("Alex")];

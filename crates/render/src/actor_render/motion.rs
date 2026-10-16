@@ -103,29 +103,39 @@ pub(crate) struct MotionView {
 
 impl MotionView {
     /// Allocates only for a visible actor frame under an enabled exposure setting.
-    fn new(device: &RenderDevice, depth: &ViewDepthStencilTexture) -> Self {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("rendered actor velocities"),
-            size: depth.texture().size(),
-            mip_level_count: 1,
-            sample_count: depth.texture().sample_count(),
-            dimension: TextureDimension::D2,
-            format: MOTION_FORMAT,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        Self {
-            view: texture.create_view(&Default::default()),
+    fn new(device: &RenderDevice, depth: &ViewDepthStencilTexture) -> Option<Self> {
+        let size = depth.texture().size();
+        let bytes = u64::from(size.width)
+            * u64::from(size.height)
+            * 8
+            * u64::from(depth.texture().sample_count());
+        let texture = allocation::checked(device, "rendered actor velocities", bytes, || {
+            device.create_texture(&TextureDescriptor {
+                label: Some("rendered actor velocities"),
+                size: depth.texture().size(),
+                mip_level_count: 1,
+                sample_count: depth.texture().sample_count(),
+                dimension: TextureDimension::D2,
+                format: MOTION_FORMAT,
+                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        })?;
+        let view = allocation::checked(device, "actor velocity view", 0, || {
+            texture.create_view(&Default::default())
+        })?;
+        Some(Self {
+            view,
             texture,
             history: ActorHistory::default(),
-            instances: MotionBuffer::new(device, size_of::<MotionInstance>()),
-            bones: MotionBuffer::new(device, render_model::ACTOR_BONE_MATRIX_BYTES),
+            instances: MotionBuffer::new(device, size_of::<MotionInstance>())?,
+            bones: MotionBuffer::new(device, render_model::ACTOR_BONE_MATRIX_BYTES)?,
             binding: None,
             draws: Vec::new(),
             frame_generation: 0,
             moved: false,
             ready: false,
-        }
+        })
     }
 }
 
@@ -172,37 +182,54 @@ pub(crate) fn prepare(
         state.texture.size() != depth.texture().size()
             || state.texture.sample_count() != depth.texture().sample_count()
     }) {
-        *state = Some(MotionView::new(device, depth));
+        let Some(replacement) = MotionView::new(device, depth) else {
+            *state = None;
+            return;
+        };
+        *state = Some(replacement);
     }
     let state = state.as_mut().unwrap();
     state.moved = state
         .history
         .advance(&frame.rig, previous_camera, current_camera, continuous);
-    let instances_changed = state.instances.upload(
+    state.ready = false;
+    let Some(instances_changed) = state.instances.upload(
         device,
         bytemuck::cast_slice(&state.history.instances),
         |buffer, bytes| queue.profiled_write_buffer(buffer, 0, bytes),
-    );
-    let bones_changed = state.bones.upload(
+    ) else {
+        return;
+    };
+    if instances_changed {
+        state.binding = None;
+    }
+    let Some(bones_changed) = state.bones.upload(
         device,
         bytemuck::cast_slice(&state.history.bones),
         |buffer, bytes| queue.profiled_write_buffer(buffer, 0, bytes),
-    );
+    ) else {
+        return;
+    };
     if instances_changed || bones_changed || state.binding.is_none() {
-        state.binding = Some(device.create_bind_group(
-            "previous rendered actor pose",
-            &cache.get_bind_group_layout(&layout()),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: state.instances.buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: state.bones.buffer.as_entire_binding(),
-                },
-            ],
-        ));
+        state.binding = allocation::checked(device, "actor velocity bindings", 0, || {
+            device.create_bind_group(
+                "previous rendered actor pose",
+                &cache.get_bind_group_layout(&layout()),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: state.instances.buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: state.bones.buffer.as_entire_binding(),
+                    },
+                ],
+            )
+        });
+        if state.binding.is_none() {
+            return;
+        }
     }
     state.draws.clear();
     state.ready = gpu.bind_group.is_some();
@@ -245,6 +272,8 @@ pub(crate) fn prepare(
 
 #[cfg(test)]
 mod raster_tests;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

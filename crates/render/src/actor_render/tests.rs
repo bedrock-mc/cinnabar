@@ -175,17 +175,10 @@ fn generic_only_frames_do_not_require_or_reinterpret_player_skins() {
     assert!(!player_skins_resident(&frame));
 }
 
-#[test]
-fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
-    use bevy::ecs::system::RunSystemOnce;
+/// Builds one valid generic draw without player skin residency or installed assets.
+fn generic_frame() -> render_scene::ActorRenderFrame {
     use render_model::{ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute};
     use render_model::{ActorRigVertex, EntityRigId};
-    let mut app = app_with_noop_render_sub_app();
-    app.add_plugins(ActorRenderPlugin);
-    app.finish();
-    let world = app.sub_app_mut(RenderApp).world_mut();
-    world.run_schedule(RenderStartup);
-    world.resource_mut::<ActorGpu>().skin_revision = 0;
     let mut frame = render_scene::ActorRenderFrame::default();
     frame.rig.frame_generation = 1;
     frame.rig.geometry_revision = 1;
@@ -245,6 +238,19 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
         rgba8: vec![255; 1024].into(),
     }]);
     frame.artwork = Arc::new(artwork);
+    frame
+}
+
+#[test]
+fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    world.resource_mut::<ActorGpu>().skin_revision = 0;
+    let frame = generic_frame();
     world.insert_resource(frame);
     world
         .run_system_once(super::prepare_actor_resources)
@@ -300,6 +306,45 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
         .run_system_once(super::prepare_actor_resources)
         .unwrap();
     assert!(world.resource::<ActorGpu>().artwork_current);
+}
+
+/// Texels written into an already allocated skin layer keep the actor bindings.
+#[test]
+fn in_place_skin_updates_keep_the_actor_bind_group() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    let mut frame = generic_frame();
+    frame.skins = one_resident_skin();
+    frame.skin_revision = 1;
+    world.insert_resource(frame);
+    world
+        .run_system_once(super::prepare_actor_resources)
+        .unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let layout = device.create_bind_group_layout("test actor layout", &[]);
+    world.resource_mut::<ActorGpu>().bind_group =
+        Some(device.create_bind_group("test actor bindings", &layout, &[]));
+
+    let skin = render_api::SkinRgba8::from(vec![7; render_model::STANDARD_SKIN_BYTES]);
+    let mut residency = render_model::ActorSkinResidency::default();
+    residency.classes[0] = Arc::from([Some(render_model::ResidentSkin {
+        texels: Arc::clone(skin.pixels()),
+        skin,
+        admission: 2,
+    })]);
+    let mut frame = world.resource_mut::<render_scene::ActorRenderFrame>();
+    frame.skins = Arc::new(residency);
+    frame.skin_revision = 2;
+    world
+        .run_system_once(super::prepare_actor_resources)
+        .unwrap();
+    let gpu = world.resource::<ActorGpu>();
+    assert_eq!(gpu.skin_revision, 2);
+    assert!(gpu.bind_group.is_some());
 }
 
 fn app_with_noop_render_sub_app() -> App {
@@ -374,6 +419,100 @@ fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
     );
     render_app.world_mut().run_schedule(RenderStartup);
     assert!(render_app.world().contains_resource::<ActorGpu>());
+}
+
+#[test]
+fn initial_actor_allocation_failure_leaves_the_app_running_without_actor_resources() {
+    for label in [
+        "unchanged player material class",
+        "bounded shared actor instance arena",
+        "bounded shared actor previous-bone arena",
+        "bounded shared actor current-bone arena",
+        "player skin class array",
+    ] {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(ActorRenderPlugin);
+        app.finish();
+        let _failure = super::allocation::inject(move |owner, _| owner == label);
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        world
+            .resource_mut::<bevy::ecs::schedule::Schedules>()
+            .get_mut(RenderStartup)
+            .unwrap()
+            .set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+        world.run_schedule(RenderStartup);
+        assert!(!world.contains_resource::<ActorGpu>(), "{label}");
+        assert!(world.contains_resource::<ActorRenderInstalled>());
+    }
+}
+
+/// Loading still sees actor pipeline readiness when the initial actor allocation fails.
+#[test]
+fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
+    use bevy::{
+        prelude::Msaa,
+        render::{render_resource::PipelineCache, renderer::RenderDevice},
+    };
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    let _failure =
+        super::allocation::inject(|owner, _| owner == "bounded shared actor instance arena");
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let device = world.resource::<RenderDevice>().clone();
+    world.insert_resource(PipelineCache::new(device, false));
+    let mut schedules = world.resource_mut::<bevy::ecs::schedule::Schedules>();
+    let single = bevy::ecs::schedule::SingleThreadedExecutor::new;
+    schedules
+        .get_mut(RenderStartup)
+        .unwrap()
+        .set_executor(single());
+    schedules.get_mut(Render).unwrap().set_executor(single());
+    world.run_schedule(RenderStartup);
+    assert!(!world.contains_resource::<ActorGpu>());
+    // Unrelated render systems lack their resources in this harness; only actor readiness matters.
+    world.insert_resource(bevy::ecs::error::FallbackErrorHandler(
+        bevy::ecs::error::ignore,
+    ));
+    world.spawn((Msaa::Off, crate::render_test_support::camera(false)));
+    world.run_schedule(Render);
+    assert!(
+        world
+            .resource::<super::ActorPipeline>()
+            .draw_variant(
+                Msaa::Off,
+                false,
+                false,
+                assets::EntityRenderMaterial::Default as u32
+            )
+            .is_some(),
+        "actor pipelines are requested without actor resources"
+    );
+}
+
+#[test]
+fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut gpu = super::GpuSkinArrays::new(&device).unwrap();
+    let first = one_resident_skin();
+    gpu.sync(&first, &device, &queue);
+    let previous = gpu.view(0).id();
+    let mut next = (*first).clone();
+    next.classes[0] = Arc::from([first.classes[0][0].clone(), first.classes[0][0].clone()]);
+    let next = Arc::new(next);
+    let uploaded = gpu.uploaded_bytes;
+    {
+        let _failure = super::allocation::inject(|owner, _| owner == "player skin class array");
+        gpu.sync(&next, &device, &queue);
+    }
+    assert!(!gpu.is_synced(&next));
+    assert_eq!(gpu.view(0).id(), previous);
+    assert_eq!(gpu.uploaded_bytes, uploaded);
+    let retry = Arc::new((*next).clone());
+    gpu.sync(&retry, &device, &queue);
+    assert!(gpu.is_synced(&retry));
 }
 
 #[test]
@@ -557,7 +696,7 @@ fn skin_arrays_upload_only_newly_admitted_skins() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
     let queue = RenderQueue::new(queue);
-    let mut gpu = super::GpuSkinArrays::new(&device);
+    let mut gpu = super::GpuSkinArrays::new(&device).unwrap();
     let mut scene = render_scene::ActorRenderScene::default();
     let skins: Vec<_> = (0..6).map(|seed| upscaled_skin(seed, 64)).collect();
     let classic = 64 * 64 * 4;
@@ -590,4 +729,57 @@ fn skin_arrays_upload_only_newly_admitted_skins() {
     assert_eq!(scene.frame().skins.classes[3].len(), 2);
     assert_eq!(two[..5], one[..]);
     assert_eq!(gpu.uploaded_bytes, 4 * classic + 2 * 256 * 256 * 4);
+}
+
+#[test]
+fn failed_actor_buffer_publications_skip_draws_and_later_publications_recover() {
+    use bevy::ecs::system::RunSystemOnce;
+    for label in [
+        "shared actor rig vertices",
+        "shared actor rig geometry spans",
+        "actor instance and bone upload",
+    ] {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(ActorRenderPlugin);
+        app.finish();
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        world.run_schedule(RenderStartup);
+        world.insert_resource(generic_frame());
+        world
+            .run_system_once(super::prepare_actor_resources)
+            .unwrap();
+        assert_eq!(world.resource::<ActorGpu>().instance_count, 1);
+        {
+            let mut frame = world.resource_mut::<render_scene::ActorRenderFrame>();
+            frame.rig.geometry_revision += 1;
+            frame.rig.frame_generation += 1;
+            frame.rig.geometry_vertices = render_model::ActorRigVertexSegments::from_vertices(
+                vec![render_model::ActorRigVertex::default(); 12],
+            );
+        }
+        {
+            let _failure = super::allocation::inject(move |owner, _| owner == label);
+            world
+                .run_system_once(super::prepare_actor_resources)
+                .unwrap();
+        }
+        assert_eq!(world.resource::<ActorGpu>().instance_count, 0, "{label}");
+        world
+            .run_system_once(super::prepare_actor_resources)
+            .unwrap();
+        assert_eq!(
+            world.resource::<ActorGpu>().instance_count,
+            0,
+            "failed publication stays suppressed: {label}"
+        );
+        {
+            let mut frame = world.resource_mut::<render_scene::ActorRenderFrame>();
+            frame.rig.geometry_revision += 1;
+            frame.rig.frame_generation += 1;
+        }
+        world
+            .run_system_once(super::prepare_actor_resources)
+            .unwrap();
+        assert_eq!(world.resource::<ActorGpu>().instance_count, 1, "{label}");
+    }
 }
