@@ -3896,12 +3896,6 @@ are authored but unrun at the user's request. Native
 `#item_name_text_offset` controller binding remains
 incomplete; this correction preserves the approved built-in pack geometry.
 
-Canonical empty component data preserves the compiled native item grip even when
-the registry marks the item component based. Explicit hand flags still override it;
-malformed, missing nonempty definitions and unknown versions remain unresolved.
-Original regressions cover upright and mirrored art plus retained equipment refresh.
-Incomplete: the final matched native fishing-rod comparison is pending.
-
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor
 carrier admission. Incomplete: absorbed-block scale and attachment placement remain
@@ -9392,6 +9386,13 @@ choices remain provisional compatibility data. Complete native, metadata, versio
 and custom base-item coverage is incomplete. Optional Java animation name routing
 remains a separate incomplete admission path. This does not close the complete
 equipment parity gate. `make assets` rebuilds carriers that lack these records.
+
+Canonical empty component data preserves the compiled native item grip even when
+an item registry marks the item component based. Explicit hand flags still override it;
+malformed, missing nonempty definitions and unknown versions remain unresolved.
+Original regressions cover upright and mirrored art plus retained equipment refresh.
+A local fishing-rod check restores the upright grip and first-person art direction.
+Incomplete: a third-person rod rotation difference remains against native Bedrock.
 
 ## Spawner display actors
 
