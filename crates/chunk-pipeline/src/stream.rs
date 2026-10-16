@@ -448,7 +448,6 @@ pub struct WorldStream {
     chunk_data_offloaded: bool,
     /// Ordered commit steps applied so far, so a poll can report commit progress.
     commit_steps: u64,
-    commit_observer: Option<fn(u64)>, // sees each committed FIFO sequence; diagnostics only
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: MeshChangeQueue,
     publisher: cohort::PublisherScope,

@@ -125,6 +125,7 @@ pub struct OrderedCommitState {
     earlier: EarlierEvents,
     /// Chunk data a pass without the chunk-data allowance skips, for its lookahead.
     skipped_chunk_data: EarlierEvents,
+    completion_observer: Option<fn(u64)>, // sees each finished sequence; diagnostics only
 }
 
 impl OrderedCommitState {
@@ -146,7 +147,14 @@ impl OrderedCommitState {
             last_step_heavy: false,
             earlier: EarlierEvents::default(),
             skipped_chunk_data: EarlierEvents::default(),
+            completion_observer: None,
         }
+    }
+
+    /// Calls `observer` with each sequence once its whole event has finished, merged block
+    /// ranges and multi-entry sub-chunk batches included.
+    pub fn observe_completions(&mut self, observer: fn(u64)) {
+        self.completion_observer = Some(observer);
     }
 
     /// Returns the lowest sequence that has not yet been popped for commit.
@@ -747,6 +755,9 @@ impl OrderedCommitState {
             };
             self.unfinished -= 1;
             self.release_held(entry.held);
+            if let Some(observer) = self.completion_observer {
+                observer(sequence);
+            }
             released = true;
         }
         if !released {

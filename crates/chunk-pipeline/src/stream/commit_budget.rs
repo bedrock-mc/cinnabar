@@ -21,9 +21,10 @@ impl WorldStream {
         };
     }
 
-    /// Calls `observer` with each FIFO sequence as its event commits, on the committing thread.
+    /// Calls `observer` with each FIFO sequence once its whole event has committed, on the
+    /// committing thread.
     pub fn observe_commits(&mut self, observer: fn(u64)) {
-        self.commit_observer = Some(observer);
+        self.order.observe_completions(observer);
     }
 
     /// Starts the frame's shared ingress, commit and scheduling allocation.
@@ -231,9 +232,6 @@ impl WorldStream {
 
     /// Releases a request reservation only when the lower owner finishes the whole event.
     fn finish_ordered_commit(&mut self, sequence: u64) {
-        if let Some(observer) = self.commit_observer {
-            observer(sequence);
-        }
         if self.order.finish_commit(sequence) {
             self.cancel_request_reservation(sequence);
         }
