@@ -266,6 +266,7 @@ fn input() -> ActorFrameInput {
         renders_game: true,
         hide_hand: true,
         custom_emote: None,
+        remote_emotes: Vec::new(),
     }
 }
 

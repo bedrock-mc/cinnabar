@@ -24,6 +24,7 @@ fn unpipelined_wait_starts_after_ordinary_frame_work() {
         .insert_resource(FramePacing {
             rate: FrameRate::from_hz(60),
             precise: true,
+            ..Default::default()
         })
         .init_resource::<FinishedWork>()
         .add_plugins(InputPacingPlugin::with_pacer(InputPacer::new(
@@ -350,6 +351,7 @@ fn hz(rate: u32) -> FramePacing {
     FramePacing {
         rate: FrameRate::from_hz(rate),
         precise: true,
+        ..Default::default()
     }
 }
 
@@ -412,6 +414,93 @@ fn render_completion_and_the_pacing_switch_never_shorten_the_cadence() {
             assert!(interval >= period, "enabled={enabled}: {interval:?}");
         }
     }
+}
+
+#[test]
+fn cpu_render_completion_does_not_admit_input_behind_a_gpu_backlog() {
+    for enabled in [true, false] {
+        let clock = FakeClock::new();
+        let pacer = InputPacer::new(clock.clone(), enabled);
+        {
+            let mut state = pacer.state();
+            for frame in 1..=HISTORY as u64 {
+                state.model.main.record(ms(1.0));
+                state.model.render.record(ms(1.0));
+                state.model.render_work.record(ms(1.0));
+                let id = state.gpu.submit(frame, clock.base);
+                state.gpu.complete(id, clock.base, ms(4.0));
+            }
+            state.handed = HISTORY as u64 + 1;
+            state.rendering = HISTORY as u64 + 1;
+            state.gpu.submit(HISTORY as u64 + 1, clock.base);
+        }
+        let finished = pacer.clone();
+        let render_clock = clock.clone();
+        pacer.handoff(&mut World::new(), &mut World::new(), &mut |_, _| {
+            finished.render_started();
+            let finished = finished.clone();
+            render_clock.schedule(render_clock.base + ms(1.0), move || {
+                finished.render_finished()
+            });
+        });
+        assert_eq!(
+            clock.now() - clock.base,
+            if enabled { ms(5.0) } else { Duration::ZERO }
+        );
+    }
+}
+
+#[test]
+fn fifo_completion_does_not_delay_input_for_a_predicted_gpu_backlog() {
+    for display_sync in [false, true] {
+        let clock = FakeClock::new();
+        let pacer = InputPacer::new(clock.clone(), true);
+        pacer.update_started(FramePacing {
+            display_sync,
+            ..Default::default()
+        });
+        {
+            let mut state = pacer.state();
+            for frame in 1..=HISTORY as u64 {
+                state.model.main.record(ms(1.0));
+                state.model.render.record(ms(1.0));
+                state.model.render_work.record(ms(1.0));
+                let id = state.gpu.submit(frame, clock.base);
+                state.gpu.complete(id, clock.base, ms(20.0));
+            }
+            state.handed = HISTORY as u64 + 1;
+            state.gpu.submit(HISTORY as u64 + 1, clock.base);
+        }
+        clock.advance(ms(1.0));
+        let handed = clock.now();
+        pacer.handoff(&mut World::new(), &mut World::new(), &mut |_, _| {});
+        assert_eq!(
+            clock.now() - handed,
+            if display_sync {
+                Duration::ZERO
+            } else {
+                ms(36.0)
+            },
+            "synchronized presentation must not wait for the queue predictor"
+        );
+    }
+}
+
+#[test]
+fn drawable_wait_does_not_inflate_gpu_feeding_work() {
+    let clock = FakeClock::new();
+    let pacer = InputPacer::new(clock.clone(), true);
+    for _ in 0..HISTORY {
+        pacer.render_started();
+        pacer.surface_started();
+        clock.advance(ms(7.0));
+        pacer.surface_finished();
+        clock.advance(ms(1.0));
+        pacer.render_finished();
+    }
+    let state = pacer.state();
+    assert_eq!(state.model.render.quantile(MEDIAN), Some(ms(8.0)));
+    assert_eq!(state.model.render_work.quantile(MEDIAN), Some(ms(1.0)));
 }
 
 /// Render-bound frames slower than the cadence keep the just-in-time sample.

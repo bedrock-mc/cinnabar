@@ -13,9 +13,22 @@ pub(super) struct LayerPoses<'a> {
     pub java_posed: &'a [java::Posed],
     pub combat_visuals: render_api::CombatVisuals,
     pub local_emote_pose: Option<&'a actor_animation::CustomEmotePose>,
+    pub remote_emote_poses:
+        &'a bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>,
     pub native_body_sampled: bool,
     pub remote_skin_layers: &'a super::bodies::RemoteSkinLayers,
     pub native_pose: &'a hand::NativePoseCache,
+}
+
+impl<'a> LayerPoses<'a> {
+    /// Selects one render-only overlay for body-dependent clothing, cape and equipment layers.
+    pub(super) fn emote(&self, runtime_id: u64) -> Option<&'a actor_animation::CustomEmotePose> {
+        if runtime_id == self.local_runtime_id {
+            self.local_emote_pose
+        } else {
+            self.remote_emote_poses.get(&runtime_id)
+        }
+    }
 }
 
 /// Retained layer geometry and pose conversions, borrowed only during layer assembly.
@@ -46,7 +59,8 @@ pub(super) fn attach(
         local_equipment: local_equipment_input,
         java_posed,
         combat_visuals: _,
-        local_emote_pose,
+        local_emote_pose: _,
+        remote_emote_poses: _,
         native_body_sampled,
         remote_skin_layers,
         native_pose,
@@ -70,9 +84,7 @@ pub(super) fn attach(
                 {
                     return None;
                 }
-                if runtime_id == local_runtime_id
-                    && let Some(pose) = local_emote_pose
-                {
+                if let Some(pose) = poses.emote(runtime_id) {
                     Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
                 } else {
                     render_frame.layers(runtime_id)
@@ -101,9 +113,7 @@ pub(super) fn attach(
             preparation,
             |runtime_id| {
                 stream.authority().actor_rig(runtime_id).map(|rig| {
-                    if runtime_id == local_runtime_id
-                        && let Some(pose) = local_emote_pose
-                    {
+                    if let Some(pose) = poses.emote(runtime_id) {
                         pose.snapshot(rig)
                     } else {
                         rig
@@ -139,9 +149,7 @@ pub(super) fn attach(
                 }) {
                     return None;
                 }
-                if runtime_id == local_runtime_id
-                    && let Some(pose) = local_emote_pose
-                {
+                if let Some(pose) = poses.emote(runtime_id) {
                     Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
                 } else {
                     render_frame.layers(runtime_id)
@@ -157,9 +165,7 @@ pub(super) fn attach(
             artwork,
             |runtime_id| {
                 let rig = stream.authority().actor_rig(runtime_id)?;
-                let emote = (runtime_id == local_runtime_id)
-                    .then_some(local_emote_pose)
-                    .flatten();
+                let emote = poses.emote(runtime_id);
                 let java_layers =
                     java::posed(java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
                 let native_layers = if runtime_id == local_runtime_id && native_body_sampled {

@@ -76,6 +76,7 @@ impl CommittedGameplayState<'_> {
             control,
             CommittedControlEvent::PlayerListChanged { .. }
                 | CommittedControlEvent::DimensionChangeAck { .. }
+                | CommittedControlEvent::ClientInputLocks { .. }
         ) {
             return ControlDisposition::Handled;
         }
@@ -387,6 +388,7 @@ impl CommittedGameplayState<'_> {
                 SpatialReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::ClientInputLocks { .. }
             | CommittedControlEvent::DimensionChangeAck { .. }
             | CommittedControlEvent::WorldClocks { .. }
             | CommittedControlEvent::WeatherCycle { .. }

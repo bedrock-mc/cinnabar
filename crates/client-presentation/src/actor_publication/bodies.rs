@@ -65,6 +65,8 @@ pub(super) struct SampledBodies<'a> {
     pub canonical_local: Option<ActorRigPresentation>,
     pub unrigged_actors: usize,
     pub local_emote_pose: Option<actor_animation::CustomEmotePose>,
+    pub remote_emote_poses:
+        bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>,
     pub java_posed: Vec<java::Posed>,
     pub native_body_sampled: bool,
     pub remote_skin_layers: RemoteSkinLayers,
@@ -114,6 +116,7 @@ pub(super) fn sample<'a>(
         })
         .flatten();
     let mut native_body_sampled = false;
+    let mut remote_emote_poses = bevy::platform::collections::HashMap::new();
     let mut remote_skin_layers = std::mem::take(&mut scratch.remote_skin_layers);
     remote_skin_layers.clear();
     let mut occlusion_work = occlusion::PreparationWork::default();
@@ -182,26 +185,53 @@ pub(super) fn sample<'a>(
                         occlusion_work.hidden_by_occlusion += u32::from(occluded.get());
                         continue;
                     }
+                    let remote_emote_pose = (rig.actor.runtime_id != local_runtime_id)
+                        .then(|| {
+                            let emote = input.remote_emotes.iter().find(|emote| {
+                                emote.runtime_id == rig.actor.runtime_id
+                                    && emote.spawn_revision == actor.spawn_revision
+                            })?;
+                            actor_animation::sample_custom_emote(
+                                &rig,
+                                emote.emote,
+                                emote.elapsed,
+                                emote.elapsed,
+                            )
+                        })
+                        .flatten();
+                    let sampled_rig = remote_emote_pose
+                        .as_ref()
+                        .map_or(rig, |pose| pose.snapshot(rig));
                     let profile = stream
                         .authority()
                         .actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
                         let local = rig.actor.runtime_id == local_runtime_id;
                         let java_pose = (java_mode
+                            && remote_emote_pose.is_none()
                             && !(local && (first_person || input.custom_emote.is_some())))
                         .then(|| {
                             let local = local.then_some(&input.local_equipment);
                             java::third_person(stream, &rig, actor, local, partial_tick, java_poses)
                         })
                         .flatten();
-                        crate::presentation::actors::actor_rig_presentation_cached(
-                            java_pose.as_ref().map_or(&rig, |java_pose| &java_pose.rig),
-                            actor,
-                            profile,
-                            partial_tick,
-                            poses,
-                        )
-                        .map(|mut presentation| {
+                        let presented = if remote_emote_pose.is_some() {
+                            crate::presentation::actors::actor_rig_presentation(
+                                &sampled_rig,
+                                actor,
+                                profile,
+                                partial_tick,
+                            )
+                        } else {
+                            crate::presentation::actors::actor_rig_presentation_cached(
+                                java_pose.as_ref().map_or(&rig, |java_pose| &java_pose.rig),
+                                actor,
+                                profile,
+                                partial_tick,
+                                poses,
+                            )
+                        };
+                        presented.map(|mut presentation| {
                             let java_applied = java_pose.is_some();
                             if let Some(java_pose) = java_pose {
                                 java::apply_pose(
@@ -224,6 +254,7 @@ pub(super) fn sample<'a>(
                                 native_body_sampled = true;
                             }
                             if !local
+                                && remote_emote_pose.is_none()
                                 && !java_applied
                                 && let Some(frame) = render_frame.as_mut()
                                 && let Some(skin) = hand::NativePoseCache::apply_frame_body(
@@ -250,7 +281,7 @@ pub(super) fn sample<'a>(
                     if rig.actor.runtime_id != local_runtime_id {
                         let admission_rig = emote_geometry::skin_layer_snapshot(
                             rig,
-                            None,
+                            remote_emote_pose.as_ref(),
                             java::posed(&java_posed, rig.actor.runtime_id)
                                 .map(|posed| posed.skin_layers.as_slice()),
                             remote_skin_layers
@@ -268,7 +299,7 @@ pub(super) fn sample<'a>(
                     }
                     preparation::register_player_skin(
                         &mut presentation,
-                        &rig,
+                        &sampled_rig,
                         skin_rigs,
                         equipment.as_deref_mut(),
                         new_geometries,
@@ -278,6 +309,9 @@ pub(super) fn sample<'a>(
                     if rig.actor.runtime_id == local_runtime_id {
                         canonical_local = Some(presentation);
                     } else {
+                        if let Some(pose) = remote_emote_pose {
+                            remote_emote_poses.insert(rig.actor.runtime_id, pose);
+                        }
                         remotes.push(presentation);
                     }
                 }
@@ -299,6 +333,7 @@ pub(super) fn sample<'a>(
         canonical_local,
         unrigged_actors,
         local_emote_pose,
+        remote_emote_poses,
         java_posed,
         native_body_sampled,
         remote_skin_layers,

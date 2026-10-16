@@ -45,7 +45,7 @@ pub use biome_tints::{
 pub mod instance;
 pub use instance::ChunkRenderInstance;
 pub mod texture_reload;
-pub use texture_reload::ChunkTextureReload;
+pub use texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub mod textures;
 pub use textures::{
     ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND, AnimationFrameSample, ChunkAnimationClock,

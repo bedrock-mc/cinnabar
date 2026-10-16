@@ -9,10 +9,12 @@ mod colours;
 mod disk;
 mod extract;
 mod identity;
+mod publication;
 mod region;
 mod store;
 mod summary;
 mod surface_slice;
+mod tile_coverage;
 mod tile_mesh;
 mod tile_set;
 mod tiles;
@@ -21,6 +23,7 @@ pub use budget::SummaryBudget;
 pub use cache::{FarTerrainCache, RetiringSession};
 pub use disk::{DiskBounds, DiskCache, DiskEvent};
 pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
+pub use publication::{TerrainPublication, TerrainTarget};
 pub use region::{
     REGION_SIDE, RegionDecodeError, RegionPos, decode_region, encode_region, region_index,
 };
@@ -33,6 +36,7 @@ pub use summary::{
     COLUMN_CELLS, COLUMN_SIDE, ColumnSummary, EncodedSummary, SummaryDecodeError, SurfaceCell,
 };
 pub use surface_slice::SurfaceSlice;
+pub use tile_coverage::TileCoverage;
 pub use tile_mesh::{
     FACE_NEGATIVE_X, FACE_NEGATIVE_Z, FACE_POSITIVE_X, FACE_POSITIVE_Z, FACE_UP, TileGrid,
     TileMesh, mesh_tile,

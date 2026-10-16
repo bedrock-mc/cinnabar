@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    COLUMN_SIDE, ColumnPos, ColumnSummary, SurfaceCell, TileKey,
+    COLUMN_SIDE, ColumnPos, ColumnSummary, SurfaceCell, TileCoverage, TileKey,
     config::{SKIRT_DEPTH_BLOCKS, TILE_CELLS},
 };
 
@@ -25,6 +25,7 @@ pub struct TileGrid {
     /// Lowest surface among every column given, those just outside the tile included, so
     /// edge skirts reach down to whatever a neighbouring tile shows.
     lowest: i16,
+    coverage: TileCoverage,
 }
 
 impl TileGrid {
@@ -106,7 +107,12 @@ impl TileGrid {
                 }
             })
             .collect();
-        Self { key, cells, lowest }
+        Self {
+            key,
+            cells,
+            lowest,
+            coverage: TileCoverage::from_columns(key, columns.iter().map(|(pos, _)| *pos)),
+        }
     }
 
     #[must_use]
@@ -130,6 +136,8 @@ pub struct TileMesh {
     pub key: TileKey,
     /// Unique per build, so a consumer re-uploads only what changed.
     pub revision: u64,
+    /// Decoded summary evidence; an invisible mesh alone does not establish empty terrain.
+    pub coverage: TileCoverage,
     /// `[x | z << 7 | w << 14 | l << 21 | face << 28, top | bottom << 16]`; positions and spans
     /// are in cells, heights in blocks. Walls on an X plane span `l` cells, on a Z plane `w`.
     pub quads: Box<[[u32; 2]]>,
@@ -140,11 +148,34 @@ pub struct TileMesh {
 }
 
 impl TileMesh {
+    /// Whether the build can replace another drawer over this column.
+    #[must_use]
+    pub fn covers(&self, column: ColumnPos) -> bool {
+        self.coverage.covers(self.key, column)
+    }
+
+    /// Visits only columns with valid decoded summary evidence.
+    pub fn covered_columns(&self) -> impl Iterator<Item = ColumnPos> + '_ {
+        let partial = match &self.coverage {
+            TileCoverage::Complete => &[][..],
+            TileCoverage::Partial(columns) => columns.as_ref(),
+        };
+        self.key
+            .columns()
+            .take(if matches!(&self.coverage, TileCoverage::Complete) {
+                usize::MAX
+            } else {
+                0
+            })
+            .chain(partial.iter().copied())
+    }
+
     /// An invisible tile without allocating or aggregating surface cells.
     pub(crate) fn empty(key: TileKey) -> Self {
         Self {
             key,
             revision: NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
+            coverage: TileCoverage::Partial(Box::new([])),
             quads: Box::new([]),
             colours: Box::new([]),
             min_y: 0,
@@ -187,6 +218,7 @@ pub fn mesh_tile(grid: &TileGrid) -> TileMesh {
     TileMesh {
         key: grid.key,
         revision: NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
+        coverage: grid.coverage.clone(),
         quads: quads.into_boxed_slice(),
         colours,
         min_y: if min <= max { floor } else { 0 },
