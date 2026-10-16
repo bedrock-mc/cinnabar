@@ -27,6 +27,19 @@ function Get-BedrockTargetManifest {
     return $target
 }
 
+# Reads the exact generator revision from the shared target policy, independently of vendor metadata.
+function Get-PinnedProtocolgenCommit {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+
+    $target = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
+    $property = $target.PSObject.Properties['protocolgen_commit']
+    if ($null -eq $property -or $property.Value -isnot [string] -or
+        [string]$property.Value -cnotmatch '\A[0-9a-f]{40}\z') {
+        throw 'Bedrock target manifest must pin a full lowercase protocolgen_commit'
+    }
+    return [string]$property.Value
+}
+
 # Resolves one manifest-owned artifact while preventing paths outside the repo.
 function Resolve-BedrockTargetArtifact {
     param(

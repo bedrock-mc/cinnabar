@@ -1,7 +1,7 @@
 use super::*;
 use crate::gpu_snapshot;
 use bevy::ecs::system::RunSystemOnce;
-use render_model::{BlockEntityScene, SceneClock, TEXT_CELL};
+use render_model::{BlockEntityScene, MIN_DYNAMIC_ATLAS_WIDTH, SceneClock, TEXT_CELL};
 
 const SIGN_COUNT: usize = 32;
 const PREVIEW_COLUMNS: u32 = 8;
@@ -10,9 +10,9 @@ const PREVIEW_COLUMNS: u32 = 8;
 fn artwork(height: u32, shade: u8) -> assets::RuntimeBlockEntityAssets {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        1024,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         height,
-        &vec![shade; 1024 * height as usize * 4],
+        &vec![shade; (MIN_DYNAMIC_ATLAS_WIDTH * height * 4) as usize],
         &[],
     )
     .unwrap();

@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn badge_follows_roster_answers_expiry_and_display_setting() {
     let mut roster = crate::ui_runtime::player_roster::PlayerRoster::default();
-    roster.set_entries(vec![("ExamplePlayer".into(), "11".into())]);
+    roster.set_entries(vec![("ExamplePlayer".into(), "11".into(), [0; 16])]);
     let mut tag = anchor("ExamplePlayer");
     for (reported, show) in [(true, true), (true, false), (true, true), (false, true)] {
         roster.set_show_badges(show);
@@ -13,7 +13,7 @@ fn badge_follows_roster_answers_expiry_and_display_setting() {
         } else {
             HashSet::new()
         }));
-        tag.set_cinnabar_badge(roster.has_badge("11"));
+        tag.set_cinnabar_badge(roster.has_badge("11", &[0; 16]));
         assert_eq!(roster.rows()[0].badged, reported && show);
         assert_eq!(
             scene(std::slice::from_ref(&tag)).records.len(),
@@ -130,4 +130,23 @@ fn badge_adds_no_frame_allocations_or_atlas_uploads() {
     tag.set_cinnabar_badge(false);
     let (_, plain_allocs) = test_alloc::count(|| build(&tag, &mut layouts, &mut atlas));
     assert_eq!(badged_allocs, plain_allocs);
+}
+
+/// UUID answers badge both the roster row and the rendered name tag when XUIDs are absent.
+#[test]
+fn uuid_answer_badges_tab_row_and_name_tag() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let mut roster = crate::ui_runtime::player_roster::PlayerRoster::default();
+    roster.set_entries(vec![(
+        "ExamplePlayer".into(),
+        "".into(),
+        uuid::Uuid::parse_str(uuid).unwrap().into_bytes(),
+    )]);
+    roster.set_cinnabar(Arc::new(std::collections::HashSet::from([uuid.into()])));
+    assert!(roster.rows()[0].badged);
+    let mut tag = anchor("ExamplePlayer");
+    tag.set_cinnabar_badge(
+        roster.has_badge("", &uuid::Uuid::parse_str(uuid).unwrap().into_bytes()),
+    );
+    assert!(scene(&[tag]).records.len() > scene(&[anchor("ExamplePlayer")]).records.len());
 }

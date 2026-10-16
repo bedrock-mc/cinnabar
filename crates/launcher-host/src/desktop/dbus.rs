@@ -1,8 +1,9 @@
-//! Linux desktop calls over the session bus: the xdg-desktop-portal and the notification service.
+//! Linux desktop calls over the session bus: the xdg-desktop-portal, the file manager and the
+//! notification service.
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::pin,
     sync::atomic::{AtomicU32, Ordering},
     time::Duration,
@@ -23,6 +24,8 @@ const REQUEST: &str = "org.freedesktop.portal.Request";
 const CHOOSER_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const OPEN_URI_TIMEOUT: Duration = Duration::from_secs(30);
 const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Allows for a file manager that D-Bus activation has to start.
+const SHOW_FOLDERS_TIMEOUT: Duration = Duration::from_secs(30);
 /// Responses buffered while the call is in flight; other apps' requests can share the bus.
 const RESPONSE_QUEUE: usize = 64;
 
@@ -144,6 +147,29 @@ pub fn notify(summary: &str, body: &str) -> zbus::Result<()> {
             .await?;
         Ok(())
     }))
+}
+
+/// Opens the absolute directory `dir` in the desktop file manager.
+pub fn show_folder(dir: &Path) -> zbus::Result<()> {
+    let uri = folder_uri(dir)
+        .ok_or_else(|| zbus::Error::Failure(format!("{} is not absolute", dir.display())))?;
+    async_io::block_on(with_deadline("ShowFolders", SHOW_FOLDERS_TIMEOUT, async {
+        let connection = Connection::session().await?;
+        let proxy = Proxy::new(
+            &connection,
+            "org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+        )
+        .await?;
+        let () = proxy.call("ShowFolders", &(vec![uri.as_str()], "")).await?;
+        Ok(())
+    }))
+}
+
+/// Percent-encodes `dir` as the `file://` URI `ShowFolders` takes; `None` for relative paths.
+fn folder_uri(dir: &Path) -> Option<String> {
+    url::Url::from_directory_path(dir).ok().map(String::from)
 }
 
 /// Calls a portal method shaped `(parent_window, argument, options)`; returns its response code
@@ -324,6 +350,15 @@ mod tests {
     fn malformed_uri_list_is_a_picker_error() {
         let value = OwnedValue::try_from(Value::from("not an array")).unwrap();
         assert!(chosen_files(0, Results::from([("uris".to_owned(), value)])).is_err());
+    }
+
+    #[test]
+    fn show_folders_receives_an_encoded_absolute_directory_uri() {
+        assert_eq!(
+            folder_uri(Path::new("/home/dev/My Worlds")).as_deref(),
+            Some("file:///home/dev/My%20Worlds/")
+        );
+        assert_eq!(folder_uri(Path::new("relative/worlds")), None);
     }
 
     #[test]

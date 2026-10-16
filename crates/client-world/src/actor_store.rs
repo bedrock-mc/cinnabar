@@ -207,7 +207,12 @@ impl ActorSnapshot {
     }
 
     /// Builds retained state using the constructor facts resolved at admission.
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64, entity_fact: EntityFact) -> Self {
+    fn from_spawn(
+        spawn: ActorSpawnEvent,
+        spawn_revision: u64,
+        entity_fact: EntityFact,
+        hitbox_budget: &mut hitbox::Budget,
+    ) -> Self {
         let terrain_interlock = terrain_interlock::TerrainInterlock::attached(
             entity_fact.native_class,
             std::time::Instant::now(),
@@ -265,7 +270,7 @@ impl ActorSnapshot {
                 -snapshot.falling_block_network_offset(),
             );
         }
-        snapshot.apply_metadata(&spawn.metadata);
+        snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
@@ -516,7 +521,11 @@ impl ActorSnapshot {
         }
     }
 
-    fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
+    fn apply_metadata(
+        &mut self,
+        metadata: &[protocol::ActorMetadata],
+        hitbox_budget: &mut hitbox::Budget,
+    ) -> bool {
         let falling_block_offset = self
             .is_falling_block()
             .then(|| self.falling_block_network_offset());
@@ -532,8 +541,7 @@ impl ActorSnapshot {
                 self.status.fuse_age_ticks = self.status.age_ticks;
             }
             if metadata.key == ActorDataKey::HitBox.wire_value() {
-                std::sync::Arc::make_mut(self.hitboxes.get_or_insert_with(Default::default))
-                    .apply(&metadata.value);
+                rejected |= hitbox_budget.apply(&mut self.hitboxes, &metadata.value);
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
@@ -753,6 +761,7 @@ pub(crate) struct ActorStore {
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
     actors: HashMap<u64, ActorSnapshot>,
+    hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
     rider_to_ridden: FastHashMap<i64, i64>,

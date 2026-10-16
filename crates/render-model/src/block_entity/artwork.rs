@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use super::atlas::{AtlasRect, BlockEntityAtlas, MAX_TEXT_PAGES, dynamic_height};
+use super::atlas::{AtlasRect, BlockEntityAtlas, DynamicCells, MAX_TEXT_PAGES, dynamic_height};
 
 /// wgpu's default 2D texture side, which every adapter must support.
 pub(super) const MAX_ATLAS_SIDE: u32 = 8192;
@@ -52,8 +52,7 @@ impl BlockEntityArtworkPreparer {
     /// Admits carrier dimensions only when static textures, maps and every text page also fit.
     pub fn accepts_size(&self, [width, height]: [u32; 2]) -> bool {
         let limit = MAX_ATLAS_SIDE;
-        width > 0
-            && width <= limit
+        DynamicCells::accepts_width(width)
             && appended_layout(width, &self.textures, |_| false)
                 .and_then(|(added, _)| height.checked_add(added))
                 .and_then(|height| height.checked_add(dynamic_height(MAX_TEXT_PAGES as u32)))
@@ -124,26 +123,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn carrier_admission_requires_the_dynamic_row_width_before_preparation() {
+        let preparer = BlockEntityArtworkPreparer::default();
+        let minimum = super::super::atlas::MIN_DYNAMIC_ATLAS_WIDTH;
+        for width in [1, minimum - 1, minimum] {
+            let blob = assets::encode_block_entity_catalog(
+                b"{}",
+                width,
+                1,
+                &vec![0; width as usize * 4],
+                &[],
+            )
+            .unwrap();
+            let carrier = assets::RuntimeBlockEntityAssets::decode(&blob).unwrap();
+            assert_eq!(preparer.accepts_size([width, 1]), width == minimum);
+            assert_eq!(preparer.prepare(&carrier).is_some(), width == minimum);
+        }
+    }
+
+    #[test]
     fn admission_counts_mob_shelves_and_gutters() {
+        let width = super::super::atlas::MIN_DYNAMIC_ATLAS_WIDTH;
         let textures: Vec<_> = (0..3)
             .map(|index| StaticTexture {
                 name: format!("mob/{index}"),
-                width: 512,
+                width: width / 2,
                 height: 64,
-                rgba8: Arc::from(vec![7; 512 * 64 * 4]),
+                rgba8: Arc::from(vec![7; (width / 2 * 64 * 4) as usize]),
             })
             .collect();
         let preparer = BlockEntityArtworkPreparer::new(&textures);
         let appended = 3 * 64 + 2;
         let limit = MAX_ATLAS_SIDE;
         let carrier_height = limit - dynamic_height(MAX_TEXT_PAGES as u32) - appended;
-        assert!(preparer.accepts_size([1024, carrier_height]));
-        assert!(!preparer.accepts_size([1024, carrier_height + 1]));
+        assert!(preparer.accepts_size([width, carrier_height]));
+        assert!(!preparer.accepts_size([width, carrier_height + 1]));
         let bytes = assets::encode_block_entity_catalog(
             b"{}",
-            1024,
+            width,
             carrier_height,
-            &vec![255; (1024 * carrier_height * 4) as usize],
+            &vec![255; (width * carrier_height * 4) as usize],
             &[],
         )
         .unwrap();
@@ -153,7 +172,7 @@ mod tests {
         assert_eq!(
             prepared
                 .atlas()
-                .texture("mob/2", [512.0, 64.0])
+                .texture("mob/2", [(width / 2) as f32, 64.0])
                 .unwrap()
                 .rect
                 .y,

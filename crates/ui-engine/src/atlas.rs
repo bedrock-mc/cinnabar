@@ -10,7 +10,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     io::Cursor,
     sync::Arc,
     time::Duration,
@@ -22,12 +22,16 @@ use render_model::UiTexturePage;
 
 use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
+pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
+mod oversized;
+pub use oversized::OversizedTextures;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
+mod source_reset;
 
 /// Image extensions a texture path may resolve to, in lookup order.
 pub const IMAGE_EXTENSIONS: [&str; 4] = [".png", ".tga", ".jpg", ".jpeg"];
@@ -296,7 +300,7 @@ pub struct ServerAtlas {
     metadata_revision: u64,
     metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
-    oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
+    oversized: OversizedTextures,
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
@@ -312,29 +316,13 @@ const MAX_FAILED: usize = 256;
 const MAX_EXTRA: usize = 512;
 
 /// Decoded pixels by key (at their packed size), failures, and worker decodes.
+#[derive(Default)]
 struct Decodes {
     pixels: BTreeMap<String, Arc<Vec<u8>>>,
     order: VecDeque<String>,
     bytes: usize,
     failed: VecDeque<String>,
-    pending: BTreeSet<String>,
-    sender: crossbeam_channel::Sender<(String, Option<Vec<u8>>)>,
-    receiver: crossbeam_channel::Receiver<(String, Option<Vec<u8>>)>,
-}
-
-impl Default for Decodes {
-    fn default() -> Self {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        Self {
-            pixels: BTreeMap::new(),
-            order: VecDeque::new(),
-            bytes: 0,
-            failed: VecDeque::new(),
-            pending: BTreeSet::new(),
-            sender,
-            receiver,
-        }
-    }
+    jobs: fitted::FittedDecodes,
 }
 
 /// Where a missing texture's decode runs this frame.
@@ -362,8 +350,7 @@ impl DecodeOn {
 impl Decodes {
     /// Files finished worker decodes.
     fn collect(&mut self) {
-        while let Ok((key, pixels)) = self.receiver.try_recv() {
-            self.pending.remove(&key);
+        while let Some((key, pixels)) = self.jobs.collect() {
             self.store(key, pixels);
         }
     }
@@ -394,7 +381,7 @@ impl Decodes {
         if let Some(pixels) = self.pixels.get(key) {
             return Some(Arc::clone(pixels));
         }
-        if self.failed.iter().any(|failed| failed == key) || self.pending.contains(key) {
+        if self.failed.iter().any(|failed| failed == key) || self.jobs.pending() == Some(key) {
             return None;
         }
         match decode_on {
@@ -405,16 +392,7 @@ impl Decodes {
             DecodeOn::Later => return None,
             DecodeOn::Worker => {}
         }
-        self.pending.insert(key.to_owned());
-        let (key, bytes, size, done) = (
-            key.to_owned(),
-            Arc::clone(&source.bytes),
-            source.packed,
-            self.sender.clone(),
-        );
-        rayon::spawn(move || {
-            let _ = done.send((key, decode(&bytes, size)));
-        });
+        self.jobs.request(key, source);
         None
     }
 }
@@ -464,6 +442,11 @@ impl ServerAtlas {
         vanilla: Option<Arc<dyn LocalPack>>,
         remote: Option<Arc<dyn RemoteSource>>,
     ) -> Self {
+        if !source_reset::same_owner(&self.vanilla, &vanilla)
+            || !source_reset::same_owner(&self.remote, &remote)
+        {
+            self.reset_fallback_artwork();
+        }
         self.frames.set_vanilla(vanilla.clone());
         self.vanilla = vanilla;
         self.remote = remote;
@@ -471,12 +454,18 @@ impl ServerAtlas {
     }
 
     pub fn with_carrier(mut self, carrier: Option<Arc<assets::RuntimeUiAssets>>) -> Self {
+        if !source_reset::same_owner(&self.carrier, &carrier) {
+            self.reset_fallback_artwork();
+        }
         self.carrier = carrier;
         self
     }
 
     /// Serves `images` below the server pack and above the carrier and local pack.
     pub fn with_builtin_images(mut self, images: BuiltinImages) -> Self {
+        if !std::ptr::eq(self.builtin, images) {
+            self.reset_fallback_artwork();
+        }
         self.builtin = images;
         self
     }
@@ -673,11 +662,8 @@ impl ServerAtlas {
     }
 
     /// Drawn textures a page had to shrink, by key, with their source bytes.
-    pub fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
-        self.oversized
-            .iter()
-            .map(|(key, bytes)| (key.clone(), std::sync::Arc::clone(bytes)))
-            .collect()
+    pub fn oversized(&self) -> OversizedTextures {
+        self.oversized.clone()
     }
 
     /// Page images in order, for the reserved dynamic pages.
@@ -763,9 +749,8 @@ impl ServerAtlas {
             Some(source) => source,
             None => self.fallback(key)?,
         };
-        if source.packed != source.size && self.oversized.len() < MAX_OVERSIZED {
-            self.oversized
-                .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
+        if source.packed != source.size {
+            self.oversized.insert(key, &source.bytes);
         }
         let size = source.packed;
         let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());

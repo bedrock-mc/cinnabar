@@ -84,7 +84,8 @@ fn the_saved_cap_paces_a_focused_window_and_a_launch_cap_outranks_it() {
         pacing(&app),
         FramePacing {
             rate: hz(144),
-            precise: true
+            precise: true,
+            display_sync: true,
         }
     );
     let (app, _) = pacing_app((Some(60), false), fixed(144));
@@ -101,7 +102,8 @@ fn background_windows_slow_down_without_spinning_and_recover() {
         pacing(&app),
         FramePacing {
             rate: Some(UNFOCUSED_FRAME_RATE),
-            precise: false
+            precise: false,
+            display_sync: true,
         }
     );
     occlude(&mut app, window, true);
@@ -112,7 +114,8 @@ fn background_windows_slow_down_without_spinning_and_recover() {
         pacing(&app),
         FramePacing {
             rate: None,
-            precise: true
+            precise: true,
+            display_sync: true,
         }
     );
 }
@@ -126,7 +129,8 @@ fn hidden_and_acceptance_runs_keep_their_cadence_in_the_background() {
         pacing(&app),
         FramePacing {
             rate: hz(240),
-            precise: true
+            precise: true,
+            display_sync: true,
         }
     );
 }
@@ -163,6 +167,34 @@ fn unlimited_limits_leave_pacing_to_the_display_or_rendering() {
         video.vsync = false
     });
     assert_eq!(pacing(&app).rate, None);
+}
+
+#[test]
+fn gpu_prediction_follows_the_selected_surface_when_vsync_changes() {
+    use render_model::{PresentModeKind, SurfacePresentModes};
+
+    let (mut app, _) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    let policy = app.world().resource::<PresentModeRuntime>().policy();
+    policy.publish_capabilities(Some(
+        SurfacePresentModes::FIFO_ONLY.with(PresentModeKind::Immediate),
+    ));
+    app.update();
+    assert!(pacing(&app).display_sync);
+    for vsync in [false, true, false] {
+        let mut settings = ui::UserSettings::default();
+        settings.video.vsync = vsync;
+        app.world_mut()
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(settings);
+        app.update();
+        assert_eq!(pacing(&app).display_sync, vsync);
+    }
+    policy.publish_capabilities(Some(SurfacePresentModes::FIFO_ONLY));
+    app.update();
+    assert!(
+        pacing(&app).display_sync,
+        "a FIFO-only surface still owns backpressure"
+    );
 }
 
 /// Present mode and cadence must agree on one limit, the launch cap outranking the saved one.

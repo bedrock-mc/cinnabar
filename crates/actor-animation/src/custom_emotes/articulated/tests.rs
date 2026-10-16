@@ -21,10 +21,13 @@ pub(super) fn fixture() -> Arc<SkinGeometry> {
 fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
     let source = fixture();
     let original = (*source).clone();
-    let model = model(&source).unwrap();
+    let model = model(&source).unwrap().geometry;
     assert_eq!(*source, original);
     assert_ne!(model.digest, source.digest);
-    assert!(Arc::ptr_eq(&model, &super::model(&source).unwrap()));
+    assert!(Arc::ptr_eq(
+        &model,
+        &super::model(&source).unwrap().geometry
+    ));
     assert_eq!(model.bones.len(), source.bones.len() + 6);
     let upper = &model.bones[6].cubes[0];
     let lower = &model.bones[9].cubes[0];
@@ -88,6 +91,71 @@ fn owned_custom_emote_knee_mesh_skips_rotated_or_nonclassic_legs() {
     let mut source = (*fixture()).clone();
     source.bones[6].cubes[0].size[1] = Scalar::new(3.0).unwrap();
     assert!(build(&source).is_none());
+}
+
+#[test]
+fn owned_custom_emote_publishes_matching_body_and_layer_meshes() {
+    use crate::custom_emotes::{sample_custom_emote, tests::Fixture};
+    use crate::{CustomEmote, SkinRenderLayer};
+
+    let source = fixture();
+    let f = Fixture::from_skin((*source).clone());
+    let native = render_model::skin_geometry(&source, render_model::DIAGNOSTIC_RIG_ID).unwrap();
+    let layers = [SkinRenderLayer {
+        image: render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
+            width: 64,
+            height: 64,
+            rgba8: Arc::from([]),
+            frames: 1,
+            blinking: false,
+        },
+        geometry: Arc::clone(&source),
+        mesh: Some(native.clone()),
+        previous: f.rest.clone().into(),
+        current: f.rest.clone().into(),
+        rest: f.rest.clone().into(),
+        hidden_bones: Arc::from([]),
+        uv_anim: [0.0, 0.0, 1.0, 1.0],
+    }];
+    let rig = crate::ActorRigSnapshot {
+        skin_mesh: Some(&native),
+        skin_layers: &layers,
+        ..f.rig()
+    };
+    let mut retained_vertices = None;
+    for phase in [0.0, 0.1, 0.3, CustomEmote::Twerk.duration_seconds()] {
+        let pose = sample_custom_emote(&rig, CustomEmote::Twerk, phase, phase).unwrap();
+        let snapshot = pose.snapshot(rig);
+        let mesh = snapshot.skin_mesh.expect("articulated body mesh");
+        let expected =
+            render_model::skin_geometry(snapshot.skin_geometry.unwrap(), mesh.id).unwrap();
+        assert!(
+            *mesh == expected,
+            "body vertices must match the jointed skeleton"
+        );
+        assert_ne!(mesh.vertices, native.vertices);
+        assert_eq!(mesh.bone_pivots.len(), snapshot.current.len());
+        if let Some(vertices) = &retained_vertices {
+            assert!(
+                Arc::ptr_eq(vertices, &mesh.vertices),
+                "reuse the prepared emote mesh"
+            );
+        }
+        retained_vertices = Some(Arc::clone(&mesh.vertices));
+        let layer = &snapshot.skin_layers[0];
+        let layer_mesh = layer.mesh.as_ref().expect("articulated clothing mesh");
+        let expected = render_model::skin_geometry(&layer.geometry, layer_mesh.id).unwrap();
+        assert!(
+            *layer_mesh == expected,
+            "clothing vertices must follow their new joints"
+        );
+        assert!(Arc::ptr_eq(&mesh.vertices, &layer_mesh.vertices));
+        assert_eq!(layer_mesh.bone_pivots.len(), layer.current.len());
+    }
+    assert_eq!(rig.skin_mesh, Some(&native));
+    assert_eq!(layers[0].mesh.as_ref(), Some(&native));
+    assert_eq!(rig.current, f.rest);
 }
 
 #[test]
@@ -206,4 +274,21 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
         highest_hip - lowest_hip > 2.0,
         "the pelvis must visibly pulse up/down"
     );
+}
+
+#[test]
+fn shared_emotes_reuse_prepared_meshes_across_many_distinct_skins() {
+    let models: Vec<_> = (0u64..24)
+        .map(|index| {
+            let mut source = (*fixture()).clone();
+            source.digest[..8].copy_from_slice(&index.to_le_bytes());
+            let source = Arc::new(source);
+            let prepared = model(&source).unwrap();
+            (source, prepared)
+        })
+        .collect();
+    for (source, prepared) in models {
+        let next = model(&source).unwrap();
+        assert!(Arc::ptr_eq(&prepared.mesh.vertices, &next.mesh.vertices));
+    }
 }

@@ -383,3 +383,79 @@ fn a_combined_delayed_speed_update_replays_once() {
     assert!(movement_only > 0, "the delayed movement speed replays");
     assert_eq!(replay_queries(Some(0.05)), movement_only);
 }
+
+/// A Speed amplifier update refreshes the effective attribute without a sprint edge.
+#[test]
+fn speed_effect_updates_refresh_current_while_sprint_is_held() {
+    use protocol::{ActorAttribute, ActorAttributeModifier, ActorEffectAction, ActorEffectEvent};
+    use std::sync::Arc;
+
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let sprint_factor = sim::SPRINT_SPEED_MULTIPLIER as f32;
+    let packet = ActorAttribute {
+        name: Arc::from(protocol_ids::Attribute::Movement.wire_name()),
+        min: 0.0,
+        max: f32::MAX,
+        current: 0.1 * 1.6 * sprint_factor,
+        default: Some(0.1),
+        modifiers: Arc::from([
+            ActorAttributeModifier {
+                id: Arc::from(protocol_ids::SPEED_EFFECT_MODIFIER_ID),
+                name: Arc::from("speed"),
+                amount: 0.6,
+                operation: 2,
+                operand: 2,
+                serializable: false,
+            },
+            ActorAttributeModifier {
+                id: Arc::from(protocol_ids::SPRINT_SPEED_MODIFIER_ID),
+                name: Arc::from("sprint"),
+                amount: sprint_factor - 1.0,
+                operation: 2,
+                operand: 2,
+                serializable: false,
+            },
+        ]),
+    };
+    assert!(speed.apply(
+        7,
+        1,
+        0,
+        client_world::MovementSpeedAttribute::from_attribute(&packet).unwrap()
+    ));
+    speed.adopt_server_sprinting(Some(true));
+    for (sequence, amplifier, factor) in [(2, 1, 1.4), (3, 3, 1.8), (4, 1, 1.8)] {
+        let event = ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 42,
+            action: ActorEffectAction::Update,
+            effect_id: protocol_ids::Effect::Speed.wire_value(),
+            amplifier,
+            particles: false,
+            ambient: false,
+            duration_ticks: 600,
+            tick: 100,
+        };
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(
+            CommittedControlEvent::LocalMovementEffect { sequence, event },
+            &NoQueries,
+            |_| {},
+        );
+        speed.set_sprinting(true);
+        let expected = 0.1 * factor * sprint_factor;
+        assert!(
+            (speed.current().unwrap() as f32 - expected).abs() < 1e-7,
+            "amplifier {amplifier}: {:?}, expected {expected}",
+            speed.current()
+        );
+    }
+}

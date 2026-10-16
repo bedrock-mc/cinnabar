@@ -268,9 +268,9 @@ mod tests {
             (interval.frames, interval.redraws, interval.reuses),
             (2, 1, 1)
         );
-        assert_eq!(interval.passes, [1, 0, 1, 0]);
-        assert_eq!(interval.draws, [2, 0, 1, 0]);
-        assert_eq!(interval.indices, [18, 0, 0, 0]);
+        assert_eq!(interval.passes, [1, 0, 1, 0, 0]);
+        assert_eq!(interval.draws, [2, 0, 1, 0, 0]);
+        assert_eq!(interval.indices, [18, 0, 0, 0, 0]);
         assert_eq!(interval.upload_calls, [1, 1, 1]);
         assert_eq!(interval.upload_bytes, [64, 256, 16]);
         assert_eq!(*profile.interval.lock().unwrap(), Interval::default());

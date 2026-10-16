@@ -31,10 +31,7 @@ fn produce(world: &mut World) {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
-        .unwrap();
-    world
-        .run_system_cached(crate::survival_mining::produce_survival_mining)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
 }
 
@@ -83,7 +80,7 @@ fn assisted_attack(world: &mut World, mode: semantic_input::InputMode) {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
 }
 
@@ -142,7 +139,7 @@ fn attack_admission_uncached_actor_press_holds_native_item_use() {
             .unwrap();
         world.run_system_cached(produce_block_use).unwrap();
         world
-            .run_system_cached(crate::melee::produce_melee)
+            .run_system_cached(crate::melee::produce_attacks)
             .unwrap();
         produce_air_use(&mut world);
         let throws = captured
@@ -219,6 +216,66 @@ fn attack_admission_assisted_target_behind_a_block_is_rejected() {
     let (mut world, mut captured) = assisted_fixture(3.0, false);
     assisted_attack(&mut world, semantic_input::InputMode::KeyboardMouse);
     assert!(actor_attacks(&mut captured).is_empty());
+}
+
+#[test]
+fn attack_admission_assisted_visibility_uses_the_segment_from_the_published_eye() {
+    for obstructed in [false, true] {
+        let (mut world, mut captured) = assisted_fixture(3.0, false);
+        {
+            let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+            let stream = client.stream.as_mut().unwrap();
+            let block = stream
+                .collision_store()
+                .sub_chunk_ref(world::SubChunkKey::new(0, 0, 0, 0))
+                .unwrap()
+                .runtime_id(0, 4, 2, 6)
+                .unwrap();
+            stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+            if obstructed {
+                stream.predict_block([5, 2, 7], 0, block);
+            }
+        }
+        let eye = Vec3::new(6.5, 2.5, 8.5);
+        let ray = frame_origin(&world, eye, Quat::IDENTITY);
+        world.insert_resource(ray);
+        let point = world.resource::<AimAssistFrame>().target.unwrap().point;
+        {
+            let client = world.resource::<crate::runtime::world::ClientWorld>();
+            let stream = client.stream.as_ref().unwrap();
+            let registries = world.resource::<PhysicsCollisionRegistries>();
+            let blocks = sim::PaletteWorld::new(
+                stream.collision_store(),
+                registries.registry(stream.network_id_mode()),
+                0,
+                Default::default(),
+            );
+            let vector = |v: Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
+            assert!(
+                blocks
+                    .block_interaction_ray_current(vector(eye), vector(Vec3::NEG_Z), 6.0)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                blocks
+                    .block_interaction_ray_current(
+                        vector(eye),
+                        vector((point - eye).normalize()),
+                        6.0
+                    )
+                    .unwrap()
+                    .is_some(),
+                obstructed
+            );
+        }
+        assisted_attack(&mut world, semantic_input::InputMode::KeyboardMouse);
+        assert_eq!(
+            actor_attacks(&mut captured).len(),
+            usize::from(!obstructed),
+            "visibility must follow the eye-to-selected-point segment"
+        );
+    }
 }
 
 #[test]

@@ -9,7 +9,7 @@
     "world_assets": ".local/assets/compiled/vanilla-v2193.mcbea"
   },
   "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
-  "codec_contract": 1,
+  "codec_contract": 2,
   "codec_crate": "bedrock-protocol-1-26-51",
   "codec_manifest_sha256": "7a0ce6c98c247c0ea12b809b1010e696e5110cd11993fdb9915acb5567f00466",
   "game_version": "1.26.50",
@@ -19,8 +19,9 @@
     "block_registry": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c",
     "fallback_inventory": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74",
     "light_registry": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f",
-    "physics_registry": "c9f05c3ab8c9deb92198ab098c41e29ed0d72f7707f9dd29047bcaf673b35ba1"
+    "physics_registry": "92bf417b96233267ab142ed260b1826dcb97935014bb353bac03db0e9d6130e7"
   },
+  "protocolgen_commit": "4e9626abbb51b8fa842f49b4aea0fb4d3c01a682",
   "schema": "cinnabar.bedrock-target.v1",
   "server_version": "1.26.52.3",
   "wire_protocol": 2193

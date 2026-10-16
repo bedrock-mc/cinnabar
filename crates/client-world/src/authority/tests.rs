@@ -3,6 +3,40 @@ use protocol::block_state_network_hash;
 use protocol_ids::Attribute;
 
 #[test]
+fn input_locks_commit_as_controls_without_activating_camera_audio() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    let locks = protocol::ClientInputLocks::from_bits(protocol::ClientInputLock::Camera as u32);
+    for (sequence, locks) in [(1, locks), (2, Default::default())] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Camera(protocol::CameraEvent::InputLocks(locks)),
+                Some(sequence),
+            )
+            .unwrap();
+        assert_eq!(
+            authority.take_committed_controls(),
+            vec![CommittedControlEvent::ClientInputLocks { sequence, locks }]
+        );
+    }
+    assert!(authority.take_committed_camera().is_empty());
+    assert!(!authority.audio_nondefault_camera_observed());
+}
+
+#[test]
 fn totem_activation_publishes_only_the_local_player_event() {
     let mut authority = WorldAuthority::new(
         WorldBootstrap {

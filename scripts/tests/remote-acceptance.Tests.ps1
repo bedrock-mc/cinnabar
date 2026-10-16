@@ -789,3 +789,5 @@ Describe 'Remote acceptance runner' {
 
     . (Join-Path $PSScriptRoot 'remote-acceptance\LunarPrerequisiteCases.ps1')
 }
+
+. (Join-Path $PSScriptRoot 'remote-acceptance\ProcessCleanupCases.ps1')

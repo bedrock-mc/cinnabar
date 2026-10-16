@@ -157,6 +157,8 @@ const (
 	RPCCinnabarRateLimited = -32024
 	// MethodCinnabarAPI: Control method for the Cinnabar API identity and visibility.
 	MethodCinnabarAPI = "cinnabar_api.v1"
+	// MethodCinnabarEmotes: Control method for nearby Cinnabar emote playback.
+	MethodCinnabarEmotes = "cinnabar_emotes.v1"
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
@@ -323,6 +325,34 @@ type CinnabarRelease struct {
 	Build uint64 `json:"build"`
 	// PublishedAt: When the API recorded the release.
 	PublishedAt string `json:"published_at"`
+}
+
+// CinnabarEmoteState: Nearby subscriptions and the local custom emote, cleared when the game session ends.
+type CinnabarEmoteState struct {
+	// XUIDs: Nearby Xbox account identifiers.
+	XUIDs []string `json:"xuids"`
+	// UUIDs: Nearby UUIDs when the server omitted Xbox identifiers.
+	UUIDs []string `json:"uuids"`
+	// EmoteID: Owned clip identifier; empty stops playback.
+	EmoteID string `json:"emote_id"`
+	// ElapsedMS: Elapsed playback time at this report.
+	ElapsedMS uint32 `json:"elapsed_ms"`
+	// PlaybackID: Local start identity, including same-clip restarts.
+	PlaybackID uint64 `json:"playback_id"`
+}
+
+// CinnabarRemoteEmote: An authenticated nearby player animation with a remaining lease.
+type CinnabarRemoteEmote struct {
+	// XUID: Authenticated Xbox account identifier.
+	XUID string `json:"xuid"`
+	// UUID: Account UUID derived by the API.
+	UUID string `json:"uuid"`
+	// EmoteID: Owned clip identifier.
+	EmoteID string `json:"emote_id"`
+	// ElapsedMS: Playback time at this snapshot.
+	ElapsedMS uint64 `json:"elapsed_ms"`
+	// ValidForMS: Remaining playback lease.
+	ValidForMS uint64 `json:"valid_for_ms"`
 }
 
 // InboxCategories: Inbox category names in display order.

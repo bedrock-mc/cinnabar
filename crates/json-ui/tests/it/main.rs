@@ -22,6 +22,8 @@ mod input;
 mod interaction;
 mod layout;
 mod layout_parity;
+mod pack_inheritance;
+mod paint_transform;
 mod partial_documents;
 mod render;
 mod resolution;

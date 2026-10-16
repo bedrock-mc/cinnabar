@@ -12,6 +12,7 @@ pub struct LocalMovementFacts {
     /// The committed mode forces flight and skips terrain contact.
     pub spectator: bool,
     pub immobile: bool,
+    pub input_locks: protocol::ClientInputLocks,
     pub vertical_physics: sim::VerticalPhysics,
     pub ride: Option<super::RideKind>,
     /// Runtime identity of the retained mount, when its actor is available.
@@ -83,6 +84,7 @@ pub fn read(
     LocalMovementFacts {
         spectator,
         immobile: player.facts.is_immobile(),
+        input_locks: player.facts.input_locks(),
         vertical_physics: sim::VerticalPhysics {
             has_gravity: player.facts.has_gravity(),
             uniform_air_drag: player.facts.uses_uniform_air_drag(),

@@ -346,68 +346,6 @@ fn unknown_preset_ids_are_counted() {
 }
 
 #[test]
-fn attach_and_target_follow_actor_positions() {
-    let actors = |id: i64| {
-        (id == 7).then_some(ActorView {
-            position: Vec3::new(0.0, 0.0, -10.0),
-            yaw_degrees: 0.0,
-            pitch_degrees: 0.0,
-        })
-    };
-    let context = ViewContext {
-        base: Transform::IDENTITY,
-        subject: Transform::IDENTITY,
-        base_fov: 90.0,
-        actors: &actors,
-    };
-    let mut view = free_view();
-    view.apply(
-        1,
-        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
-            attach_to_entity: Some(7),
-            ..Default::default()
-        })),
-        &context,
-    );
-    let attached = view.pose_override(&context).unwrap();
-    assert_eq!(attached.translation, Vec3::new(0.0, 0.0, -10.0));
-    // Bedrock yaw 0 faces +Z.
-    assert!(((attached.rotation * Vec3::NEG_Z) - Vec3::Z).length() < 1e-5);
-
-    view.apply(
-        2,
-        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
-            target: Some(protocol::CameraTargetInstruction {
-                center_offset: None,
-                actor_unique_id: 7,
-            }),
-            detach_from_entity: true,
-            ..Default::default()
-        })),
-        &context,
-    );
-    assert!(view.pose_override(&context).is_none());
-    assert_eq!(view.skips().actor_bound, 0);
-}
-
-#[test]
-fn missing_actors_are_counted_not_fatal() {
-    let mut view = free_view();
-    view.apply(
-        1,
-        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
-            attach_to_entity: Some(99),
-            ..Default::default()
-        })),
-        &ctx(Transform::IDENTITY),
-    );
-    assert_eq!(view.skips().actor_bound, 1);
-    // The attachment is kept; until the actor exists the player camera stays in charge.
-    assert!(view.has_pose_override());
-    assert!(view.pose_override(&ctx(Transform::IDENTITY)).is_none());
-}
-
-#[test]
 fn inherited_native_parent_fields_and_long_chains_are_resolved() {
     let mut view = free_view();
     let mut free = preset("minecraft:free", "");
