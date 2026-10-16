@@ -2,6 +2,7 @@
 
 #[cfg(feature = "test-support")]
 mod crafting;
+mod edit_selection;
 mod panorama;
 
 use std::{
@@ -64,7 +65,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } | Fixture::TabList(_) => false,
+        Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. } => false,
     };
@@ -108,6 +109,11 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 selected,
                 &mut frame,
             )?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::EditSelection => {
+            let mut engine = json_engine(&carriers)?;
+            edit_selection::paint(&mut engine, &mut frame)?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::Menu(view) => {

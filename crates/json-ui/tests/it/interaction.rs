@@ -3,4 +3,5 @@
 
 mod harness;
 mod mappings;
+mod selection;
 mod widgets;
