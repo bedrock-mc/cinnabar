@@ -515,17 +515,14 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			ctx, traced, trace := traceUpstream(ctx, withJoinStages(dialer, logger))
-			attempt := traced
+			attempt := withJoinStages(dialer, logger)
 			dial := attempt.DialContextNetwork
 			if dialer.TokenSource != nil {
 				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
 					return dialWithPreparedTransport(ctx, network, address, attempt.DialContextNetwork)
 				}
 			}
-			session, err := dialMinecraftUpstream(ctx, connections.hopNetwork(target, address), address, dial)
-			trace.register(session)
-			return session, err
+			return dialMinecraftUpstream(ctx, connections.hopNetwork(target, address), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack

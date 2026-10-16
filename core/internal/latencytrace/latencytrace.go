@@ -16,18 +16,11 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
-// Event kinds and their fields; times are trace-clock nanoseconds.
-// A message key is a digest of a RakNet message's first bytes, which are encrypted; it links a
-// message to the datagram frames that carried it without recording payload.
+// Event kinds and their fields; times are trace-clock nanoseconds. Connections carry the ID the
+// handoff sends the client, and frames the per-connection bridge batch-frame number.
 const (
-	UDPRead       = 'U' // t, bytes, first byte, RakNet datagram sequence (-1 for ACK, NACK, offline)
-	UDPWrite      = 'W' // t, bytes, first byte, RakNet datagram sequence (-1 for ACK, NACK, offline)
-	Frame         = 'F' // direction (0 in, 1 out), datagram sequence, message key (0 past the first fragment), split ID (-1 unsplit), split index, split count
-	Message       = 'M' // RakNet message in: arrival, decoded (next read began), bytes, key, packets gophertunnel accepted
-	Sent          = 'N' // RakNet message out: t, key, bytes
-	StartupBatch  = 'S' // batch the session startup read: t, -1 (origin unknown: deferred login packets), packets
-	Inbound       = 'I' // bridge frame to the client: conn, seq, batch dequeued, write began, written, message key; packet IDs
-	Outbound      = 'O' // client frame upstream: conn, seq, read, handed to RakNet, message key; packet IDs
+	Inbound       = 'I' // bridge frame to the client: conn, frame, upstream batch read and decoded, write began, written; packet IDs
+	Outbound      = 'O' // client frame upstream: conn, frame, read, handed to RakNet; packet IDs
 	StackLatency  = 'L' // NetworkStackLatency: direction (0 in, 1 out), t, timestamp field
 	RoundTrip     = 'R' // t, RakNet RTT in ns
 	queueCapacity = 1 << 16

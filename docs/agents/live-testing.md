@@ -346,11 +346,10 @@ and delete them after use.
 Set `CINNABAR_LATENCY_TRACE` to an existing directory before launching the client; it and its core
 each write `<role>-<pid>.trace` there. Both stamp events with Unix nanoseconds read once at
 startup plus monotonic time since, so the files join on one clock. Inbound, they follow each
-packet from its UDP datagram, RakNet message and relay batch through the bridge frame, world
-ingress sequencing, the app's drain and commit, to the frame handoff and the presented frame;
-outbound, from the frame's time sample through the PlayerAuthInput send, frame flush and bridge
-write to the core's RakNet hand-off and UDP send. RakNet datagram sequence numbers and a digest of
-each message's first (encrypted) bytes link datagrams, frames, messages and relay batches; bridge
-frame numbers and slots link the core to the client. Event kinds and fields are listed in
-`crates/bridge/src/latency_trace.rs` and `core/internal/latencytrace`. Traces hold packet IDs,
-these identifiers and timings only, no packet bodies.
+packet from the core's decoded relay batch through the bridge frame, world ingress sequencing, the
+app's drain and commit, to the frame handoff and the presented frame; outbound, from the frame's
+time sample through the PlayerAuthInput send, frame flush and bridge write to the core's RakNet
+hand-off. The connection ID the core sends in its handoff, with bridge frame numbers and slots,
+links the two files. Event kinds and fields are listed in `crates/bridge/src/latency_trace.rs`
+and `core/internal/latencytrace`. Traces hold packet IDs, these identifiers and timings only, no
+packet bodies.
