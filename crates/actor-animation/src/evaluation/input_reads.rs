@@ -3,6 +3,7 @@ use super::*;
 impl VariableLayout {
     /// Binds immutable clip reads and controller weights once per runtime asset catalog.
     pub(super) fn bind_input_reads(&mut self, assets: &RuntimeEntityAssets) {
+        self.plans = rig_plans::RigPlans::default();
         self.bind_presentation_inputs(assets);
         self.clip_reads = assets
             .animation_clips()
@@ -108,5 +109,28 @@ impl VariableLayout {
             .get(controller)
             .copied()
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebinding_input_reads_retires_rig_plans_and_disables_admission() {
+        let assets = crate::test_support::counting_random_assets();
+        let mut layout = VariableLayout::new(&assets);
+        let original = layout.rig_plan(&assets, 0, 0).unwrap();
+        assert!(Arc::ptr_eq(
+            &original,
+            &layout.rig_plan(&assets, 0, 0).unwrap()
+        ));
+        layout.bind_input_reads(&assets);
+        let rebuilt = layout.rig_plan(&assets, 0, 0).unwrap();
+        assert!(!Arc::ptr_eq(&original, &rebuilt));
+        assert!(!Arc::ptr_eq(
+            &rebuilt,
+            &layout.rig_plan(&assets, 0, 0).unwrap()
+        ));
     }
 }

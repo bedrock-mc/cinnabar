@@ -313,10 +313,7 @@ fn zeqa_top_bar_snapshot() {
     }
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_glyphs(Some(Arc::new(
-        crate::ui_runtime::presentation::SessionGlyphSheets {
-            cells,
-            ..Default::default()
-        },
+        crate::ui_runtime::presentation::SessionGlyphSheets::new(cells),
     )));
     let names = [
         "\u{e15e}\u{e700}\u{e38e}\u{e391}\u{e384}\u{e381}\u{e388}\u{e393}\u{e392}\u{ea39}\u{e700}\u{eaa3}",

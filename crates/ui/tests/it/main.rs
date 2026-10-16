@@ -15,6 +15,7 @@ mod hud;
 mod model;
 mod model_mesh;
 mod model_retained;
+mod model_transform;
 mod scoreboard;
 #[path = "../../src/settings.rs"]
 #[allow(dead_code, unused_imports)]

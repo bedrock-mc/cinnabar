@@ -7,6 +7,7 @@ use assets::{
 use std::sync::OnceLock;
 
 mod families;
+mod gates;
 mod state_variants;
 
 /// Loads the paired identity fixture and compiler seed once for these tests.

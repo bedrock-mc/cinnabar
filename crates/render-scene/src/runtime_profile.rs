@@ -77,6 +77,8 @@ pub enum RuntimeStage {
     GpuUiModel,
     GpuUiComposite,
     GpuUiInvert,
+    /// The shared scene blur and mod-surface backdrop passes.
+    GpuUiBackdrop,
     GpuHand,
     GpuPost,
     GpuTonemapping,
@@ -111,7 +113,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 78] = [
+    pub const ALL: [Self; 79] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -163,6 +165,7 @@ impl RuntimeStage {
         Self::GpuUiModel,
         Self::GpuUiComposite,
         Self::GpuUiInvert,
+        Self::GpuUiBackdrop,
         Self::GpuHand,
         Self::GpuPost,
         Self::GpuTonemapping,
@@ -193,7 +196,7 @@ impl RuntimeStage {
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 36] = [
+    pub const GPU: [Self; 37] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -203,6 +206,7 @@ impl RuntimeStage {
         Self::GpuUiModel,
         Self::GpuUiComposite,
         Self::GpuUiInvert,
+        Self::GpuUiBackdrop,
         Self::GpuHand,
         Self::GpuPost,
         Self::GpuTonemapping,
@@ -233,11 +237,12 @@ impl RuntimeStage {
     ];
 
     /// Owned UI passes separated from the enclosing UI node when explicitly requested.
-    pub const GPU_UI: [Self; 4] = [
+    pub const GPU_UI: [Self; 5] = [
         Self::GpuUiRaster,
         Self::GpuUiModel,
         Self::GpuUiComposite,
         Self::GpuUiInvert,
+        Self::GpuUiBackdrop,
     ];
 
     /// Mod post-pass slots; [`mod_api::MAX_RENDER_PASSES`] long.
@@ -319,6 +324,7 @@ impl RuntimeStage {
             Self::GpuUiModel => "gpu_ui_model",
             Self::GpuUiComposite => "gpu_ui_composite",
             Self::GpuUiInvert => "gpu_ui_invert",
+            Self::GpuUiBackdrop => "gpu_ui_backdrop",
             Self::GpuHand => "gpu_hand",
             Self::GpuPost => "gpu_post",
             Self::GpuTonemapping => "gpu_tonemapping",

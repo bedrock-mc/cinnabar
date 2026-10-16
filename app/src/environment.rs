@@ -247,7 +247,8 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
         | CommittedControlEvent::LocalHurt { .. }
-        | CommittedControlEvent::PlayerListChanged { .. } => false,
+        | CommittedControlEvent::PlayerListChanged { .. }
+        | CommittedControlEvent::ClientInputLocks { .. } => false,
     }
 }
 

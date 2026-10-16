@@ -23,6 +23,7 @@ mod tests {
     use crate::block_use::RepeatClock;
     use crate::movement::LocalMovementEffectTimeline;
     use protocol::ItemUseTrigger;
+    use std::time::Duration;
 
     /// Produces a published unsent tick and an eligible fresh block-use press.
     fn fixture() -> (BlockUseRuntime, SwingTracker) {
@@ -65,14 +66,14 @@ mod tests {
         assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
         assert!(!runtime.may_attempt(100, LocalUse::Place, &swings));
         let clock = RepeatClock {
-            now_millis: 1_000,
+            now: Duration::from_millis(1_000),
             sneaking: false,
             speed: 0.0,
             survival: true,
         };
         assert!(!runtime.admit(
             ItemUseTrigger::PlayerInput,
-            1_000,
+            Duration::from_millis(1_000),
             101,
             LocalUse::Place,
             clock,
@@ -81,7 +82,7 @@ mod tests {
         assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
         assert!(runtime.admit(
             ItemUseTrigger::PlayerInput,
-            1_000,
+            Duration::from_millis(1_000),
             101,
             LocalUse::Place,
             clock,
@@ -126,14 +127,14 @@ mod tests {
         assert!(runtime.observe_use(false, false, false, true));
         assert!(runtime.may_attempt(101, LocalUse::Place, &swings));
         let clock = RepeatClock {
-            now_millis: 1_000,
+            now: Duration::from_millis(1_000),
             sneaking: false,
             speed: 0.0,
             survival: true,
         };
         assert_eq!(
             runtime.due(false, 101, clock),
-            Some((ItemUseTrigger::PlayerInput, 1_000))
+            Some((ItemUseTrigger::PlayerInput, Duration::from_millis(1_000)))
         );
     }
 

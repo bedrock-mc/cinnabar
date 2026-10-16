@@ -14,7 +14,8 @@ pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
         ("ui/_ui_defs.json", &definitions[..]),
         ("ui/extension_surface.json", document.as_bytes()),
     ])
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.to_string())?
+    .with_paint_transforms();
     if !catalog.diagnostics().is_empty() {
         return Err(format!(
             "invalid surface catalog: {}",

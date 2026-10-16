@@ -104,8 +104,9 @@ impl UiPresentationRuntime {
         {
             return Ok(true);
         }
-        let mut frame = self.hud_frame.clone();
-        frame.now_millis = now_millis;
+        // Project at the caller clock, then restore the published frame before fallible painting.
+        let captured_clock = std::mem::replace(&mut self.hud_frame.now_millis, now_millis);
+        let frame = &self.hud_frame;
         let catalog = Arc::clone(renderer.catalog());
         let options = self.screens.chat.settings.options();
         let model = if crosshair {
@@ -123,7 +124,7 @@ impl UiPresentationRuntime {
             let changes = self.hud_cache.refresh(
                 player_runtime,
                 runtime,
-                &frame,
+                frame,
                 sidebar,
                 sidebar_key,
                 options,
@@ -143,7 +144,7 @@ impl UiPresentationRuntime {
         let mut paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
-            &frame,
+            frame,
             self.hud_textures.as_ref(),
             self.screens.chat.settings.options(),
         );
@@ -154,6 +155,8 @@ impl UiPresentationRuntime {
                 frame.selected_food.as_ref(),
             );
         }
+        let player_preview = frame.player_preview;
+        self.hud_frame.now_millis = captured_clock;
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
@@ -176,7 +179,7 @@ impl UiPresentationRuntime {
         let translate = |key: &str| runtime.translation(key);
         let preview_view = std::cell::Cell::new(None);
         let mut preview = PreviewRenderer {
-            preview: frame.player_preview,
+            preview: player_preview,
             view: Some(&preview_view),
             ..PreviewRenderer::default()
         };

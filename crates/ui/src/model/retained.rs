@@ -5,7 +5,7 @@ use std::ops::Range;
 use super::{
     DrawCounts, TextEffects, UiDrawBatch, UiDrawList, UiError, UiNode, UiNodeId, UiTree, UiVertex,
     UiVisual,
-    draw::{DrawSpace, emit_visual, is_empty},
+    draw::{DrawSpace, FrameAffine, emit_visual, is_empty},
     intersect, scale_rect,
 };
 use crate::{FormattingPalette, SafeArea, UiLimits, UiRect, UiScale};
@@ -377,6 +377,10 @@ impl RetainedDraw {
                 clip,
                 projection: node.world_projection.as_ref(),
                 node: node.id,
+                transform: node.transform.as_ref().map(|transform| {
+                    FrameAffine::for_node(transform, place.bounds, self.frame.scale.get())
+                }),
+                filter: node.filter_group,
             },
             effects,
             &mut scratch.vertices,
@@ -520,6 +524,7 @@ fn append(
             && last.depth_test == batch.depth_test
             && last.depth_write == batch.depth_write
             && last.world_projection == batch.world_projection
+            && last.filter_group == batch.filter_group
             && last.index_range.end == range.start
         {
             last.index_range.end = range.end;

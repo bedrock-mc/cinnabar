@@ -155,15 +155,13 @@ impl ActorAnimationStore {
         let now = self.completed_tick.saturating_sub(state.lifetime_epoch);
         controller.change(Some(definition), now, runtime_id);
         if state.motion_sampling.is_some() {
-            state.motion_sampling =
-                Some(super::render_frame::motion_sampling::MotionSampling::new(
-                    assets,
-                    layout,
-                    state.rig_binding,
-                    state.geometry_binding,
-                    &state.controllers,
-                    &dependency_clips(assets, state.geometry_binding, &state.server_animations),
-                ));
+            state.motion_sampling = Some(layout.motion_plan(
+                assets,
+                state.rig_binding,
+                state.geometry_binding,
+                &state.controllers,
+                &dependency_clips(assets, state.geometry_binding, &state.server_animations),
+            ));
         }
         if let Some(ui) = state.ui_animation.as_mut() {
             ui.server_animations.clone_from(&state.server_animations);

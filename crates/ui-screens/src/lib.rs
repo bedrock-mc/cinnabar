@@ -24,7 +24,6 @@ pub mod disconnect_retry;
 pub mod discord_presence_setting;
 pub mod emote_screen;
 pub mod enhanced_setting;
-pub mod far_terrain_setting;
 pub mod furnace_book;
 pub mod global_resources;
 pub mod graphics_expander;
