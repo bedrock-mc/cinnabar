@@ -122,9 +122,9 @@ fn resource_swaps_reapply_cached_coverage_before_draw_queues_and_preserve_withdr
         let target = Arc::new(far_terrain::TerrainTarget {
             centre: instance.key.chunk(),
             horizon: 32,
-            near: HashMap::new(),
-            retained: HashSet::from([instance.key]),
-            empty_far: HashSet::new(),
+            near: std::sync::Arc::new(HashMap::new()),
+            retained: std::sync::Arc::new(HashSet::from([instance.key])),
+            empty_far: std::sync::Arc::new(HashSet::new()),
         });
         app.world_mut()
             .resource_mut::<TerrainCoverage>()

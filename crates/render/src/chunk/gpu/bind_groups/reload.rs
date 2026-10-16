@@ -19,6 +19,20 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
     let identity = assets.identity();
+    if gpu_assets
+        .pending
+        .as_ref()
+        .is_some_and(|pending| !reload.accepts(&pending.request, identity))
+    {
+        gpu_assets.pending = None;
+    }
+    if gpu_assets
+        .staged
+        .as_ref()
+        .is_some_and(|staged| !reload.accepts(&staged.request, identity))
+    {
+        gpu_assets.staged = None;
+    }
     let completed = gpu_assets.pending.as_ref().and_then(|pending| {
         match pending
             .result
@@ -45,20 +59,12 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         }
     }
     let requested = reload.preparation();
-    let source_epoch = reload.geometry_epoch();
-    // A selected snapshot survives superseding requests until the renderer consumes it.
-    if gpu_assets.staged.as_ref().is_some_and(|staged| {
-        staged.replacement.0.identity != identity && !reload.is_current(&staged.request)
-    }) {
-        gpu_assets.staged = None;
-    }
     let ready = gpu_assets.staged.as_ref().is_some_and(|staged| {
         let geometry = &staged.replacement.2;
-        let epoch = staged.request.geometry_epoch();
-        if let Some(geometry) = geometry.as_ref().filter(|_| epoch == source_epoch) {
+        if let Some(geometry) = geometry {
             geometry.ready(&instances, &arena)
         } else {
-            // Atlas-only publication after a reset waits for every old physical draw.
+            // Atlas-only publication waits for every physical draw.
             arena.allocations.is_empty() && arena.retired_allocations.is_empty()
         }
     });
@@ -74,8 +80,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 request,
                 replacement: (prepared, uploaded, geometry),
             } = gpu_assets.staged.take().expect("matching staged atlas");
-            let epoch = request.geometry_epoch();
-            if let Some(geometry) = geometry.filter(|_| epoch == source_epoch)
+            if let Some(geometry) = geometry
                 && let Err(geometry) = geometry.publish(
                     &mut commands,
                     &instances,

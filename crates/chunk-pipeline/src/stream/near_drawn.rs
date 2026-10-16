@@ -71,12 +71,12 @@ impl WorldStream {
                     .collect::<std::collections::HashMap<_, _>>();
                 (!keys.is_empty()).then_some((column, keys))
             })
-            .collect();
+            .collect::<std::collections::HashMap<_, _>>();
         far_terrain::TerrainTarget {
             centre: self.far_terrain_centre(),
             horizon,
-            near,
-            retained: self.terrain_publication_sections().collect(),
+            near: near.into(),
+            retained: std::sync::Arc::new(self.terrain_publication_sections().collect()),
             empty_far: Default::default(),
         }
     }

@@ -706,7 +706,12 @@ pub(super) fn prepare_far_terrain(
         gpu.clear_tiles();
         gpu.applied_world = Some(scene.residency.clone());
     }
-    gpu.set_empty_coverage(scene.target.as_ref().map(|target| &target.empty_far));
+    gpu.set_empty_coverage(
+        scene
+            .target
+            .as_ref()
+            .map(|target| target.empty_far.as_ref()),
+    );
     if !gpu
         .applied_tiles
         .as_ref()

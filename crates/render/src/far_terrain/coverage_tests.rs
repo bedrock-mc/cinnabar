@@ -634,9 +634,12 @@ fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback(
     let target = far_terrain::TerrainTarget {
         centre: section.chunk(),
         horizon: 32,
-        near: HashMap::from([(section.chunk(), HashMap::from([(section, 1), (pending, 1)]))]),
-        retained: HashSet::from([section, pending]),
-        empty_far: empty_columns,
+        near: std::sync::Arc::new(HashMap::from([(
+            section.chunk(),
+            HashMap::from([(section, 1), (pending, 1)]),
+        )])),
+        retained: std::sync::Arc::new(HashSet::from([section, pending])),
+        empty_far: std::sync::Arc::new(empty_columns),
     };
     near.publish(&target, &HashMap::from([(section, 1)]), |column| {
         gpu.covers_column(ColumnPos::new(column.x, column.z))

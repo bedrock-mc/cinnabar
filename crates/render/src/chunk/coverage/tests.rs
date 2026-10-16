@@ -22,9 +22,12 @@ fn cancelled_queued_withdrawal_keeps_the_existing_near_instance() {
             target: Some(Arc::new(far_terrain::TerrainTarget {
                 centre: key.chunk(),
                 horizon: 32,
-                near: HashMap::from([(key.chunk(), HashMap::from([(key, 3)]))]),
-                retained: HashSet::from([key]),
-                empty_far: HashSet::new(),
+                near: std::sync::Arc::new(HashMap::from([(
+                    key.chunk(),
+                    HashMap::from([(key, 3)]),
+                )])),
+                retained: std::sync::Arc::new(HashSet::from([key])),
+                empty_far: std::sync::Arc::new(HashSet::new()),
             })),
             ..Default::default()
         });

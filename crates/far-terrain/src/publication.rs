@@ -1,6 +1,9 @@
 //! Chooses one terrain drawer per column from current render publications.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use world::{ChunkKey, SubChunkKey};
 
 use crate::ColumnPos;
@@ -11,9 +14,9 @@ use crate::ColumnPos;
 pub struct TerrainTarget {
     pub centre: ChunkKey,
     pub horizon: i32,
-    pub near: HashMap<ChunkKey, HashMap<SubChunkKey, u64>>,
-    pub retained: HashSet<SubChunkKey>,
-    pub empty_far: HashSet<ColumnPos>,
+    pub near: Arc<HashMap<ChunkKey, HashMap<SubChunkKey, u64>>>,
+    pub retained: Arc<HashSet<SubChunkKey>>,
+    pub empty_far: Arc<HashSet<ColumnPos>>,
 }
 
 impl TerrainTarget {

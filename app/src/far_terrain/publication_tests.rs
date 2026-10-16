@@ -276,15 +276,15 @@ fn enabling_far_terrain_reuses_full_and_empty_gpu_publications_across_toggle_cyc
     let target = Arc::new(far_terrain::TerrainTarget {
         centre: column,
         horizon: 32,
-        near: std::collections::HashMap::from([
+        near: std::sync::Arc::new(std::collections::HashMap::from([
             (
                 column,
                 std::collections::HashMap::from([(solid, 1), (empty, 1)]),
             ),
             (air_column, std::collections::HashMap::from([(air, 1)])),
-        ]),
-        retained: [solid, empty, air].into_iter().collect(),
-        empty_far: Default::default(),
+        ])),
+        retained: std::sync::Arc::new([solid, empty, air].into_iter().collect()),
+        empty_far: std::sync::Arc::new(Default::default()),
     });
     let tiles: Arc<[Arc<TileMesh>]> = [column, air_column]
         .map(|column| {
@@ -711,4 +711,42 @@ fn first_delivered_air_masks_cached_terrain_at_either_mesh_radius() {
             assert_eq!(allowance.live_permits(), 0);
         }
     }
+}
+
+/// Far tile revisions must do constant allocation work regardless of loaded section count.
+#[test]
+fn far_tile_changes_reuse_section_requirements() {
+    let mut work = Vec::new();
+    for count in [1, 128] {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        for x in 0..count {
+            let key = SubChunkKey::new(0, x, 0, 0);
+            stream.stage_publication_fixture_known_air(key);
+            stream.load_publication_fixture_column(key.chunk());
+        }
+        let mut far = FarTerrain::new(None);
+        let mut scene = FarTerrainScene::default();
+        far.publish_target(&stream, 256, &mut scene);
+        let before = scene.target.clone().unwrap();
+        far.tiles.clear();
+        let (_, allocations) = test_alloc::measure(|| far.publish_target(&stream, 256, &mut scene));
+        let after = scene.target.as_ref().unwrap();
+        assert!(!Arc::ptr_eq(&before, after));
+        assert_eq!(after.near.len(), count as usize);
+        assert!(Arc::ptr_eq(&before.near, &after.near));
+        assert!(Arc::ptr_eq(&before.retained, &after.retained));
+        work.push(allocations);
+    }
+    assert_eq!(
+        work[0], work[1],
+        "far-only updates must not rescan section requirements"
+    );
 }

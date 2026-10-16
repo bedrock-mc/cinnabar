@@ -55,7 +55,13 @@ fn complete_worker(
     let queue = app.world().resource::<RenderQueue>().clone();
     app.world()
         .resource::<ChunkTextureReload>()
-        .request_geometry(candidate.clone(), instances.clone().into());
+        .request_geometry(
+            app.world()
+                .resource::<ChunkTextureReload>()
+                .geometry_epoch(),
+            candidate.clone(),
+            instances.clone().into(),
+        );
     let geometry = PreparedResourceGeometry::build(
         &instances,
         candidate.clone(),
@@ -287,7 +293,7 @@ fn session_reset_never_installs_retired_geometry_or_stalls_the_new_session() {
             .unwrap();
         assert_eq!(published(&app), before);
         if !selected {
-            assert!(matches!(reload.status(candidate.identity()), Some(Err(_))));
+            assert!(reload.status(candidate.identity()).is_none());
             assert!(
                 app.world()
                     .resource::<ChunkGpuTextureAssets>()

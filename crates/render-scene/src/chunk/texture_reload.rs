@@ -32,11 +32,6 @@ pub struct ChunkTexturePreparation {
 }
 
 impl ChunkTexturePreparation {
-    /// Identifies the session snapshot captured by this preparation.
-    pub fn geometry_epoch(&self) -> u64 {
-        self.epoch
-    }
-
     /// Returns the immutable atlas inputs captured for this attempt.
     pub fn assets(&self) -> &ChunkTextureAssets {
         &self.assets
@@ -70,13 +65,17 @@ impl ChunkTextureReload {
         }
     }
 
-    /// Stages the complete resident mesh set alongside its new material tables.
+    /// Stages a resident mesh set and its material tables only for the captured world epoch.
     pub fn request_geometry(
         &self,
+        epoch: u64,
         assets: ChunkTextureAssets,
         geometry: Arc<[ChunkRenderInstance]>,
     ) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if epoch != state.geometry_epoch {
+            return;
+        }
         if state
             .requested
             .as_ref()
@@ -92,12 +91,12 @@ impl ChunkTextureReload {
         state.result = None;
     }
 
-    /// Freezes the resident entity set while CPU neighbourhoods are rebuilt.
-    pub fn hold_geometry(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .holding_geometry = true;
+    /// Freezes the resident entity set only while the captured world epoch is current.
+    pub fn hold_geometry(&self, epoch: u64) {
+        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if epoch == state.geometry_epoch {
+            state.holding_geometry = true;
+        }
     }
 
     /// Keeps ordinary mesh handoff from changing the resident set during preparation.
@@ -122,10 +121,8 @@ impl ChunkTextureReload {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         state.geometry = None;
         state.holding_geometry = false;
-        state.result = state
-            .requested
-            .as_ref()
-            .map(|_| Err("World changed while preparing resource packs; apply again".into()));
+        state.requested = None;
+        state.result = None;
         state.geometry_epoch += 1;
     }
 
@@ -140,7 +137,7 @@ impl ChunkTextureReload {
     /// Releases the CPU replacement set after the render world publishes it.
     pub fn published(&self, request: &ChunkTexturePreparation) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        if state.requested.is_some() && Arc::ptr_eq(&state.attempt, &request.attempt) {
+        if state.is_current(request) {
             state.requested = None;
             state.geometry = None;
             state.holding_geometry = false;
@@ -202,6 +199,17 @@ impl ChunkTextureReload {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .is_current(request)
+    }
+
+    /// Retains only work from this world and either the live request or the selected atlas.
+    pub fn accepts(
+        &self,
+        request: &ChunkTexturePreparation,
+        selected: ChunkTextureAssetIdentity,
+    ) -> bool {
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        request.epoch == state.geometry_epoch
+            && (state.is_current(request) || request.assets.identity() == selected)
     }
 
     /// Completes only this exact attempt; cancelled or superseded work cannot complete a retry.

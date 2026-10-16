@@ -140,11 +140,18 @@ impl FarTerrain {
             [centre.x, centre.z],
             horizon,
         );
-        if self.publication == Some(key) {
+        if self.publication == Some(key) && scene.target.is_some() {
             return;
         }
-        let mut target = stream.terrain_publication_target(horizon);
-        target.empty_far.extend(self.tiles.empty_columns());
+        let mut target = self
+            .publication
+            .filter(|previous| previous.0 == revision && previous.2 == [centre.x, centre.z])
+            .and(scene.target.as_deref())
+            .cloned()
+            .unwrap_or_else(|| stream.terrain_publication_target(horizon));
+        target.centre = centre;
+        target.horizon = horizon;
+        target.empty_far = Arc::new(self.tiles.empty_columns().collect());
         scene.target = Some(Arc::new(target));
         self.publication = Some(key);
     }
