@@ -3,6 +3,33 @@ use protocol_ids::Attribute;
 
 use super::{LocalPlayerFacts, LocalPlayerStat};
 
+#[test]
+fn input_locks_replace_without_clearing_immobility_and_reset_with_session() {
+    let mut facts = LocalPlayerFacts::new(7);
+    facts.apply_local_movement_flags(
+        7,
+        crate::MovementFlagUpdate {
+            immobile: Some(true),
+            ..Default::default()
+        },
+    );
+    let locks = protocol::ClientInputLocks::from_bits(protocol::ClientInputLock::Camera as u32);
+    facts.apply_input_locks(7, locks);
+    assert!(
+        facts
+            .input_locks()
+            .blocks(protocol::ClientInputLock::Camera)
+    );
+    facts.apply_input_locks(8, Default::default());
+    assert_eq!(facts.input_locks(), locks);
+    facts.apply_input_locks(7, Default::default());
+    assert!(facts.is_immobile());
+    assert_eq!(facts.input_locks(), Default::default());
+    facts.apply_input_locks(7, locks);
+    facts.begin_session(8);
+    assert_eq!(facts.input_locks(), Default::default());
+}
+
 /// Builds hunger evidence with a valid default and no modifiers.
 fn hunger(current: f32, maximum: f32) -> ActorAttribute {
     ActorAttribute {

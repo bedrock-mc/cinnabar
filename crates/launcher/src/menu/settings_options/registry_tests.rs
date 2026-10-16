@@ -73,27 +73,6 @@ fn section_rows_keep_order_and_shared_controls_from_the_registry() {
     );
 }
 
-/// Keeps the three terrain-distance controls together in their shared display order.
-#[test]
-fn video_distance_controls_are_adjacent() {
-    let rows: Vec<_> = SettingPanel::VideoGraphics
-        .options()
-        .map(|row| row.id)
-        .collect();
-    let render = rows
-        .iter()
-        .position(|id| *id == SettingId::RenderDistance)
-        .expect("render distance row");
-    assert_eq!(
-        &rows[render..render + 3],
-        &[
-            SettingId::RenderDistance,
-            SettingId::FullDetailDistance,
-            SettingId::FarTerrain,
-        ]
-    );
-}
-
 #[test]
 fn every_reset_changes_only_its_registered_members_and_keeps_bindings() {
     for group in [

@@ -38,58 +38,31 @@ fn released_painting_attack_does_not_replay_a_support_block_destroy() {
             instant: true,
             ..target([3, 4, 5], "minecraft:stone", None)
         };
-        let mut melee = attack_painting(&ticker, &support);
-        let mut mining = SurvivalMiningRuntime::default();
-        let mut predicted = Vec::new();
-        let held = mining.observe_attack_input(true, true, true, melee.actor_in_front());
-        assert!(held);
-        mining.break_on_press(
-            &ticker,
-            DestroyInput::Held(None),
-            authority,
-            |_| {},
-            |_| panic!("the painting owns the initial press"),
-        );
-
-        assert!(!melee.observe_input(false, false));
-        melee.cancel();
-        let eligible = mining.observe_attack_input(true, false, false, melee.actor_in_front());
-        let input = if eligible {
-            DestroyInput::Held(Some(&support))
-        } else {
-            DestroyInput::Released
-        };
-        mining.break_on_press(
-            &ticker,
-            input,
-            authority,
-            |_| {},
-            |cell| predicted.push(cell),
-        );
-        let next = ticker.completed_tick() + 1;
-        ticker.enqueue_completed_physics(completed(next)).unwrap();
-        mining.step_ticks(
-            &mut ticker,
-            input,
-            authority,
-            |_| {},
-            |_, _| None,
-            |cell| predicted.push(cell),
-        );
-        let mut packets = Vec::new();
-        flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, packet| {
-            packets.push(packet);
-            Ok::<_, ()>(())
-        })
-        .unwrap();
+        let mut harness = MiningAdmission::new(ticker);
+        harness.melee = attack_painting(&harness.ticker, &support);
+        harness.frame(DestroyInput::Held(None), authority);
+        assert!(harness.predictions.is_empty());
+        assert!(!harness.melee.observe_input(false, false));
+        harness.melee.cancel();
+        harness.frame(DestroyInput::Released, authority);
+        let next = harness.ticker.completed_tick() + 1;
+        harness
+            .ticker
+            .enqueue_completed_physics(completed(next))
+            .unwrap();
+        harness.frame(DestroyInput::Released, authority);
+        harness.flush();
         assert!(
-            predicted.is_empty(),
-            "a released actor press broke its support: {predicted:?}"
+            harness.predictions.is_empty(),
+            "a released actor press broke its support"
         );
-        for packet in packets {
-            let sample = protocol::player_auth_input_trace_sample(&packet).unwrap();
-            assert!(!sample.flag_names.contains(&"PerformBlockActions"));
-            assert!(!sample.flag_names.contains(&"PerformItemInteraction"));
+        for packet in harness
+            .packets
+            .iter()
+            .filter_map(protocol::player_auth_input_trace_sample)
+        {
+            assert!(!packet.flag_names.contains(&"PerformBlockActions"));
+            assert!(!packet.flag_names.contains(&"PerformItemInteraction"));
         }
     }
 }
@@ -102,18 +75,11 @@ fn an_unstepped_block_attack_survives_release_until_its_destroy_is_carried() {
         instant: true,
         ..target([3, 4, 5], "minecraft:stone", None)
     };
-    let mut mining = SurvivalMiningRuntime::default();
-    assert!(mining.observe_attack_input(true, true, false, false));
-    assert!(mining.observe_attack_input(true, false, false, false));
-    let mut predicted = Vec::new();
-    mining.break_on_press(
-        &ticker,
-        DestroyInput::Held(Some(&support)),
-        Server,
-        |_| {},
-        |cell| predicted.push(cell),
-    );
-    assert_eq!(predicted, [support.position]);
+    let mut harness = MiningAdmission::new(ticker);
+    assert!(harness.melee.observe_input(true, false));
+    assert!(harness.melee.observe_input(false, false));
+    harness.frame(DestroyInput::Held(Some(&support)), Server);
+    assert_eq!(harness.predictions, [support.position]);
 }
 
 #[test]
@@ -124,36 +90,20 @@ fn a_held_attack_can_mine_after_the_actor_moves_away() {
         instant: true,
         ..target([3, 4, 5], "minecraft:stone", None)
     };
-    let mut melee = attack_painting(&ticker, &support);
-    let mut mining = SurvivalMiningRuntime::default();
-    assert!(mining.observe_attack_input(true, true, true, melee.actor_in_front()));
-    mining.break_on_press(
-        &ticker,
-        DestroyInput::Held(None),
-        Server,
-        |_| {},
-        |_| panic!("the actor is still in front"),
+    let mut harness = MiningAdmission::new(ticker);
+    harness.melee = attack_painting(&harness.ticker, &support);
+    harness.frame(DestroyInput::Held(None), Server);
+    harness.melee.observe_crosshair(Crosshair::Block);
+    harness.frame(DestroyInput::Held(Some(&support)), Server);
+    assert!(
+        harness.predictions.is_empty(),
+        "held mining waits for its next tick"
     );
-    melee.observe_crosshair(Crosshair::Block);
-    assert!(mining.observe_attack_input(true, false, true, melee.actor_in_front()));
-    let mut predicted = Vec::new();
-    mining.break_on_press(
-        &ticker,
-        DestroyInput::Held(Some(&support)),
-        Server,
-        |_| {},
-        |cell| predicted.push(cell),
-    );
-    assert!(predicted.is_empty(), "held mining waits for its next tick");
-    let next = ticker.completed_tick() + 1;
-    ticker.enqueue_completed_physics(completed(next)).unwrap();
-    mining.step_ticks(
-        &mut ticker,
-        DestroyInput::Held(Some(&support)),
-        Server,
-        |_| {},
-        |_, _| None,
-        |cell| predicted.push(cell),
-    );
-    assert_eq!(predicted, [support.position]);
+    let next = harness.ticker.completed_tick() + 1;
+    harness
+        .ticker
+        .enqueue_completed_physics(completed(next))
+        .unwrap();
+    harness.frame(DestroyInput::Held(Some(&support)), Server);
+    assert_eq!(harness.predictions, [support.position]);
 }

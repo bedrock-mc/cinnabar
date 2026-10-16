@@ -327,6 +327,9 @@ pub fn into_world_event(
 
 world_packets! {
     header, current_dimension;
+    UpdateClientInputLocks(packet) => WorldEvent::Camera(crate::CameraEvent::InputLocks(
+        crate::camera::ClientInputLocks::from_bits(packet.input_lock_component_data.0),
+    )),
     ShowCredits(packet) => {
         let Some(event) = crate::credits::normalize(&packet) else {
             return Ok(None);

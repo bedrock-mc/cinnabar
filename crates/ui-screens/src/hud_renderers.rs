@@ -432,11 +432,13 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
             texture_page: sprite.page,
             uv: sprite.uv,
         },
-        ui::UiBlendMode::Alpha => UiVisual::Sprite {
-            texture_page: sprite.page,
-            uv: sprite.uv,
-            color: [255; 4],
-        },
+        ui::UiBlendMode::Alpha | ui::UiBlendMode::Backdrop | ui::UiBlendMode::Filter => {
+            UiVisual::Sprite {
+                texture_page: sprite.page,
+                uv: sprite.uv,
+                color: [255; 4],
+            }
+        }
     };
     let bounds = canvas.snap_sprite_bounds([x, y, x + side, y + side]);
     let _ = canvas.push(visual, bounds);

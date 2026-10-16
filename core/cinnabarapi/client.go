@@ -37,9 +37,9 @@ const (
 var (
 	// ErrUnavailable means no authenticated connection can answer right now.
 	ErrUnavailable = errors.New("cinnabarapi: not connected")
-	// ErrRateLimited means a lookup exceeded the negotiated XUID budget.
+	// ErrRateLimited means a lookup exceeded the negotiated identifier budget.
 	ErrRateLimited = errors.New("cinnabarapi: lookup rate limited")
-	// ErrInvalidLookup means a lookup had too many XUIDs or a malformed one.
+	// ErrInvalidLookup means a lookup had no identifiers, too many identifiers or a malformed one.
 	ErrInvalidLookup = errors.New("cinnabarapi: invalid lookup")
 	errUnauthorized  = errors.New("cinnabarapi: unauthorized")
 )
@@ -95,19 +95,33 @@ type Client struct {
 
 // session is one authenticated connection.
 type session struct {
-	conn       *websocket.Conn
-	out        chan []byte
-	dirty      chan struct{} // visibility changed
-	visible    bool          // what the server holds; written only by the writer
-	nextID     uint32
-	pending    map[uint32]chan lookupReply // guarded by Client.mu
-	closed     chan struct{}
-	parameters parameters
+	emoteSent      bool       // guarded by Client.mu
+	emoteWatchSent time.Time  // guarded by Client.mu
+	emoteSentXUIDs []string   // guarded by Client.mu
+	emoteSentUUIDs []string   // guarded by Client.mu
+	emoteState     EmoteState // guarded by Client.mu
+	emoteQueued    time.Time  // guarded by Client.mu
+	emoteDirty     chan struct{}
+	emotes         map[string]receivedEmote // guarded by Client.mu
+	conn           *websocket.Conn
+	out            chan []byte
+	dirty          chan struct{} // visibility changed
+	visible        bool          // what the server holds; written only by the writer
+	nextID         uint32
+	pending        map[uint32]chan lookupReply // guarded by Client.mu
+	closed         chan struct{}
+	parameters     parameters
+}
+
+// LookupResult contains matches in each requested identifier namespace.
+type LookupResult struct {
+	Cinnabar      []string
+	CinnabarUUIDs []string
 }
 
 type lookupReply struct {
-	cinnabar []string
-	err      error
+	result LookupResult
+	err    error
 }
 
 // New starts the client's lifetime under ctx.
@@ -144,6 +158,7 @@ func (c *Client) Configure(config Config) {
 	}
 	previous, had := c.config, c.configured
 	c.config, c.configured = config, true
+	c.logger.Debug("Cinnabar API visibility configured", "visible", config.Visible)
 	switch {
 	case !had:
 		select {
@@ -162,40 +177,38 @@ func (c *Client) Configure(config Config) {
 	}
 }
 
-// Lookup returns the subset of xuids the API reports as visible Cinnabar players.
-func (c *Client) Lookup(ctx context.Context, xuids []string) ([]string, error) {
-	if len(xuids) > bridgecontract.CinnabarAPIMaxLookupXUIDs {
-		return nil, ErrInvalidLookup
+// Lookup returns matches for both namespaces, charging their combined count.
+func (c *Client) Lookup(ctx context.Context, xuids, uuids []string) (LookupResult, error) {
+	if !ValidLookup(xuids, uuids) {
+		return LookupResult{}, ErrInvalidLookup
 	}
-	for _, xuid := range xuids {
-		if !ValidXUID(xuid) {
-			return nil, ErrInvalidLookup
-		}
-	}
-	if len(xuids) == 0 {
-		return []string{}, nil
-	}
+	count := len(xuids) + len(uuids)
 	c.mu.Lock()
 	s := c.live
 	if s == nil {
 		c.mu.Unlock()
-		return nil, ErrUnavailable
+		c.logger.Debug("Cinnabar API lookup unavailable", "requested", len(xuids), "requested_uuids", len(uuids))
+		return LookupResult{}, ErrUnavailable
 	}
 	p := s.parameters
-	if !c.budget.take(time.Now(), len(xuids), p) {
+	if !c.budget.take(time.Now(), count, p) {
 		c.mu.Unlock()
-		return nil, ErrRateLimited
+		c.logger.Debug("Cinnabar API lookup rate limited", "requested", len(xuids), "requested_uuids", len(uuids))
+		return LookupResult{}, ErrRateLimited
 	}
 	c.mu.Unlock()
-	found := []string{}
-	for len(xuids) > 0 {
-		size := min(len(xuids), p.LookupBatchMax, p.LookupBucketCapacity)
-		part, err := c.lookup(ctx, s, xuids[:size])
+	found := LookupResult{Cinnabar: []string{}, CinnabarUUIDs: []string{}}
+	for len(xuids)+len(uuids) > 0 {
+		limit := min(p.LookupBatchMax, p.LookupBucketCapacity)
+		nx := min(len(xuids), limit)
+		nu := min(len(uuids), limit-nx)
+		part, err := c.lookup(ctx, s, xuids[:nx], uuids[:nu])
 		if err != nil {
-			return nil, err
+			return LookupResult{}, err
 		}
-		found = append(found, part...)
-		xuids = xuids[size:]
+		found.Cinnabar = append(found.Cinnabar, part.Cinnabar...)
+		found.CinnabarUUIDs = append(found.CinnabarUUIDs, part.CinnabarUUIDs...)
+		xuids, uuids = xuids[nx:], uuids[nu:]
 	}
 	return found, nil
 }
@@ -211,11 +224,11 @@ func (c *Client) LookupLimit() int {
 func (c *Client) CacheTTLMS() int64 { c.mu.Lock(); defer c.mu.Unlock(); return c.parameters.CacheTTLMS }
 
 // lookup sends one negotiated batch on the session chosen by its caller.
-func (c *Client) lookup(ctx context.Context, s *session, xuids []string) ([]string, error) {
+func (c *Client) lookup(ctx context.Context, s *session, xuids, uuids []string) (LookupResult, error) {
 	c.mu.Lock()
 	if c.live != s {
 		c.mu.Unlock()
-		return nil, ErrUnavailable
+		return LookupResult{}, ErrUnavailable
 	}
 	id := s.nextID
 	s.nextID++
@@ -227,30 +240,32 @@ func (c *Client) lookup(ctx context.Context, s *session, xuids []string) ([]stri
 		delete(s.pending, id)
 		c.mu.Unlock()
 	}()
-	payload, err := json.Marshal(lookupMessage{Type: typeLookup, ID: id, XUIDs: xuids})
+	payload, err := json.Marshal(lookupMessage{Type: typeLookup, ID: id, XUIDs: xuids, UUIDs: uuids})
 	if err != nil {
-		return nil, err
+		return LookupResult{}, err
 	}
 	timer := time.NewTimer(lookupTimeout)
 	defer timer.Stop()
 	select {
 	case s.out <- payload:
+		c.logger.Debug("Cinnabar API lookup queued", "requested", len(xuids), "requested_uuids", len(uuids))
 	case <-s.closed:
-		return nil, ErrUnavailable
+		return LookupResult{}, ErrUnavailable
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return LookupResult{}, ctx.Err()
 	case <-timer.C:
-		return nil, ErrUnavailable
+		return LookupResult{}, ErrUnavailable
 	}
 	select {
 	case result := <-reply:
-		return result.cinnabar, result.err
+		c.logger.Debug("Cinnabar API lookup answered", "found", len(result.result.Cinnabar), "found_uuids", len(result.result.CinnabarUUIDs), "success", result.err == nil)
+		return result.result, result.err
 	case <-s.closed:
-		return nil, ErrUnavailable
+		return LookupResult{}, ErrUnavailable
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return LookupResult{}, ctx.Err()
 	case <-timer.C:
-		return nil, ErrUnavailable
+		return LookupResult{}, ErrUnavailable
 	}
 }
 
@@ -331,6 +346,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	defer conn.CloseNow()
 	s := &session{
 		conn: conn, out: make(chan []byte, 8), dirty: make(chan struct{}, 1),
+		emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote),
 		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
@@ -340,6 +356,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	}
 	c.mu.Unlock()
 	c.logger.Info("Cinnabar API connected")
+	c.logger.Debug("Cinnabar API visibility announced", "visible", config.Visible)
 	ctx, cancel := context.WithCancel(ctx)
 	written := make(chan struct{})
 	go func() {
@@ -440,8 +457,11 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		switch msg.Type {
 		case typeRelease:
 			c.release(msg)
+		case typeEmote:
+			c.receiveEmote(s, msg)
 		case typeLookupResult:
-			c.answer(s, msg.ID, lookupReply{cinnabar: msg.Cinnabar})
+			c.logger.Debug("Cinnabar API lookup result received", "found", len(msg.Cinnabar), "found_uuids", len(msg.CinnabarUUIDs))
+			c.answer(s, msg.ID, lookupReply{result: LookupResult{Cinnabar: msg.Cinnabar, CinnabarUUIDs: msg.CinnabarUUIDs}})
 		case typeError:
 			err := ErrUnavailable
 			if msg.Code == codeRateLimited {
@@ -458,10 +478,13 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 	defer ticker.Stop()
 	for {
 		var payload []byte
+		visibilityChanged := false
 		select {
 		case <-ctx.Done():
 			return
 		case payload = <-s.out:
+		case <-s.emoteDirty:
+			payload = c.emotePayload(s)
 		case <-s.dirty:
 			c.mu.Lock()
 			visible := c.config.Visible
@@ -470,6 +493,7 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 				continue
 			}
 			s.visible = visible
+			visibilityChanged = true
 			payload, _ = json.Marshal(visibilityMessage{Type: typeVisibility, Visible: visible})
 		case <-ticker.C:
 			payload = []byte(keepalivePing)
@@ -480,6 +504,9 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 		if err != nil {
 			stop()
 			return
+		}
+		if visibilityChanged {
+			c.logger.Debug("Cinnabar API visibility sent", "visible", s.visible)
 		}
 	}
 }

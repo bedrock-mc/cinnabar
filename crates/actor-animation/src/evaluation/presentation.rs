@@ -14,6 +14,7 @@ impl PresentationReads {
 impl VariableLayout {
     /// Resolves camera and swing dependencies together, including render-controller writes.
     pub(super) fn bind_presentation_inputs(&mut self, assets: &RuntimeEntityAssets) {
+        self.plans = rig_plans::RigPlans::default();
         self.presentation_symbols = (0..assets.molang_symbols().len())
             .map(|symbol| PresentationReads {
                 camera: camera::camera_symbol(assets, symbol as u32, false),

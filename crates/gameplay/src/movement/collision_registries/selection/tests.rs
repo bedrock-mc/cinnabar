@@ -13,6 +13,8 @@ pub(super) fn bounds(min: [f32; 3], max: [f32; 3]) -> Aabb {
 }
 use crate::movement::PhysicsCollisionRegistries;
 
+#[path = "gate_tests.rs"]
+mod gate_tests;
 #[path = "gateway_tests.rs"]
 mod gateway_tests;
 

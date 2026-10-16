@@ -59,9 +59,13 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLCommandBuffer", "objc2-core-foundation"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CABase", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-metal = { version = "0.3", default-features = false, features = ["MTLDevice", "MTLBuffer", "MTLBlitCommandEncoder", "MTLCommandEncoder", "MTLResource"] }
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }
