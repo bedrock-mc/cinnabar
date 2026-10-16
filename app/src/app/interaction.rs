@@ -12,8 +12,7 @@ pub(crate) fn configure(app: &mut App) {
             #[cfg(not(feature = "acceptance"))]
             crate::runtime::telemetry::discard_completed_movement_evidence,
             crate::melee::prepare_melee,
-            produce_melee,
-            produce_survival_mining,
+            produce_attacks,
             crate::item_use::prepare_item_release,
             #[cfg(feature = "tracy")]
             crate::tracy::plot_physics_to_send,

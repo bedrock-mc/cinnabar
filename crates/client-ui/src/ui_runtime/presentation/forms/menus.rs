@@ -624,6 +624,7 @@ fn text_spot(
         .iter()
         .find(|text| text.key == region.key)?;
     Some(TextSpot {
+        layout: None,
         field,
         bounds,
         left: text.left,

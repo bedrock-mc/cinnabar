@@ -73,7 +73,7 @@ fn a_rejected_block_press_recovers_without_another_physics_tick() {
 
 #[test]
 fn block_retry_selection_preserves_current_frame_priority_and_exact_tick() {
-    let movement = ticker_with_ticks(3);
+    let mut movement = ticker_with_ticks(3);
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     let press = reject_block_press(&mut runtime, &mut swings, &movement, 3);
@@ -85,6 +85,19 @@ fn block_retry_selection_preserves_current_frame_priority_and_exact_tick() {
             .tick,
         press.tick
     );
+    assert!(
+        runtime
+            .press_sample(Crosshair::Block, &movement, 1, 2)
+            .is_none(),
+        "the current-frame tick must wait rather than fall back to the older retry"
+    );
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        2,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Ok::<_, ()>(()),
+    )
+    .unwrap();
     assert_eq!(
         runtime
             .press_sample(Crosshair::Block, &movement, 1, 2)
@@ -170,7 +183,7 @@ fn a_block_retry_does_not_select_a_different_retained_tick_after_its_tick_drains
 
 #[test]
 fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
-    let mut movement = ticker_with_ticks(1);
+    let mut movement = sent_ticks(1);
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     swings.published_progress(movement.completed_tick());
@@ -301,6 +314,13 @@ fn a_rejected_old_block_tick_waits_for_a_new_tick_after_catchup_publication() {
         "the un-replayable block press waits for a fresh tick"
     );
     assert_eq!(swings.published_progress(103), published);
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        3,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Ok::<_, ()>(()),
+    )
+    .unwrap();
     movement
         .enqueue_completed_physics(crate::test_support::survival_mining::completed(104))
         .unwrap();
