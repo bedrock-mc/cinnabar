@@ -31,7 +31,7 @@ fn evaluate(mut ops: Vec<MolangOp>, input: ActorTickInput) -> f32 {
     }
     compiled.molang_ops = ops.into();
     compiled.molang_expressions = expressions.into();
-    let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let layout = VariableLayout::new(&assets);
     let actor = crate::tests::actor_with_metadata(HashMap::new());
     let context = ActorTickContext::default();
