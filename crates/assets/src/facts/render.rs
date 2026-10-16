@@ -43,6 +43,7 @@ pub enum BlockRenderKind {
     Stem,
     TripwireHook,
     Barrel,
+    CommandBlock,
     Composter,
     Cauldron,
     Cactus,
@@ -201,6 +202,7 @@ impl BlockRenderKind {
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
             R::Crystal => (true, true, false, false),
+            R::CommandBlock => (true, false, false, true),
             R::EndPortalFrame | R::Lantern => (true, true, true, false),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass

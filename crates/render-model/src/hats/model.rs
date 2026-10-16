@@ -1,17 +1,23 @@
-//! Loads the original continuous surface and binds each shared ring to its joint.
+//! Loads original headwear and binds flexible surface rings to their authored joints.
 
 use super::*;
 
 /// Builds immutable headwear with no internal caps or disconnected joint surfaces.
-pub(super) fn build() -> HatRig {
-    let model = assets::parse_skin_geometry(
-        r#"{"geometry":{"default":"geometry.cinnabar.bunny_ears"}}"#,
-        include_str!("bunny_ears.geo.json"),
-    )
-    .expect("original bunny ears geometry is valid")
-    .expect("original bunny ears geometry exists");
-    let original = crate::skin_geometry(&model, EntityRigId(0xDFFF_FFFF))
-        .expect("original bunny ears mesh is valid");
+pub(super) fn build(hat: Hat) -> HatRig {
+    let source = source(hat);
+    let patch = format!(
+        r#"{{"geometry":{{"default":"geometry.cinnabar.{}"}}}}"#,
+        hat.id()
+    );
+    let model = assets::parse_skin_geometry(&patch, source.geometry)
+        .expect("original headwear geometry is valid")
+        .expect("original headwear geometry exists");
+    let index = Hat::ALL
+        .iter()
+        .position(|entry| *entry == hat)
+        .expect("catalogued hat");
+    let original = crate::skin_geometry(&model, EntityRigId(0xDFFF_FFFF - index as u32))
+        .expect("original headwear mesh is valid");
     let head = model
         .bones
         .iter()
@@ -51,7 +57,9 @@ pub(super) fn build() -> HatRig {
                 false
             })
             .collect();
-        let first = joints.first().copied().expect("flexible ear has joints");
+        let Some(first) = joints.first().copied() else {
+            continue;
+        };
         let last = joints.last().copied().expect("flexible ear has joints");
         let low = original.bone_pivots[first][1];
         let span = original.bone_pivots[last][1] - low;
@@ -74,8 +82,8 @@ pub(super) fn build() -> HatRig {
     let geometry =
         crate::ActorRigGeometry::new(original.id, vertices, original.bone_pivots.clone())
             .expect("continuous headwear mesh is valid");
-    let image = image::load_from_memory(include_bytes!("bunny_ears.png"))
-        .expect("original bunny ears texture is valid")
+    let image = image::load_from_memory(source.texture)
+        .expect("original headwear texture is valid")
         .into_rgba8();
     assert_eq!(
         (image.width(), image.height()),
@@ -116,5 +124,31 @@ pub(super) fn build() -> HatRig {
         rest_vertices,
         texture,
         pixels,
+    }
+}
+
+/// The editable project and its runtime export travel with their original texture.
+pub(super) struct Source {
+    #[cfg(test)]
+    pub project: &'static str,
+    pub geometry: &'static str,
+    pub texture: &'static [u8],
+}
+
+/// Exhaustive asset resolution keeps every catalog choice backed by an authored model.
+pub(super) fn source(hat: Hat) -> Source {
+    macro_rules! source {
+        ($name:literal) => {
+            Source {
+                #[cfg(test)]
+                project: include_str!(concat!($name, ".bbmodel")),
+                geometry: include_str!(concat!($name, ".geo.json")),
+                texture: include_bytes!(concat!($name, ".png")),
+            }
+        };
+    }
+    match hat {
+        Hat::BunnyEars => source!("bunny_ears"),
+        Hat::Crown => source!("crown"),
     }
 }

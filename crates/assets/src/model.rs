@@ -312,6 +312,11 @@ pub fn model_template_parts(templates: &[ModelTemplate], first: u32) -> Option<&
     }
 }
 
+/// Fixed-point position units in one model block.
+pub const MODEL_POSITION_SCALE: i16 = 256;
+/// Fixed-point UV units in one texture tile.
+pub const MODEL_UV_SCALE: u16 = 4096;
+
 /// Fixed-point template quad. Position coordinates use 1/256 block units.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

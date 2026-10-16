@@ -150,86 +150,120 @@ fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
 
 #[test]
 fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots() {
-    let project: serde_json::Value =
-        serde_json::from_str(include_str!("bunny_ears.bbmodel")).unwrap();
-    let exported: serde_json::Value =
-        serde_json::from_str(include_str!("bunny_ears.geo.json")).unwrap();
-    let geometry = &exported["minecraft:geometry"][0];
-    assert_eq!(
-        project["model_identifier"],
-        geometry["description"]["identifier"]
-    );
-    for group in project["groups"].as_array().unwrap() {
-        assert!(
-            group["rotation"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|n| n.as_f64() == Some(0.0)),
-            "headwear group transforms must be baked before export"
+    for &hat in Hat::ALL {
+        let source = model::source(hat);
+        let project: serde_json::Value = serde_json::from_str(source.project).unwrap();
+        let exported: serde_json::Value = serde_json::from_str(source.geometry).unwrap();
+        assert_eq!(
+            project["model_identifier"],
+            format!("geometry.cinnabar.{}", hat.id())
         );
-        let bone = geometry["bones"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|bone| bone["name"] == group["name"])
-            .expect("exported project joint");
-        assert_eq!(bone["pivot"], group["origin"]);
-    }
-    for mesh in project["elements"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|element| element["type"] == "mesh")
-    {
-        for field in ["origin", "rotation"] {
+        let geometry = &exported["minecraft:geometry"][0];
+        assert_eq!(
+            project["model_identifier"],
+            geometry["description"]["identifier"]
+        );
+        for group in project["groups"].as_array().unwrap() {
             assert!(
-                mesh[field]
+                group["rotation"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .all(|n| n.as_f64() == Some(0.0)),
-                "headwear mesh transforms must be baked before export"
+                "headwear group transforms must be baked before export"
             );
+            let bone = geometry["bones"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|bone| bone["name"] == group["name"])
+                .expect("exported project joint");
+            assert_eq!(bone["pivot"], group["origin"]);
         }
-        let surface = geometry["bones"]
+        for mesh in project["elements"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|bone| bone.get("poly_mesh"))
-            .find(|surface| {
-                surface["positions"].as_array().unwrap().len()
-                    == mesh["vertices"].as_object().unwrap().len()
-                    && mesh["vertices"]
-                        .as_object()
+            .filter(|element| element["type"] == "mesh")
+        {
+            for field in ["origin", "rotation"] {
+                assert!(
+                    mesh[field]
+                        .as_array()
                         .unwrap()
-                        .values()
-                        .all(|position| surface["positions"].as_array().unwrap().contains(position))
-            })
-            .expect("runtime surface matches the editable Blockbench mesh");
-        let positions = surface["positions"].as_array().unwrap();
-        assert!(positions.len() > 100);
-        assert_eq!(
-            surface["polys"].as_array().unwrap().len(),
-            mesh["faces"].as_object().unwrap().len()
-        );
-        for face in mesh["faces"].as_object().unwrap().values() {
-            assert!(
-                surface["polys"].as_array().unwrap().iter().any(|polygon| {
-                    let corners = polygon.as_array().unwrap();
-                    let authored = face["vertices"].as_array().unwrap();
-                    authored.len() == corners.len()
-                        && authored.iter().zip(corners).all(|(key, corner)| {
-                            let key = key.as_str().unwrap();
-                            let indices = corner.as_array().unwrap();
-                            mesh["vertices"][key]
-                                == surface["positions"][indices[0].as_u64().unwrap() as usize]
-                                && face["uv"][key]
-                                    == surface["uvs"][indices[2].as_u64().unwrap() as usize]
-                        })
-                }),
-                "Blockbench faces and UVs must be exported together"
+                        .iter()
+                        .all(|n| n.as_f64() == Some(0.0)),
+                    "headwear mesh transforms must be baked before export"
+                );
+            }
+            let surface = geometry["bones"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|bone| bone.get("poly_mesh"))
+                .find(|surface| {
+                    surface["positions"].as_array().unwrap().len()
+                        == mesh["vertices"].as_object().unwrap().len()
+                        && mesh["vertices"]
+                            .as_object()
+                            .unwrap()
+                            .values()
+                            .all(|position| {
+                                surface["positions"].as_array().unwrap().contains(position)
+                            })
+                })
+                .expect("runtime surface matches the editable Blockbench mesh");
+            let positions = surface["positions"].as_array().unwrap();
+            assert!(positions.len() > 100);
+            assert_eq!(
+                surface["polys"].as_array().unwrap().len(),
+                mesh["faces"].as_object().unwrap().len()
             );
+            for face in mesh["faces"].as_object().unwrap().values() {
+                assert!(
+                    surface["polys"].as_array().unwrap().iter().any(|polygon| {
+                        let corners = polygon.as_array().unwrap();
+                        let authored = face["vertices"].as_array().unwrap();
+                        authored.len() == corners.len()
+                            && authored.iter().zip(corners).all(|(key, corner)| {
+                                let key = key.as_str().unwrap();
+                                let indices = corner.as_array().unwrap();
+                                mesh["vertices"][key]
+                                    == surface["positions"][indices[0].as_u64().unwrap() as usize]
+                                    && face["uv"][key]
+                                        == surface["uvs"][indices[2].as_u64().unwrap() as usize]
+                            })
+                    }),
+                    "Blockbench faces and UVs must be exported together"
+                );
+            }
         }
     }
+}
+
+#[test]
+fn crown_has_its_own_art_and_keeps_its_shape_in_wind() {
+    let crown = rig(Hat::Crown);
+    let ears = rig(Hat::BunnyEars);
+    assert_ne!(crown.geometry.id, ears.geometry.id);
+    assert!(crown.texture.is_valid());
+    let rest = crown.pose(head(Quat::IDENTITY), 0.0);
+    assert_eq!(rest, crown.pose(head(Quat::IDENTITY), 1.0));
+    let bottom = crown
+        .rest_vertices
+        .iter()
+        .map(|v| v.position[1])
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        (bottom - 2.0).abs() < 1e-5,
+        "crown rests on the top of the head"
+    );
+    assert!(
+        crown
+            .rest_vertices
+            .iter()
+            .all(|vertex| { vertex.position[0].abs() <= 0.25 && vertex.position[2].abs() <= 0.25 }),
+        "the complete crown, including jewels, fits the head width and depth"
+    );
+    assert!(crown.rest_vertices.iter().any(|v| v.position[1] > 2.0));
 }

@@ -8,6 +8,32 @@ the original-art compiler and carrier-roundtrip regression. The focused crate
 check and rebuilt-carrier local BDS rendering pass against the official client.
 Broader terrain parity and hardware performance gates remain open.
 
+## Redstone dust item sprite
+
+A reviewed default binding selects the item-atlas dust sprite, leaving placed
+wire and redstone-block rendering separate. Owning regressions cover authored
+sprite pixels, carrier roundtrips and absent-atlas fallback. Native and current
+before frames confirm the wrong icon and invisible held item. Rebuilt carriers
+show the correct dust sprite in the fixed hotbar and hand. All 308 owning tests
+and focused checks pass; other geometry and item-parity gates remain open.
+
+## Command-block terrain materials
+
+Facing and conditional selectors now retain their front/back panels, oriented
+side arrows and atlas-bound animation strips. Compiler regressions cover every
+registered command variant, boundary culling and carrier roundtrips. Render-fact,
+exact regeneration and focused compile checks pass. Local BDS frames and animation
+phases pass against the official Android reference. Broader pack/platform parity
+and hardware performance gates remain open; the command-block editor is unfinished.
+
+## Liquid surfaces beneath opaque roofs
+
+Lowered water and lava tops remain visible below solid blocks, with shared side
+insets. Owning meshing regressions and the focused crate check pass. Matched local
+BDS frames reproduce the missing tops and verify the corrected surfaces against
+the official Android client. Broader liquid parity and hardware performance gates
+remain open.
+
 ## Original wardrobe hats
 
 Local headwear has an independent persisted selection, a wardrobe gallery and shared
@@ -17,6 +43,14 @@ Stepped pixel surfaces attach directly to the head, with compact square gallery 
 Shared-edge regression coverage prevents joint gaps. This adds no Bedrock parity claim;
 Linux wardrobe and in-world standing and forward-motion rendering were inspected
 with software Vulkan. Hardware performance qualification remains incomplete.
+
+The original jeweled crown rests on the head with a shorter stepped silhouette.
+Its band and jewels stay within the standard head width and depth. Its rigid
+pose, editable export and original texture are covered by model tests; Linux Vulkan
+in-world fit was inspected. Authenticated nearby hat exchange extends the existing emote
+connection, with actor-lifetime checks, bounded leases and shared cosmetic textures.
+API and client implementation are local. API deployment and live authenticated
+multi-account acceptance remain incomplete; no broader parity or performance gate advances.
 
 Settings mod cards now show permission summaries, explicit requested-grant consent
 and a compact customization grid. Capability metadata supplies gameplay warnings;

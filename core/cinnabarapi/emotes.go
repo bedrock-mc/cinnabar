@@ -12,19 +12,23 @@ import (
 const emoteTTL = 15 * time.Second
 const emoteSpacing = 500 * time.Millisecond
 
-var emoteIDPattern = regexp.MustCompile(`^[a-z0-9_.:-]{1,128}$`)
+var sharedIDPattern = regexp.MustCompile(`^[a-z0-9_.:-]{1,128}$`)
 
-// EmoteState replaces nearby subscriptions and local playback.
-type EmoteState = bridgecontract.CinnabarEmoteState
+// PlayerState replaces nearby subscriptions, local playback and the equipped hat.
+type PlayerState = bridgecontract.CinnabarPlayerState
 
 // RemoteEmote is a leased animation from an authenticated account.
 type RemoteEmote = bridgecontract.CinnabarRemoteEmote
+
+// PlayerUpdates contains leased playback and hats from authenticated nearby accounts.
+type PlayerUpdates = bridgecontract.CinnabarPlayerUpdates
 
 type emoteMessage struct {
 	Type      string    `json:"type"`
 	XUIDs     *[]string `json:"xuids,omitempty"`
 	UUIDs     *[]string `json:"uuids,omitempty"`
 	EmoteID   *string   `json:"emote_id"`
+	HatID     *string   `json:"hat_id"`
 	ElapsedMS uint32    `json:"elapsed_ms"`
 }
 
@@ -33,26 +37,27 @@ type receivedEmote struct {
 	received time.Time
 }
 
-// Valid rejects unbounded subscriptions and clips before they reach the shared connection.
-func ValidEmoteState(state EmoteState) bool {
-	return (state.EmoteID == "" || emoteIDPattern.MatchString(state.EmoteID)) &&
+// ValidPlayerState rejects unbounded subscriptions and malformed art identifiers.
+func ValidPlayerState(state PlayerState) bool {
+	return (state.EmoteID == "" || sharedIDPattern.MatchString(state.EmoteID)) &&
+		(state.HatID == "" || sharedIDPattern.MatchString(state.HatID)) &&
 		(len(state.XUIDs)+len(state.UUIDs) == 0 || ValidLookup(state.XUIDs, state.UUIDs))
 }
 
-// SyncEmotes coalesces local updates without waiting for the network and returns unexpired watched playback.
-func (c *Client) SyncEmotes(state EmoteState) []RemoteEmote {
-	return c.syncEmotes(state, time.Now())
+// SyncPlayers coalesces local updates without waiting for the network and returns watched playback and hats.
+func (c *Client) SyncPlayers(state PlayerState) PlayerUpdates {
+	return c.syncPlayers(state, time.Now())
 }
 
-// syncEmotes advances one deterministic exchange at the caller's observation time.
-func (c *Client) syncEmotes(state EmoteState, now time.Time) []RemoteEmote {
+// syncPlayers advances one deterministic exchange at the caller's observation time.
+func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := c.live
-	if s == nil || !ValidEmoteState(state) {
-		return nil
+	if s == nil || !ValidPlayerState(state) {
+		return PlayerUpdates{}
 	}
-	changed := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID ||
+	changed := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID || s.emoteState.HatID != state.HatID ||
 		!reflect.DeepEqual(s.emoteState.XUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteState.UUIDs, state.UUIDs)
 	watchesPending := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
 	watchDue := !s.emoteSent || now.Sub(s.emoteWatchSent) >= emoteTTL/5
@@ -76,11 +81,11 @@ func (c *Client) syncEmotes(state EmoteState, now time.Time) []RemoteEmote {
 		value.ValidForMS -= uint64(age / time.Millisecond)
 		result = append(result, value)
 	}
-	return result
+	return PlayerUpdates{Emotes: result, Hats: collectHats(s, state, now)}
 }
 
 // watches resolves either identity namespace while keeping subscription memory bounded.
-func watches(state EmoteState, xuid, uuid string) bool {
+func watches(state PlayerState, xuid, uuid string) bool {
 	for _, id := range state.XUIDs {
 		if id == xuid {
 			return true
@@ -110,7 +115,7 @@ func (c *Client) receiveEmoteAt(s *session, msg inbound, now time.Time) {
 		delete(s.emotes, msg.XUID)
 		return
 	}
-	if !emoteIDPattern.MatchString(*msg.EmoteID) || msg.ValidForMS > uint64(emoteTTL/time.Millisecond) {
+	if !sharedIDPattern.MatchString(*msg.EmoteID) || msg.ValidForMS > uint64(emoteTTL/time.Millisecond) {
 		return
 	}
 	if len(s.emotes) >= bridgecontract.CinnabarAPIMaxLookupXUIDs {
@@ -131,7 +136,11 @@ func (c *Client) emotePayload(s *session) []byte {
 	if state.EmoteID != "" {
 		id = &state.EmoteID
 	}
-	message := emoteMessage{Type: typeEmoteState, EmoteID: id, ElapsedMS: state.ElapsedMS}
+	var hat *string
+	if state.HatID != "" {
+		hat = &state.HatID
+	}
+	message := emoteMessage{Type: typeEmoteState, EmoteID: id, HatID: hat, ElapsedMS: state.ElapsedMS}
 	changed := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
 	if !s.emoteSent || (changed && s.emoteQueued.Sub(s.emoteWatchSent) >= emoteTTL/5) {
 		xuids, uuids := append([]string{}, state.XUIDs...), append([]string{}, state.UUIDs...)

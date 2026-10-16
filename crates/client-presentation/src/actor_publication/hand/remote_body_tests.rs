@@ -152,6 +152,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     renders_game: true,
                     hide_hand: false,
                     remote_emotes: Vec::new(),
+                    remote_hats: Vec::new(),
                     custom_emote: None,
                 };
                 let mut poses = crate::presentation::actors::PoseConversions::default();
@@ -440,6 +441,7 @@ fn sample_shared_bodies<'a>(
         hide_hand: false,
         custom_emote: None,
         remote_emotes,
+        remote_hats: Vec::new(),
     };
     super::super::bodies::sample(
         Some(stream),
@@ -467,4 +469,82 @@ fn sample_shared_bodies<'a>(
         |_, _, _, _| false,
         &mut Vec::new(),
     )
+}
+
+#[test]
+fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let selections: Vec<_> = [2, 3]
+        .map(|runtime_id| super::super::RemoteHat {
+            runtime_id,
+            spawn_revision: stream.authority().actor(runtime_id).unwrap().spawn_revision,
+            hat: render_api::Hat::Crown,
+        })
+        .into();
+    let mut hats = super::super::hats::HatState::default();
+    let mut scene = render_scene::ActorRenderScene::default();
+    for selected in [
+        selections.clone(),
+        vec![
+            super::super::RemoteHat {
+                spawn_revision: selections[0].spawn_revision + 1,
+                ..selections[0]
+            },
+            selections[1],
+        ],
+        Vec::new(),
+    ] {
+        let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+        let mut batch =
+            crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+        let body_count = batch.submissions.len();
+        let textures = batch.skin_layers.len();
+        hats.advance(None, 0.0, 1.0 / 60.0);
+        hats.attach(&mut batch, Some(&stream), &selected, &mut scene);
+        let expected = selected
+            .iter()
+            .filter(|hat| {
+                stream
+                    .authority()
+                    .actor(hat.runtime_id)
+                    .unwrap()
+                    .spawn_revision
+                    == hat.spawn_revision
+            })
+            .count();
+        assert_eq!(batch.submissions.len(), body_count + expected);
+        assert_eq!(
+            batch.skin_layers.len(),
+            textures + usize::from(expected > 0)
+        );
+        for attachment in &batch.submissions[body_count..] {
+            let id = attachment.input.identity.runtime_id;
+            let head = stream
+                .authority()
+                .actor_rig(id)
+                .unwrap()
+                .bone_names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case("head"))
+                .unwrap();
+            let body = batch.submissions[..body_count]
+                .iter()
+                .find(|body| body.input.identity.runtime_id == id)
+                .unwrap();
+            assert_eq!(
+                attachment.input.current_bones[0],
+                body.input.current_bones[head]
+            );
+            assert_eq!(
+                attachment.input.previous_bones[0],
+                body.input.previous_bones[head]
+            );
+            assert_eq!(
+                attachment.input.rig,
+                render_model::hats::rig(render_api::Hat::Crown).geometry.id
+            );
+        }
+    }
 }

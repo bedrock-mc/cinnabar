@@ -97,7 +97,10 @@ impl State {
             (Self::Playing, Some(Destination::Server(endpoint))) => {
                 if let Some(badge) = target.and_then(|t| t.badge.as_ref()) {
                     let badge_name = badge.name.trim();
-                    if !badge_name.is_empty() && badge_name != "Minecraft Bedrock" && !badge_name.contains(':') {
+                    if !badge_name.is_empty()
+                        && badge_name != "Minecraft Bedrock"
+                        && !badge_name.contains(':')
+                    {
                         format!("Playing on {badge_name}")
                     } else {
                         format!("Playing on {endpoint}")
@@ -158,8 +161,23 @@ impl State {
             .and_then(|target| target.join.as_deref())
             .and_then(|address| Some((join::party_id(address), join::secret(address)?)))
             .unzip();
-        let activity = if let Some(party) = party {
-            activity.party(|joined| joined.id(party))
+        // Discord shows "(current of max)" and rejects a current above max.
+        let size = target
+            .and_then(|target| target.max_players)
+            .filter(|max| *max > 0)
+            .zip(players)
+            .map(|(max, current)| (current.clamp(1, max), max));
+        let activity = if party.is_some() || size.is_some() {
+            activity.party(|joined| {
+                let joined = match party {
+                    Some(party) => joined.id(party),
+                    None => joined,
+                };
+                match size {
+                    Some(size) => joined.size(size),
+                    None => joined,
+                }
+            })
         } else {
             activity
         };

@@ -153,6 +153,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             renders_game: true,
             hide_hand: false,
             remote_emotes: Vec::new(),
+            remote_hats: Vec::new(),
             custom_emote: None,
         },
         |_| {},

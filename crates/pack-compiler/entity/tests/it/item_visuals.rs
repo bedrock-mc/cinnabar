@@ -16,6 +16,9 @@ mod spawn_eggs;
 #[path = "item_visuals/beds.rs"]
 mod beds;
 
+#[path = "item_visuals/redstone.rs"]
+mod redstone;
+
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
     let pack = item_pack(false);

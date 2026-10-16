@@ -128,7 +128,8 @@
         { "$ref": "#/$defs/Error" },
         { "$ref": "#/$defs/LookupResult" },
         { "$ref": "#/$defs/Release" },
-        { "$ref": "#/$defs/Emote" }
+        { "$ref": "#/$defs/Emote" },
+        { "$ref": "#/$defs/Cosmetic" }
       ]
     },
     "Challenge": {
@@ -199,7 +200,7 @@
       "pattern": "^[a-z0-9_.:-]+$"
     },
     "EmoteState": {
-      "description": "Replaces the nearby-player watch list and local emote. The combined identifier limit is 128. Null stops playback; elapsed_ms is the current playback phase. Omitting both identifier arrays retains subscriptions; an empty array clears them. Receivers ignore unknown clips.",
+      "description": "Replaces the nearby-player watch list and local emote. The combined identifier limit is 128. Null stops playback; elapsed_ms is the current playback phase. Omitting both identifier arrays retains subscriptions; an empty array clears them. Receivers ignore unknown clips. Optional hat_id updates the equipped hat on the same nearby subscription; null unequips it, omission retains the previous hat.",
       "type": "object",
       "required": [
         "type",
@@ -229,6 +230,9 @@
           "items": {
             "$ref": "#/$defs/Uuid"
           }
+        },
+        "hat_id": {
+          "$ref": "#/$defs/CosmeticId"
         }
       }
     },
@@ -263,6 +267,42 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 15000
+        }
+      }
+    },
+    "CosmeticId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z0-9_.:-]{1,128}$",
+      "maxLength": 128
+    },
+    "Cosmetic": {
+      "description": "Authenticated nearby cosmetic selection with a bounded lease. Null unequips; unknown identifiers are ignored by receivers.",
+      "type": "object",
+      "required": [
+        "type",
+        "xuid",
+        "uuid",
+        "hat_id",
+        "valid_for_ms"
+      ],
+      "properties": {
+        "type": {
+          "const": "cosmetic"
+        },
+        "xuid": {
+          "$ref": "#/$defs/Xuid"
+        },
+        "uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "hat_id": {
+          "$ref": "#/$defs/CosmeticId"
+        },
+        "valid_for_ms": {
+          "$ref": "#/$defs/Emote/properties/valid_for_ms"
         }
       }
     }

@@ -112,6 +112,7 @@ fn draw(
             multisample: Default::default(),
             depth_compare: wgpu::CompareFunction::Greater,
             write_mask: wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE,
+            ..Default::default()
         },
     )
 }

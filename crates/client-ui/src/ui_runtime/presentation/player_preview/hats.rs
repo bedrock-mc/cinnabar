@@ -72,10 +72,12 @@ mod tests {
     fn hat_gallery_renders_the_original_black_and_pink_geometry() {
         let (pixels, width, height) = decode(Hat::BunnyEars, true).unwrap();
         assert_eq!(pixels.len(), (width * height * 4) as usize);
-        assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
+        assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0));
         assert!(
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[3] != 0 && u16::from(pixel[0]) > u16::from(pixel[1]) * 3 / 2)
         );
         assert_eq!(pixels, decode(Hat::BunnyEars, true).unwrap().0);

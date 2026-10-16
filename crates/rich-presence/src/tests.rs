@@ -72,7 +72,10 @@ fn featured_art_badges_the_card_only_while_playing_and_only_over_https() {
         let payload =
             serde_json::to_value(State::Playing.activity(1, Some(&badged(rejected)), None))
                 .unwrap();
-        assert_eq!(payload["assets"]["small_image"], GRASS_BLOCK_ICON_URL, "{rejected}");
+        assert_eq!(
+            payload["assets"]["small_image"], GRASS_BLOCK_ICON_URL,
+            "{rejected}"
+        );
     }
 }
 

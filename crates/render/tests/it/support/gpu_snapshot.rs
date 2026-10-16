@@ -40,6 +40,8 @@ pub struct RasterState {
     pub depth_compare: wgpu::CompareFunction,
     pub write_mask: wgpu::ColorWrites,
     pub multisample: wgpu::MultisampleState,
+    /// Optional per-draw polygon offsets, applied after clipping and rasterization.
+    pub depth_biases: Vec<wgpu::DepthBiasState>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -62,6 +64,7 @@ impl Default for RasterState {
             depth_compare: wgpu::CompareFunction::GreaterEqual,
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
+            depth_biases: Vec::new(),
         }
     }
 }
@@ -419,7 +422,7 @@ impl Gpu {
                         depth_write_enabled: Some(draw.write_depth),
                         depth_compare: Some(state.depth_compare),
                         stencil: Default::default(),
-                        bias: Default::default(),
+                        bias: state.depth_biases.get(index).copied().unwrap_or_default(),
                     }),
                     multisample: state.multisample,
                     fragment: Some(wgpu::FragmentState {

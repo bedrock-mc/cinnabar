@@ -28,6 +28,7 @@ const (
 	typeLookupResult = "lookup_result"
 	typeRelease      = "release"
 	typeEmote        = "emote"
+	typeCosmetic     = "cosmetic"
 	typeEmoteState   = "emote_state"
 )
 
@@ -81,6 +82,7 @@ type inbound struct {
 	XUID       string  `json:"xuid"`
 	UUID       string  `json:"uuid"`
 	EmoteID    *string `json:"emote_id"`
+	HatID      *string `json:"hat_id"`
 	ElapsedMS  uint32  `json:"elapsed_ms"`
 	ValidForMS uint64  `json:"valid_for_ms"`
 	parameters

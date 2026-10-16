@@ -123,6 +123,12 @@ pub(super) fn instance(
         backend_options: Default::default(),
         display,
     };
+    #[cfg(target_os = "macos")]
+    if env_compat::var("CINNABAR_ASYNC_PRESENT").as_deref() != Ok("0") {
+        descriptor
+            .flags
+            .insert(wgpu::InstanceFlags::METAL_ASYNC_WINDOWED_PRESENTATION);
+    }
     descriptor.backend_options.dx12.shader_compiler = settings.dx12_shader_compiler.clone();
     descriptor.backend_options.dx12.presentation_system =
         wgpu::wgt::Dx12SwapchainKind::from_env().unwrap_or_default();

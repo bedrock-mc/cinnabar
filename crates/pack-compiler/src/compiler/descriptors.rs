@@ -7,6 +7,9 @@ pub(super) fn descriptor_for(
     record: &RegistryRecord,
     face: BlockFace,
 ) -> Option<(Descriptor, Box<str>)> {
+    if visuals::command_block::is_record(record) {
+        return visuals::command_block::descriptor(pack, record, face);
+    }
     if visuals::stem::is_record(record) {
         return visuals::stem::descriptor(pack, record, face);
     }

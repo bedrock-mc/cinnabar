@@ -159,8 +159,8 @@ const (
 	RPCCinnabarRateLimited = -32024
 	// MethodCinnabarAPI: Control method for the Cinnabar API identity and visibility.
 	MethodCinnabarAPI = "cinnabar_api.v1"
-	// MethodCinnabarEmotes: Control method for nearby Cinnabar emote playback.
-	MethodCinnabarEmotes = "cinnabar_emotes.v1"
+	// MethodCinnabarPlayers: Control method for nearby Cinnabar emotes and cosmetics.
+	MethodCinnabarPlayers = "cinnabar_players.v1"
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
@@ -329,8 +329,8 @@ type CinnabarRelease struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// CinnabarEmoteState: Nearby subscriptions and the local custom emote, cleared when the game session ends.
-type CinnabarEmoteState struct {
+// CinnabarPlayerState: Nearby subscriptions, custom emote and equipped hat, cleared when the game session ends.
+type CinnabarPlayerState struct {
 	// XUIDs: Nearby Xbox account identifiers.
 	XUIDs []string `json:"xuids"`
 	// UUIDs: Nearby UUIDs when the server omitted Xbox identifiers.
@@ -341,6 +341,8 @@ type CinnabarEmoteState struct {
 	ElapsedMS uint32 `json:"elapsed_ms"`
 	// PlaybackID: Local start identity, including same-clip restarts.
 	PlaybackID uint64 `json:"playback_id"`
+	// HatID: Owned hat identifier; empty unequips it.
+	HatID string `json:"hat_id"`
 }
 
 // CinnabarRemoteEmote: An authenticated nearby player animation with a remaining lease.
@@ -355,6 +357,26 @@ type CinnabarRemoteEmote struct {
 	ElapsedMS uint64 `json:"elapsed_ms"`
 	// ValidForMS: Remaining playback lease.
 	ValidForMS uint64 `json:"valid_for_ms"`
+}
+
+// CinnabarRemoteHat: An authenticated nearby hat selection with a remaining lease.
+type CinnabarRemoteHat struct {
+	// XUID: Authenticated Xbox account identifier.
+	XUID string `json:"xuid"`
+	// UUID: Account UUID derived by the API.
+	UUID string `json:"uuid"`
+	// HatID: Owned hat identifier.
+	HatID string `json:"hat_id"`
+	// ValidForMS: Remaining selection lease.
+	ValidForMS uint64 `json:"valid_for_ms"`
+}
+
+// CinnabarPlayerUpdates: Current authenticated nearby playback and cosmetic leases.
+type CinnabarPlayerUpdates struct {
+	// Emotes: Nearby custom emotes.
+	Emotes []CinnabarRemoteEmote `json:"emotes"`
+	// Hats: Nearby equipped hats.
+	Hats []CinnabarRemoteHat `json:"hats"`
 }
 
 // InboxCategories: Inbox category names in display order.
