@@ -3895,8 +3895,9 @@ incomplete; this correction preserves the approved built-in pack geometry.
 
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor
-carrier admission. Incomplete: absorbed-block scale and attachment placement remain
-unverified; restoring the shell does not close the full sulfur-cube rendering gate.
+carrier admission. The medium cube's absorbed oak log fills the shell in a matched
+local Bedrock comparison. Incomplete: other cube sizes, items and attachment placements
+remain unverified; these changes do not close the full sulfur-cube rendering gate.
 
 Client descriptions retain numeric or Molang `held_item_scale` through rig carriers.
 Equipment reads the owner's bounded frame sample and applies the factor once to the
