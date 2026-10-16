@@ -1,3 +1,11 @@
+## Fence gate targeting
+
+Gate picking uses the same thin directional bounds as its outline for closed, open
+and in-wall states. Rays can pass through empty cell space to the lower gate in a
+stack. Movement boxes and carried-block visuals keep their separate geometry.
+Regression coverage includes every registered gate state in both runtime ID modes.
+Broader block-family parity remains incomplete.
+
 ## Restore and share custom emote playback
 
 The articulated emote snapshot now carries the matching prepared body and clothing meshes.

@@ -15,6 +15,8 @@ use crate::movement::PhysicsCollisionRegistries;
 
 #[path = "gateway_tests.rs"]
 mod gateway_tests;
+#[path = "gate_tests.rs"]
+mod gate_tests;
 
 pub(super) struct Fixture {
     pub(super) records: Box<[RegistryRecord]>,
