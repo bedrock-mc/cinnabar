@@ -605,6 +605,14 @@ server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
 
+## Redstone dust item sprite
+
+Redstone dust uses the pinned item-atlas sprite for its inventory icon and held
+item rather than the placed wire geometry. The reviewed default binding is
+checked against the pinned atlas and retail inventory. Original-sprite regressions
+cover entity/icon carrier roundtrips and preserve the redstone block's model.
+Other geometry reports and broader item-rendering parity remain incomplete.
+
 ## Command-block terrain materials
 
 Command blocks select front, back and conditional side materials from their facing

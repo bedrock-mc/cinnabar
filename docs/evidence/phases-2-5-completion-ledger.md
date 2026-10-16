@@ -1,5 +1,14 @@
 # Phases 2-5 Completion Ledger
 
+## Redstone dust item sprite
+
+A reviewed default binding selects the item-atlas dust sprite, leaving placed
+wire and redstone-block rendering separate. Owning regressions cover authored
+sprite pixels, carrier roundtrips and absent-atlas fallback. Native and current
+before frames confirm the wrong icon and invisible held item. Rebuilt carriers
+show the correct dust sprite in the fixed hotbar and hand. All 308 owning tests
+and focused checks pass; other geometry and item-parity gates remain open.
+
 ## Command-block terrain materials
 
 Facing and conditional selectors now retain their front/back panels, oriented
