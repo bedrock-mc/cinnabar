@@ -214,6 +214,43 @@ impl LocalMovementSpeedAuthority {
         self.speed.attribute.map(|attribute| attribute.current)
     }
 
+    /// Applies arrival-ordered Speed effect packets to effective movement current.
+    pub(crate) fn apply_effect(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: protocol::ActorEffectEvent,
+    ) {
+        if session_id != self.session_id
+            || event.dimension != self.dimension
+            || self.last_sequence.is_some_and(|last| sequence <= last)
+        {
+            return;
+        }
+        if event.effect_id != protocol_ids::Effect::Speed.wire_value() {
+            return;
+        }
+        self.last_sequence = Some(sequence);
+        let mut attribute = self.speed.attribute.unwrap_or_else(|| {
+            let mut attribute =
+                MovementSpeedAttribute::unmodified(sim::DEFAULT_MOVEMENT_SPEED as f32);
+            if self.speed.sprinting {
+                attribute.set_sprint_modifier(Some(sim::SPRINT_SPEED_MULTIPLIER as f32));
+            }
+            attribute
+        });
+        attribute.apply_speed_effect(event.action, event.amplifier);
+        for factor in [None, Some(sim::SPRINT_SPEED_MULTIPLIER as f32)] {
+            let mut recalculated = attribute;
+            recalculated.set_sprint_modifier(factor);
+            if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&recalculated.current) {
+                super::diagnostics::note_skipped_authority("movement_speed", recalculated.current);
+                return;
+            }
+        }
+        self.speed.attribute = Some(attribute);
+    }
+
     /// Returns the pre-sprint value expected by the simulator.
     pub(crate) fn prediction_speed(&self) -> Option<f64> {
         self.speed.prediction_speed()

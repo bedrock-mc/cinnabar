@@ -1313,6 +1313,8 @@ these changes do not close the movement, camera, or actor parity gates.
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
   Sprint transitions recalculate movement speed from attribute defaults and other
   modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
+  Server Speed effect changes refresh that value while sprint stays held.
+  Local Speed modifier expiry without a server update remains incomplete.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
