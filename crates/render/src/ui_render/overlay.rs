@@ -6,7 +6,7 @@ use super::segments::plan_ui_passes;
 use super::*;
 use super::{
     damage::UiDamage,
-    layer::{UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
+    layer::{UiLayerDraw, draw_batches, model_depth_attachment},
 };
 #[path = "world.rs"]
 mod world;
@@ -474,9 +474,25 @@ pub(crate) fn ui_overlay(
             gpu.index_count,
         )
     });
-    let batches: Vec<_> = batches
+    // Backdrops replace the scene under them before any layer composites over it.
+    let (backdrops, batches): (Vec<_>, Vec<_>) = batches
         .filter(|(_, batch, _)| batch.world_projection == 0)
-        .collect();
+        .partition(|(_, batch, _)| super::backdrop::is_backdrop(batch));
+    if !backdrops.is_empty() {
+        super::backdrop::apply_backdrops(
+            context,
+            &super::backdrop::BackdropDraw {
+                world,
+                gpu,
+                vertices,
+                indices,
+                view: view_entity,
+                viewport: viewport.as_ref(),
+            },
+            target,
+            &backdrops,
+        );
+    }
     let model_depth = world
         .get_resource::<super::model_depth::UiModelDepths>()
         .and_then(|depths| depths.compatible(view_entity, layer));
@@ -518,6 +534,7 @@ pub(crate) fn ui_overlay(
             viewport: viewport.as_ref(),
             skip: skip.as_ref(),
             clear: composite.clear_pipeline(pipeline_cache),
+            keep: false,
         };
         let content = retained
             .filter(|_| segment.independent_depth(&batches))
@@ -589,7 +606,7 @@ pub(crate) fn ui_overlay(
             }
             encoded
         } else {
-            let drawn = draw_ui_layer(
+            let drawn = super::filter::draw_layer(
                 context,
                 &layer_draw,
                 layered,
@@ -599,6 +616,7 @@ pub(crate) fn ui_overlay(
                 } else {
                     None
                 },
+                publication.as_deref(),
             );
             raster.hold_publication(
                 content

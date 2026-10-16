@@ -155,17 +155,37 @@ pub struct HitRegion {
     pub widget: crate::component::Widget,
     /// Key of the nearest enclosing `modal` input panel (itself included).
     pub modal_root: Option<String>,
+    /// The Cinnabar paint transform from `rect`'s layout coordinates to where it is drawn;
+    /// `clip` is already in drawn coordinates.
+    pub transform: Option<crate::transform::Affine>,
 }
 
 impl HitRegion {
+    /// Whether `point` hits the region where it is drawn: inside its transformed rect and
+    /// its clip. A transform that collapses an axis leaves nothing to hit.
     pub fn contains(&self, point: [f64; 2]) -> bool {
-        let inside = |rect: &RectOut| {
+        let inside = |rect: &RectOut, point: [f64; 2]| {
             point[0] >= rect.x
                 && point[0] < rect.x + rect.w
                 && point[1] >= rect.y
                 && point[1] < rect.y + rect.h
         };
-        inside(&self.rect) && inside(&self.clip)
+        let local = match &self.transform {
+            None => point,
+            Some(transform) => match transform.inverse() {
+                Some(inverse) => inverse.apply(point),
+                None => return false,
+            },
+        };
+        inside(&self.rect, local) && inside(&self.clip, point)
+    }
+
+    /// `point` in the layout coordinates of `rect`, undoing the region's paint transform, for
+    /// positions along a scaled or rotated slider or drag.
+    pub fn local(&self, point: [f64; 2]) -> [f64; 2] {
+        self.transform
+            .and_then(|transform| transform.inverse())
+            .map_or(point, |inverse| inverse.apply(point))
     }
 
     /// Whether focus may land here: an enabled control with an enabled focus component.
@@ -306,7 +326,7 @@ pub(crate) fn region(
         name: control.name.clone(),
         kind,
         rect: node.rect.into(),
-        clip: node.clip.into(),
+        clip: node.paint.clip.unwrap_or(node.clip).into(),
         layer: node.layer,
         order: *order,
         pressed,
@@ -337,6 +357,7 @@ pub(crate) fn region(
         collections: inner.chain.clone(),
         input,
         modal_root: inner.modal_root.clone(),
+        transform: node.paint.transform,
     };
     *order += 1;
     Some(region)
@@ -396,7 +417,7 @@ pub fn scroll_target<'a>(
                 if report
                     .scrolls
                     .get(&region.key)
-                    .is_some_and(|metrics| metrics.takes_wheel(point)) =>
+                    .is_some_and(|metrics| metrics.takes_wheel(region.local(point))) =>
             {
                 return Some(region);
             }

@@ -441,6 +441,30 @@ crates only. `client-ui` keeps authority, item-icon and container projection, sc
 publication, and adapts runtime state into paint frames and typed inputs. This move has not been
 compiled or executed and closes no parity gate.
 
+## Mod surface motion
+
+Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points,
+an optional opening value and an optional exit value that personal-panel surfaces ease to
+when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
+feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
+to scale about an origin and rotate their drawing and hits without changing layout,
+bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
+subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred and
+filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
+`#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
+pyramid of the post-processed scene serves every backdrop in a frame, built only while one
+is published. `cinnabar_filter` blurs a control's subtree as one image through an offscreen
+group, animatable through `#cinnabar_blur`. These are Cinnabar extensions for mod
+surfaces; server-pack JSON-UI is unchanged.
+
+Incomplete toward expressive mod menus:
+- The shared scene blur and element blur are unmeasured on the reference hardware tiers.
+- Backdrops blur only the 3-D scene: UI beneath a glass panel, including the HUD and nested
+  glass, stays sharp.
+- Exits between routes: replacing an open panel's surface swaps it at once without playing
+  the old surface's exit values.
+
 ## Extension crate ownership
 
 `client-extensions` owns local component loading and load-order merging, environment
