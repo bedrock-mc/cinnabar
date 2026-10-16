@@ -39,15 +39,7 @@ impl LayerStyle {
                 | assets::EntityRenderMaterial::DissolveColor
         ) {
             submission.material.kind = assets::EntityRenderMaterial::Default;
-            submission
-                .material
-                .state
-                .get_or_insert_with(|| assets::EntityRenderMaterialState {
-                    // The unauthored ordinary actor pipeline does not cull faces.
-                    cull: false,
-                    ..Default::default()
-                })
-                .disable_overlay = true;
+            submission.material.suppress_overlay = true;
         }
     }
 

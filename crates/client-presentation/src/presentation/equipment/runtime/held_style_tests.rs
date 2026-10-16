@@ -462,17 +462,23 @@ fn held_dissolve_passes_keep_a_drawable_packet_in_both_views_and_hands() {
                                     word & assets::EntityRenderMaterialState::KIND_MASK,
                                     Ordinary as u32
                                 );
-                                let mut expected_state =
-                                    selected_state.unwrap_or(assets::EntityRenderMaterialState {
-                                        cull: false,
-                                        ..Default::default()
-                                    });
-                                expected_state.disable_overlay = true;
+                                assert_eq!(submission.material.state, selected_state);
+                                assert_ne!(
+                                    word & assets::EntityRenderMaterialState::DISABLE_OVERLAY,
+                                    0
+                                );
+                                let expected_state = selected_state.map(|mut state| {
+                                    state.disable_overlay = true;
+                                    state
+                                });
                                 assert_eq!(
                                     assets::EntityRenderMaterialState::from_word(word),
-                                    Some(expected_state)
+                                    expected_state
                                 );
-                                assert!(!submission.material.state.unwrap().cull);
+                                assert_eq!(
+                                    word & assets::EntityRenderMaterialState::AUTHORED != 0,
+                                    authored_state
+                                );
                                 assert!(!submission.material.allows_overlay());
                                 assert_eq!(submission.overlay_rgba8, 0);
                                 assert_eq!(
