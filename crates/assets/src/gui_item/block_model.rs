@@ -28,8 +28,8 @@ pub enum GuiBlockReject {
     Texture,
 }
 
-/// The quads a block item of this shape draws: a cube's six faces, or its template's quads, a
-/// fence showing its post with east and west arms (connection mask 2 | 8).
+/// The quads a block item draws: a cube's camera-facing GUI surfaces, or its template's quads,
+/// with a fence showing its post and east/west arms (connection mask 2 | 8).
 pub fn block_item_quads(
     kind: VisualKind,
     faces: [u32; 6],
@@ -40,8 +40,7 @@ pub fn block_item_quads(
     let mut out = Vec::new();
     match (kind, template) {
         (VisualKind::Cube, _) => {
-            for face in BlockFace::ALL {
-                let (corners, uvs) = cube_face(face);
+            for (face, corners, uvs, _) in CUBE_FACES {
                 out.push(GuiBlockQuad {
                     corners,
                     uvs,
@@ -179,6 +178,22 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 mod tests {
     use super::*;
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+
+    #[test]
+    fn cube_gui_surfaces_face_the_inventory_camera() {
+        let faces = BlockFace::ALL.map(|face| face as u32 + 1);
+        let quads = block_item_quads(VisualKind::Cube, faces, None, &[], &[]).unwrap();
+        for quad in &quads {
+            let [a, b, c, _] = quad.corners.map(super::super::project_cube);
+            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            assert!(
+                area < 0.0,
+                "rear material {} is visible through the icon",
+                quad.material
+            );
+        }
+        assert_eq!(quads.len(), CUBE_FACES.len());
+    }
 
     #[test]
     fn gui_materials_preserve_tiles_and_alpha_modes() {

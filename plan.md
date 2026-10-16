@@ -3248,9 +3248,10 @@ remain visible; native behavior for that resource limit is unverified. Full pack
 and multi-bone preview parity remains open.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
-state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
-visible through holes. Non-blended face alpha uses the thumbnail threshold; fractional blended
-faces (stained glass) retain their composed thumbnail. Chests (a cube of their inventory tiles)
+state). Cut-out cube previews (glass, leaves) draw their camera-facing surfaces, so rear
+faces do not show through front texel holes. Their thumbnails use the same face selection.
+Non-blended face alpha uses the thumbnail threshold; fractional blended faces (stained glass)
+retain their composed thumbnail. Chests (a cube of their inventory tiles)
 and blend-flagged art that is only opaque or cut out (anvils) draw as GUI geometry too. Overlapping
 meshes keep their thumbnail when faded. Optional sources follow required atlas pages and fall
 back to thumbnails when the atlas is full. Incomplete: layered translucent cube GUI geometry is

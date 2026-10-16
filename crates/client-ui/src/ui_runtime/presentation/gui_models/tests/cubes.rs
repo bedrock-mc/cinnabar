@@ -161,7 +161,7 @@ fn control(icon: IconRef, alpha: u8, glint: bool) -> UiNode {
 }
 
 #[test]
-fn cutout_cubes_keep_six_faces_and_fade_as_a_single_layer() {
+fn cutout_cubes_show_outward_faces_and_fade_as_a_single_layer() {
     let (mut presentation, entities) = catalog();
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
@@ -171,7 +171,10 @@ fn cutout_cubes_keep_six_faces_and_fade_as_a_single_layer() {
             .item_icon(&entry.identifier, entry.metadata)
             .unwrap();
         let original = &presentation.gui_models.models[&icon_key(icon)];
-        assert_eq!(original.indices().len(), assets::BlockFace::ALL.len() * 6);
+        assert_eq!(
+            original.indices().len(),
+            assets::gui_item::CUBE_FACES.len() * 6
+        );
         for alpha in [255, 254, 127, 0] {
             for glint in [false, true] {
                 let control = control(icon, alpha, glint);
@@ -185,7 +188,7 @@ fn cutout_cubes_keep_six_faces_and_fade_as_a_single_layer() {
                     continue;
                 }
                 let UiVisual::Mesh(faded) = nodes[0].visual() else {
-                    panic!("a cutout cube must draw all six faces at full opacity");
+                    panic!("a cutout cube must draw its outward faces at full opacity");
                 };
                 assert_eq!(faded.indices(), original.indices());
                 assert_eq!(faded.batches(), original.batches());

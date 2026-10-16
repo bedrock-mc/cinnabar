@@ -261,7 +261,7 @@ impl UiPresentationRuntime {
                     continue;
                 }
                 // Normalize alpha-tested faces using their material mode. Fractional blended
-                // faces retain the thumbnail's composited front and rear contributions.
+                // faces retain the thumbnail's composited texels.
                 let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
                     continue;
                 };

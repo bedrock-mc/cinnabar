@@ -329,6 +329,10 @@ vocabulary. Screen routing and core form/context consumers use those names;
 remaining controller migrations and stale-name corrections are incomplete.
 This adds no live visual evidence and leaves the UI acceptance gate open.
 
+Cube inventory thumbnails and alpha-tested GUI meshes share the canonical outward
+faces. Regressions cover projected surface orientation, transparent front holes and
+retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
+
 ## P5.2-HUD
 
 | Field | Evidence |
