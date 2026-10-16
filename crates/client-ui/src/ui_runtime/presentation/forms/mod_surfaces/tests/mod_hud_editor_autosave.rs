@@ -214,6 +214,7 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
             "size":["100%","100%"],"radius":0,"color":color})
     };
     hud.surface = Some(ui::mod_panel::Surface {
+        transitions: Default::default(),
         screen: "fixture.overlay".into(),
         document: serde_json::json!({"namespace":"fixture","overlay":{
             "type":"panel","size":["100%","100%"],"controls":[{"grid":{

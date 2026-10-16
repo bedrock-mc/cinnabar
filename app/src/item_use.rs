@@ -249,10 +249,9 @@ fn produce_use(
     let Some(sample) = sample else {
         return;
     };
-    // One press resolves once: item use waits while block use still holds it.
-    if context.block_use.press_pending() {
-        return;
-    }
+    // Pending presses suppress new starts while accepted uses keep advancing.
+    let press_pending =
+        context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending());
     let frame = UseFrame {
         riptide: riptide_at(sample.position),
         riptide_facing: release_facing,
@@ -275,6 +274,7 @@ fn produce_use(
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: before_flush
+            || press_pending
             || (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
             || context.block_use.press_interacted(),
     };

@@ -25,6 +25,7 @@ pub struct LocalPlayerFacts {
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
     immobile: bool,
+    input_locks: protocol::ClientInputLocks,
     /// Server-cleared `HasGravity`; the vanilla player spawns with it set.
     gravity_cleared: bool,
     uniform_air_drag: bool,
@@ -32,6 +33,19 @@ pub struct LocalPlayerFacts {
 }
 
 impl LocalPlayerFacts {
+    /// Replaces input permissions only for the current committed session.
+    pub fn apply_input_locks(&mut self, session_id: u64, locks: protocol::ClientInputLocks) {
+        if self.session_id == session_id {
+            self.input_locks = locks;
+        }
+    }
+
+    /// Reads server permissions without changing actor-owned immobility.
+    #[must_use]
+    pub const fn input_locks(&self) -> protocol::ClientInputLocks {
+        self.input_locks
+    }
+
     /// Starts a session with unknown facts and no accepted ability binding.
     #[must_use]
     pub fn new(session_id: u64) -> Self {

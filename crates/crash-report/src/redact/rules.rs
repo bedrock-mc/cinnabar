@@ -13,6 +13,7 @@ struct File {
     placeholder: String,
     fields: Fields,
     source_location: String,
+    timestamp: String,
     file_extensions: Vec<String>,
     rules: Vec<Spec>,
 }
@@ -40,7 +41,7 @@ struct Spec {
 enum Check {
     /// Only standalone, parseable IPv6 addresses; Rust paths and `h:m:s` times survive.
     Ipv6,
-    /// Neither inside a source location nor a file name with a listed extension.
+    /// Neither a source location, a timestamp nor a bare filename with a listed extension.
     Host,
 }
 
@@ -57,6 +58,7 @@ pub(super) struct Rules {
     pub(super) field_key: Regex,
     pub(super) rules: Vec<Rule>,
     source_location: Regex,
+    timestamp: Regex,
     file_extensions: Vec<String>,
 }
 
@@ -92,6 +94,7 @@ pub(super) fn compile(json: &str) -> Result<Rules, String> {
         field_key: regex(&format!("(?i)^(?:{all})$"))?,
         rules,
         source_location: regex(&file.source_location)?,
+        timestamp: regex(&file.timestamp)?,
         file_extensions: file.file_extensions,
     })
 }
@@ -172,8 +175,8 @@ impl Rules {
         Some(out)
     }
 
-    /// Byte ranges of `<file>.rs:<line>` (or `.go`) locations that follow a path separator or
-    /// carry a column.
+    /// Source locations with a path separator or column, and complete ISO timestamps.
+    /// Both may contain colons and digits without naming a server.
     fn source_locations(&self, text: &str) -> Vec<Range<usize>> {
         self.source_location
             .captures_iter(text)
@@ -182,6 +185,11 @@ impl Rules {
                 (captures.get(1).is_some() || text[..whole.start()].ends_with(['/', '\\']))
                     .then(|| whole.range())
             })
+            .chain(
+                self.timestamp
+                    .find_iter(text)
+                    .map(|matched| matched.range()),
+            )
             .collect()
     }
 
@@ -193,10 +201,11 @@ impl Rules {
         {
             return true;
         }
-        let host = match host.rsplit_once(':') {
-            Some((name, port)) if port.bytes().all(|byte| byte.is_ascii_digit()) => name,
-            _ => host,
-        };
+        if host.rsplit_once(':').is_some_and(|(_, port)| {
+            !port.is_empty() && port.bytes().all(|byte| byte.is_ascii_digit())
+        }) {
+            return false;
+        }
         host.rsplit_once('.').is_some_and(|(_, extension)| {
             self.file_extensions
                 .iter()

@@ -67,10 +67,18 @@ impl ModPanel {
         let Some(frame) = self.frame.as_ref() else {
             return false;
         };
+        // Scroll geometry is in the view's layout coordinates, before any paint transform.
+        let local = |key: &str| {
+            frame
+                .hits
+                .iter()
+                .find(|hit| hit.key == key)
+                .map_or(point, |hit| hit.local(point))
+        };
         if let Some((key, last)) = self.scroll_drag.clone() {
             self.motion.cancel_scroll(&key);
             if let Some(metrics) = frame.report.scrolls.get(&key) {
-                let at = along(metrics, point);
+                let at = along(metrics, local(&key));
                 let current = ScrollMetrics {
                     offset: self
                         .view
@@ -116,7 +124,7 @@ impl ModPanel {
         };
         if region.kind == HitKind::ScrollBox && metrics.box_drag != Draggable::NotDraggable {
             self.motion.cancel_scroll(&view.key);
-            self.scroll_drag = Some((view.key.clone(), along(metrics, point)));
+            self.scroll_drag = Some((view.key.clone(), along(metrics, local(&view.key))));
             return true;
         }
         if region.kind == HitKind::ScrollTrack
@@ -126,7 +134,7 @@ impl ModPanel {
             self.motion.cancel_scroll(&view.key);
             self.view
                 .scroll
-                .insert(view.key.clone(), metrics.offset_for_track(point));
+                .insert(view.key.clone(), metrics.offset_for_track(local(&view.key)));
             return true;
         }
         false

@@ -4,18 +4,25 @@ use bevy::{ecs::schedule::Schedule, prelude::*, render::RenderSystems};
 /// geometry and sort updates before either queue, rather than replacing those
 /// ranges in Bevy's later PrepareResources stage after they have been queued.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum ChunkPublicationStage {
+pub(crate) enum ChunkPublicationStage {
+    CoverageBegin,
+    FarTiles,
     Attributes,
     Geometry,
+    Coverage,
     LiquidSort,
     ModelSort,
 }
 
-pub(super) fn configure_chunk_publication(schedule: &mut Schedule) {
+/// Publishes geometry and deferred admission changes before every terrain draw queue.
+pub(in crate::chunk) fn configure_chunk_publication(schedule: &mut Schedule) {
     schedule.configure_sets(
         (
+            ChunkPublicationStage::CoverageBegin,
+            ChunkPublicationStage::FarTiles,
             ChunkPublicationStage::Attributes,
             ChunkPublicationStage::Geometry,
+            ChunkPublicationStage::Coverage,
             ChunkPublicationStage::LiquidSort,
             ChunkPublicationStage::ModelSort,
         )

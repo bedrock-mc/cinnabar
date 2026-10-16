@@ -309,6 +309,10 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             Footprint::session(C::AUDIO.with(C::ACTORS))
         }
         WorldEvent::Audio(_) => Footprint::session(C::AUDIO),
+        WorldEvent::Camera(protocol::CameraEvent::InputLocks(_)) => Footprint {
+            local_authority: true,
+            ..Footprint::session(C::CONTROLS)
+        },
         // Camera switches, targets and attachments resolve actors when consumed.
         WorldEvent::Camera(_) => Footprint::session(C::CAMERA.with(C::AUDIO).with(C::ACTORS)),
         WorldEvent::PrimitiveShapes(_) => Footprint::session(C::SHAPES),

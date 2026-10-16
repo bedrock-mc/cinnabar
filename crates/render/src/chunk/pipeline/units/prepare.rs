@@ -122,6 +122,12 @@ pub(in crate::chunk) fn prepare_units(
             stats.draws += batch.pages.len() as u64;
             stats.units += (batch.references.len() + batch.fallback.len()) as u64;
             stats.padded_quads += batch.padded_quads;
+            for page in &batch.pages {
+                let group = u64::from(render_model::terrain_units::UNITS_PER_INSTANCE);
+                let count = u64::from(page.count);
+                stats.padded_quads +=
+                    (count.div_ceil(group) * group - count) * u64::from(QUADS_PER_UNIT);
+            }
         }
         view.stale = false;
         view.facing = facing;

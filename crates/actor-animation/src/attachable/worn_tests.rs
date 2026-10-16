@@ -78,7 +78,7 @@ fn worn_attachables_read_owner_movement_delta_for_glide_wings() {
 fn elytra_equipment_hides_and_restores_the_outer_chest_layer() {
     let mut compiled = crate::test_support::compiled_fixture();
     compiled.molang_symbols[7].identifier = "variable.chest_layer_visible".into();
-    let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let layout = VariableLayout::new(&assets);
     let owner = crate::tests::actor_with_metadata(HashMap::new());
     let mut values = layout.fresh(1);

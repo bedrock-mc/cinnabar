@@ -11,11 +11,13 @@ import (
 )
 
 type fakeCinnabarAPI struct {
-	configs chan cinnabarapi.Config
-	lookups chan []string
-	answer  []string
-	err     error
-	limit   int
+	configs     chan cinnabarapi.Config
+	lookups     chan []string
+	answer      []string
+	uuidLookups chan []string
+	uuidAnswer  []string
+	err         error
+	limit       int
 }
 
 // LookupLimit supplies the fallback wire batch size for the test API.
@@ -31,9 +33,12 @@ func (api *fakeCinnabarAPI) CacheTTLMS() int64 { return bridgecontract.CinnabarA
 
 func (api *fakeCinnabarAPI) Configure(config cinnabarapi.Config) { api.configs <- config }
 
-func (api *fakeCinnabarAPI) Lookup(_ context.Context, xuids []string) ([]string, error) {
+func (api *fakeCinnabarAPI) Lookup(_ context.Context, xuids, uuids []string) (cinnabarapi.LookupResult, error) {
 	api.lookups <- xuids
-	return api.answer, api.err
+	if api.uuidLookups != nil {
+		api.uuidLookups <- uuids
+	}
+	return cinnabarapi.LookupResult{Cinnabar: api.answer, CinnabarUUIDs: api.uuidAnswer}, api.err
 }
 
 func startCinnabarControl(t *testing.T, api CinnabarAPI) (string, *Server) {
@@ -156,5 +161,32 @@ func TestCinnabarReleaseAppearsInEvents(t *testing.T) {
 	store.ObserveCinnabarRelease(release)
 	if got := store.Events().CinnabarRelease; got == nil || *got != release {
 		t.Fatalf("release = %+v", got)
+	}
+}
+
+// Mixed rosters reach the API with both arrays, and UUID matches come back separately.
+func TestCinnabarLookupPassesUUIDsThrough(t *testing.T) {
+	uuid := "00112233-4455-6677-8899-aabbccddeeff"
+	api := &fakeCinnabarAPI{lookups: make(chan []string, 1), uuidLookups: make(chan []string, 1), uuidAnswer: []string{uuid}}
+	dir, _ := startCinnabarControl(t, api)
+	payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"cinnabar_lookup.v1","params":{"xuids":["11"],"uuids":["`+uuid+`"]}}`))
+	var answer struct {
+		Result cinnabarLookupResultV1 `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &answer); err != nil || len(answer.Result.CinnabarUUIDs) != 1 || answer.Result.CinnabarUUIDs[0] != uuid ||
+		len(answer.Result.ResolvedUUIDs) != 1 || answer.Result.ResolvedUUIDs[0] != uuid || len(answer.Result.Resolved) != 1 {
+		t.Fatalf("lookup: %s", payload)
+	}
+	if got := <-api.lookups; len(got) != 1 || got[0] != "11" {
+		t.Fatalf("forwarded XUIDs %v", got)
+	}
+	if got := <-api.uuidLookups; len(got) != 1 || got[0] != uuid {
+		t.Fatalf("forwarded UUIDs %v", got)
+	}
+	for _, params := range []string{`{"uuids":[]}`, `{"uuids":["00112233-4455-6677-8899-AABBCCDDEEFF"]}`} {
+		payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":2,"method":"cinnabar_lookup.v1","params":`+params+`}`))
+		if err := rpcError(t, payload); err == nil || err.Code != -32602 {
+			t.Fatalf("malformed lookup accepted: %s", payload)
+		}
 	}
 }

@@ -466,6 +466,15 @@ impl WorldStream {
 }
 
 impl WorldStream {
+    /// Identifies terrain from one stream and its last committed dimension transition.
+    #[must_use]
+    pub const fn terrain_generation(&self) -> (u64, u64) {
+        (
+            self.authority.actor_session_id(),
+            self.authority.form_dimension_epoch(),
+        )
+    }
+
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.authority.current_dimension()

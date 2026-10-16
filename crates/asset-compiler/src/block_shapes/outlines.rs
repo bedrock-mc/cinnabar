@@ -128,13 +128,19 @@ fn static_outline(record: &RegistryRecord, shapes: ShapeTraits) -> Option<ShapeB
                 bounds([0.0, 0.0, 0.125], [1.0, 1.0, 0.875])
             }
         }
-        _ if record.model_family == assets::ModelFamily::Gate => {
-            if State::read(record)?.direction()? % 2 == 0 {
-                bounds([0.0, 0.0, 0.375], [1.0, 1.0, 0.625])
-            } else {
-                bounds([0.375, 0.0, 0.0], [0.625, 1.0, 1.0])
-            }
-        }
+        _ if record.model_family == assets::ModelFamily::Gate => gate_shape(record)?,
         _ => return None,
+    })
+}
+
+/// Gate picking and outlines share a thin plane, including open and in-wall states.
+pub(super) fn gate_shape(record: &RegistryRecord) -> Option<ShapeBox> {
+    if record.model_family != assets::ModelFamily::Gate {
+        return None;
+    }
+    Some(if State::read(record)?.direction()? % 2 == 0 {
+        bounds([0.0, 0.0, 0.375], [1.0, 1.0, 0.625])
+    } else {
+        bounds([0.375, 0.0, 0.0], [0.625, 1.0, 1.0])
     })
 }

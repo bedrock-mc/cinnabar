@@ -92,11 +92,24 @@ const BACK_IN_OUT_PLUS_ONE: f32 = 3.5949094;
 impl Easing {
     /// The curve a (case-insensitive) name selects; unknown names are linear.
     pub fn from_name(name: &str) -> Self {
+        Self::named(name).unwrap_or(Easing::Linear)
+    }
+
+    /// The curve a (case-insensitive) name selects, or `None` for an unknown name.
+    pub fn named(name: &str) -> Option<Self> {
         let lower = name.to_ascii_lowercase();
         NAMES
             .iter()
             .position(|known| *known == lower)
-            .map_or(Easing::Linear, |index| ALL[index])
+            .map(|index| ALL[index])
+    }
+
+    /// The lowercase name [`Self::named`] reads back as this curve.
+    pub fn name(self) -> &'static str {
+        NAMES[ALL
+            .iter()
+            .position(|curve| *curve == self)
+            .expect("every curve is listed")]
     }
 
     /// `from` eased toward `to` at normalized time `t`.
@@ -324,6 +337,16 @@ mod tests {
         assert_eq!(Easing::from_name("OUT_BOUNCE"), Easing::OutBounce);
         assert_eq!(Easing::from_name("spring"), Easing::Spring);
         assert_eq!(Easing::from_name("step"), Easing::Linear);
+        assert_eq!(Easing::named("step"), None);
+        assert_eq!(Easing::named("In_Out_Sine"), Some(Easing::InOutSine));
+    }
+
+    // Every curve's name reads back as the same curve.
+    #[test]
+    fn names_round_trip() {
+        for curve in super::ALL {
+            assert_eq!(Easing::named(curve.name()), Some(curve));
+        }
     }
 
     // Single-precision evaluation matches the client's sampled values.
