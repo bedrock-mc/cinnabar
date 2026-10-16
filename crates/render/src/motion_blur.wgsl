@@ -10,6 +10,9 @@ struct Exposure {
 @group(0) @binding(4) var actor_velocity: texture_2d<f32>;
 
 @group(0) @binding(5) var motion_tiles: texture_2d<f32>;
+@group(0) @binding(6) var resolved_motion: texture_2d<f32>;
+@group(0) @binding(7) var resolved_depth: texture_2d<f32>;
+@group(0) @binding(8) var motion_rows: texture_2d<f32>;
 
 const TILE_SIZE: i32 = MOTION_TILE_SIZE;
 const MAX_BLUR_SPEED: f32 = f32(TILE_SIZE * 2);
@@ -17,7 +20,7 @@ const MIN_BLUR_SPEED: f32 = 0.5;
 
 // Multisampled views resolve actor motion across covered samples, including silhouette cutouts.
 // Mixed actor/world pixels retain the covered actor's motion instead of smearing its silhouette.
-fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
+fn source_motion(pixel: vec2<i32>) -> vec4<f32> {
     if exposure.strength.z <= 0.0 {
         return vec4<f32>(0.0);
     }
@@ -31,34 +34,82 @@ fn actor_velocity_pixels(motion: vec4<f32>) -> vec2<f32> {
 }
 
 // The nearest reverse-Z surface owns occlusion, including partially covered MSAA pixels.
-fn scene_depth(pixel: vec2<i32>) -> f32 {
+fn source_scene_depth(pixel: vec2<i32>) -> f32 {
     return textureLoad(depth, pixel, 0);
 }
 
 // Only covered samples provide an actor's depth; neighbouring foreground samples do not.
-fn actor_depth(pixel: vec2<i32>) -> f32 {
+fn source_actor_depth(pixel: vec2<i32>) -> f32 {
     let covered_depth = textureLoad(depth, pixel, 0);
     return covered_depth;
 }
 
-// Each source texel is visited once per view, independently of the gather sample count.
+struct ResolvedSurface {
+    @location(0) motion: vec4<f32>,
+    @location(1) depths: vec2<f32>,
+}
+
+// Resolve coverage and both depth owners once, before any tile or exposure taps read them.
+@fragment
+fn resolve_fragment(@builtin(position) position: vec4<f32>) -> ResolvedSurface {
+    let pixel = vec2<i32>(position.xy);
+    let motion = source_motion(pixel);
+    var covered_depth = 0.0;
+    if motion.z >= 0.5 {
+        covered_depth = source_actor_depth(pixel);
+    }
+    return ResolvedSurface(motion, vec2<f32>(source_scene_depth(pixel), covered_depth));
+}
+
+// Repeated gathers read exact resolved values instead of resolving MSAA at every tap.
+fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
+    if exposure.strength.z <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(resolved_motion, pixel, 0);
+}
+
+// Keep scene occlusion and actor-covered depth separate at mixed MSAA edges.
+fn scene_depth(pixel: vec2<i32>) -> f32 {
+    return textureLoad(resolved_depth, pixel, 0).x;
+}
+
+// Reads only the depth of samples covered by an actor.
+fn actor_depth(pixel: vec2<i32>) -> f32 {
+    return textureLoad(resolved_depth, pixel, 0).y;
+}
+
+// Each row invocation reads at most one tile edge, retaining full precision until selection ends.
+@fragment
+fn row_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let origin = vec2<i32>(i32(position.x) * TILE_SIZE, i32(position.y));
+    let lower = vec2<i32>(exposure.viewport.xy);
+    let upper = min(lower + vec2<i32>(exposure.viewport.zw), vec2<i32>(textureDimensions(resolved_motion)));
+    var best = vec2<f32>(0.0);
+    for (var x = 0; x < TILE_SIZE; x++) {
+        let pixel = origin + vec2<i32>(x, 0);
+        if any(pixel < lower) || any(pixel >= upper) {
+            continue;
+        }
+        let motion = object_motion(pixel);
+        let velocity = actor_velocity_pixels(motion);
+        if motion.z >= 0.5 && dot(velocity, velocity) > dot(best, best) {
+            best = velocity;
+        }
+    }
+    return vec4<f32>(best, 0.0, 0.0);
+}
+
+// Row winners retain the original row-major tie order without a square serial scan.
 @fragment
 fn tile_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let origin = vec2<i32>(position.xy) * TILE_SIZE;
-    let lower = vec2<i32>(exposure.viewport.xy);
-    let upper = min(lower + vec2<i32>(exposure.viewport.zw), vec2<i32>(textureDimensions(actor_velocity)));
+    let origin = vec2<i32>(i32(position.x), i32(position.y) * TILE_SIZE);
+    let height = i32(textureDimensions(motion_rows).y);
     var best = vec2<f32>(0.0);
-    for (var y = 0; y < TILE_SIZE; y++) {
-        for (var x = 0; x < TILE_SIZE; x++) {
-            let pixel = origin + vec2<i32>(x, y);
-            if any(pixel < lower) || any(pixel >= upper) {
-                continue;
-            }
-            let motion = object_motion(pixel);
-            let velocity = actor_velocity_pixels(motion);
-            if motion.z >= 0.5 && dot(velocity, velocity) > dot(best, best) {
-                best = velocity;
-            }
+    for (var y = 0; y < TILE_SIZE && origin.y + y < height; y++) {
+        let velocity = textureLoad(motion_rows, origin + vec2<i32>(0, y), 0).xy;
+        if dot(velocity, velocity) > dot(best, best) {
+            best = velocity;
         }
     }
     return vec4<f32>(best, 0.0, 0.0);
