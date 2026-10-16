@@ -32,6 +32,8 @@ pub(super) struct ExperienceService {
     attempted: bool,
     download: Option<server_experience::download::Download>,
     live: Option<super::live::Live>,
+    /// The session's items that client parts granted `items` read.
+    items: client_ui::ui_runtime::session_data::SessionDataCache,
 }
 
 /// Registers a silent controller; disk and network work wait for a valid marker.
@@ -47,10 +49,12 @@ pub(crate) fn configure(app: &mut App) {
         attempted: false,
         download: None,
         live: None,
+        items: Default::default(),
     })
     .add_systems(
         Update,
         (
+            share_items,
             drive.before(client_state::ExperienceInputSet),
             present_media.after(client_state::ExperienceInputSet),
         )
@@ -59,6 +63,26 @@ pub(crate) fn configure(app: &mut App) {
             .after(ClientFrameSet::RawInput)
             .after(crate::runtime::world::drain_committed_ui_before_authority),
     );
+}
+
+/// Hands the session's items to the client parts when one may read them.
+fn share_items(
+    mut service: ResMut<ExperienceService>,
+    runtime: Res<UiRuntimeResource>,
+    player: Res<client_state::PlayerRuntime>,
+) {
+    let ExperienceService {
+        live: Some(live),
+        items,
+        ..
+    } = &mut *service
+    else {
+        return;
+    };
+    if live.reads_items() {
+        let session = client_ui::ui_runtime::session_data::session_data(items, &player, &runtime);
+        live.set_session(session);
+    }
 }
 
 /// Handles trusted choices before ordinary UI input, so clicks cannot fall through.

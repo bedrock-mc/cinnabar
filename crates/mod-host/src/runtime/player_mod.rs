@@ -336,7 +336,7 @@ pub(super) fn stack(stack: &data::Stack) -> GuestStack {
     }
 }
 
-fn item(item: &data::Item) -> items::Item {
+pub(crate) fn item(item: &data::Item) -> items::Item {
     items::Item {
         key: key(&item.key),
         icon: item.icon,
