@@ -130,7 +130,7 @@ impl UiLayerTexture {
         self.present.store(true, Ordering::Relaxed);
     }
 
-    #[cfg(test)]
+    /// A raster outside the per-view retained set, such as an element filter's offscreen group.
     pub(crate) fn detached(texture: Texture, view: TextureView) -> Self {
         Self {
             texture,
@@ -230,7 +230,9 @@ pub(crate) fn prepare_ui_layers(
                 .batches
                 .iter()
                 .enumerate()
-                .filter(|(_, batch)| batch.world_projection == 0)
+                .filter(|(_, batch)| {
+                    batch.world_projection == 0 && !super::backdrop::is_backdrop(batch)
+                })
                 .map(|(index, batch)| (index, batch, ()))
                 .collect();
             super::segments::plan_ui_passes(&batches, false).layer_count()

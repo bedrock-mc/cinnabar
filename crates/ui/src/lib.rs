@@ -38,8 +38,8 @@ pub use icon::IconRef;
 pub use model::{
     DrawUpdate, FocusState, FocusTransition, RetainedDraw, TextEffects, TextShadow,
     UI_STYLE_BILINEAR, UI_STYLE_GLINT, UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList,
-    UiError, UiFrame, UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree,
-    UiVertex, UiVisual, UiWorldProjection,
+    UiError, UiFrame, UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId,
+    UiTransform, UiTree, UiVertex, UiVisual, UiWorldProjection,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
