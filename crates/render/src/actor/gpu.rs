@@ -8,6 +8,7 @@ use bevy::prelude::Resource;
 
 use render_model::ActorArtworkPageId;
 
+pub(crate) mod allocation;
 #[path = "gpu/geometry.rs"]
 mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;

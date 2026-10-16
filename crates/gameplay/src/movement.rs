@@ -1,6 +1,6 @@
 use simulation_clock::PhysicsTick;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 
 #[cfg(test)]
 use protocol::PlayerInputMode;
@@ -96,6 +96,8 @@ pub enum MovementSource {
 
 #[derive(Debug, Clone, PartialEq)]
 struct QueuedPhysicsSample {
+    /// Elapsed application time of the frame that sampled this tick.
+    sampled_at: Option<Duration>,
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
     displacement: [f32; 3],
@@ -333,9 +335,20 @@ impl MovementTicker {
         self.anchor_tick_end(position);
     }
 
+    /// Queues a fixture sample when no application sampling clock is available.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn enqueue_completed_physics(
         &mut self,
         completed: PhysicsMovementSample,
+    ) -> Result<(), PhysicsAuthorityFault> {
+        self.enqueue_completed_physics_at(completed, None)
+    }
+
+    /// Retains the frame's sampling time with the completed tick through transport retries.
+    fn enqueue_completed_physics_at(
+        &mut self,
+        completed: PhysicsMovementSample,
+        sampled_at: Option<Duration>,
     ) -> Result<(), PhysicsAuthorityFault> {
         if !self.accepting_physics_admissions() {
             return Err(PhysicsAuthorityFault::Unauthorized);
@@ -389,6 +402,7 @@ impl MovementTicker {
             jump_released: snapshot.flags.bits() & PlayerInputFlags::JUMP_RELEASED_RAW.bits() != 0,
         };
         self.outbox.push_back(QueuedPhysicsSample {
+            sampled_at,
             session_generation: self.session_generation,
             snapshot,
             displacement: completed.movement,

@@ -200,15 +200,21 @@ pub fn flush_player_auth_inputs<E>(
         ticker,
         budget,
         evidence_context,
-        |identity, packet, _guard| send(identity, packet),
+        |identity, packet, _guard, _sampled_at| send(identity, packet),
     )
 }
 
+/// Hands each tick to transport with its original sampling time, including retries.
 pub fn flush_player_auth_inputs_guarded<E>(
     ticker: &mut MovementTicker,
     budget: usize,
     evidence_context: Option<PhysicsTickEvidenceContext>,
-    mut send: impl FnMut(PhysicsSendIdentity, Packet, Option<InteractionPacketGuard>) -> Result<(), E>,
+    mut send: impl FnMut(
+        PhysicsSendIdentity,
+        Packet,
+        Option<InteractionPacketGuard>,
+        Option<std::time::Duration>,
+    ) -> Result<(), E>,
 ) -> Result<usize, MovementSendError<E>> {
     if !ticker.physics_is_authorized() {
         ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
@@ -275,12 +281,13 @@ pub fn flush_player_auth_inputs_guarded<E>(
             .pop_pending()
             .expect("encoded sample remains at the FIFO front");
         let identity = ticker.next_send_identity(&sample);
+        let sampled_at = sample.sampled_at;
         ticker.note_command_admitted(
             identity,
             sample,
             evidence_context.expect("nonempty outbox requires staged evidence context"),
         );
-        if let Err(error) = send(identity, packet, interaction_guard) {
+        if let Err(error) = send(identity, packet, interaction_guard, sampled_at) {
             let sample = ticker
                 .restore_admitted(identity)
                 .map_err(|_| MovementSendError::RestoreOverflow)?;

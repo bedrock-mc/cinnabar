@@ -191,6 +191,25 @@ fn handoff_requires_startup_packets_and_known_fields() {
     ));
 }
 
+/// The core's latency-trace connection ID arrives with the handoff; older cores omit it.
+#[test]
+fn handoff_carries_the_core_trace_connection() {
+    let decode = |metadata: &[u8]| {
+        let mut frame = vec![KIND_HANDOFF];
+        frame.extend_from_slice(&(metadata.len() as u32).to_be_bytes());
+        frame.extend_from_slice(metadata);
+        frame.extend_from_slice(&[1, 0x0b]);
+        let CoreMessage::Handoff(handoff) = decode_core_message(Bytes::from(frame)).unwrap() else {
+            panic!("handoff expected")
+        };
+        handoff.trace_conn
+    };
+    let traced = br#"{"identity":{"display_name":"a","xuid":"","uuid":""},"client_cache":false,"packs_required":false,"packs":[],"trace_conn":81604378625}"#;
+    let untraced = br#"{"identity":{"display_name":"a","xuid":"","uuid":""},"client_cache":false,"packs_required":false,"packs":[]}"#;
+    assert_eq!(decode(traced), 81_604_378_625);
+    assert_eq!(decode(untraced), 0);
+}
+
 fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
     SessionHandoff {
         identity: SessionIdentity {
@@ -211,7 +230,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 cache: None,
             })
             .collect(),
-        startup: Vec::new(),
+        ..SessionHandoff::default()
     }
 }
 

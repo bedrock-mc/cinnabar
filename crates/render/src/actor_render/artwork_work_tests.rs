@@ -13,6 +13,11 @@ thread_local! {
     static WORK: Cell<Work> = Cell::new(Work::default());
 }
 
+/// Observes writes when a fault-injection test checks the allocation boundary.
+pub(super) fn upload_count() -> usize {
+    WORK.with(|work| work.get().uploads)
+}
+
 /// Counts the bytes fingerprinted for a newly encountered immutable source.
 pub(super) fn record_hash(bytes: usize) {
     WORK.with(|work| {
@@ -139,6 +144,78 @@ fn persona_slot_replacement_uploads_one_layer_and_keeps_other_textures() {
             hashed_bytes: newcomer.rgba8.len(),
             uploads: 1,
             uploaded_bytes: newcomer.rgba8.len()
+        }
+    );
+}
+
+#[test]
+fn equal_artwork_source_publications_do_not_rehash_or_upload() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let (mut pages, _) = ActorArtworkPages::default()
+        .with_actor_glint(raster(61))
+        .with_item_glint(raster(79))
+        .with_equipment_raster_page_updates(&[(0, raster(7))]);
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&pages, &device, &queue));
+    let texture = gpu.pages[0]._texture.id();
+    let mut replacement = pages.pages[0].clone();
+    replacement.rgba8 = replacement.rgba8.to_vec().into();
+    pages.pages = Arc::from([replacement]);
+    pages.entity_identity = [1; 32];
+    take_work();
+    assert!(gpu.prepare(&pages, &device, &queue));
+    assert_eq!(gpu.pages[0]._texture.id(), texture);
+    assert_eq!(
+        take_work(),
+        Work {
+            hashes: 1,
+            hashed_bytes: pages.pages[0].rgba8.len(),
+            ..Default::default()
+        }
+    );
+    for marker in [2, 3] {
+        pages.entity_identity = [marker; 32];
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(
+            take_work(),
+            Work::default(),
+            "retained current allocations need no raster work"
+        );
+        assert_eq!(gpu.pages[0]._texture.id(), texture);
+    }
+}
+
+#[test]
+fn failed_artwork_replacement_keeps_its_source_until_upload_recovers() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let (first, _) = ActorArtworkPages::default()
+        .with_actor_glint(raster(61))
+        .with_item_glint(raster(79))
+        .with_equipment_raster_page_updates(&[(0, raster(7))]);
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&first, &device, &queue));
+    let previous = gpu.pages[0]._texture.id();
+    let (mut replacement, _) = first.with_equipment_raster_page_updates(&[(0, raster(19))]);
+    {
+        let _failure = allocation::inject(|label, _| label == "immutable actor page");
+        assert!(gpu.prepare(&replacement, &device, &queue));
+    }
+    assert_eq!(gpu.pages[0]._texture.id(), previous);
+    replacement.entity_identity = [3; 32];
+    take_work();
+    assert!(gpu.prepare(&replacement, &device, &queue));
+    assert_ne!(gpu.pages[0]._texture.id(), previous);
+    assert_eq!(
+        take_work(),
+        Work {
+            hashes: 1,
+            hashed_bytes: replacement.pages[0].rgba8.len(),
+            uploads: 1,
+            uploaded_bytes: replacement.pages[0].rgba8.len(),
         }
     );
 }

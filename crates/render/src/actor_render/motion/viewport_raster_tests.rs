@@ -1,6 +1,7 @@
 //! Depth equality witnesses execute the production motion draw with camera metadata.
 
 use super::*;
+use bevy::render::render_resource::BufferInitDescriptor;
 use bevy::{
     app::SubApp,
     asset::Assets,
@@ -143,7 +144,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
         }],
     );
     world.resource_mut::<ActorGpu>().bind_group = Some(bind_group);
-    let mut motion = MotionView::new(device, &depth);
+    let mut motion = MotionView::new(device, &depth).unwrap();
     motion.texture = texture(
         MOTION_FORMAT,
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,

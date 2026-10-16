@@ -9675,3 +9675,19 @@ captures and measured renderer work remain outstanding; no speedup is claimed.
 Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
 
 Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.
+
+## Actor GPU allocation recovery
+
+Actor page and buffer allocations now check out-of-memory errors before publishing
+resources. A failed page replacement retains a compatible previous page; a fresh
+page retries progressively smaller normalized-UV rasters down to 1×1. Failed
+geometry, skin or frame-buffer preparation skips that publication's draw. Unused
+previous pages are released before replacement uploads. The existing actor pixel
+ceiling remains unchanged.
+
+Incomplete parity: retaining current resources on failed replacement and coarse
+fallback through 1×1 are verified recovery behavior. Per-texture mip demand,
+residency and idle demotion remain unimplemented. Windows-specific texture memory
+allowances, initial allocation policy and adapter pressure thresholds remain
+unverified. This recovery change does not close the streaming or hardware frame
+budget acceptance gates.

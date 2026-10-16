@@ -33,4 +33,8 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
         publication::configure_publication_frame(app);
         app.add_systems(Last, shutdown::arm_shutdown_watchdog);
     }
+
+    fn finish(&self, app: &mut App) {
+        network::trace_presented_frames(app);
+    }
 }

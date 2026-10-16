@@ -63,6 +63,7 @@ impl LoginSequence {
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
+        reader.set_trace_conn(handoff.trace_conn);
         let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
         let mut preparation = None;
         let spawned =

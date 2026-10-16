@@ -249,6 +249,7 @@ func (server *sessionServer) prepare(
 		ClientCache:   server.prepared.upstreamClientCache && downstream.clientCache,
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
+		TraceConn:     session.traceConn,
 	}
 	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs

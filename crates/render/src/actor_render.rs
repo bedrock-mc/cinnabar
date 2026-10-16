@@ -14,6 +14,7 @@ pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
 mod skins;
+use crate::actor::gpu::allocation;
 use artwork::{GpuArtwork, draw_spans};
 use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
 use pipeline::*;
@@ -46,15 +47,14 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages,
-            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            CommandEncoderDescriptor, CompareFunction, DepthStencilState, Extent3d, FilterMode,
-            FragmentState, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TexelCopyBufferLayout,
-            TexelCopyTextureInfo, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexState,
+            BufferDescriptor, BufferId, BufferSize, BufferUsages, CachedRenderPipelineId,
+            Canonical, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
+            DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
+            RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+            TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -140,14 +140,19 @@ fn install_actor_render(app: &mut App) {
                     .in_set(RenderSystems::Queue)
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                prepare_actor_pipelines
-                    .in_set(RenderSystems::Queue)
-                    .before(queue_actors),
                 queue_actors
                     .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
-            ),
+            )
+                .run_if(bevy::ecs::schedule::common_conditions::resource_exists::<ActorGpu>),
+        )
+        // Loading waits on pipeline readiness, which needs no actor allocations.
+        .add_systems(
+            Render,
+            prepare_actor_pipelines
+                .in_set(RenderSystems::Queue)
+                .before(queue_actors),
         );
 }
 
@@ -180,6 +185,7 @@ pub(crate) struct ActorGpu {
     bind_group: Option<BindGroup>,
     frame_generation: u64,
     geometry_revision: u64,
+    geometry_ready: bool,
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
     manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
@@ -199,40 +205,61 @@ fn player_skins_resident(frame: &ActorRenderFrame) -> bool {
             })
 }
 
-fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("nearest shared actor artwork sampler"),
-        address_mode_u: AddressMode::ClampToEdge,
-        address_mode_v: AddressMode::ClampToEdge,
-        address_mode_w: AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-        ..default()
-    });
-    commands.insert_resource(ActorGpu {
+/// Leaves actor rendering disabled if its initial resources cannot be allocated.
+fn init_actor_gpu(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    if let Some(gpu) = create_actor_gpu(&render_device, &render_queue) {
+        commands.insert_resource(gpu);
+    }
+}
+
+/// Builds checked actor resources without publishing partially initialized state.
+fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) -> Option<ActorGpu> {
+    let sampler = allocation::checked(render_device, "actor sampler", 0, || {
+        render_device.create_sampler(&SamplerDescriptor {
+            label: Some("nearest shared actor artwork sampler"),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..default()
+        })
+    })?;
+    Some(ActorGpu {
         artwork: GpuArtwork::default(),
-        player_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("unchanged player material class"),
-            contents: bytemuck::cast_slice(&[0u32; 4]),
-            usage: BufferUsages::UNIFORM,
-        }),
-        neutral_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("neutral binary-alpha material class"),
-            contents: bytemuck::cast_slice(&[1u32, 0, 0, 0]),
-            usage: BufferUsages::UNIFORM,
-        }),
-        color_mask_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("native actor color-mask material"),
-            // The shader consumes the second word as a Boolean, not a duplicated class ID.
-            contents: bytemuck::cast_slice(&[0u32, 1, 0, 0]),
-            usage: BufferUsages::UNIFORM,
-        }),
-        multitexture_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("native actor three-sampler material"),
-            contents: bytemuck::cast_slice(&[0u32, 0, 1, 0]),
-            usage: BufferUsages::UNIFORM,
-        }),
+        player_material: allocation::buffer_with_data(
+            render_device,
+            render_queue,
+            "unchanged player material class",
+            bytemuck::cast_slice(&[0u32; 4]),
+            BufferUsages::UNIFORM,
+        )?,
+        neutral_material: allocation::buffer_with_data(
+            render_device,
+            render_queue,
+            "neutral binary-alpha material class",
+            bytemuck::cast_slice(&[1u32, 0, 0, 0]),
+            BufferUsages::UNIFORM,
+        )?,
+        color_mask_material: allocation::buffer_with_data(
+            render_device,
+            render_queue,
+            "native actor color-mask material",
+            bytemuck::cast_slice(&[0u32, 1, 0, 0]),
+            BufferUsages::UNIFORM,
+        )?,
+        multitexture_material: allocation::buffer_with_data(
+            render_device,
+            render_queue,
+            "native actor three-sampler material",
+            bytemuck::cast_slice(&[0u32, 0, 1, 0]),
+            BufferUsages::UNIFORM,
+        )?,
         spans: Vec::new(),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
@@ -240,46 +267,59 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         queued_draw: None,
         artwork_identity: [0; 32],
         artwork_current: false,
-        instance_buffer: render_device.create_buffer(&BufferDescriptor {
-            label: Some("bounded shared actor instance arena"),
-            size: (render_model::MAX_ACTOR_RENDER_INSTANCES * size_of::<ActorGpuInstance>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        previous_bone_buffer: render_device.create_buffer(&BufferDescriptor {
-            label: Some("bounded shared actor previous-bone arena"),
-            size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        current_bone_buffer: render_device.create_buffer(&BufferDescriptor {
-            label: Some("bounded shared actor current-bone arena"),
-            size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
+        instance_buffer: allocation::buffer(
+            render_device,
+            &BufferDescriptor {
+                label: Some("bounded shared actor instance arena"),
+                size: (render_model::MAX_ACTOR_RENDER_INSTANCES * size_of::<ActorGpuInstance>())
+                    as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        )?,
+        previous_bone_buffer: allocation::buffer(
+            render_device,
+            &BufferDescriptor {
+                label: Some("bounded shared actor previous-bone arena"),
+                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        )?,
+        current_bone_buffer: allocation::buffer(
+            render_device,
+            &BufferDescriptor {
+                label: Some("bounded shared actor current-bone arena"),
+                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        )?,
         bones: bones::BoneResidency::default(),
         geometry_vertices: default(),
         geometry_span_buffer: None,
         instance_count: 0,
         maximum_vertex_count: 0,
-        skins: GpuSkinArrays::new(&render_device),
-        glint_sampler: render_device.create_sampler(&SamplerDescriptor {
-            label: Some("repeat actor glint sampler"),
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..Default::default()
-        }),
+        skins: GpuSkinArrays::new(render_device)?,
+        glint_sampler: allocation::checked(render_device, "actor glint sampler", 0, || {
+            render_device.create_sampler(&SamplerDescriptor {
+                label: Some("repeat actor glint sampler"),
+                address_mode_u: AddressMode::Repeat,
+                address_mode_v: AddressMode::Repeat,
+                mag_filter: FilterMode::Linear,
+                min_filter: FilterMode::Linear,
+                ..Default::default()
+            })
+        })?,
         sampler,
         bind_group: None,
         frame_generation: u64::MAX,
         geometry_revision: u64::MAX,
+        geometry_ready: false,
         skin_revision: u64::MAX,
         view_buffer_id: None,
         manifest: std::sync::Arc::from([]),
-    });
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -295,6 +335,12 @@ fn prepare_actor_resources(
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    if gpu.skins.failed(&frame.skins) {
+        gpu.instance_count = 0;
+        gate.clear();
+        tracker.clear();
+        return;
+    }
     let rig = &frame.rig;
     let artwork_valid = gpu
         .artwork
@@ -306,6 +352,7 @@ fn prepare_actor_resources(
         gpu.artwork_identity = frame.artwork.identity();
         gpu.frame_generation = u64::MAX;
         gpu.bones.clear();
+        gpu.bind_group = None;
     }
     let skins_resident = player_skins_resident(&frame);
     let mut structurally_valid = !rig.instances.is_empty()
@@ -322,23 +369,32 @@ fn prepare_actor_resources(
         gpu.frame_generation = u64::MAX;
         gpu.bones.clear();
         // A new skin model or item mesh uploads only its own vertices.
-        gpu.geometry_vertices.sync(
+        gpu.geometry_ready = gpu.geometry_vertices.sync(
             &render_device,
             &render_queue,
             "shared actor rig vertices",
             &rig.geometry_vertices,
         );
-        gpu.geometry_span_buffer = (!rig.geometry_spans.is_empty()).then(|| {
-            render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("shared actor rig geometry spans"),
-                contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
-                usage: BufferUsages::STORAGE,
-            })
-        });
+        if !rig.geometry_spans.is_empty() && gpu.geometry_ready {
+            if let Some(buffer) = allocation::buffer_with_data(
+                &render_device,
+                &render_queue,
+                "shared actor rig geometry spans",
+                bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
+                BufferUsages::STORAGE,
+            ) {
+                gpu.geometry_span_buffer = Some(buffer);
+            } else {
+                gpu.geometry_ready = false;
+            }
+        } else {
+            gpu.geometry_ready = false;
+        }
         gpu.geometry_revision = rig.geometry_revision;
         gpu.bind_group = None;
         gpu.artwork.invalidate_bindings();
     }
+    structurally_valid &= gpu.geometry_ready;
     if gpu.frame_generation != rig.frame_generation {
         let lifetime_changed = gpu.manifest.len() != rig.manifest.len()
             || gpu
@@ -384,29 +440,44 @@ fn prepare_actor_resources(
                 bytes = std::mem::size_of_val(&*rig.instances) + prepared.uploaded_bytes(),
             )
             .entered();
-            crate::upload_staging::write_batch(
-                staging.as_deref(),
+            let uploaded = allocation::checked(
                 &render_device,
-                &render_queue,
-                &[(
-                    &gpu.instance_buffer,
-                    0,
-                    bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
-                )],
+                "actor instance and bone upload",
+                (std::mem::size_of_val(&*prepared.instances) + prepared.uploaded_bytes()) as u64,
+                || {
+                    crate::upload_staging::write_batch(
+                        staging.as_deref(),
+                        &render_device,
+                        &render_queue,
+                        &[(
+                            &gpu.instance_buffer,
+                            0,
+                            bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+                        )],
+                    );
+                    gpu.bones.writes(&prepared, |current, offset, bytes| {
+                        let buffer = if current {
+                            &gpu.current_bone_buffer
+                        } else {
+                            &gpu.previous_bone_buffer
+                        };
+                        crate::upload_staging::write_batch(
+                            staging.as_deref(),
+                            &render_device,
+                            &render_queue,
+                            &[(buffer, offset, bytes)],
+                        );
+                    });
+                },
             );
-            gpu.bones.writes(&prepared, |current, offset, bytes| {
-                let buffer = if current {
-                    &gpu.current_bone_buffer
-                } else {
-                    &gpu.previous_bone_buffer
-                };
-                crate::upload_staging::write_batch(
-                    staging.as_deref(),
-                    &render_device,
-                    &render_queue,
-                    &[(buffer, offset, bytes)],
-                );
-            });
+            if uploaded.is_none() {
+                gpu.bones.clear();
+                gpu.instance_count = 0;
+                gpu.frame_generation = rig.frame_generation;
+                gate.clear();
+                tracker.clear();
+                return;
+            }
             #[cfg(feature = "tracy")]
             drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
@@ -457,7 +528,14 @@ fn prepare_actor_resources(
             });
             return;
         }
-        if gpu.skins.sync(&frame.skins, &render_device, &render_queue) {
+        let views_changed = gpu.skins.sync(&frame.skins, &render_device, &render_queue);
+        if !gpu.skins.is_synced(&frame.skins) {
+            gpu.bind_group = None;
+            gpu.instance_count = 0;
+            gpu.frame_generation = u64::MAX;
+            return;
+        }
+        if views_changed {
             gpu.bind_group = None;
         }
         gpu.skin_revision = frame.skin_revision;
@@ -518,18 +596,94 @@ pub(crate) fn prepare_actor_bind_group(
     {
         return;
     }
-    let generic_groups: Vec<_> = gpu
-        .artwork
-        .pages
-        .iter()
-        .map(|page| {
-            render_device.create_bind_group(
-                "neutral actor page bind group",
+    let Some((generic_groups, player_group)) =
+        allocation::checked(&render_device, "actor bindings", 0, || {
+            let generic_groups: Vec<_> = gpu
+                .artwork
+                .pages
+                .iter()
+                .map(|page| {
+                    render_device.create_bind_group(
+                        "neutral actor page bind group",
+                        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+                        &[
+                            BindGroupEntry {
+                                binding: 0,
+                                resource: view_binding.clone(),
+                            },
+                            BindGroupEntry {
+                                binding: 1,
+                                resource: gpu.instance_buffer.as_entire_binding(),
+                            },
+                            BindGroupEntry {
+                                binding: 2,
+                                resource: geometry_vertex_buffer.as_entire_binding(),
+                            },
+                            BindGroupEntry {
+                                binding: 3,
+                                resource: geometry_span_buffer.as_entire_binding(),
+                            },
+                            BindGroupEntry {
+                                binding: 4,
+                                resource: gpu.previous_bone_buffer.as_entire_binding(),
+                            },
+                            BindGroupEntry {
+                                binding: 5,
+                                resource: gpu.current_bone_buffer.as_entire_binding(),
+                            },
+                            BindGroupEntry {
+                                binding: 6,
+                                resource: BindingResource::TextureView(&page.view),
+                            },
+                            BindGroupEntry {
+                                binding: 7,
+                                resource: BindingResource::Sampler(&gpu.sampler),
+                            },
+                            BindGroupEntry {
+                                binding: 8,
+                                resource: if page.multitexture {
+                                    gpu.multitexture_material.as_entire_binding()
+                                } else if page.color_mask {
+                                    gpu.color_mask_material.as_entire_binding()
+                                } else {
+                                    gpu.neutral_material.as_entire_binding()
+                                },
+                            },
+                            BindGroupEntry {
+                                binding: 9,
+                                resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                            },
+                            BindGroupEntry {
+                                binding: 10,
+                                resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                            },
+                            BindGroupEntry {
+                                binding: 12,
+                                resource: BindingResource::TextureView(glint_view),
+                            },
+                            BindGroupEntry {
+                                binding: 13,
+                                resource: BindingResource::Sampler(&gpu.glint_sampler),
+                            },
+                            BindGroupEntry {
+                                binding: 14,
+                                resource: BindingResource::TextureView(item_glint_view),
+                            },
+                            BindGroupEntry {
+                                binding: 11,
+                                resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                            },
+                        ],
+                    )
+                })
+                .collect();
+            let player_group = render_device.create_bind_group(
+                "instanced standard actor bind group",
                 &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
                 &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: view_binding.clone(),
+                        resource: view_binding,
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -553,7 +707,7 @@ pub(crate) fn prepare_actor_bind_group(
                     },
                     BindGroupEntry {
                         binding: 6,
-                        resource: BindingResource::TextureView(&page.view),
+                        resource: BindingResource::TextureView(gpu.skins.view(0)),
                     },
                     BindGroupEntry {
                         binding: 7,
@@ -561,21 +715,15 @@ pub(crate) fn prepare_actor_bind_group(
                     },
                     BindGroupEntry {
                         binding: 8,
-                        resource: if page.multitexture {
-                            gpu.multitexture_material.as_entire_binding()
-                        } else if page.color_mask {
-                            gpu.color_mask_material.as_entire_binding()
-                        } else {
-                            gpu.neutral_material.as_entire_binding()
-                        },
+                        resource: gpu.player_material.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 9,
-                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                        resource: BindingResource::TextureView(gpu.skins.view(1)),
                     },
                     BindGroupEntry {
                         binding: 10,
-                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                        resource: BindingResource::TextureView(gpu.skins.view(2)),
                     },
                     BindGroupEntry {
                         binding: 12,
@@ -591,78 +739,19 @@ pub(crate) fn prepare_actor_bind_group(
                     },
                     BindGroupEntry {
                         binding: 11,
-                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                        resource: BindingResource::TextureView(gpu.skins.view(3)),
                     },
                 ],
-            )
+            );
+            (generic_groups, player_group)
         })
-        .collect();
-    gpu.bind_group = Some(render_device.create_bind_group(
-        "instanced standard actor bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: view_binding,
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: gpu.instance_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: geometry_vertex_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: geometry_span_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: gpu.previous_bone_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: gpu.current_bone_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: BindingResource::TextureView(gpu.skins.view(0)),
-            },
-            BindGroupEntry {
-                binding: 7,
-                resource: BindingResource::Sampler(&gpu.sampler),
-            },
-            BindGroupEntry {
-                binding: 8,
-                resource: gpu.player_material.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 9,
-                resource: BindingResource::TextureView(gpu.skins.view(1)),
-            },
-            BindGroupEntry {
-                binding: 10,
-                resource: BindingResource::TextureView(gpu.skins.view(2)),
-            },
-            BindGroupEntry {
-                binding: 12,
-                resource: BindingResource::TextureView(glint_view),
-            },
-            BindGroupEntry {
-                binding: 13,
-                resource: BindingResource::Sampler(&gpu.glint_sampler),
-            },
-            BindGroupEntry {
-                binding: 14,
-                resource: BindingResource::TextureView(item_glint_view),
-            },
-            BindGroupEntry {
-                binding: 11,
-                resource: BindingResource::TextureView(gpu.skins.view(3)),
-            },
-        ],
-    ));
+    else {
+        gpu.bind_group = None;
+        gpu.artwork.invalidate_bindings();
+        gpu.instance_count = 0;
+        return;
+    };
+    gpu.bind_group = Some(player_group);
     for (page, group) in gpu.artwork.pages.iter_mut().zip(generic_groups) {
         page.bind_group = Some(group);
     }

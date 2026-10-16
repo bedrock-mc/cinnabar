@@ -11,6 +11,7 @@
     {"rust_name": "KIND_TRANSFER", "go_name": "SessionKindTransfer", "value": 5, "rust_type": "u8", "doc": "Terminal core transfer message."},
     {"rust_name": "KIND_DISCONNECT", "go_name": "SessionKindDisconnect", "value": 6, "rust_type": "u8", "doc": "Terminal core disconnect message."},
     {"rust_name": "PACK_CHUNK_BYTES", "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": "usize", "doc": "Archive bytes in one resource-pack data frame."},
+    {"rust_name": "LATENCY_TRACE_ENV", "go_name": "LatencyTraceEnv", "value": "CINNABAR_LATENCY_TRACE", "rust_type": "str", "doc": "Names the directory both processes write packet latency traces to; unset disables tracing."},
     {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."},
     {"rust_name": "RELAY_VERSION", "go_name": "RelayVersion", "value": 2, "rust_type": "u32", "doc": "Browser relay protocol version."},
     {"rust_name": "RELAY_CONTROL_BYTES", "go_name": "RelayControlBytes", "value": 4096, "rust_type": "usize", "doc": "Largest relay Hello or control JSON payload in bytes."},

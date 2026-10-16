@@ -21,6 +21,12 @@ impl WorldStream {
         };
     }
 
+    /// Calls `observer` with each FIFO sequence once its whole event has committed, on the
+    /// committing thread.
+    pub fn observe_commits(&mut self, observer: fn(u64)) {
+        self.order.observe_completions(observer);
+    }
+
     /// Starts the frame's shared ingress, commit and scheduling allocation.
     pub fn begin_frame_work(&mut self) {
         let now = Instant::now();

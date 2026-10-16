@@ -984,3 +984,32 @@ fn abandoning_a_hash_owner_promotes_waiter_and_keeps_late_response_authorized() 
     assert!(resolver.pop_ready().is_none());
     assert_eq!(resolver.stats().recovery_requests, 1);
 }
+
+/// A cached chunk awaiting its blob keeps the core frame and slot it arrived in, not those of
+/// the miss response that resolved it, and the event behind it keeps its own.
+#[test]
+fn resolved_items_keep_the_trace_origin_they_arrived_with() {
+    let payload = b"traced-blob";
+    let hash = client_blob_hash(payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver.trace_origin((3, 1));
+    resolver
+        .accept_cached_packet(cached_level(vec![hash], b""))
+        .expect("accept cached level chunk");
+    resolver.trace_origin((4, 0));
+    resolver
+        .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 1 }), 8)
+        .expect("independent event");
+    resolver.trace_origin((5, 2));
+    resolver
+        .accept_miss_response(miss_response(vec![(hash, payload.to_vec())]))
+        .expect("resolve miss");
+
+    let mut origins = Vec::new();
+    while let Some(ready) = resolver.pop_ready_ingress() {
+        let chunk = matches!(ready, crate::blob_cache::ResolverReady::Packet(_));
+        origins.push((chunk, resolver.popped_trace_origin()));
+    }
+    origins.sort();
+    assert_eq!(origins, [(false, (4, 0)), (true, (3, 1))]);
+}

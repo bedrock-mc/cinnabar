@@ -139,3 +139,23 @@ fn expired_commit_slice_keeps_decode_workers_fed() {
     }
     assert_eq!(stream.in_flight_decode_jobs, 0);
 }
+
+/// The commit observer sees an event's sequence when it commits, not when it is admitted.
+#[test]
+fn commit_observer_sees_each_sequence_as_it_commits() {
+    static OBSERVED: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+    let (mut stream, _) = stream_with_one_expected_sub_chunk();
+    stream.observe_commits(|sequence| OBSERVED.lock().unwrap().push(sequence));
+    let set_time = WorldEvent::SetTime(SetTimeEvent { time: 5 });
+    stream
+        .order
+        .admit(2, classify(&set_time, stream.lane_context()), 0)
+        .unwrap();
+    stream
+        .order
+        .insert_ready(2, PreparedWorldEvent::Immediate(set_time))
+        .unwrap();
+    assert!(!OBSERVED.lock().unwrap().contains(&2));
+    apply_spent_slice(&mut stream);
+    assert!(OBSERVED.lock().unwrap().contains(&2));
+}
