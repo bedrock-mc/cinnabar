@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -34,6 +35,12 @@ type sessionConn struct {
 	writeMu sync.Mutex
 	pending []byte // the Batch frame being formed, kind byte included
 	ended   bool   // a terminal message was written
+
+	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
+	traceConn   int64
+	traceFrames int64    // Batch frames written to the client
+	traceIDs    []uint32 // packet IDs of the forming batch
+	traceRead   int64    // when the forming batch's upstream batch was read and decoded
 }
 
 type sessionRead struct {
@@ -49,6 +56,9 @@ func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 		readDone:   make(chan struct{}),
 		clientPool: minecraft.DefaultProtocol.Packets(true),
 		serverPool: minecraft.DefaultProtocol.Packets(false),
+	}
+	if trace := latencytrace.Active(); trace != nil {
+		session.trace, session.traceConn = trace, trace.NextConn()
 	}
 	go session.read()
 	return session
@@ -147,7 +157,18 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		session.pending = append(session.pending, bridgecontract.SessionKindBatch)
 	}
 	session.pending = appendSessionBatchPacket(session.pending, data)
+	if session.trace != nil {
+		id, _ := sessionPacketID(data)
+		session.traceIDs = append(session.traceIDs, id)
+	}
 	return nil
+}
+
+// traceBatchRead stamps the forming batch with when its upstream batch was read and decoded.
+func (session *sessionConn) traceBatchRead(readAt int64) {
+	session.writeMu.Lock()
+	session.traceRead = readAt
+	session.writeMu.Unlock()
 }
 
 // observeItemRegistry records the shield runtime ID from an ItemRegistry the client receives.
@@ -213,7 +234,18 @@ func (session *sessionConn) flushLocked() error {
 	if len(session.pending) == 0 {
 		return nil
 	}
+	var began int64
+	if session.trace != nil {
+		began = session.trace.Now()
+	}
 	_, err := session.conn.Write(session.pending)
+	if session.trace != nil {
+		if err == nil { // a failed write never reached the client
+			session.traceFrames++
+			session.trace.RecordIDs(latencytrace.Inbound, session.traceIDs, session.traceConn, session.traceFrames, session.traceRead, began, session.trace.Now())
+		}
+		session.traceIDs, session.traceRead = session.traceIDs[:0], 0
+	}
 	// Write has returned, so the buffer is reused unless one large batch grew it.
 	if cap(session.pending) > bridgecontract.SessionPackChunkBytes {
 		session.pending = nil

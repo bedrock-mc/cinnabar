@@ -61,6 +61,7 @@ pub struct PlaySession {
     pending_blob_prefetch: Option<(Packet, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
+    ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
 }
 
 struct PendingBlobCacheDelivery {
@@ -133,6 +134,7 @@ impl PlaySession {
             pending_blob_prefetch: None,
             server_disconnect: None,
             server_transfer: None,
+            ingress_position: (0, 0),
         }
     }
 
@@ -270,6 +272,9 @@ impl PlaySession {
         let result = self.recv_world_ingress_inner(current_dimension).await;
         if result.is_ok() {
             self.transport.accept_current();
+            if self.blob_cache.is_none() {
+                self.ingress_position = self.delivered_position();
+            }
         }
         result
     }
@@ -369,6 +374,20 @@ impl PlaySession {
         self.packet_id_trace.drain()
     }
 
+    /// The latency-trace connection, core batch frame and in-frame index of the packet received
+    /// last; see [`bridge::latency_trace`].
+    #[must_use]
+    pub fn latency_trace_position(&self) -> (u64, u64, u32) {
+        let (conn, _, _) = self.transport.trace_position();
+        (conn, self.ingress_position.0, self.ingress_position.1)
+    }
+
+    /// The core frame and slot of the packet the transport delivered last.
+    fn delivered_position(&self) -> (u64, u32) {
+        let (_, frame, index) = self.transport.trace_position();
+        (frame, index)
+    }
+
     /// Number of receive-side decode/decompression failures observed in play.
     pub fn decode_error_count(&self) -> u64 {
         self.decode_errors
@@ -431,6 +450,8 @@ impl PlaySession {
                 .expect("enabled path owns a resolver")
                 .pop_recovery_ready()
             {
+                // Recovery is the client's own resync request; no core packet produced it.
+                self.ingress_position = (0, 0);
                 return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
             if let Some(status_packet) = self
@@ -459,6 +480,8 @@ impl PlaySession {
                 .as_mut()
                 .and_then(|delivery| delivery.events.pop_front())
             {
+                // Delivery events come from the prefetched packet, read last.
+                self.ingress_position = self.delivered_position();
                 return Ok(WorldIngress::Event(event));
             }
             self.pending_blob_cache_delivery = None;
@@ -468,6 +491,11 @@ impl PlaySession {
                 .expect("enabled path owns a resolver")
                 .pop_ready_ingress()
             {
+                self.ingress_position = self
+                    .blob_cache
+                    .as_ref()
+                    .expect("enabled path owns a resolver")
+                    .popped_trace_origin();
                 let event = match ready {
                     ResolverReady::Packet(packet) => {
                         // A reconstructed LevelChunk hands its rebuilt payload on as is, as
@@ -533,6 +561,13 @@ impl PlaySession {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
+            if bridge::latency_trace::active().is_some() {
+                let origin = self.delivered_position();
+                self.blob_cache
+                    .as_mut()
+                    .expect("enabled path owns a resolver")
+                    .trace_origin(origin);
+            }
             self.packet_id_trace.observe(raw.id);
             if unused_packets::is_unused(raw.id) {
                 self.discard_unused_packet(raw)?;

@@ -326,7 +326,7 @@ impl LocomotionState {
             let admitted = if withhold_input {
                 movement_ticker.withhold_respawn_input(sample)
             } else {
-                movement_ticker.enqueue_completed_physics(sample)
+                movement_ticker.enqueue_completed_physics_at(sample, Some(now))
             };
             if let Err(fault) = admitted {
                 debug!(?fault, "local Physics movement authority failed closed");

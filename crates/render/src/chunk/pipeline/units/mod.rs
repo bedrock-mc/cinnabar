@@ -45,6 +45,8 @@ pub(in crate::chunk) struct UnitBatchStats {
     pub(in crate::chunk) phase_items: u64,
     pub(in crate::chunk) draws: u64,
     pub(in crate::chunk) units: u64,
+    /// Units repeated by the optional current-frame depth prepass.
+    pub(in crate::chunk) occluder_units: u64,
     pub(in crate::chunk) padded_quads: u64,
     pub(in crate::chunk) list_bytes_uploaded: u64,
     pub(in crate::chunk) descriptor_bytes_uploaded: u64,
@@ -81,6 +83,7 @@ struct UnitView {
     camera: Option<[f64; 3]>,
     facing: Option<[(f64, bool); 3]>,
     streams: [UnitStream; 4],
+    occluders: UnitStream,
 }
 
 /// Retained unit lists and their GPU pages; views enter only through the ordinary direct path.
@@ -94,6 +97,24 @@ pub(in crate::chunk) struct TerrainUnitBatches {
 }
 
 impl TerrainUnitBatches {
+    /// Rewrites every selected descriptor from this frame's bits, or clears it on fallback.
+    pub(in crate::chunk) fn encode_masks(
+        &self,
+        entity: Entity,
+        kernel: &gpu_cull::unit_mask::UnitMasks,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        bits: Option<&wgpu::Buffer>,
+    ) {
+        if let Some(view) = self.views.get(&entity) {
+            for page in view.streams.iter().flat_map(|s| &s.pages) {
+                if let Some(bindings) = &page.masks {
+                    kernel.encode(device, encoder, bindings, bits.is_some(), page.count);
+                }
+            }
+        }
+    }
+
     /// Starts queueing, forgetting views that were absent from the preceding queue.
     pub(in crate::chunk) fn begin_frame(&mut self) {
         self.views.retain(|_, view| view.queued);
@@ -117,6 +138,7 @@ impl TerrainUnitBatches {
             camera,
             facing: None,
             streams: default(),
+            occluders: default(),
         });
         view.stale |= !Arc::ptr_eq(&view.sources, &sources);
         view.sources = sources;
@@ -136,6 +158,7 @@ pub(in crate::chunk) fn install(render_app: &mut SubApp) {
         .init_resource::<TerrainUnitBatches>()
         .add_systems(RenderStartup, configure_support)
         .add_render_command::<Opaque3d, DrawTerrainUnits<0>>()
+        .add_render_command::<Opaque3d, commands::DrawTerrainOccluders>()
         .add_render_command::<Opaque3d, DrawTerrainUnits<1>>()
         .add_render_command::<Opaque3d, DrawTerrainUnits<2>>()
         .add_render_command::<Opaque3d, DrawTerrainUnits<3>>()

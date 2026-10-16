@@ -15,7 +15,7 @@ pub(super) fn unpublished_attack_fixture(z: f32) -> (World, client_session::Capt
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
     });
@@ -220,7 +220,7 @@ fn attack_hit_position_recasts_after_a_position_reset_with_new_movement() {
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
     });

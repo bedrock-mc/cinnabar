@@ -276,6 +276,15 @@ where
             return Flush::Stopped;
         }
     }
+    let traced = bridge::latency_trace::active().map(|trace| {
+        let tick = receipts
+            .iter()
+            .filter_map(|receipt| receipt.physics)
+            .map(|identity| identity.tick.get() as i64)
+            .max()
+            .unwrap_or(-1);
+        (trace, trace.now(), packets.len() as i64, tick)
+    });
     match wait_for_send_or_cancel(outbound.send_batch(packets), shutdown_rx).await {
         None => Flush::Stopped,
         Some(Err(error)) => Flush::Failed(FlushFailure {
@@ -284,6 +293,12 @@ where
             trace_armed,
         }),
         Some(Ok(())) => {
+            if let Some((trace, begun, count, tick)) = traced {
+                trace.record(
+                    bridge::latency_trace::kind::OUTBOUND_FLUSH,
+                    &[begun, trace.now(), count, tick],
+                );
+            }
             let settle = trace_armed.then_some(PumpHook::TracedWriteSettled);
             for receipt in receipts {
                 if !publish_receipt(

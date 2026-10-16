@@ -20,6 +20,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
@@ -61,6 +62,7 @@ func main() {
 		Grace:      shutdownGrace,
 	})
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
+	latencytrace.Finish()
 	stop()
 	if exitCode != 0 {
 		os.Exit(exitCode)

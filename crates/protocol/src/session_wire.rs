@@ -109,8 +109,9 @@ pub enum CoreMessage {
     Disconnect(SessionDisconnect),
 }
 
-/// What the client needs before play.
-#[derive(Debug, Deserialize, Serialize)]
+/// What the client needs before play. Builders set what they need and default the rest, so new
+/// optional fields never break them.
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionHandoff {
     /// The upstream login's canonical identity.
@@ -121,13 +122,17 @@ pub struct SessionHandoff {
     pub packs_required: bool,
     /// Archives to apply, in application order.
     pub packs: Vec<HandoffPack>,
+    /// The core's latency-trace ID for this connection, stamped on both processes' records; 0
+    /// when the core is not tracing.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trace_conn: u64,
     /// Every packet the core received through StartGame, in order; StartGame is last.
     #[serde(skip)]
     pub startup: Vec<Bytes>,
 }
 
 /// The player identity the server knows.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionIdentity {
     pub display_name: String,
@@ -366,3 +371,8 @@ fn invalid(reason: &'static str) -> BridgeError {
 
 #[cfg(test)]
 mod tests;
+
+/// Whether an optional numeric field holds its absent value.
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}

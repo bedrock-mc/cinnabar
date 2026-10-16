@@ -186,6 +186,26 @@ pub enum WorldIngress {
     },
 }
 
+impl WorldIngress {
+    /// The session generation and FIFO sequence this ingress carries.
+    #[must_use]
+    pub fn identity(&self) -> (u64, u64) {
+        match self {
+            Self::Event(event) => (event.session_generation.get(), event.sequence.get()),
+            Self::LevelChunk {
+                session_generation,
+                sequence,
+                ..
+            }
+            | Self::FastTransferBarrier {
+                session_generation,
+                sequence,
+                ..
+            } => (session_generation.get(), sequence.get()),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct ReadinessIngressCounter {
     produced: AtomicU64,
@@ -702,6 +722,11 @@ trait NetworkSession: Send {
 
     fn begin_packet_id_trace(&mut self) {}
 
+    /// The latency-trace connection, core frame and in-frame index of the packet received last.
+    fn latency_trace_position(&self) -> (u64, u64, u32) {
+        (0, 0, 0)
+    }
+
     fn cancel_packet_id_trace(&mut self) {}
 
     fn arm_blob_cache_reset_for_fast_transfer(&mut self) {}
@@ -768,6 +793,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn begin_packet_id_trace(&mut self) {
         protocol::PlaySession::begin_packet_id_trace(self);
+    }
+
+    fn latency_trace_position(&self) -> (u64, u64, u32) {
+        protocol::PlaySession::latency_trace_position(self)
     }
 
     fn cancel_packet_id_trace(&mut self) {

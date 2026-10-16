@@ -106,13 +106,12 @@ pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
 mod coverage;
-mod plugin;
+pub(crate) mod plugin;
 mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
 pub(crate) use coverage::TerrainCoverage;
-pub(crate) use plugin::ChunkPublicationStage;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;

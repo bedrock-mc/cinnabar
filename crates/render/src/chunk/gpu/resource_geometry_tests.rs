@@ -1,5 +1,8 @@
 use super::super::resource_sorts::ResourceView;
 use super::*;
+use crate::chunk::plugin::publication_schedule::{
+    ChunkPublicationStage, configure_chunk_publication,
+};
 use crate::chunk::transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws,
 };
@@ -167,7 +170,7 @@ fn resource_swaps_reapply_cached_coverage_before_draw_queues_and_preserve_withdr
         }
         app.insert_resource(Candidate(Some(build())));
         let mut schedule = Render::base_schedule();
-        crate::chunk::plugin::configure_chunk_publication(&mut schedule);
+        configure_chunk_publication(&mut schedule);
         schedule.add_systems((
             publish.in_set(ChunkPublicationStage::Attributes),
             crate::chunk::coverage::publish_terrain_coverage

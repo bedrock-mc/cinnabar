@@ -8,6 +8,8 @@ mod model;
 #[path = "../../src/chunk/gpu_cull/occlusion.rs"]
 mod occlusion;
 mod raster;
+#[path = "../../src/chunk/gpu_cull/unit_mask.rs"]
+mod unit_mask;
 mod units;
 
 use std::collections::BTreeSet;
@@ -488,6 +490,7 @@ struct Target {
     color: wgpu::Texture,
     depth: wgpu::Texture,
     samples: u32,
+    resolved: Option<wgpu::Texture>,
 }
 
 impl Target {
@@ -496,12 +499,12 @@ impl Target {
     }
 
     fn sized(gpu: &Gpu, color: wgpu::TextureFormat, samples: u32, size: [u32; 2]) -> Self {
-        let copy = if samples == 1 {
-            wgpu::TextureUsages::COPY_SRC
-        } else {
-            wgpu::TextureUsages::empty()
-        };
-        let texture = |format, usage| {
+        let texture = |format, usage, sample_count| {
+            let copy = if sample_count == 1 {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            };
             gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: wgpu::Extent3d {
@@ -510,7 +513,7 @@ impl Target {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: samples,
+                sample_count,
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage: usage | wgpu::TextureUsages::RENDER_ATTACHMENT | copy,
@@ -518,8 +521,9 @@ impl Target {
             })
         };
         Self {
-            color: texture(color, wgpu::TextureUsages::empty()),
-            depth: texture(DEPTH_FORMAT, wgpu::TextureUsages::TEXTURE_BINDING),
+            color: texture(color, wgpu::TextureUsages::empty(), samples),
+            resolved: (samples > 1).then(|| texture(color, wgpu::TextureUsages::empty(), 1)),
+            depth: texture(DEPTH_FORMAT, wgpu::TextureUsages::TEXTURE_BINDING, samples),
             samples,
         }
     }
@@ -527,6 +531,10 @@ impl Target {
     fn pass<'e>(&self, encoder: &'e mut wgpu::CommandEncoder, clear: bool) -> wgpu::RenderPass<'e> {
         let color = self.color.create_view(&Default::default());
         let depth = self.depth.create_view(&Default::default());
+        let resolved = self
+            .resolved
+            .as_ref()
+            .map(|texture| texture.create_view(&Default::default()));
         let sky = wgpu::Color {
             r: 0.12,
             g: 0.18,
@@ -542,7 +550,7 @@ impl Target {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &color,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: resolved.as_ref(),
                 ops: wgpu::Operations {
                     load: color_load,
                     store: wgpu::StoreOp::Store,
@@ -750,6 +758,8 @@ const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
 ) -> VertexOutput { return sealed_cube_vertex(offsets.x, offsets.y + instance_index, 0.0); }";
 
 struct Raster {
+    depth_only: Option<wgpu::RenderPipeline>,
+    depth_group: Option<wgpu::BindGroup>,
     solid: wgpu::RenderPipeline,
     cutout: wgpu::RenderPipeline,
     solid_group: wgpu::BindGroup,
@@ -786,18 +796,32 @@ impl Raster {
         color: wgpu::TextureFormat,
         vertex: &str,
     ) -> Self {
+        Self::through_samples(gpu, terrain, camera, write_depth, color, vertex, 1)
+    }
+
+    /// Uses production alpha-to-coverage specialization for multisampled unit fixtures.
+    fn through_samples(
+        gpu: &Gpu,
+        terrain: &Terrain,
+        camera: &Camera,
+        write_depth: bool,
+        color: wgpu::TextureFormat,
+        vertex: &str,
+        samples: u32,
+    ) -> Self {
+        let mut definitions = Vec::new();
+        if vertex == "vertex_unit" {
+            definitions.push("TERRAIN_UNITS");
+        }
+        if samples > 1 {
+            definitions.push("ALPHA_TO_COVERAGE");
+        }
         let source = format!(
             "{}\n{UNSEALED_VERTEX}",
-            shader_source::standalone(
-                include_str!("../../src/chunk.wesl"),
-                if vertex == "vertex_unit" {
-                    &["TERRAIN_UNITS"]
-                } else {
-                    &[]
-                }
-            )
+            shader_source::standalone(include_str!("../../src/chunk.wesl"), &definitions)
         )
         .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+        let depth_bindings = vertex_bindings(&source, vertex);
         let module = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -809,7 +833,7 @@ impl Raster {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Uint32x2],
         })];
-        let pipeline = |fragment, cull_mode| {
+        let pipeline = |fragment, cull_mode, depth_only: bool| {
             gpu.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: None,
@@ -835,8 +859,12 @@ impl Raster {
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
-                    multisample: Default::default(),
-                    fragment: Some(wgpu::FragmentState {
+                    multisample: wgpu::MultisampleState {
+                        count: samples,
+                        alpha_to_coverage_enabled: samples > 1 && fragment == "fragment",
+                        ..Default::default()
+                    },
+                    fragment: (!depth_only).then_some(wgpu::FragmentState {
                         module: &module,
                         entry_point: Some(fragment),
                         compilation_options: Default::default(),
@@ -854,8 +882,10 @@ impl Raster {
                     cache: None,
                 })
         };
-        let solid = pipeline("fragment_solid", Some(wgpu::Face::Back));
-        let cutout = pipeline("fragment", None);
+        let solid = pipeline("fragment_solid", Some(wgpu::Face::Back), false);
+        let depth_only = (vertex == "vertex_unit")
+            .then(|| pipeline("fragment_solid", Some(wgpu::Face::Back), true));
+        let cutout = pipeline("fragment", None, false);
         let storage = wgpu::BufferUsages::STORAGE;
         let quad_words = terrain
             .quads
@@ -921,7 +951,7 @@ impl Raster {
             &gpu_snapshot::view(camera.clip_from_world, camera.eye),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
-        let group = |pipeline: &wgpu::RenderPipeline| {
+        let group = |pipeline: &wgpu::RenderPipeline, depth_only: bool| {
             let entries = [
                 (0, view.as_entire_binding()),
                 (1, quads.as_entire_binding()),
@@ -966,6 +996,10 @@ impl Raster {
                 ),
             ]
             .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+            let entries = entries
+                .into_iter()
+                .filter(|entry| !depth_only || depth_bindings.contains(&entry.binding))
+                .collect::<Vec<_>>();
             gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &pipeline.get_bind_group_layout(0),
@@ -976,8 +1010,10 @@ impl Raster {
             .flat_map(|vertex| [vertex, 0])
             .collect::<Vec<_>>();
         Self {
-            solid_group: group(&solid),
-            cutout_group: group(&cutout),
+            depth_group: depth_only.as_ref().map(|pipeline| group(pipeline, true)),
+            depth_only,
+            solid_group: group(&solid, false),
+            cutout_group: group(&cutout, false),
             solid,
             cutout,
             identity: gpu.words(&identity, wgpu::BufferUsages::VERTEX),
@@ -1018,4 +1054,32 @@ impl Raster {
             );
         }
     }
+}
+
+/// Finds group-zero globals used transitively by the vertex entry, excluding fragment-only bindings.
+fn vertex_bindings(source: &str, vertex: &str) -> BTreeSet<u32> {
+    let module = naga::front::wgsl::parse_str(source).expect("terrain fixture WGSL");
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("terrain fixture shader interface");
+    let index = module
+        .entry_points
+        .iter()
+        .position(|entry| entry.name == vertex)
+        .expect("terrain fixture vertex entry");
+    let usage = info.get_entry_point(index);
+    module
+        .global_variables
+        .iter()
+        .filter_map(|(handle, global)| {
+            global
+                .binding
+                .as_ref()
+                .filter(|binding| binding.group == 0 && !usage[handle].is_empty())
+                .map(|binding| binding.binding)
+        })
+        .collect()
 }

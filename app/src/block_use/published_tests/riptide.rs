@@ -89,7 +89,7 @@ fn flush_and_acknowledge(world: &mut World) {
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| {
+            |identity, packet, guard, _| {
                 written.push(identity);
                 world
                     .resource::<NetworkHandle<PackApplication>>()

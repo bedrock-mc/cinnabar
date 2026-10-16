@@ -720,6 +720,15 @@ pub(crate) fn drive_world_stream(
             acknowledgement.token.generation,
         );
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
+        if let Some(trace) = bridge::latency_trace::active() {
+            trace.record(
+                bridge::latency_trace::kind::MESH_UPLOADED,
+                &[
+                    trace.at(acknowledgement.token.dirty_since),
+                    trace.at(acknowledgement.applied_at),
+                ],
+            );
+        }
         #[cfg(feature = "acceptance")]
         if let Some(latency) = acceptance.acknowledge_mutation(
             acknowledgement.key,

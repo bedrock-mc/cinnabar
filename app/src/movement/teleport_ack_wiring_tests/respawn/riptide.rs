@@ -21,7 +21,7 @@ fn write_inputs(ticker: &mut MovementTicker, network: &NetworkHandle<PackApplica
         ticker,
         8,
         Some(evidence_context()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             receipts.push(identity);
             network.send_physics_packet(identity, packet, guard)
         },

@@ -975,6 +975,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         network.shutdown();
     }
     drop(app);
+    bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),
         "{SHUTDOWN_COMPLETED} exit_code={}",

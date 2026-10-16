@@ -22,9 +22,8 @@ use render_scene::{
     VisibilityDiagnostics, VisibilityDiagnosticsInput,
 };
 
-mod publication_schedule;
-pub(crate) use publication_schedule::ChunkPublicationStage;
-pub(in crate::chunk) use publication_schedule::configure_chunk_publication;
+pub(crate) mod publication_schedule;
+use publication_schedule::{ChunkPublicationStage, configure_chunk_publication};
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkEntities(pub(in crate::chunk) HashMap<SubChunkKey, Entity>);

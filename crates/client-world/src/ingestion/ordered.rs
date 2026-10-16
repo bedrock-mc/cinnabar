@@ -40,7 +40,8 @@ pub enum CommitStep {
 pub enum DecodeCommit {
     /// The completion waits for its ordinary FIFO turn.
     Queued,
-    /// The previously popped block batch must apply before deferred predictions.
+    /// The previously popped block batch must apply before deferred predictions; the caller
+    /// then calls [`OrderedCommitState::announce_applied`].
     BlockUpdates(PreparedWorldEvent),
 }
 
@@ -134,6 +135,8 @@ pub struct OrderedCommitState {
     earlier: EarlierEvents,
     /// Chunk data a pass without the chunk-data allowance skips, for its lookahead.
     skipped_chunk_data: EarlierEvents,
+    completion_observer: Option<fn(u64)>, // sees each finished sequence; diagnostics only
+    unannounced: Vec<u64>, // released block sequences awaiting their application; while observed
 }
 
 impl OrderedCommitState {
@@ -157,6 +160,22 @@ impl OrderedCommitState {
             last_step_heavy: false,
             earlier: EarlierEvents::default(),
             skipped_chunk_data: EarlierEvents::default(),
+            completion_observer: None,
+            unannounced: Vec::new(),
+        }
+    }
+
+    /// Calls `observer` with each sequence once its whole event has finished, merged block
+    /// ranges and multi-entry sub-chunk batches included.
+    pub fn observe_completions(&mut self, observer: fn(u64)) {
+        self.completion_observer = Some(observer);
+    }
+
+    /// Reports the block range a [`DecodeCommit::BlockUpdates`] released, once its caller has
+    /// applied the decoded mutations.
+    pub fn announce_applied(&mut self) {
+        if let Some(observer) = self.completion_observer {
+            self.unannounced.drain(..).for_each(observer);
         }
     }
 
@@ -419,7 +438,7 @@ impl OrderedCommitState {
             )
         {
             self.blocking_block_updates = None;
-            self.release_range(sequence, end);
+            self.release_range(sequence, end, false);
             return Ok(DecodeCommit::BlockUpdates(event));
         }
         self.insert_ready(sequence, event)?;
@@ -750,12 +769,13 @@ impl OrderedCommitState {
             self.pending_sub_chunks = None;
         }
         let end = self.block_update_range_end.take().unwrap_or(sequence);
-        self.release_range(sequence, end);
+        self.release_range(sequence, end, true);
         true
     }
 
-    /// Finishes a whole merged event range, then advances the contiguous frontier.
-    fn release_range(&mut self, start: u64, end: u64) {
+    /// Finishes a whole merged event range, then advances the contiguous frontier; `announce`
+    /// reports it to the completion observer now rather than at [`Self::announce_applied`].
+    fn release_range(&mut self, start: u64, end: u64, announce: bool) {
         let mut released = false;
         for sequence in start..=end {
             let Some(entry) = self.entries.remove(&sequence) else {
@@ -763,6 +783,11 @@ impl OrderedCommitState {
             };
             self.unfinished -= 1;
             self.release_held(entry.held);
+            match self.completion_observer {
+                Some(observer) if announce => observer(sequence),
+                Some(_) => self.unannounced.push(sequence),
+                None => {}
+            }
             released = true;
         }
         if !released {

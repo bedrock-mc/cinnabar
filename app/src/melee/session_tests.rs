@@ -79,7 +79,7 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
             &mut ticker,
             8,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
         let packets = captured.drain();
@@ -160,7 +160,7 @@ fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
             &mut ticker,
             8,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
         let packets = captured.drain();
@@ -219,7 +219,7 @@ fn frame_attacks_follow_completed_inputs_and_precede_the_next_tick_and_swing() {
             &mut ticker,
             8,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
         let sample = runtime.between_ticks_press(&ticker).unwrap();
@@ -249,7 +249,7 @@ fn frame_attacks_follow_completed_inputs_and_precede_the_next_tick_and_swing() {
             &mut ticker,
             8,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
         )
         .unwrap();
         let packets = captured.drain();

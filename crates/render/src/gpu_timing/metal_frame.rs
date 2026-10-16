@@ -18,6 +18,7 @@ use bevy::{
 };
 use objc2::{Message, rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLCommandBuffer, MTLCommandBufferStatus};
+use objc2_quartz_core::CACurrentMediaTime;
 use render_scene::{GpuFrameTimes, RuntimeStage, RuntimeStageProfiler};
 use std::{
     sync::{
@@ -30,9 +31,9 @@ use std::{
 const PENDING_LATENCY: u64 = u64::MAX;
 
 /// A retained marker command buffer, read only after wgpu commits it.
-struct Marker(Retained<ProtocolObject<dyn MTLCommandBuffer>>);
+pub(super) struct Marker(pub(super) Retained<ProtocolObject<dyn MTLCommandBuffer>>);
 
-// SAFETY: only `status` and the GPU host times are read, which Metal allows from any thread.
+// SAFETY: status, GPU host times and completion waits are safe from any thread.
 unsafe impl Send for Marker {}
 // SAFETY: as above; the marker is never encoded into or committed through this handle.
 unsafe impl Sync for Marker {}
@@ -47,7 +48,10 @@ enum MarkerState {
 
 impl Marker {
     /// Creates an empty command buffer to place first or last among a frame's submissions.
-    fn new(device: &RenderDevice, label: &'static str) -> Option<(wgpu::CommandBuffer, Self)> {
+    pub(super) fn new(
+        device: &RenderDevice,
+        label: &'static str,
+    ) -> Option<(wgpu::CommandBuffer, Self)> {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
         // SAFETY: nothing is encoded into the raw buffer; wgpu ends and commits it as usual.
@@ -91,6 +95,8 @@ fn settled(begin: MarkerState, end: MarkerState) -> Option<Option<(u64, u64)>> {
 struct FrameSlot {
     latency: Arc<AtomicU64>,
     started: Option<Instant>,
+    native_observed: Option<Duration>,
+    host_started: f64,
     begin: Option<Marker>,
     end: Option<Marker>,
     submission: Option<(InputPacer, u64)>,
@@ -125,6 +131,8 @@ impl Default for MetalFrames {
             slots: std::array::from_fn(|_| FrameSlot {
                 latency: Arc::new(AtomicU64::new(PENDING_LATENCY)),
                 started: None,
+                native_observed: None,
+                host_started: 0.0,
                 begin: None,
                 end: None,
                 submission: None,
@@ -137,7 +145,19 @@ impl Default for MetalFrames {
 
 impl MetalFrames {
     /// Publishes settled frames oldest first and claims one bounded slot for this frame.
+    #[expect(clippy::print_stderr, reason = "opt-in native completion diagnostics")]
     fn begin(&mut self, mut sink: impl FnMut(&GpuFrameTimes)) {
+        // Observe every retained marker even when the oldest callback has not arrived.
+        if self.health.is_some() {
+            for slot in &mut self.slots {
+                if slot.native_observed.is_none()
+                    && matches!(slot.execution(), Some(Some(_)))
+                    && let Some(started) = slot.started
+                {
+                    slot.native_observed = Some(started.elapsed());
+                }
+            }
+        }
         while let Some(index) = self.ring.oldest_in_flight() {
             let slot = &mut self.slots[index];
             let nanos = slot.latency.load(Ordering::Acquire);
@@ -147,6 +167,22 @@ impl MetalFrames {
             let Some(execution) = slot.execution() else {
                 break;
             };
+            if self.health.is_some() {
+                let host_now = CACurrentMediaTime();
+                let gpu_end = execution
+                    .map(|(_, end)| end as f64 * 1e-9)
+                    .filter(|end| *end > 0.0);
+                eprintln!(
+                    "CINNABAR_METAL_COMPLETION {}",
+                    serde_json::json!({
+                        "host_unix_ns": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64,
+                        "native_graph_observed_ms": slot.native_observed.map(|d| d.as_secs_f64() * 1e3),
+                        "callback_ms": nanos as f64 / 1e6,
+                        "gpu_finish_after_close_ms": gpu_end.filter(|end| *end >= slot.host_started).map(|end| (end - slot.host_started) * 1e3),
+                        "receipt_age_after_gpu_ms": gpu_end.filter(|end| host_now >= *end).map(|end| (host_now - end) * 1e3),
+                    })
+                );
+            }
             (slot.begin, slot.end) = (None, None);
             let mut frame = GpuFrameTimes::completion_latency(Duration::from_nanos(nanos));
             if let Some((begin, end)) = execution {
@@ -179,6 +215,7 @@ impl MetalFrames {
             let slot = &mut self.slots[slot];
             slot.latency.store(PENDING_LATENCY, Ordering::Relaxed);
             slot.started = None;
+            slot.native_observed = None;
         }
         if let Some(health) = &mut self.health {
             health.frame(self.recording.is_none());
@@ -197,7 +234,7 @@ impl MetalFrames {
         let Some(slot) = self.recording.take() else {
             return;
         };
-        let started = self.slots[slot].started.take().unwrap_or_else(Instant::now);
+        let started = self.slots[slot].started.unwrap_or_else(Instant::now);
         self.slots[slot].submission = submission;
         let latency = self.slots[slot].latency.clone();
         crate::device_poll::on_frame_complete(queue, move || {
@@ -244,6 +281,7 @@ fn initialize(world: &mut World) {
     #[cfg(feature = "tracy")]
     super::tracy::initialize();
     world.init_resource::<MetalFrames>();
+    super::metal_queue::install(world);
     world.schedule_scope(RenderGraph, |_, schedule| {
         schedule.add_systems((
             open_frame.before(RenderGraphSystems::Begin),
@@ -283,6 +321,7 @@ fn close_frame(
     let Some(slot) = frames.recording() else {
         return;
     };
+    slot.host_started = CACurrentMediaTime();
     slot.started = Some(Instant::now());
     if let Some((buffer, marker)) = Marker::new(&device, "gpu frame end") {
         pending.push([buffer]);

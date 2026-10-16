@@ -92,6 +92,14 @@ impl TextureCache {
         cache
     }
 
+    /// Releases unused textures and their source allocations before replacement uploads begin.
+    pub(super) fn retain(&mut self, keys: &[TextureKey]) {
+        let keys: std::collections::HashSet<_> = keys.iter().collect();
+        self.textures.retain(|key, _| keys.contains(key));
+        self.allocations
+            .retain(|_, key| self.textures.contains_key(key));
+    }
+
     /// Shared allocations avoid hashing; equal independent allocations share their texture too.
     pub(super) fn key(&self, page: &ActorTexturePage, hasher: &RandomState) -> TextureKey {
         self.allocations
