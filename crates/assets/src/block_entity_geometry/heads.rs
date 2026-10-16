@@ -131,7 +131,7 @@ fn chain(geometry: &EntityGeometry, bone: &EntityGeometryBone) -> Option<Mat4> {
         let ancestor = geometry
             .bones
             .iter()
-            .find(|candidate| candidate.name.as_ref() == name)?;
+            .find(|candidate| candidate.name.eq_ignore_ascii_case(name))?;
         matrix = bone_local(ancestor) * matrix;
         parent = ancestor.parent.as_deref();
     }
@@ -144,19 +144,19 @@ fn descends_from(geometry: &EntityGeometry, bone: &EntityGeometryBone, root: &st
         let Some(current) = name else {
             return false;
         };
-        if current == root {
+        if current.eq_ignore_ascii_case(root) {
             return true;
         }
         name = geometry
             .bones
             .iter()
-            .find(|candidate| candidate.name.as_ref() == current)
+            .find(|candidate| candidate.name.eq_ignore_ascii_case(current))
             .and_then(|candidate| candidate.parent.as_deref());
     }
     false
 }
 
-fn cube_box(cube: &EntityGeometryCube, bone_inflate: f32) -> Option<(BoxSpec, Mat4)> {
+fn cube_box(cube: &EntityGeometryCube) -> Option<(BoxSpec, Mat4)> {
     let EntityGeometryUv::Box(uv) = &cube.uv else {
         return None;
     };
@@ -167,7 +167,7 @@ fn cube_box(cube: &EntityGeometryCube, bone_inflate: f32) -> Option<(BoxSpec, Ma
         [sx, sy, sz],
         uv.map(|value| value.get()),
     )
-    .inflated(cube.inflate.get() + bone_inflate);
+    .inflated(cube.inflate.get());
     let rotation = values(cube.rotation);
     let local = if rotation == [0.0; 3] {
         Mat4::IDENTITY
@@ -203,9 +203,7 @@ impl HeadModel {
             };
             for cube in &bone.cubes {
                 // Per-face UV cubes are not expressible as box UVs and are skipped.
-                let Some((spec, local)) =
-                    cube_box(cube, bone.inflate.map_or(0.0, |value| value.get()))
-                else {
+                let Some((spec, local)) = cube_box(cube) else {
                     continue;
                 };
                 boxes.push(HeadBox {

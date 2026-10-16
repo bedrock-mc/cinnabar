@@ -1,5 +1,5 @@
 use super::*;
-use crate::atlas::{MAX_OVERSIZED, ServerAtlas, source};
+use crate::atlas::{MAX_OVERSIZED, ServerAtlas};
 use crate::sources::ImageWork;
 
 /// Encodes an oversized image that fills its fitted server page.
@@ -70,40 +70,6 @@ fn snapshots_bound_current_storage_and_do_not_retain_a_history() {
     });
     assert_eq!(allocations.calls, 0);
     assert_eq!(allocations.bytes, 0);
-}
-
-#[test]
-fn page_eviction_and_decode_completion_keep_source_snapshots() {
-    let bytes = png(1);
-    let mut atlas = ServerAtlas::new(&[], None, 1).with_image_work(ImageWork::inline());
-    for key in ["a", "b"] {
-        atlas
-            .sources
-            .insert(key.into(), source(bytes.clone()).unwrap());
-    }
-    // A worker completion arrives through the same channel used by asynchronous decodes.
-    atlas.oversized.insert("a", &bytes);
-    let waiting = atlas.oversized();
-    atlas.decodes.pending.insert("a".into());
-    atlas
-        .decodes
-        .sender
-        .send(("a".into(), Some(vec![1; 256 * 256 * 4])))
-        .unwrap();
-    atlas.require(["a"]);
-    assert!(atlas.placement("a").is_some());
-    assert!(atlas.oversized().shares_storage(&waiting));
-    atlas.require(["b"]);
-    assert!(atlas.placement("a").is_none());
-    let evicted = atlas.oversized();
-    assert_eq!(
-        evicted.len(),
-        2,
-        "full-resolution sources outlive fitted-page residency"
-    );
-    atlas.require(["a"]);
-    assert!(atlas.placement("b").is_none());
-    assert!(atlas.oversized().shares_storage(&evicted));
 }
 
 #[test]

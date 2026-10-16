@@ -15,6 +15,7 @@ pub(super) fn prepare_atmosphere(
     };
     let mut textures = Vec::new();
     let mut digest = Sha256::new();
+    digest.update(b"pack atmosphere\0");
     digest.update(base.identity());
     let skyboxes = pack_runtime::pack_skybox::prepare_pack_skyboxes(view);
     let has_skyboxes = skyboxes.iter().any(|cube| cube.face_mask() != 0);
@@ -28,7 +29,7 @@ pub(super) fn prepare_atmosphere(
                     digest.update([face as u8]);
                     digest.update(image.width.to_le_bytes());
                     digest.update(image.height.to_le_bytes());
-                    digest.update(&image.rgba8);
+                    hash_field(&mut digest, &image.rgba8);
                 }
             }
         }
@@ -46,7 +47,12 @@ pub(super) fn prepare_atmosphere(
             );
             continue;
         }
-        digest.update(&decoded.rgba8);
+        digest.update(b"texture\0");
+        digest.update((texture.role as u32).to_le_bytes());
+        hash_field(&mut digest, texture.source_path.as_bytes());
+        digest.update(decoded.width.to_le_bytes());
+        digest.update(decoded.height.to_le_bytes());
+        hash_field(&mut digest, &decoded.rgba8);
         textures.push(AtmosphereTexture {
             width: decoded.width,
             height: decoded.height,
@@ -69,8 +75,9 @@ pub(super) fn prepare_atmosphere(
         let Some(root) = parse_pack_json(&bytes) else {
             continue;
         };
-        digest.update(path.as_bytes());
-        digest.update(&bytes);
+        digest.update(b"environment json\0");
+        hash_field(&mut digest, path.as_bytes());
+        hash_field(&mut digest, &bytes);
         if path.starts_with("fogs/") {
             if let Some(profile) = fog_profile(&root)
                 && (fogs.len() < assets::MAX_ENVIRONMENT_PROFILES
@@ -112,6 +119,12 @@ pub(super) fn prepare_atmosphere(
     } else {
         prepared
     }
+}
+
+/// Frames variable-length fields so adjacent metadata and payloads have one interpretation.
+fn hash_field(digest: &mut Sha256, bytes: &[u8]) {
+    digest.update((bytes.len() as u64).to_le_bytes());
+    digest.update(bytes);
 }
 
 /// Optional packs must not publish cloud masks the fixed-size mesher cannot consume.

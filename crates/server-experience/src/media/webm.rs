@@ -267,13 +267,14 @@ mod tests {
         let descriptor = super::super::ranges::tests::descriptor_for(FIXTURE);
         descriptor.validate_profile().unwrap();
         let reader = super::super::ranges::RangeReader::new(
-            descriptor.clone(),
+            &descriptor,
             super::super::ranges::tests::MemoryChunks {
                 bytes: FIXTURE.to_vec(),
                 corrupt: None,
                 loads: 0,
             },
-        );
+        )
+        .unwrap();
         let mut outputs = Vec::new();
         decode(reader, &descriptor, start_us, &Contained(()), |output| {
             outputs.push(output);
@@ -351,7 +352,7 @@ mod tests {
             parent_write,
             parent_read,
             &descriptor,
-            super::super::ranges::tests::MemoryChunks {
+            &mut super::super::ranges::tests::MemoryChunks {
                 bytes: FIXTURE.to_vec(),
                 corrupt: None,
                 loads: 0,
@@ -388,7 +389,7 @@ mod tests {
             parent_write,
             parent_read,
             &descriptor,
-            super::super::ranges::tests::MemoryChunks {
+            &mut super::super::ranges::tests::MemoryChunks {
                 bytes: FIXTURE.to_vec(),
                 corrupt: Some(0),
                 loads: 0,

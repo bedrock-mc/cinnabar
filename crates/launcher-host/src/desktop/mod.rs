@@ -7,6 +7,8 @@ pub mod dbus;
 pub mod picker;
 #[cfg(windows)]
 pub mod windows;
+#[cfg(any(windows, test))]
+mod windows_filter;
 
 /// Whether this executable has no console for its errors: a Windows GUI-subsystem build.
 pub fn gui_subsystem() -> bool {

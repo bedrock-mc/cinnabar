@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{MAX_LIVE_PARTICLES, MAX_QUEUED_SOUNDS, ParticleSystem};
+use super::{MAX_LIVE_PARTICLES, ParticleSystem};
 use crate::{
     def::{Motion, Rate},
     emitter::{Outputs, SpawnRequest},
@@ -78,12 +78,7 @@ impl ParticleSystem {
         self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
             emitter.emit_cached_manual(position, &mut output, live_budget);
         });
-        self.sounds.append(&mut output.sounds);
-        let excess = self.sounds.len().saturating_sub(MAX_QUEUED_SOUNDS);
-        self.sounds.drain(..excess);
-        for request in output.spawns {
-            self.spawn(&request);
-        }
+        self.accept_outputs(output);
         Some(id)
     }
 }
