@@ -39,20 +39,22 @@ impl LayerStyle {
                 | assets::EntityRenderMaterial::DissolveColor
         ) {
             submission.material.kind = assets::EntityRenderMaterial::Default;
-            submission.material.suppress_overlay = true;
         }
     }
 
-    /// Applies authored style, preserving stack glint, dye fallback and inherited world light.
+    /// Applies style and retains its overlay policy through later material substitutions.
+    /// Preserves stack glint, dye fallback and inherited world light.
     pub(super) fn apply(self, submission: &mut ActorRigSubmission) {
         submission.material.kind = self.material;
         submission.material.state = self.material_state;
+        let allows_overlay = submission.material.allows_overlay();
+        submission.material.suppress_overlay = !allows_overlay;
         submission.material.dissolve_multiplier = self.overlay[3];
         submission.material.light_color_multiplier = self.light_color_multiplier;
         if self.color != [1.0; 4] {
             submission.tint = render_model::pack_overlay_rgba8(self.color);
         }
-        submission.overlay_rgba8 = if submission.material.allows_overlay() {
+        submission.overlay_rgba8 = if allows_overlay {
             render_model::pack_overlay_rgba8(self.overlay)
         } else {
             0
