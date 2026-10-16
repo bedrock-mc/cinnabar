@@ -407,6 +407,50 @@ fn initial_actor_allocation_failure_leaves_the_app_running_without_actor_resourc
     }
 }
 
+/// Loading still sees actor pipeline readiness when the initial actor allocation fails.
+#[test]
+fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
+    use bevy::{
+        prelude::Msaa,
+        render::{render_resource::PipelineCache, renderer::RenderDevice},
+    };
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    let _failure =
+        super::allocation::inject(|owner, _| owner == "bounded shared actor instance arena");
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let device = world.resource::<RenderDevice>().clone();
+    world.insert_resource(PipelineCache::new(device, false));
+    let mut schedules = world.resource_mut::<bevy::ecs::schedule::Schedules>();
+    let single = bevy::ecs::schedule::SingleThreadedExecutor::new;
+    schedules
+        .get_mut(RenderStartup)
+        .unwrap()
+        .set_executor(single());
+    schedules.get_mut(Render).unwrap().set_executor(single());
+    world.run_schedule(RenderStartup);
+    assert!(!world.contains_resource::<ActorGpu>());
+    // Unrelated render systems lack their resources in this harness; only actor readiness matters.
+    world.insert_resource(bevy::ecs::error::FallbackErrorHandler(
+        bevy::ecs::error::ignore,
+    ));
+    world.spawn((Msaa::Off, crate::render_test_support::camera(false)));
+    world.run_schedule(Render);
+    assert!(
+        world
+            .resource::<super::ActorPipeline>()
+            .draw_variant(
+                Msaa::Off,
+                false,
+                false,
+                assets::EntityRenderMaterial::Default as u32
+            )
+            .is_some(),
+        "actor pipelines are requested without actor resources"
+    );
+}
+
 #[test]
 fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency() {
     let (device, queue) = wgpu::Device::noop(&Default::default());

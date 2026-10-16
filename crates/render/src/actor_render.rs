@@ -140,15 +140,19 @@ fn install_actor_render(app: &mut App) {
                     .in_set(RenderSystems::Queue)
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                prepare_actor_pipelines
-                    .in_set(RenderSystems::Queue)
-                    .before(queue_actors),
                 queue_actors
                     .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
             )
                 .run_if(bevy::ecs::schedule::common_conditions::resource_exists::<ActorGpu>),
+        )
+        // Loading waits on pipeline readiness, which needs no actor allocations.
+        .add_systems(
+            Render,
+            prepare_actor_pipelines
+                .in_set(RenderSystems::Queue)
+                .before(queue_actors),
         );
 }
 
