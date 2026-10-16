@@ -534,6 +534,7 @@ mod tests {
             widget: Default::default(),
             collections: Vec::new(),
             modal_root: None,
+            transform: None,
         }
     }
 

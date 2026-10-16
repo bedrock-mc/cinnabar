@@ -164,7 +164,7 @@ func TestClientBuildAndLookupSplitting(t *testing.T) {
 		t.Fatal("server lifetime ignored")
 	}
 	done := make(chan error, 1)
-	go func() { _, err := client.Lookup(context.Background(), []string{"1", "2", "3"}); done <- err }()
+	go func() { _, err := client.Lookup(context.Background(), []string{"1", "2", "3"}, nil); done <- err }()
 	var count atomic.Int64
 	for _, size := range []int{2, 1} {
 		var lookup lookupMessage

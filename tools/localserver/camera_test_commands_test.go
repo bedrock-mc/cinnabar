@@ -64,3 +64,27 @@ func TestCameraFixtureClearRemovesBothOverridesAndTarget(t *testing.T) {
 		t.Fatal("clear did not remove its synthetic target")
 	}
 }
+
+func TestCameraTutorialReturnsToRegisteredFirstPersonPreset(t *testing.T) {
+	packets := cameraFixturePackets("tutorial", mgl32.Vec3{1, 2, 3})
+	presets := packets[0].(*packet.CameraPresets).Presets
+	start := packets[2].(*packet.CameraInstruction)
+	set, ok := start.Set.Value()
+	if !ok || presets[set.Preset].Parent != "minecraft:follow_orbit" {
+		t.Fatal("tutorial must select its orbit preset")
+	}
+	if _, ok := set.Ease.Value(); !ok {
+		t.Fatal("tutorial must exercise easing")
+	}
+	if _, ok := start.Fade.Value(); !ok {
+		t.Fatal("tutorial must exercise fading")
+	}
+	if actor, ok := start.AttachToEntity.Value(); !ok || actor != cameraFixtureActor {
+		t.Fatal("tutorial must attach to its fixture actor")
+	}
+	end := cameraFixturePackets("firstperson", mgl32.Vec3{})[0].(*packet.CameraInstruction)
+	set, ok = end.Set.Value()
+	if !ok || presets[set.Preset].Name != "minecraft:first_person" {
+		t.Fatal("tutorial must return to its first-person preset")
+	}
+}

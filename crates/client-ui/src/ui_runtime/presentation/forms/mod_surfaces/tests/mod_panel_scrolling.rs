@@ -33,6 +33,7 @@ fn scroll_panel() -> Panel {
         "scroll_box_and_track_panel":"bar","scrollbar_track_button":"mod.scroll_track","scroll_speed":25,"always_handle_pointer":true,
         "controls":[{"viewport":viewport},{"bar":bar}]});
     panel.surface = Some(Surface {
+        transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{"type":"screen","size":["100%","100%"],"controls":[{"list":list}]}}).to_string(),
         bindings: std::collections::BTreeMap::from([("#content_height".into(), SurfaceValue::Number(200.))]),

@@ -14,7 +14,7 @@ fn step(
     sneaking: bool,
 ) -> Option<([i32; 3], Vec<protocol::Packet>)> {
     let clock = RepeatClock {
-        now_millis: tick * 50,
+        now: Duration::from_millis(tick * 50),
         speed: velocity
             .iter()
             .map(|n| (n * 20.0).powi(2))
@@ -468,11 +468,16 @@ fn held_cadence_uses_the_motion_of_the_previous_tick() {
         false,
         [1.5, 64.0, 0.5],
     );
-    let clock =
-        |now_millis| RepeatClock::for_state(now_millis, &state, Some(PlayerGameMode::Survival));
+    let clock = |now_millis| {
+        RepeatClock::for_state(
+            Duration::from_millis(now_millis),
+            &state,
+            Some(PlayerGameMode::Survival),
+        )
+    };
     runtime.record(
         ItemUseTrigger::PlayerInput,
-        1_000,
+        Duration::from_millis(1_000),
         1,
         LocalUse::Place,
         clock(1_000),
@@ -481,7 +486,7 @@ fn held_cadence_uses_the_motion_of_the_previous_tick() {
     assert_eq!(runtime.due(true, 2, clock(1_180)), None);
     assert_eq!(
         runtime.due(true, 2, clock(1_181)),
-        Some((ItemUseTrigger::SimulationTick, 1_180))
+        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(1_180)))
     );
 }
 

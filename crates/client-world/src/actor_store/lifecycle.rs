@@ -676,8 +676,21 @@ impl ActorStore {
                     }
                 }
                 if capacity_rejected {
+                    tracing::debug!(
+                        players = self.players.len(),
+                        "Cinnabar world roster capacity rejected"
+                    );
                     ActorApplyResult::CapacityRejected
                 } else {
+                    tracing::debug!(
+                        players = self.players.len(),
+                        identities = self
+                            .players
+                            .values()
+                            .filter(|profile| !profile.xuid.is_empty())
+                            .count(),
+                        "Cinnabar world roster committed"
+                    );
                     ActorApplyResult::Updated
                 }
             }

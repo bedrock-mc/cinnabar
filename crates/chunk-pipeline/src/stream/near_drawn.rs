@@ -1,4 +1,4 @@
-//! Columns whose published geometry or delivered emptiness hides cached far terrain.
+//! Main-world completion of near publications. The render owner chooses visible coverage.
 
 use super::*;
 
@@ -15,7 +15,73 @@ enum Coverage {
 }
 
 impl WorldStream {
-    /// Covered columns, and a revision that changes with membership or coverage kind.
+    /// Identifies the stream and dimension visit independently of rendering feature toggles.
+    pub fn terrain_publication_source(&self) -> ((u64, u64), u64, u64) {
+        (
+            (
+                self.authority.actor_session_id(),
+                self.form_dimension_epoch(),
+            ),
+            self.resident.membership_revision(),
+            self.known_air.membership_revision(),
+        )
+    }
+
+    /// Sections whose latest publication receipts may still be used by this stream.
+    pub fn terrain_publication_sections(&self) -> impl Iterator<Item = SubChunkKey> + '_ {
+        self.resident.iter().chain(self.known_air.iter()).copied()
+    }
+
+    /// Changes when section requirements or near membership can change the render target.
+    pub fn terrain_publication_revision(&self) -> (u64, u64, u64, u64, usize, Option<i32>) {
+        (
+            self.revisions.next_revision,
+            self.near_drawn.revision,
+            self.resident.membership_revision(),
+            self.known_air.membership_revision(),
+            self.loaded_columns.len(),
+            self.full_detail_radius(),
+        )
+    }
+
+    /// Describes near geometry and delivered air from source and dirty-revision indexes.
+    pub fn terrain_publication_target(&self, horizon: i32) -> far_terrain::TerrainTarget {
+        let near = self
+            .loaded_columns
+            .iter()
+            .copied()
+            .filter(|column| {
+                column.dimension == self.current_dimension()
+                    && (self.wants_mesh(*column) || self.column_is_delivered_air(*column))
+            })
+            .filter_map(|column| {
+                let keys = self
+                    .resident
+                    .column(column)
+                    .chain(self.known_air.column(column))
+                    .map(|&key| {
+                        let generation = self
+                            .revisions
+                            .dirty(key)
+                            .map(|dirty| dirty.revision)
+                            .or_else(|| self.applied_mesh_generations.get(&key).copied())
+                            .unwrap_or(0);
+                        (key, generation)
+                    })
+                    .collect::<std::collections::HashMap<_, _>>();
+                (!keys.is_empty()).then_some((column, keys))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        far_terrain::TerrainTarget {
+            centre: self.far_terrain_centre(),
+            horizon,
+            near: near.into(),
+            retained: std::sync::Arc::new(self.terrain_publication_sections().collect()),
+            empty_far: Default::default(),
+        }
+    }
+
+    /// Columns whose near meshes have all been acknowledged, with their membership revision.
     pub fn near_drawn_columns(&self) -> (u64, impl Iterator<Item = ChunkKey> + '_) {
         (
             self.near_drawn.revision,
@@ -46,11 +112,7 @@ impl WorldStream {
         if !self.far_terrain_enabled() || !self.loaded_columns.contains(&column) {
             return;
         }
-        let empty = self.authority.terrain().chunk(column).is_none_or(|chunk| {
-            chunk
-                .sub_chunks()
-                .all(|(_, section)| self.classifier.is_sub_chunk_air(&section))
-        });
+        let empty = self.column_is_delivered_air(column);
         if !empty && !self.wants_mesh(column) {
             self.forget_near_drawn([&column]);
             return;
@@ -80,6 +142,16 @@ impl WorldStream {
                 self.near_drawn.revision += 1;
             }
         }
+    }
+
+    /// A completely delivered column proves emptiness from its source, independent of meshing.
+    fn column_is_delivered_air(&self, column: ChunkKey) -> bool {
+        self.loaded_columns.contains(&column)
+            && self.authority.terrain().chunk(column).is_none_or(|chunk| {
+                chunk
+                    .sub_chunks()
+                    .all(|(_, section)| self.classifier.is_sub_chunk_air(&section))
+            })
     }
 
     /// Whether near geometry or delivered air currently hides this column's far terrain.

@@ -7,9 +7,15 @@ use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::UiPresentationRuntime;
 use ui::DpiScale;
 
-fn names(count: usize) -> Vec<(Arc<str>, Arc<str>)> {
+fn names(count: usize) -> Vec<(Arc<str>, Arc<str>, [u8; 16])> {
     (0..count)
-        .map(|index| (Arc::from(format!("Player{index:02}")), Arc::from("")))
+        .map(|index| {
+            (
+                Arc::from(format!("Player{index:02}")),
+                Arc::from(""),
+                [0; 16],
+            )
+        })
         .collect()
 }
 
