@@ -3,6 +3,7 @@ name = "experience-sdk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license = "MIT"
 publish = false
 
 # Every feature is on by default, so the SDK's own build, tests and docs cover all of it. A crate
