@@ -5,7 +5,7 @@ use protocol::{
     ActorPositionOrigin, LevelChunkEvent, LevelChunkMode, WorldEvent,
 };
 use simulation_clock::identity::SessionGeneration;
-use std::{sync::Arc, time::Instant};
+use std::{collections::VecDeque, sync::Arc, time::Instant};
 use {
     chunk_pipeline::WorldStream,
     client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS},
@@ -71,22 +71,12 @@ fn level_chunk(sequence: u64) -> WorldEvent {
 fn drain_frame(
     stream: &mut WorldStream,
     receiver: &mut tokio::sync::mpsc::Receiver<WorldIngress>,
-    pending: &mut Option<WorldIngress>,
+    pending: &mut VecDeque<WorldIngress>,
 ) -> Vec<u64> {
     let now = Instant::now();
     let mut drain = frame_drain(now);
     let mut consumed = Vec::new();
-    while let Some(ingress) = drain.next(
-        receiver,
-        pending,
-        |ingress| {
-            let WorldIngress::Event(event) = ingress else {
-                panic!("expected an ordinary world event");
-            };
-            stream.can_admit(&event.event)
-        },
-        now,
-    ) {
+    while let Some(ingress) = drain.next(receiver, pending, Some(stream), || now).unwrap() {
         consumed.push(submit(stream, ingress));
     }
     consumed
@@ -133,13 +123,10 @@ fn world_ingress_rechecks_admission_after_consumer_fanout() {
     for sequence in retained + 1..=retained + count {
         sender.try_send(metadata(sequence as u64)).unwrap();
     }
-    let mut pending = None;
+    let mut pending = VecDeque::new();
     let mut consumed = drain_frame(&mut stream, &mut receiver, &mut pending);
     assert_eq!(consumed.len(), retained);
-    assert_eq!(
-        receiver.len() + usize::from(pending.is_some()),
-        count - retained
-    );
+    assert_eq!(receiver.len() + pending.len(), count - retained);
     assert_eq!(stream.remaining_admission_capacity(), 0);
     assert_eq!(stream.take_committed_controls().len(), retained * 2);
     assert_eq!(stream.take_committed_ui().len(), retained * 2);
@@ -162,21 +149,22 @@ fn world_ingress_stops_at_its_time_budget_and_preserves_fifo() {
     }
     let start = Instant::now();
     let mut drain = frame_drain(start);
-    let mut pending = None;
+    let mut pending = VecDeque::new();
     assert!(matches!(
-        drain.next(&mut receiver, &mut pending, |_| true, start),
+        drain.next(&mut receiver, &mut pending, None, || start).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     ));
     let spent = start + WORLD_INGRESS_DRAIN_BUDGET;
     assert!(
         drain
-            .next(&mut receiver, &mut pending, |_| true, spent)
+            .next(&mut receiver, &mut pending, None, || spent)
+            .unwrap()
             .is_none()
     );
     assert_eq!(receiver.len(), 2);
     let mut next_frame = frame_drain(spent);
     assert!(matches!(
-        next_frame.next(&mut receiver, &mut pending, |_| true, spent),
+        next_frame.next(&mut receiver, &mut pending, None, || spent).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     ));
 }
@@ -196,7 +184,7 @@ fn light_ingress_keeps_committing_while_heavy_admission_is_full() {
     for sequence in heavy + 2..=heavy + 9 {
         sender.try_send(remote_move(sequence)).unwrap();
     }
-    let mut pending = None;
+    let mut pending = VecDeque::new();
     let consumed = drain_frame(&mut stream, &mut receiver, &mut pending);
     assert_eq!(consumed, (heavy + 1..=heavy + 9).collect::<Vec<_>>());
     assert_eq!(
@@ -216,7 +204,7 @@ fn two_hundred_queued_moves_commit_in_one_drain() {
     for sequence in 1..=MOVES {
         sender.try_send(remote_move(sequence)).unwrap();
     }
-    let mut pending = None;
+    let mut pending = VecDeque::new();
     assert_eq!(
         drain_frame(&mut stream, &mut receiver, &mut pending).len() as u64,
         MOVES
@@ -226,20 +214,30 @@ fn two_hundred_queued_moves_commit_in_one_drain() {
 
 #[test]
 fn world_ingress_cursor_leaves_zero_admission_events_queued() {
+    let mut stream = stream();
+    let retained = MAX_ADMITTED_WORLD_EVENTS / 2;
+    for sequence in 1..=retained as u64 {
+        submit(&mut stream, metadata(sequence));
+    }
+    assert_eq!(stream.light_admission_capacity(), 0);
+    let sequence = retained as u64 + 1;
     let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
-    sender.try_send(metadata(1)).unwrap();
+    sender.try_send(metadata(sequence)).unwrap();
     let now = Instant::now();
     let mut drain = frame_drain(now);
-    let mut pending = None;
+    let mut pending = VecDeque::new();
     assert!(
         drain
-            .next(&mut receiver, &mut pending, |_| false, now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
             .is_none()
     );
-    assert_eq!(receiver.len() + usize::from(pending.is_some()), 1);
+    assert_eq!(receiver.len() + pending.len(), 1);
+    stream.take_committed_controls();
+    stream.take_committed_ui();
     assert!(matches!(
-        drain.next(&mut receiver, &mut pending, |_| true, now),
-        Some(WorldIngress::Event(event)) if event.sequence.get() == 1
+        drain.next(&mut receiver, &mut pending, Some(&mut stream), || now).unwrap(),
+        Some(WorldIngress::Event(event)) if event.sequence.get() == sequence
     ));
 }
 
@@ -259,31 +257,94 @@ fn world_ingress_cursor_receives_without_allocating() {
     let spent = now + WORLD_INGRESS_DRAIN_BUDGET;
     let before = thread_allocations();
     let mut drain = frame_drain(now);
-    let mut pending = None;
-    let blocked = drain
-        .next(&mut receiver, &mut pending, |_| false, now)
-        .is_none();
+    let mut pending = VecDeque::new();
     let first = matches!(
-        drain.next(&mut receiver, &mut pending, |_| true, now),
+        drain.next(&mut receiver, &mut pending, None, || now).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     );
     let second = matches!(
-        drain.next(&mut receiver, &mut pending, |_| true, now),
+        drain.next(&mut receiver, &mut pending, None, || now).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     );
     let capped = drain
-        .next(&mut receiver, &mut pending, |_| true, spent)
+        .next(&mut receiver, &mut pending, None, || spent)
+        .unwrap()
         .is_none();
     let mut next_frame = frame_drain(spent);
     let third = matches!(
-        next_frame.next(&mut receiver, &mut pending, |_| true, spent),
+        next_frame.next(&mut receiver, &mut pending, None, || spent).unwrap(),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 3
     );
     let empty = next_frame
-        .next(&mut receiver, &mut pending, |_| true, spent)
+        .next(&mut receiver, &mut pending, None, || spent)
+        .unwrap()
         .is_none();
     let allocated = thread_allocations() - before;
 
     assert_eq!(allocated, 0);
-    assert!(blocked && first && second && capped && third && empty);
+    assert!(first && second && capped && third && empty);
+}
+
+/// Unchanged multi-column terrain stays allocation-free while later light packets pass.
+#[test]
+fn retained_multi_column_ingress_rescans_without_allocating() {
+    use client_world::ingestion::MAX_DEFERRED_WORLD_EVENTS;
+    use test_alloc::thread_allocations;
+
+    let mut stream = stream();
+    let full = (MAX_ADMITTED_HEAVY_EVENTS + MAX_DEFERRED_WORLD_EVENTS) as u64;
+    for sequence in 1..=full {
+        stream.submit(sequence, level_chunk(sequence)).unwrap();
+    }
+    let blocked = 8;
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(WORLD_EVENT_CAPACITY);
+    for sequence in full + 1..=full + blocked {
+        sender
+            .try_send(event(
+                sequence,
+                WorldEvent::SubChunks(protocol::SubChunkBatchEvent {
+                    dimension: 0,
+                    entries: [3, 1, 2, 1]
+                        .map(|x| protocol::SubChunkEntryEvent {
+                            position: [x, 0, 0],
+                            result: protocol::SubChunkResult::AllAir,
+                            diagnostics: None,
+                        })
+                        .into(),
+                }),
+            ))
+            .unwrap();
+    }
+    let now = Instant::now();
+    let mut pending = VecDeque::new();
+    assert!(
+        frame_drain(now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending.len(), blocked as usize);
+
+    for _ in 0..3 {
+        let before = thread_allocations();
+        let next = frame_drain(now)
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap();
+        let allocations = thread_allocations() - before;
+        assert!(next.is_none());
+        assert_eq!(allocations, 0, "unchanged stalled terrain allocated");
+    }
+    let mut drain = frame_drain(now);
+    for sequence in full + blocked + 1..=full + blocked + 3 {
+        sender.try_send(remote_move(sequence)).unwrap();
+        let before = thread_allocations();
+        let next = drain
+            .next(&mut receiver, &mut pending, Some(&mut stream), || now)
+            .unwrap()
+            .unwrap();
+        let allocations = thread_allocations() - before;
+        assert_eq!(submit(&mut stream, next), sequence);
+        assert_eq!(allocations, 0, "lookahead past stalled terrain allocated");
+        assert_eq!(pending.len(), blocked as usize);
+    }
 }

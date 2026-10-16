@@ -64,40 +64,36 @@ impl ModEvent {
     /// in order, with one text change per edit box (its latest, where it last occurred).
     pub fn coalesce(events: Vec<Self>) -> Vec<Self> {
         let mut out = Vec::with_capacity(events.len());
-        if let Some(layout) = events
-            .iter()
-            .rev()
-            .find(|event| matches!(event, Self::ScreenChanged(_)))
-        {
-            out.push(layout.clone());
-        }
-        let mut sources: Vec<DataSource> = events
-            .iter()
-            .filter_map(|event| match event {
-                Self::DataChanged(sources) => Some(sources.iter().copied()),
-                _ => None,
-            })
-            .flatten()
-            .collect();
-        sources.sort();
-        sources.dedup();
-        if events
-            .iter()
-            .any(|event| matches!(event, Self::DataChanged(_)))
-        {
-            out.push(Self::DataChanged(sources));
-        }
-        for (index, event) in events.iter().enumerate() {
-            let later_text = |control: &str| {
-                events[index + 1..].iter().any(|later| {
-                    matches!(later, Self::TextChanged { control: other, .. } if other == control)
-                })
-            };
+        let mut layout = None;
+        let mut sources = Vec::new();
+        let mut data_changed = false;
+        // Visiting backwards keeps each text's last occurrence without copying its payload.
+        for event in events.into_iter().rev() {
             match event {
-                Self::ScreenChanged(_) | Self::DataChanged(_) => {}
-                Self::TextChanged { control, .. } if later_text(control) => {}
-                event => out.push(event.clone()),
+                Self::ScreenChanged(_) => {
+                    if layout.is_none() {
+                        layout = Some(event);
+                    }
+                }
+                Self::DataChanged(mut changed) => {
+                    data_changed = true;
+                    sources.append(&mut changed);
+                }
+                Self::TextChanged { ref control, .. }
+                    if out.iter().any(|later| {
+                        matches!(later, Self::TextChanged { control: other, .. } if other == control)
+                    }) => {}
+                event => out.push(event),
             }
+        }
+        out.reverse();
+        if data_changed {
+            sources.sort();
+            sources.dedup();
+            out.insert(0, Self::DataChanged(sources));
+        }
+        if let Some(layout) = layout {
+            out.insert(0, layout);
         }
         out
     }

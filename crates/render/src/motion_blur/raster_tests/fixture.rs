@@ -272,6 +272,18 @@ impl Raster {
             });
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         let tiles = self.tile_target();
+        let resolved = [
+            super::super::resolve::MOTION_FORMAT,
+            super::super::resolve::DEPTH_FORMAT,
+        ]
+        .map(|format| {
+            self.texture(
+                format,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            )
+            .create_view(&Default::default())
+        });
         let group = self
             .gpu
             .device
@@ -288,20 +300,20 @@ impl Raster {
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&depth_view),
-                    },
-                    wgpu::BindGroupEntry {
                         binding: 3,
                         resource: uniform.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&actor_view),
-                    },
-                    wgpu::BindGroupEntry {
                         binding: 5,
                         resource: wgpu::BindingResource::TextureView(&tiles),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(&resolved[0]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::TextureView(&resolved[1]),
                     },
                 ],
             });
@@ -342,7 +354,15 @@ impl Raster {
                 coverage.occluder_depth,
             );
         }
-        self.draw_tiles(&mut encoder, &shader, &uniform, &actor_view, &tiles);
+        self.resolve_surface(
+            &mut encoder,
+            &shader,
+            &uniform,
+            &depth_view,
+            &actor_view,
+            &resolved,
+        );
+        self.draw_tiles(&mut encoder, &shader, &uniform, &resolved[0], &tiles);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur production fragment"),
@@ -430,70 +450,107 @@ impl Raster {
         actors: &wgpu::TextureView,
         target: &wgpu::TextureView,
     ) {
-        let pipeline = self
+        let rows = self
             .gpu
             .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("production actor tile reduction"),
-                layout: None,
-                vertex: wgpu::VertexState {
-                    module: shader,
-                    entry_point: Some("vertex"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("actor row fixture"),
+                size: wgpu::Extent3d {
+                    width: SIDE.div_ceil(super::super::shader::TILE_SIZE),
+                    height: SIDE,
+                    depth_or_array_layers: 1,
                 },
-                fragment: Some(wgpu::FragmentState {
-                    module: shader,
-                    entry_point: Some("tile_fragment"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: super::super::footprint::FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            });
-        let binding = self
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &[
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: super::super::footprint::ROW_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        for (entry, format, view, entries) in [
+            (
+                "row_fragment",
+                super::super::footprint::ROW_FORMAT,
+                &rows,
+                vec![
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: uniform.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
+                        binding: 6,
                         resource: wgpu::BindingResource::TextureView(actors),
                     },
                 ],
+            ),
+            (
+                "tile_fragment",
+                super::super::footprint::FORMAT,
+                target,
+                vec![wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&rows),
+                }],
+            ),
+        ] {
+            let pipeline =
+                self.gpu
+                    .device
+                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("production actor reduction"),
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: shader,
+                            entry_point: Some("vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: shader,
+                            entry_point: Some(entry),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                        }),
+                        primitive: Default::default(),
+                        depth_stencil: None,
+                        multisample: Default::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    });
+            let binding = self
+                .gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &entries,
+                });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("actor reduction fixture"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("actor tile fixture"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &binding, &[]);
-        pass.draw(0..3, 0..1);
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &binding, &[]);
+            pass.draw(0..3, 0..1);
+        }
     }
 
     /// Clears world coverage and rasterizes the actor rectangle at every supported sample count.

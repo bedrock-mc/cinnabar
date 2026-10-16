@@ -148,6 +148,46 @@ fn focused_fields_respect_the_blink_phase_and_hide_carets_during_selection() {
 }
 
 #[test]
+fn focused_fields_draw_selection_over_the_selected_text() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    for (focused, selection, visible) in [
+        (true, Some([1, 3]), true),
+        (true, Some([0, usize::MAX]), true),
+        (false, Some([1, 3]), false),
+        (true, Some([2, 2]), false),
+        (true, None, false),
+    ] {
+        view.caret.selection = selection;
+        let (_, _, nodes) = super::review_tests::paint(Default::default(), |canvas| {
+            super::widgets::text_field(
+                canvas,
+                &view,
+                [10.0, 20.0, 410.0, 68.0],
+                "0é02",
+                "",
+                focused,
+                Some(MenuAction::AddName),
+            )
+            .unwrap();
+        });
+        let highlights: Vec<_> = nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), ui::UiVisual::InvertedSprite { .. }))
+            .collect();
+        assert_eq!(highlights.len(), usize::from(visible));
+        if let Some(highlight) = highlights.first() {
+            let label = nodes
+                .iter()
+                .find(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+                .unwrap();
+            assert!(highlight.bounds().min().x() >= label.bounds().min().x());
+            assert!(highlight.bounds().max().x() <= label.bounds().max().x());
+            assert!(highlight.bounds().max().x() > highlight.bounds().min().x());
+        }
+    }
+}
+
+#[test]
 fn text_fields_keep_their_inset_even_on_every_edge() {
     let mut view = MenuView::new(true, "Fixture".into());
     view.hovered = Some(MenuAction::AddName);

@@ -21,6 +21,7 @@ fn session_reset_releases_old_publication_capacity_without_acknowledging_old_rem
             SubChunkKey::new(0, 1, 0, 0),
             ChunkUploadPriority::new(0.0),
             token,
+            render_api::TerrainRemovalKind::Withdrawn,
             allowance.try_admit_zero_byte().unwrap(),
         )
         .unwrap();
@@ -35,6 +36,7 @@ fn session_reset_releases_old_publication_capacity_without_acknowledging_old_rem
             SubChunkKey::new(0, 2, 0, 0),
             ChunkUploadPriority::new(0.0),
             token,
+            render_api::TerrainRemovalKind::Withdrawn,
             allowance.try_admit_zero_byte().unwrap(),
         )
         .unwrap();

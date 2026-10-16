@@ -50,14 +50,16 @@ fn texture_only_reload_remeasures_shared_screens_without_resetting_bindings() {
     data.set_global("#value", json_ui::Scalar::Text("first".into()));
     let mut data = Arc::new(data);
     let mut last_revision = set.metadata_revision();
+    let mut initial_atlas_revision = None;
     for width in [20, 60] {
         set.set_atlas(atlas([width, 10]), 1);
         assert_ne!(set.metadata_revision(), last_revision);
         last_revision = set.metadata_revision();
         let atlas = set.lock();
+        let revision = atlas.metadata_revision();
         assert_eq!(
-            atlas.metadata_revision(),
-            0,
+            revision,
+            *initial_atlas_revision.get_or_insert(revision),
             "replacement freshness needs the source namespace too"
         );
         let textures = Textures {

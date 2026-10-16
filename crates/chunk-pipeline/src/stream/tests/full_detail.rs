@@ -20,12 +20,12 @@ fn stream() -> WorldStream {
     stream
 }
 
+/// Whether non-air data has pending geometry or a withdrawal in this column.
 fn meshing(stream: &WorldStream, x: i32) -> bool {
-    stream
-        .mesh_jobs
-        .pending
-        .keys()
-        .any(|key| key.chunk() == ChunkKey::new(0, x, 0))
+    stream.mesh_jobs.pending.keys().any(|key| {
+        key.chunk() == ChunkKey::new(0, x, 0)
+            && stream.terrain_removal_kind(*key) != render_api::TerrainRemovalKind::Empty
+    })
 }
 
 /// A far column is stored and summarised but not meshed until the radius reaches it, and a
@@ -79,7 +79,7 @@ fn drawn(stream: &WorldStream, x: i32) -> bool {
         .any(|column| column == ChunkKey::new(0, x, 0))
 }
 
-/// Uploads every mesh waiting in `column`, returning the sections it acknowledged.
+/// Dequeues and acknowledges pending section publications, returning the acknowledged keys.
 fn upload(stream: &mut WorldStream, x: i32) -> Vec<SubChunkKey> {
     let column = ChunkKey::new(0, x, 0);
     let keys: Vec<SubChunkKey> = stream
@@ -96,6 +96,7 @@ fn upload(stream: &mut WorldStream, x: i32) -> Vec<SubChunkKey> {
             .dirty(key)
             .map(|dirty| (dirty.revision, dirty.since))
         {
+            stream.mesh_jobs.pending.remove(&key);
             stream.acknowledge_mesh_upload(key, revision, since, now);
             acknowledged.push(key);
         }

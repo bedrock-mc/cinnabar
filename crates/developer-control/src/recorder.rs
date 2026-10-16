@@ -220,21 +220,18 @@ impl Recorder {
         let Some(audio) = audio.filter(|_| summary.frames > 0) else {
             return Ok(summary);
         };
-        let staged = video_staging_path(&summary.path);
-        std::fs::rename(&summary.path, &staged).map_err(|error| error.to_string())?;
-        let status = Command::new(find_ffmpeg()?)
-            .args(mux_arguments(&staged, audio, &summary.path))
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|error| format!("start ffmpeg to mux audio: {error}"))?;
-        if !status.success() {
-            std::fs::rename(&staged, &summary.path).map_err(|error| error.to_string())?;
-            return Err(format!(
-                "muxing audio failed ({status}); the silent video is at {}",
-                summary.path.display()
-            ));
-        }
-        let _ = std::fs::remove_file(staged);
+        mux::with_staged_video(&summary.path, find_ffmpeg, |ffmpeg, staged, output| {
+            let status = Command::new(ffmpeg)
+                .args(mux_arguments(staged, audio, output))
+                .stdin(Stdio::null())
+                .status()
+                .map_err(|error| format!("start ffmpeg to mux audio: {error}"))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("muxing audio failed ({status})"))
+            }
+        })?;
         Ok(summary)
     }
 }
@@ -248,11 +245,7 @@ impl Drop for Recorder {
     }
 }
 
-fn video_staging_path(path: &Path) -> PathBuf {
-    let mut name = path.file_stem().unwrap_or_default().to_os_string();
-    name.push(".video.mp4");
-    path.with_file_name(name)
-}
+mod mux;
 
 fn encode(
     ffmpeg: &Path,
@@ -409,9 +402,5 @@ mod tests {
         assert_eq!(args.last().unwrap(), "clip.mp4");
         let mux = mux_arguments(Path::new("v.mp4"), Path::new("a.wav"), Path::new("o.mp4"));
         assert!(mux.join(" ").contains("-c:v copy -c:a aac"));
-        assert_eq!(
-            video_staging_path(Path::new("out/clip.mp4")),
-            Path::new("out/clip.video.mp4")
-        );
     }
 }
