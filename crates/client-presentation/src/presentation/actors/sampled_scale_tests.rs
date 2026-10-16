@@ -488,7 +488,8 @@ fn overlap_view(camera: Vec3) -> ActorCullView {
 #[test]
 fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
     let feet = [8.0, 0.0, -5.0];
-    let view = Some(overlap_view(Vec3::Y));
+    let cull_view = overlap_view(Vec3::Y);
+    let view = Some(cull_view);
     for choice in [
         "Geometry.wide",
         "query.frame_alpha > 0.25 ? Geometry.wide : Geometry.default",
@@ -564,7 +565,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         );
         let short_view = Some(ActorCullView {
             max_distance: 1.0,
-            ..view.unwrap()
+            ..cull_view
         });
         assert!(!rig_may_be_visible(
             &rig,
