@@ -1,3 +1,25 @@
+## Fence gate targeting
+
+Gate picking uses the same thin directional bounds as its outline for closed, open
+and in-wall states. Rays can pass through empty cell space to the lower gate in a
+stack. Movement boxes and carried-block visuals keep their separate geometry.
+Regression coverage includes every registered gate state in both runtime ID modes.
+Broader block-family parity remains incomplete.
+
+## Restore and share custom emote playback
+
+The articulated emote snapshot now carries the matching prepared body and clothing meshes.
+The account API exchanges nearby watches, starts, phases and stops; authenticated identities
+resolve only to current actor lifetimes. Shared poses override native/Java body animation for
+their lifetime and also drive clothing, capes and equipment. Visibility opt-out and bounded
+leases retire playback without depending on a game server's emote relay. Local clips no longer
+send their owned identifiers as Bedrock emote packets.
+Regression coverage includes mesh/pose agreement, cached mesh reuse, remote pose isolation,
+start/stop, same-clock restarts, lease expiry, API identity, subscriptions and visibility.
+Linux Vulkan headless local-world frames show bent knees and planted level soles through the
+hip pulse. Sharing requires deployment of the API extension. Exact native/Lunar parity, Windows visual
+acceptance and hardware performance qualification remain incomplete.
+
 ## Held input across HUD toggles
 
 Display-setting replacements retain the controls revision when controls are unchanged.
@@ -49,8 +71,15 @@ Published form draw nodes share immutable snapshots. A bounded engine cache reta
 base texture paths and renderer names for the exact snapshot and omission values; overlays,
 renderer callbacks, source resolution and atlas residency still update every prepare.
 Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
-rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
-edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
+rendered comparisons and measured dependency-discovery cost remain pending.
+
+Oversized artwork sources retain sorted, immutable metadata with shared encoded bytes. Painted
+frames reuse that metadata and request artwork only after source ownership changes. Provider
+replacement retires stale fallback artwork; image polling, page publication and completed
+gallery work continue independently. Focused artwork and atlas regressions pass (34 and 9
+cases), and touched-crate clippy passes. Rendered comparisons and measured artwork
+publication cost remain pending. Edit-text/report copies and other form work remain separate;
+no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
@@ -146,6 +175,10 @@ job costs remain unverified. No browser release or parity gate closes here.
 
 ## Far terrain (LOD)
 
+**Disabled, incomplete:** far terrain and the full-detail radius are off, with no Video settings,
+until their streaming bugs are fixed; values older builds saved are ignored. The design below is
+kept for re-enabling.
+
 `far-terrain` summarises each column the server sent: the height of every cell's highest
 visible block, its average texture colour tinted by biome, and any water depth, with water
 blended over its floor. World workers summarise a column when all of its sections have arrived,
@@ -192,7 +225,21 @@ finest quads whole, coarser ones per fragment. Only finest tiles reach the near 
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
-the selected tiles; a still camera uploads and rebuilds nothing. Encoded summaries share
+the selected tiles and covering fallbacks during bounded replacements; a still camera uploads
+and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
+Near column admission and the far mask publish together before draw queues run. Delivered-air
+columns remain in the publication target outside the mesh radius. First delivery publishes
+zero-byte empty evidence through the same bounded queue at either radius, so its receipts
+hide cached terrain without requiring geometry work. Empty-section receipts survive feature
+toggles within their stream and dimension visit, stay bounded by retained sections, refresh
+on every section-membership change, and expire on replacement or
+withdrawal. Valid decoded summaries prove coverage per column; missing, invalid or partial
+summaries cannot prove an entire tile empty or retire its visible fallback. Resource geometry
+and material tables publish together after pending removals and their fences allow the swap;
+blocked candidates stay staged. The same admission is rechecked before replacement allocation
+components reach draw queues. Focused lifecycle regressions pass, including 15 app far-terrain
+cases after transfer and resource resets. Hardware performance and visual acceptance remain
+open. Encoded summaries share
 immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
 resumes within column and byte limits. Cache completions and live or retiring summary
 admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit
@@ -205,7 +252,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or a full-detail distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -837,8 +884,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   separating the actor's colour for exposure remains incomplete.
 - Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
   reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
-  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
-  acceptance remain unmeasured; no performance gate closes.
+  remain open. Enabled views retain exact per-pixel motion/depth resolves and row/tile velocity targets.
+  Repeated exposure taps share those resolves; each reduction scans at most one tile edge per invocation.
+  Full-scene hardware frame-budget acceptance remains open; no performance gate closes.
 
 ## Item frames
 
@@ -1072,6 +1120,8 @@ these changes do not close the movement, camera, or actor parity gates.
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Repeat deadlines retain sub-millisecond clock precision so the first eligible
+  simulation tick can attempt placement.
 - Presses resolve when they arrive and held repeats only on frames that simulate a tick,
   both before the frame's physics and from the last completed tick's end state, so the next
   tick's movement collides with a placed block. Incomplete: a frame
@@ -1092,12 +1142,47 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Frame attribution and unchanged GPU uploads
 
+- With VSync, macOS 14 and later reserve a third native drawable for display-link
+  prefetch; older systems and other backends keep one queued frame. The native
+  Metal backend delivers drawables through the display link on supported AppKit
+  surfaces at the configured latency, follows the hosting screen's refresh rate,
+  discards updates past their submission deadline and cancels before
+  reconfiguration. Smooth 120 Hz acceptance remains open.
+
+- Metal completion markers feed bounded GPU queue predictions into input admission,
+  delaying the next input sample until CPU work can feed the GPU without a frame
+  backlog. Completed host timestamps reanchor predictions; missing or stale samples
+  retain CPU pacing. Synchronized surfaces skip GPU extrapolation and reset stale
+  history on mode changes; display-dependent gaps must not become predicted work.
+  Incomplete: paired hardware responsiveness and frame-budget
+  acceptance remain open.
+- Conservative actor and block-entity occlusion projects each box's angular bounds
+  once, retaining complete slab coverage, rounding margins and bounded fail-open
+  probes. Geometry tests cover interior holes across axes and translated coordinates.
+  Incomplete: hardware frame-time and streaming hitch acceptance remain open.
+- Sorted transparency records its contiguous colour-space passes into one command
+  buffer, removing worker waits around draws serialized by the phase's shared lock.
+  Regression tests cover draw order, submission counts and empty viewports.
+- Block-model uploads compare bounded vertex pages and upload disjoint changed
+  ranges, retaining complete shifted tails and refilling grown buffers. Bytewise
+  comparisons preserve signed zero and NaN payloads. Sparse-update and native
+  staging-allocation regressions are written but unrun.
+- Empty retained UI pixels preserve scene colour exactly; opaque pixels skip the
+  scene read, while translucent pixels retain premultiplied gamma blending. Native
+  pixel tests cover colour, alpha and HDR values. Incomplete: fullscreen presentation,
+  paired hardware frame-time improvement and the 120 Hz acceptance gate remain open.
+
 - Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
   120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
   manual recording clocks keep their requested steps. Live movement acceptance remains open.
 
 - Actor catch-up uses `simulation_clock::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
   advancement share one clock step, including server-defined interaction boxes after a stall.
+  Returning actors warm their previous tick in full-cap prefix waves on the existing pool,
+  with bounded helper launches, ordered actual charges and a serial partial-budget tail.
+  Differential and lifecycle regressions pass in the focused scheduling suite (32 tests).
+  Native crowd-turn timing,
+  first-visible-frame acceptance and measured gains remain incomplete.
   Deterministic regression coverage does not close live animation or movement acceptance.
 
 - Apple pipelined rendering keeps surface creation on the UI thread while render
@@ -1121,7 +1206,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
-  headroom; regression tests cover resumption and zero steady-state drain allocations.
+  headroom. Bounded lookahead lets light events pass stalled terrain while the shared
+  conflict tracker keeps dependent mutations and barriers ordered. Latency echoes flush
+  when their control fence clears, preserving earlier movement ordering. Deterministic
+  regressions cover these paths; hardware join and transfer latency remain unverified.
 - Rolling frame recordings retain recent completed spans and received counters, carry input
   identities into render submission, and queue every hard-hitch window with completeness
   metadata. Slow reports format outside recorder locks on the console thread. Full exports move
@@ -1170,7 +1258,8 @@ these changes do not close the movement, camera, or actor parity gates.
   remain cold costs. Synthetic crowds and headless screenshots do not
   establish native first-appearance timing, join latency, no-pop-in acceptance or release
   frame budgets; those gates remain open.
-- Recurring hand, UI viewport and particle writes share bounded retained GPU
+- Recurring hand, UI viewport, particle, actor, nametag, block-model, shadow, dropped-item,
+  atmosphere and animation-clock writes share bounded retained GPU
   staging. Terrain arena writes use a separate pool that starts at three 120 Hz
   frames of the publication target rate and grows after missed frames, at most
   2 MiB per frame, to a 32 MiB ceiling. Abutting records share one copy, batches
@@ -1239,6 +1328,8 @@ these changes do not close the movement, camera, or actor parity gates.
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
   Sprint transitions recalculate movement speed from attribute defaults and other
   modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
+  Server Speed effect changes refresh that value while sprint stays held.
+  Local Speed modifier expiry without a server update remains incomplete.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
@@ -2179,7 +2270,7 @@ player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
-local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
+owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the
 native first-person hand and remote actor animations intact. Slot preferences
 persist through Change Emotes, and gameplay input cancels playback. Identified
@@ -3675,8 +3766,14 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-15 actor attacks run the ordinary pick once against the published frame's
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
-The selected frame also owns the action-facing rotation. Block presses resolve before
-catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+The selected frame also owns piercing direction and action-facing rotation. Assisted
+visibility follows the ray from that frame's eye to its selected point. Block presses
+wait behind older inputs without requiring a predecessor pose. Presses and their
+mining starts and predicted breaks share one ordered queue. Each pending entry has
+its own expiry; accepted carriers advance before later presses and survive their
+cancellation. Existing destroy progress, cancellation and held-input delay advance
+while new presses wait. One admission step resolves attacks and catch-up mining
+against the shared swing clock. Accepted item uses keep advancing
 while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced
@@ -8743,6 +8840,16 @@ native comparison remains incomplete. See
 
 ## Third-person held attachables
 
+Incomplete: held attachables publish one selected layer per hand. Authored
+dissolve depth/color passes use a drawable ordinary-material fallback, retaining
+overlay suppression; coupled multi-pass coverage remains unsupported in both
+first and third person. This does not close a material or held-item parity gate.
+
+Selected tint, overlay, UV animation and lighting modifiers are retained in both
+view submissions. Incomplete: the first-person hand shader does not yet consume
+those fields. Projection regressions verify published values; first-person styled
+rendering remains incomplete and does not close a material parity gate.
+
 Held models evaluate authored scripts and texture meshes against the owner's
 posed bones, including aiming skeleton bows. Third-person bow draws supply the
 owner's use duration, draw frame, and render delta through release. Unchanged
@@ -8790,11 +8897,12 @@ furnace UI options remain incomplete; the full furnace parity gate stays open.
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
 frame, with block occlusion and bounded queue retries. A live cow interaction
-produces a server-confirmed milk bucket. Selecting an equipped emote sends its
-catalog identifier and duration once in that frame; idle and cancellation send
-no start packet. Marketplace clip ownership/playback, remote custom-emote
-synchronization, and the complete villager trade UI remain incomplete. These
-producer fixes do not close those parity gates.
+produces a server-confirmed milk bucket. Selecting an equipped custom emote starts
+local playback and reports its catalog identifier and phase over the authenticated
+Cinnabar API. Stops, visibility and bounded leases retire shared playback without
+sending custom identifiers to a Bedrock server. Marketplace clip ownership/playback
+and the complete villager trade UI remain incomplete. These producer fixes do not
+close those parity gates.
 
 The pinned bamboo visual gate is covered for all twelve admitted states. Stalks,
 radial leaves, column UVs and offsets, selection and breaking overlays, picking,

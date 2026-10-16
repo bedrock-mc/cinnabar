@@ -3,7 +3,11 @@ use assets::{AssetError, MolangFunction};
 use super::lexer::{Token, tokenize};
 use crate::entity::invalid;
 
-const MAX_PARSE_DEPTH: usize = 48;
+mod bounds;
+use bounds::bounded;
+
+/// Bounds parser nesting and the depth of recursively owned expression trees.
+pub(super) const MAX_PARSE_DEPTH: usize = 48;
 const MAX_STATEMENTS: usize = 256;
 
 /// Where a named value lives.
@@ -92,7 +96,7 @@ pub(super) fn parse_with(source: &str, queries: &[&str]) -> Result<Program, Asse
         parser.expect(&Token::End)?;
         return Ok(Program::Simple(expression));
     }
-    let statements = parser.statements(&Token::End)?;
+    let statements = parser.statements(&Token::End, 0)?;
     // Vanilla rejects a complex expression whose last statement lacks its terminator.
     if parser.tokens.get(parser.tokens.len().wrapping_sub(2)) != Some(&Token::Semicolon) {
         return Err(invalid("complex Molang expression must end with `;`"));
@@ -135,7 +139,7 @@ impl Parser<'_> {
         }
     }
 
-    fn statements(&mut self, close: &Token) -> Result<Vec<Statement>, AssetError> {
+    fn statements(&mut self, close: &Token, depth: usize) -> Result<Vec<Statement>, AssetError> {
         let mut statements = Vec::new();
         let mut returned = false;
         while self.peek() != close {
@@ -145,7 +149,7 @@ impl Parser<'_> {
             if returned {
                 return Err(invalid("Molang statement follows a return"));
             }
-            let statement = self.statement(0)?;
+            let statement = self.statement(depth)?;
             returned = matches!(statement, Statement::Return(_));
             statements.push(statement);
             if !self.eat(&Token::Semicolon) && self.peek() != close {
@@ -158,7 +162,7 @@ impl Parser<'_> {
     fn block(&mut self, depth: usize) -> Result<Vec<Statement>, AssetError> {
         check_depth(depth)?;
         self.expect(&Token::LeftBrace)?;
-        let statements = self.statements(&Token::RightBrace)?;
+        let statements = self.statements(&Token::RightBrace, depth)?;
         self.expect(&Token::RightBrace)?;
         Ok(statements)
     }
@@ -236,7 +240,7 @@ impl Parser<'_> {
         let Expr::Variable(slot, name) = left else {
             return Err(invalid("Molang `??` requires a variable"));
         };
-        Ok(Expr::Coalesce(
+        bounded(Expr::Coalesce(
             slot,
             name,
             Box::new(self.expression(depth + 1)?),
@@ -255,7 +259,7 @@ impl Parser<'_> {
             } else {
                 None
             };
-            return Ok(Expr::Branch(Box::new(condition), yes, no));
+            return bounded(Expr::Branch(Box::new(condition), yes, no));
         }
         let yes = self.conditional(depth + 1)?;
         let no = if self.eat(&Token::Colon) {
@@ -263,7 +267,7 @@ impl Parser<'_> {
         } else {
             None
         };
-        Ok(Expr::Conditional(Box::new(condition), Box::new(yes), no))
+        bounded(Expr::Conditional(Box::new(condition), Box::new(yes), no))
     }
 
     fn statement_branch_follows(&self) -> bool {
@@ -311,6 +315,7 @@ impl Parser<'_> {
                 "&&" => Expr::And(left_box, right),
                 _ => Expr::Binary(binary_operator(operator), left_box, right),
             };
+            left = bounded(left)?;
         }
         Ok(left)
     }
@@ -323,7 +328,7 @@ impl Parser<'_> {
             _ => return self.postfix(depth),
         };
         self.bump();
-        Ok(Expr::Unary(operator, Box::new(self.unary(depth + 1)?)))
+        bounded(Expr::Unary(operator, Box::new(self.unary(depth + 1)?)))
     }
 
     fn postfix(&mut self, depth: usize) -> Result<Expr, AssetError> {
@@ -337,7 +342,7 @@ impl Parser<'_> {
                 "nested Molang `->` access is unsupported by vanilla",
             ));
         }
-        Ok(Expr::Arrow(Box::new(left), Box::new(right)))
+        bounded(Expr::Arrow(Box::new(left), Box::new(right)))
     }
 
     fn arguments(&mut self, depth: usize) -> Result<Vec<Expr>, AssetError> {
@@ -386,14 +391,14 @@ impl Parser<'_> {
             if arguments.len() != function.arity() {
                 return Err(invalid("Molang function has invalid arity"));
             }
-            return Ok(Expr::Call(function, arguments));
+            return bounded(Expr::Call(function, arguments));
         }
         if name.starts_with("query.") {
             if self.queries.binary_search(&name.as_ref()).is_err() {
                 return Err(invalid("unknown Molang query"));
             }
             let arguments = calls.then(|| self.arguments(depth)).transpose()?;
-            return Ok(Expr::Query(name, arguments));
+            return bounded(Expr::Query(name, arguments));
         }
         let slot = if name.starts_with("variable.") || name.starts_with("context.") {
             Slot::Variable
@@ -446,3 +451,6 @@ fn check_depth(depth: usize) -> Result<(), AssetError> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -91,6 +91,24 @@ fn split_identities(identities: &[String]) -> (Vec<String>, Vec<String>) {
         .partition(|id| valid_cinnabar_xuid(id))
 }
 
+/// Exchanges nearby watches and local playback with the core's nonblocking API connection.
+pub async fn sync_cinnabar_emotes(
+    socket_dir: &Path,
+    state: &crate::contract::CinnabarEmoteState,
+) -> Result<Vec<crate::contract::CinnabarRemoteEmote>, BridgeError> {
+    #[derive(Deserialize)]
+    struct Emotes {
+        emotes: Vec<crate::contract::CinnabarRemoteEmote>,
+    }
+    let response: Emotes = call(
+        socket_dir,
+        crate::contract::METHOD_CINNABAR_EMOTES,
+        Some(state),
+    )
+    .await?;
+    Ok(response.emotes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

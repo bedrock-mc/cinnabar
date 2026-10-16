@@ -88,10 +88,14 @@ impl InventoryPointer {
             });
         }
         if frame.primary_released || frame.secondary_released {
-            let released_primary = frame.primary_released;
             // The press already acted on the first cell; release only ends a split.
             if let Some(drag) = self.drag.take() {
-                if released_primary != drag.secondary {
+                let released = if drag.secondary {
+                    frame.secondary_released
+                } else {
+                    frame.primary_released
+                };
+                if released {
                     if drag.cells.len() >= 2 {
                         actions.push(PointerAction::EndDistribute);
                     }
@@ -246,6 +250,60 @@ mod tests {
             }),
             vec![PointerAction::EndDistribute]
         );
+    }
+
+    #[test]
+    fn releasing_both_buttons_ends_the_matching_drag_before_later_hover() {
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            pointer.step(PointerFrame {
+                primary_pressed: !secondary,
+                secondary_pressed: secondary,
+                ..frame(Some(A), 0)
+            });
+            pointer.step(frame(Some(B), 5));
+            assert_eq!(
+                pointer.step(PointerFrame {
+                    primary_released: true,
+                    secondary_released: true,
+                    ..frame(Some(B), 10)
+                }),
+                vec![PointerAction::EndDistribute]
+            );
+            assert!(
+                pointer
+                    .step(frame(Some(InventoryCellHit::Player(11)), 15))
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn releasing_the_other_button_preserves_the_active_drag() {
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            pointer.step(PointerFrame {
+                primary_pressed: !secondary,
+                secondary_pressed: secondary,
+                ..frame(Some(A), 0)
+            });
+            assert!(
+                pointer
+                    .step(PointerFrame {
+                        primary_released: secondary,
+                        secondary_released: !secondary,
+                        ..frame(Some(A), 5)
+                    })
+                    .is_empty()
+            );
+            assert_eq!(
+                pointer.step(frame(Some(B), 10)),
+                vec![PointerAction::Distribute {
+                    cells: vec![A, B],
+                    one_each: secondary
+                }]
+            );
+        }
     }
 
     #[test]

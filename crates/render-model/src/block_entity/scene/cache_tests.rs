@@ -1,5 +1,6 @@
 use super::*;
 use crate::block_entity::{
+    MIN_DYNAMIC_ATLAS_WIDTH,
     chest::{ChestPair, ChestVariant},
     mesh::{Facing, MAX_BLOCK_ENTITY_VERTICES},
     sign::{SignFace, SignMount},
@@ -28,9 +29,9 @@ fn assets_with_chest_offset(chest_x: u32) -> assets::RuntimeBlockEntityAssets {
     placements.sort_by(|a, b| a.name.cmp(&b.name));
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        1024,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         256,
-        &vec![255; 1024 * 256 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 256 * 4],
         &placements,
     )
     .unwrap();
@@ -759,9 +760,9 @@ fn replacement_base() -> assets::RuntimeBlockEntityAssets {
         .collect();
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        1024,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         64,
-        &vec![255; 1024 * 64 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
         &placements,
     )
     .unwrap();
@@ -793,16 +794,17 @@ fn replacement_admission_reserves_mobs_and_all_text_pages() {
             &base,
             |size| preparer.accepts_size(size),
             |name| {
-                // Three full-width 1024-row shelves plus three gutters precede the last tile.
+                // Three square full-width shelves plus three gutters precede the last tile.
                 let height = if name.ends_with("tile_3") {
-                    height - 3 * (1024 + 1)
+                    height - 3 * (MIN_DYNAMIC_ATLAS_WIDTH + 1)
                 } else {
-                    1024
+                    MIN_DYNAMIC_ATLAS_WIDTH
                 };
                 Some(pack_entity_compiler::BlockEntityTexture {
-                    width: 1024,
+                    width: MIN_DYNAMIC_ATLAS_WIDTH,
                     height,
-                    rgba8: vec![64; (1024 * height * 4) as usize].into_boxed_slice(),
+                    rgba8: vec![64; (MIN_DYNAMIC_ATLAS_WIDTH * height * 4) as usize]
+                        .into_boxed_slice(),
                 })
             },
         )

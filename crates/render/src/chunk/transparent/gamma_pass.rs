@@ -1,6 +1,8 @@
 //! Ordinary world transparency blends encoded colour while retaining sorted draw order.
 
 #[cfg(test)]
+mod encoding_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::chunk::*;
@@ -9,8 +11,8 @@ use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::Core3d,
     render::{
-        render_phase::{DrawFunctionId, TrackedRenderPass},
-        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
+        render_phase::DrawFunctionId,
+        render_resource::{RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::ViewDepthStencilTexture,
     },
@@ -148,54 +150,36 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
             )
         },
     );
-    // Each range is its own pass, so each encodes on its own task; attachments are taken
-    // here in graph order, as only a target's first use may clear it.
-    let device = render_context.render_device();
-    let buffers = bevy::tasks::ComputeTaskPool::get().scope_with_executor(false, None, |scope| {
-        for (range, gamma) in ranges() {
-            let colour = scene.color_attachment(target, gamma);
-            let depth = depth.get_attachment(StoreOp::Store);
-            let task_viewport = viewport.clone();
-            scope.spawn(async move {
-                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("sorted ordinary transparency"),
-                });
-                let pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("sorted ordinary transparent colour-space range"),
-                    color_attachments: &[Some(colour)],
-                    depth_stencil_attachment: Some(depth),
-                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                        world,
-                        render_scene::RuntimeStage::GpuTransparent,
-                    ),
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                let mut pass = TrackedRenderPass::new(device, pass);
-                let draw = match &task_viewport {
-                    Some(Some(viewport)) => {
-                        pass.set_camera_viewport(viewport);
-                        true
-                    }
-                    Some(None) => false,
-                    None => true,
-                };
-                if draw && let Err(error) = phase.render_range(&mut pass, world, view_entity, range)
-                {
-                    bevy::log::error!("Error rendering sorted transparency: {error:?}");
-                }
-                drop(pass);
-                encoder.finish()
-            });
-            // An empty clamped viewport draws nothing; like a single pass, only the first range
-            // begins, so a target's first use still clears it.
-            if matches!(viewport, Some(None)) {
-                break;
+    // Phase encoding holds the shared draw-functions lock, so worker ranges cannot draw
+    // concurrently. Keep their ordered colour-space passes in one encoder without a worker wait.
+    for (range, gamma) in ranges() {
+        let attachments = [Some(scene.color_attachment(target, gamma))];
+        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("sorted ordinary transparent colour-space range"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                render_scene::RuntimeStage::GpuTransparent,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        let draw = match &viewport {
+            Some(Some(viewport)) => {
+                pass.set_camera_viewport(viewport);
+                true
             }
+            Some(None) => false,
+            None => true,
+        };
+        if draw && let Err(error) = phase.render_range(&mut pass, world, view_entity, range) {
+            bevy::log::error!("Error rendering sorted transparency: {error:?}");
         }
-    });
-    for buffer in buffers {
-        render_context.add_command_buffer(buffer);
+        // Even an empty viewport begins one pass so the target's first use still clears it.
+        if !draw {
+            break;
+        }
     }
     Ok(())
 }

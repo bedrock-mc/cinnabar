@@ -12,13 +12,17 @@ pub(super) fn decode(body: &[u8]) -> Result<RecipeUpdate, super::super::Inventor
     decode_with_credits(body, &Credits::shared())
 }
 
-fn decode_with_credits(
+/// Admits the complete update under the supplied shared allocation owner.
+pub(super) fn decode_with_credits(
     body: &[u8],
     credits: &Arc<Credits>,
 ) -> Result<RecipeUpdate, super::super::InventoryPacketError> {
     let parse = || -> Result<RecipeUpdate, Refusal> {
         let mut reader = Reader::new(body)?;
         let mut retained_names = 0usize;
+        let mut screen_count = 0usize;
+        let mut screen_names = 0usize;
+        let mut multi_count = 0usize;
         let (clear, total) = grammar::walk(
             &mut reader,
             |_, candidate| {
@@ -31,14 +35,30 @@ fn decode_with_credits(
                 });
                 Ok(())
             },
-            |_| Ok(()),
+            |item| {
+                match item {
+                    grammar::ScreenItem::Recipe(record) if screen_count < MAX_SCREEN_RECIPES => {
+                        screen_count += 1;
+                        screen_names += record.len;
+                    }
+                    grammar::ScreenItem::Multi { .. } => multi_count += 1,
+                    _ => {}
+                }
+                Ok(())
+            },
         )?;
         // Conservative string allocation allowance includes per-string allocator
         // metadata for each retained ingredient name, Vec capacity, the batch
         // and its Arc/permit metadata.
+        let retained_names = retained_names
+            .checked_add(screen_names)
+            .ok_or(Refusal::Policy)?;
         let charge = total
             .checked_mul(size_of::<Record>())
             .and_then(|n| n.checked_add(retained_names.checked_mul(128)?))
+            .and_then(|n| n.checked_add(screen_names.checked_mul(size_of::<ScreenIngredient>())?))
+            .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
+            .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -52,6 +72,14 @@ fn decode_with_credits(
             .map_err(|_| Refusal::Policy)?;
         let mut reader = Reader::new(body)?;
         let mut screens = ScreenRecipes::default();
+        screens
+            .recipes
+            .try_reserve_exact(screen_count)
+            .map_err(|_| Refusal::Policy)?;
+        screens
+            .multi
+            .try_reserve_exact(multi_count)
+            .map_err(|_| Refusal::Policy)?;
         grammar::walk(
             &mut reader,
             |id, candidate| {
@@ -96,17 +124,21 @@ fn decode_with_credits(
                     }
                     grammar::ScreenItem::Recipe(record) => {
                         if screens.recipes.len() < MAX_SCREEN_RECIPES {
+                            let mut ingredients = Vec::new();
+                            ingredients
+                                .try_reserve_exact(record.len)
+                                .map_err(|_| Refusal::Policy)?;
+                            ingredients.extend(record.ingredients[..record.len].iter().map(
+                                |item| ScreenIngredient {
+                                    name: Arc::from(item.name),
+                                    tag: item.tag,
+                                    aux: item.aux as u16,
+                                },
+                            ));
                             screens.recipes.push(ScreenRecipe {
                                 id: record.id,
                                 kind: record.kind,
-                                ingredients: record.ingredients[..record.len]
-                                    .iter()
-                                    .map(|item| ScreenIngredient {
-                                        name: Arc::from(item.name),
-                                        tag: item.tag,
-                                        aux: item.aux as u16,
-                                    })
-                                    .collect(),
+                                ingredients,
                                 output: record.output.map(|output| RecipeOutput {
                                     network_id: output.id,
                                     aux: output.aux,
@@ -161,13 +193,10 @@ fn decode_with_credits(
         Ok(RecipeUpdate {
             batch: Some(Arc::new(Batch {
                 records,
+                screen: screens,
                 clear,
                 _permit: permit,
             })),
-            screen: (!screens.recipes.is_empty()
-                || !screens.multi.is_empty()
-                || screens.skipped > 0)
-                .then(|| Arc::new(screens)),
         })
     };
     match parse() {

@@ -331,14 +331,14 @@ impl HudLayout<'_> {
         let title = frame
             .window_text
             .title
-            .clone()
-            .unwrap_or_else(|| default_title(kind).to_owned());
+            .as_deref()
+            .unwrap_or_else(|| default_title(kind));
         let mut title_pos = [origin[0] + layout.title[0], origin[1] + layout.title[1]];
         if layout.title_centered {
-            let width = self.measure(&title)?;
+            let width = self.measure(title)?;
             title_pos[0] = origin[0] + ((layout.panel[0] - width) * 0.5).floor();
         }
-        self.inventory_label(&title, title_pos)?;
+        self.inventory_label(title, title_pos)?;
         let label = frame
             .window_text
             .inventory_label
@@ -704,8 +704,8 @@ impl HudLayout<'_> {
                 self.icon_gui(icon, [position[0] + 6.0, position[1] + 6.0])?;
             }
         }
-        let title = frame.window_text.title.clone().unwrap_or_default();
-        self.inventory_label(&title, [origin[0] + 8.0, origin[1] + 6.0])?;
+        let title = frame.window_text.title.as_deref().unwrap_or_default();
+        self.inventory_label(title, [origin[0] + 8.0, origin[1] + 6.0])?;
         if state.creative_tab == SEARCH_TAB {
             let field = [origin[0] + 82.0, origin[1] + 5.0];
             self.solid_gui(field, [89.0, 12.0], [0, 0, 0, 255])?;
@@ -822,7 +822,7 @@ impl HudLayout<'_> {
             [width + 6.0, height + 6.0],
             [16, 0, 16, 240],
         )?;
-        for (index, line) in frame.window_text.tooltip.clone().iter().enumerate() {
+        for (index, line) in frame.window_text.tooltip.iter().enumerate() {
             self.ui_text(&line.text, [x, y + index as f32 * 10.0], line.color, true)?;
         }
         Ok(())

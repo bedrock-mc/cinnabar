@@ -2,14 +2,15 @@
 
 use super::*;
 use crate::prepared_actor_artwork::{PreparedActorArtwork, session_resources};
+use render_model::MIN_DYNAMIC_ATLAS_WIDTH;
 
 /// A complete conduit texture whose atlas placement changes independently of its pixels.
 fn conduit_carrier(color: [u8; 4], x: u32) -> assets::RuntimeBlockEntityAssets {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
         64,
-        64,
-        &color.repeat(64 * 64),
+        &color.repeat(MIN_DYNAMIC_ATLAS_WIDTH as usize * 64),
         &[assets::BlockEntityPlacement {
             name: assets::block_entity_geometry::CONDUIT_TEXTURE.0.into(),
             x,

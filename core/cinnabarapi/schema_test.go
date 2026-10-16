@@ -87,8 +87,8 @@ func TestPinnedServerMessagesDecode(t *testing.T) {
 		want inbound
 	}{
 		{`{"type":"challenge","nonce":"` + strings.Repeat("A", 43) + `"}`, inbound{Type: typeChallenge, Nonce: strings.Repeat("A", 43)}},
-		{`{"type":"welcome","xuid":"2535400000000000"}`, inbound{Type: typeWelcome}},
-		{`{"type":"welcome","xuid":"1","lookup_batch_max":64,"lookup_bucket_capacity":100,"lookup_refill_per_min":50,"cache_ttl_ms":500,"ping_interval_ms":1000,"reconnect_max_ms":2000,"future":true}`, inbound{Type: typeWelcome, parameters: parameters{LookupBatchMax: 64, LookupBucketCapacity: 100, LookupRefillPerMin: 50, CacheTTLMS: 500, PingIntervalMS: 1000, ReconnectMaxMS: 2000}}},
+		{`{"type":"welcome","xuid":"2535400000000000"}`, inbound{Type: typeWelcome, XUID: "2535400000000000"}},
+		{`{"type":"welcome","xuid":"1","lookup_batch_max":64,"lookup_bucket_capacity":100,"lookup_refill_per_min":50,"cache_ttl_ms":500,"ping_interval_ms":1000,"reconnect_max_ms":2000,"future":true}`, inbound{Type: typeWelcome, XUID: "1", parameters: parameters{LookupBatchMax: 64, LookupBucketCapacity: 100, LookupRefillPerMin: 50, CacheTTLMS: 500, PingIntervalMS: 1000, ReconnectMaxMS: 2000}}},
 		{`{"type":"lookup_result","id":7,"cinnabar":["1"]}`, inbound{Type: typeLookupResult, ID: &id, Cinnabar: []string{"1"}}},
 		{`{"type":"lookup_result","id":7,"cinnabar":[],"cinnabar_uuids":["00112233-4455-6677-8899-aabbccddeeff"]}`, inbound{Type: typeLookupResult, ID: &id, Cinnabar: []string{}, CinnabarUUIDs: []string{"00112233-4455-6677-8899-aabbccddeeff"}}},
 		{`{"type":"error","code":"rate_limited","id":7}`, inbound{Type: typeError, Code: codeRateLimited, ID: &id}},

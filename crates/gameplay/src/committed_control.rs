@@ -82,6 +82,8 @@ impl CommittedGameplayState<'_> {
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
             self.effects.apply(self.session_generation, sequence, event);
+            self.speed
+                .apply_effect(self.session_generation, sequence, event);
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::LocalMovementSpeed {

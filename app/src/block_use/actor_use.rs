@@ -18,7 +18,7 @@ pub(super) fn produce(
     state: &gameplay::movement::UnsentSampleView,
     input_mode: PlayerInputMode,
     trigger: ItemUseTrigger,
-    due: u64,
+    due: std::time::Duration,
     clock: RepeatClock,
 ) -> bool {
     let Some(stream) = context.client_world.stream.as_ref() else {

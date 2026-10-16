@@ -487,7 +487,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input"]
+allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 # The portable JSON-UI engine; hosts supply reads, the clock and worker threads through its sources.
@@ -572,7 +572,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["assets", "json-ui", "jsonui-editor", "launcher", "oreui", "render-model", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["assets", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-model", "ui", "ui-engine", "ui-screens"]
+test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -1123,7 +1124,6 @@ sleep_exceptions = [
     { path = "crates/launcher-host/src/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
     { path = "crates/client-audio/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
     { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
-    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
     { path = "crates/chunk-pipeline/src/stream/tests/neighbour_deadlines.rs", reason = "manual timing run past the real unsent-column grace" },
     { path = "crates/chunk-pipeline/src/stream/tests/streaming_harness.rs", reason = "paces frames for the streaming harness" },

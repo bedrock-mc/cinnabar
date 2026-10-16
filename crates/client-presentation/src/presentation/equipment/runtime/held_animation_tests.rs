@@ -1149,6 +1149,7 @@ fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
     let (mut runtime, _) = pack_runtime(held_pack());
     let mut body = player_body(&mut runtime);
     body.overlay_rgba8 = 0x6600_00ff;
+    body.light = 123;
     let owner = owner();
     let names = [Box::from("rightItem"), Box::from("leftItem")];
     let rig = owner_rig(&owner, &names);
@@ -1165,6 +1166,7 @@ fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
     );
     assert_eq!(layers.len(), 1);
     assert_eq!(layers[0].submission.overlay_rgba8, 0);
+    assert_eq!(layers[0].submission.light, body.light);
     for off_hand in [false, true] {
         let item = runtime
             .first_person_attachable(
@@ -1181,9 +1183,13 @@ fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
             )
             .unwrap();
         assert_eq!(item.presentation.submission.overlay_rgba8, 0);
+        assert_eq!(item.presentation.submission.light, body.light);
     }
     assert_eq!(body.overlay_rgba8, 0x6600_00ff);
 }
 
 #[path = "held_artwork_tests.rs"]
 mod artwork;
+
+#[path = "held_style_tests.rs"]
+mod style;

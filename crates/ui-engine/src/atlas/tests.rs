@@ -383,7 +383,7 @@ fn inline_decode_budget_follows_the_host_clock() {
         !placed(&atlas),
         "a spent budget hands every miss to workers"
     );
-    assert_eq!(atlas.decodes.pending.len(), keys.len());
+    assert!(atlas.decodes.jobs.pending().is_some());
     test_time::eventually("worker decodes become resident", || {
         atlas.require(keys.iter().map(String::as_str));
         resident(&atlas)
@@ -396,7 +396,10 @@ fn inline_decode_budget_follows_the_host_clock() {
         !placed(&atlas),
         "without workers a spent budget defers misses"
     );
-    assert!(atlas.decodes.pending.is_empty(), "and starts no thread");
+    assert!(
+        atlas.decodes.jobs.pending().is_none(),
+        "and starts no thread"
+    );
     let mut atlas = atlas.with_image_work(ImageWork::inline());
     atlas.require(keys.iter().map(String::as_str));
     assert!(

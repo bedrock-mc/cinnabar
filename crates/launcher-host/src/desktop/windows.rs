@@ -8,7 +8,7 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::{S_FALSE, S_OK},
+    Foundation::{ERROR_INVALID_PARAMETER, S_FALSE, S_OK},
     System::{
         Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize},
         SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
@@ -81,20 +81,22 @@ pub fn physical_memory() -> Option<u64> {
 
 /// Shows the Open dialog; `Ok(None)` on cancel, `Err` with the dialog error code on failure.
 /// `filter` is a double-NUL-terminated list of `name\0patterns\0` pairs.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
     file_chooser(title, filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Shows the Open dialog with multiple selection; an empty list means cancellation.
 /// `filter` has the same double-NUL-terminated format as `pick_file`.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_files(title: &str, filter: &str) -> Result<Vec<PathBuf>, u32> {
     file_chooser(title, filter, true)
 }
 
 /// Shares the native dialog setup while preserving each caller's selection mode.
 fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf>, u32> {
+    let filter = super::windows_filter::encode(filter).map_err(|()| ERROR_INVALID_PARAMETER)?;
     let _apartment = ComApartment::enter();
-    let filter = filter.encode_utf16().collect::<Vec<_>>();
     let title = wide(title);
     let capacity = if multiple {
         MULTI_FILE_CAPACITY
@@ -104,7 +106,7 @@ fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf
     let mut file = vec![0u16; capacity];
     let mut dialog = OPENFILENAMEW {
         lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        lpstrFilter: filter.as_ptr(),
+        lpstrFilter: filter.as_ref().map_or(ptr::null(), |units| units.as_ptr()),
         nFilterIndex: 1,
         lpstrFile: file.as_mut_ptr(),
         nMaxFile: file.len() as u32,

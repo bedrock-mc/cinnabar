@@ -187,6 +187,34 @@ fn enum_values_complete_after_the_command() {
 }
 
 #[test]
+fn enum_values_match_substrings_case_insensitively() {
+    let catalog = catalog();
+    // "survival" contains "iva" mid-word; prefix-only filtering would miss it.
+    assert_eq!(suggest(&catalog, "/gamemode iva"), ["survival"]);
+    assert_eq!(suggest(&catalog, "/gamemode IVA"), ["survival"]);
+    // Soft enums share the same substring rule ("shop" contains "hop").
+    assert_eq!(suggest(&catalog, "/warp hop"), ["shop"]);
+    assert_eq!(
+        ChatAutocompleteCatalog::suggestion_match("/gamemode iva", "survival"),
+        Some(4..7)
+    );
+}
+
+#[test]
+fn flat_enums_match_substrings_case_insensitively() {
+    let mut catalog = ChatAutocompleteCatalog::default();
+    catalog
+        .apply(ChatAutocompleteEvent {
+            enum_name: Arc::from("effects"),
+            action: ChatAutocompleteAction::Replace,
+            suggestions: Arc::from([Arc::from("night_vision"), Arc::from("speed")]),
+        })
+        .unwrap();
+    assert_eq!(suggest(&catalog, "vis"), ["night_vision"]);
+    assert_eq!(suggest(&catalog, "VIS"), ["night_vision"]);
+}
+
+#[test]
 fn target_parameters_offer_players_and_selectors() {
     let catalog = catalog();
     let players = [Arc::from("Steve"), Arc::from("Alex")];
@@ -299,6 +327,69 @@ fn out_of_range_enum_index_degrades_to_a_word_parameter() {
         CommandParamKind::Word
     );
     assert!(event.commands[0].aliases.is_empty());
+}
+
+#[test]
+fn overlapping_enum_rows_share_pool_text_and_preserve_entries() {
+    let packet = AvailableCommands {
+        enum_values: vec![
+            "first".into(),
+            wire::Str::from(bytes::Bytes::from_static(b"bad\xff")),
+            "unused".into(),
+        ],
+        enum_data: vec![
+            CommandEnum {
+                name: "one".into(),
+                values: vec![
+                    wire::U32LE(1),
+                    wire::U32LE(0),
+                    wire::U32LE(1),
+                    wire::U32LE(99),
+                ],
+            },
+            CommandEnum {
+                name: "two".into(),
+                values: vec![wire::U32LE(0), wire::U32LE(1)],
+            },
+        ],
+        commands: vec![
+            command(
+                "one",
+                "any",
+                0,
+                vec![param("value", ARG_ENUM | VALID, false)],
+            ),
+            command(
+                "two",
+                "any",
+                1,
+                vec![param("value", ARG_ENUM | VALID | 1, false)],
+            ),
+        ],
+        ..Default::default()
+    };
+    let UiEvent::AvailableCommands(event) = normalize_available_commands(packet) else {
+        panic!("expected a command tree");
+    };
+    let one = &event.commands[0].aliases;
+    let two = &event.commands[1].aliases;
+    assert_eq!(
+        one.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        ["bad\u{fffd}", "first", "bad\u{fffd}"]
+    );
+    assert_eq!(
+        two.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        ["first", "bad\u{fffd}"]
+    );
+    assert!(Arc::ptr_eq(&one[0], &one[2]));
+    assert!(Arc::ptr_eq(&one[0], &two[1]));
+    assert!(Arc::ptr_eq(&one[1], &two[0]));
+    for command in event.commands.iter() {
+        let CommandParamKind::Enum { values, .. } = &command.overloads[0][0].kind else {
+            panic!("expected an enum parameter");
+        };
+        assert!(Arc::ptr_eq(values, &command.aliases));
+    }
 }
 
 #[test]
