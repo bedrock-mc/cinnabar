@@ -183,9 +183,7 @@ pub(crate) fn prepare(
             || state.texture.sample_count() != depth.texture().sample_count()
     }) {
         let Some(replacement) = MotionView::new(device, depth) else {
-            if let Some(state) = state {
-                state.ready = false;
-            }
+            *state = None;
             return;
         };
         *state = Some(replacement);
@@ -271,6 +269,8 @@ pub(crate) fn prepare(
 
 #[cfg(test)]
 mod raster_tests;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
