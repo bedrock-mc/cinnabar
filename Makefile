@@ -136,8 +136,24 @@ endif
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
+# macOS grants Game Mode only to bundled games, so `make play` runs the build from a dev bundle
+# whose Info.plist comes from the release template; its binaries are refreshed hard links.
+DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
+# The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
+DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper
 play: play-build
+ifneq ($(findstring Darwin,$(shell uname -s)),)
+	@mkdir -p "$(DEV_APP)/Contents/MacOS"
+	@sed -e "s|@BUNDLE_ID@|$(DEV_APP_ID)|g" -e "s|@VERSION@|$(PKG_VERSION)|g" packaging/macos/Info.plist.in > "$(DEV_APP)/Contents/Info.plist"
+	@for binary in $(DEV_APP_BINARIES); do \
+		if [ -f "target/$(PROFILE_DIR)/$$binary" ]; then ln -f "target/$(PROFILE_DIR)/$$binary" "$(DEV_APP)/Contents/MacOS/$$binary"; \
+		else rm -f "$(DEV_APP)/Contents/MacOS/$$binary"; fi; \
+	done
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" "$(DEV_APP)/Contents/MacOS/cinnabar" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+else
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+endif
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --binaries "$(DIST_BINARIES)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
