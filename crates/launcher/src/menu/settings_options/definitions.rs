@@ -71,41 +71,6 @@ pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definitio
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
 
-/// Far terrain draws cached terrain past the render distance: Auto, On or Off.
-pub const FAR_TERRAIN_OPTION: SettingDefinition = SettingId::FarTerrain.definition();
-
-/// Labels of `render_api::far_terrain::FarTerrainMode`, in its saved order.
-pub const FAR_TERRAIN_CHOICES: &[SettingChoice] = &[
-    SettingChoice {
-        name: "far_terrain_radio_auto",
-        label: "Auto",
-    },
-    SettingChoice {
-        name: "far_terrain_radio_on",
-        label: "On",
-    },
-    SettingChoice {
-        name: "far_terrain_radio_off",
-        label: "Off",
-    },
-];
-
-const _: () =
-    assert!(FAR_TERRAIN_CHOICES.len() == render_api::far_terrain::FarTerrainMode::ALL.len());
-
-/// Chunks meshed in full detail around the player; 0 is Auto, by device tier.
-pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition =
-    SettingId::FullDetailDistance.definition();
-
-/// The full-detail distance's label: Auto, or its chunks through `format`.
-pub fn full_detail_label(value: i32, chunks: &dyn Fn(i32) -> String) -> String {
-    if value == render_api::far_terrain::FULL_DETAIL_AUTO as i32 {
-        "Auto".to_owned()
-    } else {
-        chunks(value)
-    }
-}
-
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -165,6 +130,9 @@ const _: () = assert!(UPDATE_CHANNEL_CHOICES.len() == update_manifest::channel::
 
 /// Stable is offered only after its signed release exists; beta is the initial channel.
 pub const UPDATE_CHANNEL_OPTION: SettingDefinition = SettingId::UpdateChannel.definition();
+
+/// Lets other Cinnabar players see this player as one through the Cinnabar API.
+pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVisible.definition();
 
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
@@ -226,21 +194,6 @@ const fn slider(
     default: i32,
 ) -> SettingDefinition {
     option(id, label, SettingKind::Slider, min, max, default)
-}
-
-/// Defines a slider that moves in steps of `step`.
-const fn stepped_slider(
-    id: SettingId,
-    label: &'static str,
-    min: i32,
-    max: i32,
-    default: i32,
-    step: i32,
-) -> SettingDefinition {
-    SettingDefinition {
-        step,
-        ..slider(id, label, min, max, default)
-    }
 }
 
 /// Defines a dropdown in its displayed radio-choice order.
@@ -513,6 +466,10 @@ settings! {
         [(SettingPanel::GeneralNetwork, 0)], [], None, Some("options.websocketsEnabled.name");
     WebsocketEncryption => "websocket_encryption", toggle("options.websocketEncryption", false),
         [(SettingPanel::GeneralNetwork, 1)], [], None, None;
+    CinnabarVisible => "cinnabar_visible", toggle("Show me as a Cinnabar player", true),
+        [(SettingPanel::GeneralNetwork, 2)], [], None, None;
+    CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
+        [(SettingPanel::GeneralNetwork, 3)], [], None, None;
     AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
         [(SettingPanel::GeneralUpdates, 0)], [], None, None;
     InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
@@ -605,8 +562,8 @@ settings! {
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [], [SettingsGroup::Video], None, None;
-    FarTerrain => "far_terrain", dropdown("Far Terrain (LOD)", FAR_TERRAIN_CHOICES, render_api::far_terrain::FarTerrainMode::Auto.index()),
-        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
-    FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
-        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
+        [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
+    RecordNetworkSession => "record_network_session", toggle("Record network session", false),
+        [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
 }

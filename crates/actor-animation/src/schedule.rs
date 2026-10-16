@@ -3,12 +3,11 @@
 //! Generations and the world budget are settled serially; rigs evaluate together only in a run
 //! whose remaining world budget covers each rig's whole actor budget, so none can exhaust it.
 
-use std::{
-    cell::RefCell,
-    sync::{Condvar, Mutex, PoisonError},
-};
+use std::sync::{Condvar, Mutex, PoisonError};
 
 use super::*;
+
+mod warmups;
 
 /// What a rig does this tick once its motion has advanced.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,6 +29,8 @@ struct TickJob<'a> {
     view_changed: bool,
     refresh_view: bool,
     step: Step,
+    /// Eligibility captured before warm evaluation can change geometry or culling state.
+    warm_candidate: bool,
     /// `None` for an evaluating rig means the world budget was already spent.
     outcome: Option<Evaluation>,
 }
@@ -46,11 +47,6 @@ struct Catalogs<'a> {
     pack: Option<(&'a RuntimeEntityAssets, &'a VariableLayout)>,
     tick: u64,
     exempt: Option<u64>,
-}
-
-thread_local! {
-    /// Operand stack reused by every expression this thread runs.
-    static STACK: RefCell<Vec<evaluation::MolangValue>> = const { RefCell::new(Vec::new()) };
 }
 
 impl ActorAnimationStore {
@@ -230,6 +226,7 @@ impl ActorAnimationStore {
                 view_changed,
                 refresh_view: refresh_view && !initial,
                 step,
+                warm_candidate: false,
                 outcome: None,
             });
         }
@@ -250,47 +247,11 @@ impl ActorAnimationStore {
         };
         // A rig back in view first evaluates its previous tick, so its first frame blends. These
         // warm-ups share a capped slice of the world budget, and one that fails is not retried.
-        let mut warm_failed = Vec::new();
-        if !refresh_view {
-            let mut warm_left = world_left / RESUME_WARMUP_SHARE;
-            for (index, job) in jobs.iter_mut().enumerate().filter(|(_, job)| {
-                job.evaluates() && job.state.culled && job.state.history.len() > 1
-            }) {
-                // The warm-up and the tick's evaluation split the elapsed interval between them.
-                let elapsed = job.context.animation_elapsed_ticks;
-                job.context.animation_elapsed_ticks = Some(elapsed.unwrap_or(1).saturating_sub(1));
-                let latest = job.state.history.pop_back();
-                let previous = Catalogs {
-                    tick: completed_tick.saturating_sub(1),
-                    ..catalogs.view()
-                };
-                let warm_up = (warm_left > 0).then(|| evaluate_job(job, previous, &mut warm_left));
-                job.state.history.extend(latest);
-                match warm_up {
-                    Some(Evaluation {
-                        result: Ok(evaluated),
-                        used,
-                    }) => {
-                        world_left = world_left.saturating_sub(used);
-                        job.outcome = Some(Evaluation {
-                            result: Ok(evaluated),
-                            used,
-                        });
-                        ledger.apply(job);
-                    }
-                    Some(Evaluation { used, .. }) => {
-                        world_left = world_left.saturating_sub(used);
-                        ledger.stats.evaluated_molang_ops = ledger
-                            .stats
-                            .evaluated_molang_ops
-                            .saturating_add(used as u64);
-                        warm_failed.push(index);
-                    }
-                    None => {}
-                }
-                job.context.animation_elapsed_ticks = elapsed.map(|ticks| ticks.min(1));
-            }
-        }
+        let warm_failed = if refresh_view {
+            Vec::new()
+        } else {
+            warmups::run(&mut jobs, &catalogs, &mut ledger, &mut world_left, parallel)
+        };
         let mut next = 0;
         while next < jobs.len() {
             // Each rig spends at most its actor budget, so this many fit before the world runs out.
@@ -460,6 +421,7 @@ struct Board {
     jobs: JobsPtr,
     len: usize,
     catalogs: OwnedCatalogs,
+    pass: Pass,
 }
 
 struct Claims {
@@ -479,13 +441,61 @@ unsafe impl Send for JobsPtr {}
 // SAFETY: as above; distinct claims never alias.
 unsafe impl Sync for JobsPtr {}
 
+/// The evaluator input and eligibility used by a board.
+#[derive(Clone, Copy)]
+enum Pass {
+    Current,
+    PreviousWarmup,
+}
+
+impl Pass {
+    /// Runs only jobs admitted to this pass, with the caller's allowance.
+    fn evaluate(self, job: &mut TickJob<'_>, catalogs: Catalogs<'_>, left: &mut usize) {
+        match self {
+            Self::Current if job.evaluates() => {
+                job.outcome = Some(evaluate_job(job, catalogs, left));
+            }
+            Self::PreviousWarmup if job.warm_candidate => {
+                job.outcome = Some(warmups::evaluate(job, catalogs, left));
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Board {
+    /// Holds a borrowed run until all claimed jobs settle; late helpers see a closed board.
+    fn new(jobs: &mut [TickJob<'_>], catalogs: OwnedCatalogs, pass: Pass) -> Self {
+        Self {
+            claims: Mutex::new(Claims {
+                next: 0,
+                open: true,
+                busy: 0,
+                panic: None,
+            }),
+            settled: Condvar::new(),
+            jobs: JobsPtr(jobs.as_mut_ptr().cast()),
+            len: jobs.len(),
+            catalogs,
+            pass,
+        }
+    }
+
+    /// Recovers the claim lock after a worker panic.
     fn lock(&self) -> std::sync::MutexGuard<'_, Claims> {
         self.claims.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Evaluates claimed rigs until none are left or the caller has stopped waiting.
     fn help(&self) {
+        self.help_with(|job| {
+            let mut own = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+            self.pass.evaluate(job, self.catalogs.view(), &mut own);
+        });
+    }
+
+    /// Keeps every claim alive through evaluation and panic cleanup before signalling settlement.
+    fn help_with(&self, evaluate: impl Fn(&mut TickJob<'_>)) {
         loop {
             let index = {
                 let mut claims = self.lock();
@@ -501,10 +511,7 @@ impl Board {
             // borrow behind `jobs` ends.
             let job = unsafe { &mut *self.jobs.0.add(index) };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if job.evaluates() {
-                    let mut own = MAX_MOLANG_OPS_PER_ACTOR_TICK;
-                    job.outcome = Some(evaluate_job(job, self.catalogs.view(), &mut own));
-                }
+                evaluate(job);
             }));
             let mut claims = self.lock();
             claims.busy -= 1;
@@ -521,37 +528,48 @@ impl Board {
 /// Evaluates a run's rigs on the calling thread while pool threads claim rigs beside it. The
 /// caller never waits for a helper that has not claimed a rig, so a busy pool costs it nothing.
 fn evaluate_concurrently(jobs: &mut [TickJob<'_>], evaluating: usize, catalogs: OwnedCatalogs) {
-    let helpers = (evaluating / RIGS_PER_HELPER)
+    let helpers = helper_count(evaluating, rayon::current_num_threads().saturating_sub(1));
+    evaluate_with_helpers(jobs, catalogs, Pass::Current, helpers);
+}
+
+/// Applies the existing per-run helper formula within the supplied available quota.
+fn helper_count(evaluating: usize, available: usize) -> usize {
+    (evaluating / RIGS_PER_HELPER)
         .min(MAX_HELPERS)
-        .min(rayon::current_num_threads().saturating_sub(1));
-    let board = Arc::new(Board {
-        claims: Mutex::new(Claims {
-            next: 0,
-            open: true,
-            busy: 0,
-            panic: None,
-        }),
-        settled: Condvar::new(),
-        jobs: JobsPtr(jobs.as_mut_ptr().cast()),
-        len: jobs.len(),
-        catalogs,
-    });
+        .min(available)
+}
+
+/// Lets the caller help, closes claims, and waits only for already claimed jobs before returning.
+fn evaluate_with_helpers(
+    jobs: &mut [TickJob<'_>],
+    catalogs: OwnedCatalogs,
+    pass: Pass,
+    helpers: usize,
+) {
+    let board = Arc::new(Board::new(jobs, catalogs, pass));
     for _ in 0..helpers {
         let board = Arc::clone(&board);
         rayon::spawn(move || board.help());
     }
     board.help();
-    let mut claims = board.lock();
-    claims.open = false;
-    while claims.busy > 0 {
-        claims = board
-            .settled
-            .wait(claims)
-            .unwrap_or_else(PoisonError::into_inner);
-    }
-    if let Some(panic) = claims.panic.take() {
-        drop(claims);
-        std::panic::resume_unwind(panic);
+    board.settle();
+}
+
+impl Board {
+    /// Ends the borrow only after every claim, including panic cleanup, has finished.
+    fn settle(&self) {
+        let mut claims = self.lock();
+        claims.open = false;
+        while claims.busy > 0 {
+            claims = self
+                .settled
+                .wait(claims)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        if let Some(panic) = claims.panic.take() {
+            drop(claims);
+            std::panic::resume_unwind(panic);
+        }
     }
 }
 
@@ -578,7 +596,7 @@ fn evaluate_job(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: STACK.with_borrow_mut(std::mem::take),
+        stack: OperandStack::lease(),
         static_draw: None,
     };
     render::cache_layer_skeletons(assets, state);
@@ -628,7 +646,6 @@ fn evaluate_job(
         state.ui_animation = None;
     }
     let used = budget.used;
-    STACK.set(budget.stack);
     Evaluation { result, used }
 }
 

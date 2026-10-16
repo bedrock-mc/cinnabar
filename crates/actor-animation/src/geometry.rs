@@ -55,7 +55,7 @@ pub(super) fn resolve_binding(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: OperandStack::lease(),
         static_draw: None,
     };
     let placement_frame = match actor.entity_fact().placement {
@@ -111,54 +111,21 @@ pub(super) fn resolve_binding(
         }
     }
     let geometry_binding = first + candidate_offset;
-    let candidate = &assets.rig_geometries()[geometry_binding];
-    if candidate.animation_count as usize + candidate.controller_count as usize
-        > MAX_RUNTIME_BINDINGS_PER_RIG
-    {
-        return None;
-    }
-    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
-    let current = compose_pose(&bones, &[])?;
-    let controller_first = candidate.first_controller as usize;
-    let controller_end = controller_first.checked_add(candidate.controller_count as usize)?;
-    let mut controllers = Vec::new();
-    for binding in assets
-        .rig_controllers()
-        .get(controller_first..controller_end)?
-    {
-        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
-    }
+    let plan = layout.rig_plan(assets, rig_binding, geometry_binding)?;
+    let bones = plan.bones.to_vec();
+    let bone_names = plan.names.to_vec();
+    let current = plan.rest.to_vec();
+    let controllers = plan.controllers.to_vec();
     let mut motion = MotionState::spawn(actor.body_yaw(), actor.head_yaw());
     motion.horse = super::horse::AnimationState::new(random_seed);
-    let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
-        assets,
-        layout,
-        rig_binding,
-        geometry_binding,
-        &controllers,
-    );
-    let samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
-        assets,
-        layout,
-        rig_binding,
-        geometry_binding,
-        &controllers,
-    );
+    let samples_camera_poses = plan.camera;
+    let samples_swing_poses = plan.swing;
     // Camera and swing rigs keep tick endpoints so frame-sampled inputs still blend motion.
     let motion_sampling = (samples_camera_poses
         || samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
-    .then(|| {
-        super::render_frame::motion_sampling::MotionSampling::new(
-            assets,
-            layout,
-            rig_binding,
-            geometry_binding,
-            &controllers,
-            &[],
-        )
-    });
+    .then(|| layout.motion_plan(assets, rig_binding, geometry_binding, &controllers, &[]));
     Some(ActorRigState {
         placement_frame,
         pack: false,
@@ -170,10 +137,7 @@ pub(super) fn resolve_binding(
         bones,
         bone_names,
         render: Vec::new(),
-        may_use_always_depth_material: assets
-            .render_layers(rig_binding)
-            .iter()
-            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always)),
+        may_use_always_depth_material: plan.always_depth,
         scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
@@ -212,15 +176,9 @@ pub(super) fn resolve_binding(
             rig_binding,
             actor.entity_fact().native_class,
         ),
-        samples_render_frames: samples_camera_poses
-            || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
+        samples_render_frames: plan.frames,
         samples_camera_poses,
-        presentation_expressions: super::render_frame::camera::presentation_expressions(
-            assets,
-            layout,
-            rig_binding,
-            geometry_binding,
-        ),
+        presentation_expressions: plan.presentation,
         samples_swing_poses,
         motion_sampling,
         render_frame: None,
@@ -539,22 +497,11 @@ fn reselect_geometry_with_checkpoint(
     if selected == state.geometry_binding {
         return None;
     }
-    let candidate = &assets.rig_geometries()[selected];
-    if candidate.animation_count as usize + candidate.controller_count as usize
-        > MAX_RUNTIME_BINDINGS_PER_RIG
-    {
-        return None;
-    }
-    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
-    let pose = compose_pose(&bones, &[])?;
-    let controller_first = candidate.first_controller as usize;
-    let bindings = assets
-        .rig_controllers()
-        .get(controller_first..controller_first + usize::from(candidate.controller_count))?;
-    let mut controllers = Vec::new();
-    for binding in bindings {
-        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
-    }
+    let plan = layout.rig_plan(assets, state.rig_binding, selected)?;
+    let bones = plan.bones.to_vec();
+    let bone_names = plan.names.to_vec();
+    let pose = plan.rest.to_vec();
+    let controllers = plan.controllers.to_vec();
     let rig_id = if state.pack {
         assets::PACK_RIG_ID_BASE.checked_add(selected as u32)
     } else {
@@ -564,42 +511,23 @@ fn reselect_geometry_with_checkpoint(
     let checkpoint =
         matches!(mode, GeometrySelectionMode::Preview).then(|| GeometryCheckpoint::capture(state));
     state.rig = EntityRigId(rig_id);
-    state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
-        assets,
-        layout,
-        state.rig_binding,
-        selected,
-        &controllers,
-    );
-    state.presentation_expressions = super::render_frame::camera::presentation_expressions(
-        assets,
-        layout,
-        state.rig_binding,
-        selected,
-    );
-    state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
-        assets,
-        layout,
-        state.rig_binding,
-        selected,
-        &controllers,
-    );
+    state.samples_camera_poses = plan.camera;
+    state.presentation_expressions = plan.presentation;
+    state.samples_swing_poses = plan.swing;
     state.motion_sampling = (state.samples_camera_poses
         || state.samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
-        super::render_frame::motion_sampling::MotionSampling::new(
+        layout.motion_plan(
             assets,
-            layout,
             state.rig_binding,
             selected,
             &controllers,
             &super::server_animation::dependency_clips(assets, selected, &state.server_animations),
         )
     });
-    state.samples_render_frames = state.samples_camera_poses
-        || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
+    state.samples_render_frames = plan.frames;
     state.geometry_binding = selected;
     state.bones = bones;
     state.bone_names = bone_names;

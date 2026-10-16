@@ -248,7 +248,7 @@ fn greedy_uv_limit(width: f32, height: f32, flags: u32) -> vec2<f32> {
     return extents - vec2(CUBE_UV_EDGE_INSET);
 }
 
-// Each instance selects one CPU-visible unit; reject padding before reconstructing geometry.
+// Consecutive units share an instance; reject padding before fetching a descriptor or geometry.
 @if(TERRAIN_UNITS)
 @group(2) @binding(0) var<storage, read> terrain_units: array<vec4<u32>>;
 
@@ -259,10 +259,17 @@ fn vertex_unit(
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
     // Header locates packed visibility references beside stable descriptor slots.
+    let unit_index = instance_index * TERRAIN_UNITS_PER_INSTANCE
+        + vertex_index / (TERRAIN_UNIT_QUADS * 4u);
+    if (unit_index >= terrain_units[0].y) {
+        var invisible: VertexOutput;
+        invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
+        return invisible;
+    }
     let references = terrain_units[0].x;
-    let slot = terrain_units[references + instance_index / 4u][instance_index % 4u];
+    let slot = terrain_units[references + unit_index / 4u][unit_index % 4u];
     let unit = terrain_units[1u + slot];
-    let quad = vertex_index / 4u;
+    let quad = (vertex_index / 4u) % TERRAIN_UNIT_QUADS;
     if (quad >= unit.y) {
         var invisible: VertexOutput;
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -638,6 +645,12 @@ dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
 flags: u32) -> CutoutSample {
+    // World leaves use alpha as a cutoff, then cover every surviving sample.
+    // Fractional mip alpha must not turn a dense canopy into partial MSAA coverage.
+    @if(!ENHANCED)
+    if (material_uses_native_leaf_colour(flags)) {
+        return CutoutSample(select(0.0, 1.0, sampled.a >= TERRAIN_ALPHA_THRESHOLD), sampled);
+    }
     let layer = texture_layer(texture_ref);
     let coordinate = texture_cube_uv(texture_ref, uv);
     let page = texture_page(texture_ref);

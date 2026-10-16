@@ -90,6 +90,7 @@ fn profile(has_cape: bool) -> PlayerProfile {
         unique_id: 2,
         username: "cape-test".into(),
         verified: true,
+        xuid: "".into(),
         skin: PlayerSkin::Standard(StandardSkin {
             width: STANDARD_SKIN_SIDE as u32,
             height: STANDARD_SKIN_SIDE as u32,

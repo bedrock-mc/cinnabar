@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports its preflight measurement lines on stderr"
+)]
+
 use std::{
     hint::black_box,
     sync::Arc,

@@ -110,9 +110,11 @@ pub(in crate::inventory) struct Record {
     pub(in crate::inventory) recipe: Option<Recipe>,
 }
 
+/// Decoded crafting and station storage share one lifetime credit.
 #[derive(Debug)]
 pub(in crate::inventory) struct Batch {
     pub(in crate::inventory) records: Vec<Record>,
+    pub(super) screen: super::screen::ScreenRecipes,
     pub(in crate::inventory) clear: bool,
     pub(super) _permit: Permit,
 }
@@ -121,7 +123,6 @@ pub(in crate::inventory) struct Batch {
 #[derive(Debug, Clone)]
 pub struct RecipeUpdate {
     pub(in crate::inventory) batch: Option<Arc<Batch>>,
-    pub(in crate::inventory) screen: Option<Arc<super::screen::ScreenRecipes>>,
 }
 
 impl RecipeUpdate {
@@ -133,27 +134,25 @@ impl RecipeUpdate {
     }
     /// Number of station recipes explicitly declined by this update.
     pub fn skipped_screen_recipes(&self) -> usize {
-        self.screen.as_ref().map_or(0, |screen| screen.skipped)
+        self.batch.as_ref().map_or(0, |batch| batch.screen.skipped)
     }
     pub fn record_count(&self) -> usize {
         self.batch.as_ref().map_or(0, |b| b.records.len())
     }
     pub(in crate::inventory) fn unavailable() -> Self {
-        Self {
-            batch: None,
-            screen: None,
-        }
+        Self { batch: None }
     }
 }
 
 impl PartialEq for RecipeUpdate {
     fn eq(&self, other: &Self) -> bool {
-        self.screen == other.screen
-            && match (&self.batch, &other.batch) {
-                (Some(a), Some(b)) => a.clear == b.clear && a.records == b.records,
-                (None, None) => true,
-                _ => false,
+        match (&self.batch, &other.batch) {
+            (Some(a), Some(b)) => {
+                a.clear == b.clear && a.records == b.records && a.screen == b.screen
             }
+            (None, None) => true,
+            _ => false,
+        }
     }
 }
 impl Eq for RecipeUpdate {}

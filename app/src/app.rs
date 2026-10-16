@@ -27,8 +27,6 @@ use client_state::ClientFrameSet;
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
-#[cfg(test)]
-use std::fs;
 use std::io::Write;
 use std::{ffi::OsStr, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
@@ -43,7 +41,7 @@ use {
         ChunkTextureAssets, VisibilityDiagnosticsInput,
     },
 };
-mod logging;
+pub(crate) mod logging;
 pub(crate) mod session;
 mod startup;
 use startup::bind_direct_session_directory;
@@ -72,7 +70,7 @@ use {
         local_player::{
             publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
         },
-        melee::produce_melee,
+        melee::produce_attacks,
         movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
@@ -105,7 +103,6 @@ use {
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
         shell_adapters::drive_menu_services,
-        survival_mining::produce_survival_mining,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
@@ -144,7 +141,7 @@ const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
 
 mod authority;
 mod executor;
-mod interaction;
+pub(crate) mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 /// Registers the production actor observation and publication boundaries.
@@ -259,6 +256,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::far_terrain::feed_far_terrain
                 .after(drive_world_stream)
+                .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
         .add_systems(
@@ -368,6 +366,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let app = App::new();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -430,11 +429,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
+    bevy::log::info!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
+    bevy::log::info!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -448,7 +447,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
+    bevy::log::info!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
@@ -478,6 +477,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
     let particle_assets = carriers.particles;
+    let flame_texture = particle_assets
+        .as_deref()
+        .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
+    let (actor_flames, actor_artwork) =
+        client_presentation::actor_publication::WorldActorFlames::prepare(
+            actor_artwork,
+            flame_texture,
+        );
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
         crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
@@ -513,7 +520,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .unwrap_or(Path::new(".")),
     ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
+        bevy::log::warn!("OreUI originals disabled ({reason})");
     }
     let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
@@ -521,11 +528,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
         .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation
-        .set_gui_fire_texture(
-            particle_assets
-                .as_deref()
-                .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE)),
-        )
+        .set_gui_fire_texture(flame_texture)
         .context("prepare native HUD actor flame texture frames")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
@@ -547,6 +550,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
+    if let Some(geometry) = actor_flames.geometry() {
+        actor_render_scene
+            .insert_geometry(geometry)
+            .map_err(|error| anyhow::anyhow!("prepare world actor flame geometry: {error:?}"))?;
+    }
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
@@ -554,7 +562,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    diagnostics::log_stderr!(
+    bevy::log::info!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
@@ -632,6 +640,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             login_settings: crate::session::login_settings(&menu, None),
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
+            log_dir: menu.layout().log_dir(),
+            record_session: menu.settings_snapshot().0.record_network_session(),
         })
         .context("spawn Bedrock network worker")
         {
@@ -683,7 +693,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
-    let mut app = App::new();
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -704,8 +715,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(logging::plugin());
-    app.add_plugins(plugins);
+    logging::add_default_plugins(&mut app, plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
@@ -715,6 +725,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
+    app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
@@ -749,10 +760,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
     .insert_resource(render_scene::ActorArtworkResource(actor_artwork))
+    .insert_resource(actor_flames)
     .insert_resource(ClientWorld::new_with_entity_assets(
         Arc::clone(&runtime_assets),
         Arc::clone(&entity_runtime),
     ))
+    .init_resource::<crate::runtime::shutdown::FatalError>()
     .insert_resource(UiRuntimeResource({
         let mut ui_runtime = UiRuntime::new(0);
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entity_runtime));
@@ -941,12 +954,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::developer_control::configure(&mut app);
     app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
-    app.init_resource::<client_state::PresenceObservation>()
-        .add_systems(
-            Last,
-            crate::shell_adapters::publish_presence_observation
-                .before(client_state::ShellFrameSet::Presence),
-        );
+    crate::shell_adapters::configure_observations(&mut app);
     session::configure_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
@@ -954,6 +962,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     executor::configure_frame_schedule_executors(&mut app);
     app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
         .add_systems(First, crate::lifecycle::acknowledge_startup);
+    crate::lifecycle::heartbeat::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     let exit = crate::runtime::frame_profile::run(&mut app);

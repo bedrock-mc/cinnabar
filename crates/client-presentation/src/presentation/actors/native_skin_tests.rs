@@ -8,6 +8,7 @@ fn profiles(legacy: bool) -> Vec<PlayerProfile> {
             unique_id: 2,
             username: "fixture".into(),
             verified: true,
+            xuid: "".into(),
             skin: PlayerSkin::Standard(render_api::StandardSkin {
                 width: side as u32,
                 height: if legacy { side / 2 } else { side } as u32,

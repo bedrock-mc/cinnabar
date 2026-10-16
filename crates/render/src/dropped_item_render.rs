@@ -1,5 +1,4 @@
 //! Draws dropped-item and block models plus dynamic line geometry in the opaque 3D phase.
-use crate::queue_writes::ProfiledQueue as _;
 mod mesh_storage;
 mod model_upload;
 use bevy::prelude::IntoScheduleConfigs;
@@ -90,6 +89,7 @@ struct Installed;
 fn install(app: &mut App) {
     app.init_resource::<DroppedItemScene>();
     crate::lighting::install(app);
+    crate::upload_staging::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -161,6 +161,12 @@ struct ItemGpu {
     identity_instance: u32,
     /// This frame's `(vertex range, instance index)` draws.
     draws: Vec<ItemDraw>,
+    /// Reused per-frame instance staging for the instance buffer upload.
+    instance_scratch: Vec<GpuItemInstance>,
+    /// Reused per-frame marks of the model slots current instances reference.
+    current_scratch: Vec<bool>,
+    /// Bit patterns last written to `environment`; equal frames skip the write.
+    environment_bits: Option<[u32; 4]>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
     #[cfg(test)]
@@ -192,6 +198,39 @@ impl ItemDraw {
                 .bounds
                 .zip(view)
                 .is_some_and(|(bounds, view)| bounds.allows_back_face_culling(view))
+    }
+}
+
+/// Calls `submit(vertices, instances, culls)` once per run of consecutive draws sharing a
+/// mesh range and this view's cull mode. Their instance slots are adjacent, so one instanced
+/// draw rasterizes the same primitives, in the same order, as one draw per copy.
+fn for_each_instanced_run(
+    draws: &[ItemDraw],
+    view: Option<&DroppedItemCullView>,
+    mut submit: impl FnMut(Range<u32>, Range<u32>, bool),
+) {
+    let mut run: Option<(Range<u32>, Range<u32>, bool)> = None;
+    for draw in draws {
+        let culls = draw.culls_in_view(view);
+        if let Some((vertices, instances, run_culls)) = &mut run
+            && *vertices == draw.vertices
+            && instances.end == draw.instance
+            && *run_culls == culls
+        {
+            instances.end += 1;
+            continue;
+        }
+        let next = (
+            draw.vertices.clone(),
+            draw.instance..draw.instance + 1,
+            culls,
+        );
+        if let Some((vertices, instances, culls)) = run.replace(next) {
+            submit(vertices, instances, culls);
+        }
+    }
+    if let Some((vertices, instances, culls)) = run {
+        submit(vertices, instances, culls);
     }
 }
 
@@ -244,6 +283,9 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         dynamic_count: 0,
         identity_instance: 0,
         draws: Vec::new(),
+        instance_scratch: Vec::new(),
+        current_scratch: Vec::new(),
+        environment_bits: None,
         bind_group: None,
         view_buffer_id: None,
         #[cfg(test)]
@@ -320,9 +362,11 @@ fn rebuild_models(
     gpu.bind_group = None;
 }
 
-/// Marks current instance models, including retained terrain candidates, at stable model slots.
-fn current_models(scene: &DroppedItemScene) -> Vec<bool> {
-    let mut current = vec![false; scene.models.len()];
+/// Refills `current` with marks for current instance models, including retained terrain
+/// candidates, at stable model slots.
+fn current_models(scene: &DroppedItemScene, current: &mut Vec<bool>) {
+    current.clear();
+    current.resize(scene.models.len(), false);
     for instance in scene.instances.iter().chain(
         scene
             .terrain_instances
@@ -333,17 +377,18 @@ fn current_models(scene: &DroppedItemScene) -> Vec<bool> {
             *required = true;
         }
     }
-    current
 }
 
 fn prepare_items(
     scene: Res<DroppedItemScene>,
     terrain: Res<TerrainItemMeshGenerations>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<ItemGpu>,
 ) {
-    let current = current_models(&scene);
+    let mut current = std::mem::take(&mut gpu.current_scratch);
+    current_models(&scene, &mut current);
     let priority_changed = current != gpu.prioritized_models;
     let missing_current = current.iter().enumerate().any(|(slot, &required)| {
         required
@@ -356,6 +401,7 @@ fn prepare_items(
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() || missing_current {
         rebuild_models(&scene, &current, &device, &queue, &mut gpu);
     }
+    gpu.current_scratch = current;
     glint::upload(&scene, &device, &queue, &mut gpu);
     if scene.instances.is_empty()
         && scene.dynamic.is_empty()
@@ -369,8 +415,10 @@ fn prepare_items(
         gpu.identity_instance = 0;
         return;
     }
-    let mut instances = Vec::with_capacity(scene.instances.len() + 1);
-    let mut draws = Vec::with_capacity(scene.instances.len());
+    let mut instances = std::mem::take(&mut gpu.instance_scratch);
+    instances.clear();
+    let mut draws = std::mem::take(&mut gpu.draws);
+    draws.clear();
     for instance in scene
         .instances
         .iter()
@@ -413,10 +461,15 @@ fn prepare_items(
         meta: [0, 15, 15, 0],
         glint: [0.0; 4],
     });
-    queue.profiled_write_buffer(
-        &gpu.instance_buffer,
-        0,
-        bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+    crate::upload_staging::write_batch(
+        staging.as_deref(),
+        &device,
+        &queue,
+        &[(
+            &gpu.instance_buffer,
+            0,
+            bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+        )],
     );
     #[cfg(test)]
     {
@@ -424,10 +477,15 @@ fn prepare_items(
     }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
-        queue.profiled_write_buffer(
-            &gpu.dynamic_buffer,
-            0,
-            bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &device,
+            &queue,
+            &[(
+                &gpu.dynamic_buffer,
+                0,
+                bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
+            )],
         );
         #[cfg(test)]
         {
@@ -435,19 +493,30 @@ fn prepare_items(
         }
     }
     gpu.draws = draws;
-    queue.profiled_write_buffer(
-        &gpu.environment,
-        0,
-        bytemuck::cast_slice::<f32, u8>(&[
-            scene.daylight,
-            scene.glint_scroll[0],
-            scene.glint_scroll[1],
-            scene.glint_scroll[2],
-        ]),
-    );
-    #[cfg(test)]
-    {
-        gpu.upload_calls += 1;
+    gpu.instance_scratch = instances;
+    let environment = [
+        scene.daylight,
+        scene.glint_scroll[0],
+        scene.glint_scroll[1],
+        scene.glint_scroll[2],
+    ];
+    let environment_bits = environment.map(f32::to_bits);
+    if gpu.environment_bits != Some(environment_bits) {
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &device,
+            &queue,
+            &[(
+                &gpu.environment,
+                0,
+                bytemuck::cast_slice::<f32, u8>(&environment),
+            )],
+        );
+        gpu.environment_bits = Some(environment_bits);
+        #[cfg(test)]
+        {
+            gpu.upload_calls += 1;
+        }
     }
 }
 
@@ -855,14 +924,14 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
         pass.set_vertex_buffer(1, gpu.instance_buffer.slice(..));
         if let Some(mesh) = gpu.mesh_buffer.as_ref() {
             pass.set_vertex_buffer(0, mesh.slice(..));
-            for draw in &gpu.draws {
-                pass.set_render_pipeline(if draw.culls_in_view(pipelines.cull_view.as_ref()) {
-                    closed
-                } else {
-                    two_sided
-                });
-                pass.draw(draw.vertices.clone(), draw.instance..draw.instance + 1);
-            }
+            for_each_instanced_run(
+                &gpu.draws,
+                pipelines.cull_view.as_ref(),
+                |vertices, instances, culls| {
+                    pass.set_render_pipeline(if culls { closed } else { two_sided });
+                    pass.draw(vertices, instances);
+                },
+            );
         }
         if gpu.dynamic_count != 0 {
             pass.set_render_pipeline(two_sided);

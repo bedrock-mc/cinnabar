@@ -36,6 +36,7 @@ mod actor;
 pub use actor::{AnimatedActor, AnimatedActors, MAX_ANIMATED_ACTORS};
 pub mod consumables;
 mod properties;
+mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
 mod rig;
 pub use rig::{
@@ -45,7 +46,7 @@ pub use rig::{
 mod state;
 use state::{
     ActorRigState, ActorTickInput, AttachableRootFrame, ControllerState, EvalBudget, EvalError,
-    EvaluatedState, RuntimeBone,
+    EvaluatedState, OperandStack, RuntimeBone,
 };
 mod store;
 pub use store::ActorAnimationStore;
@@ -88,7 +89,8 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::{EngineSlots, Evaluator, MolangValue, MolangVariables, VariableLayout};
+use evaluation::variables::{MolangVariables, ScratchVariables};
+use evaluation::{EngineSlots, Evaluator, MolangValue, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};

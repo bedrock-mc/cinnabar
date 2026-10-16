@@ -79,7 +79,7 @@ fn prepare_with<R: Borrow<FormRender>>(
         images: art.images,
     }
     .atlas_keys(paths.into_iter());
-    atlas.require(drawn.iter().map(String::as_str));
+    atlas.require(drawn.iter().map(std::ops::Deref::deref));
     drop(base);
     Some(render)
 }
@@ -118,6 +118,9 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         nodes: &mut *frame.nodes,
         next: &mut *frame.next,
         clip: None,
+        length_scale: 1.0,
+        residual: None,
+        filter: None,
         animator: textures
             .animator
             .lock()
@@ -129,6 +132,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
     let overlay_start = render.nodes.len();
     for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
+            canvas.enter_filter(node)?;
             let start = canvas.nodes.len();
             canvas.paint(node, renderers)?;
             let lifted = index >= overlay_start
@@ -141,6 +145,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
             }
         }
     }
+    canvas.close_filter()?;
     let origin = [frame.safe_area.left(), frame.safe_area.top()];
     Ok(Some(EngineFrame {
         hits: render.hits.clone(),

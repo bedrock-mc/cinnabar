@@ -14,6 +14,20 @@ pub(crate) struct RegistryBase {
     collisions: PhysicsCollisionRegistries,
 }
 
+impl std::fmt::Debug for RegistryBase {
+    /// Shows registry counts without formatting the opaque carrier asset tables.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RegistryBase")
+            .field("visual_count", &self.assets.visual_count())
+            .field(
+                "collision_records",
+                &self.collisions.available_record_count(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 impl RegistryBase {
     /// Captures shared registry tables without copying them on the frame thread.
     pub(crate) fn new(
@@ -96,6 +110,18 @@ pub(super) struct PreparedSessionRegistries {
     pub(super) assets: Arc<assets::RuntimeAssets>,
 }
 
+impl std::fmt::Debug for PreparedSessionRegistries {
+    /// Shows session identity and counts without formatting the opaque carrier asset tables.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedSessionRegistries")
+            .field("generation", &self.generation)
+            .field("hashed", &self.hashed)
+            .field("custom_blocks", &self.custom.blocks.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl PreparedSessionRegistries {
     /// Rejects a late or mismatched result before any live session state is changed.
     pub(super) fn matches(
@@ -118,24 +144,3 @@ impl PreparedSessionRegistries {
 
 #[cfg(test)]
 pub(crate) mod tests;
-
-impl std::fmt::Debug for RegistryBase {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RegistryBase")
-            .field("collisions", &self.collisions)
-            .finish_non_exhaustive()
-    }
-}
-
-impl std::fmt::Debug for PreparedSessionRegistries {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PreparedSessionRegistries")
-            .field("generation", &self.generation)
-            .field("hashed", &self.hashed)
-            .field("custom", &self.custom)
-            .field("collisions", &self.collisions)
-            .field("registration", &self.registration)
-            .field("identities", &self.identities)
-            .finish_non_exhaustive()
-    }
-}

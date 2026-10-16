@@ -94,6 +94,10 @@ pub struct NodeAnim {
     pub clip_direction: Option<String>,
     /// The static clip ratio a clip animation replaces.
     pub clip_rest: f32,
+    /// The Cinnabar paint transform from layout to painted coordinates.
+    pub transform: Option<crate::transform::Affine>,
+    /// The Cinnabar filtered subtree this draw paints into.
+    pub filter: Option<std::sync::Arc<crate::filter::FilterGroup>>,
 }
 
 /// A draw as its animations leave it at one moment.
@@ -108,6 +112,8 @@ pub struct Animated {
     pub uv: Option<UvRect>,
     /// Removed by `destroy_at_end`.
     pub hidden: bool,
+    /// The paint transform mapping `dest` to painted coordinates; `clip` is already painted.
+    pub transform: Option<crate::transform::Affine>,
 }
 
 impl DrawNode {
@@ -127,10 +133,12 @@ impl DrawNode {
             color: None,
             uv: None,
             hidden: false,
+            transform: None,
         };
         let Some(anim) = &self.anim else {
             return out;
         };
+        out.transform = anim.transform;
         if animator.hides(&self.key) {
             out.hidden = true;
             return out;
@@ -148,13 +156,18 @@ impl DrawNode {
                 out.color = written.color.map(|color| {
                     color.map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8)
                 });
-                let meta = textures.and_then(|source| source.texture(texture));
                 let mut written = written;
                 if let Some(ms) = written.aseprite_ms {
                     let frames = textures.and_then(|source| source.aseprite_frames(texture));
                     written.uv = Some(aseprite_origin(frames.as_deref().unwrap_or(&[]), ms));
                 }
-                let uv = sprite_uv(anim, &written, *uv, meta.map(|meta| meta.base_size));
+                // Only a uv or flip-book write reads the texture's size; others keep the uv.
+                let uv = if written.uv.is_some() || written.flip.is_some() {
+                    let meta = textures.and_then(|source| source.texture(texture));
+                    sprite_uv(anim, &written, *uv, meta.map(|meta| meta.base_size))
+                } else {
+                    *uv
+                };
                 let (dest, uv) = clip_crop(anim, own, &written, self.dest, uv);
                 out.dest = dest;
                 out.uv = Some(uv);

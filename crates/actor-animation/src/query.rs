@@ -57,7 +57,12 @@ pub(super) fn query(
     name: Q,
     arguments: &[MolangValue],
 ) -> MolangValue {
-    let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
+    let text = |value: Option<&str>| {
+        MolangValue::String(match value.filter(|value| !value.is_empty()) {
+            Some(value) => Arc::from(value),
+            None => empty_text(),
+        })
+    };
     match name {
         Q::IsSpectator => MolangValue::Number(truth(match evaluator.actor.player_game_mode() {
             Some(protocol::GameModeUpdate::Explicit(mode)) => {
@@ -116,6 +121,12 @@ pub(super) fn query(
         Q::GetDefaultBonePivot => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
+}
+
+/// The idle `''` every string query without a value shares instead of allocating.
+fn empty_text() -> Arc<str> {
+    static EMPTY: std::sync::LazyLock<Arc<str>> = std::sync::LazyLock::new(|| Arc::from(""));
+    Arc::clone(&EMPTY)
 }
 
 /// The actor's synced property by name: enums read as their value name, everything else as its
@@ -409,7 +420,9 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             }
         }
         // Only the one-argument forms carry a value; the bare forms read as zero.
-        Q::HeadYRotation => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
+        Q::HeadYRotation => argument(0)
+            .filter(|limit| !limit.is_nan())
+            .map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         Q::HeadXRotation => argument(0).map_or(0.0, |_| input.pitch),
         Q::StateTime => evaluator.state_time,
         Q::AllAnimationsFinished => truth(evaluator.finished.0),

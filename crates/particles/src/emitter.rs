@@ -4,7 +4,8 @@ use std::{collections::VecDeque, sync::Arc};
 
 use super::{
     atlas::Placement,
-    def::{Direction, EffectDef, EventNode, Lifetime, Rate, Shape, SpawnKind},
+    def::{Direction, EffectDef, Lifetime, Rate, Shape},
+    event_budget::EventBudget,
     molang::{
         Program, Queries, Rng, V_EMITTER_AGE, V_EMITTER_LIFETIME, V_EMITTER_RANDOM, V_PARTICLE_AGE,
         V_PARTICLE_LIFETIME, V_PARTICLE_RANDOM,
@@ -12,6 +13,7 @@ use super::{
     particle::Particle,
 };
 
+mod events;
 mod manual;
 
 #[cfg(test)]
@@ -62,7 +64,8 @@ pub struct ParticleSound {
 #[derive(Default)]
 pub struct Outputs {
     pub spawns: Vec<SpawnRequest>,
-    pub sounds: Vec<ParticleSound>,
+    pub sounds: VecDeque<ParticleSound>,
+    pub(crate) budget: EventBudget,
 }
 
 pub const MAX_SPAWN_DEPTH: u8 = 4;
@@ -359,11 +362,15 @@ impl Emitter {
             particle.plane_side =
                 plane[0] * rel[0] + plane[1] * rel[1] + plane[2] * rel[2] + plane[3];
         }
-        let events = def.particle.creation_events.clone();
         self.particles.push_back(particle);
         let world_pos = self.world_position(self.particles.len() - 1);
-        for event in events {
-            self.run_event(&event, world_pos, velocity, output);
+        for (index, event) in def.particle.creation_events.iter().enumerate() {
+            if !self.run_event(event, world_pos, velocity, output) {
+                output
+                    .budget
+                    .skip_work(def.particle.creation_events.len() - index - 1);
+                break;
+            }
         }
     }
 
@@ -470,92 +477,6 @@ impl Emitter {
             };
         }
         p
-    }
-
-    /// Runs a named event of this effect at a world position.
-    pub fn run_event(
-        &mut self,
-        name: &str,
-        position: [f32; 3],
-        velocity: [f32; 3],
-        output: &mut Outputs,
-    ) {
-        let def = Arc::clone(&self.def);
-        if let Some(node) = def.event(name) {
-            self.run_node(node, position, velocity, output);
-        }
-    }
-
-    fn run_node(
-        &mut self,
-        node: &EventNode,
-        position: [f32; 3],
-        velocity: [f32; 3],
-        output: &mut Outputs,
-    ) {
-        match node {
-            EventNode::Spawn { effect, kind } => {
-                if self.depth >= MAX_SPAWN_DEPTH {
-                    return;
-                }
-                let bound = match kind {
-                    SpawnKind::EmitterBound => self.bound.map(|(actor, offset)| {
-                        (
-                            actor,
-                            std::array::from_fn(|i| offset[i] + position[i] - self.pos[i]),
-                        )
-                    }),
-                    _ => None,
-                };
-                output.spawns.push(SpawnRequest {
-                    effect: effect.to_string(),
-                    position,
-                    bound,
-                    basis: Some(self.basis),
-                    queries: self.queries.clone(),
-                    actor_attachment: if matches!(kind, SpawnKind::EmitterBound) {
-                        self.actor_attachment.clone().map(|mut attachment| {
-                            attachment.world_offset = std::array::from_fn(|axis| {
-                                attachment.world_offset[axis] + position[axis] - self.pos[axis]
-                            });
-                            attachment
-                        })
-                    } else {
-                        None
-                    },
-                    inherit_velocity: matches!(kind, SpawnKind::ParticleWithVelocity)
-                        .then_some(velocity),
-                    depth: self.depth + 1,
-                    ..SpawnRequest::default()
-                });
-            }
-            EventNode::Sound(name) => output.sounds.push(ParticleSound {
-                name: name.clone(),
-                position,
-            }),
-            EventNode::Expression(program) => {
-                self.eval(program);
-            }
-            EventNode::Sequence(nodes) => {
-                for node in nodes {
-                    self.run_node(node, position, velocity, output);
-                }
-            }
-            EventNode::Randomize(options) => {
-                let total: f32 = options.iter().map(|(weight, _)| weight).sum();
-                if total <= 0.0 {
-                    return;
-                }
-                let mut pick = self.rng.unit() * total;
-                for (weight, node) in options {
-                    if pick < *weight {
-                        self.run_node(node, position, velocity, output);
-                        return;
-                    }
-                    pick -= weight;
-                }
-            }
-        }
     }
 }
 

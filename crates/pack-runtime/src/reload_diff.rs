@@ -206,7 +206,7 @@ impl Changes {
 }
 
 /// Replays readable and rejected file dependencies without consuming unrelated textures.
-fn dependency_fingerprint(
+pub fn dependency_fingerprint(
     stack: &ValidatedPackStack,
     inputs: &BTreeSet<PackDependency>,
 ) -> [u8; 32] {

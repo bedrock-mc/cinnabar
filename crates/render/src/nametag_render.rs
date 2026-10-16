@@ -2,6 +2,7 @@
 //! and a depth-tested pass, using Java label depth and blending rules.
 
 use crate::queue_writes::ProfiledQueue as _;
+use bevy::prelude::DetectChanges;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -65,9 +66,10 @@ struct NametagBatch {
     text: bool,
 }
 
-/// Batches adjacent material modes without moving records across label boundaries.
-fn record_batches(records: &[NametagRecord]) -> Vec<NametagBatch> {
-    let mut batches: Vec<NametagBatch> = Vec::new();
+/// Refills `batches` with adjacent material modes batched, without moving records across
+/// label boundaries; the vector's allocation is reused.
+fn record_batches(records: &[NametagRecord], batches: &mut Vec<NametagBatch>) {
+    batches.clear();
     for (index, record) in records.iter().enumerate() {
         let depth_tested = record.depth_tested != 0;
         let text = record.text != 0;
@@ -84,7 +86,6 @@ fn record_batches(records: &[NametagRecord]) -> Vec<NametagBatch> {
             });
         }
     }
-    batches
 }
 
 /// A material batch consumes one Bevy phase entry, irrespective of its glyph count.
@@ -93,6 +94,7 @@ fn phase_batch_range(index: usize) -> Range<u32> {
 }
 
 pub(crate) fn install_nametag_render(app: &mut App) {
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<NametagPipeline>(app);
     app.init_resource::<NametagSceneResource>()
         .add_plugins(ExtractResourcePlugin::<NametagSceneResource>::default());
@@ -177,20 +179,31 @@ fn init_nametag_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     });
 }
 
+/// Uploads records and batches only when the extracted scene was reassigned, the GPU
+/// resources were (re)created, or the queue changed; the atlas uploads its changed cells.
 fn prepare_nametags(
     scene: Res<NametagSceneResource>,
     render_queue: Res<RenderQueue>,
+    render_device: Res<RenderDevice>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     mut gpu: ResMut<NametagGpu>,
 ) {
-    let total = scene.records.len().min(MAX_NAMETAG_RECORDS);
-    gpu.total = total as u32;
-    gpu.batches = record_batches(&scene.records[..total]);
-    if total > 0 {
-        render_queue.profiled_write_buffer(
-            &gpu.record_buffer,
-            0,
-            bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
-        );
+    if scene.is_changed() || gpu.is_added() || render_queue.is_changed() {
+        let total = scene.records.len().min(MAX_NAMETAG_RECORDS);
+        gpu.total = total as u32;
+        record_batches(&scene.records[..total], &mut gpu.batches);
+        if total > 0 {
+            crate::upload_staging::write_batch(
+                staging.as_deref(),
+                &render_device,
+                &render_queue,
+                &[(
+                    &gpu.record_buffer,
+                    0,
+                    bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
+                )],
+            );
+        }
     }
     if Arc::ptr_eq(&scene.atlas, &gpu.atlas) {
         return;
@@ -562,6 +575,52 @@ mod tests {
     use super::*;
     use render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL;
 
+    fn batches_of(records: &[NametagRecord]) -> Vec<NametagBatch> {
+        let mut batches = Vec::new();
+        record_batches(records, &mut batches);
+        batches
+    }
+
+    #[test]
+    fn records_reupload_on_the_first_frame_and_each_scene_change_only() {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::{IntoSystem, System};
+        let (device, queue) = wgpu::Device::noop(&Default::default());
+        let mut world = World::new();
+        world.insert_resource(RenderDevice::from(device));
+        world.insert_resource(RenderQueue::new(queue));
+        let plate = NametagRecord::default();
+        let glyph = NametagRecord { text: 1, ..plate };
+        world.insert_resource(NametagSceneResource(render_model::NametagScene {
+            records: vec![plate, glyph],
+            ..default()
+        }));
+        world.run_system_once(init_nametag_gpu).unwrap();
+        let mut system = IntoSystem::into_system(prepare_nametags);
+        system.initialize(&mut world);
+        system.run((), &mut world).unwrap();
+        assert_eq!(world.resource::<NametagGpu>().total, 2);
+        assert_eq!(world.resource::<NametagGpu>().batches.len(), 2);
+
+        // An unchanged scene leaves the uploaded state alone.
+        world.resource_mut::<NametagGpu>().total = 0;
+        system.run((), &mut world).unwrap();
+        assert_eq!(world.resource::<NametagGpu>().total, 0);
+
+        world.resource_mut::<NametagSceneResource>().records = vec![glyph];
+        system.run((), &mut world).unwrap();
+        let gpu = world.resource::<NametagGpu>();
+        assert_eq!(gpu.total, 1);
+        assert_eq!(
+            gpu.batches,
+            [NametagBatch {
+                records: 0..1,
+                depth_tested: false,
+                text: true
+            }]
+        );
+    }
+
     // Storage layout and shared geometry, with no glyph-to-plate separation.
     #[test]
     fn shader_mirrors_the_record_layout_scale_and_lift() {
@@ -584,7 +643,7 @@ mod tests {
             depth_tested: 1,
             ..glyph
         };
-        let batches = record_batches(&[plate, glyph, glyph, tested_plate, tested_glyph]);
+        let batches = batches_of(&[plate, glyph, glyph, tested_plate, tested_glyph]);
         assert_eq!(
             batches,
             [
@@ -620,7 +679,7 @@ mod tests {
             depth_tested: 1,
             ..dim
         };
-        let batches = record_batches(&[plate, dim, full, plate, dim, full]);
+        let batches = batches_of(&[plate, dim, full, plate, dim, full]);
         assert_eq!(
             batches
                 .iter()
@@ -654,7 +713,7 @@ mod tests {
         for record in &mut records[5..] {
             record.depth_tested = 1;
         }
-        let batches = record_batches(&records);
+        let batches = batches_of(&records);
         let mut phase_index = 0;
         let mut visited = Vec::new();
         while phase_index < batches.len() {

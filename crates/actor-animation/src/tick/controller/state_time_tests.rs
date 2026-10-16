@@ -87,7 +87,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         weight: Some(0),
     }; 2]
         .into();
-    let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let layout = evaluation::VariableLayout::new(&assets);
     let actor = crate::tests::actor_with_metadata(HashMap::new());
     let input = ActorTickInput::default();
@@ -126,7 +126,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: Default::default(),
         static_draw: None,
     };
     let mut clips = Vec::new();

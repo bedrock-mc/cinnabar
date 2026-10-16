@@ -115,14 +115,14 @@ struct Life {
     cancel_start: Option<CancelHandle>,
     /// Disconnects once the start in progress has finished, including stopping a cancelled server.
     start_done: Option<Receiver<()>>,
-    /// Servers still saving or cleaning up after a close; an open waits for all of them, so no
+    /// Servers still saving or cleaning up after a close or exit; an open waits for all of them, so no
     /// world's files or backend resources are shared with a new server.
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
 }
 
-/// A closed world whose server has not finished stopping.
+/// A world whose exited or closing server has not finished backend cleanup.
 #[derive(Clone)]
 struct Retiring {
     world_id: String,
@@ -183,6 +183,12 @@ impl Manager {
         }
     }
 
+    /// Deletes imports a killed client left behind; it walks and deletes folders, so it runs on
+    /// the worlds worker.
+    pub fn reclaim_abandoned_imports(&self) {
+        self.inner.store.reclaim_abandoned_imports();
+    }
+
     /// Saved worlds, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
         self.inner.store.list()
@@ -204,15 +210,35 @@ impl Manager {
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
+        world.backend = Some(self.creatable_backend(world.backend)?);
+        self.inner.store.create(&world)
+    }
+
+    /// Imports the `.mcworld` at `archive` as a new world on this machine's default backend.
+    pub fn import(
+        &self,
+        archive: &std::path::Path,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<World, WorldError> {
+        let backend = self.creatable_backend(None)?;
+        super::import::import(
+            &self.inner.store,
+            archive,
+            backend,
+            &super::import::WORLD_LIMITS,
+            cancelled,
+        )
+    }
+
+    /// The backend a new world runs on, or why none can be saved yet.
+    fn creatable_backend(&self, requested: Option<Backend>) -> Result<Backend, WorldError> {
         if let Some(setup) = &self.inner.setup
-            && world.backend != Some(Backend::Dragonfly)
+            && requested != Some(Backend::Dragonfly)
             && !setup.await_runtime(self.inner.runtime_wait)
         {
             return Err(WorldError::RuntimePending);
         }
-        let backend = world
-            .backend
-            .unwrap_or_else(|| self.inner.store.default_backend());
+        let backend = requested.unwrap_or_else(|| self.inner.store.default_backend());
         if let Some((_, reason)) = self
             .inner
             .unavailable
@@ -225,8 +251,7 @@ impl Manager {
         if backend == Backend::Bds && !self.bds_runnable() {
             return Err(WorldError::BackendUnavailable);
         }
-        world.backend = Some(backend);
-        self.inner.store.create(&world)
+        Ok(backend)
     }
 
     fn bds_runnable(&self) -> bool {
@@ -434,7 +459,7 @@ impl Manager {
         }
     }
 
-    /// Fails the world when its server exits while it is still the running one.
+    /// Fails the running world while retaining its backend cleanup barrier for any later open.
     fn watch(&self, instance: &Arc<dyn Instance>) {
         let _ = instance.exited().recv();
         let mut life = lock(&self.inner.life);
@@ -444,9 +469,21 @@ impl Manager {
             .is_some_and(|running| Arc::ptr_eq(running, instance));
         if current && life.state == WorldState::Running {
             tracing::error!("the local world server exited unexpectedly");
+            let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
+            if let Some(world) = &life.world {
+                let retiring = Retiring {
+                    world_id: world.id.clone(),
+                    done,
+                };
+                life.retiring.push(retiring);
+            }
             life.instance = None;
             life.failure = Some("local world server exited unexpectedly".to_owned());
             self.set_state(&mut life, WorldState::Failed);
+            drop(life);
+            // stop joins the backend's shared cleanup even when its process has already exited.
+            self.stop_instance(instance.as_ref());
+            drop(cleaning);
         }
     }
 
@@ -456,8 +493,8 @@ impl Manager {
         }
     }
 
-    /// Stops the open world (saving it) or clears a failure; it returns without waiting for the
-    /// server, which has already been asked to stop.
+    /// Stops the open world (saving it) or clears a failure, normally without waiting.
+    /// If a stop worker cannot start, completes cleanup inline before releasing its barrier.
     pub fn close(&self) {
         let mut life = lock(&self.inner.life);
         let state = life.state;
@@ -494,13 +531,17 @@ impl Manager {
                 self.set_state(&mut life, WorldState::Stopping);
                 let stopping = Arc::clone(&instance);
                 let generation = life.generation;
+                let fallback_done = stopping_done.clone();
                 let spawned = self.background(move |manager| {
                     manager.stop_instance(stopping.as_ref());
                     drop(stopping_done);
                     manager.idle_if_current(generation);
                 });
                 if !spawned {
-                    self.idle(&mut life);
+                    drop(life);
+                    self.stop_instance(instance.as_ref());
+                    drop(fallback_done);
+                    self.idle_if_current(generation);
                 }
             }
             WorldState::Idle | WorldState::Stopping => {}

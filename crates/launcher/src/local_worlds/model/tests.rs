@@ -188,6 +188,53 @@ fn delete_lives_behind_edit_and_needs_confirmation() {
 }
 
 #[test]
+fn back_keeps_submitted_deletion_busy_until_its_reply() {
+    for reply in [
+        Event::Deleted("id1".to_owned()),
+        Event::Failed("delete failed".to_owned()),
+    ] {
+        let mut menu = loaded(&["a", "b"]);
+        menu.update(Input::BeginEdit(1));
+        menu.update(Input::RequestDelete);
+        assert_eq!(
+            menu.update(Input::ConfirmDelete),
+            vec![Effect::Delete("id1".to_owned())]
+        );
+        assert!(menu.update(Input::Back).is_empty());
+        assert_eq!((menu.screen(), menu.busy()), (Screen::Edit, true));
+        for input in [
+            Input::PlayFromEdit,
+            Input::RequestDelete,
+            Input::ConfirmDelete,
+            Input::SubmitEdit,
+            Input::Back,
+        ] {
+            assert!(
+                menu.update(input).is_empty(),
+                "a submitted delete owns the pending mutation"
+            );
+            assert!(menu.busy());
+        }
+        let succeeded = matches!(reply, Event::Deleted(_));
+        assert!(menu.apply(reply).is_empty());
+        assert!(!menu.busy());
+        if succeeded {
+            assert_eq!(menu.screen(), Screen::List);
+            assert_eq!(menu.worlds().len(), 1);
+        } else {
+            assert_eq!(menu.screen(), Screen::Error);
+            assert_eq!(menu.worlds().len(), 2);
+            assert!(menu.update(Input::Back).is_empty());
+            assert_eq!(menu.screen(), Screen::Edit);
+            assert_eq!(
+                menu.update(Input::PlayFromEdit),
+                vec![Effect::Open("id1".to_owned())]
+            );
+        }
+    }
+}
+
+#[test]
 fn edit_prefills_validates_and_sends_only_changes() {
     let mut menu = loaded(&["Old"]);
     menu.update(Input::BeginEdit(0));
@@ -684,4 +731,72 @@ fn new_world_backend_defaults_to_dragonfly_without_a_docker_gate() {
     };
     assert_eq!(spec.backend, Some(Backend::Dragonfly));
     assert_eq!(spec.generator, Generator::Normal);
+}
+
+/// An import holds the list behind its modal until the worker reports, then lists the world first.
+#[test]
+fn an_import_lists_the_new_world_first_and_selects_it() {
+    let mut menu = loaded(&["a"]);
+    assert_eq!(menu.update(Input::Import), vec![Effect::Import(None)]);
+    assert_eq!(menu.screen(), Screen::Importing);
+    assert!(menu.update(Input::BeginCreate).is_empty(), "busy");
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(
+        menu.screen(),
+        Screen::Importing,
+        "the copy is not interrupted"
+    );
+    menu.apply(Event::Imported {
+        worlds: vec![world("imported", "Castle")],
+        errors: Vec::new(),
+    });
+    assert_eq!((menu.screen(), menu.busy()), (Screen::List, false));
+    assert_eq!(menu.selected().map(|w| w.id.as_str()), Some("imported"));
+    assert_eq!(menu.worlds().len(), 2);
+}
+
+/// A refused file shows why on the error screen, which returns to the list.
+#[test]
+fn a_refused_import_shows_its_reason() {
+    let mut menu = loaded(&["a"]);
+    let files = vec![PathBuf::from("/w/bad.mcworld")];
+    assert_eq!(
+        menu.update(Input::ImportFiles(files.clone())),
+        vec![Effect::Import(Some(files))]
+    );
+    menu.apply(Event::Imported {
+        worlds: Vec::new(),
+        errors: vec!["bad.mcworld: the world file has no level.dat".to_owned()],
+    });
+    assert_eq!(menu.screen(), Screen::Error);
+    assert!(
+        menu.error()
+            .is_some_and(|error| error.contains("no level.dat"))
+    );
+    menu.update(Input::Back);
+    assert_eq!((menu.screen(), menu.worlds().len()), (Screen::List, 1));
+}
+
+/// A cancelled picker returns to the list unchanged.
+#[test]
+fn a_cancelled_import_returns_to_the_list() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::Import);
+    menu.apply(Event::Imported {
+        worlds: Vec::new(),
+        errors: Vec::new(),
+    });
+    assert_eq!((menu.screen(), menu.busy()), (Screen::List, false));
+    assert_eq!(menu.worlds().len(), 1);
+}
+
+/// Drops import only from the list, never over a form.
+#[test]
+fn dropped_files_import_only_from_the_list() {
+    let mut menu = loaded(&["a"]);
+    assert!(menu.update(Input::ImportFiles(Vec::new())).is_empty());
+    menu.update(Input::BeginCreate);
+    let files = vec![PathBuf::from("/w/a.mcworld")];
+    assert!(menu.update(Input::ImportFiles(files)).is_empty());
+    assert_eq!(menu.screen(), Screen::Create);
 }

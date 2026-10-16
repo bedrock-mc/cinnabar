@@ -8,7 +8,7 @@ use super::{
     FIXED_POINT_DENOMINATOR, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
     REPLACEMENT_CODEPOINT, TEXT_BOLD_OFFSET_64, TextError, TextLayout, TextLayoutKey,
     TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible, line_metrics::LineMetrics,
-    parse::parse_bedrock_text_with_style, units::Units,
+    parse::parse_bedrock_text_with_sources, units::Units,
 };
 
 pub(super) fn build_layout(
@@ -16,7 +16,7 @@ pub(super) fn build_layout(
     key: TextLayoutKey,
     request: TextLayoutRequest<'_>,
 ) -> Result<TextLayout, TextError> {
-    let spans = parse_bedrock_text_with_style(
+    let (spans, sources) = parse_bedrock_text_with_sources(
         request.text,
         crate::UiLimits::MAX_TEXT_BYTES,
         request.style,
@@ -50,6 +50,7 @@ pub(super) fn build_layout(
         min_64: 0,
         max_64: 0,
         x_64: 0,
+        first_line_origin_64: 0,
         ellipsized: false,
     };
     let mut space: Option<WrapPoint> = None;
@@ -114,7 +115,7 @@ pub(super) fn build_layout(
         lines.push(glyph, style, candidate, source)?;
     }
     lines.finish_line()?;
-    lines.into_layout(id, key)
+    lines.into_layout(id, key, &sources)
 }
 
 /// Where a line may break: the space's glyph index and the character after it.
@@ -166,6 +167,7 @@ struct Lines<'a> {
     min_64: i64,
     max_64: i64,
     x_64: i64,
+    first_line_origin_64: i64,
     ellipsized: bool,
 }
 
@@ -413,15 +415,26 @@ impl Lines<'_> {
     /// Normalise the line's glyphs to start at zero and record its width.
     fn finish_line(&mut self) -> Result<(), TextError> {
         let shift_64 = -self.min_64;
+        if self.line == 0 {
+            self.first_line_origin_64 = shift_64;
+        }
         for glyph in &mut self.glyphs[self.line_start..] {
             glyph.bounds_64[0] = checked_i32(i64::from(glyph.bounds_64[0]) + shift_64)?;
             glyph.bounds_64[2] = checked_i32(i64::from(glyph.bounds_64[2]) + shift_64)?;
+        }
+        for mark in &mut self.marks[self.line_start..] {
+            mark.pen_64 += shift_64;
         }
         self.widths.push(self.max_64 - self.min_64);
         Ok(())
     }
 
-    fn into_layout(mut self, id: u64, key: TextLayoutKey) -> Result<TextLayout, TextError> {
+    fn into_layout(
+        mut self,
+        id: u64,
+        key: TextLayoutKey,
+        sources: &[usize],
+    ) -> Result<TextLayout, TextError> {
         let line_count = self.widths.len();
         let factor = match self.request.wrap.align {
             TextLineAlign::Left => 0,
@@ -459,10 +472,27 @@ impl Lines<'_> {
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
         let nominal_height_64 = self.metrics.block_height_64(count)?;
         let height_64 = normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?;
+        let first_line = self
+            .glyphs
+            .iter()
+            .take_while(|glyph| glyph.line == 0)
+            .count();
+        let origin = self.first_line_origin_64;
+        let mut caret_stops_64 = vec![(0, checked_i32(units.to_output(origin)? + offsets[0])?)];
+        for mark in &self.marks[..first_line] {
+            if let Some(&byte) = sources.get(mark.source) {
+                caret_stops_64.push((
+                    byte,
+                    checked_i32(units.to_output(mark.pen_64)? + offsets[0])?,
+                ));
+            }
+        }
         Ok(TextLayout {
             id,
             key,
+            obfuscated: self.glyphs.iter().any(|glyph| glyph.style.obfuscated),
             glyphs: self.glyphs.into_boxed_slice(),
+            caret_stops_64: caret_stops_64.into_boxed_slice(),
             source_indices: self
                 .marks
                 .into_iter()

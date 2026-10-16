@@ -4,6 +4,8 @@ members = [
     "packaging/android/client",
     "crates/acceptance",
     "crates/actor-animation",
+    "crates/crash-monitor",
+    "crates/crash-report",
     "crates/diagnostics",
     "crates/far-terrain",
     "crates/asset-compiler",
@@ -12,6 +14,7 @@ members = [
     "web/transport",
     "web/client",
     "crates/block-transform",
+    "crates/bootstrap-ui",
     "crates/client-world",
     "crates/client-state",
     "crates/client-shell",
@@ -136,6 +139,9 @@ futures = "0.3"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-error = "0.2"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mimalloc = { version = "=0.1.52", default-features = false }
@@ -147,15 +153,15 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
-# Preserve FIFO pacing, batched indirect validation and lazy logging on wgpu 30.0.1.
+# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
 
-wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "892de142a078784c58b2531c15d7ace97a851157" }
 
 [profile.dev]
 opt-level = 1
@@ -165,15 +171,28 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 3
 
+# Shipped binaries carry no debug info; line tables go to a split file per binary (a PDB on
+# Windows, a `.dSYM` on macOS) that package.yml publishes as a release symbol archive. MSVC writes
+# the PDB whatever `strip` says; macOS runs dsymutil before stripping. Linux packaging overrides
+# split-debuginfo and strip and splits after linking (packaging/release-symbols.py), because the
+# linker's `--strip-debug` would also drop the line tables a packed `.dwp` depends on.
 [profile.release]
 codegen-units = 1
 lto = "thin"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
 
 # `make play`: release speed with parallel codegen and incremental rebuilds; shipped builds use release.
+# It skips release debug info, so local and Android CI builds pay no dsymutil, PDB or link cost.
 [profile.play]
 inherits = "release"
 codegen-units = 16
 lto = false
 incremental = true
+debug = false
 
 [workspace.lints.clippy]
+# Diagnostics go through `tracing`; stdout/stderr contracts carry a reasoned `#[expect]`.
+print_stderr = "warn"
+print_stdout = "warn"

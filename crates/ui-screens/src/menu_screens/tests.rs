@@ -22,6 +22,7 @@ fn reconnect_regions_require_a_retryable_failure() {
 
 fn view(screen: MenuScreen) -> MenuView {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+    view.over_world = true;
     view.screen = screen;
     view.auth_state = AuthState::SignedOut;
     view
@@ -58,6 +59,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         widget: Default::default(),
         collections: Vec::new(),
         modal_root: None,
+        transform: None,
     }
 }
 
@@ -500,4 +502,64 @@ fn automatic_update_binding_uses_the_persisted_opt_out() {
     let mut expected = data.clone();
     expected.set_global("#auto_update_enabled", json_ui::Scalar::Bool(false));
     assert_eq!(data, expected);
+}
+#[test]
+fn disconnect_is_never_a_json_ui_screen() {
+    let mut shown = view(MenuScreen::Play);
+    shown.disconnect_message = Some(launcher::menu::disconnect::from_server(
+        "§cDisconnected\n§fTry again.",
+    ));
+    shown.can_reconnect = true;
+    shown.over_world = false;
+    assert!(screen_data(&shown, &|_| None, 0).is_none());
+}
+
+#[test]
+fn every_out_of_game_flow_rejects_json_ui_roots() {
+    use launcher::menu::flow::MenuFlow;
+    for &flow in MenuFlow::ALL {
+        for &screen in MenuScreen::ALL {
+            if screen.requires_session() {
+                continue;
+            }
+            let mut shown = view(screen);
+            shown.over_world = false;
+            match flow {
+                MenuFlow::Screen => {}
+                MenuFlow::LocalProgress => {
+                    shown.local.progress =
+                        Some(launcher::local_worlds::Progress::connecting("Fixture"))
+                }
+                MenuFlow::Connecting => shown.connecting = true,
+                MenuFlow::Disconnect => shown.disconnect_message = Some("closed".into()),
+                MenuFlow::SignIn => {
+                    // A standalone prompt belongs to the launcher, irrespective of its underlying route.
+                    shown.screen = MenuScreen::Home;
+                    shown.auth_state = AuthState::AwaitingCode {
+                        uri: "https://example.invalid".into(),
+                        code: "EXAMPLE".into(),
+                    };
+                }
+                MenuFlow::RealmMembership => shown.realm_membership = Some(Default::default()),
+            }
+            assert_eq!(shown.flow(), flow);
+            assert!(shown.out_of_game());
+            assert!(
+                screen_data(&shown, &|_| None, 0).is_none(),
+                "{flow:?}/{screen:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn session_menu_bindings_keep_their_existing_root_families() {
+    for &screen in MenuScreen::ALL {
+        let shown = view(screen);
+        assert!(!shown.out_of_game());
+        assert_eq!(
+            screen_data(&shown, &|_| None, 0).map(|data| data.reference),
+            launcher::menu::menu_reference(screen)
+        );
+    }
 }

@@ -27,6 +27,7 @@ pub struct ActorFrameState {
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
     pub(super) java_poses: java::PoseScratch,
+    pub(super) body_scratch: super::bodies::BodyScratch,
     pub(super) input: Option<ActorFrameInput>,
     pub(super) step: Option<crate::actor_clock::ActorFrameStep>,
     motion_step: Option<crate::actor_clock::ActorFrameStep>, // Taken by early remote motion.

@@ -406,18 +406,22 @@ impl Content<'_, '_> {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if id == SettingId::CinnabarVisible {
+            "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
+        } else if id == SettingId::CinnabarBadges {
+            "Show Cinnabar badges beside player names and in the player list.".to_owned()
         } else if id == SettingId::AutoUpdateEnabled {
             "Check the selected channel and download verified updates in the background.".to_owned()
         } else if id == SettingId::InstallUpdatesOnQuit {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
-        } else if id == SettingId::FarTerrain {
-            "Draw terrain you've visited beyond your render distance, in less detail. Auto turns it on only when your render distance is larger than this device's full-detail distance.".to_owned()
-        } else if id == SettingId::FullDetailDistance {
-            "Chunks around you drawn with every block. The rest of your render distance is drawn simplified. Auto picks for this device.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
+        } else if id == SettingId::VerboseLogging {
+            "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
+        } else if id == SettingId::RecordNetworkSession {
+            "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
         } else if (id == SettingId::RenderClouds
             || id == SettingId::MaxFramerate
             || id == SettingId::ShowExactServerPing
@@ -455,12 +459,6 @@ impl Content<'_, '_> {
                     SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
-                    SettingId::FullDetailDistance => {
-                        launcher::menu::settings_options::full_detail_label(value, &|chunks| {
-                            self.word("options.renderDistanceFormat")
-                                .replace("%s", &chunks.to_string())
-                        })
-                    }
                     SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

@@ -221,7 +221,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "bridge", "protocol", "server-experience", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -287,7 +287,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "diagnostics", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler"]
 forbidden_transitive_dependencies = ["render", "app", "cinnabar", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
 test_support_features = ["test-support"]
@@ -301,10 +301,18 @@ forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
+# Crash report schema, folder layout, log sections and retention; offline and clock-free.
+[[crates]]
+name = "crash-report"
+path = "crates/crash-report"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio", "hyper"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*", "reqwest", "tokio", "hyper*"]
+
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "crash-report", "env-compat", "libc", "meshing", "render-model", "rustix", "test-time", "windows-sys", "world"]
 forbidden_dependencies = ["bevy", "protocol"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 
@@ -386,7 +394,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["test-alloc", "pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
+allowed_dependencies = ["test-alloc", "pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "bootstrap-ui", "crash-monitor", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -479,7 +487,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input"]
+allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 # The portable JSON-UI engine; hosts supply reads, the clock and worker threads through its sources.
@@ -533,7 +541,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["workspace-declarations"]
+allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -564,7 +572,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["assets", "json-ui", "jsonui-editor", "launcher", "oreui", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["assets", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-model", "ui", "ui-engine", "ui-screens"]
+test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -577,7 +586,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "mcp-stdio", "test-time"]
+allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -763,6 +772,18 @@ producer = "crates/client-ui/src/diagnostic_markers.rs"
 consumer = "crates/client-ui/src/ui_runtime/crafting_observation.rs"
 
 [[markers]]
+literal = "CINNABAR_LOG"
+kind = "environment_variable"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/diagnostics/src/logging.rs"
+
+[[markers]]
+literal = "CINNABAR_LOG_JSON"
+kind = "environment_variable"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/diagnostics/src/logging.rs"
+
+[[markers]]
 literal = "CINNABAR_STAGE_PROFILE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
@@ -899,6 +920,12 @@ producer = "crates/diagnostics/src/markers.rs"
 literal = "CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY"
 kind = "harness_only"
 producer = "scripts/acceptance.ps1"
+
+[[markers]]
+literal = "CINNABAR_PACKET_CAPTURE"
+kind = "environment_variable"
+producer = "crates/client-session/src/markers.rs"
+consumer = "app/src/runtime/network/session.rs"
 
 # Gameplay consumes shell observations instead of the menu owner.
 [[module_boundaries]]
@@ -1070,6 +1097,7 @@ dependency_free = true
 # Domain crates take `now` from their caller; only edge code reads the clock.
 [timing]
 clock_free_crates = [
+    "crates/crash-report",
     "crates/block-transform",
     "crates/input",
     "crates/inventory",
@@ -1096,7 +1124,6 @@ sleep_exceptions = [
     { path = "crates/launcher-host/src/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
     { path = "crates/client-audio/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
     { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
-    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
     { path = "crates/chunk-pipeline/src/stream/tests/neighbour_deadlines.rs", reason = "manual timing run past the real unsent-column grace" },
     { path = "crates/chunk-pipeline/src/stream/tests/streaming_harness.rs", reason = "paces frames for the streaming harness" },
@@ -1146,6 +1173,14 @@ exports = [
 path = "crates/client-ui/src/ui_runtime/interaction.rs"
 exports = [
     "protocol::FastTransferAction",
+]
+
+# Macro support: `diagnostics::log_every!` and `log_once!` expand through `$crate`, so callers
+# need no direct `tracing` dependency.
+[[reexport_allowances]]
+path = "crates/diagnostics/src/rate.rs"
+exports = [
+    "tracing",
 ]
 
 [[reexport_allowances]]
@@ -1244,14 +1279,28 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["bridge", "crash-report", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "first-run"
 path = "crates/first-run"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "test-time", "ui", "gilrs"]
+allowed_dependencies = ["assets", "bootstrap-ui", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
+# The pre-game window stack (winit, wgpu, CPU-drawn OreUI) the setup and crash windows share.
+[[crates]]
+name = "bootstrap-ui"
+path = "crates/bootstrap-ui"
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
+# The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
+[[crates]]
+name = "crash-monitor"
+path = "crates/crash-monitor"
+allowed_dependencies = ["bootstrap-ui", "crash-report", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # Environment reads accepting the pre-rename `RUST_MCBE_` spellings for one release.
@@ -1298,6 +1347,11 @@ literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
 
 [[identifier_literal_exceptions]]
+path = "crates/json-ui/src/transform.rs"
+literal = "rotation"
+reason = "Field name of the Cinnabar `cinnabar_transform` surface property, not a vanilla identifier."
+
+[[identifier_literal_exceptions]]
 path = "crates/gameplay/src/placement_state.rs"
 literal = "string"
 reason = "Canonical block-state envelope type keyword; this is a serialization grammar token."
@@ -1326,6 +1380,11 @@ reason = "Portal axis value from the pinned block-state domain."
 path = "crates/asset-compiler/src/block_shapes/visual.rs"
 literal = "tip"
 reason = "Dripstone thickness value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/diagnostics/src/session.rs"
+literal = "unknown"
+reason = "Commit placeholder for builds without CINNABAR_BUILD_COMMIT; not a block-state value."
 
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/atmosphere.rs"

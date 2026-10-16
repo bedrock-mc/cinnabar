@@ -7,16 +7,16 @@ pub(super) const ROTATION: u8 = 2;
 pub(super) const SCALE: u8 = 4;
 pub(super) const ROTATION_FRAME: u8 = 8;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct MotionSampling {
     uses_swell: bool,
     uses_rotation: bool,
     uses_walk: bool,
-    expressions: BTreeSet<u32>,
-    weighted_symbols: BTreeSet<u32>,
-    timed_symbols: BTreeSet<u32>,
+    expressions: Box<[u32]>,
+    weighted_symbols: Box<[u32]>,
+    timed_symbols: Box<[u32]>,
     render_writes: bool,
-    queries: BTreeSet<u32>,
+    queries: Box<[u32]>,
     properties: bool,
     selection_effects: bool,
     rig_scale: bool,
@@ -165,7 +165,7 @@ impl MotionSampling {
                         .filter_map(|&clip| assets.animation_clips()[clip].anim_time_update),
                 )
                 .any(|expression| has_effects(assets, expression));
-        let timed_symbols = assets
+        let timed_symbols: BTreeSet<_> = assets
             .animation_clips()
             .iter()
             .filter(|clip| {
@@ -185,14 +185,37 @@ impl MotionSampling {
             uses_rotation,
             uses_walk,
             render_writes,
-            queries,
+            queries: freeze(queries),
             properties,
             selection_effects,
+            expressions: freeze(expressions),
+            weighted_symbols: freeze(weighted_symbols),
+            timed_symbols: freeze(timed_symbols),
+            rig_scale,
+        })
+    }
+
+    /// Retained object and exact sorted-set payload, excluding the caller's Arc header.
+    pub(crate) fn retained_bytes(&self) -> Option<usize> {
+        // Exhaustive matching makes new retained fields require an accounting review.
+        let Self {
             expressions,
             weighted_symbols,
             timed_symbols,
-            rig_scale,
-        })
+            queries,
+            uses_swell: _,
+            uses_rotation: _,
+            uses_walk: _,
+            render_writes: _,
+            properties: _,
+            selection_effects: _,
+            rig_scale: _,
+        } = self;
+        [expressions, weighted_symbols, timed_symbols, queries]
+            .into_iter()
+            .try_fold(std::mem::size_of::<Self>(), |bytes, values| {
+                bytes.checked_add(values.len().checked_mul(std::mem::size_of::<u32>())?)
+            })
     }
 
     pub(super) fn uses_swell(&self) -> bool {
@@ -226,7 +249,7 @@ impl MotionSampling {
         let mut scale = completed.unwrap_or([rig.scale.get(), 1.0, 1.0, 1.0]);
         let mut changed = false;
         for (slot, expression) in expressions.into_iter().enumerate() {
-            if self.expressions.contains(&expression) {
+            if self.expressions.binary_search(&expression).is_ok() {
                 scale[slot] = sampled[slot];
                 changed = true;
             }
@@ -265,7 +288,7 @@ impl MotionSampling {
         assets
             .animation_clips()
             .get(clip)
-            .is_some_and(|clip| self.timed_symbols.contains(&clip.symbol))
+            .is_some_and(|clip| self.timed_symbols.binary_search(&clip.symbol).is_ok())
     }
 
     pub(crate) fn mask(
@@ -276,6 +299,7 @@ impl MotionSampling {
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
         let mut mask = vec![[0; 3]; names.len()];
+        let mut channel_bones = pose::ChannelBones::new(names);
         for weighted in clips {
             let weighted = match geometry {
                 Some(geometry) => match render::clip_for_layer(assets, weighted, geometry) {
@@ -287,13 +311,12 @@ impl MotionSampling {
             let Some(clip) = assets.animation_clips().get(weighted.clip) else {
                 continue;
             };
+            let weighted = self.weighted_symbols.binary_search(&clip.symbol).is_ok()
+                || self.timed_symbols.binary_search(&clip.symbol).is_ok();
             let first = clip.first_channel as usize;
             for channel in &assets.animation_channels()[first..first + clip.channel_count as usize]
             {
-                let index = match &channel.bone_name {
-                    Some(name) => names.iter().position(|candidate| candidate == name),
-                    None => Some(channel.bone as usize),
-                };
+                let index = channel_bones.resolve(channel);
                 let Some(bone) = index.and_then(|index| mask.get_mut(index)) else {
                     continue;
                 };
@@ -302,8 +325,6 @@ impl MotionSampling {
                     EntityAnimationProperty::Rotation => ROTATION,
                     EntityAnimationProperty::Scale => SCALE,
                 };
-                let weighted = self.weighted_symbols.contains(&clip.symbol)
-                    || self.timed_symbols.contains(&clip.symbol);
                 if weighted && clip.override_previous {
                     bone.fill(TRANSLATION | ROTATION | SCALE | ROTATION_FRAME);
                 } else if weighted && channel.rotation_relative_to_entity {
@@ -319,10 +340,13 @@ impl MotionSampling {
                         } else {
                             0.0
                         };
-                        if expression
-                            .is_some_and(|expression| self.expressions.contains(&expression))
-                            || (weighted
+                        // Each test is pure, so set bits and cheap weighted reads go first.
+                        if (bone[axis] & bit) == 0
+                            && ((weighted
                                 && (expression.is_some() || key.value[axis].get() != neutral))
+                                || expression.is_some_and(|expression| {
+                                    self.expressions.binary_search(&expression).is_ok()
+                                }))
                         {
                             bone[axis] |= bit;
                         }
@@ -646,4 +670,32 @@ fn clip_expressions(assets: &RuntimeEntityAssets, clip: &assets::EntityAnimation
         }
     }
     expressions
+}
+
+/// Freezes the complete ordered set without capacity slack or changing membership.
+fn freeze(values: BTreeSet<u32>) -> Box<[u32]> {
+    values.into_iter().collect()
+}
+
+#[cfg(test)]
+mod frozen_tests {
+    use super::*;
+
+    #[test]
+    fn frozen_sets_preserve_empty_duplicate_extreme_and_borrowed_membership() {
+        for values in [vec![], vec![0, u32::MAX, 0, 7, 7, 1]] {
+            let expected: BTreeSet<u32> = values.into_iter().collect();
+            let frozen = freeze(expected.clone());
+            assert_eq!(
+                frozen.as_ref(),
+                expected.iter().copied().collect::<Vec<_>>()
+            );
+            for probe in [0, 1, 2, 7, u32::MAX - 1, u32::MAX] {
+                assert_eq!(
+                    frozen.binary_search(&probe).is_ok(),
+                    expected.contains(&probe)
+                );
+            }
+        }
+    }
 }

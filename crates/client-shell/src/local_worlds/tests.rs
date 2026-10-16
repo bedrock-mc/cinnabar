@@ -44,6 +44,33 @@ fn input_without_a_client_still_advances_the_model() {
     assert!(worlds.menu().busy());
 }
 
+/// An import asked for before the world worker is attached is refused, not left on its modal.
+#[test]
+fn an_import_before_attach_is_refused() {
+    let mut worlds = LocalWorlds::default();
+    worlds.input(Input::Import);
+    assert_eq!(worlds.menu().screen(), Screen::Error);
+    assert!(!worlds.menu().busy());
+    worlds.input(Input::Back);
+    assert_eq!(worlds.menu().screen(), Screen::List);
+}
+
+/// A detach while an import is pending ends its modal instead of leaving it up for good.
+#[test]
+fn a_detach_mid_import_ends_the_import_modal() {
+    let dir = tempfile::tempdir().expect("worlds folder");
+    let manager =
+        launcher_host::local_worlds::open_store(dir.path().join("worlds")).expect("manager");
+    let mut worlds = LocalWorlds::default();
+    worlds.client =
+        Some(WorldsClient::spawn(manager, dir.path().join("no-core-here")).expect("worker"));
+    worlds.input(Input::ImportFiles(vec![dir.path().join("Home.mcworld")]));
+    assert_eq!(worlds.menu().screen(), Screen::Importing);
+    worlds.detach();
+    assert_eq!(worlds.menu().screen(), Screen::Error);
+    assert!(!worlds.menu().busy());
+}
+
 /// Disabling focus pause preserves explicit pause-menu control.
 #[test]
 fn focus_preference_does_not_disable_explicit_pause() {

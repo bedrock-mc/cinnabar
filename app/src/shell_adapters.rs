@@ -47,6 +47,9 @@ pub(crate) fn drive_menu_services(
     }
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
+    if let Some(account) = launcher_account.as_deref() {
+        client_shell::menu::sync_cinnabar_players(account, &mut runtime.0);
+    }
     menu.drive_account_services(
         &mut commands,
         client_blob_cache.enables_upstream_client_cache(),
@@ -79,19 +82,80 @@ pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<Au
     }
 }
 
+/// Publishes the end-of-frame session observations: presence for the Discord driver and game
+/// state for crash reports.
+pub(crate) fn configure_observations(app: &mut App) {
+    app.init_resource::<client_state::PresenceObservation>()
+        .add_systems(
+            Last,
+            (
+                publish_presence_observation.before(client_state::ShellFrameSet::Presence),
+                publish_crash_state,
+            ),
+        );
+}
+
 /// Samples session presence at the same end-of-frame boundary as the Discord driver.
 pub(crate) fn publish_presence_observation(
     world: Res<ClientWorld>,
+    fatal_error: Res<crate::runtime::shutdown::FatalError>,
     session: Res<crate::session::SessionController>,
     mut observation: ResMut<client_state::PresenceObservation>,
 ) {
     observation.has_world = world.stream.is_some();
-    observation.failed = world.fatal_error.is_some();
+    observation.failed = fatal_error.0.is_some();
     observation.players = world
         .stream
         .as_ref()
         .map(|stream| u32::try_from(stream.authority().player_count()).unwrap_or(u32::MAX));
     if observation.target.as_ref() != session.presence_target() {
         observation.target = session.presence_target().cloned();
+    }
+}
+
+/// Pushes the session phase, destination kind, dimension and server pack count to crash
+/// reports, only when one of them changed.
+pub(crate) fn publish_crash_state(
+    world: Res<ClientWorld>,
+    session: Res<crate::session::SessionController>,
+    packs: Option<Res<client_runtime::pack_admission::ResourcePackAdmissionState>>,
+    mut last: Local<Option<launcher_host::lifecycle::crash::state::GameState>>,
+) {
+    use launcher_host::lifecycle::crash::state::{GameState, SessionPhase};
+    let stream = world.stream.as_ref();
+    let phase = if stream.is_some() {
+        SessionPhase::InWorld
+    } else if session.status().connecting {
+        SessionPhase::Joining
+    } else {
+        SessionPhase::Menus
+    };
+    let state = GameState {
+        phase,
+        server: (phase != SessionPhase::Menus)
+            .then(|| session.presence_target().map(server_kind))
+            .flatten(),
+        dimension: stream.map(|stream| stream.current_dimension()),
+        server_packs: packs.map_or(0, |packs| packs.pack_count()),
+    };
+    if last.as_ref() != Some(&state) {
+        *last = Some(state);
+        launcher_host::lifecycle::crash::state::publish(state);
+    }
+}
+
+/// The kind of a join destination, without its address.
+fn server_kind(
+    target: &rich_presence::Target,
+) -> launcher_host::lifecycle::crash::state::ServerKind {
+    use launcher_host::lifecycle::crash::state::ServerKind;
+    use rich_presence::Destination;
+    match target.destination {
+        Destination::Server(_) if target.badge.is_some() => ServerKind::FeaturedServer,
+        Destination::Server(_) => ServerKind::Server,
+        Destination::Realm => ServerKind::Realm,
+        Destination::FriendWorld => ServerKind::FriendWorld,
+        Destination::Experience => ServerKind::Experience,
+        Destination::LocalWorld(_) => ServerKind::LocalWorld,
     }
 }

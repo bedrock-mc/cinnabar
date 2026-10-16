@@ -20,8 +20,9 @@
 //!   removes leftovers from earlier crashed incarnations under bounded,
 //!   explicitly provisional age and count policy. It only touches entries
 //!   whose name matches the exact session-directory grammar and whose
-//!   owner marker proves both family membership and a different owning
-//!   process; everything else is left untouched.
+//!   owner marker proves family membership and its process is proven absent.
+//!   Binding and reclamation share an OS lock; identity and process absence are
+//!   checked again before removal. Live and indeterminate owners stay untouched.
 //!
 //! Cleanup failures never abort startup or shutdown; they are logged and
 //! retried by the next startup's reclamation pass. A teardown wedged past
@@ -44,17 +45,22 @@ use thiserror::Error;
 
 use launcher::install_layout::InstallLayout;
 
+mod process_owner;
+mod reclaim;
+use process_owner::{OwnerState, owner_state};
+use reclaim::{ReclaimTarget, classify_catalog_file, classify_session_directory};
+
 /// Marker file written inside every owned session directory.
 const MARKER_FILE_NAME: &str = "session-owner.json";
+/// Stable coordination inode; never removed while this runtime root is in use.
+const ROOT_LOCK_FILE_NAME: &str = ".session-directories.lock";
 
 /// Maximum age of a leftover session directory before startup reclamation
 /// may remove it.
 ///
 /// PROVISIONAL POLICY: no operational measurement of real leak ages exists,
-/// so this bound is deliberately generous (far beyond any legitimate
-/// session) and must be revisited with telemetry before being tightened.
-/// A live session younger than this bound is never reclaimable regardless
-/// of which process owns it.
+/// so this bound is deliberately generous and must be revisited with telemetry
+/// before being tightened. Age never authorizes removal of a live or unknown owner.
 const STALE_SESSION_MAX_AGE_SECS: u64 = 24 * 60 * 60;
 
 /// Maximum number of stale entries reclaimed during one startup pass.
@@ -78,7 +84,7 @@ enum SessionKind {
 /// The random [`SessionOwnerMarker::token`] is the removal authority: a
 /// guard may delete its directory only while the marker on disk still
 /// carries the token this binding wrote.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct SessionOwnerMarker {
     token: String,
     pid: u32,
@@ -257,12 +263,16 @@ impl SessionDirectoryGuard {
             directory: parent.clone(),
             source,
         })?;
-        let directory = fs::canonicalize(&parent)
-            .map_err(|source| SessionDirectoryError::Create {
-                directory: parent,
+        let parent = fs::canonicalize(&parent).map_err(|source| SessionDirectoryError::Create {
+            directory: parent,
+            source,
+        })?;
+        let _root_lock =
+            lock_root(&parent, false).map_err(|source| SessionDirectoryError::Create {
+                directory: parent.clone(),
                 source,
-            })?
-            .join(&name);
+            })?;
+        let directory = parent.join(&name);
         let mut leases = active_directories()
             .lock()
             .unwrap_or_else(|error| error.into_inner());
@@ -346,7 +356,7 @@ impl SessionDirectoryGuard {
             }
             Ok(_) | Err(_) => {
                 // Identity mismatch or unreadable proof: never guess.
-                eprintln!(
+                tracing::warn!(
                     "session-runtime: refusing removal of {}: its identity marker no longer proves this binding owns it",
                     self.directory.display()
                 );
@@ -367,7 +377,7 @@ impl SessionDirectoryGuard {
                 Ok(Some(on_disk))
                     if on_disk.token == self.token && on_disk.pid == process::id() =>
                 {
-                    eprintln!(
+                    tracing::warn!(
                         "session-runtime: could not remove session directory {}; the still-proven owner may retry",
                         self.directory.display()
                     );
@@ -377,7 +387,7 @@ impl SessionDirectoryGuard {
                     // Never recreate deletion authority through a pathname after
                     // removal failed: the path may now name a foreign directory.
                     self.bound = false;
-                    eprintln!(
+                    tracing::warn!(
                         "session-runtime: removal of {} failed and ownership proof no longer matches; refusing retry",
                         self.directory.display()
                     );
@@ -458,6 +468,23 @@ fn directory_proof(directory: &Path, token: &str) -> std::io::Result<(fs::File, 
 fn active_directories() -> &'static Mutex<HashMap<PathBuf, Weak<()>>> {
     static ACTIVE: OnceLock<Mutex<HashMap<PathBuf, Weak<()>>>> = OnceLock::new();
     ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Serializes cooperative binding and reclamation; closing the file releases the OS lock.
+/// Reclaim never waits for another pass/bind, and any lock error leaves entries untouched.
+fn lock_root(root: &Path, nonblocking: bool) -> std::io::Result<fs::File> {
+    let file = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(ROOT_LOCK_FILE_NAME))?;
+    if nonblocking {
+        file.try_lock()?;
+    } else {
+        file.lock()?;
+    }
+    Ok(file)
 }
 
 impl Drop for SessionDirectoryGuard {
@@ -640,9 +667,9 @@ pub fn reclaim_stale_session_directories(layout: &InstallLayout) -> StaleReclaim
 ///
 /// * session directories must match the strict grammar, be real
 ///   directories (never symlinks), and carry an owner marker naming a
-///   different process id plus an age at or beyond the maximum;
+///   different, proven-absent process plus an age at or beyond the maximum;
 /// * `catalog-<pid>.json` artifacts must match the strict grammar, name a
-///   different process id, and carry a modification time at or beyond the
+///   different, proven-absent process, and carry a modification time at or beyond the
 ///   maximum.
 ///
 /// Everything else is counted and left untouched. Removals run
@@ -650,6 +677,15 @@ pub fn reclaim_stale_session_directories(layout: &InstallLayout) -> StaleReclaim
 /// deterministically across launches instead of extending one startup
 /// unboundedly.
 pub fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleReclaimReport {
+    reclaim_stale_entries_with(root, policy, &owner_state)
+}
+
+/// Uses an injected process view while retaining real filesystem ownership checks.
+fn reclaim_stale_entries_with(
+    root: &Path,
+    policy: &StaleReclaimPolicy,
+    probe: &impl Fn(u32) -> OwnerState,
+) -> StaleReclaimReport {
     let mut report = StaleReclaimReport::default();
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
@@ -659,9 +695,21 @@ pub fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleR
             return report;
         }
     };
+    let _root_lock = match lock_root(root, true) {
+        Ok(lock) => lock,
+        Err(error) => {
+            log_line(&format!(
+                "runtime ownership lock unavailable; skipping startup reclaim: {error}"
+            ));
+            return report;
+        }
+    };
     let mut candidates: Vec<(u64, String, ReclaimTarget)> = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        if name == ROOT_LOCK_FILE_NAME {
+            continue;
+        }
         if let Some(pid) = parse_catalog_file_name(&name) {
             classify_catalog_file(
                 entry.path(),
@@ -670,6 +718,7 @@ pub fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleR
                 policy,
                 &mut report,
                 &mut candidates,
+                probe,
             );
             continue;
         }
@@ -684,22 +733,27 @@ pub fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleR
             policy,
             &mut report,
             &mut candidates,
+            probe,
         );
     }
     candidates.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
     candidates.truncate(policy.limit);
     for (_, name, target) in candidates {
+        if !target.still_reclaimable(policy, probe) {
+            report.skipped_protected_identity += 1;
+            continue;
+        }
         let removal = match &target {
-            ReclaimTarget::SessionDirectory(path) => fs::remove_dir_all(path),
-            ReclaimTarget::CatalogFile(path) => fs::remove_file(path),
+            ReclaimTarget::SessionDirectory { path, .. } => fs::remove_dir_all(path),
+            ReclaimTarget::CatalogFile { path, .. } => fs::remove_file(path),
         };
         match removal {
             Ok(()) => match target {
-                ReclaimTarget::SessionDirectory(_) => {
+                ReclaimTarget::SessionDirectory { .. } => {
                     report.reclaimed_directories += 1;
                     log_line(&format!("reclaimed stale session directory '{name}'"));
                 }
-                ReclaimTarget::CatalogFile(_) => {
+                ReclaimTarget::CatalogFile { .. } => {
                     report.reclaimed_catalog_files += 1;
                     log_line(&format!("reclaimed stale catalog artifact '{name}'"));
                 }
@@ -720,95 +774,11 @@ pub fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleR
     report
 }
 
-/// One reclaimable stale entry awaiting its budget turn.
-#[derive(Debug)]
-enum ReclaimTarget {
-    SessionDirectory(PathBuf),
-    CatalogFile(PathBuf),
-}
-
-fn classify_session_directory(
-    path: PathBuf,
-    name: &str,
-    file_type: std::io::Result<std::fs::FileType>,
-    policy: &StaleReclaimPolicy,
-    report: &mut StaleReclaimReport,
-    candidates: &mut Vec<(u64, String, ReclaimTarget)>,
-) {
-    match file_type {
-        Ok(file_type) if file_type.is_dir() && !file_type.is_symlink() => {}
-        _ => {
-            report.skipped_unrelated += 1;
-            return;
-        }
-    }
-    match load_marker(&path) {
-        Ok(Some(marker)) => {
-            // A marker naming this very process belongs to a binding of
-            // the current incarnation (or will be taken over by one);
-            // reclamation never races it.
-            if marker.pid == policy.current_pid {
-                report.skipped_protected_identity += 1;
-                return;
-            }
-            let age = policy.now_unix.saturating_sub(marker.created_unix);
-            if age >= policy.max_age_secs {
-                candidates.push((
-                    marker.created_unix,
-                    name.to_owned(),
-                    ReclaimTarget::SessionDirectory(path),
-                ));
-            } else {
-                report.skipped_fresh += 1;
-            }
-        }
-        // No marker means identity is unprovable (an earlier client build
-        // or foreign data); it is never clearly stale, so it stays.
-        Ok(None) => report.skipped_unmarked += 1,
-        Err(_) => report.skipped_unreadable_identity += 1,
-    }
-}
-
-fn classify_catalog_file(
-    path: PathBuf,
-    name: &str,
-    pid: u32,
-    policy: &StaleReclaimPolicy,
-    report: &mut StaleReclaimReport,
-    candidates: &mut Vec<(u64, String, ReclaimTarget)>,
-) {
-    let is_plain_file = fs::symlink_metadata(&path)
-        .map(|metadata| metadata.is_file())
-        .unwrap_or_default();
-    if !is_plain_file {
-        report.skipped_unrelated += 1;
-        return;
-    }
-    // The live menu runtime owns this incarnation's catalog file.
-    if pid == policy.current_pid {
-        report.skipped_protected_identity += 1;
-        return;
-    }
-    match modified_unix(&path) {
-        Some(modified) if policy.now_unix.saturating_sub(modified) >= policy.max_age_secs => {
-            candidates.push((modified, name.to_owned(), ReclaimTarget::CatalogFile(path)));
-        }
-        Some(_) => report.skipped_fresh += 1,
-        None => report.skipped_unreadable_identity += 1,
-    }
-}
-
-fn modified_unix(path: &Path) -> Option<u64> {
-    fs::metadata(path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|age| age.as_secs())
-}
-
 /// One bounded diagnostic line per notable cleanup event.
+#[expect(
+    clippy::print_stderr,
+    reason = "startup reclaim runs before the client installs its log subscriber"
+)]
 fn log_line(message: &str) {
     eprintln!("session-runtime: {message}");
 }

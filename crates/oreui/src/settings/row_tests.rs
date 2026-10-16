@@ -6,13 +6,12 @@ use {
     launcher::menu::{MenuAction, MenuView},
 };
 
-/// Draws related distance controls in order and omits an empty Advanced heading.
+/// Omits the Advanced heading when the Video section has no advanced rows.
 #[test]
-fn video_distance_rows_stay_together_without_an_empty_advanced_section() {
+fn video_section_omits_an_empty_advanced_heading() {
     let view = MenuView::new(true, "Player".into());
     for width in [400.0, 800.0] {
-        let mut tracks = HashMap::new();
-        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
             let mut content = Content {
                 canvas,
                 view: &view,
@@ -23,30 +22,7 @@ fn video_distance_rows_stay_together_without_an_empty_advanced_section() {
                 nested: false,
             };
             sections::draw(&mut content, SettingSection::Video).unwrap();
-            tracks.extend(
-                content
-                    .canvas
-                    .slider_tracks
-                    .iter()
-                    .map(|(index, track, _)| (*index, *track)),
-            );
         });
-        let render = tracks[&(SettingId::RenderDistance.index() as u16)];
-        let full = tracks[&(SettingId::FullDetailDistance.index() as u16)];
-        let far = hits
-            .iter()
-            .find(|(action, _)| {
-                *action == MenuAction::SettingsDropdown(SettingId::FarTerrain.index() as u16)
-                    || *action
-                        == MenuAction::SettingsOption(
-                            SettingId::FarTerrain.index() as u16,
-                            view.settings_options.value(SettingId::FarTerrain),
-                        )
-            })
-            .expect("far terrain selector")
-            .1;
-        assert!(render.max().y() < full.min().y());
-        assert!(full.max().y() < far.min().y());
         let advanced = nodes.iter().any(|node| match node.visual() {
             ui::UiVisual::Text { layout, .. } => layout
                 .glyphs()
@@ -228,6 +204,65 @@ fn passive_clients_have_no_update_settings_actions() {
         }
     }));
     assert!(!hits.is_empty());
+}
+
+/// General ends with an Advanced heading holding both diagnostics toggles, off by default,
+/// and the capture caption says what a recording holds and that it stays local.
+#[test]
+fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
+    use launcher::menu::settings_options::SettingId;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [100.0, 900.0],
+            column_width: 800.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        sections::draw(
+            &mut content,
+            launcher::menu::settings_sections::SettingSection::General,
+        )
+        .unwrap();
+    });
+    let text: String = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect::<String>()
+        .replace(' ', "");
+    for expected in [
+        "Verboselogging",
+        "Recordnetworksession",
+        "containschatmessagesandplayernames",
+        "neveruploaded",
+    ] {
+        assert!(text.contains(expected), "missing {expected}");
+    }
+    // Section headings draw in capitals.
+    let heading = text.find("ADVANCED").expect("missing the Advanced heading");
+    assert!(
+        heading < text.find("Verboselogging").unwrap(),
+        "the toggles sit under the Advanced heading"
+    );
+    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::SettingsOption(id.index() as u16, 1)),
+            "{id:?} toggles on from its default"
+        );
+    }
 }
 
 #[test]

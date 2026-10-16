@@ -1,6 +1,6 @@
 //! The writable-book, written-book and lectern reading screens.
 
-use protocol::{BookEdit, MAX_BOOK_PAGES, Packet};
+use protocol::{BookEdit, MAX_BOOK_PAGE_BYTES, MAX_BOOK_PAGES, Packet};
 use semantic_input::KeyboardKey;
 
 use super::UiRuntime;
@@ -70,7 +70,10 @@ impl BookState {
         };
         for ch in text.chars() {
             let allowed = !ch.is_control() || (newlines && ch == '\n');
-            if allowed && field.chars().count() < limit {
+            if allowed
+                && field.chars().count() < limit
+                && field.len() + ch.len_utf8() <= MAX_BOOK_PAGE_BYTES
+            {
                 field.push(ch);
             }
         }
@@ -254,7 +257,7 @@ impl UiRuntime {
         true
     }
 
-    /// Retains a complete book commit before removing the editable screen state.
+    /// Retains a complete book commit before closing; false preserves the editor on refusal.
     pub fn commit_book(&mut self, sign: bool) -> bool {
         let Some(book) = self.screen.book.as_ref() else {
             return true;
@@ -273,21 +276,27 @@ impl UiRuntime {
         {
             return false;
         }
-        let mut packets: std::collections::VecDeque<_> = book
+        let Some(mut packets) = book
             .edits()
             .iter()
-            .filter_map(|edit| protocol::book_edit_packet(slot, edit))
-            .collect();
-        if sign
-            && let Some(packet) = protocol::book_edit_packet(
+            .map(|edit| protocol::book_edit_packet(slot, edit))
+            .collect::<Option<std::collections::VecDeque<_>>>()
+        else {
+            tracing::warn!("Book edit exceeds protocol limits; keeping the editor open");
+            return false;
+        };
+        if sign {
+            let Some(packet) = protocol::book_edit_packet(
                 slot,
                 &BookEdit::Finalize {
                     title: book.title.clone(),
                     author: book.author.clone(),
                     xuid: String::new(),
                 },
-            )
-        {
+            ) else {
+                tracing::warn!("Book signature exceeds protocol limits; keeping the editor open");
+                return false;
+            };
             packets.push_back(packet);
         }
         self.book_packets = packets;
@@ -433,6 +442,23 @@ mod tests {
         state.signing = true;
         state.type_text(&"t".repeat(40));
         assert_eq!(state.title.chars().count(), MAX_TITLE_CHARS);
+    }
+
+    #[test]
+    fn unicode_page_typing_obeys_both_character_and_wire_byte_limits() {
+        for character in ['a', 'é', '€', '🦀'] {
+            let mut state = book(true);
+            state.pages[0].clear();
+            state.type_text(&character.to_string().repeat(MAX_PAGE_CHARS + 1));
+            assert_eq!(
+                state.pages[0].chars().count(),
+                MAX_PAGE_CHARS.min(MAX_BOOK_PAGE_BYTES / character.len_utf8())
+            );
+            assert!(protocol::book_edit_packet(0, &state.edits()[0]).is_some());
+            state.backspace();
+            state.type_text("a");
+            assert!(state.pages[0].len() <= MAX_BOOK_PAGE_BYTES);
+        }
     }
 }
 

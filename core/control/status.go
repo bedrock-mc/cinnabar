@@ -90,6 +90,8 @@ type Store struct {
 
 	trustPrompt *ServerTrustPrompt                 // the pending trust question, if any
 	trustAnswer func(id uint64, trusted bool) bool // resolves a trust question
+
+	cinnabarRelease *CinnabarReleaseV1 // newest release the Cinnabar API announced
 }
 
 func NewStore() *Store {

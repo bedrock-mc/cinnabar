@@ -5,14 +5,22 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+test-support = ["protocol/test-support"]
+
 [dependencies]
 assets = { path = "../../crates/assets" }
 image.workspace = true
+inventory = { path = "../../crates/inventory" }
 json-ui = { path = "../../crates/json-ui" }
 jsonui-editor = { path = "../jsonui-editor" }
 launcher = { path = "../../crates/launcher" }
 oreui = { path = "../../crates/oreui" }
+player-state = { path = "../../crates/player-state" }
+protocol = { path = "../../crates/protocol" }
+render-model = { path = "../../crates/render-model" }
 serde_json = "1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 ui = { path = "../../crates/ui" }
 ui-engine = { path = "../../crates/ui-engine" }
 ui-screens = { path = "../../crates/ui-screens" }

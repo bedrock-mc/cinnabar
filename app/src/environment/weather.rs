@@ -1,7 +1,7 @@
 //! Client-side weather presentation: eased levels, lightning flash and the precipitation scene.
 
 use bevy::{
-    prelude::{Local, Query, Res, ResMut, Resource, Time, Transform, With},
+    prelude::{DetectChangesMut, Local, Query, Res, ResMut, Resource, Time, Transform, With},
     time::Real,
 };
 use chunk_pipeline::WorldStream;
@@ -46,11 +46,11 @@ pub(crate) fn load_optional_weather_textures(
         });
     match decoded {
         Ok((textures, identity)) => {
-            diagnostics::log_stderr!("loaded weather textures from {}", path.display());
+            bevy::log::info!("loaded weather textures from {}", path.display());
             render_scene::WeatherTextureAssets::new(std::sync::Arc::new(textures), identity)
         }
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "weather textures unavailable at {} ({error}); using procedural precipitation and End sky; build with {WEATHER_TEXTURES_COMPILE_COMMAND}",
                 path.display()
             );
@@ -235,6 +235,11 @@ fn biome_climate(stream: &WorldStream, position: [f32; 3]) -> Option<(f32, f32)>
 }
 
 /// Ticks the vanilla precipitation layers, refreshes the occlusion grid and queues rain splashes.
+///
+/// The cadence exists only while precipitation shows: dropping it when the rain stops and
+/// building a fresh one when it starts again equals resetting it every dry frame, without
+/// rebuilding its occlusion grid and noise table each of those frames. Dry frames touch the
+/// scene and mix only when they still hold rain, so they are not re-extracted.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_precipitation_scene(
     frame: Res<AtmosphereFrame>,
@@ -244,7 +249,8 @@ pub(crate) fn update_precipitation_scene(
     mut scene: ResMut<PrecipitationScene>,
     mut splashes: ResMut<RainSplashQueue>,
     mut mix: ResMut<PrecipitationMixResource>,
-    mut cadence: Local<PrecipitationCadence>,
+    mut cadence: Local<Option<PrecipitationCadence>>,
+    mut picked: Local<Vec<[f32; 3]>>,
 ) {
     let level = frame.rain_level();
     let stream = client_world.stream.as_ref();
@@ -254,11 +260,14 @@ pub(crate) fn update_precipitation_scene(
         camera,
         level > 0.0 && frame.sky_kind() == SkyKind::Overworld,
     ) else {
-        scene.layers.clear();
-        mix.0 = PrecipitationMix::default();
-        *cadence = PrecipitationCadence::default();
+        if !scene.layers.is_empty() {
+            scene.layers.clear();
+        }
+        mix.set_if_neq(PrecipitationMixResource(PrecipitationMix::default()));
+        *cadence = None;
         return;
     };
+    let cadence = cadence.get_or_insert_with(PrecipitationCadence::default);
     let elapsed = time.elapsed_secs_f64();
     let ticks = elapsed * PRECIPITATION_TICKS_PER_SECOND;
     let tick = ticks as u64;
@@ -297,14 +306,17 @@ pub(crate) fn update_precipitation_scene(
             cursor,
             refresh,
         );
-        scene.occlusion = std::sync::Arc::new(grid.clone());
-        scene.occlusion_generation = scene.occlusion_generation.wrapping_add(1);
+        // Refreshed columns usually resample the same heights; only a changed grid is copied,
+        // and the unchanged generation spares the render world an identical upload.
+        if *scene.occlusion != *grid {
+            scene.occlusion = std::sync::Arc::new(grid.clone());
+            scene.occlusion_generation = scene.occlusion_generation.wrapping_add(1);
+        }
         if splashes.positions.len() > MAX_QUEUED_SPLASHES {
             splashes.positions.clear();
         }
-        let mut picked = Vec::new();
         pick_rain_splashes(grid, level, tick, &mut picked);
-        splashes.positions.extend(picked);
+        splashes.positions.extend_from_slice(&picked);
     }
     scene.forward_offset = precipitation_forward_offset(camera.forward().as_vec3().to_array());
     let PrecipitationScene {
@@ -321,6 +333,9 @@ pub(crate) fn update_precipitation_scene(
 }
 
 /// Flashes the sky when a lightning-bolt actor first appears and draws live bolts.
+///
+/// The scene is marked changed only when it held or now holds bolt records, so frames
+/// without lightning are not re-extracted.
 pub(crate) fn update_lightning(
     client_world: Res<ClientWorld>,
     time: Res<Time<Real>>,
@@ -328,26 +343,31 @@ pub(crate) fn update_lightning(
     mut scene: ResMut<LightningScene>,
     mut seen: Local<std::collections::HashSet<i64>>,
 ) {
-    scene.records.clear();
-    let Some(stream) = client_world.stream.as_ref() else {
+    let had_records = !scene.records.is_empty();
+    let records = &mut scene.bypass_change_detection().records;
+    records.clear();
+    if let Some(stream) = client_world.stream.as_ref() {
+        let bolts = stream.authority().lightning_bolts();
+        seen.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
+        for bolt in bolts {
+            if seen.insert(bolt.unique_id) {
+                flash.trigger(time.elapsed_secs_f64());
+            }
+            if bolt.age_ticks >= BOLT_VISIBLE_TICKS {
+                continue;
+            }
+            let intensity = if bolt.age_ticks % 2 == 0 { 1.0 } else { 0.6 };
+            push_bolt_records(
+                &lightning_bolt_segments(bolt.unique_id as u64, bolt.position),
+                intensity,
+                records,
+            );
+        }
+    } else {
         seen.clear();
-        return;
-    };
-    let bolts = stream.authority().lightning_bolts();
-    seen.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
-    for bolt in bolts {
-        if seen.insert(bolt.unique_id) {
-            flash.trigger(time.elapsed_secs_f64());
-        }
-        if bolt.age_ticks >= BOLT_VISIBLE_TICKS {
-            continue;
-        }
-        let intensity = if bolt.age_ticks % 2 == 0 { 1.0 } else { 0.6 };
-        push_bolt_records(
-            &lightning_bolt_segments(bolt.unique_id as u64, bolt.position),
-            intensity,
-            &mut scene.records,
-        );
+    }
+    if had_records || !scene.records.is_empty() {
+        scene.set_changed();
     }
 }
 

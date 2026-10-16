@@ -27,6 +27,7 @@ fn list_add(uuid: [u8; 16], unique_id: i64, skin: PlayerSkin) -> ActorEvent {
             unique_id,
             username: "local".into(),
             verified: true,
+            xuid: "".into(),
             skin,
         }]),
     })
@@ -614,6 +615,31 @@ fn cape_skin(byte: u8) -> PlayerSkin {
         rgba8: vec![byte; 64 * 32 * 4].into(),
     });
     PlayerSkin::Standard(skin)
+}
+
+#[test]
+fn skin_fingerprint_memo_matches_rehashing_without_keeping_the_cape_alive() {
+    let mut memo = super::profiles::SkinFingerprintMemo::default();
+    let first = cape_skin(2);
+    let hashed = super::profiles::skin_fingerprint(&first);
+    assert_eq!(memo.fingerprint(&first), hashed);
+    assert_eq!(memo.fingerprint(&first.clone()), hashed);
+    let PlayerSkin::Standard(mut changed) = first.clone() else {
+        unreachable!()
+    };
+    let cape = changed.cape.as_mut().unwrap();
+    cape.rgba8 = vec![3; cape.rgba8.len()].into();
+    let changed = PlayerSkin::Standard(changed);
+    let rehashed = super::profiles::skin_fingerprint(&changed);
+    assert_ne!(rehashed, hashed, "same base raster, different cape bytes");
+    assert_eq!(memo.fingerprint(&changed), rehashed);
+    let PlayerSkin::Standard(standard) = &changed else {
+        unreachable!()
+    };
+    let cape = Arc::downgrade(&standard.cape.as_ref().unwrap().rgba8);
+    drop(changed);
+    assert!(cape.upgrade().is_none());
+    assert_eq!(memo.fingerprint(&first), hashed);
 }
 
 #[test]

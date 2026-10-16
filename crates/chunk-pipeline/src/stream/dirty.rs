@@ -54,6 +54,63 @@ impl WorldStream {
         );
         self.urgent_work_due = true;
     }
+    /// Keys of `prepared` whose committed replacement leaves every mesh unchanged: the key is
+    /// resident with blocks, needs no relight, and [`meshing::block_changes_preserve_meshes`]
+    /// proves its resident section and replacement feed the mesher identically. A batch whose
+    /// keys are not strictly ascending, and so may repeat, proves nothing. Call before commit.
+    pub(super) fn mesh_neutral_mutations(
+        &self,
+        prepared: &[PreparedSubChunkMutation],
+        relight: &BTreeSet<SubChunkKey>,
+    ) -> BTreeSet<SubChunkKey> {
+        if !prepared
+            .windows(2)
+            .all(|pair| pair[0].key() < pair[1].key())
+        {
+            return BTreeSet::new();
+        }
+        let terrain = self.authority.terrain();
+        prepared
+            .iter()
+            .filter(|mutation| {
+                let key = mutation.key();
+                // A resident non-air key keeps its residency through the commit.
+                mutation.changed()
+                    && !relight.contains(&key)
+                    && self.resident.contains(&key)
+                    && !self.known_air.contains(&key)
+            })
+            .filter(|mutation| {
+                let (Some(previous), Some(replacement)) = (
+                    terrain.sub_chunk_ref(mutation.key()),
+                    mutation.replacement(),
+                ) else {
+                    return false;
+                };
+                ::meshing::block_changes_preserve_meshes(
+                    self.classifier,
+                    self.authority.runtime_assets(),
+                    self.authority.network_id_mode(),
+                    previous,
+                    replacement,
+                    mutation.changed_positions().map(|position| {
+                        [position.x, position.y, position.z]
+                            .map(|axis| axis.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
+                    }),
+                )
+            })
+            .map(PreparedSubChunkMutation::key)
+            .collect()
+    }
+    /// Records a committed block change that [`Self::mesh_neutral_mutations`] proved leaves
+    /// every mesh unchanged: its far summary still refreshes and urgent work still runs, but no
+    /// mesh is invalidated.
+    pub(super) fn mark_mesh_neutral_block_change(&mut self, key: SubChunkKey) {
+        if self.far_terrain_enabled() {
+            self.note_far_change(key.chunk());
+        }
+        self.urgent_work_due = true;
+    }
     pub(super) fn mark_changed_sources(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
@@ -254,8 +311,10 @@ impl WorldStream {
         now: Instant,
         urgent: bool,
     ) -> u64 {
-        // Columns past full detail are drawn by far terrain; promotion remeshes them.
-        if !self.wants_mesh(key.chunk()) {
+        // Geometry follows full detail; delivered air always publishes zero-byte evidence.
+        if !self.wants_mesh(key.chunk())
+            && self.terrain_removal_kind(key) != render_api::TerrainRemovalKind::Empty
+        {
             return 0;
         }
         self.mark_dirty_exact_ungated(key, now, urgent)

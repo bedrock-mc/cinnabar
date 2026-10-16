@@ -7,6 +7,26 @@ use super::{
 use crate::menu::settings_sections::{SECTION_DEFINITIONS, SETTINGS_TABS, SettingSection};
 use std::collections::BTreeSet;
 
+/// Badge display defaults on and remains independent of advertising this client's presence.
+#[test]
+fn cinnabar_badge_display_is_independent_and_defaults_on() {
+    let mut settings = SettingsOptions::default();
+    assert_eq!(settings.value(SettingId::CinnabarBadges), 1);
+    settings.set(SettingId::CinnabarVisible.index(), 0);
+    assert_eq!(settings.value(SettingId::CinnabarBadges), 1);
+    settings.set(SettingId::CinnabarBadges.index(), 0);
+    assert_eq!(settings.value(SettingId::CinnabarVisible), 0);
+    let network: Vec<_> = SettingPanel::GeneralNetwork
+        .options()
+        .map(|option| option.id)
+        .collect();
+    let visibility = network
+        .iter()
+        .position(|id| *id == SettingId::CinnabarVisible)
+        .unwrap();
+    assert_eq!(network[visibility + 1], SettingId::CinnabarBadges);
+}
+
 #[test]
 fn registered_ids_keep_names_and_indices_unique_at_string_boundaries() {
     let mut names = BTreeSet::new();
@@ -50,27 +70,6 @@ fn section_rows_keep_order_and_shared_controls_from_the_registry() {
             .map(|row| row.id)
             .collect::<Vec<_>>(),
         volume_settings().map(|row| row.id).collect::<Vec<_>>()
-    );
-}
-
-/// Keeps the three terrain-distance controls together in their shared display order.
-#[test]
-fn video_distance_controls_are_adjacent() {
-    let rows: Vec<_> = SettingPanel::VideoGraphics
-        .options()
-        .map(|row| row.id)
-        .collect();
-    let render = rows
-        .iter()
-        .position(|id| *id == SettingId::RenderDistance)
-        .expect("render distance row");
-    assert_eq!(
-        &rows[render..render + 3],
-        &[
-            SettingId::RenderDistance,
-            SettingId::FullDetailDistance,
-            SettingId::FarTerrain,
-        ]
     );
 }
 

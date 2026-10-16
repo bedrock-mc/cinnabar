@@ -93,6 +93,10 @@ fn descriptor(mut source: RenderPipelineDescriptor) -> RenderPipelineDescriptor 
 }
 
 /// Reuses pipelines and targets, and admits one asynchronous capture at a time.
+#[expect(
+    clippy::print_stderr,
+    reason = "opaque-overdraw-capture.py reads CINNABAR_OPAQUE_LAYERS lines from stderr"
+)]
 fn prepare(
     mut probe: ResMut<Probe>,
     device: Res<RenderDevice>,

@@ -227,6 +227,24 @@ pub const RPC_INVALID_TARGET: i64 = -32022;
 /// Control error code for services disabled.
 pub const RPC_SERVICES_DISABLED: i64 = -32023;
 
+/// Control error code for a Cinnabar lookup the API rate-limited.
+pub const RPC_CINNABAR_RATE_LIMITED: i64 = -32024;
+
+/// Control method for the Cinnabar API identity and visibility.
+pub const METHOD_CINNABAR_API: &str = "cinnabar_api.v1";
+
+/// Control method for nearby Cinnabar emote playback.
+pub const METHOD_CINNABAR_EMOTES: &str = "cinnabar_emotes.v1";
+
+/// Control method for a Cinnabar player lookup.
+pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
+
+/// Most XUIDs in one Cinnabar player lookup.
+pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
+
+/// Fallback lifetime of a Cinnabar lookup answer.
+pub const CINNABAR_API_CACHE_TTL_MS: u32 = 120000;
+
 /// Xbox presence game mode for survival.
 pub const PRESENCE_GAME_MODE_SURVIVAL: i32 = 0;
 
@@ -482,4 +500,48 @@ pub enum ConnectStage {
     #[serde(rename = "connecting")]
     #[serde(other)]
     Connecting,
+}
+
+/// A release the Cinnabar API announced on the client's channel.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarRelease {
+    /// Release channel name.
+    pub channel: String,
+    /// App version; rolling channels reuse one across builds.
+    pub version: String,
+    /// Signed manifest build number; absent in older v1 notices.
+    #[serde(default)]
+    pub build: u64,
+    /// When the API recorded the release.
+    pub published_at: String,
+}
+
+/// Nearby subscriptions and the local custom emote, cleared when the game session ends.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarEmoteState {
+    /// Nearby Xbox account identifiers.
+    pub xuids: Vec<String>,
+    /// Nearby UUIDs when the server omitted Xbox identifiers.
+    pub uuids: Vec<String>,
+    /// Owned clip identifier; empty stops playback.
+    pub emote_id: String,
+    /// Elapsed playback time at this report.
+    pub elapsed_ms: u32,
+    /// Local start identity, including same-clip restarts.
+    pub playback_id: u64,
+}
+
+/// An authenticated nearby player animation with a remaining lease.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarRemoteEmote {
+    /// Authenticated Xbox account identifier.
+    pub xuid: String,
+    /// Account UUID derived by the API.
+    pub uuid: String,
+    /// Owned clip identifier.
+    pub emote_id: String,
+    /// Playback time at this snapshot.
+    pub elapsed_ms: u64,
+    /// Remaining playback lease.
+    pub valid_for_ms: u64,
 }

@@ -77,6 +77,7 @@ fn join_app(state: State) -> App {
         ))
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
@@ -330,6 +331,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
             stream: Some(stream),
             ..Default::default()
         })
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .init_resource::<crate::environment::WorldClock>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -396,6 +398,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
         .insert_resource(UiPresentationResource(presentation))
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()

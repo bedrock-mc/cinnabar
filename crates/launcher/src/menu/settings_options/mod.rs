@@ -35,13 +35,12 @@ pub use command_macros::{
 };
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, DISCORD_PRESENCE_OPTION,
-    FAR_TERRAIN_CHOICES, FAR_TERRAIN_OPTION, FRAME_RATE_UNLIMITED, FULL_DETAIL_DISTANCE_OPTION,
-    INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE,
-    MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
-    SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
-    THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
-    full_detail_label,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
+    DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
+    MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
+    MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
+    SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
+    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -159,6 +158,18 @@ impl SettingsOptions {
 
     pub fn oreui_dark_mode(&self) -> bool {
         self.value(SettingId::OreuiDarkMode) != 0
+    }
+
+    /// Whether launch and Settings layer debug levels for the net, session, core and packs
+    /// log categories over the defaults. `CINNABAR_LOG` and `RUST_LOG` take precedence.
+    pub fn verbose_logging(&self) -> bool {
+        self.value(SettingId::VerboseLogging) != 0
+    }
+
+    /// Whether each new network session records a full packet capture to the log directory.
+    /// `CINNABAR_PACKET_CAPTURE` takes precedence.
+    pub fn record_network_session(&self) -> bool {
+        self.value(SettingId::RecordNetworkSession) != 0
     }
 
     /// Whether new menu screens use the additional accessibility scale step.

@@ -26,9 +26,9 @@ use catalog::GeometryCatalog;
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Existing body/equipment allowance plus every animated skin layer per selected player.
+/// Body/equipment allowance, world flames and every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
-    MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
+    MAX_RENDERED_PLAYERS * (5 + render_api::MAX_SKIN_ANIMATION_LAYERS);
 /// Shared previous/current pose storage, independent of one model's bone limit.
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_BONE_MATRIX_BYTES);
@@ -107,10 +107,32 @@ pub struct ActorMaterial {
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,
+    /// Suppresses overlays without changing whether raster state was authored.
+    pub suppress_overlay: bool,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
     pub dissolve_multiplier: f32,
     /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
     pub light_color_multiplier: f32,
+}
+
+impl ActorMaterial {
+    /// Whether color overlays may affect this material's fragment color and vertex lighting.
+    /// Dissolve alpha belongs only to its coverage parameter; authored suppression also wins.
+    #[must_use]
+    pub fn allows_overlay(self) -> bool {
+        if self.suppress_overlay {
+            return false;
+        }
+        match self.kind {
+            assets::EntityRenderMaterial::Default
+            | assets::EntityRenderMaterial::Dragon
+            | assets::EntityRenderMaterial::Glint => {
+                self.state.is_none_or(|state| !state.disable_overlay)
+            }
+            assets::EntityRenderMaterial::DissolveDepth
+            | assets::EntityRenderMaterial::DissolveColor => false,
+        }
+    }
 }
 
 impl Default for ActorMaterial {
@@ -120,6 +142,7 @@ impl Default for ActorMaterial {
             glint: Default::default(),
             kind: Default::default(),
             state: None,
+            suppress_overlay: false,
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
         }
@@ -438,7 +461,9 @@ impl ActorRigFrameBuilder {
         if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
             return false;
         }
-        let Ok((id, geometry)) = eligibility::geometry(&self.catalog.geometries, submission) else {
+        let Ok((id, geometry)) =
+            eligibility::geometry(&self.catalog.geometries, &self.matrices, submission)
+        else {
             return false;
         };
         let Some(&index) = self.catalog.indices.get(&id) else {
@@ -601,7 +626,7 @@ impl ActorRigFrameBuilder {
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
             let (geometry_id, geometry) =
-                match eligibility::geometry(&self.catalog.geometries, submission) {
+                match eligibility::geometry(&self.catalog.geometries, &self.matrices, submission) {
                     Ok(geometry) => geometry,
                     Err(error) => {
                         error.count(&mut rejects);
@@ -855,10 +880,19 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
 #[path = "frame/build_tests.rs"]
 mod build_tests;
 
+#[cfg(test)]
+#[path = "frame/material_tests.rs"]
+mod material_tests;
+
 impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.
     pub fn gpu_word(self) -> u32 {
         self.kind.word(self.state)
+            | if self.suppress_overlay {
+                assets::EntityRenderMaterialState::DISABLE_OVERLAY
+            } else {
+                0
+            }
             | if self.color_mask {
                 super::glint::ACTOR_COLOR_MASK_MATERIAL_FLAG
             } else {

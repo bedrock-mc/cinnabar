@@ -15,6 +15,7 @@ mod dark_mode_tests;
 mod death;
 #[cfg(test)]
 mod destructive_tests;
+mod disconnect;
 mod dressing_room;
 mod exit;
 mod focus;
@@ -25,6 +26,7 @@ mod home;
 mod icons;
 pub mod images;
 mod inbox;
+mod launcher_popup;
 mod loading;
 pub mod loading_screen;
 pub mod menu_screen;

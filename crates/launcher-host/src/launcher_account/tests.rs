@@ -200,6 +200,26 @@ fn duplicate_ping_targets_keep_the_same_online_result() {
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|ping| ping.online));
 }
+/// Each build a rolling channel republishes under one version is announced once.
+#[test]
+fn successive_builds_of_one_version_each_announce_a_release() {
+    let release = |published_at: &str| bridge::CinnabarRelease {
+        channel: "nightly".into(),
+        version: "0.1.19".into(),
+        published_at: published_at.into(),
+        build: 42,
+    };
+    let (first, second) = (
+        release("2026-10-13T00:00:00.000Z"),
+        release("2026-10-14T00:00:00.000Z"),
+    );
+    let mut seen = None;
+    assert_eq!(new_release(&mut seen, Some(&first)), Some(&first));
+    assert_eq!(new_release(&mut seen, Some(&first)), None);
+    assert_eq!(new_release(&mut seen, None), None);
+    assert_eq!(new_release(&mut seen, Some(&second)), Some(&second));
+}
+
 #[test]
 fn account_responses_from_before_sign_out_are_discarded() {
     let snapshot = Arc::new(Mutex::new(Snapshot::default()));
@@ -215,6 +235,7 @@ fn account_responses_from_before_sign_out_are_discarded() {
         message_reports: crossbeam_channel::unbounded().0,
         invites: crossbeam_channel::unbounded().0,
         realm_membership: tokio::sync::mpsc::unbounded_channel().0,
+        cinnabar_rosters: crossbeam_channel::unbounded().0,
     };
     assert!(account.sign_out());
     publish_account(&snapshot, generation, |snapshot| {

@@ -579,7 +579,8 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             Some(MenuAction::SettingsSupport(action)),
         )?;
     }
-    Ok(())
+    content.heading("options.cinnabar.advanced", "")?;
+    options(content, SettingPanel::GeneralAdvanced)
 }
 
 fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
@@ -736,6 +737,13 @@ pub(super) fn fallback(key: &str) -> &str {
         "hbui.Settings.storage.cachedData.title" => "Cached data",
         "hbui.Settings.storage.emptyList.title" => "No %1$s found",
         "hbui.Settings.storage.listHeader.delete" => "Delete",
+        "options.cinnabar.worldsFolder" => "Worlds folder",
+        "options.cinnabar.worldsFolder.description" => "Where your worlds are saved",
+        "options.cinnabar.resourcePacksFolder" => "Resource packs folder",
+        "options.cinnabar.resourcePacksFolder.description" => {
+            "Where your imported resource packs are stored"
+        }
+        "options.cinnabar.openFolder.buttonLabel" => "Open folder",
         "options.dev_clearAllCache" => "Clear All Cache",
         "options.dev_clearDownloadeCache.name" => "Clear download cache",
         "options.dev_deleteLocalScreenshots" => "Delete Local Screenshots",

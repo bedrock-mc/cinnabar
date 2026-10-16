@@ -13,7 +13,7 @@ use assets::block_shapes::{
 impl CollisionRegistry {
     /// Projects compiled interaction data into a runtime ID without state interpretation.
     pub fn set_compiled_selection(&mut self, id: u32, shapes: &CompiledBlockShapes) -> bool {
-        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(&id) else {
+        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(id) else {
             return false;
         };
         block.pick_shapes = shapes
@@ -47,7 +47,7 @@ impl CollisionRegistry {
         connected: Option<Aabb>,
         context: OutlineContext,
     ) -> bool {
-        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(&id) else {
+        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(id) else {
             return false;
         };
         block.outline = outline;

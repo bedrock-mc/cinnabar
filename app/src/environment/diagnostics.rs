@@ -1,7 +1,10 @@
 //! Bounded session diagnostics for black terrain, sky and first-person hands.
 
+use std::time::Duration;
+
 use bevy::prelude::{Local, Res, Time};
 use bevy::time::Real;
+use diagnostics::rate::LogBudget;
 use render_scene::{AtmosphereFrame, WorldLighting};
 
 use super::{EnvironmentContext, EnvironmentProfileRoute, WorldClock};
@@ -9,25 +12,34 @@ use {
     crate::runtime::world::ClientWorld, client_presentation::local_player::LocalPlayerFrameCarrier,
 };
 
-const INTERVAL_SECONDS: f64 = 5.0;
+const INTERVAL: Duration = Duration::from_secs(5);
 
-#[derive(Default)]
 pub(crate) struct LightingLogState {
     identity: Option<(u64, i32)>,
-    next_seconds: f64,
+    budget: LogBudget<Duration>,
     session: Option<u64>,
     mode_mask: u8,
 }
 
+impl Default for LightingLogState {
+    fn default() -> Self {
+        Self {
+            identity: None,
+            budget: LogBudget::new(INTERVAL),
+            session: None,
+            mode_mask: 0,
+        }
+    }
+}
+
 impl LightingLogState {
     /// Emits immediately for a new session or dimension, then at most every five seconds.
-    fn due(&mut self, identity: (u64, i32), seconds: f64) -> bool {
-        if self.identity == Some(identity) && seconds < self.next_seconds {
-            return false;
+    fn due(&mut self, identity: (u64, i32), now: Duration) -> bool {
+        if self.identity != Some(identity) {
+            self.identity = Some(identity);
+            self.budget.reset();
         }
-        self.identity = Some(identity);
-        self.next_seconds = seconds + INTERVAL_SECONDS;
-        true
+        self.budget.admit(now).is_some()
     }
 
     /// Starts the two session-only facts again when the network session changes.
@@ -69,7 +81,7 @@ pub(crate) fn log_world_lighting(
     };
     if !state.due(
         (clock.session_generation(), context.dimension),
-        time.elapsed_secs_f64(),
+        time.elapsed(),
     ) {
         return;
     }
@@ -120,16 +132,20 @@ pub(crate) fn log_world_lighting(
 mod tests {
     use super::*;
 
+    fn at(seconds: f64) -> Duration {
+        Duration::from_secs_f64(seconds)
+    }
+
     #[test]
     fn lighting_diagnostics_are_bounded_and_reset_for_session_or_dimension() {
         let mut state = LightingLogState::default();
-        assert!(state.due((1, 0), 0.0));
-        assert!(!state.due((1, 0), 0.01));
-        assert!(!state.due((1, 0), 4.99));
-        assert!(state.due((1, 0), INTERVAL_SECONDS));
-        assert!(state.due((2, 0), INTERVAL_SECONDS));
-        assert!(state.due((2, 1), INTERVAL_SECONDS));
-        assert!(!state.due((2, 1), INTERVAL_SECONDS + 0.01));
+        assert!(state.due((1, 0), at(0.0)));
+        assert!(!state.due((1, 0), at(0.01)));
+        assert!(!state.due((1, 0), at(4.99)));
+        assert!(state.due((1, 0), INTERVAL));
+        assert!(state.due((2, 0), INTERVAL));
+        assert!(state.due((2, 1), INTERVAL));
+        assert!(!state.due((2, 1), INTERVAL + at(0.01)));
     }
 
     #[test]
@@ -140,7 +156,7 @@ mod tests {
             assert!(state.observe_mode(index));
         }
         assert!(!state.start_session(1));
-        assert!(state.due((1, 1), 10.0));
+        assert!(state.due((1, 1), at(10.0)));
         for index in 0..3 {
             assert!(!state.observe_mode(index));
         }

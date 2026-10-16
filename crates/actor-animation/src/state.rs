@@ -154,7 +154,7 @@ pub(super) struct EvalBudget<'a> {
     pub(super) transitions_left: usize,
     pub(super) used: usize,
     /// Operand stack lent to each expression run, so runs reuse one allocation.
-    pub(super) stack: Vec<evaluation::MolangValue>,
+    pub(super) stack: OperandStack,
     /// Tracks whether an attachable result reads only explicitly memoized inputs.
     pub(super) static_draw: Option<bool>,
 }
@@ -187,5 +187,50 @@ impl EvalBudget<'_> {
         }
         self.transitions_left -= 1;
         true
+    }
+}
+
+thread_local! {
+    /// The largest operand stack a finished budget on this thread returned.
+    static POOLED_STACK: std::cell::RefCell<Vec<evaluation::MolangValue>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// An operand stack whose allocation returns to its thread's pool when dropped, so each
+/// budget after the first on a thread runs without allocating a stack.
+#[derive(Default)]
+pub(super) struct OperandStack(pub(super) Vec<evaluation::MolangValue>);
+
+impl OperandStack {
+    /// Takes this thread's pooled stack, empty but retaining its capacity.
+    pub(super) fn lease() -> Self {
+        Self(
+            POOLED_STACK
+                .try_with(|pooled| {
+                    pooled
+                        .try_borrow_mut()
+                        .map(|mut pooled| std::mem::take(&mut *pooled))
+                })
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default(),
+        )
+    }
+}
+
+impl Drop for OperandStack {
+    fn drop(&mut self) {
+        let mut stack = std::mem::take(&mut self.0);
+        if stack.capacity() == 0 {
+            return;
+        }
+        stack.clear();
+        let _ = POOLED_STACK.try_with(|pooled| {
+            if let Ok(mut pooled) = pooled.try_borrow_mut()
+                && pooled.capacity() < stack.capacity()
+            {
+                *pooled = stack;
+            }
+        });
     }
 }

@@ -48,6 +48,7 @@ fn spawn_remotes(stream: &mut WorldStream) {
                             unique_id: id as i64,
                             username: "Remote".into(),
                             verified: true,
+                            xuid: "".into(),
                             skin: skin.clone(),
                         }]),
                     },
@@ -149,6 +150,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     swing_progress: None,
                     renders_game: true,
                     hide_hand: false,
+                    remote_emotes: Vec::new(),
                     custom_emote: None,
                 };
                 let mut poses = crate::presentation::actors::PoseConversions::default();
@@ -177,6 +179,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         native_pose: &mut native_pose,
                         skin_rigs: &mut skin_rigs,
                         equipment: Some(&mut equipment),
+                        scratch: &mut super::super::bodies::BodyScratch::default(),
                     },
                     |_, _, _, _| false,
                     &mut geometries,
@@ -206,6 +209,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         java_posed: &bodies.java_posed,
                         combat_visuals: Default::default(),
                         local_emote_pose: None,
+                        remote_emote_poses: &bodies.remote_emote_poses,
                         native_body_sampled: false,
                         native_pose: &native_pose,
                         remote_skin_layers: &bodies.remote_skin_layers,
@@ -319,4 +323,146 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
             }
         }
     }
+}
+
+#[test]
+fn shared_emotes_override_only_the_matching_remote_lifetime_and_restore_native_or_java() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let rig = stream.authority().actor_rig(2).unwrap();
+    let native = rig.current.to_vec();
+    let revision = rig.actor.spawn_revision;
+    let clip = actor_animation::CustomEmote::Twerk;
+    for java_mode in [false, true] {
+        let ordinary =
+            sample_shared_bodies(&stream, &artwork, &local_equipment, java_mode, Vec::new());
+        for phase in [0.0, 0.1, 0.3] {
+            let expected = actor_animation::sample_custom_emote(&rig, clip, phase, phase).unwrap();
+            let sampled = sample_shared_bodies(
+                &stream,
+                &artwork,
+                &local_equipment,
+                java_mode,
+                vec![super::super::RemoteEmote {
+                    runtime_id: 2,
+                    spawn_revision: revision,
+                    emote: clip,
+                    elapsed: phase,
+                }],
+            );
+            let find = |bodies: &super::super::bodies::SampledBodies<'_>, id| {
+                bodies
+                    .remotes
+                    .iter()
+                    .find(|body| body.submission.input.identity.runtime_id == id)
+                    .unwrap()
+                    .submission
+                    .input
+                    .current_bones
+                    .clone()
+            };
+            assert_eq!(
+                find(&sampled, 2),
+                crate::presentation::actors::convert_bones(&expected.current).unwrap()
+            );
+            assert_eq!(
+                find(&sampled, 3),
+                find(&ordinary, 3),
+                "other players keep their own animation"
+            );
+            assert_eq!(
+                sampled
+                    .canonical_local
+                    .as_ref()
+                    .unwrap()
+                    .submission
+                    .input
+                    .current_bones,
+                ordinary
+                    .canonical_local
+                    .as_ref()
+                    .unwrap()
+                    .submission
+                    .input
+                    .current_bones
+            );
+            let published = super::super::emote_geometry::skin_layer_snapshot(
+                rig,
+                sampled.remote_emote_poses.get(&2),
+                None,
+                None,
+            );
+            assert_eq!(
+                published.skin_layers[0].current,
+                expected.skin_layers[0].current
+            );
+            let stale = sample_shared_bodies(
+                &stream,
+                &artwork,
+                &local_equipment,
+                java_mode,
+                vec![super::super::RemoteEmote {
+                    runtime_id: 2,
+                    spawn_revision: revision + 1,
+                    emote: clip,
+                    elapsed: phase,
+                }],
+            );
+            assert_eq!(
+                find(&stale, 2),
+                find(&ordinary, 2),
+                "a reused runtime ID cannot inherit playback"
+            );
+            assert!(stale.remote_emote_poses.is_empty());
+        }
+    }
+    assert_eq!(stream.authority().actor_rig(2).unwrap().current, native);
+}
+
+/// Runs the production body sampler with an explicit leased remote playback set.
+fn sample_shared_bodies<'a>(
+    stream: &'a WorldStream,
+    artwork: &render_model::ActorArtworkPages,
+    local_equipment: &ActorEquipmentInput,
+    java_mode: bool,
+    remote_emotes: Vec<super::super::RemoteEmote>,
+) -> super::super::bodies::SampledBodies<'a> {
+    let input = super::super::ActorFrameInput {
+        local_feed: None,
+        predicted_eye: None,
+        predicted_feet: None,
+        local_equipment: local_equipment.clone(),
+        swing_progress: None,
+        renders_game: true,
+        hide_hand: false,
+        custom_emote: None,
+        remote_emotes,
+    };
+    super::super::bodies::sample(
+        Some(stream),
+        &input,
+        (
+            super::super::bodies::PoseView {
+                partial_tick: 0.5,
+                first_person: true,
+                java_mode,
+                combat_visuals: Default::default(),
+                sampling_camera: None,
+                aspect: 1.0,
+            },
+            None,
+        ),
+        artwork,
+        super::super::bodies::BodyCaches {
+            poses: &mut Default::default(),
+            java_poses: &mut Default::default(),
+            native_pose: &mut Default::default(),
+            skin_rigs: &mut Default::default(),
+            equipment: None,
+            scratch: &mut Default::default(),
+        },
+        |_, _, _, _| false,
+        &mut Vec::new(),
+    )
 }

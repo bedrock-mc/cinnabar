@@ -186,7 +186,6 @@ pub struct ServerCameraView {
     active_preset_name: Option<Arc<str>>,
     active_control_scheme: Option<u8>,
     active_preset_index: Option<usize>,
-    attached: Option<i64>,
     attachment_ready: bool,
     active_listener: Option<u8>,
     active_player_effects: Option<bool>,
@@ -246,7 +245,7 @@ impl ServerCameraView {
 
     #[must_use]
     pub fn has_pose_override(&self) -> bool {
-        self.pose.is_some() || self.attached.is_some()
+        self.pose.is_some()
     }
 
     #[must_use]
@@ -257,7 +256,7 @@ impl ServerCameraView {
     /// Server-authored camera pose, if any: an explicit or preset pose, or an entity attachment.
     #[must_use]
     pub fn pose_override(&self, context: &ViewContext<'_>) -> Option<Transform> {
-        let attached = self.attached.and_then(|id| (context.actors)(id));
+        let attached = self.active_attachment().and_then(|id| (context.actors)(id));
         let subject = attached.map_or_else(
             || Pose::from_transform(&context.subject),
             |actor| Pose {
@@ -310,14 +309,14 @@ impl ServerCameraView {
         if radius <= 0.0 {
             return pose;
         }
-        let subject =
-            self.attached
-                .and_then(|id| (context.actors)(id))
-                .map_or(context.subject, |actor| Transform {
-                    translation: actor.position,
-                    rotation: bedrock_rotation(actor.yaw_degrees, actor.pitch_degrees),
-                    ..Transform::IDENTITY
-                });
+        let subject = self
+            .active_attachment()
+            .and_then(|id| (context.actors)(id))
+            .map_or(context.subject, |actor| Transform {
+                translation: actor.position,
+                rotation: bedrock_rotation(actor.yaw_degrees, actor.pitch_degrees),
+                ..Transform::IDENTITY
+            });
         let pivot_rotation = if fixed_pivot {
             rotation.unwrap_or(subject.rotation)
         } else {
@@ -402,7 +401,8 @@ impl ServerCameraView {
                 self.prepare_presets();
             }
             CameraEvent::Splines(splines) => self.splines = Arc::clone(splines),
-            CameraEvent::AimAssist(_)
+            CameraEvent::InputLocks(_)
+            | CameraEvent::AimAssist(_)
             | CameraEvent::AimAssistPresets(_)
             | CameraEvent::AimAssistActorPriority(_) => {}
             CameraEvent::Switch(_) => self.skips.legacy_switch += 1,
@@ -460,6 +460,7 @@ impl ServerCameraView {
         }
         if instruction.clear == Some(true) {
             self.remove_target(context);
+            self.detach_from_entity();
             self.active_aim_assist = None;
             self.active_base_preset_name = None;
             self.active_preset_name = None;
@@ -469,7 +470,6 @@ impl ServerCameraView {
             self.yaw_limits = None;
             self.active_preset_index = None;
             self.pose = None;
-            self.attached = None;
             self.fov = None;
         }
         if let Some(fade) = &instruction.fade {
@@ -492,13 +492,10 @@ impl ServerCameraView {
             }
         }
         if let Some(id) = instruction.attach_to_entity {
-            self.attached = Some(id);
-            if (context.actors)(id).is_none() {
-                self.skips.actor_bound += 1;
-            }
+            self.attach_to_entity(id, context);
         }
         if instruction.detach_from_entity {
-            self.attached = None;
+            self.detach_from_entity();
         }
     }
 
@@ -513,7 +510,7 @@ impl ServerCameraView {
     /// Late actor arrival and removal switch the camera between its attachment and player fallback.
     fn observe_attachment(&mut self, context: &ViewContext<'_>) {
         let ready = self
-            .attached
+            .active_attachment()
             .is_some_and(|id| (context.actors)(id).is_some());
         if ready != self.attachment_ready {
             self.attachment_ready = ready;
@@ -931,4 +928,5 @@ mod options_tests;
 #[path = "reanchor_tests.rs"]
 mod reanchor_tests;
 
+mod attachment;
 mod targeting;

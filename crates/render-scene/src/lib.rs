@@ -35,6 +35,7 @@ pub mod screen_overlay;
 pub mod screen_overlay_portal;
 pub mod skybox;
 pub mod startup_presentation;
+pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
 pub mod viewmodel;
@@ -79,7 +80,7 @@ pub use chunk::model_witness::{
 };
 pub use chunk::queue::{ChunkRenderQueue, ChunkRenderQueueLimits};
 pub use chunk::schedule::ChunkRenderApplySet;
-pub use chunk::texture_reload::ChunkTextureReload;
+pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
@@ -101,7 +102,7 @@ pub use cloud_visibility::CloudVisibility;
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
-pub use far_terrain::FarTerrainScene;
+pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
 pub use lighting::{WorldFullbright, WorldLighting};

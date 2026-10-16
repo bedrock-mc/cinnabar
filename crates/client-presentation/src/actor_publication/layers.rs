@@ -13,10 +13,22 @@ pub(super) struct LayerPoses<'a> {
     pub java_posed: &'a [java::Posed],
     pub combat_visuals: render_api::CombatVisuals,
     pub local_emote_pose: Option<&'a actor_animation::CustomEmotePose>,
+    pub remote_emote_poses:
+        &'a bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>,
     pub native_body_sampled: bool,
-    pub remote_skin_layers:
-        &'a std::collections::HashMap<u64, Arc<[actor_animation::SkinRenderLayer]>>,
+    pub remote_skin_layers: &'a super::bodies::RemoteSkinLayers,
     pub native_pose: &'a hand::NativePoseCache,
+}
+
+impl<'a> LayerPoses<'a> {
+    /// Selects one render-only overlay for body-dependent clothing, cape and equipment layers.
+    pub(super) fn emote(&self, runtime_id: u64) -> Option<&'a actor_animation::CustomEmotePose> {
+        if runtime_id == self.local_runtime_id {
+            self.local_emote_pose
+        } else {
+            self.remote_emote_poses.get(&runtime_id)
+        }
+    }
 }
 
 /// Retained layer geometry and pose conversions, borrowed only during layer assembly.
@@ -47,7 +59,8 @@ pub(super) fn attach(
         local_equipment: local_equipment_input,
         java_posed,
         combat_visuals: _,
-        local_emote_pose,
+        local_emote_pose: _,
+        remote_emote_poses: _,
         native_body_sampled,
         remote_skin_layers,
         native_pose,
@@ -71,9 +84,7 @@ pub(super) fn attach(
                 {
                     return None;
                 }
-                if runtime_id == local_runtime_id
-                    && let Some(pose) = local_emote_pose
-                {
+                if let Some(pose) = poses.emote(runtime_id) {
                     Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
                 } else {
                     render_frame.layers(runtime_id)
@@ -93,7 +104,7 @@ pub(super) fn attach(
         );
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
-        if !scene.contains_geometry(cape.id) {
+        if !scene.contains_geometry(cape.geometry.id) {
             let _ = scene.insert_geometry(cape.geometry.clone());
         }
         crate::presentation::cape::apply_capes(
@@ -102,9 +113,7 @@ pub(super) fn attach(
             preparation,
             |runtime_id| {
                 stream.authority().actor_rig(runtime_id).map(|rig| {
-                    if runtime_id == local_runtime_id
-                        && let Some(pose) = local_emote_pose
-                    {
+                    if let Some(pose) = poses.emote(runtime_id) {
                         pose.snapshot(rig)
                     } else {
                         rig
@@ -140,9 +149,7 @@ pub(super) fn attach(
                 }) {
                     return None;
                 }
-                if runtime_id == local_runtime_id
-                    && let Some(pose) = local_emote_pose
-                {
+                if let Some(pose) = poses.emote(runtime_id) {
                     Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
                 } else {
                     render_frame.layers(runtime_id)
@@ -158,9 +165,7 @@ pub(super) fn attach(
             artwork,
             |runtime_id| {
                 let rig = stream.authority().actor_rig(runtime_id)?;
-                let emote = (runtime_id == local_runtime_id)
-                    .then_some(local_emote_pose)
-                    .flatten();
+                let emote = poses.emote(runtime_id);
                 let java_layers =
                     java::posed(java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
                 let native_layers = if runtime_id == local_runtime_id && native_body_sampled {
@@ -189,24 +194,30 @@ pub(super) fn apply_style_and_visibility(
     stream: Option<&WorldStream>,
     style: Option<&ActorPresentationStyle>,
 ) {
-    if let Some(style) = style {
-        for submission in &mut batch.submissions {
-            let armor = (3..=6).contains(&submission.input.identity.layer);
-            let hurt = stream.is_some_and(|stream| {
-                stream
-                    .authority()
-                    .actor(submission.input.identity.runtime_id)
-                    .is_some_and(|actor| actor.hurt_overlay_active())
-            });
-            let attackable = style.attackable_actor == Some(submission.input.identity.runtime_id)
-                && stream.is_some_and(|stream| {
-                    stream
-                        .authority()
-                        .actor(submission.input.identity.runtime_id)
-                        .is_some_and(|actor| {
-                            matches!(actor.kind, protocol::ActorKind::Player { .. })
-                        })
-                });
+    if style.is_none() && stream.is_none() {
+        return;
+    }
+    // Each submission's overlay and route depend only on itself, so one pass with one lookup
+    // per run of an actor's adjacent layers matches separate style and visibility passes.
+    let mut looked_up: Option<(u64, Option<&client_world::ActorSnapshot>)> = None;
+    for submission in &mut batch.submissions {
+        let identity = submission.input.identity;
+        let actor = match looked_up {
+            Some((runtime_id, actor)) if runtime_id == identity.runtime_id => actor,
+            _ => {
+                let actor = stream.and_then(|stream| stream.authority().actor(identity.runtime_id));
+                looked_up = Some((identity.runtime_id, actor));
+                actor
+            }
+        };
+        if !submission.material.allows_overlay() {
+            submission.overlay_rgba8 = 0;
+        } else if let Some(style) = style {
+            let armor = (3..=6).contains(&identity.layer);
+            let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
+            let attackable = style.attackable_actor == Some(identity.runtime_id)
+                && actor
+                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }));
             if let Some(color) = cosmetic_overlay(
                 style,
                 hurt,
@@ -217,22 +228,14 @@ pub(super) fn apply_style_and_visibility(
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
         }
-    }
-    // Hiding skin layers keeps armor and held items visible.
-    if let Some(stream) = stream {
-        for submission in &mut batch.submissions {
-            let identity = submission.input.identity;
-            if (identity.layer == render_model::ACTOR_LAYER_BODY
-                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
-                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
-                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
-                && stream
-                    .authority()
-                    .actor(identity.runtime_id)
-                    .is_some_and(|actor| actor.is_invisible())
-            {
-                submission.route = render_model::ActorRigRoute::NoDraw;
-            }
+        // Hiding skin layers keeps armor and held items visible.
+        if (identity.layer == render_model::ACTOR_LAYER_BODY
+            || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+            || crate::presentation::skin_layers::is_skin_layer(identity.layer)
+            || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
+            && actor.is_some_and(|actor| actor.is_invisible())
+        {
+            submission.route = render_model::ActorRigRoute::NoDraw;
         }
     }
 }

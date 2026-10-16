@@ -876,6 +876,7 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
                 unique_id: 1,
                 username: "Alex".into(),
                 verified: true,
+                xuid: "".into(),
                 skin: protocol::PlayerSkin::Unavailable(
                     protocol::PlayerSkinUnavailable::InvalidDimensions,
                 ),
@@ -906,168 +907,6 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
         store.apply(1, 5, spawn(3, 3)),
         ActorApplyResult::StaleSession
     );
-}
-
-#[test]
-fn render_players_join_roster_skins_and_sort_by_runtime_id() {
-    let skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
-        geometry: None,
-        cape: None,
-        width: 64,
-        height: 64,
-        rgba8: vec![9; 64 * 64 * 4].into(),
-    });
-    let mut store = ActorStore::new(1, 0);
-    for (sequence, runtime_id, unique_id, uuid) in [(1, 20, 2, [2; 16]), (2, 10, 1, [1; 16])] {
-        let mut event = spawn(runtime_id, unique_id);
-        let ActorEvent::Spawn(spawn) = &mut event else {
-            unreachable!()
-        };
-        spawn.kind = ActorKind::Player {
-            uuid,
-            username: format!("player-{runtime_id}").into(),
-        };
-        store.apply(1, sequence, event);
-    }
-    store.apply(
-        1,
-        3,
-        ActorEvent::PlayerList(PlayerListUpdateEvent {
-            entries: Arc::from([PlayerListEntry::Add {
-                uuid: [1; 16],
-                unique_id: 1,
-                username: "player-10".into(),
-                verified: true,
-                skin: skin.clone(),
-            }]),
-        }),
-    );
-
-    let players = store.render_players(None);
-    assert_eq!(
-        players
-            .iter()
-            .map(|(actor, _)| actor.runtime_id)
-            .collect::<Vec<_>>(),
-        [10, 20]
-    );
-    assert_eq!(players[0].1.map(|profile| &profile.skin), Some(&skin));
-    assert!(players[1].1.is_none());
-    assert_eq!(
-        store.player_profile(10).map(|profile| &profile.skin),
-        Some(&skin),
-        "the exact roster profile remains addressable even when remote publication excludes it",
-    );
-
-    let remote_players = store.render_players(Some(10));
-    assert_eq!(remote_players.len(), 1);
-    assert_eq!(remote_players[0].0.runtime_id, 20);
-}
-
-#[test]
-fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
-    let skin_bytes = 64 * 64 * 4;
-    let skin = |value| {
-        PlayerSkin::Standard(StandardSkin {
-            geometry: None,
-            cape: None,
-            width: 64,
-            height: 64,
-            rgba8: vec![value; skin_bytes].into(),
-        })
-    };
-    let add = |uuid, unique_id, skin| {
-        ActorEvent::PlayerList(PlayerListUpdateEvent {
-            entries: Arc::from([PlayerListEntry::Add {
-                uuid,
-                unique_id,
-                username: format!("player-{unique_id}").into(),
-                verified: true,
-                skin,
-            }]),
-        })
-    };
-    let mut store = ActorStore::with_limits(1, 0, 2, 2, skin_bytes);
-
-    assert_eq!(
-        store.apply(1, 1, add([1; 16], 1, skin(1))),
-        ActorApplyResult::Updated
-    );
-    assert_eq!(
-        store.apply(1, 2, add([2; 16], 2, skin(2))),
-        ActorApplyResult::Updated
-    );
-    assert_eq!(store.retained_player_skin_bytes, skin_bytes);
-    assert_eq!(
-        store.players[&[2; 16]].skin,
-        PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded)
-    );
-
-    let oversized_replacement = PlayerSkin::Standard(StandardSkin {
-        geometry: None,
-        cape: None,
-        width: 128,
-        height: 128,
-        rgba8: vec![9; 128 * 128 * 4].into(),
-    });
-    store.apply(1, 3, add([1; 16], 10, oversized_replacement));
-    assert_eq!(store.retained_player_skin_bytes, skin_bytes);
-    assert_eq!(store.players[&[1; 16]].unique_id, 10);
-    assert_eq!(store.players[&[1; 16]].skin, skin(1));
-
-    store.apply(
-        1,
-        4,
-        ActorEvent::PlayerList(PlayerListUpdateEvent {
-            entries: Arc::from([PlayerListEntry::Remove { uuid: [1; 16] }]),
-        }),
-    );
-    assert_eq!(store.retained_player_skin_bytes, 0);
-    store.apply(1, 5, add([2; 16], 2, skin(3)));
-    assert_eq!(store.retained_player_skin_bytes, skin_bytes);
-    assert!(matches!(
-        store.players[&[2; 16]].skin,
-        PlayerSkin::Standard(_)
-    ));
-}
-
-#[test]
-fn bounding_box_needs_positive_finite_width_and_height_metadata() {
-    let ActorEvent::Spawn(mut sized) = spawn(5, 50) else {
-        unreachable!();
-    };
-    sized.metadata = Arc::from([
-        ActorMetadata {
-            key: 53,
-            value: ActorMetadataValue::Float(0.6),
-        },
-        ActorMetadata {
-            key: 54,
-            value: ActorMetadataValue::Float(1.8),
-        },
-    ]);
-    let ActorEvent::Spawn(mut flat) = spawn(6, 60) else {
-        unreachable!();
-    };
-    flat.metadata = Arc::from([ActorMetadata {
-        key: 54,
-        value: ActorMetadataValue::Float(f32::NAN),
-    }]);
-    let mut store = ActorStore::new(1, 0);
-    store.apply(1, 1, ActorEvent::Spawn(sized));
-    store.apply(1, 2, ActorEvent::Spawn(flat));
-
-    assert_eq!(
-        store.get(5).unwrap().bounding_box(),
-        Some(([0.7, 2.0, 2.7], [1.3, 3.8, 3.3]))
-    );
-    assert_eq!(store.get(6).unwrap().bounding_box(), None);
-    let mut ids = store
-        .actors()
-        .map(|actor| actor.runtime_id)
-        .collect::<Vec<_>>();
-    ids.sort_unstable();
-    assert_eq!(ids, [5, 6]);
 }
 
 #[test]
@@ -1128,17 +967,6 @@ fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
     assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
 }
 
-/// A player spawned without size metadata keeps its definition box, so it stays attackable.
-#[test]
-fn a_sizeless_player_uses_its_definition_collision_box() {
-    let mut store = ActorStore::new(1, 0);
-    store.apply(1, 1, player_spawn(7, 70, 2.0));
-    let (min, max) = store.get(7).unwrap().bounding_box().unwrap();
-    let offset = store.get(7).unwrap().position;
-    assert!((max[0] - min[0] - 0.6).abs() < 1e-4 && (max[1] - min[1] - 1.8).abs() < 1e-4);
-    assert_eq!(min[1], offset[1]);
-}
-
 /// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
 #[test]
 fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
@@ -1197,4 +1025,6 @@ fn brightness_sample_uses_interpolated_feet_and_body_height() {
     }
 }
 
+mod bounds;
 mod local_server_swings;
+mod player_list;

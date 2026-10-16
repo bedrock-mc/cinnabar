@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "fixture helpers explain skipped tests on stderr and dump layouts for local diagnosis"
+)]
+
 mod anim;
 mod animation_safety;
 mod bind;
@@ -17,6 +22,8 @@ mod input;
 mod interaction;
 mod layout;
 mod layout_parity;
+mod pack_inheritance;
+mod paint_transform;
 mod partial_documents;
 mod render;
 mod resolution;

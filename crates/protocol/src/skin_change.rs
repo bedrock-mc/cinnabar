@@ -8,6 +8,32 @@ use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
 use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
 
+/// The built-in classic skin pack used by custom wide and slim models.
+const CLASSIC_SKIN_PACK_ID: &str = "c18e65aa-7b21-4637-9b63-8ad63622ef01";
+
+/// The pack used for images imported by the player.
+const CUSTOM_SKIN_PACK_ID: &str = "aaaaaaaa-7b21-4637-9b63-8ad63622ef01";
+
+/// Returns a built-in skin's pack identity without minting a per-login UUID.
+pub fn builtin_skin_id(name: &str) -> String {
+    format!("{CLASSIC_SKIN_PACK_ID}.{name}")
+}
+
+/// Returns an imported skin's pack identity from its persisted image name.
+pub fn custom_skin_id(image_name: &str) -> String {
+    format!("{CUSTOM_SKIN_PACK_ID}.{image_name}")
+}
+
+/// Returns the classic model's skin-pack identity, independent of login and player UUIDs.
+pub(crate) fn classic_skin_id(arm_size: &str) -> String {
+    let name = if arm_size == "slim" {
+        "CustomSlim"
+    } else {
+        "Custom"
+    };
+    builtin_skin_id(name)
+}
+
 /// Selects the classic model when no skin-authored resource patch is available.
 pub(crate) fn classic_skin_resource_patch(arm_size: &str) -> String {
     let model = if arm_size == "slim" {
@@ -122,7 +148,8 @@ mod tests {
                 animations: Arc::from([]),
             })),
         };
-        let packet = player_skin_packet([9; 16], &skin, "slim", "imported", "Fixture");
+        let id = custom_skin_id("fixture");
+        let packet = player_skin_packet([9; 16], &skin, "slim", &id, "Fixture");
         let mut packet = packet;
         set_skin_packet_engine_version(&mut packet, "1.12.0");
         let encoded = crate::encode(&packet).unwrap();
@@ -163,7 +190,7 @@ mod tests {
         assert_eq!(wire.serialized_skin.cape_id, cape_content_id(cape).as_str());
         assert_eq!(
             wire.serialized_skin.full_id,
-            format!("imported_{}", cape_content_id(cape)).as_str()
+            format!("{id}_{}", cape_content_id(cape)).as_str()
         );
     }
 
@@ -177,7 +204,8 @@ mod tests {
             cape: None,
             geometry: None,
         };
-        let mut packet = player_skin_packet([1; 16], &skin, "wide", "selected", "");
+        let id = classic_skin_id("wide");
+        let mut packet = player_skin_packet([1; 16], &skin, "wide", &id, "");
         set_skin_packet_uuid(&mut packet, [3; 16]);
         let packets::Packet::PlayerSkin(wire) = *packet.data else {
             panic!("skin packet")
@@ -185,6 +213,10 @@ mod tests {
         assert_eq!(wire.uuid.as_bytes(), &[3; 16]);
         assert_eq!(wire.serialized_skin.cape_image_data.image_bytes.len(), 0);
         assert_eq!(wire.serialized_skin.cape_id, "");
-        assert_eq!(wire.serialized_skin.full_id, "selected");
+        assert_eq!(wire.serialized_skin.id, classic_skin_id("wide").as_str());
+        assert_eq!(
+            wire.serialized_skin.full_id,
+            classic_skin_id("wide").as_str()
+        );
     }
 }

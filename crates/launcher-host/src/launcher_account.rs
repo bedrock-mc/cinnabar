@@ -31,6 +31,8 @@ use launcher::menu::{
 mod home_promo;
 
 mod artwork;
+mod cinnabar_players;
+mod emotes;
 mod feeds;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
@@ -71,6 +73,13 @@ struct Snapshot {
     /// Wakes Profile independently when its account identity changes.
     profile_wake: Option<Sender<()>>,
     xbox_presence: bridge::XboxPresenceState,
+    /// The Cinnabar API identity and visibility the events worker keeps the core configured with.
+    cinnabar_api: Option<bridge::CinnabarApiConfig>,
+    emotes: emotes::Exchange,
+    /// Roster identifiers the API reports as Cinnabar players; replaced whole on change.
+    cinnabar_players: Arc<std::collections::HashSet<String>>,
+    /// The `(session, revision)` roster last sent to the lookup worker.
+    cinnabar_roster_key: Option<(u64, u64)>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     /// Prevents a catalog request started before acceptance from removing the new membership.
@@ -99,6 +108,7 @@ struct Snapshot {
 impl Snapshot {
     /// Retires values tied to the old account before accepting responses for another identity.
     fn retire_account_data(&mut self) {
+        self.emotes = emotes::Exchange::default();
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.realms = None;
         self.friends = None;
@@ -143,6 +153,7 @@ pub struct LauncherAccount {
     message_reports: Sender<MessageEvent>,
     invites: Sender<invites::Request>,
     realm_membership: tokio::sync::mpsc::UnboundedSender<realm_membership::Request>,
+    cinnabar_rosters: Sender<cinnabar_players::Roster>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -174,6 +185,7 @@ impl LauncherAccount {
             stop.clone(),
         );
         let realm_membership = realm_membership::start(socket_dir.clone(), Arc::clone(&snapshot));
+        let cinnabar_rosters = cinnabar_players::start(socket_dir.clone(), Arc::clone(&snapshot));
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -187,6 +199,7 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         let (art, wake) = (artwork.clone(), home_wake.clone());
         thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
+        let _ = emotes::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || {
             profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)
@@ -198,6 +211,7 @@ impl LauncherAccount {
             message_reports,
             invites,
             realm_membership,
+            cinnabar_rosters,
             _alive: alive,
             socket_dir,
         }
@@ -206,6 +220,62 @@ impl LauncherAccount {
     /// Publishes the newest committed world activity for the control worker.
     pub fn set_xbox_presence(&self, state: bridge::XboxPresenceState) {
         publish(&self.snapshot, |snapshot| snapshot.xbox_presence = state);
+    }
+
+    /// Keeps the core's Cinnabar API connection on `channel`, showing this player when `visible`.
+    pub fn set_cinnabar_api(&self, channel: update_manifest::channel::Channel, visible: bool) {
+        self.with(|snapshot| {
+            if snapshot
+                .cinnabar_api
+                .as_ref()
+                .is_some_and(|config| config.channel == channel.name() && config.visible == visible)
+            {
+                return;
+            }
+            snapshot.cinnabar_api = Some(bridge::CinnabarApiConfig {
+                client_version: env!("CARGO_PKG_VERSION").to_owned(),
+                client_build: update_manifest::build_number(),
+                channel: channel.name().to_owned(),
+                visible,
+            });
+        });
+    }
+
+    /// Asks which of the server roster's identities are Cinnabar players when `(session, revision)` is new;
+    /// answers are cached per session.
+    pub fn set_cinnabar_roster(
+        &self,
+        session: u64,
+        revision: u64,
+        identities: impl IntoIterator<Item = String>,
+    ) {
+        let key = Some((session, revision));
+        let changed = self.with(|snapshot| {
+            let previous = std::mem::replace(&mut snapshot.cinnabar_roster_key, key);
+            if previous.map(|key| key.0) != Some(session) {
+                snapshot.cinnabar_players = Arc::default();
+            }
+            previous != key
+        });
+        if changed {
+            let identities: Vec<String> = identities.into_iter().collect();
+            tracing::debug!(players = identities.len(), "Cinnabar roster submitted");
+            if self
+                .cinnabar_rosters
+                .send(cinnabar_players::Roster {
+                    session,
+                    identities,
+                })
+                .is_err()
+            {
+                tracing::debug!("Cinnabar roster worker stopped");
+            }
+        }
+    }
+
+    /// Roster identifiers the API reports as Cinnabar players; the `Arc` changes only with the set.
+    pub fn cinnabar_players(&self) -> Arc<std::collections::HashSet<String>> {
+        self.with(|snapshot| Arc::clone(&snapshot.cinnabar_players))
     }
 
     /// The control endpoint directory this link polls.
@@ -272,6 +342,8 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     };
     let mut sent_presence = None;
     let mut presence_failed = false;
+    let mut sent_cinnabar = None;
+    let mut seen_release = None;
     let mut ping_due = Instant::now();
     let mut pinged: Vec<String> = Vec::new();
     loop {
@@ -312,8 +384,31 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 presence_failed = true;
             }
         }
+        let cinnabar = shared
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .cinnabar_api
+            .clone();
+        if let Some(config) = &cinnabar
+            && sent_cinnabar.as_ref() != Some(config)
+        {
+            let sent = runtime.block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    bridge::configure_cinnabar_api(socket_dir, config),
+                )
+                .await
+            });
+            if matches!(sent, Ok(Ok(()))) {
+                sent_cinnabar = Some(config.clone());
+            }
+        }
         let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(bridge::poll_events(socket_dir)) {
+            if let Some(release) = new_release(&mut seen_release, events.cinnabar_release.as_ref())
+            {
+                crate::lifecycle::update::release_published(release);
+            }
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
                     && snapshot.last_disconnect != Some(disconnect.sequence)
@@ -355,6 +450,19 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             publish(shared, |snapshot| snapshot.pings = Some(pings));
         }
     }
+}
+
+/// The announced release when its identity differs from the last one seen.
+fn new_release<'a>(
+    seen: &mut Option<bridge::CinnabarRelease>,
+    latest: Option<&'a bridge::CinnabarRelease>,
+) -> Option<&'a bridge::CinnabarRelease> {
+    let latest = latest?;
+    if seen.as_ref() == Some(latest) {
+        return None;
+    }
+    *seen = Some(latest.clone());
+    Some(latest)
 }
 
 fn poll_catalog(

@@ -8,7 +8,10 @@ use launcher::menu::settings_storage::*;
 
 /// Measures real world and downloaded-pack data once when Storage opens.
 pub fn read_storage(layout: &InstallLayout) -> StorageView {
-    let mut view = StorageView::default();
+    let mut view = StorageView {
+        opens_folders: crate::desktop::opens_folders(),
+        ..StorageView::default()
+    };
     match entries(&layout.local_worlds_dir()) {
         Ok(items) => view.worlds = items,
         Err(error) => view.error = Some(error.to_string()),

@@ -1,5 +1,40 @@
 use super::*;
 
+#[test]
+fn full_catalogs_keep_later_valid_overrides_after_skipping_new_keys() {
+    let mut paths = (0..MAX_CATALOG_ENTRIES)
+        .map(|index| (format!("z_{index:05}"), "textures/old".to_owned()))
+        .collect::<HashMap<_, _>>();
+    let mut grids = paths
+        .keys()
+        .map(|key| (key.clone(), 1))
+        .collect::<HashMap<_, _>>();
+    let layer = br#"{"texture_data":{
+        "a_new":{"textures":"textures/unadmitted"},
+        "z_00000":{"textures":"textures/replacement"},
+        "z_00001":{"textures":false},
+        "z_00002":{"textures":"textures/gridded","quad":1}
+    }}"#;
+    merge_texture_catalog(&mut paths, layer);
+    merge_terrain_grids(&mut grids, layer);
+    assert_eq!(paths.len(), MAX_CATALOG_ENTRIES);
+    assert_eq!(grids.len(), MAX_CATALOG_ENTRIES);
+    assert!(!paths.contains_key("a_new"));
+    assert!(!grids.contains_key("a_new"));
+    assert_eq!(paths["z_00000"], "textures/replacement");
+    assert_eq!(
+        grids["z_00000"], 0,
+        "omitted grids reset on a valid override"
+    );
+    assert_eq!(paths["z_00001"], "textures/old");
+    assert_eq!(
+        grids["z_00001"], 1,
+        "malformed overrides retain the lower grid"
+    );
+    assert_eq!(paths["z_00002"], "textures/gridded");
+    assert_eq!(grids["z_00002"], 1 & assets::TERRAIN_QUAD_SHIFT_MASK as u8);
+}
+
 /// Encodes original row and column detail into a synthetic PNG.
 fn png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |x, y| {

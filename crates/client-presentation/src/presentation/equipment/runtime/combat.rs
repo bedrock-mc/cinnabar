@@ -30,12 +30,11 @@ pub(super) fn apply(
                     + animation.frame_alpha)
                     * simulation_clock::TICK_DURATION.as_secs_f32();
             }
-            if submission.overlay_rgba8 == 0
-                && !submission
-                    .material
-                    .state
-                    .is_some_and(|state| state.disable_overlay)
-            {
+        }
+        if !submission.material.allows_overlay() {
+            submission.overlay_rgba8 = 0;
+        } else if profile == CombatVisuals::Legacy112 {
+            if submission.overlay_rgba8 == 0 {
                 submission.overlay_rgba8 = body.overlay_rgba8;
             }
         } else if input.java.is_some() {

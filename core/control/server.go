@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 )
@@ -55,6 +56,7 @@ type Server struct {
 	worlds           Worlds   // nil disables the local world methods; guarded by mu
 	services         Services // nil disables the launcher methods; guarded by mu
 	presence         func(xboxpresence.State)
+	cinnabar         CinnabarAPI // nil answers lookups as unavailable; guarded by mu
 	packetDelay      PacketDelay // nil disables packet_delay.v1; guarded by mu
 	done             chan struct{}
 	once             sync.Once
@@ -161,7 +163,7 @@ func (server *Server) logServiceFailure(method string, err error) {
 	logger := server.logger
 	server.mu.Unlock()
 	if logger != nil {
-		logger.Warn("launcher service failed", "method", method, "error", RedactError(err))
+		logger.Warn("launcher service failed", "method", method, "error", redact.Error(err))
 	}
 }
 
@@ -206,6 +208,15 @@ func (server *Server) serveOne(conn net.Conn) error {
 	id := *call.ID
 	if call.Method == methodPresence {
 		return server.servePresence(conn, id, call.Params)
+	}
+	if call.Method == methodCinnabarAPI {
+		return server.serveCinnabarAPI(conn, id, call.Params)
+	}
+	if call.Method == bridgecontract.MethodCinnabarEmotes {
+		return server.serveCinnabarEmotes(conn, id, call.Params)
+	}
+	if call.Method == methodCinnabarLookup {
+		return server.serveCinnabarLookup(conn, id, call.Params)
 	}
 	if call.Method == methodPacketDelay {
 		return server.servePacketDelay(conn, id, call.Params)

@@ -1,7 +1,7 @@
 use super::*;
 use render_model::{
-    BeaconModel, UiRenderBatch, UiRenderInput, UiRenderTextureArray, UiRenderVertex, UiScissor,
-    UiTexturePage,
+    BeaconModel, MIN_DYNAMIC_ATLAS_WIDTH, UiRenderBatch, UiRenderInput, UiRenderTextureArray,
+    UiRenderVertex, UiScissor, UiTexturePage,
 };
 
 /// Projects the production beam mesh into the offline UI rasterizer with original white art.
@@ -13,8 +13,15 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
         width: 16,
         height: 16,
     };
-    let pixels = vec![255; 16 * 16 * 4];
-    let bytes = assets::encode_block_entity_catalog(b"{}", 16, 16, &pixels, &[placement]).unwrap();
+    let pixels = vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4];
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
+        16,
+        &pixels,
+        &[placement],
+    )
+    .unwrap();
     let catalog = RuntimeBlockEntityAssets::decode(&bytes).unwrap();
     let mut scene = BlockEntityScene::default();
     scene.install_assets(&catalog);
@@ -27,6 +34,7 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
             kind: BlockEntityKind::Beacon(model),
         }],
     );
+    let atlas_size = frame.atlas.as_ref().unwrap().size;
     let vertices = frame
         .overlay
         .as_chunks::<3>()
@@ -46,7 +54,7 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
             ],
             clip_z: 0.,
             clip_w: 1.,
-            uv: vertex.uv.map(|v| v * 16.),
+            uv: std::array::from_fn(|axis| vertex.uv[axis] * atlas_size[axis] as f32),
             color: std::array::from_fn(|axis| {
                 let value = vertex.color[axis];
                 let value = if axis == 3 {
@@ -74,7 +82,7 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
         render_model::UI_BLEND_ALPHA,
     );
     let textures = UiRenderTextureArray::new(
-        vec![UiTexturePage::owned([16, 16], pixels.into()).unwrap()],
+        vec![UiTexturePage::owned([MIN_DYNAMIC_ATLAS_WIDTH, 16], pixels.into()).unwrap()],
         1,
     )
     .unwrap();

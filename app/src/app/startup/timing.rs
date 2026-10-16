@@ -19,7 +19,7 @@ fn log_first_frame(start: Res<EventLoopStart>, mut logged: Local<bool>) {
         return;
     }
     let launched = crate::lifecycle::launched_at();
-    diagnostics::log_stderr!(
+    bevy::log::info!(
         "first frame {:.1} ms after launch ({:.1} ms before the event loop)",
         launched.elapsed().as_secs_f64() * 1e3,
         start.0.duration_since(launched).as_secs_f64() * 1e3

@@ -1,10 +1,12 @@
 mod bodies;
 mod commit;
+mod flames;
 mod geometry;
 mod hand_frame;
 mod layers;
 mod occlusion;
 mod paintings;
+pub use flames::WorldActorFlames;
 mod views;
 use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
 mod preparation;
@@ -34,7 +36,7 @@ use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
 use crate::{
     actor_clock::authoritative_local_actor_eye,
     dropped_items::DroppedItemPublisher,
-    presentation::{actors::select_actor_presentations_for_view, equipment::EquipmentRuntime},
+    presentation::{actors::select_actor_presentations, equipment::EquipmentRuntime},
 };
 use bevy::prelude::{Query, Transform, With};
 
@@ -59,6 +61,17 @@ pub struct ActorFrameInput {
     pub renders_game: bool,
     pub hide_hand: bool,
     pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
+    /// API-authenticated playback already resolved to this session's actor lifetimes.
+    pub remote_emotes: Vec<RemoteEmote>,
+}
+
+/// Render-only remote playback bound to one spawned actor, preventing runtime-ID reuse.
+#[derive(Clone, Copy, Debug)]
+pub struct RemoteEmote {
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub emote: actor_animation::CustomEmote,
+    pub elapsed: f64,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -110,6 +123,7 @@ pub struct ActorFramePublication<'w, 's> {
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
+    flames: Option<ResMut<'w, WorldActorFlames>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -166,6 +180,7 @@ pub fn prepare_actor_render_frame(
             native_pose: &mut state.java_hand.native_pose,
             skin_rigs: &mut state.skin_rigs,
             equipment: params.equipment.as_deref_mut(),
+            scratch: &mut state.body_scratch,
         },
         hides_box,
         &mut new_geometries,
@@ -201,13 +216,14 @@ pub fn prepare_actor_render_frame(
         params.equipment.as_deref_mut(),
         &mut new_geometries,
     );
+    let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    // Remote bodies passed frame-model admission before bounded skin registration.
+    let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible,
         local,
         bodies.remotes,
-        cull_view,
     );
     if let Some(stream) = stream {
         state
@@ -230,6 +246,7 @@ pub fn prepare_actor_render_frame(
             java_posed: &bodies.java_posed,
             combat_visuals: state.combat_visuals,
             local_emote_pose: bodies.local_emote_pose.as_ref(),
+            remote_emote_poses: &bodies.remote_emote_poses,
             native_body_sampled: bodies.native_body_sampled,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
@@ -252,6 +269,21 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    state
+        .body_scratch
+        .recycle(bodies.java_posed, bodies.remote_skin_layers);
+    if let Some(flames) = params.flames.as_deref_mut()
+        && let Ok((camera, _)) = params.presentation.camera.single()
+    {
+        let (yaw, _, _) = camera.rotation.to_euler(bevy::math::EulerRot::YXZ);
+        flames.append(
+            stream.map(WorldStream::authority),
+            yaw,
+            step.partial_tick,
+            local_flame_feet,
+            &mut batch,
+        );
+    }
     if let Some(equipment) = params.equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());
     }
@@ -326,6 +358,9 @@ pub fn prepare_actor_render_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;

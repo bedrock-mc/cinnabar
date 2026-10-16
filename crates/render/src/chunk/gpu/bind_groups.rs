@@ -1,12 +1,15 @@
 use super::resource_geometry::PreparedResourceGeometry;
+
+mod reload;
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::color::ColorToPacked;
+pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
 use render_scene::{
     BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, TextureArrayLimits,
-    TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
+    TextureArrayLimits, TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
     plan_texture_mip_uploads, plan_texture_page_bindings, texture_asset_needs_rebuild,
 };
 
@@ -15,6 +18,9 @@ mod water_tint_tests;
 
 #[cfg(test)]
 mod clock_tests;
+
+#[cfg(test)]
+mod reload_tests;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
@@ -149,7 +155,17 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
     render_device: Res<RenderDevice>,
     source: Res<ChunkBiomeTints>,
     mut gpu: ResMut<ChunkGpuBiomeTints>,
+    textures: Option<Res<ChunkGpuTextureAssets>>,
+    assets: Option<Res<ChunkTextureAssets>>,
 ) {
+    if let (Some(textures), Some(assets)) = (textures, assets)
+        && textures
+            .prepared
+            .as_ref()
+            .is_none_or(|prepared| prepared.identity != assets.identity())
+    {
+        return;
+    }
     let identity = source.resource_identity();
     if !biome_tint_gpu_buffer_needs_rebuild(
         gpu.prepared.as_ref().map(|prepared| prepared.identity),
@@ -213,8 +229,15 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     clock: Res<ChunkAnimationClock>,
     gpu_clock: Res<ChunkGpuAnimationClock>,
     render_queue: Res<RenderQueue>,
+    device: Res<RenderDevice>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
 ) {
-    render_queue.profiled_write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
+    crate::upload_staging::write_batch(
+        staging.as_deref(),
+        &device,
+        &render_queue,
+        &[(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock))],
+    );
 }
 
 type PreparedReplacement = (
@@ -223,7 +246,17 @@ type PreparedReplacement = (
     Option<PreparedResourceGeometry>,
 );
 
-type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
+/// One render worker and the immutable request whose completion it may acknowledge.
+struct PendingTextures {
+    request: ChunkTexturePreparation,
+    result: std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>,
+}
+
+/// GPU resources retained for publication of the request that prepared them.
+struct StagedTextures {
+    request: ChunkTexturePreparation,
+    replacement: PreparedReplacement,
+}
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
@@ -231,8 +264,7 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
-    pending_identity: Option<ChunkTextureAssetIdentity>,
-    staged: Option<PreparedReplacement>,
+    staged: Option<StagedTextures>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -243,126 +275,6 @@ pub struct ChunkTextureUploadStats {
     pub animation_frame_bytes: u64,
     pub texture_bytes_including_mips: u64,
     pub queue_upload_bytes: u64,
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(in crate::chunk) fn prepare_chunk_texture_assets(
-    mut commands: Commands,
-    instances: Query<(Entity, &ChunkRenderInstance)>,
-    views: Query<
-        (Entity, &ExtractedView, Has<render_scene::EnhancedRendering>),
-        With<ExtractedCamera>,
-    >,
-    mut arena: ResMut<ChunkGpuArena>,
-    assets: Res<ChunkTextureAssets>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
-    mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
-    mut stats: ResMut<ChunkTextureUploadStats>,
-    reload: Res<ChunkTextureReload>,
-) {
-    let identity = assets.identity();
-    let completed = gpu_assets.pending.as_ref().and_then(|pending| {
-        match pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .try_recv()
-        {
-            Ok(result) => Some(result),
-            Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(None),
-        }
-    });
-    if let Some(completed) = completed {
-        gpu_assets.pending = None;
-        if let Some(pending) = gpu_assets.pending_identity.take() {
-            reload.finish(pending, completed.is_some());
-        }
-        gpu_assets.staged = completed;
-    }
-    let requested = reload.requested();
-    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _, _)| {
-        prepared.identity != identity
-            && requested
-                .as_ref()
-                .is_none_or(|candidate| candidate.identity() != prepared.identity)
-    }) {
-        gpu_assets.staged = None;
-    }
-    if gpu_assets
-        .staged
-        .as_ref()
-        .is_some_and(|(prepared, _, _)| prepared.identity == identity)
-    {
-        let (prepared, uploaded, geometry) =
-            gpu_assets.staged.take().expect("matching staged atlas");
-        // Geometry built for chunks a session reset retired cannot publish. The main world
-        // already meshes against this atlas, so it still installs and the reload completes.
-        if let Some(geometry) = geometry
-            && !geometry.publish(&mut commands, &instances, &mut arena)
-        {
-            bevy::log::warn!("discarding resource geometry with retired chunk keys");
-        }
-        reload.published();
-        gpu_assets.prepared = Some(prepared);
-        gpu_assets.attempted_identity = Some(identity);
-        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
-        *stats = uploaded;
-    }
-    // Bootstrap may publish without an optional reload transaction.
-    if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
-        gpu_assets.attempted_identity = Some(identity);
-        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
-        if let Some((prepared, uploaded)) =
-            build_chunk_texture_assets(&assets, &render_device, &render_queue)
-        {
-            gpu_assets.prepared = Some(prepared);
-            *stats = uploaded;
-        }
-    }
-    let Some(candidate) = requested else {
-        return;
-    };
-    if candidate.identity() == identity
-        || gpu_assets.pending.is_some()
-        || reload.status(candidate.identity()).is_some()
-    {
-        return;
-    }
-    let device = render_device.clone();
-    let queue = render_queue.clone();
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    gpu_assets.pending_identity = Some(candidate.identity());
-    gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
-    let geometry = reload.geometry();
-    let view = views
-        .iter()
-        .min_by_key(|(entity, ..)| *entity)
-        .map(
-            |(entity, view, enhanced)| super::resource_sorts::ResourceView {
-                entity,
-                transform: view.world_from_view,
-                sort_order_independent: view_displaces_water(enhanced),
-            },
-        );
-    std::thread::spawn(move || {
-        let result =
-            build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
-                let geometry = match geometry {
-                    Some(instances) => Some({
-                        let _zone = bevy::log::info_span!(
-                            "pack_apply.gpu_geometry",
-                            chunks = instances.len()
-                        )
-                        .entered();
-                        PreparedResourceGeometry::build(&instances, candidate, device, queue, view)?
-                    }),
-                    None => None,
-                };
-                Some((atlas, stats, geometry))
-            });
-        let _ = sender.send(result);
-    });
 }
 
 /// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.

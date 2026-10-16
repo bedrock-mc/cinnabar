@@ -24,8 +24,10 @@ pub struct Particle {
     pub timeline_next: usize,
     pub travelled: f32,
     pub travel_next: usize,
-    /// Times each looping travel event has fired.
+    /// Consumed occurrences of each looping travel event, including refused scheduling.
     pub loop_counts: Vec<u32>,
+    /// Prefix of looping definitions scanned during the previous particle update.
+    pub loop_scanned: usize,
 }
 
 impl Particle {
@@ -45,6 +47,7 @@ impl Particle {
             travelled: 0.0,
             travel_next: 0,
             loop_counts: Vec::new(),
+            loop_scanned: 0,
         }
     }
 }
@@ -251,9 +254,12 @@ impl Emitter {
         }
         let (origin, basis, queries) = (self.pos, self.basis, self.queries.clone());
         let mut particles = std::mem::take(&mut self.particles);
-        let mut pending: Vec<(Box<str>, [f32; 3], [f32; 3])> = Vec::new();
+        // Event names borrow the definition; firing them must not allocate per particle.
+        let mut pending: Vec<(&str, [f32; 3], [f32; 3])> = Vec::new();
         let rng = &mut self.rng;
         particles.retain_mut(|p| {
+            let previous_travelled = p.travelled;
+            let previously_scanned = std::mem::take(&mut p.loop_scanned);
             p.age += dt;
             set_var(&mut p.vars, V_PARTICLE_AGE, p.age);
             eval_curves(&def.curves, &mut p.vars, rng, &queries);
@@ -344,9 +350,18 @@ impl Emitter {
                     let drag = collision.drag.eval(&mut p.vars, rng, &queries).max(0.0);
                     let damp = (1.0 - drag * dt).max(0.0);
                     p.vel = p.vel.map(|c| c * damp);
-                    for event in &collision.events {
-                        if speed >= event.min_speed {
-                            pending.push((event.event.clone(), p.pos, p.vel));
+                    for (index, event) in collision.events.iter().enumerate() {
+                        if !output.budget.charge(1) {
+                            output.budget.skip_deferred(collision.events.len() - index);
+                            break;
+                        }
+                        if speed >= event.min_speed
+                            && !defer(output, &mut pending, &event.event, p.pos, p.vel)
+                        {
+                            output
+                                .budget
+                                .skip_deferred(collision.events.len() - index - 1);
+                            break;
                         }
                     }
                     if collision.expire_on_contact {
@@ -394,22 +409,48 @@ impl Emitter {
                 if *distance > p.travelled {
                     break;
                 }
-                pending.push((event.clone(), world_pos, p.vel));
                 p.travel_next += 1;
+                if !defer(output, &mut pending, event, world_pos, p.vel) {
+                    let skipped = def.particle.travel_events[p.travel_next..]
+                        .partition_point(|(distance, _)| *distance <= p.travelled);
+                    p.travel_next += skipped;
+                    output.budget.skip_deferred(skipped);
+                    break;
+                }
             }
             if !def.particle.looping_travel_events.is_empty() {
-                p.loop_counts
-                    .resize(def.particle.looping_travel_events.len(), 0);
                 for (index, (interval, event)) in
                     def.particle.looping_travel_events.iter().enumerate()
                 {
+                    if !output.budget.charge(1) {
+                        output
+                            .budget
+                            .skip_deferred(def.particle.looping_travel_events.len() - index);
+                        break;
+                    }
+                    p.loop_scanned = index + 1;
                     if *interval <= 1e-4 {
                         continue;
                     }
-                    let due = ((p.travelled / interval) as u32).min(p.loop_counts[index] + 8);
+                    if index >= p.loop_counts.len() {
+                        p.loop_counts.resize(index + 1, 0);
+                    }
+                    if index >= previously_scanned {
+                        // A skipped suffix is consumed lazily, without walking it on refusal.
+                        p.loop_counts[index] =
+                            p.loop_counts[index].max((previous_travelled / interval) as u32);
+                    }
+                    let crossed = (p.travelled / interval) as u32;
+                    let due = crossed.min(p.loop_counts[index].saturating_add(8));
                     while p.loop_counts[index] < due {
-                        pending.push((event.clone(), world_pos, p.vel));
                         p.loop_counts[index] += 1;
+                        if !defer(output, &mut pending, event, world_pos, p.vel) {
+                            output.budget.skip_deferred(
+                                crossed.saturating_sub(p.loop_counts[index]) as usize,
+                            );
+                            p.loop_counts[index] = crossed;
+                            break;
+                        }
                     }
                 }
             }
@@ -417,21 +458,52 @@ impl Emitter {
                 if *time > p.age {
                     break;
                 }
-                pending.push((event.clone(), world_pos, p.vel));
                 p.timeline_next += 1;
+                if !defer(output, &mut pending, event, world_pos, p.vel) {
+                    let skipped = def.particle.timeline[p.timeline_next..]
+                        .partition_point(|(time, _)| *time <= p.age);
+                    p.timeline_next += skipped;
+                    output.budget.skip_deferred(skipped);
+                    break;
+                }
             }
             if !alive {
-                for event in &def.particle.expiration_events {
-                    pending.push((event.clone(), world_pos, p.vel));
+                for (index, event) in def.particle.expiration_events.iter().enumerate() {
+                    if !defer(output, &mut pending, event, world_pos, p.vel) {
+                        output
+                            .budget
+                            .skip_deferred(def.particle.expiration_events.len() - index - 1);
+                        break;
+                    }
                 }
             }
             alive
         });
         self.particles = particles;
-        for (event, position, velocity) in pending {
-            self.run_event(&event, position, velocity, output);
+        let mut pending = pending.into_iter();
+        while let Some((event, position, velocity)) = pending.next() {
+            if !self.run_event(event, position, velocity, output) {
+                output.budget.skip_deferred(pending.len() + 1);
+                output.budget.skip_work(pending.len());
+                break;
+            }
         }
     }
+}
+
+/// Reserves scheduling work and storage before borrowing a name into the after-retain queue.
+fn defer<'a>(
+    output: &mut Outputs,
+    pending: &mut Vec<(&'a str, [f32; 3], [f32; 3])>,
+    event: &'a str,
+    position: [f32; 3],
+    velocity: [f32; 3],
+) -> bool {
+    if !output.budget.defer() {
+        return false;
+    }
+    pending.push((event, position, velocity));
+    true
 }
 
 #[cfg(test)]

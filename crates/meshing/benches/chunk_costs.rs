@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports biome record sizes on stderr"
+)]
+
 use std::{hint::black_box, sync::Arc};
 
 use assets::{

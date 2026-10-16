@@ -7,7 +7,7 @@ use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::System;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
-use std::mem::size_of;
+use std::{mem::size_of, ops::Range, sync::Arc};
 
 #[cfg(test)]
 use bevy::prelude::IntoSystem;
@@ -64,6 +64,8 @@ use pipeline::{BlockEntityPipeline, BlockEntityPipelineKey, PipelineMode};
 const SHADER_HANDLE: Handle<Shader> = uuid_handle!("6f0c1c1e-3b6d-4a7e-9b1e-2f4f8a1d5c33");
 const VERTEX_BYTES: u64 = (BLOCK_ENTITY_VERTEX_WORDS * size_of::<f32>()) as u64;
 const MIN_BUFFER_VERTICES: u64 = 1024;
+/// Bytes compared per `memcmp` while locating the changed span of a vertex list.
+const COMPARE_BLOCK_BYTES: usize = 4096;
 const PORTAL_PARAMETER_BYTES: u64 = size_of::<[[f32; 4]; 4]>() as u64;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -103,6 +105,7 @@ fn install(app: &mut App) {
         render_scene::BlockSelectionFrameResource,
     >::default());
     crate::lighting::install(app);
+    crate::upload_staging::install(app);
     load_internal_asset!(app, SHADER_HANDLE, "block_entity.wesl", |source, path| {
         crate::shader_safety::from_block_entity_wesl(
             source,
@@ -142,54 +145,22 @@ fn install(app: &mut App) {
         );
 }
 
-/// One storage buffer of vertices with its live count and bind group.
-struct VertexList {
-    buffer: Option<Buffer>,
-    capacity_vertices: u64,
-    count: u32,
-    bind_group: Option<BindGroup>,
-    runs: Vec<render_model::block_entity::draw_ranges::DrawRun>,
-}
+#[path = "gpu/vertices.rs"]
+mod vertices;
+#[cfg(test)]
+use vertices::changed_span;
+use vertices::{VertexList, VertexUpload};
 
-impl VertexList {
-    const fn new() -> Self {
-        Self {
-            buffer: None,
-            capacity_vertices: 0,
-            count: 0,
-            bind_group: None,
-            runs: Vec::new(),
-        }
-    }
-
-    fn upload(
-        &mut self,
-        vertices: &[BlockEntityVertex],
-        render_device: &RenderDevice,
-        render_queue: &RenderQueue,
-        label: &'static str,
-    ) {
-        self.count = u32::try_from(vertices.len()).unwrap_or(0);
-        render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
-        if vertices.is_empty() {
-            return;
-        }
-        let needed = vertices.len() as u64;
-        if self.buffer.is_none() || self.capacity_vertices < needed {
-            let capacity = needed.next_power_of_two().max(MIN_BUFFER_VERTICES);
-            self.buffer = Some(render_device.create_buffer(&BufferDescriptor {
-                label: Some(label),
-                size: capacity * VERTEX_BYTES,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-            self.capacity_vertices = capacity;
-            self.bind_group = None;
-        }
-        if let Some(buffer) = &self.buffer {
-            render_queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
-        }
-    }
+/// The vertex lists last passed to each [`VertexList::upload`], shared rather than copied.
+#[derive(Default)]
+struct UploadedLists {
+    solid: Arc<[BlockEntityVertex]>,
+    overlay: Arc<[BlockEntityVertex]>,
+    portal: Arc<[BlockEntityVertex]>,
+    additive: Arc<[BlockEntityVertex]>,
+    outline: Arc<[BlockEntityVertex]>,
+    /// Frame cracks followed by the selection highlight.
+    crack: Vec<BlockEntityVertex>,
 }
 
 #[derive(Resource)]
@@ -200,6 +171,9 @@ struct BlockEntityGpu {
     crack: VertexList,
     portal: VertexList,
     additive: VertexList,
+    uploaded: UploadedLists,
+    /// Reused to assemble the crack list before it replaces `uploaded.crack`.
+    crack_scratch: Vec<BlockEntityVertex>,
     portal_uniform: Buffer,
     portal_parameters: Option<[[f32; 4]; 4]>,
     #[cfg(test)]
@@ -223,6 +197,8 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         crack: VertexList::new(),
         portal: VertexList::new(),
         additive: VertexList::new(),
+        uploaded: UploadedLists::default(),
+        crack_scratch: Vec::new(),
         portal_uniform: render_device.create_buffer(&BufferDescriptor {
             label: Some("portal projector parameters"),
             size: PORTAL_PARAMETER_BYTES,
@@ -257,10 +233,16 @@ fn prepare_resources(
     frame: Res<render_scene::BlockEntityFrameResource>,
     selection: Res<render_scene::BlockSelectionFrameResource>,
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
+    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<BlockEntityGpu>,
 ) {
+    let upload = VertexUpload {
+        device: &render_device,
+        queue: &render_queue,
+        staging: staging.as_deref(),
+    };
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
     let [red, green, blue] = atmosphere.fog_color();
     let portal_parameters = [
@@ -337,57 +319,72 @@ fn prepare_resources(
         }
         gpu.dynamic_revision = frame.dynamic_revision;
     }
-    if gpu.frame_revision != frame.revision {
-        gpu.solid.upload(
-            &frame.solid,
-            &render_device,
-            &render_queue,
-            "block-entity solid vertices",
-        );
-        gpu.portal.upload(
-            &frame.portal,
-            &render_device,
-            &render_queue,
-            "portal encoded plane vertices",
-        );
-        gpu.additive.upload(
-            &frame.additive,
-            &render_device,
-            &render_queue,
-            "dragon death additive vertices",
-        );
+    let BlockEntityGpu {
+        solid,
+        overlay,
+        outline,
+        crack,
+        portal,
+        additive,
+        uploaded,
+        crack_scratch,
+        frame_revision,
+        selection_revision,
+        ..
+    } = &mut *gpu;
+    if *frame_revision != frame.revision {
+        for (list, previous, vertices, label) in [
+            (
+                &mut *solid,
+                &mut uploaded.solid,
+                &frame.solid,
+                "block-entity solid vertices",
+            ),
+            (
+                &mut *portal,
+                &mut uploaded.portal,
+                &frame.portal,
+                "portal encoded plane vertices",
+            ),
+            (
+                &mut *additive,
+                &mut uploaded.additive,
+                &frame.additive,
+                "dragon death additive vertices",
+            ),
+            (
+                &mut *overlay,
+                &mut uploaded.overlay,
+                &frame.overlay,
+                "block-entity overlay vertices",
+            ),
+        ] {
+            list.upload(previous, vertices, &upload, label);
+            *previous = Arc::clone(vertices);
+        }
     }
-    if gpu.frame_revision != frame.revision {
-        gpu.overlay.upload(
-            &frame.overlay,
-            &render_device,
-            &render_queue,
-            "block-entity overlay vertices",
-        );
-    }
-    if gpu.selection_revision != selection.revision {
-        gpu.outline.upload(
+    if *selection_revision != selection.revision {
+        outline.upload(
+            &uploaded.outline,
             &selection.outline,
-            &render_device,
-            &render_queue,
+            &upload,
             "block selection line vertices",
         );
+        uploaded.outline = Arc::clone(&selection.outline);
     }
-    if gpu.frame_revision != frame.revision || gpu.selection_revision != selection.revision {
-        let crack = frame
-            .crack
-            .iter()
-            .chain(selection.highlight.iter())
-            .copied()
-            .collect::<Vec<_>>();
-        gpu.crack.upload(
-            &crack,
-            &render_device,
-            &render_queue,
+    if *frame_revision != frame.revision || *selection_revision != selection.revision {
+        crack_scratch.clear();
+        crack_scratch.extend_from_slice(&frame.crack);
+        crack_scratch.extend_from_slice(&selection.highlight);
+        crack.upload(
+            &uploaded.crack,
+            crack_scratch,
+            &upload,
             "block-entity crack vertices",
         );
-        gpu.frame_revision = frame.revision;
-        gpu.selection_revision = selection.revision;
+        std::mem::swap(crack_scratch, &mut uploaded.crack);
+        *frame_revision = frame.revision;
+        *selection_revision = selection.revision;
     }
 }
 

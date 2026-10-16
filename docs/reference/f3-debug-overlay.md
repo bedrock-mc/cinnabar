@@ -36,6 +36,11 @@ FPS and average/max frame timing use a 250 ms aggregation window:
 - Network queue depth, missing block visuals and peak worker timings.
 - Selection-ray block coordinates, identifier, runtime ID, face, distance and
   up to ten registered state properties.
+- The log filter: categories set to a level other than `info` (`net=debug`), `info`
+  when none are, or `custom` when `RUST_LOG` or a raw directive shapes it; then whether
+  new sessions record a packet capture, naming `CINNABAR_PACKET_CAPTURE` when that
+  variable decides. This row is formatted only when the filter or capture choice
+  changes.
 
 XYZ stays attached to the player in third person. The diagnostic selection ray
 inspects up to twenty blocks without changing interaction reach. Missing terrain

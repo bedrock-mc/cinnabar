@@ -9636,18 +9636,29 @@ impl wire::Decode for DynamicValue {
             2 => Self::Int64(<wire::I64LE as wire::Decode>::decode(reader)?),
             3 => Self::Double(<wire::F64LE as wire::Decode>::decode(reader)?),
             4 => Self::String(reader.read_str(crate::fields::DYNAMIC_VALUE_STRING)?),
-            5 => Self::List(wire::decode_collection::<DynamicValue>(
-                reader,
-                crate::fields::DYNAMIC_VALUE_LIST,
-                1,
-            )?),
+            5 => Self::List({
+                let declared = u64::from(reader.read_var_u32()?);
+                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_LIST, declared, 1)?;
+                let mut out: Vec<DynamicValue> = wire::alloc_vec(count)?;
+                for _ in 0..count {
+                    wire::push(
+                        &mut out,
+                        reader.with_recursive_value(|reader| {
+                            <DynamicValue as wire::Decode>::decode(reader)
+                        })?,
+                    )?;
+                }
+                out
+            }),
             6 => Self::Map({
                 let declared = u64::from(reader.read_var_u32()?);
                 let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_MAP, declared, 2)?;
                 let mut out: Vec<(wire::Str, DynamicValue)> = wire::alloc_vec(count)?;
                 for _ in 0..count {
                     let key = reader.read_str(crate::fields::DYNAMIC_VALUE_MAP_KEY)?;
-                    let value = <DynamicValue as wire::Decode>::decode(reader)?;
+                    let value = reader.with_recursive_value(|reader| {
+                        <DynamicValue as wire::Decode>::decode(reader)
+                    })?;
                     wire::push(&mut out, (key, value))?;
                 }
                 out

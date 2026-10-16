@@ -14,6 +14,20 @@ use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 
 use crate::{Packet, WorldEvent, WorldPacketError, into_world_event};
 
+/// Builds both terrain packet shapes with the requested blob-cache mode.
+pub fn terrain_cache_packets(cache_enabled: bool) -> [Packet; 2] {
+    [
+        Packet::new(packets::LevelChunk {
+            cache_enabled,
+            ..Default::default()
+        }),
+        Packet::new(packets::SubChunk {
+            cache_enabled,
+            ..Default::default()
+        }),
+    ]
+}
+
 /// An outbound Emote packet's fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmoteObservation {
@@ -282,4 +296,38 @@ pub fn empty_stack_response(request_id: i32, list_present: bool) -> Packet {
             containers: list_present.then(Vec::new),
         }],
     }))
+}
+
+/// Reads server-authoritative predicted destroys in the order carried by one input packet.
+pub fn predicted_block_breaks(packet: &Packet) -> Vec<[i32; 3]> {
+    input_block_actions(packet)
+        .into_iter()
+        .filter_map(|(kind, position, _)| {
+            (kind == crate::BlockActionKind::PredictDestroy.wire_value()).then_some(position)
+        })
+        .collect()
+}
+
+/// Reads tick-ordered block actions without interpreting their wire kind or abort percent.
+pub fn input_block_actions(packet: &Packet) -> Vec<(i32, [i32; 3], i32)> {
+    let packets::Packet::PlayerAuthInput(input) = &*packet.data else {
+        return Vec::new();
+    };
+    input
+        .player_block_actions
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|action| {
+            (
+                action.player_action_type.to_raw(),
+                [
+                    action.position.x.0,
+                    action.position.y.0,
+                    action.position.z.0,
+                ],
+                action.facing.0,
+            )
+        })
+        .collect()
 }

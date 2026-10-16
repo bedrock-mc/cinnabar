@@ -245,6 +245,32 @@ fn visual_overhang_drives_wrapping_and_reported_bounds() {
 }
 
 #[test]
+fn caret_stops_follow_source_bytes_and_pens_instead_of_ink_widths() {
+    let font = font_with_glyph(
+        [0x32; 32],
+        GlyphMetrics {
+            codepoint: '界',
+            page: 0,
+            uv: [0, 0, 4, 1],
+            bearing: [-1, 0],
+            advance_64: 2 * 64,
+        },
+    );
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    for scale in [1.0, 1.5, 2.0] {
+        let text = "界§c界\u{200b}";
+        let drawn = layout(&mut cache, &font, text, scale, 4096);
+        let unit = (64.0 * scale) as i32;
+        assert_eq!(drawn.first_line_caret_x_64(0), unit);
+        assert_eq!(drawn.first_line_caret_x_64("界".len()), 3 * unit);
+        assert_eq!(drawn.first_line_caret_x_64("界§c".len()), 3 * unit);
+        assert_eq!(drawn.first_line_caret_x_64(text.len()), 5 * unit);
+        assert_eq!(drawn.glyphs()[1].bounds_64[0], 2 * unit);
+        assert_eq!(drawn.size_64()[0], 6 * unit as u32);
+    }
+}
+
+#[test]
 fn explicit_newlines_and_layout_bounds_fail_closed() {
     let font = font([0x22; 32]);
     let mut cache = TextLayoutCache::new(8, 2 * 1024 * 1024);
@@ -361,6 +387,22 @@ fn cache_evicts_the_least_recently_used_entry_within_both_caps() {
     let below_second = layout(&mut below_cap, &font, "A", 1.0, 1024);
     assert_ne!(below_first.id(), below_second.id());
     assert_eq!(below_cap.retained_bytes(), 0);
+}
+
+#[test]
+fn layouts_record_whether_any_glyph_is_obfuscated() {
+    let font = font([0x77; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let plain = layout(&mut cache, &font, "AB", 1.0, 1024);
+    let obfuscated = layout(&mut cache, &font, "A§kB", 1.0, 1024);
+    let reset = layout(&mut cache, &font, "§kA§rB", 1.0, 1024);
+    for (layout, expected) in [(&plain, false), (&obfuscated, true), (&reset, true)] {
+        assert_eq!(layout.obfuscated(), expected);
+        assert_eq!(
+            layout.obfuscated(),
+            layout.glyphs().iter().any(|glyph| glyph.style.obfuscated)
+        );
+    }
 }
 
 fn layout(

@@ -235,6 +235,7 @@ async fn check_handed_off_packs(cached: bool) {
         Some(ClientBlobCache::default()),
         None,
         &settings,
+        None,
         keep_prepared,
     );
     let (joined, mut core) = tokio::join!(join, core);
@@ -326,6 +327,7 @@ async fn a_startup_longer_than_one_batch_still_joins() {
             None,
             None,
             &settings,
+            None,
             keep_prepared,
         ),
         core
@@ -366,6 +368,7 @@ async fn pack_preparation_starts_before_player_spawn() {
         None,
         None,
         &settings,
+        None,
         move |_, game_data| {
             let _ = started.send(game_data.world.local_player_runtime_id);
         },
@@ -421,6 +424,7 @@ async fn the_session_is_read_while_packs_prepare() {
         None,
         None,
         &settings,
+        None,
         move |_, _| released.recv().unwrap(),
     );
     let (joined, _core) = tokio::join!(join, core);
@@ -464,6 +468,7 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
             None,
             None,
             &settings,
+            None,
             keep_prepared,
         ),
         core
@@ -501,6 +506,7 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
             None,
             None,
             &settings,
+            None,
             keep_prepared,
         ),
         core
@@ -544,11 +550,78 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         None,
         None,
         &settings,
+        None,
         keep_prepared,
     );
     let (result, _core) = tokio::join!(join, core);
     match result {
         Err(error) => assert!(error.to_string().contains("cached archive hash"), "{error}"),
         Ok(_) => panic!("a corrupt cached archive joined"),
+    }
+}
+
+/// Decoded startup packets that invalidate the join retain their rejection evidence.
+#[tokio::test]
+async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
+    use crate::packet_tap::PacketOutcome;
+    use crate::session_transport::tests::{RecordingTap, TapEvent};
+    use std::sync::Arc;
+
+    for (name, invalid) in [
+        (
+            "zero-radius",
+            Packet::new(ChunkRadiusUpdated {
+                chunk_radius: wire::ZigZag32(0),
+            }),
+        ),
+        (
+            "conflicting-id",
+            Packet::new(StartGame {
+                runtime_id: ActorRuntimeID(RUNTIME_ID + 1),
+                ..Default::default()
+            }),
+        ),
+    ] {
+        let dir = SocketDir::new(name);
+        let listener = listen(dir.path());
+        let settings = LoginSettings::default();
+        let tap = Arc::new(RecordingTap::default());
+        let expected = packet_bytes(&invalid);
+        let mut reader = wire::Reader::new(&expected);
+        let packet_id = reader.read_var_u32().unwrap();
+        let body = &expected[reader.position()..];
+        let core = async {
+            let mut core = FakeCore::accept(&listener).await;
+            core.receive().await;
+            core.send(handoff_frame(
+                serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
+                &[start_game()],
+            )).await;
+            core.receive_packets().await;
+            core.send(batch_frame(&[invalid])).await;
+            core
+        };
+        let (result, _core) = tokio::join!(
+            LoginSequence::connect_session(
+                dir.path(),
+                "Fixture",
+                crate::ClientRandomId::new(-7).unwrap(),
+                None,
+                None,
+                &settings,
+                Some(tap.clone()),
+                keep_prepared,
+            ),
+            core,
+        );
+        assert!(matches!(result, Err(ProtocolError::Session(ref error))
+            if matches!(error.0, SessionFailure::UnexpectedStartup(_))));
+        assert!(
+            tap.events().iter().any(|event| matches!(event,
+                TapEvent::Reject(_, id, PacketOutcome::Failed, rejected)
+                    if *id == packet_id && rejected.as_slice() == body
+            )),
+            "{name} lost its rejection evidence"
+        );
     }
 }

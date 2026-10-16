@@ -679,3 +679,81 @@ fn oversized_dropped_glint_is_fitted_and_unchanged_uploads_are_retained() {
     assert_eq!(test_alloc::thread_allocations() - allocations, 0);
     assert_eq!(gpu.glint.as_ref().unwrap()._texture.id(), id);
 }
+
+#[test]
+fn adjacent_copies_of_one_mesh_share_an_instanced_draw_in_submission_order() {
+    let draw = |vertices: Range<u32>, instance| ItemDraw {
+        vertices,
+        instance,
+        cull_back: false,
+        bounds: None,
+    };
+    let draws = [
+        draw(0..36, 0),
+        draw(0..36, 1),
+        draw(0..36, 2),
+        draw(36..42, 3),
+        draw(0..36, 4),
+        draw(0..36, 6),
+    ];
+    let mut submitted = Vec::new();
+    for_each_instanced_run(&draws, None, |vertices, instances, culls| {
+        submitted.push((vertices, instances, culls));
+    });
+    assert_eq!(
+        submitted,
+        [
+            (0..36, 0..3, false),
+            (36..42, 3..4, false),
+            (0..36, 4..5, false),
+            (0..36, 6..7, false),
+        ]
+    );
+    let mut none = 0;
+    for_each_instanced_run(&[], None, |_, _, _| none += 1);
+    assert_eq!(none, 0);
+}
+
+#[test]
+fn occupied_item_frames_retain_staging_and_draw_storage() {
+    let mut world = item_world();
+    let model = DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([255; 4]),
+    });
+    let instance = render_model::DroppedItemInstance {
+        model: 0,
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+        block_level: 15,
+        sky_level: 15,
+        overlay_rgba8: 0,
+        glint: false,
+    };
+    world
+        .resource_mut::<DroppedItemScene>()
+        .publish(1, Arc::from([model]), &[instance], &[], 1.0);
+    let mut system = IntoSystem::into_system(prepare_items);
+    system.initialize(&mut world);
+    system.run((), &mut world).unwrap();
+    let storage = |gpu: &ItemGpu| {
+        (
+            gpu.current_scratch.as_ptr(),
+            gpu.instance_scratch.as_ptr(),
+            gpu.draws.as_ptr(),
+            gpu.mesh_buffer.as_ref().unwrap().id(),
+            gpu._atlas.as_ref().unwrap().id(),
+        )
+    };
+    let warmed = storage(world.resource::<ItemGpu>());
+    for _ in 0..3 {
+        system.run((), &mut world).unwrap();
+        let gpu = world.resource::<ItemGpu>();
+        assert_eq!(storage(gpu), warmed);
+        assert_eq!(gpu.current_scratch, [true]);
+        assert_eq!(gpu.draws.len(), 1);
+        assert_eq!(gpu.draws[0].instance, 0);
+        assert_eq!(gpu.identity_instance, 1);
+        assert_eq!(gpu.instance_scratch.len(), 2);
+    }
+}

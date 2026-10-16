@@ -1,5 +1,5 @@
 //! The sole FIFO committed-UI drain, before frame input authority.
-use super::{ClientWorld, WorldClock, record_fatal_error};
+use super::{ClientWorld, FatalError, WorldClock, record_fatal_error};
 use bevy::{
     prelude::{Res, ResMut, Time},
     time::Real,
@@ -13,6 +13,7 @@ use client_world::{CommittedControlEvent, CommittedUiEvent};
 pub(crate) fn drain_committed_ui_before_authority(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
+    mut fatal_error: ResMut<FatalError>,
     clock: Res<WorldClock>,
     mut ui_runtime: ResMut<UiRuntimeResource>,
     time: Res<Time<Real>>,
@@ -22,7 +23,7 @@ pub(crate) fn drain_committed_ui_before_authority(
         .stream
         .as_ref()
         .filter(|stream| {
-            client_world.fatal_error.is_none()
+            fatal_error.0.is_none()
                 && client_world.transfer_notice.is_none()
                 && stream.inventory_committed_through().is_some()
         })
@@ -33,7 +34,7 @@ pub(crate) fn drain_committed_ui_before_authority(
     let craft_identity = client_world
         .stream
         .as_ref()
-        .filter(|_| client_world.fatal_error.is_none())
+        .filter(|_| fatal_error.0.is_none())
         .map(|stream| {
             (
                 stream.biome_tint_identity().stream(),
@@ -66,6 +67,9 @@ pub(crate) fn drain_committed_ui_before_authority(
             |unique_id| stream.authority().actor_display_name(unique_id),
             known_player_names,
         );
+        ui_runtime
+            .player_roster
+            .set_entries(stream.authority().player_list_roster());
     }
     for committed in committed_ui {
         let result = match committed {
@@ -239,7 +243,7 @@ pub(crate) fn drain_committed_ui_before_authority(
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 format!("committed UI/gameplay event rejected: {error:?}"),
             );
             return;
@@ -267,6 +271,9 @@ pub(super) fn refresh_player_list_cache_for_controls(
         |unique_id| stream.authority().actor_display_name(unique_id),
         stream.authority().player_list_usernames(),
     );
+    ui_runtime
+        .player_roster
+        .set_entries(stream.authority().player_list_roster());
 }
 
 #[cfg(test)]

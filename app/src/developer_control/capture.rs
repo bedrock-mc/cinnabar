@@ -2,7 +2,7 @@
 //! rendered frame and captures every frame, so the video is smooth however slow rendering is.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -14,7 +14,7 @@ use bevy::{prelude::*, render::render_resource::TextureFormat, time::TimeUpdateS
 use developer_control::{
     clock::{FixedStepClock, RealTimePacer},
     protocol::RecordSettings,
-    recorder::{Frame, FrameSink, PixelLayout, Recorder, VideoSettings},
+    recorder::{Frame, FrameSink, PixelLayout, Recorder, Summary, VideoSettings},
     server::Reply,
     wav::{WavWriter, samples_for_frame},
 };
@@ -247,7 +247,7 @@ fn frames(image: &Image, first: u64, copies: u64) -> Result<Vec<Frame>, String> 
         other => return Err(format!("cannot record a {other:?} surface")),
     };
     let size = [image.width(), image.height()];
-    let data = image.data.clone().ok_or("the capture has no pixel data")?;
+    let data = image.data.as_ref().ok_or("the capture has no pixel data")?;
     Ok((first..first + copies)
         .map(|index| Frame {
             index,
@@ -269,7 +269,7 @@ fn pull_audio(audio: &mut AudioCapture, fps: u32, copies: u64) {
         // An empty mixer yields nothing; silence keeps the track aligned with the video.
         let samples = (0..count).map(|_| mixer.next().unwrap_or(0.0));
         if let Err(error) = audio.wav.write(samples) {
-            eprintln!("developer recording: audio write failed: {error}");
+            warn!("developer recording: audio write failed: {error}");
         }
     }
 }
@@ -304,13 +304,23 @@ impl Recording {
     /// Closes the stream, finishes the WAV and the MP4, and muxes them.
     fn finalize(&mut self) -> Result<Value, String> {
         let failure = self.failure.lock().ok().and_then(|mut f| f.take());
-        let audio_path = self.audio.take().map(|audio| audio.wav.finish());
-        let recorder = self.recorder.take().ok_or("the recording had no encoder")?;
-        if let Some(failure) = failure {
-            return Err(failure);
-        }
-        let wav = audio_path.as_ref().and_then(|path| path.as_ref().ok());
-        let summary = recorder.finish(wav.map(PathBuf::as_path))?;
+        let audio = self
+            .audio
+            .take()
+            .map(|audio| {
+                let path = audio.wav.path().to_owned();
+                audio
+                    .wav
+                    .finish()
+                    .map_err(|error| format!("finish audio {}: {error}", path.display()))
+            })
+            .transpose();
+        let recorder = self.recorder.take();
+        let (summary, wav) = complete_recording(failure, audio, |wav| {
+            recorder
+                .ok_or_else(|| "the recording had no encoder".to_owned())?
+                .finish(wav)
+        })?;
         Ok(json!({
             "path": summary.path,
             "frames": summary.frames,
@@ -321,13 +331,41 @@ impl Recording {
     }
 }
 
+/// Joins the encoder even after capture or audio failure and retains every completion error.
+fn complete_recording(
+    failure: Option<String>,
+    audio: Result<Option<PathBuf>, String>,
+    finish: impl FnOnce(Option<&Path>) -> Result<Summary, String>,
+) -> Result<(Summary, Option<PathBuf>), String> {
+    let mut errors: Vec<_> = failure.into_iter().collect();
+    let wav = match audio {
+        Ok(path) => path,
+        Err(error) => {
+            errors.push(error);
+            None
+        }
+    };
+    let result = finish(wav.as_deref());
+    if let Err(error) = &result {
+        errors.push(error.clone());
+    }
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    result.map(|summary| (summary, wav))
+}
+
+#[cfg(test)]
+#[path = "capture/finalize_tests.rs"]
+mod finalize_tests;
+
 /// Quitting mid-recording still leaves a playable file instead of wedging shutdown.
 impl Drop for Recording {
     fn drop(&mut self) {
         if self.recorder.is_some()
             && let Err(error) = self.finalize()
         {
-            eprintln!("developer recording: finishing on shutdown failed: {error}");
+            warn!("developer recording: finishing on shutdown failed: {error}");
         }
     }
 }

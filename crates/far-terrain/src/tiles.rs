@@ -32,6 +32,14 @@ impl TileKey {
         [self.x * self.width_blocks(), self.z * self.width_blocks()]
     }
 
+    /// Whether two tile squares share any horizontal area.
+    #[must_use]
+    pub fn overlaps(self, other: Self) -> bool {
+        let ([ax, az], aw) = (self.origin(), self.width_blocks());
+        let ([bx, bz], bw) = (other.origin(), other.width_blocks());
+        ax < bx + bw && bx < ax + aw && az < bz + bw && bz < az + aw
+    }
+
     /// The tile at `level` holding block `x`, `z`.
     #[must_use]
     pub const fn containing(level: u8, x: i32, z: i32) -> Self {
@@ -87,9 +95,9 @@ pub struct TileView {
 }
 
 impl TileView {
-    /// The view around the `centre` column for `near`, built by [`NearMask::around`] with
-    /// `near_radius`: finest tiles only out to [`EDGE_MARGIN_BLOCKS`] past every masked
-    /// column, so nothing coarse is drawn close to the player; tiles wholly inside the masked
+    /// The view around the `centre` column for a mask built by [`NearMask::around_with_empty`] with
+    /// `near_radius`: finest tiles only out to [`EDGE_MARGIN_BLOCKS`] past near geometry,
+    /// so nothing coarse is drawn close to the player; tiles wholly inside the masked
     /// disc short of that margin, and never past the near radius, left out; far terrain out to
     /// `horizon_chunks`.
     #[must_use]
@@ -147,7 +155,7 @@ pub fn select_tiles(view: TileView) -> Vec<TileKey> {
     selected
 }
 
-/// Columns near terrain draws; far terrain hides itself there, so each column has one drawer.
+/// Near geometry and delivered air that hide far terrain, with a separate geometry bound.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NearMask {
     origin: [i32; 2],
@@ -155,7 +163,7 @@ pub struct NearMask {
     bits: Box<[u32]>,
     /// Squared column distance from the centre to the nearest column that is not near.
     hole_squared: i64,
-    /// Squared column distance from the centre to the farthest near column, if any.
+    /// Squared column distance to the farthest geometry column, excluding delivered air.
     outer_squared: Option<i64>,
 }
 
@@ -174,6 +182,19 @@ impl NearMask {
         near_radius: i32,
         drawn: impl IntoIterator<Item = ColumnPos>,
     ) -> Self {
+        Self::around_with_empty(centre, limit, near_radius, drawn, [])
+    }
+
+    /// Masks the near disc, published geometry and delivered air within `limit`. Only the
+    /// disc and geometry extend the outer bound used to choose tile detail.
+    #[must_use]
+    pub fn around_with_empty(
+        centre: [i32; 2],
+        limit: i32,
+        near_radius: i32,
+        drawn: impl IntoIterator<Item = ColumnPos>,
+        empty: impl IntoIterator<Item = ColumnPos>,
+    ) -> Self {
         let radius = near_radius.clamp(0, limit.max(0));
         let reach = i64::from(radius).pow(2);
         let disc = (-radius..=radius).flat_map(move |dz| {
@@ -181,7 +202,13 @@ impl NearMask {
                 .filter(move |dx| i64::from(*dx).pow(2) + i64::from(dz).pow(2) <= reach)
                 .map(move |dx| ColumnPos::new(centre[0] + dx, centre[1] + dz))
         });
-        Self::from_columns(centre, limit, disc.chain(drawn))
+        Self::from_coverage(
+            centre,
+            limit,
+            disc.chain(drawn)
+                .map(|column| (column, true))
+                .chain(empty.into_iter().map(|column| (column, false))),
+        )
     }
 
     /// Exactly the `columns` within `limit` columns of the `centre` column; farther ones, such
@@ -192,31 +219,49 @@ impl NearMask {
         limit: i32,
         columns: impl IntoIterator<Item = ColumnPos>,
     ) -> Self {
+        Self::from_coverage(
+            centre,
+            limit,
+            columns.into_iter().map(|column| (column, true)),
+        )
+    }
+
+    /// Builds one coverage bitset while bounding only entries marked as geometry.
+    fn from_coverage(
+        centre: [i32; 2],
+        limit: i32,
+        columns: impl IntoIterator<Item = (ColumnPos, bool)>,
+    ) -> Self {
         let limit = i64::from(limit.max(0));
-        let columns: Vec<[i32; 2]> = columns
+        let columns: Vec<([i32; 2], bool)> = columns
             .into_iter()
-            .map(|column| {
-                [
-                    i64::from(column.x) - i64::from(centre[0]),
-                    i64::from(column.z) - i64::from(centre[1]),
-                ]
+            .map(|(column, geometry)| {
+                (
+                    [
+                        i64::from(column.x) - i64::from(centre[0]),
+                        i64::from(column.z) - i64::from(centre[1]),
+                    ],
+                    geometry,
+                )
             })
-            .filter(|[dx, dz]| dx.abs() <= limit && dz.abs() <= limit)
-            .map(|offset| offset.map(|delta| delta as i32))
+            .filter(|([dx, dz], _)| dx.abs() <= limit && dz.abs() <= limit)
+            .map(|(offset, geometry)| (offset.map(|delta| delta as i32), geometry))
             .collect();
         let reach = columns
             .iter()
-            .map(|[dx, dz]| dx.abs().max(dz.abs()))
+            .map(|([dx, dz], _)| dx.abs().max(dz.abs()))
             .max()
             .unwrap_or(0);
         let side = (2 * reach + 1) as u32;
         let origin = [centre[0] - reach, centre[1] - reach];
         let mut bits = vec![0_u32; (side * side).div_ceil(32) as usize].into_boxed_slice();
         let mut outer_squared = None;
-        for [dx, dz] in &columns {
+        for ([dx, dz], geometry) in &columns {
             let index = ((dz + reach) as u32 * side + (dx + reach) as u32) as usize;
             bits[index / 32] |= 1 << (index % 32);
-            outer_squared = outer_squared.max(Some(squared(*dx, *dz)));
+            if *geometry {
+                outer_squared = outer_squared.max(Some(squared(*dx, *dz)));
+            }
         }
         // The nearest column that is not near; past the square every column is not.
         let mut hole_squared = squared(reach + 1, 0);
@@ -244,7 +289,7 @@ impl NearMask {
         (16.0 * (self.hole_squared as f32).sqrt() - HALF_COLUMN_DIAGONAL_BLOCKS).max(0.0)
     }
 
-    /// Distance from the centre column's middle beyond which no block is near terrain.
+    /// Distance beyond which no block belongs to near geometry; air coverage may reach farther.
     #[must_use]
     pub fn outer_blocks(&self) -> f32 {
         self.outer_squared.map_or(0.0, |outer| {

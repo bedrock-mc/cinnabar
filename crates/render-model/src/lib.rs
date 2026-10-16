@@ -3,6 +3,7 @@
 //! Engine-free: no Bevy or wgpu types, so presentation compiles without waiting on the renderer.
 
 pub mod actor;
+pub mod cape;
 mod chunk_metrics;
 pub mod dropped_item;
 mod entity_shadow;
@@ -75,10 +76,10 @@ pub use presentation::{
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
-    UI_BLEND_ALPHA, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST, UI_STYLE_COLOR_MASK, UI_STYLE_GLINT,
-    UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason,
-    UiRenderScene, UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex,
-    UiScissor,
+    UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
+    UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput,
+    UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
+    UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
@@ -174,7 +175,8 @@ pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
-    AtlasRect, BlockEntityAtlas, MAP_CELL, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
+    TextureRef,
 };
 pub use block_entity::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,

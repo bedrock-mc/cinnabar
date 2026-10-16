@@ -254,10 +254,7 @@ fn admitted_chat_pack_filters_open_chat_without_losing_translated_glyphs() {
         true
     }));
     runtime.set_session_glyphs(Some(Arc::new(
-        crate::ui_runtime::presentation::SessionGlyphSheets {
-            cells,
-            ..Default::default()
-        },
+        crate::ui_runtime::presentation::SessionGlyphSheets::new(cells),
     )));
     runtime.set_server_ui(Some(Arc::new(ServerUiPack {
         ui_layers: vec![files],

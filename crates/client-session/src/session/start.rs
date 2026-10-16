@@ -43,6 +43,8 @@ pub fn spawn_network<P: Send + 'static>(
                     return;
                 }
             };
+            let (packet_tap, packet_capture) =
+                packet_log::session_tap(config.packet_capture.as_ref());
             run_session_runtime(runtime, async move {
                 // Pack preparation overlaps the spawn wait, so the session keeps being read.
                 let cancelled = shutdown_rx.clone();
@@ -54,6 +56,7 @@ pub fn spawn_network<P: Send + 'static>(
                         Some(config.client_blob_cache.clone()),
                         Some(config.player_skin),
                         &config.login_settings,
+                        Some(packet_tap),
                         move |handoff, game_data| {
                             let packs = unless_cancelled(&cancelled, || {
                                 prepare_presentation(handoff, &game_data, &|| *cancelled.borrow())
@@ -164,6 +167,14 @@ pub fn spawn_network<P: Send + 'static>(
                     pump.await;
                 }
             });
+            // Tasks the background shutdown has not dropped yet may still hold the capture's
+            // feed, so end it explicitly. This thread is detached from the handle's teardown,
+            // and the wait is bounded.
+            if let Some(capture) = packet_capture
+                && !capture.finish(packet_log::CAPTURE_FINISH_TIMEOUT)
+            {
+                tracing::warn!("packet capture writer did not finish in time");
+            }
         })?;
     Ok(NetworkHandle {
         session_generation: session_generation.get(),

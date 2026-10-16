@@ -202,6 +202,10 @@ pub struct BlockEntityScene {
     reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
     /// Static geometry in the last frame's submission order; see [`PreviousFragments`].
     cached_submissions: Vec<Option<Box<CachedSubmission>>>,
+    /// An emptied fragment list kept so each rebuild reuses its allocation.
+    spare_submissions: Vec<Option<Box<CachedSubmission>>>,
+    /// Layer buffers kept between rebuilds; each frame copies them into its shared layers.
+    mesh: Option<MeshBuilder>,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -234,7 +238,8 @@ impl BlockEntityScene {
     /// Installs worker-built artwork for a new session, clearing cached sign and map canvases.
     pub fn install_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         if let Some(text) = self.text.as_mut() {
-            text.reset(artwork.atlas.size()[0]);
+            text.reset(artwork.atlas.size()[0])
+                .expect("prepared artwork admits dynamic atlas rows");
         }
         self.reload_prepared_assets(artwork);
     }
@@ -250,10 +255,11 @@ impl BlockEntityScene {
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         self.prepared = Some(artwork.clone());
         let mut atlas = artwork.atlas.clone();
-        let text = self
-            .text
-            .get_or_insert_with(|| DynamicCells::new(atlas.size()[0]));
-        text.resize_width(atlas.size()[0]);
+        let text = self.text.get_or_insert_with(|| {
+            DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
+        });
+        text.resize_width(atlas.size()[0])
+            .expect("prepared artwork admits dynamic atlas rows");
         atlas.set_text_pages(text.text_pages());
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));
@@ -343,28 +349,41 @@ impl BlockEntityScene {
         {
             return &self.frame;
         }
-        self.reusable = (!submissions
+        if submissions
             .iter()
-            .any(|submission| submission.kind.is_clock_driven()))
-        .then(|| (cracks.to_vec(), submissions.to_vec()));
-        let mut builder = MeshBuilder::new(atlas.size());
-        let mut previous_fragments =
-            PreviousFragments::new(std::mem::take(&mut self.cached_submissions));
+            .any(|submission| submission.kind.is_clock_driven())
+        {
+            self.reusable = None;
+        } else {
+            let (previous_cracks, previous) = self.reusable.get_or_insert_default();
+            previous_cracks.clear();
+            previous_cracks.extend_from_slice(cracks);
+            previous.clear();
+            previous.extend_from_slice(submissions);
+        }
+        let builder = self
+            .mesh
+            .get_or_insert_with(|| MeshBuilder::new(atlas.size()));
+        builder.reset(atlas.size());
+        let mut previous_fragments = PreviousFragments::new(std::mem::replace(
+            &mut self.cached_submissions,
+            std::mem::take(&mut self.spare_submissions),
+        ));
         for submission in submissions {
             let is_static = !submission.kind.is_clock_driven();
             if is_static
                 && let Some(previous) = previous_fragments.take(submission)
-                && previous.matches(submission, &builder)
+                && previous.matches(submission, builder)
             {
-                previous.append_to(&mut builder);
+                previous.append_to(builder);
                 self.cached_submissions.push(Some(previous));
                 continue;
             }
-            let start = cache::vertex_counts(&builder);
+            let start = cache::vertex_counts(builder);
             let rejected_before = builder.rejected_quads;
-            submission.light.apply(&mut builder);
+            submission.light.apply(builder);
             emit_submission(
-                &mut builder,
+                builder,
                 atlas,
                 (&self.heads, self.bed.as_ref()),
                 submission,
@@ -380,13 +399,14 @@ impl BlockEntityScene {
                         submission,
                         start,
                         rejected_before,
-                        &builder,
+                        builder,
                     ))));
             }
         }
-        BlockEntityLight::Scalar(1.0).apply(&mut builder);
+        self.spare_submissions = previous_fragments.into_cleared_list();
+        BlockEntityLight::Scalar(1.0).apply(builder);
         for crack in cracks {
-            emit_crack(&mut builder, atlas, crack);
+            emit_crack(builder, atlas, crack);
         }
         self.rejected_quads = builder.rejected_quads;
         let dynamic_changed = self.frame.dynamic_revision != text.revision();
@@ -399,11 +419,11 @@ impl BlockEntityScene {
             } else {
                 Arc::clone(&self.frame.dynamic_rgba8)
             },
-            solid: builder.solid.into(),
-            overlay: builder.overlay.into(),
-            crack: builder.crack.into(),
-            portal: builder.portal.into(),
-            additive: builder.additive.into(),
+            solid: shared_layer(&self.frame.solid, &builder.solid),
+            overlay: shared_layer(&self.frame.overlay, &builder.overlay),
+            crack: shared_layer(&self.frame.crack, &builder.crack),
+            portal: shared_layer(&self.frame.portal, &builder.portal),
+            additive: shared_layer(&self.frame.additive, &builder.additive),
             portal_star_rect: self.frame.portal_star_rect,
             portal_time_seconds: self.frame.portal_time_seconds,
         };
@@ -432,6 +452,19 @@ impl BlockEntityScene {
         }
         self.rejected_quads = builder.rejected_quads;
         &self.frame
+    }
+}
+
+/// `previous` itself when it holds exactly the bytes of `vertices`, so consumers that compare
+/// allocations skip an unchanged layer; otherwise a new shared copy of `vertices`.
+fn shared_layer(
+    previous: &Arc<[BlockEntityVertex]>,
+    vertices: &[BlockEntityVertex],
+) -> Arc<[BlockEntityVertex]> {
+    if bytemuck::cast_slice::<_, u8>(previous) == bytemuck::cast_slice::<_, u8>(vertices) {
+        Arc::clone(previous)
+    } else {
+        Arc::from(vertices)
     }
 }
 
@@ -488,6 +521,7 @@ fn emit_submission(
 mod tests {
     use super::*;
     use crate::block_entity::{
+        MIN_DYNAMIC_ATLAS_WIDTH,
         chest::{ChestModel, ChestPair, ChestVariant},
         mesh::Facing,
     };
@@ -503,9 +537,9 @@ mod tests {
             };
         let bytes = assets::encode_block_entity_catalog(
             b"{}",
-            128,
+            MIN_DYNAMIC_ATLAS_WIDTH,
             64,
-            &vec![255u8; 128 * 64 * 4],
+            &vec![255u8; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
             &[
                 placement("textures/entity/chest/normal", 0, 64, 64),
                 placement("textures/environment/destroy_stage_0", 64, 16, 16),

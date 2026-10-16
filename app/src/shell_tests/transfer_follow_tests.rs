@@ -138,6 +138,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
@@ -193,6 +194,7 @@ fn app_with_core(root: &Path, script: &str) -> App {
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
@@ -291,7 +293,8 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
                     .world_mut()
                     .resource_mut::<SessionController>()
                     .core_mut()
-                    .exited()
+                    .exit_status()
+                    .is_some()
         },
     );
     test_time::eventually("the connect attempt to finish", || {
@@ -376,6 +379,7 @@ fn failed_automatic_replacement(
         .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(client_world)
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())

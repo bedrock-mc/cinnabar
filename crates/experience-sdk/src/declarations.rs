@@ -60,6 +60,10 @@ pub fn generate_mod(path: impl AsRef<Path>) {
     write(path.as_ref(), mod_source);
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "build scripts talk to Cargo through `cargo::` directives on stdout"
+)]
 fn write(path: &Path, source: fn(&str) -> Result<String, String>) {
     println!("cargo::rerun-if-changed={}", path.display());
     let text = std::fs::read_to_string(path)

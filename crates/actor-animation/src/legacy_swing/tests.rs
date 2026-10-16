@@ -61,7 +61,9 @@ fn sample(
     compiled.animation_channels[0].property = EntityAnimationProperty::Rotation;
     compiled.animation_keyframes[0].expressions = [None; 3];
     compiled.animation_keyframes[0].value = [40.0, 0.0, 0.0].map(crate::test_support::scalar);
-    let assets = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let layout = VariableLayout::new(&assets);
     let (bones, names) = skeleton();
     let input = ActorTickInput {
@@ -119,7 +121,7 @@ fn sample(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: Default::default(),
         static_draw: None,
     };
     let local = pose::sample_clips(

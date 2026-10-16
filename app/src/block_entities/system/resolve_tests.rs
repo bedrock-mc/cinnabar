@@ -29,9 +29,9 @@ impl Fixture {
         .unwrap();
         let atlas = assets::encode_block_entity_catalog(
             b"{}",
-            1024,
+            render_model::MIN_DYNAMIC_ATLAS_WIDTH,
             256,
-            &vec![255; 1024 * 256 * 4],
+            &vec![255; render_model::MIN_DYNAMIC_ATLAS_WIDTH as usize * 256 * 4],
             &[assets::BlockEntityPlacement {
                 name: "textures/entity/chest/normal".into(),
                 x: 0,
@@ -416,12 +416,12 @@ fn signs_hidden_from_their_first_frame_reveal_with_resident_text() {
         .map(|index| {
             let template = Template::Sign {
                 mount: render_model::SignMount::Wall(Facing::North),
-                front: Some(sign_text::SignTextSpec {
-                    text: format!("sign {index}"),
-                    color_argb: 0xFF00_0000_u32 as i32,
-                    glowing: false,
-                    hide_glow_outline: false,
-                }),
+                front: Some(sign_text::SignTextSpec::new(
+                    format!("sign {index}"),
+                    0xFF00_0000_u32 as i32,
+                    false,
+                    false,
+                )),
                 back: None,
             };
             ([index, 64, 0], template)
@@ -563,6 +563,7 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
                         unique_id: 2,
                         username: "reader".into(),
                         verified: true,
+                        xuid: "".into(),
                         skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
                             width: render_api::CLASSIC_SKIN_SIDE as u32,
                             height: render_api::CLASSIC_SKIN_SIDE as u32,

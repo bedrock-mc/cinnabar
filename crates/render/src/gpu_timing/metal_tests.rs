@@ -2,7 +2,7 @@ use super::*;
 use render_scene::RuntimeStage;
 
 /// Transfer workload for the frame completion regression.
-const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
+pub(super) const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
@@ -10,6 +10,10 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
 }
 
 /// Requests only the features needed by the hardware regression being run.
+#[allow(
+    clippy::print_stderr,
+    reason = "explains on stderr why the regression skips when the Metal timestamp fixture is absent"
+)]
 pub(super) fn metal_device_with_features(
     features: wgpu::Features,
 ) -> Option<(RenderDevice, RenderQueue)> {

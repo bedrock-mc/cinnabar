@@ -4,26 +4,79 @@ use anyhow::{Context, Result};
 use launcher_host::lifecycle::{crash, update};
 
 mod client_logs;
+pub(crate) mod heartbeat;
 
 use launcher::install_layout::InstallLayout;
-use std::{sync::OnceLock, time::Instant};
+use launcher_host::lifecycle::crash::protocol::Stage;
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 static LAUNCHED_AT: OnceLock<Instant> = OnceLock::new();
+/// Set once startup is acknowledged: a failure from then on happened while the game ran.
+static STARTED: AtomicBool = AtomicBool::new(false);
 
 /// When client startup began; the first call records it.
 pub(crate) fn launched_at() -> Instant {
     *LAUNCHED_AT.get_or_init(Instant::now)
 }
 
+/// The `--first-run-setup` child process: logs as the client does, through the inherited
+/// stderr the client captures, then runs the setup window and returns its exit code.
+pub fn run_first_run_setup() -> i32 {
+    crate::app::logging::install(crate::app::logging::Process::Setup);
+    let code = first_run::run_setup_process();
+    diagnostics::console::flush_before_exit();
+    code
+}
+
+/// The `--crash-monitor` child process: logs to its own `crash-monitor.log`, then watches the
+/// client until it exits and reports a crash; returns its exit code.
+pub fn run_crash_monitor() -> i32 {
+    crate::app::logging::install(crate::app::logging::Process::Monitor);
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+    let Some(args) = crash_monitor::Args::parse(&args) else {
+        diagnostics::log_stderr!(
+            "usage: cinnabar {} <socket> <parent pid> <crash dir>",
+            crash::MONITOR_FLAG
+        );
+        return 2;
+    };
+    let layout = InstallLayout::discover().ok();
+    let code = match crash_monitor::run(&args, layout.as_ref()) {
+        Ok(_) => 0,
+        Err(error) => {
+            bevy::log::error!("{error}");
+            1
+        }
+    };
+    diagnostics::console::flush_before_exit();
+    code
+}
+
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
+    crate::app::logging::install(crate::app::logging::Process::Client);
     launched_at();
     let layout = InstallLayout::discover().context("resolve install layout")?;
-    client_logs::capture(&layout);
-    client_logs::install_panic_hook(&layout);
+    crate::app::logging::apply_saved_verbose_setting(&layout);
     crash::prune_reports(&layout);
+    // The monitor starts first, so it can report even a failure of the rest of startup.
+    let monitor = if cfg!(target_os = "android") {
+        None
+    } else {
+        crash::monitor::MonitorCommand::current_exe().ok()
+    };
+    client_logs::install_crash_capture(&layout, monitor.as_ref());
+    client_logs::capture(&layout);
+    client_logs::capture_core(&layout);
+    crash::logs_ready();
     if !layout.is_installed() {
         return Ok(true);
     }
@@ -43,12 +96,34 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     Ok(true)
 }
 
+/// Shows why `main` failed when this build has no console for it: the crash monitor shows it
+/// in the crash window once this process exits, else a native alert does. Before startup is
+/// acknowledged that says the game couldn't start, afterwards that it stopped.
+pub fn show_failure(error: &anyhow::Error) {
+    if !launcher_host::desktop::gui_subsystem() {
+        return;
+    }
+    let stage = if STARTED.load(Ordering::Acquire) {
+        Stage::Runtime
+    } else {
+        Stage::Startup
+    };
+    let text = format!("{error:#}");
+    if !crash::report_failure(stage, &text) {
+        use launcher_host::native_dialog::{NativePrompter, Prompter};
+        NativePrompter.alert(&crash_monitor::window::failure_title(stage), &text);
+    }
+}
+
 /// Acknowledges startup once the renderer confirms several completed primary-window frames.
 pub fn acknowledge_startup(
     presented: bevy::prelude::Res<render_scene::startup_presentation::StartupPresentation>,
     mut sent: bevy::prelude::Local<bool>,
 ) {
-    acknowledge_if_presented(&presented, &mut sent, update::acknowledge_startup);
+    acknowledge_if_presented(&presented, &mut sent, || {
+        STARTED.store(true, Ordering::Release);
+        update::acknowledge_startup();
+    });
 }
 
 /// Main-world progress cannot confirm startup without render-completion feedback.

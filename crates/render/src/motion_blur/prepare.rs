@@ -33,6 +33,9 @@ pub(super) struct BlurView {
     pub actors: Option<crate::actor_render::motion::MotionView>,
     pub pipeline: CachedRenderPipelineId,
     pub footprint_pipeline: CachedRenderPipelineId,
+    pub row_pipeline: CachedRenderPipelineId,
+    pub resolve_pipeline: CachedRenderPipelineId,
+    pub resolved: Option<super::resolve::ResolvedInputs>,
     pub footprint: Option<super::footprint::Footprint>,
     pub active: bool,
 }
@@ -110,7 +113,8 @@ pub(super) fn prepare_views(
         }
         let history = CameraHistory::new(clip, pose, viewport, settings.reset_epoch);
         let id = pipeline.specialize(&cache, target.main_texture_format(), msaa.samples());
-        let footprint_pipeline = pipeline.footprint(&cache, msaa.samples());
+        let [row_pipeline, footprint_pipeline] = pipeline.footprint(&cache);
+        let resolve_pipeline = pipeline.resolve(&cache, msaa.samples());
         let neutral_motion = pipeline.neutral_motion(&device, msaa.samples());
         let mut new_view;
         let state = if let Some(state) = previous {
@@ -129,6 +133,9 @@ pub(super) fn prepare_views(
                 actors: None,
                 pipeline: id,
                 footprint_pipeline,
+                row_pipeline,
+                resolve_pipeline,
+                resolved: None,
                 footprint: None,
                 active: false,
             };
@@ -152,6 +159,8 @@ pub(super) fn prepare_views(
         };
         state.pipeline = id;
         state.footprint_pipeline = footprint_pipeline;
+        state.row_pipeline = row_pipeline;
+        state.resolve_pipeline = resolve_pipeline;
         update(
             state,
             history,
@@ -226,12 +235,25 @@ fn update(
         .actors
         .as_ref()
         .map_or(neutral_motion, |actors| &actors.view);
+    if super::resolve::ResolvedInputs::prepare(
+        &mut state.resolved,
+        device,
+        cache,
+        pipeline.resolve_layout(samples),
+        &state.uniform,
+        (crate::scene_sampling::view_depth(depth), motion),
+        target.main_texture().size(),
+    ) {
+        state.bindings.clear();
+    }
+    let resolved = state.resolved.as_ref().unwrap();
     if super::footprint::Footprint::prepare(
         &mut state.footprint,
         device,
-        &cache.get_bind_group_layout(pipeline.footprint_layout(samples)),
+        cache,
+        pipeline.footprint_layouts(),
         &state.uniform,
-        motion,
+        &resolved.motion,
         target.main_texture().size(),
     ) {
         state.bindings.clear();
@@ -259,7 +281,7 @@ fn update(
             }
             let binding = device.create_bind_group(
                 "camera exposure",
-                &cache.get_bind_group_layout(pipeline.layout(samples)),
+                &cache.get_bind_group_layout(pipeline.layout()),
                 &[
                     BindGroupEntry {
                         binding: 0,
@@ -270,22 +292,20 @@ fn update(
                         resource: BindingResource::Sampler(&pipeline.sampler),
                     },
                     BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::TextureView(crate::scene_sampling::view_depth(
-                            depth,
-                        )),
-                    },
-                    BindGroupEntry {
                         binding: 3,
                         resource: state.uniform.as_entire_binding(),
                     },
                     BindGroupEntry {
-                        binding: 4,
-                        resource: BindingResource::TextureView(motion),
-                    },
-                    BindGroupEntry {
                         binding: 5,
                         resource: BindingResource::TextureView(footprint),
+                    },
+                    BindGroupEntry {
+                        binding: 6,
+                        resource: BindingResource::TextureView(&resolved.motion),
+                    },
+                    BindGroupEntry {
+                        binding: 7,
+                        resource: BindingResource::TextureView(&resolved.depth),
                     },
                 ],
             );

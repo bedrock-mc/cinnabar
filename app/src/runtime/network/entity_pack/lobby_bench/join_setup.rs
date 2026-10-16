@@ -83,6 +83,10 @@ fn lobby_join_setup_bench() {
 }
 
 /// Reports worker preparation separately so moving work cannot be mistaken for removing it.
+#[expect(
+    clippy::print_stderr,
+    reason = "the join-setup bench reports LOBBY_JOIN_ARTWORK_PREP lines on stderr"
+)]
 fn prepare_artwork(world: &mut World, trial: usize) {
     use client_presentation::prepared_actor_artwork::PreparedActorArtwork;
     let base = world
@@ -122,6 +126,10 @@ fn prepare_artwork(world: &mut World, trial: usize) {
 }
 
 /// Measures only publication; hashes outside the timed region cover every geometry and artwork page.
+#[expect(
+    clippy::print_stderr,
+    reason = "the join-setup bench reports LOBBY_JOIN_SETUP lines on stderr"
+)]
 fn measure_setup(world: &mut World, trial: usize, phase: &str) {
     let allocated = test_alloc::thread_allocations();
     let started = Instant::now();

@@ -83,8 +83,21 @@ fn inspect_executed_frame(world: &mut World) {
     let gpu = world.resource::<ActorGpu>();
     let frame = world.resource::<ActorRenderFrame>();
     assert_eq!(gpu.frame_generation, frame.rig.frame_generation);
-    for (prepared, source) in gpu.instances.iter().zip(frame.rig.instances.iter()) {
+    for (index, (prepared, source)) in gpu
+        .instances
+        .iter()
+        .zip(frame.rig.instances.iter())
+        .enumerate()
+    {
+        let mut receipt = gpu.manifest[index].clone();
+        assert_eq!(receipt.previous_bone_base, prepared.previous_bone_base);
+        assert_eq!(receipt.current_bone_base, prepared.current_bone_base);
+        receipt.previous_bone_base = frame.rig.manifest[index].previous_bone_base;
+        receipt.current_bone_base = frame.rig.manifest[index].current_bone_base;
+        assert_eq!(receipt, frame.rig.manifest[index]);
         let mut prepared = *prepared;
+        prepared.previous_bone_base = source.previous_bone_base;
+        prepared.current_bone_base = source.current_bone_base;
         prepared.material &= !crate::actor::material::LATE_DISSOLVE_COLOR;
         assert_eq!(&prepared, source);
     }
@@ -145,7 +158,7 @@ fn inspect_executed_frame(world: &mut World) {
         .take_drawn()
         .expect("all current spans were executed");
     assert_eq!(drawn.frame_generation, frame.rig.frame_generation);
-    assert_eq!(drawn.manifest.as_ref(), frame.rig.manifest.as_ref());
+    assert_eq!(drawn.manifest.as_ref(), gpu.manifest.as_ref());
     assert!(drawn.is_exact());
     world.resource_mut::<PreviousReceipt>().0 = Some((batch, executed));
     world
@@ -316,30 +329,31 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         .single(world)
         .unwrap()
         .to_bits();
-    let mut gpu = world.resource_mut::<ActorGpu>();
-    assert!(gpu.draw_batch(view).is_some());
-    assert!(gpu.draw_batch(view ^ 1).is_none());
-    gpu.artwork_identity[0] ^= 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.artwork_identity[0] ^= 1;
-    gpu.skin_revision += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.skin_revision -= 1;
-    gpu.geometry_revision += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.geometry_revision -= 1;
-    gpu.frame_generation += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.frame_generation -= 1;
-    let manifest = Arc::clone(&gpu.manifest);
-    gpu.manifest = gpu.manifest.to_vec().into();
-    assert!(
-        gpu.draw_batch(view).is_none(),
-        "equal manifest contents are a distinct prepared identity"
-    );
-    gpu.manifest = manifest;
-    assert!(gpu.draw_batch(view).is_some());
-    drop(gpu);
+    {
+        let mut gpu = world.resource_mut::<ActorGpu>();
+        assert!(gpu.draw_batch(view).is_some());
+        assert!(gpu.draw_batch(view ^ 1).is_none());
+        gpu.artwork_identity[0] ^= 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.artwork_identity[0] ^= 1;
+        gpu.skin_revision += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.skin_revision -= 1;
+        gpu.geometry_revision += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.geometry_revision -= 1;
+        gpu.frame_generation += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.frame_generation -= 1;
+        let manifest = Arc::clone(&gpu.manifest);
+        gpu.manifest = gpu.manifest.to_vec().into();
+        assert!(
+            gpu.draw_batch(view).is_none(),
+            "equal manifest contents are a distinct prepared identity"
+        );
+        gpu.manifest = manifest;
+        assert!(gpu.draw_batch(view).is_some());
+    }
     world.run_system_once(prepare_actor_resources).unwrap();
     assert!(
         world.resource::<ActorGpu>().draw_batch(view).is_none(),

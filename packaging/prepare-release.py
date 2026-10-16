@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 
 TOOLING = Path(__file__).resolve().parent
@@ -134,7 +135,31 @@ def dispatch(target_branch: str, bump: str) -> tuple[str, str]:
     return tag, target
 
 
+def validate_api_origin() -> None:
+    """Reject placeholder or malformed API origins before any release refs are changed."""
+    contract_path = ROOT / "crates/bridge/data/contract.json"
+    if not contract_path.exists():
+        if (ROOT / "app/Cargo.toml").exists():
+            raise ReleaseError("a client release requires the bridge contract: crates/bridge/data/contract.json")
+        # Early targets without the client have no API origin to validate.
+        return
+    contract = json.loads(contract_path.read_text())
+    origins = [row["value"] for row in contract["constants"] if row.get("go_name") == "CinnabarAPIBaseURL"]
+    if not origins:
+        # Older source revisions do not connect to the API and have no origin to validate.
+        return
+    if len(origins) != 1:
+        raise ReleaseError("the bridge contract must declare one Cinnabar API origin")
+    origin = urlsplit(origins[0])
+    host = (origin.hostname or "").lower().rstrip(".")
+    if host == "invalid" or host.endswith(".invalid"):
+        raise ReleaseError("replace the placeholder Cinnabar API origin before packaging")
+    if origin.scheme != "https" or not host or origin.username or origin.password or origin.query or origin.fragment or origin.path not in {"", "/"}:
+        raise ReleaseError("the Cinnabar API origin must be an HTTPS origin")
+
+
 def prepare() -> dict[str, str]:
+    validate_api_origin()
     tagged_channel, _ = channel_for_track("tagged")
     rolling_channel, rolling_release = channel_for_track("rolling")
     event = os.environ.get("EVENT_NAME", os.environ.get("GITHUB_EVENT_NAME", ""))

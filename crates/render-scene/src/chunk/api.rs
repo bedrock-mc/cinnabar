@@ -114,6 +114,7 @@ pub struct PendingUpload {
 }
 
 pub struct PendingRemoval {
+    pub kind: render_api::TerrainRemovalKind,
     pub previous_generation: Option<u64>,
     pub priority: ChunkUploadPriority,
     pub token: Option<ChunkUploadToken>,
@@ -177,6 +178,9 @@ impl PublicationPermitSlot {
 }
 
 pub struct PendingGpuRemoval {
+    /// Receipt destination captured before extraction, so late work cannot enter another world.
+    pub publications: Option<crate::terrain_publication::TerrainPublications>,
+    pub kind: render_api::TerrainRemovalKind,
     pub key: SubChunkKey,
     pub token: Option<ChunkUploadToken>,
     pub priority: ChunkUploadPriority,

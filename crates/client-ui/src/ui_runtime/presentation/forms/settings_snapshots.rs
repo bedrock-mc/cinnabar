@@ -77,6 +77,7 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut launcher::m
     view.language_choices =
         launcher::menu::settings_options::SettingsOptions::language_choices(&local);
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == variable).then_some(*index))
@@ -133,6 +134,7 @@ fn open_graphics_mode_rows_select_their_own_choice() {
         .unwrap() as u16;
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, at)| (*name == "video_forced_index").then_some(*at))
@@ -171,6 +173,7 @@ fn settings_video_graphics_options_pack_before() {
 
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
@@ -216,6 +219,7 @@ fn graphics_options_expander_uses_full_settings_button_height() {
     ui_screens::graphics_expander::install(&mut catalog);
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
@@ -266,6 +270,7 @@ fn video_toggles_admit_pointer_and_keyboard_focus() {
     };
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
@@ -318,6 +323,7 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
         .expect("animations selector") as u16;
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
+    view.over_world = true;
     view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
@@ -460,39 +466,6 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
             } else {
                 "settings-skybox-centered"
             },
-        );
-    }
-}
-
-/// Every far-terrain choice is reachable from its open video dropdown through the real
-/// carrier.
-#[test]
-fn far_terrain_video_choices_are_reachable() {
-    use launcher::menu::{
-        MenuAction,
-        settings_options::{FAR_TERRAIN_CHOICES, FAR_TERRAIN_OPTION},
-    };
-    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
-        eprintln!(
-            "skipping far_terrain_video_choices_are_reachable: missing installed UI carrier; make assets"
-        );
-        return;
-    };
-    let index = FAR_TERRAIN_OPTION.id.index() as u16;
-    let mut view = crate::test_support::settings_view();
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
-        .unwrap();
-    view.settings_dropdown = Some(index);
-    let player = player_state::PlayerState::new(1);
-    for choice in 0..FAR_TERRAIN_CHOICES.len() as i32 {
-        let action = MenuAction::SettingsOption(index, choice);
-        view.focused_action = Some(action);
-        assert!(
-            crate::test_support::draw_menu_actions(&player, &mut presentation, &view)
-                .contains(&action),
-            "far terrain choice {choice}"
         );
     }
 }

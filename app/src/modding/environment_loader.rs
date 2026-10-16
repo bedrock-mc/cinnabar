@@ -9,6 +9,8 @@ use mod_host::{ModGrants, ModHost};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf, thread::JoinHandle, time::Instant};
 
+mod inputs;
+
 #[derive(Clone)]
 pub(super) struct Source {
     pub(super) owner: mod_ui::PanelUiOwner,
@@ -117,7 +119,7 @@ fn prepare(
     attempted: &mut BTreeMap<(mod_ui::PanelUiOwner, PathBuf), [u8; 32]>,
 ) -> Option<Update> {
     let key = (request.source.owner, request.source.component.clone());
-    let mut source_hash = None;
+    let mut candidate_identity = None;
     let result = (|| {
         let bytes = mod_host::local_files::read(
             &request.source.component,
@@ -125,22 +127,17 @@ fn prepare(
         )
         .map_err(|error| error.to_string())?;
         let hash: [u8; 32] = Sha256::digest(&bytes).into();
-        if hash == request.previous || attempted.get(&key) == Some(&hash) {
+        if hash == request.previous {
             return Ok(None);
         }
-        source_hash = Some(hash);
-        let read = |path: &Option<PathBuf>, max| -> Result<Option<Vec<u8>>, String> {
-            if !request.source.grants.controls {
-                return Ok(None);
-            }
-            path.as_deref()
-                .map(|path| {
-                    mod_host::local_files::read(path, max).map_err(|error| error.to_string())
-                })
-                .transpose()
-        };
-        let font = read(&request.source.font, font::MAX_SOURCE_BYTES)?;
-        let ui = read(&request.source.ui, ui::mod_panel::MAX_PANEL_BUNDLE_BYTES)?;
+        let inputs = inputs::Inputs::read(&request);
+        let fingerprint = inputs.fingerprint(&request, hash)?;
+        if attempted.get(&key) == Some(&fingerprint) {
+            return Ok(None);
+        }
+        candidate_identity = Some(fingerprint);
+        let font = inputs.font?;
+        let ui = inputs.ui?;
         let prepared = admission::prepare(
             &request.source.component,
             &bytes,
@@ -162,8 +159,8 @@ fn prepare(
             result: Ok(prepared),
         }),
         Err(error) => {
-            if let Some(hash) = source_hash {
-                attempted.insert(key, hash);
+            if let Some(identity) = candidate_identity {
+                attempted.insert(key, identity);
             }
             Some(Update {
                 source: request.source,
@@ -196,7 +193,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
     let mut prepared = match update.result {
         Ok(prepared) => prepared,
         Err(error) => {
-            eprintln!(
+            warn!(
                 "Cinnabar environment component reload rejected; previous guest retained: {error}"
             );
             return None;

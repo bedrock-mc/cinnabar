@@ -4,7 +4,8 @@
 use std::time::{Duration, Instant};
 
 use render_model::{
-    ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+    ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission,
+    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock,
 };
 use render_model::{
     ActorRigGeometry, ActorRigVertex, ActorSkinPixels, normalize_actor_skin,
@@ -84,9 +85,9 @@ fn frame_cost_bench_geometry_registration_30_models() {
 fn frame_cost_bench_block_entity_scene_400_static() {
     let bytes = assets::encode_block_entity_catalog(
         b"{}",
-        128,
+        MIN_DYNAMIC_ATLAS_WIDTH,
         64,
-        &vec![255u8; 128 * 64 * 4],
+        &vec![255u8; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
         &[assets::BlockEntityPlacement {
             name: "textures/entity/chest/normal".into(),
             x: 0,

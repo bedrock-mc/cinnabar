@@ -1,4 +1,9 @@
 //! Replays saved server packets through the client's local session endpoint.
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the replay CLI prints its help on stdout and reports failures on stderr"
+)]
 mod capture;
 mod options;
 mod packs;

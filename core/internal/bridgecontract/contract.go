@@ -153,6 +153,28 @@ const (
 	RPCInvalidTarget = -32022
 	// RPCServicesDisabled: Control error code for services disabled.
 	RPCServicesDisabled = -32023
+	// RPCCinnabarRateLimited: Control error code for a Cinnabar lookup the API rate-limited.
+	RPCCinnabarRateLimited = -32024
+	// MethodCinnabarAPI: Control method for the Cinnabar API identity and visibility.
+	MethodCinnabarAPI = "cinnabar_api.v1"
+	// MethodCinnabarEmotes: Control method for nearby Cinnabar emote playback.
+	MethodCinnabarEmotes = "cinnabar_emotes.v1"
+	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
+	MethodCinnabarLookup = "cinnabar_lookup.v1"
+	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
+	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
+	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
+	CinnabarAPIMaxLookupXUIDs = 128
+	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
+	CinnabarAPICacheTTLMS = 120000
+	// CinnabarAPILookupBucketCapacity: Fallback lookup budget in XUIDs.
+	CinnabarAPILookupBucketCapacity = 1024
+	// CinnabarAPILookupRefillPerMin: Fallback lookup refill in XUIDs per minute.
+	CinnabarAPILookupRefillPerMin = 512
+	// CinnabarAPIPingIntervalMS: Fallback keepalive interval.
+	CinnabarAPIPingIntervalMS = 30000
+	// CinnabarAPIReconnectMaxMS: Fallback reconnect backoff cap.
+	CinnabarAPIReconnectMaxMS = 300000
 	// PresenceGameModeSurvival: Xbox presence game mode for survival.
 	PresenceGameModeSurvival = 0
 	// PresenceGameModeCreative: Xbox presence game mode for creative.
@@ -292,6 +314,46 @@ const (
 	// ConnectStageConnecting: Join progress stage reported by the core. Connecting.
 	ConnectStageConnecting = "connecting"
 )
+
+// CinnabarRelease: A release the Cinnabar API announced on the client's channel.
+type CinnabarRelease struct {
+	// Channel: Release channel name.
+	Channel string `json:"channel"`
+	// Version: App version; rolling channels reuse one across builds.
+	Version string `json:"version"`
+	// Build: Signed manifest build number; absent in older v1 notices.
+	Build uint64 `json:"build"`
+	// PublishedAt: When the API recorded the release.
+	PublishedAt string `json:"published_at"`
+}
+
+// CinnabarEmoteState: Nearby subscriptions and the local custom emote, cleared when the game session ends.
+type CinnabarEmoteState struct {
+	// XUIDs: Nearby Xbox account identifiers.
+	XUIDs []string `json:"xuids"`
+	// UUIDs: Nearby UUIDs when the server omitted Xbox identifiers.
+	UUIDs []string `json:"uuids"`
+	// EmoteID: Owned clip identifier; empty stops playback.
+	EmoteID string `json:"emote_id"`
+	// ElapsedMS: Elapsed playback time at this report.
+	ElapsedMS uint32 `json:"elapsed_ms"`
+	// PlaybackID: Local start identity, including same-clip restarts.
+	PlaybackID uint64 `json:"playback_id"`
+}
+
+// CinnabarRemoteEmote: An authenticated nearby player animation with a remaining lease.
+type CinnabarRemoteEmote struct {
+	// XUID: Authenticated Xbox account identifier.
+	XUID string `json:"xuid"`
+	// UUID: Account UUID derived by the API.
+	UUID string `json:"uuid"`
+	// EmoteID: Owned clip identifier.
+	EmoteID string `json:"emote_id"`
+	// ElapsedMS: Playback time at this snapshot.
+	ElapsedMS uint64 `json:"elapsed_ms"`
+	// ValidForMS: Remaining playback lease.
+	ValidForMS uint64 `json:"valid_for_ms"`
+}
 
 // InboxCategories: Inbox category names in display order.
 var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}

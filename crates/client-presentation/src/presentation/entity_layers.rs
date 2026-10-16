@@ -1,6 +1,8 @@
 //! Render-controller layers of entity bodies: the first replaces the body's default texture
 //! (and model, when its controller picks another), later layers draw after it.
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{borrow::Cow, sync::Arc};
+
+use bevy::platform::collections::HashMap;
 
 #[cfg(any(test, feature = "test-support"))]
 use actor_animation::ActorRigSnapshot;
@@ -189,6 +191,7 @@ fn resolve(
                         glint: Default::default(),
                         kind: layer.material,
                         state: layer.material_state,
+                        suppress_overlay: false,
                         dissolve_multiplier: layer.overlay[3],
                         light_color_multiplier: layer.light_color_multiplier,
                     },
@@ -245,25 +248,15 @@ fn layered(
         submission.texture_layer = location.layer();
     }
     submission.material = layer.material;
-    if matches!(
-        layer.material.kind,
-        assets::EntityRenderMaterial::DissolveDepth | assets::EntityRenderMaterial::DissolveColor
-    ) {
+    if !submission.material.allows_overlay() {
         submission.overlay_rgba8 = 0;
+    } else if let Some(overlay) = layer.overlay {
+        submission.overlay_rgba8 = overlay;
     }
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
     if layer.ignore_lighting {
         submission.light = pack_actor_light_without_lightmap();
-    }
-    if let Some(overlay) = layer.overlay
-        && !matches!(
-            layer.material.kind,
-            assets::EntityRenderMaterial::DissolveDepth
-                | assets::EntityRenderMaterial::DissolveColor
-        )
-    {
-        submission.overlay_rgba8 = overlay;
     }
     if !layer.hidden_bones.is_empty() {
         submission.input.previous_bones =

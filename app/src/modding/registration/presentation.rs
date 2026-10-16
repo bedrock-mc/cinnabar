@@ -69,7 +69,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         let _ = presentation.set_mod_hud(None);
         let _ = presentation.mod_ui_mut().set_mod_crosshair(None);
         if let Err(error) = presentation.set_mod_panel_font(None) {
-            eprintln!("Personal-panel font could not be released: {error}");
+            bevy::log::warn!("Personal-panel font could not be released: {error}");
         }
     }
 }

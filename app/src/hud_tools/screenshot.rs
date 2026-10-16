@@ -137,10 +137,11 @@ fn capture_from_env(
 ) {
     if let Some(done) = &capture.done {
         if let Ok(result) = done.try_recv() {
-            eprintln!("capture: {result:?}");
             exits.write(if result.is_ok() {
+                bevy::log::info!("capture: {result:?}");
                 AppExit::Success
             } else {
+                bevy::log::error!("capture: {result:?}");
                 AppExit::error()
             });
         }

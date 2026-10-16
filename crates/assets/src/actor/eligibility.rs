@@ -172,11 +172,7 @@ fn for_each_uv_rectangle(
         };
         // Ancestor cubes are checked conservatively even when later overridden.
         // This may reject unused art; it cannot admit an unverified wrap route.
-        for (bone, cube) in geometry
-            .bones
-            .iter()
-            .flat_map(|bone| bone.cubes.iter().map(move |cube| (bone, cube)))
-        {
+        for cube in geometry.bones.iter().flat_map(|bone| &bone.cubes) {
             let [x, y, z] = cube.size.map(|value| value.get());
             if [x, y, z]
                 .iter()
@@ -191,8 +187,7 @@ fn for_each_uv_rectangle(
                     // Validate the faces with area, not the entire unfolded box.
                     let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
                     let [u, v] = origin.map(|value| value.get());
-                    let inflate =
-                        cube.inflate.get() + bone.inflate.map_or(0.0, |inflate| inflate.get());
+                    let inflate = cube.inflate.get();
                     let (origin, envelope) = if x + 2.0 * inflate == 0.0 {
                         ([u, v + z_uv], [2.0 * z_uv, y_uv])
                     } else if y + 2.0 * inflate == 0.0 {

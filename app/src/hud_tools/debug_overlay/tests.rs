@@ -2,7 +2,10 @@ use client_shell::ui_resources::UiRuntimeResource;
 use protocol::identity::FifoSequence;
 use simulation_clock::PhysicsTick;
 use simulation_clock::identity::SessionGeneration;
-use {super::*, client_presentation::local_player::LocalPlayerFrameCarrier};
+use {
+    super::*, crate::runtime::shutdown::FatalError,
+    client_presentation::local_player::LocalPlayerFrameCarrier,
+};
 
 #[test]
 fn frame_timing_uses_elapsed_time_and_records_stalls() {
@@ -128,6 +131,7 @@ fn configured_debug_keys_and_mouse_toggle_once_and_refresh_the_hint() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Time<Real>>()
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(UiPresentationResource(
             client_ui::test_support::mini_engine_presentation(),
@@ -237,6 +241,7 @@ fn f3_toggles_rendered_overlay_and_hidden_frames_leave_presentation_untouched() 
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(UiPresentationResource(
             client_ui::test_support::mini_engine_presentation(),
@@ -300,6 +305,7 @@ fn f3_requests_per_pass_gpu_timing_only_for_its_refreshes() {
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(UiPresentationResource(
             client_ui::test_support::mini_engine_presentation(),
@@ -350,6 +356,7 @@ fn visible_frames_between_diagnostic_ticks_leave_presentation_untouched() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(time);
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(UiPresentationResource(
@@ -382,6 +389,7 @@ fn diagnostics_sample_once_per_tick_and_skip_hidden_frames() {
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(UiPresentationResource(
             client_ui::test_support::mini_engine_presentation(),
@@ -498,6 +506,7 @@ fn warmed_diagnostic_publication_allocates_nothing_when_values_stay_equal() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(UiPresentationResource(
@@ -562,6 +571,7 @@ fn covering_screens_skip_expensive_diagnostic_gathers() {
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
@@ -626,6 +636,7 @@ fn first_unchanged_diagnostic_tick_allocates_nothing() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(UiPresentationResource(
@@ -661,6 +672,7 @@ fn ui_frame_counters_wait_for_the_frame_statistics_window() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(UiPresentationResource(
@@ -712,6 +724,7 @@ fn first_eligible_publication_samples_frame_counters() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(PlayerRuntime(player_state::PlayerState::new(1)));
@@ -757,6 +770,7 @@ fn changed_diagnostic_rows_warm_both_buffers_before_the_next_unchanged_tick() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(ClientWorld::default());
+    world.init_resource::<FatalError>();
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
     world.insert_resource(UiPresentationResource(
@@ -776,7 +790,7 @@ fn changed_diagnostic_rows_warm_both_buffers_before_the_next_unchanged_tick() {
         ("shrink", None),
         ("regrow", Some(long_error)),
     ] {
-        world.resource_mut::<ClientWorld>().fatal_error = error;
+        world.resource_mut::<FatalError>().0 = error;
         world.clear_trackers();
         world
             .resource_mut::<Time<Real>>()

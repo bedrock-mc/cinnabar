@@ -3,9 +3,12 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use foldhash::fast::FixedState;
+use hashbrown::HashMap;
+
 use assets::RuntimeBlockEntityAssets;
 
-use super::artwork::{StaticTexture, appended_layout};
+use super::artwork::{MAX_ATLAS_SIDE, StaticTexture, appended_layout};
 
 /// Size of one text canvas cell in atlas pixels.
 pub const TEXT_CELL: [u32; 2] = [96, 48];
@@ -22,6 +25,12 @@ pub const MAP_CELL: [u32; 2] = [128, 128];
 const MAP_COLUMNS: u32 = 8;
 const MAP_ROWS: u32 = 2;
 const MAP_STRIP_HEIGHT: u32 = MAP_CELL[1] * MAP_ROWS;
+/// Minimum carrier width that fits every fixed map and text row in a prepared scene.
+pub const MIN_DYNAMIC_ATLAS_WIDTH: u32 = {
+    let maps = MAP_COLUMNS * MAP_CELL[0];
+    let text = TEXT_COLUMNS * TEXT_CELL[0];
+    if maps > text { maps } else { text }
+};
 /// Canvases each pool rasterizes per frame. A burst of new signs or maps, such as a lobby
 /// streaming in, fills over the following frames instead of all in one.
 pub(crate) const MAX_NEW_CELLS_PER_FRAME: usize = 16;
@@ -254,6 +263,8 @@ struct CellPool {
     max_pages: usize,
     pages: Vec<Vec<u8>>,
     keys: Vec<Option<u64>>,
+    /// The slot holding each `Some` entry of `keys`, so a hit needs no scan of every slot.
+    slots_by_key: HashMap<u64, usize, FixedState>,
     last_used: Vec<u64>,
     clock: u64,
     /// The first clock value of the current frame; slots used since then are never evicted.
@@ -274,6 +285,7 @@ impl CellPool {
             max_pages,
             pages: Vec::new(),
             keys: Vec::new(),
+            slots_by_key: HashMap::with_hasher(FixedState::default()),
             last_used: Vec::new(),
             clock: 0,
             frame_start: 0,
@@ -322,7 +334,7 @@ impl CellPool {
     /// Evicts only unused slots; returns None for invalid canvases or exhausted page/raster budgets.
     fn slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
         self.clock += 1;
-        if let Some(slot) = self.keys.iter().position(|entry| *entry == Some(key)) {
+        if let Some(&slot) = self.slots_by_key.get(&key) {
             self.last_used[slot] = self.clock;
             return Some(slot);
         }
@@ -369,7 +381,10 @@ impl CellPool {
             page[target..target + cell_width * 4]
                 .copy_from_slice(&canvas[source..source + cell_width * 4]);
         }
-        self.keys[slot] = Some(key);
+        if let Some(evicted) = self.keys[slot].replace(key) {
+            self.slots_by_key.remove(&evicted);
+        }
+        self.slots_by_key.insert(key, slot);
         self.last_used[slot] = self.clock;
         self.revision = self.revision.wrapping_add(1);
         Some(slot)
@@ -384,9 +399,18 @@ pub struct DynamicCells {
 }
 
 impl DynamicCells {
+    /// Whether the atlas stride fits every dynamic row within the texture-side limit.
+    pub(super) const fn accepts_width(atlas_width: u32) -> bool {
+        atlas_width >= MIN_DYNAMIC_ATLAS_WIDTH && atlas_width <= MAX_ATLAS_SIDE
+    }
+
+    /// Allocates the initial map/text pages only when every fixed row fits the atlas stride.
     #[must_use]
-    pub fn new(atlas_width: u32) -> Self {
-        Self {
+    pub fn new(atlas_width: u32) -> Option<Self> {
+        if !Self::accepts_width(atlas_width) {
+            return None;
+        }
+        Some(Self {
             text: CellPool::new(
                 atlas_width,
                 TEXT_CELL,
@@ -395,20 +419,26 @@ impl DynamicCells {
                 MAX_TEXT_PAGES,
             ),
             maps: CellPool::new(atlas_width, MAP_CELL, MAP_COLUMNS, MAP_ROWS, 1),
-        }
+        })
     }
 
-    /// Clears all canvases while advancing the upload revision beyond the previous contents.
-    pub fn reset(&mut self, atlas_width: u32) {
+    /// Clears valid-width canvases and advances revision; invalid widths leave the cache intact.
+    pub fn reset(&mut self, atlas_width: u32) -> Option<()> {
         let revision = self.revision().wrapping_add(1);
-        *self = Self::new(atlas_width);
+        *self = Self::new(atlas_width)?;
         self.text.revision = revision;
+        Some(())
     }
 
     /// Fits retained sign and map pages to a replacement atlas without rasterizing them again.
-    pub fn resize_width(&mut self, atlas_width: u32) {
+    /// Invalid widths leave pixels, slots and revision unchanged.
+    pub fn resize_width(&mut self, atlas_width: u32) -> Option<()> {
+        if !Self::accepts_width(atlas_width) {
+            return None;
+        }
         self.text.resize_width(atlas_width as usize);
         self.maps.resize_width(atlas_width as usize);
+        Some(())
     }
 
     /// Ends the frame whose rects were just submitted; their slots become evictable again and
@@ -458,6 +488,48 @@ impl DynamicCells {
 mod tests {
     use super::*;
 
+    #[test]
+    fn dynamic_width_admission_preserves_cached_pixels_and_slots_on_refusal() {
+        for width in [0, 1, MIN_DYNAMIC_ATLAS_WIDTH - 1, MAX_ATLAS_SIDE + 1] {
+            assert!(DynamicCells::new(width).is_none());
+        }
+        let width = MIN_DYNAMIC_ATLAS_WIDTH;
+        let mut cells = DynamicCells::new(width).unwrap();
+        let map = || vec![17; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize];
+        assert_eq!(cells.map_slot(1, map), Some(0));
+        assert_eq!(
+            cells.map_slot(2, || vec![29; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize]),
+            Some(1)
+        );
+        assert_eq!(cells.text_slot(3, || canvas(41)), Some(0));
+        let before = cells.pixels();
+        let revision = cells.revision();
+        for invalid in [0, 1, width - 1, MAX_ATLAS_SIDE + 1] {
+            assert!(cells.resize_width(invalid).is_none());
+            assert!(cells.reset(invalid).is_none());
+            assert_eq!(cells.pixels(), before);
+            assert_eq!(cells.revision(), revision);
+            assert_eq!(
+                cells.map_slot(1, || panic!("retained map must not rasterize")),
+                Some(0)
+            );
+            assert_eq!(
+                cells.map_slot(2, || panic!("retained map must not rasterize")),
+                Some(1)
+            );
+            assert_eq!(
+                cells.text_slot(3, || panic!("retained text must not rasterize")),
+                Some(0)
+            );
+        }
+        assert_eq!(&before[..4], &[17; 4]);
+        assert_eq!(&before[(MAP_CELL[0] * 4) as usize..][..4], &[29; 4]);
+        assert_eq!(
+            &before[(width * MAP_STRIP_HEIGHT * 4) as usize..][..4],
+            &[41; 4]
+        );
+    }
+
     fn canvas(value: u8) -> Vec<u8> {
         vec![value; (TEXT_CELL[0] * TEXT_CELL[1] * 4) as usize]
     }
@@ -482,7 +554,7 @@ mod tests {
     #[test]
     fn a_burst_of_new_texts_rasterizes_within_the_frame_budget() {
         const TEXTS: usize = 300;
-        let mut text = DynamicCells::new(1024);
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let mut most = 0;
         for frame in 1.. {
             let mut made = 0;
@@ -534,7 +606,7 @@ mod tests {
 
     #[test]
     fn text_slots_reuse_hits_and_evict_least_recently_used() {
-        let mut text = DynamicCells::new(1024);
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let first = text.text_slot(1, || canvas(1)).unwrap();
         assert_eq!(
             text.text_slot(1, || panic!("a hit must not rasterize")),
@@ -548,7 +620,10 @@ mod tests {
         text.begin_frame();
         let replaced = text.text_slot(1_000, || canvas(9)).unwrap();
         assert_eq!(replaced, first);
-        assert_eq!(text.pixels()[1024 * MAP_STRIP_HEIGHT as usize * 4], 9);
+        assert_eq!(
+            text.pixels()[(MIN_DYNAMIC_ATLAS_WIDTH * MAP_STRIP_HEIGHT * 4) as usize],
+            9
+        );
         assert!(text.text_slot(2_000, || vec![0; 3]).is_none());
     }
 
@@ -556,7 +631,7 @@ mod tests {
     /// rects already handed out; the page cap only bounds memory.
     #[test]
     fn a_full_frame_grows_a_page_instead_of_evicting_its_own_slots() {
-        let mut text = DynamicCells::new(1024);
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let page: Vec<u64> = (0..TEXT_SLOT_COUNT as u64).collect();
         let slots = settle(&mut text, &page, 1);
         assert_eq!(slots, (0..TEXT_SLOT_COUNT).collect::<Vec<_>>());
@@ -590,7 +665,7 @@ mod tests {
 
     #[test]
     fn map_cells_lead_the_text_pages_and_share_the_revision() {
-        let mut cells = DynamicCells::new(1024);
+        let mut cells = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let before = cells.revision();
         let slot = cells
             .map_slot(7, || vec![5; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize])
@@ -599,12 +674,16 @@ mod tests {
         assert_ne!(cells.revision(), before);
         // The map strip opens the upload block so growing text pages never move it.
         assert_eq!(cells.pixels()[0], 5);
-        assert_eq!(cells.pixels().len(), 1024 * dynamic_height(1) as usize * 4);
+        assert_eq!(
+            cells.pixels().len(),
+            (MIN_DYNAMIC_ATLAS_WIDTH * dynamic_height(1) * 4) as usize
+        );
     }
 
     #[test]
     fn changed_atlas_width_preserves_cached_signs_maps_and_page_rows() {
-        let mut cells = DynamicCells::new(1024);
+        let width = MIN_DYNAMIC_ATLAS_WIDTH;
+        let mut cells = DynamicCells::new(width).unwrap();
         let keys: Vec<_> = (0..32).collect();
         let slots = settle(&mut cells, &keys, 128);
         cells
@@ -612,19 +691,17 @@ mod tests {
             .unwrap();
         let before = cells.pixels();
         let revision = cells.revision();
-        cells.resize_width(2048);
+        cells.resize_width(width * 2).unwrap();
         assert_ne!(cells.revision(), revision);
         let wide = cells.pixels();
         for (source, target) in before
-            .as_chunks::<{ 1024 * 4 }>()
-            .0
-            .iter()
-            .zip(wide.as_chunks::<{ 2048 * 4 }>().0.iter())
+            .chunks_exact(width as usize * 4)
+            .zip(wide.chunks_exact(width as usize * 2 * 4))
         {
             assert_eq!(&target[..source.len()], source);
             assert!(target[source.len()..].iter().all(|pixel| *pixel == 0));
         }
-        cells.resize_width(1024);
+        cells.resize_width(width).unwrap();
         assert_eq!(cells.pixels(), before);
         for (key, slot) in keys.into_iter().zip(slots) {
             assert_eq!(

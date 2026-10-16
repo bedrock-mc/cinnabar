@@ -98,10 +98,11 @@ class ManifestPublishTests(unittest.TestCase):
         """Runs a publication step against the fixture store, never a remote release."""
         release = CHANNELS[channel]
         env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", RUNNER_TEMP=str(self.root),
-                   GITHUB_WORKSPACE=str(self.root), RELEASE_CHANNEL=channel,
+                   GITHUB_WORKSPACE=str(self.root), GITHUB_OUTPUT=str(self.root / "step-output"), RELEASE_CHANNEL=channel,
                    RELEASE_TAG=self.holder(channel).name, RELEASE_TRACK=release["track"], RELEASE_COMMIT="0" * 40,
                    UPDATE_MANIFEST=release["manifest"], UPDATE_MANIFEST_TAG=self.holder(channel).name,
                    UPDATE_PAYLOAD_PREFIX=PREFIX)
+        (self.root / "step-output").unlink(missing_ok=True)
         result = subprocess.run(["bash", "-eu", "-c", step(name)], cwd=self.root, env=env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -147,6 +148,18 @@ class ManifestPublishTests(unittest.TestCase):
     def files(self, directory):
         """Reads the retained fixture assets by filename."""
         return {path.name: path.read_text() for path in directory.iterdir()}
+
+    def test_only_a_new_signed_manifest_sets_the_announcement_flag(self):
+        """Unsigned and identical publications cannot trigger release notices."""
+        self.publish("nightly", signed=False)
+        self.assertFalse((self.root / "step-output").exists())
+        self.publish("nightly", signed=True)
+        # The following prerelease step has its own outputs, so run the manifest step directly too.
+        (self.holder("nightly") / CHANNELS["nightly"]["manifest"]).unlink()
+        self.run_step("Publish the signed update manifest", "nightly")
+        self.assertEqual((self.root / "step-output").read_text().strip(), "published=true")
+        self.run_step("Publish the signed update manifest", "nightly")
+        self.assertFalse((self.root / "step-output").exists())
 
     def test_a_new_channel_holder_is_a_prerelease_that_never_becomes_latest(self):
         self.publish("nightly", signed=True)

@@ -44,6 +44,8 @@ pub struct TextureSet {
     work: ImageWork,
     /// Full-resolution art-page copies of server textures too big for a server page.
     full_res: HashMap<String, IconRef>,
+    /// Source ownership for the installed full-resolution mapping across atlas moves.
+    full_res_sources: crate::atlas::OversizedTextures,
     /// A client part's screen: only portable `textures/` paths, never a URL.
     confined: bool,
 }
@@ -69,6 +71,7 @@ impl TextureSet {
             remote,
             work,
             full_res: HashMap::new(),
+            full_res_sources: Default::default(),
             confined: false,
         }
     }
@@ -103,6 +106,7 @@ impl TextureSet {
     /// Where oversized server textures' full-resolution copies sit, by texture key.
     pub fn set_full_res(&mut self, full_res: HashMap<String, IconRef>) {
         self.full_res = full_res;
+        self.full_res_sources = self.oversized();
     }
 
     /// A package screen's sources: its `files` over the carrier, the icon atlas and the local
@@ -126,11 +130,12 @@ impl TextureSet {
             remote: Arc::clone(&self.remote),
             work: self.work.clone(),
             full_res: HashMap::new(),
+            full_res_sources: Default::default(),
             confined: true,
         }
     }
     /// Drawn textures too big for a server page, with their source bytes.
-    pub fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
+    pub fn oversized(&self) -> crate::atlas::OversizedTextures {
         self.lock().oversized()
     }
 
@@ -143,9 +148,12 @@ impl TextureSet {
             .with_carrier(self.carrier.clone())
             .with_builtin_images(self.builtin)
             .with_image_work(self.work.clone());
+        if !self.full_res_sources.same(&atlas.oversized()) {
+            self.full_res.clear();
+            self.full_res_sources = Default::default();
+        }
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
-        self.full_res.clear();
     }
 
     /// The current source metadata epoch, including atlas replacements.
@@ -198,8 +206,15 @@ impl<'a> Textures<'a> {
             })
     }
 
+    /// The item icon at `key`, matched case-insensitively against the lowercased icon paths;
+    /// only a key with uppercase letters is copied to lowercase it.
     fn icon(&self, key: &str) -> Option<IconRef> {
-        self.set.icons.get(&key.to_ascii_lowercase()).copied()
+        let icons = &self.set.icons;
+        if key.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            icons.get(&key.to_ascii_lowercase()).copied()
+        } else {
+            icons.get(key).copied()
+        }
     }
 
     fn image(&self, path: &str) -> Option<IconRef> {
@@ -216,8 +231,8 @@ impl<'a> Textures<'a> {
     }
 
     /// The drawn paths the server atlas must hold: pack textures, and what
-    /// neither the carrier nor the icon atlas already has.
-    pub fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
+    /// neither the carrier nor the icon atlas already has. Keys borrow from `paths`.
+    pub fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<Cow<'p, str>> {
         paths
             .filter(|path| self.admits(path) && self.image(path).is_none())
             .map(|path| self.canonical(path))
@@ -225,7 +240,6 @@ impl<'a> Textures<'a> {
                 self.atlas.has_image(key)
                     || (self.assets.texture(key).is_none() && self.icon(key).is_none())
             })
-            .map(Cow::into_owned)
             .collect()
     }
 

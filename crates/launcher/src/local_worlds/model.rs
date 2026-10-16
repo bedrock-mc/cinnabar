@@ -3,6 +3,7 @@ use super::world::{
     WorldStatus, WorldUpdate,
 };
 use bridge::{Backend, GameMode, WorldState};
+use std::path::PathBuf;
 
 use super::form::{CreateForm, EditForm, validate_name};
 use super::progress::{self, Progress};
@@ -27,6 +28,8 @@ pub enum Screen {
     Eula,
     /// BDS worlds need Docker on macOS; see [`WorldsMenu::prompt`].
     BackendPrompt,
+    /// Copying picked or dropped world files into the saved worlds.
+    Importing,
     Error,
 }
 
@@ -58,6 +61,10 @@ pub enum Input {
     AcceptEula,
     OpenEulaLink,
     Prompt(PromptButton),
+    /// Picks world files to import.
+    Import,
+    /// Imports dropped world files.
+    ImportFiles(Vec<PathBuf>),
     /// Cancels the current screen; while opening it also closes the world.
     Back,
 }
@@ -88,6 +95,8 @@ pub enum Effect {
         redetect: bool,
     },
     AcceptEula,
+    /// Imports world files; `None` asks the file picker for one first.
+    Import(Option<Vec<PathBuf>>),
     /// Handled by the embedding resource, not the world worker.
     OpenUrl(&'static str),
 }
@@ -102,6 +111,11 @@ pub enum Event {
     Prefs(Prefs, WorldStatus),
     EulaRequired,
     EulaAccepted,
+    /// The imported worlds and why any file was refused; both empty when the picker was cancelled.
+    Imported {
+        worlds: Vec<World>,
+        errors: Vec<String>,
+    },
     Failed(String),
     FailedPrefs(String),
 }
@@ -496,10 +510,22 @@ impl WorldsMenu {
                 vec![Effect::AcceptEula]
             }
             Input::OpenEulaLink => vec![Effect::OpenUrl(EULA_URL)],
+            Input::Import if self.screen == Screen::List => self.begin_import(None),
+            Input::ImportFiles(files) if self.screen == Screen::List && !files.is_empty() => {
+                self.begin_import(Some(files))
+            }
             Input::Prompt(button) => self.prompt_button(button),
             Input::Back => self.back(),
             _ => Vec::new(),
         }
+    }
+
+    /// Holds the list behind the import modal until the worker reports every file.
+    fn begin_import(&mut self, files: Option<Vec<PathBuf>>) -> Vec<Effect> {
+        self.busy = true;
+        self.mutation_pending = true;
+        self.screen = Screen::Importing;
+        vec![Effect::Import(files)]
     }
 
     /// Validates and saves edits, leaving the form open until the write succeeds.
@@ -564,7 +590,7 @@ impl WorldsMenu {
                 vec![Effect::Close]
             }
             Screen::ConfirmDelete => {
-                self.busy = false;
+                self.busy = self.mutation_pending;
                 self.screen = Screen::Edit;
                 Vec::new()
             }
@@ -589,7 +615,8 @@ impl WorldsMenu {
                 self.screen = Screen::List;
                 Vec::new()
             }
-            Screen::List => Vec::new(),
+            // The copy cannot be interrupted; its result returns to the list.
+            Screen::List | Screen::Importing => Vec::new(),
         }
     }
 
@@ -683,6 +710,21 @@ impl WorldsMenu {
                         Vec::new()
                     }
                 }
+            }
+            Event::Imported { worlds, errors } => {
+                self.mutation_pending = false;
+                self.busy = false;
+                self.screen = Screen::List;
+                if !worlds.is_empty() {
+                    self.selected = Some(0);
+                }
+                for world in worlds {
+                    self.worlds.insert(0, world);
+                }
+                if !errors.is_empty() {
+                    self.fail(errors.join("\n"));
+                }
+                Vec::new()
             }
             Event::FailedPrefs(message) if self.mutation_pending => {
                 self.error = Some(message);

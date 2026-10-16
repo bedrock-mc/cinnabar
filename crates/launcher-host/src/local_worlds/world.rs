@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-const MAX_NAME_CHARS: usize = 64;
+pub(crate) const MAX_NAME_CHARS: usize = 64;
 
 /// Why a local-world request or server start failed.
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +28,9 @@ pub enum WorldError {
     ImageNotPinned,
     #[error("the start was cancelled")]
     Cancelled,
+    /// An archive was refused for its contents; the message names no local path.
+    #[error("{0}")]
+    Rejected(String),
     /// Detail for the log; it may name local paths.
     #[error("{0}")]
     Failed(String),
@@ -46,7 +49,9 @@ impl WorldError {
     /// The open world's path-free failure reason for its status.
     pub(crate) fn status_text(&self) -> String {
         match self {
-            Self::Failed(_) | Self::Cancelled => "local world server failed to start".to_owned(),
+            Self::Failed(_) | Self::Rejected(_) | Self::Cancelled => {
+                "local world server failed to start".to_owned()
+            }
             known => known.to_string(),
         }
     }

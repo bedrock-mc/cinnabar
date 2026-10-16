@@ -195,6 +195,6 @@ pub(crate) fn flush_on_exit(mut exits: MessageReader<AppExit>, menu: Option<ResM
         && let Some(mut menu) = menu
         && let Err(error) = menu.flush_user_settings()
     {
-        eprintln!("Could not save settings at shutdown: {error}");
+        bevy::log::warn!("could not save settings at shutdown: {error}");
     }
 }

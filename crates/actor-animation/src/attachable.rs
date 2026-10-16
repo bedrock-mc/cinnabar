@@ -173,6 +173,7 @@ impl AttachablesRuntime {
 
     /// Discards owner lifetimes when a session ends or its active asset catalog changes.
     pub fn clear(&mut self) {
+        self.layout.plans.clear();
         self.states.clear();
         self.previewed.clear();
         self.previewing = false;
@@ -385,7 +386,7 @@ impl AttachablesRuntime {
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
             transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
             used: 0,
-            stack: Vec::new(),
+            stack: OperandStack::lease(),
             static_draw: (!self.previewing)
                 .then_some(self.assets.rig_bindings()[binding].geometry_count == 1),
         };

@@ -142,28 +142,28 @@ impl EquipmentRuntime {
             held
         } else {
             let sheet = match item.kind {
-                HeldKind::Block(visual) => self
-                    .block_sheets
-                    .get(&visual)
-                    .map(|index| (*index, MeshKey::Block(visual))),
+                HeldKind::Block(visual) => {
+                    self.block_placement(visual).map(|sheet| (visual, sheet))
+                }
                 _ => None,
             };
-            let (index, key) = match (sheet, item.kind) {
-                (Some(sheet), _) => sheet,
-                (None, HeldKind::Other) => return None,
-                (None, HeldKind::Block(_)) if !icon_fallback => return None,
-                (None, _) => {
-                    let index = self.held_icon_index(item)?;
-                    (index, MeshKey::Sprite(index))
+            if let Some((visual, (index, placement, location))) = sheet {
+                (index, MeshKey::Block(visual), placement, location)
+            } else {
+                match item.kind {
+                    HeldKind::Other => return None,
+                    HeldKind::Block(_) if !icon_fallback => return None,
+                    _ => {}
                 }
-            };
-            let placement = self.placements.get(index).copied().flatten()?;
-            let location = self
-                .atlas_locations
-                .get(placement.layer)
-                .copied()
-                .flatten()?;
-            (index, key, placement, location)
+                let index = self.held_icon_index(item)?;
+                let placement = self.placements.get(index).copied().flatten()?;
+                let location = self
+                    .atlas_locations
+                    .get(placement.layer)
+                    .copied()
+                    .flatten()?;
+                (index, MeshKey::Sprite(index), placement, location)
+            }
         };
         let mesh = self.mesh_for(key, index, placement)?;
         let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
@@ -299,26 +299,11 @@ impl EquipmentRuntime {
             && from_pack
             && let Some((_, selected)) = selected
         {
-            presentation.submission.material = render_model::ActorMaterial {
-                color_mask,
-                kind: selected.material,
-                state: selected.material_state,
-                dissolve_multiplier: selected.overlay[3],
-                light_color_multiplier: selected.light_color_multiplier,
-                glint: render_model::ActorGlint {
-                    profile,
-                    ..Default::default()
-                },
+            presentation.submission.material.glint = render_model::ActorGlint {
+                profile,
+                ..Default::default()
             };
-            if selected.color != [1.0; 4] {
-                presentation.submission.tint = render_model::pack_overlay_rgba8(selected.color);
-            }
-            presentation.submission.overlay_rgba8 =
-                render_model::pack_overlay_rgba8(selected.overlay);
-            presentation.submission.uv_anim = selected.uv_anim;
-            if selected.ignore_lighting {
-                presentation.submission.light = render_model::pack_actor_light_without_lightmap();
-            }
+            super::style::LayerStyle::from_layer(&selected).apply(&mut presentation.submission);
         }
         layers.push(presentation);
     }

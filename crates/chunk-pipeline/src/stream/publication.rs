@@ -2,6 +2,21 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 use {super::*, render_api::PublicationAllowance};
 
 impl WorldStream {
+    /// Distinguishes proven air data from withdrawing a non-empty column's near drawer.
+    pub fn terrain_removal_kind(&self, key: SubChunkKey) -> render_api::TerrainRemovalKind {
+        if self.known_air.contains(&key)
+            || self
+                .authority
+                .terrain()
+                .sub_chunk(key)
+                .is_some_and(|source| self.classifier.is_sub_chunk_air(&source))
+        {
+            render_api::TerrainRemovalKind::Empty
+        } else {
+            render_api::TerrainRemovalKind::Withdrawn
+        }
+    }
+
     /// Publishes local placement and its transition to retained pose and animation readers.
     pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
         self.authority
@@ -310,6 +325,12 @@ impl WorldStream {
         >,
     ) {
         self.authority.set_item_attack_timings(timings)
+    }
+    /// Pending and in-flight mesh job counts, the `pending_mesh_jobs` and `in_flight_mesh_jobs`
+    /// of [`Self::stats`] without its request-queue walks, for per-frame callers.
+    #[must_use]
+    pub fn mesh_job_counts(&self) -> (usize, usize) {
+        (self.mesh_jobs.pending.len(), self.mesh_jobs.in_flight.len())
     }
     pub fn stats(&self) -> WorldStreamStats {
         let completed_decode_results = self

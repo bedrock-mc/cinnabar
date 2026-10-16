@@ -11,6 +11,15 @@ pub(super) fn parse_bedrock_text_with_style(
     max_bytes: usize,
     base_style: TextStyle,
 ) -> Result<TextSpans, TextError> {
+    parse_bedrock_text_with_sources(text, max_bytes, base_style).map(|(spans, _)| spans)
+}
+
+/// Parses formatting once and retains each visible character's source byte end.
+pub(super) fn parse_bedrock_text_with_sources(
+    text: &str,
+    max_bytes: usize,
+    base_style: TextStyle,
+) -> Result<(TextSpans, Vec<usize>), TextError> {
     if text.len() > max_bytes {
         return Err(TextError::TextBytesExceeded {
             actual: text.len(),
@@ -19,26 +28,29 @@ pub(super) fn parse_bedrock_text_with_style(
     }
 
     let mut spans = Vec::new();
+    let mut sources = Vec::new();
     let mut buffer = String::new();
     let mut style = base_style;
     let mut buffer_style = base_style;
     let mut characters = NormalizedChars::new(text).peekable();
-    while let Some(character) = characters.next() {
+    while let Some((end, character)) = characters.next() {
         if character != '§' {
             if style != buffer_style {
                 push_span(&mut spans, &mut buffer, buffer_style)?;
                 buffer_style = style;
             }
             buffer.push(character);
+            sources.push(end);
             continue;
         }
 
-        let Some(code) = characters.peek().copied() else {
+        let Some((_, code)) = characters.peek().copied() else {
             if style != buffer_style {
                 push_span(&mut spans, &mut buffer, buffer_style)?;
                 buffer_style = style;
             }
             buffer.push(character);
+            sources.push(end);
             continue;
         };
         // Vanilla consumes `§` plus any following character (a newline too); an
@@ -60,31 +72,31 @@ pub(super) fn parse_bedrock_text_with_style(
         }
     }
     push_span(&mut spans, &mut buffer, buffer_style)?;
-    Ok(TextSpans(spans))
+    Ok((TextSpans(spans), sources))
 }
 
 struct NormalizedChars<'a> {
-    characters: std::iter::Peekable<std::str::Chars<'a>>,
+    characters: std::iter::Peekable<std::str::CharIndices<'a>>,
 }
 
 impl<'a> NormalizedChars<'a> {
     fn new(text: &'a str) -> Self {
         Self {
-            characters: text.chars().peekable(),
+            characters: text.char_indices().peekable(),
         }
     }
 }
 
 impl Iterator for NormalizedChars<'_> {
-    type Item = char;
+    type Item = (usize, char);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let character = self.characters.next()?;
-        if character == '\r' && self.characters.peek() == Some(&'\n') {
-            self.characters.next();
-            return Some('\n');
+        let (at, character) = self.characters.next()?;
+        if character == '\r' && self.characters.peek().is_some_and(|(_, c)| *c == '\n') {
+            let (at, _) = self.characters.next()?;
+            return Some((at + 1, '\n'));
         }
-        Some(character)
+        Some((at + character.len_utf8(), character))
     }
 }
 

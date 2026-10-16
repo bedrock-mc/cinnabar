@@ -1,9 +1,14 @@
 //! Win32 calls behind the client's OS integration, replacing PowerShell and `cmd` spawns.
 
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, ptr};
+use std::{
+    ffi::{OsStr, OsString},
+    os::windows::ffi::OsStringExt,
+    path::PathBuf,
+    ptr,
+};
 
 use windows_sys::Win32::{
-    Foundation::{S_FALSE, S_OK},
+    Foundation::{ERROR_INVALID_PARAMETER, S_FALSE, S_OK},
     System::{
         Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize},
         SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
@@ -26,12 +31,42 @@ const PATH_CAPACITY: usize = 32_768;
 /// Room for a long directory path and hundreds of selected file names.
 const MULTI_FILE_CAPACITY: usize = PATH_CAPACITY * 4;
 
+pub(crate) mod crash_dialog;
+
 /// Runs console helpers without a console window while preserving their configured streams.
 pub fn hide_console(command: &mut std::process::Command) {
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
     command.creation_flags(CREATE_NO_WINDOW);
+}
+
+/// Whether this executable is linked for the GUI subsystem, so failures have no console to
+/// reach and must be shown in a window.
+pub fn gui_subsystem() -> bool {
+    #[cfg(target_pointer_width = "32")]
+    use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS32 as Headers;
+    #[cfg(target_pointer_width = "64")]
+    use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS64 as Headers;
+    use windows_sys::Win32::System::{
+        Diagnostics::Debug::IMAGE_SUBSYSTEM_WINDOWS_GUI, LibraryLoader::GetModuleHandleW,
+        SystemServices::IMAGE_DOS_HEADER,
+    };
+
+    // SAFETY: A null name selects this executable's image, which stays mapped and starts with
+    // valid DOS and NT headers.
+    unsafe {
+        let base = GetModuleHandleW(ptr::null()).cast::<u8>();
+        if base.is_null() {
+            return false;
+        }
+        let dos = base.cast::<IMAGE_DOS_HEADER>().read_unaligned();
+        let headers = base
+            .offset(dos.e_lfanew as isize)
+            .cast::<Headers>()
+            .read_unaligned();
+        headers.OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI
+    }
 }
 
 /// Total physical RAM in bytes.
@@ -46,20 +81,22 @@ pub fn physical_memory() -> Option<u64> {
 
 /// Shows the Open dialog; `Ok(None)` on cancel, `Err` with the dialog error code on failure.
 /// `filter` is a double-NUL-terminated list of `name\0patterns\0` pairs.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
     file_chooser(title, filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Shows the Open dialog with multiple selection; an empty list means cancellation.
 /// `filter` has the same double-NUL-terminated format as `pick_file`.
+/// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
 pub fn pick_files(title: &str, filter: &str) -> Result<Vec<PathBuf>, u32> {
     file_chooser(title, filter, true)
 }
 
 /// Shares the native dialog setup while preserving each caller's selection mode.
 fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf>, u32> {
+    let filter = super::windows_filter::encode(filter).map_err(|()| ERROR_INVALID_PARAMETER)?;
     let _apartment = ComApartment::enter();
-    let filter = filter.encode_utf16().collect::<Vec<_>>();
     let title = wide(title);
     let capacity = if multiple {
         MULTI_FILE_CAPACITY
@@ -69,7 +106,7 @@ fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf
     let mut file = vec![0u16; capacity];
     let mut dialog = OPENFILENAMEW {
         lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        lpstrFilter: filter.as_ptr(),
+        lpstrFilter: filter.as_ref().map_or(ptr::null(), |units| units.as_ptr()),
         nFilterIndex: 1,
         lpstrFile: file.as_mut_ptr(),
         nMaxFile: file.len() as u32,
@@ -132,9 +169,16 @@ pub fn message_box(kind: MessageKind, title: &str, body: &str) -> Option<bool> {
 }
 
 /// Opens `target` with its registered handler, as `cmd /C start` would without the shell parsing.
-pub fn shell_open(target: &str) -> bool {
+pub fn shell_open(target: impl AsRef<OsStr>) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
     let _apartment = ComApartment::enter();
-    let (verb, target) = (wide("open"), wide(target));
+    let verb = wide("open");
+    let target: Vec<u16> = target
+        .as_ref()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     // SAFETY: both strings are NUL-terminated and outlive the call; null means defaults.
     let result = unsafe {
         ShellExecuteW(

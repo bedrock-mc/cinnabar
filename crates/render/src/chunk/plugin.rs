@@ -23,7 +23,8 @@ use render_scene::{
 };
 
 mod publication_schedule;
-use publication_schedule::{ChunkPublicationStage, configure_chunk_publication};
+pub(crate) use publication_schedule::ChunkPublicationStage;
+pub(in crate::chunk) use publication_schedule::configure_chunk_publication;
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkEntities(pub(in crate::chunk) HashMap<SubChunkKey, Entity>);
@@ -93,6 +94,7 @@ impl Plugin for ChunkRenderPlugin {
         crate::upload_staging::install_terrain(app);
 
         crate::lighting::install(app);
+        crate::upload_staging::install(app);
         load_internal_asset!(
             app,
             BIOME_TINT_SHADER_HANDLE,
@@ -155,6 +157,7 @@ impl Plugin for ChunkRenderPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         crate::device_poll::install(render_app);
         render_app
+            .init_resource::<super::coverage::TerrainCoverage>()
             .insert_resource(self.upload_budget)
             .insert_resource(acknowledgements)
             .insert_resource(presented_frame_gate)
@@ -203,21 +206,25 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    super::coverage::begin_terrain_coverage
+                        .in_set(ChunkPublicationStage::CoverageBegin),
+                    super::coverage::publish_terrain_coverage
+                        .in_set(ChunkPublicationStage::Coverage),
                     publish_graphics_runtime_metadata.in_set(GraphicsMetadataPublication),
                     track_terrain_batch_changes
                         .in_set(RenderSystems::Queue)
                         .before(queue_chunks),
                     queue_chunks
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .run_if(opaque_terrain_passes_enabled)
                         .in_set(RenderSystems::Queue),
                     queue_transparent_chunks
                         .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
-                    prepare_chunk_texture_assets
-                        .in_set(RenderSystems::PrepareAssets)
-                        .before(RenderSystems::Queue),
+                    prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
-                    prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
+                    prepare_chunk_biome_tints
+                        .in_set(ChunkPublicationStage::Attributes)
+                        .after(prepare_chunk_texture_assets),
                     prepare_gpu_chunks
                         .in_set(ChunkPublicationStage::Geometry)
                         .after(crate::dropped_item_render::terrain_items::TerrainItemSessionSet)
@@ -240,4 +247,12 @@ impl Plugin for ChunkRenderPlugin {
         }
         gpu_cull::install(app);
     }
+}
+
+/// Startup needs real opaque submissions even while a replacement background covers the world.
+fn opaque_terrain_passes_enabled(
+    scene: Option<Res<render_scene::PanoramaScene>>,
+    diagnostics: Res<VisibilityDiagnosticsInput>,
+) -> bool {
+    diagnostics.startup_probe_enabled() || render_scene::panorama::world_passes_enabled(scene)
 }

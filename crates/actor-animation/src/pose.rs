@@ -68,6 +68,7 @@ pub(super) fn sample_clips(
             evaluator.context,
             evaluator.input.swim_amount,
         );
+    let mut channel_bones = ChannelBones::new(bone_names);
     for weighted in clips {
         budget.charge_work()?;
         if let (Some(blend), Some(sides)) = (pending, sides.as_mut())
@@ -151,7 +152,7 @@ pub(super) fn sample_clips(
         // An override clip first restores every bone it animates to its whole default pose.
         if clip.override_previous {
             for channel in channels {
-                let Some(index) = channel_bone(channel, bone_names) else {
+                let Some(index) = channel_bones.resolve(channel) else {
                     continue;
                 };
                 *pose.get_mut(index).ok_or(EvalError::Invalid)? = LocalDelta::default();
@@ -162,7 +163,7 @@ pub(super) fn sample_clips(
                 *cacheable &= channel.keyframe_count == 1;
             }
             budget.charge_work()?;
-            let Some(index) = channel_bone(channel, bone_names) else {
+            let Some(index) = channel_bones.resolve(channel) else {
                 continue;
             };
             let bone = pose.get_mut(index).ok_or(EvalError::Invalid)?;
@@ -210,10 +211,32 @@ pub(super) fn sample_clips(
     Ok(local)
 }
 
-fn channel_bone(channel: &assets::EntityAnimationChannel, names: &[Box<str>]) -> Option<usize> {
-    match &channel.bone_name {
-        Some(name) => names.iter().position(|candidate| candidate == name),
-        None => Some(channel.bone as usize),
+/// Resolves animation channels to bones of one skeleton by lowercase name or compiled index.
+/// Clips list each bone's properties consecutively, so a channel naming the same bone as the
+/// previous one reuses that scan's result.
+pub(super) struct ChannelBones<'a> {
+    names: &'a [Box<str>],
+    last: Option<(&'a str, Option<usize>)>,
+}
+
+impl<'a> ChannelBones<'a> {
+    pub(super) fn new(names: &'a [Box<str>]) -> Self {
+        Self { names, last: None }
+    }
+
+    /// The first bone named by `channel`, or its compiled index when it names none.
+    pub(super) fn resolve(&mut self, channel: &'a assets::EntityAnimationChannel) -> Option<usize> {
+        let Some(name) = channel.bone_name.as_deref() else {
+            return Some(channel.bone as usize);
+        };
+        if let Some((last, index)) = self.last
+            && last == name
+        {
+            return index;
+        }
+        let index = self.names.iter().position(|candidate| **candidate == *name);
+        self.last = Some((name, index));
+        index
     }
 }
 

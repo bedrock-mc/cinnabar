@@ -49,7 +49,7 @@ pub struct CustomBlock {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum CustomSelection {
-    /// No component: the pick ray uses the collision shape.
+    /// No component: use the block type's full-cube visual shape.
     #[default]
     Default,
     Box(CustomBox),
@@ -62,6 +62,14 @@ pub enum CustomSelection {
 pub struct CustomBox {
     pub min: [f32; 3],
     pub max: [f32; 3],
+}
+
+impl CustomBox {
+    /// The default local bounds of an enabled box component.
+    pub const FULL: Self = Self {
+        min: [0.0; 3],
+        max: [1.0; 3],
+    };
 }
 
 /// The render-relevant parts of a custom block definition.
@@ -397,6 +405,10 @@ impl CustomBlocks {
         let mut vanilla_blocks = Vec::new();
         let mut skipped = 0;
         for (name, bytes) in definitions {
+            if name.is_empty() {
+                skipped += 1;
+                continue;
+            }
             let Some(root) = read_root(bytes) else {
                 skipped += 1;
                 continue;

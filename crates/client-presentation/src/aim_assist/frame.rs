@@ -116,7 +116,7 @@ impl AimAssistFrame {
             self.blocks.clear();
             self.entities.clear();
             self.capture_entities(state, world, local_actor);
-            if self.target.is_some_and(|target| matches!(target.kind, TargetKind::Actor(id) if world.actor(id).is_none_or(|actor| actor.status.dead))) {
+            if self.target.is_some_and(|target| matches!(target.kind, TargetKind::Actor(lifetime) if world.actor(lifetime.runtime_id).is_none_or(|actor| actor.status.dead))) {
                 self.target = None;
             }
         }
@@ -139,12 +139,12 @@ impl AimAssistFrame {
         );
         for index in 0..self.entities.len() {
             let mut candidate = self.entities[index];
-            if let TargetKind::Actor(id) = candidate.kind {
+            if let TargetKind::Actor(lifetime) = candidate.kind {
                 candidate.priority = state.player_priority(
                     preset_index,
                     category_index,
                     metadata_index(
-                        world.actor(id),
+                        world.actor(lifetime.runtime_id),
                         ActorDataKey::AimAssistPriorityActorID.wire_value(),
                     ),
                 );
@@ -177,7 +177,7 @@ impl AimAssistFrame {
         );
         if self.target.is_some_and(|target| {
             matches!(target.kind,
-            TargetKind::Actor(id) if world.actor(id).is_none())
+            TargetKind::Actor(lifetime) if world.actor(lifetime.runtime_id).is_none())
         }) {
             self.target = None;
         }
@@ -236,7 +236,7 @@ impl AimAssistFrame {
                     continue;
                 }
                 self.entities.push(AimAssistCandidate {
-                    kind: TargetKind::Actor(actor.runtime_id),
+                    kind: TargetKind::Actor(world.actor_lifetime(actor.runtime_id).unwrap()),
                     minimum,
                     maximum,
                     point: (minimum + maximum) * 0.5,

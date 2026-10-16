@@ -480,6 +480,57 @@ fn an_unchanged_frame_emits_nothing() {
 }
 
 #[test]
+fn obfuscated_text_is_emitted_again_for_each_seed_like_a_full_build() {
+    let font = font();
+    let pool = ui::ObfuscationGlyphs::from_catalog(&font);
+    let mut nodes = hud(&font);
+    nodes[3] =
+        UiNode::new(id(4), Some(id(1)), rect(0.0, 20.0, 40.0, 30.0)).with_visual(UiVisual::Text {
+            layout: text(&font, "§kAB§rA"),
+            color: [255; 4],
+            shadow: TextShadow::Offset64(64),
+        });
+    let scale = UiScale::new(2.0).unwrap();
+    let effects = |seed| TextEffects {
+        palette: None,
+        obfuscation_seed: seed,
+        obfuscation: Some(&pool),
+    };
+    let full_at = |seed| {
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport(), scale, SafeArea::ZERO).unwrap();
+        tree.build_draw_list_with(effects(seed)).unwrap()
+    };
+    let mut draw =
+        RetainedDraw::build(&nodes, viewport(), scale, SafeArea::ZERO, effects(0)).unwrap();
+    let mut last = nodes.clone();
+    let mut rebuilt = false;
+    for seed in 1..64 {
+        let update = draw
+            .update(
+                &mut last,
+                &nodes,
+                viewport(),
+                scale,
+                SafeArea::ZERO,
+                effects(seed),
+            )
+            .expect("§k text keeps the retained list");
+        assert_eq!(update.emitted, 1, "only the §k label is emitted again");
+        rebuilt |= update.rebuilt;
+        let expected = full_at(seed);
+        let actual = draw.draw_list();
+        assert_eq!(actual.vertices, expected.vertices, "seed {seed}");
+        assert_eq!(actual.indices, expected.indices, "seed {seed}");
+        assert_eq!(actual.batches, expected.batches, "seed {seed}");
+    }
+    assert!(
+        rebuilt,
+        "some seed moves a scrambled glyph to the other page"
+    );
+}
+
+#[test]
 fn a_new_node_or_viewport_needs_a_full_build() {
     let nodes = hud(&font());
     let mut draw = retained(&nodes);
@@ -521,4 +572,93 @@ fn changing_a_parent_clip_rebuilds_before_drawing_its_children() {
     nodes[5] = nodes[5].clone().with_clip_children(false);
     assert!(redraw(&mut draw, &nodes).is_none());
     assert_equal(&retained(&nodes), &nodes);
+}
+
+/// Reuses one triangle's source vertices while reserving the requested number of emitted corners.
+fn repeated_mesh(corners: usize) -> Arc<UiMesh> {
+    let source = mesh(0.0);
+    let indices: Vec<u32> = (0..corners).map(|index| (index % 3) as u32).collect();
+    let mut batch = source.batches()[0].clone();
+    batch.index_range = 0..corners as u32;
+    Arc::new(UiMesh::new(source.vertices().into(), indices.into(), vec![batch].into()).unwrap())
+}
+
+#[test]
+fn over_budget_replacements_are_refused_before_materializing_a_mesh() {
+    let small = mesh(0.0);
+    let large = repeated_mesh((UiLimits::MAX_UI_VERTICES / 4) / 3 * 3);
+    let mut previous: Vec<_> = (1..=5)
+        .map(|number| {
+            UiNode::new(id(number), None, rect(0.0, 0.0, 10.0, 10.0))
+                .with_visual(UiVisual::Mesh(Arc::clone(&small)))
+        })
+        .collect();
+    let mut retained = RetainedDraw::build(
+        &previous,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let next: Vec<_> = previous
+        .iter()
+        .map(|node| node.clone().with_visual(UiVisual::Mesh(Arc::clone(&large))))
+        .collect();
+    let before = test_alloc::thread_allocated_bytes();
+    let result = retained.update(
+        &mut previous,
+        &next,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    );
+    let allocated = test_alloc::thread_allocated_bytes() - before;
+    assert!(result.is_none());
+    assert!(
+        allocated < (large.indices().len() * std::mem::size_of::<ui::UiVertex>()) as u64,
+        "rejected update allocated {allocated} bytes before aggregate admission"
+    );
+}
+
+#[test]
+fn a_later_shrink_keeps_an_earlier_growth_within_the_final_budget() {
+    let small = mesh(0.0);
+    let large = repeated_mesh((UiLimits::MAX_UI_VERTICES * 3 / 4) / 3 * 3);
+    let mut previous = vec![
+        UiNode::new(id(1), None, rect(0.0, 0.0, 10.0, 10.0))
+            .with_visual(UiVisual::Mesh(small.clone())),
+        UiNode::new(id(2), None, rect(0.0, 0.0, 10.0, 10.0))
+            .with_visual(UiVisual::Mesh(large.clone())),
+    ];
+    let mut retained = RetainedDraw::build(
+        &previous,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let next = vec![
+        previous[0].clone().with_visual(UiVisual::Mesh(large)),
+        previous[1].clone().with_visual(UiVisual::Mesh(small)),
+    ];
+    retained
+        .update(
+            &mut previous,
+            &next,
+            viewport(),
+            UiScale::default(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        )
+        .unwrap();
+    let mut full = UiTree::new(next).unwrap();
+    full.layout(viewport(), UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let expected = full.build_draw_list().unwrap();
+    assert_eq!(retained.draw_list().vertices, expected.vertices);
+    assert_eq!(retained.draw_list().indices, expected.indices);
+    assert_eq!(retained.draw_list().batches, expected.batches);
 }

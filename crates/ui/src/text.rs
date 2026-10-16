@@ -218,7 +218,10 @@ pub struct TextLayout {
     id: u64,
     key: TextLayoutKey,
     glyphs: Box<[GlyphQuad]>,
+    /// Some glyph is `§k` text, whose glyphs change every frame.
+    obfuscated: bool,
     source_indices: Box<[Option<usize>]>,
+    caret_stops_64: Box<[(usize, i32)]>,
     line_count: u16,
     size_64: [u32; 2],
     ellipsized: bool,
@@ -252,9 +255,21 @@ impl TextLayout {
         &self.glyphs
     }
 
+    /// Whether any glyph is `§k` text, whose glyphs change every frame.
+    pub const fn obfuscated(&self) -> bool {
+        self.obfuscated
+    }
+
     /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.
     pub fn glyph_source_indices(&self) -> &[Option<usize>] {
         &self.source_indices
+    }
+
+    /// The first line's pen at a source byte boundary, in output 1/64 pixels.
+    /// Hidden formatting and invisible characters retain the preceding stop.
+    pub fn first_line_caret_x_64(&self, byte: usize) -> i32 {
+        let end = self.caret_stops_64.partition_point(|(at, _)| *at <= byte);
+        self.caret_stops_64[end.saturating_sub(1)].1
     }
 
     pub const fn line_count(&self) -> u16 {

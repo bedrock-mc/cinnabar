@@ -53,9 +53,12 @@ pub(super) fn validate_input(submission: &ActorRigSubmission) -> Result<(), Reje
     Ok(())
 }
 
-/// Resolves exactly the geometry and finite pose admitted by the normal rig builder.
+/// Resolves exactly the geometry and finite pose admitted by the normal rig builder. A pose
+/// whose matrices `matrices` already holds for the resolved geometry is known finite and is not
+/// rescanned; rejections keep their order either way.
 pub(super) fn geometry<'a>(
     geometries: &'a BTreeMap<EntityRigId, ActorRigGeometry>,
+    matrices: &PoseMatrixCache,
     submission: &ActorRigSubmission,
 ) -> Result<(EntityRigId, &'a ActorRigGeometry), Rejection> {
     let previous = &submission.input.previous_bones;
@@ -66,17 +69,20 @@ pub(super) fn geometry<'a>(
     if previous.is_empty() || previous.len() > MAX_RENDER_BONES_PER_ACTOR {
         return Err(Rejection::Capacity);
     }
-    if previous
-        .iter()
-        .chain(current.iter())
-        .any(|bone| !bone.is_finite())
-    {
+    let id = match submission.route {
+        ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => Some(submission.input.rig),
+        ActorRigRoute::Diagnostic => Some(DIAGNOSTIC_RIG_ID),
+        ActorRigRoute::NoDraw => None,
+    };
+    let finite = |pose: &Arc<[RenderBoneTransform]>| {
+        id.is_some_and(|id| matrices.holds_finite(pose, id))
+            || pose.iter().all(|bone| bone.is_finite())
+    };
+    if !finite(previous) || (!Arc::ptr_eq(previous, current) && !finite(current)) {
         return Err(Rejection::Pose);
     }
-    let id = match submission.route {
-        ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
-        ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
-        ActorRigRoute::NoDraw => return Err(Rejection::NoDraw),
+    let Some(id) = id else {
+        return Err(Rejection::NoDraw);
     };
     let geometry = geometries.get(&id).ok_or(Rejection::MissingGeometry)?;
     if geometry.bones_used() > previous.len() {

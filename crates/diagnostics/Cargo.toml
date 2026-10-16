@@ -8,21 +8,33 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
 reads = [
+    "app/Cargo.toml",
+    "crates/*/Cargo.toml",
     "crates/assets/src/carriers/startup/markers.rs",
     "crates/client-ui/src/diagnostic_markers.rs",
+    "docs/agents/live-testing.md",
 ]
 
 [dependencies]
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
+crash-report = { path = "../crash-report" }
+env-compat = { path = "../env-compat" }
 meshing = { path = "../meshing" }
 render-model = { path = "../render-model" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
 world = { path = "../world" }
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_log-sys = "0.3"
+
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["std", "stdio", "pipe"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std", "stdio", "pipe"] }
 
 [target.'cfg(windows)'.dependencies]
 libc = "0.2"
@@ -30,6 +42,15 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 client-ui = { path = "../client-ui" }
+criterion.workspace = true
+tempfile = "3"
+test-alloc = { path = "../test-alloc" }
+test-time = { path = "../test-time" }
+toml = "0.9"
+
+[[bench]]
+name = "flight_recorder"
+harness = false
 
 [lints]
 workspace = true

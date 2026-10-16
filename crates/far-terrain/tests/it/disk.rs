@@ -11,6 +11,7 @@ fn namespace(destination: &str) -> NamespaceKey {
         dimension: 0,
         level: 7,
         epoch: 0,
+        resources: [0; 32],
     }
 }
 
@@ -55,6 +56,28 @@ fn server_identity_is_hashed_and_stable() {
         key,
         ServerKey::from_destination("remote:play.example.net:19133")
     );
+}
+
+#[test]
+fn namespace_directories_keep_resource_identity_and_read_the_legacy_layout() {
+    let base = namespace("remote:a:1");
+    assert_eq!(base.directory(), "0.0000000000000007.0");
+    for resources in [[0; 32], [0xab; 32]] {
+        let key = NamespaceKey { resources, ..base };
+        assert_eq!(NamespaceKey::parse(key.server, &key.directory()), Some(key));
+        assert_eq!(key.world().namespace(key.epoch), key);
+    }
+    for suffix in [
+        "",
+        "ab",
+        &"AB".repeat(32),
+        &"gg".repeat(32),
+        &format!("{}.extra", "ab".repeat(32)),
+    ] {
+        assert!(
+            NamespaceKey::parse(base.server, &format!("{}.{suffix}", base.directory())).is_none()
+        );
+    }
 }
 
 fn loaded(disk: &DiskCache) -> Vec<(ColumnPos, u64)> {

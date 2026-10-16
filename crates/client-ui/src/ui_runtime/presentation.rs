@@ -129,7 +129,7 @@ pub struct UiPresentationRuntime {
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
-    /// What the last frame was built from, while time cannot change its output.
+    /// What the last frame was built from; later frames re-emit only changed and `§k` nodes.
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
