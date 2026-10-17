@@ -84,7 +84,7 @@ fn fixture() -> Option<Fixture> {
 }
 
 /// Builds the real sky schedule, optionally adding a green surface at the supplied distance.
-fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Image>) {
+fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>, pack: bool) -> (App, Handle<Image>) {
     let gpu = &fixture.gpu;
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -138,7 +138,10 @@ fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Ima
     let image = app.world_mut().resource_mut::<Assets<Image>>().add(image);
     app.world_mut().spawn((
         Camera3d::default(),
-        Camera::default(),
+        Camera {
+            clear_color: bevy::camera::ClearColorConfig::Custom(Color::srgb(1.0, 0.0, 1.0)),
+            ..default()
+        },
         RenderTarget::Image(image.clone().into()),
         msaa,
         Transform::default(),
@@ -149,7 +152,7 @@ fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Ima
     ));
     let skyboxes = assets::SkyboxDimension::ALL.map(|_| assets::PackSkybox {
         faces: std::array::from_fn(|_| {
-            Some(assets::SkyboxFace {
+            pack.then_some(assets::SkyboxFace {
                 width: 1,
                 height: 1,
                 rgba8: Box::new([255, 0, 0, 255]),
@@ -311,7 +314,7 @@ fn end_skybox_never_overwrites_near_or_distant_opaque_geometry() {
         return;
     };
     for msaa in [Msaa::Off, Msaa::Sample4] {
-        let (mut sky, image) = app(&gpu, msaa, None);
+        let (mut sky, image) = app(&gpu, msaa, None, true);
         for _ in 0..8 {
             sky.update();
         }
@@ -322,7 +325,7 @@ fn end_skybox_never_overwrites_near_or_distant_opaque_geometry() {
         );
         drop(sky);
         for distance in [4.0, 100.0] {
-            let (mut app, image) = app(&gpu, msaa, Some(distance));
+            let (mut app, image) = app(&gpu, msaa, Some(distance), true);
             for _ in 0..8 {
                 app.update();
             }
@@ -331,6 +334,37 @@ fn end_skybox_never_overwrites_near_or_distant_opaque_geometry() {
                 colour[1] > 200 && colour[0] < 20 && colour[2] < 20,
                 "{msaa:?} world at {distance} blocks was covered by sky: {colour:?}"
             );
+        }
+    }
+}
+
+/// Covers the late stock path through the actual schedule in every dimension and MSAA mode.
+#[test]
+fn stock_sky_fills_clear_samples_without_covering_opaque_geometry() {
+    let Some(gpu) = fixture() else {
+        return;
+    };
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        for kind in [SkyKind::Overworld, SkyKind::Nether, SkyKind::End] {
+            for distance in [None, Some(4.0), Some(100.0)] {
+                let (mut app, image) = app(&gpu, msaa, distance, false);
+                app.insert_resource(AtmosphereFrame::default().with_sky_kind(kind));
+                for _ in 0..8 {
+                    app.update();
+                }
+                let colour = pixel(&app, &image);
+                if distance.is_some() {
+                    assert!(
+                        colour[1] > 200 && colour[0] < 20 && colour[2] < 20,
+                        "{msaa:?}/{kind:?} sky overwrote the world at {distance:?}: {colour:?}"
+                    );
+                } else {
+                    assert!(
+                        colour[..3] != [255, 0, 255],
+                        "{msaa:?}/{kind:?} stock sky left clear samples unfilled: {colour:?}"
+                    );
+                }
+            }
         }
     }
 }

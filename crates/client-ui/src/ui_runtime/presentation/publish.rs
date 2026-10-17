@@ -59,6 +59,15 @@ pub fn capture_hud_frame(
         .inventory_ledger(player_runtime)
         .cursor_stack()
         .and_then(|stack| items.icon(stack, None));
+    let ledger = runtime.inventory_ledger(player_runtime);
+    let cursor_durability = ledger.cursor_stack().and_then(|stack| {
+        items.durability(
+            stack,
+            ledger
+                .presented_cursor_overlay()
+                .and_then(|overlay| overlay.durability_correction),
+        )
+    });
     let selected = player_items::SelectedItem::capture(player_runtime);
     let hotbar = player_items::hotbar(
         runtime.inventory_ledger(player_runtime),
@@ -116,6 +125,7 @@ pub fn capture_hud_frame(
     }
     frame.window_text = window_text;
     frame.cursor_icon = cursor_icon;
+    frame.cursor_durability = cursor_durability;
     frame.armor_icons = equipment.armor_icons;
     frame.armor_durability = equipment.armor_durability;
     frame.offhand_icon = equipment.offhand_icon;

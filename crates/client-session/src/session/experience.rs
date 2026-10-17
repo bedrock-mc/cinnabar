@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use server_experience::wire::RateLimit;
+use server_experience::rate_limit::RateLimit;
 
 use super::{InboundWorldEvent, NetworkHandle, WorldEvent};
 

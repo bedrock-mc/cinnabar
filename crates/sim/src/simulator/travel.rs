@@ -176,12 +176,20 @@ pub(super) fn tick_mode(
         super::inside::slow_request(&mut next.velocity, multiplier);
     }
     next.requested_movement = next.velocity;
-    let motion = resolve_motion(&view, collision_box, next.velocity, grounded_at_start)?;
+    let motion = resolve_motion(
+        &view,
+        collision_box,
+        next.velocity,
+        grounded_at_start,
+        input.no_clip,
+    )?;
     let mut identity = identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
     next.position = motion.position;
     next.retain_collision_box(motion.aabb, height);
-    next.on_ground = if motion.collisions.y {
+    next.on_ground = if input.no_clip {
+        false
+    } else if motion.collisions.y {
         pre_collision_velocity.y < 0.0
     } else {
         grounded_at_start && pre_collision_velocity.y == 0.0

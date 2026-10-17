@@ -12,6 +12,11 @@ pub enum BrowserState {
 
 const SIGN_IN_PAGE: &str = "https://www.microsoft.com/link?otc=";
 
+/// Builds the shared Microsoft handoff URL only for safe device-code characters.
+pub fn device_code_url(code: &str) -> Option<String> {
+    valid_code(code).then(|| format!("{SIGN_IN_PAGE}{code}"))
+}
+
 /// Tracks one automatic handoff per sign-in prompt and explicit user retries.
 #[derive(Debug, Default)]
 pub struct SignInLink {
@@ -24,12 +29,7 @@ pub struct SignInLink {
 impl SignInLink {
     /// Dispatches a pre-filled URL once per code, or again on an explicit press.
     pub fn open(&mut self, code: &str, explicit: bool, dispatch: impl FnOnce(String, u64) -> bool) {
-        self.open_target(
-            code,
-            valid_code(code).then(|| format!("{SIGN_IN_PAGE}{code}")),
-            explicit,
-            dispatch,
-        );
+        self.open_target(code, device_code_url(code), explicit, dispatch);
     }
 
     /// Dispatches a validated HTTPS Xbox signup URL once, or again on an explicit press.
