@@ -1,4 +1,3 @@
-
 struct Vertex {
     a: vec4<f32>, b: vec4<f32>, c: vec4<f32>,
     color_a: vec4<f32>, color_b: vec4<f32>, uv: vec4<f32>,
@@ -7,6 +6,7 @@ struct Vertex {
 struct Instance { transform: mat4x4<f32>, tint: vec4<f32>, line: vec4<f32>, params: array<vec4<f32>, 4> }
 @group(0) @binding(1) var<storage, read> vertices: array<Vertex>;
 @group(0) @binding(2) var<storage, read> instances: array<Instance>;
+const MITER_LIMIT: f32 = 4.0;
 struct Pair { a: vec4<f32>, b: vec4<f32>, ta: f32, tb: f32, valid: bool }
 
 // Clip to WebGPU's near half-space before dividing by W, including orthographic views.
@@ -80,7 +80,7 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
                 offset = rotate(n0, atan2(n0.x*n1.y-n0.y*n1.x, dot(n0,n1))*phase);
             } else if instance.line.z > 0.5 {
                 let bisector = direction(vec2<f32>(0.0), n0+n1);
-                let miter = bisector * min(4.0, 1.0/max(abs(dot(bisector,n0)),0.25));
+                let miter = bisector * min(MITER_LIMIT, 1.0/max(abs(dot(bisector,n0)),1.0/MITER_LIMIT));
                 if phase < 0.5 { offset = mix(n0,miter,phase*2.0); }
                 else { offset = mix(miter,n1,phase*2.0-1.0); }
             } else { offset = mix(n0,n1,phase); }

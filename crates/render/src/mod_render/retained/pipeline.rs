@@ -171,7 +171,7 @@ pub(super) fn bindings(
     pipeline: Res<Pipeline>,
     mut gpu: ResMut<Gpu>,
 ) {
-    let Gpu { meshes, views } = &mut *gpu;
+    let Gpu { meshes, views, .. } = &mut *gpu;
     for view in views.values_mut() {
         view.bindings
             .retain(|handle, _| meshes.contains_key(handle));

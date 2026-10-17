@@ -300,6 +300,25 @@ mod tests {
             wit::ErrorCode::StaleHandle
         );
     }
+    #[test]
+    fn capability_query_covers_the_generated_contract() {
+        let fields = DrawingPermissions::NAMES
+            .iter()
+            .map(|name| ((*name).to_owned(), serde_json::Value::Bool(true)))
+            .collect();
+        let grants = serde_json::from_value(serde_json::Value::Object(fields)).unwrap();
+        let mut state = State::new(grants, String::new(), Default::default());
+        let permissions = state.capabilities().unwrap();
+        assert_eq!(permissions, wit::Permissions::all());
+        assert_eq!(
+            permissions
+                .as_array()
+                .into_iter()
+                .map(u32::count_ones)
+                .sum::<u32>() as usize,
+            DrawingPermissions::NAMES.len()
+        );
+    }
 }
 
 #[cfg(test)]
