@@ -193,6 +193,13 @@ pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
 /// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.
 #[must_use]
 pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
+    item_enchantment_level_value(extra_data, enchantment_id)
+        .and_then(|level| u8::try_from(level).ok())
+}
+
+/// Reads the full signed-short level of the first matching typed enchantment entry.
+#[must_use]
+pub fn item_enchantment_level_value(extra_data: &[u8], enchantment_id: i16) -> Option<i16> {
     let nbt = decode_extra_nbt(extra_data)?;
     let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"ench")?;
@@ -217,7 +224,7 @@ pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<
             skip_le_payload(&mut list, tag, 1)?;
         }
         if id == Some(enchantment_id) {
-            return level.and_then(|level| u8::try_from(level).ok());
+            return level;
         }
     }
     None

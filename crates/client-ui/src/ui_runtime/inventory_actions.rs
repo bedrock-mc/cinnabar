@@ -186,6 +186,9 @@ impl UiRuntime {
         hit: InventoryCellHit,
         whole_stack: bool,
     ) -> Option<Outcome> {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return None;
+        }
         let id = match hit {
             InventoryCellHit::CreativeGrid(index) => {
                 let entries = visible_creative_entries(self.inventory_ledger(player_runtime), self);
@@ -389,9 +392,6 @@ impl UiRuntime {
             return self.output_click(player_runtime, false);
         }
         if let InventoryCellHit::CreativeGrid(index) = hit {
-            if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
-                return Err(InventoryGestureError::InvalidRequest);
-            }
             return self.creative_click(player_runtime, index, false, Some(1));
         }
         if let InventoryCellHit::RecipeBook(index) = hit
@@ -823,9 +823,13 @@ impl UiRuntime {
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
-            None if player_runtime.inventory.ledger().cursor_stack().is_some() => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_destroy_cursor(requested),
+            None if player_runtime.facts.player_game_mode()
+                == Some(protocol::PlayerGameMode::Creative)
+                && player_runtime.inventory.ledger().cursor_stack().is_some() =>
+            {
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_destroy_cursor(requested)
+            }
             None => Err(InventoryGestureError::EmptyGesture),
         }
     }
@@ -838,6 +842,9 @@ impl UiRuntime {
         into_inventory: bool,
         requested: Option<u8>,
     ) -> Outcome {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         if player_runtime.inventory.ledger().cursor_stack().is_some() {
             return self
                 .inventory_ledger_mut(player_runtime)
@@ -864,6 +871,9 @@ impl UiRuntime {
         into_inventory: bool,
         requested: Option<u8>,
     ) -> Outcome {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         if player_runtime.inventory.ledger().cursor_stack().is_some() {
             return self
                 .inventory_ledger_mut(player_runtime)
