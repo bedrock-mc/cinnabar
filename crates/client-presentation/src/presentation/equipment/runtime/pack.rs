@@ -165,6 +165,26 @@ impl EquipmentRuntime {
             ..input
         };
         let mut operations_left = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
+        let families: std::collections::BTreeSet<Box<str>> = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.catalog.as_ref())
+            .into_iter()
+            .flat_map(|catalog| catalog.bindings_for(&item.identifier))
+            .filter(|binding| {
+                input.worn
+                    && binding.geometry.resolution == EntityDependencyResolution::External
+                    && self.external_armor.contains(&binding.geometry.identifier)
+            })
+            .map(|binding| binding.geometry.identifier.clone())
+            .collect();
+        let external: std::collections::BTreeSet<_> = families
+            .into_iter()
+            .filter(|family| {
+                self.external_armor_binding(family, animation, input, &mut operations_left)
+                    .is_some()
+            })
+            .collect();
         let pack_selection = self.pack.as_mut().and_then(|pack| {
             let catalog = pack.catalog.as_ref()?;
             let index = pack.attachables.select_equipment_binding(
@@ -183,6 +203,8 @@ impl EquipmentRuntime {
                             .assets
                             .geometry_candidates(&binding.geometry.identifier)
                             .is_empty()
+                        || (binding.geometry.resolution == EntityDependencyResolution::External
+                            && external.contains(&binding.geometry.identifier))
                 },
             )?;
             Some((Arc::clone(catalog), index))

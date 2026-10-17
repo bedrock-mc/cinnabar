@@ -464,7 +464,7 @@ fn parse_texture_variants(definition: &Value) -> Result<Vec<TextureVariant>, Ass
         .collect()
 }
 
-/// Atlas stems prefer PNG and fall back to TGA, matching terrain texture resolution.
+/// Resolves item icon atlas stems with PNG before the TGA fallback.
 fn texture_source_index(sources: &BTreeMap<&str, u32>, path: &str) -> Option<u32> {
     sources.get(path).copied().or_else(|| {
         let stem = path.strip_suffix(".png")?;

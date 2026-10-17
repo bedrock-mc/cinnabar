@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/foundation"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
@@ -29,7 +29,7 @@ const validBlockedFoundation = `{
   },
   "sources": {
     "protocolgen": {
-      "module": "github.com/bedrock-mc/protocolgen/generated/data",
+      "module": "` + shared.ModulePath + `",
       "source_lock_sha256": "` + shared.SourceLockSHA256 + `",
       "cloudburst_ref": "` + shared.CloudburstRef + `"
     },

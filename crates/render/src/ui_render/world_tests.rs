@@ -1,6 +1,6 @@
 //! Native comparisons between a shared world-UI pass and the former depth-mode boundaries.
 
-use super::raster_tests::{
+use crate::render_test_support::scene_raster::{
     FixturePipelines, SIDE, app_with_effects, capture, fixture_pipeline_format, frame, read_pixels,
     renderer,
 };
