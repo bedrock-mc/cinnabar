@@ -729,7 +729,8 @@ func TestSessionServerKeepsAcceptingAfterTransientFailure(t *testing.T) {
 	}
 }
 
-// A refused Connect is told why before the core closes: outdated client or core, or vanilla's cantConnect.
+// A refused Connect is told why before the core closes: outdated client or core, an invalid skin or
+// name, or vanilla's cantConnect.
 func TestSessionRefusedConnectSendsDisconnect(t *testing.T) {
 	dir := t.TempDir()
 	newTestSessionServer(t, dir, func(server *sessionServer) {
@@ -745,6 +746,22 @@ func TestSessionRefusedConnectSendsDisconnect(t *testing.T) {
 	otherVersion.ClientData = bytes.Replace(request.ClientData, []byte(minecraft.DefaultProtocol.Ver()), []byte("1.0.0"), 1)
 	invalid := request
 	invalid.ClientData = json.RawMessage(`{"GameVersion":"` + minecraft.DefaultProtocol.Ver() + `","DeviceOS":0}`)
+	withClientData := func(edit func(*login.ClientData)) sessionConnectRequest {
+		var data login.ClientData
+		if err := json.Unmarshal(request.ClientData, &data); err != nil {
+			t.Fatal(err)
+		}
+		edit(&data)
+		edited := request
+		var err error
+		if edited.ClientData, err = json.Marshal(data); err != nil {
+			t.Fatal(err)
+		}
+		return edited
+	}
+	badSkin := withClientData(func(data *login.ClientData) { data.SkinImageHeight = 64 })
+	badName := withClientData(func(data *login.ClientData) { data.ThirdPartyName = "SeventeenLetters1" })
+	badSkinAndName := withClientData(func(data *login.ClientData) { data.SkinImageHeight, data.ThirdPartyName = 64, "" })
 	encode := func(request sessionConnectRequest) []byte {
 		frame, err := encodeSessionJSON(bridgecontract.SessionKindConnect, request)
 		if err != nil {
@@ -760,6 +777,9 @@ func TestSessionRefusedConnectSendsDisconnect(t *testing.T) {
 		"newer protocol":     {encode(newer), "disconnectionScreen.outdatedServer"},
 		"other game version": {encode(otherVersion), "disconnectionScreen.outdatedClient"},
 		"invalid client":     {encode(invalid), "disconnectionScreen.cantConnect"},
+		"invalid skin":       {encode(badSkin), "disconnectionScreen.invalidSkin"},
+		"invalid name":       {encode(badName), "disconnectionScreen.invalidName"},
+		"skin and name":      {encode(badSkinAndName), "disconnectionScreen.cantConnect"},
 		"malformed json":     {[]byte("\x01{"), "disconnectionScreen.cantConnect"},
 	} {
 		_, frames := dialTestSessionFrame(t, dir, test.frame)

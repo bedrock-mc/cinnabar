@@ -21,6 +21,9 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
     reason = "frame completion helpers serve the library's own owners"
 )]
 mod device_poll;
+#[path = "../src/gpu_allocation.rs"]
+#[allow(dead_code, reason = "UI textures use only checked allocation")]
+mod gpu_allocation;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 
