@@ -2,6 +2,7 @@ use super::*;
 
 #[path = "culling_tests.rs"]
 mod culling;
+#[path = "pack_texture_tests.rs"]
 mod pack_textures;
 
 #[test]
