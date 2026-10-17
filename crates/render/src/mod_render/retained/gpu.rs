@@ -49,6 +49,7 @@ pub(super) struct ViewGpu {
 pub(super) struct Gpu {
     pub meshes: BTreeMap<DrawingHandle, Mesh>,
     pub views: HashMap<Entity, ViewGpu>,
+    retired: Vec<Mesh>,
 }
 
 /// Allocates a nonempty storage buffer, bounded by the contract's admitted array lengths.
@@ -92,8 +93,17 @@ pub(super) fn queue(
                 })
         })
         .collect();
-    gpu.meshes
-        .retain(|handle, _| resources.iter().any(|r| r.geometry.contains_key(handle)));
+    let removed: Vec<_> = gpu
+        .meshes
+        .keys()
+        .copied()
+        .filter(|handle| !resources.iter().any(|r| r.geometry.contains_key(handle)))
+        .collect();
+    for handle in removed {
+        if let Some(mesh) = gpu.meshes.remove(&handle) {
+            gpu.retired.push(mesh);
+        }
+    }
     for resources in &resources {
         for instance in resources.instances.values() {
             let handle = instance.geometry;
@@ -205,4 +215,13 @@ pub(super) fn queue(
             );
         }
     }
+}
+
+/// Keeps removed geometry charged until the last submitted GPU work using it has completed.
+pub(super) fn retire(mut gpu: ResMut<Gpu>, queue: Res<RenderQueue>) {
+    if gpu.retired.is_empty() {
+        return;
+    }
+    let retired = std::mem::take(&mut gpu.retired);
+    crate::device_poll::on_frame_complete(&queue, move || drop(retired));
 }

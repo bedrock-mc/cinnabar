@@ -24,6 +24,7 @@ pub(super) fn install(app: &mut App) {
         "retained/drawing.wesl",
         crate::shader_safety::from_wesl
     );
+    crate::device_poll::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<gpu::Gpu>()
         .init_resource::<pipeline::Pipeline>()
@@ -36,6 +37,7 @@ pub(super) fn install(app: &mut App) {
                     .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
                 pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
+                gpu::retire.in_set(crate::device_poll::FrameSubmissions),
             ),
         );
 }

@@ -155,7 +155,7 @@ pub fn visible(
         .extend(1.)
     });
     ![0, 1, 2, 3, 4, 5].iter().any(|plane| {
-        corners.iter().all(|p| match plane {
+        corners.iter().all(|p| match *plane {
             0 => p.x < -p.w,
             1 => p.x > p.w,
             2 => p.y < -p.w,

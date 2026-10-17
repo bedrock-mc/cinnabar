@@ -306,7 +306,11 @@ mod tests {
         let permissions = state.capabilities().unwrap();
         assert_eq!(permissions, wit::Permissions::all());
         assert_eq!(
-            permissions.bits().count_ones() as usize,
+            permissions
+                .as_array()
+                .into_iter()
+                .map(u32::count_ones)
+                .sum::<u32>() as usize,
             DrawingPermissions::NAMES.len()
         );
     }

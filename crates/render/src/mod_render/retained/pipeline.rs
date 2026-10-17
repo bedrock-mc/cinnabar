@@ -154,7 +154,7 @@ pub(super) fn bindings(
     uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<Gpu>,
 ) {
-    let Gpu { meshes, views } = &mut *gpu;
+    let Gpu { meshes, views, .. } = &mut *gpu;
     let Some(binding) = uniforms.uniforms.binding() else {
         for view in views.values_mut() {
             view.bindings.clear();
