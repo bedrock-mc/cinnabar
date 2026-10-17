@@ -11,8 +11,8 @@ use assets::carriers::startup::{
     LoadedIconAssets, LoadedLangAssets,
 };
 use assets::{
-    RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
-    RuntimeEquipmentCatalog, RuntimeParticleAssets,
+    RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets, RuntimeEquipmentCatalog,
+    RuntimeParticleAssets, actor::RuntimeActorCatalog,
 };
 use client_interaction::movement::PhysicsCollisionRegistries;
 use client_ui::ui_runtime::json_ui_assets::LoadedUiAssets;
@@ -334,7 +334,7 @@ mod carrier_tests {
         fs::write(entity_asset_path(&world), &entity).unwrap();
         fs::write(
             actor_asset_path(&world),
-            assets::encode_actor_catalog(&entity, &[], &[]).unwrap(),
+            assets::actor::encode_actor_catalog(&entity, &[], &[]).unwrap(),
         )
         .unwrap();
         let times = LoadTimes::default();

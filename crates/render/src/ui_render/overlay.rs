@@ -115,11 +115,13 @@ pub(crate) fn retained_batch_ranges(
         [Some(batch.first_index..end), None]
     }
 }
-/// Selects the ordinary or enhanced stage for the current camera.
+/// Selects the ordinary or enhanced stage for the current camera; reflection captures draw neither.
 pub(crate) fn grade_stage<const POST: bool>(
-    view: bevy::render::renderer::ViewQuery<Has<render_scene::EnhancedRendering>>,
+    view: bevy::render::renderer::ViewQuery<Option<&render_scene::EnhancedRendering>>,
 ) -> bool {
-    (render_model::enhanced_rendering_enabled() && view.into_inner()) == POST
+    let enhanced = view.into_inner();
+    !enhanced.is_some_and(|settings| settings.reflection_capture)
+        && (render_model::enhanced_rendering_enabled() && enhanced.is_some()) == POST
 }
 
 /// Orders projected UI before hands and the HUD after all world post-processing.

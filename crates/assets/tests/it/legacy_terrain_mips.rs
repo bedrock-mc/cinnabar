@@ -1,4 +1,4 @@
-use assets::{build_legacy_terrain_mip_chain, build_texture_mip_chain};
+use assets::texture::{build_legacy_terrain_mip_chain, build_texture_mip_chain};
 
 #[test]
 fn terrain_array_rebuild_preserves_layers_and_does_not_mutate_shared_art() {
@@ -6,15 +6,15 @@ fn terrain_array_rebuild_preserves_layers_and_does_not_mutate_shared_art() {
         [0; 4], [255; 4], [0; 4], [0; 4], [120; 4], [120; 4], [120; 4], [120; 4],
     ]
     .concat();
-    let texture = assets::TextureArray {
+    let texture = assets::texture::TextureArray {
         layers: 2,
-        mips: vec![assets::TextureMip {
+        mips: vec![assets::texture::TextureMip {
             size: 2,
             rgba8: base.clone().into_boxed_slice(),
         }]
         .into_boxed_slice(),
     };
-    let native = assets::rebuild_legacy_terrain_mips(&texture).unwrap();
+    let native = assets::texture::rebuild_legacy_terrain_mips(&texture).unwrap();
     assert_eq!(native.layers, texture.layers);
     assert_eq!(native.mips[0], texture.mips[0]);
     assert_eq!(
@@ -28,15 +28,15 @@ fn terrain_array_rebuild_preserves_layers_and_does_not_mutate_shared_art() {
 #[test]
 fn terrain_array_rebuild_rejects_malformed_layers() {
     for layers in [0, 2, u32::MAX] {
-        let texture = assets::TextureArray {
+        let texture = assets::texture::TextureArray {
             layers,
-            mips: vec![assets::TextureMip {
+            mips: vec![assets::texture::TextureMip {
                 size: 1,
                 rgba8: vec![0; 4].into_boxed_slice(),
             }]
             .into_boxed_slice(),
         };
-        assert!(assets::rebuild_legacy_terrain_mips(&texture).is_err());
+        assert!(assets::texture::rebuild_legacy_terrain_mips(&texture).is_err());
     }
 }
 
@@ -91,7 +91,7 @@ fn native_terrain_mips_do_not_weaken_fully_covered_cutout_regions() {
 
 #[test]
 fn native_terrain_mips_reject_unbounded_sizes_and_invalid_base_lengths() {
-    for size in [0, 3, assets::MAX_TILE_SIZE * 2] {
+    for size in [0, 3, assets::texture::MAX_TILE_SIZE * 2] {
         assert!(build_legacy_terrain_mip_chain(&[], size).is_err());
     }
     assert!(build_legacy_terrain_mip_chain(&[0; 3], 1).is_err());

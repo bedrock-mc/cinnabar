@@ -69,7 +69,7 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
     let mut masks = 0;
     for (index, texture) in catalog.textures().iter().enumerate() {
         let source = &entities.sources[texture.source as usize];
-        let native = assets::native_actor_texture_uses_color_mask(source);
+        let native = assets::actor::native_actor_texture_uses_color_mask(source);
         assert_eq!(catalog.texture_uses_color_mask(index), native);
         if !native || !source.path.starts_with("textures/entity/sheep/") {
             continue;

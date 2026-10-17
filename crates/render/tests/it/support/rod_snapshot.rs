@@ -246,11 +246,13 @@ pub(crate) fn render_at(
         glam::camera::rh::proj::directx::orthographic(-1.35, 1.35, -1.35, 1.35, 10.0, 0.1);
     let view = gpu.buffer(&gpu_snapshot::view(projection * camera, eye), uniform);
     let empty = gpu.words(&[0; 64], storage);
-    let clock = gpu.words(&[0; 4], uniform);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(
         &render_model::LightmapInputs::default().build(),
     ));
-    let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
+    let query = gpu.words(
+        &material_shader::world_uniform_words(&[0; material_shader::WORLD_CLOCK_WORDS]),
+        uniform,
+    );
     let mut atmosphere = [0.0; 36];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
@@ -270,7 +272,6 @@ pub(crate) fn render_at(
         (8, empty.as_entire_binding()),
         (9, empty.as_entire_binding()),
         (10, empty.as_entire_binding()),
-        (11, clock.as_entire_binding()),
         (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),

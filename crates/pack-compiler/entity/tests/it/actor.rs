@@ -1,6 +1,9 @@
 use std::{fs, path::Path};
 
-use assets::{RuntimeActorCatalog, encode_actor_catalog, encode_entity_blob};
+use assets::{
+    actor::{RuntimeActorCatalog, encode_actor_catalog},
+    encode_entity_blob,
+};
 use image::{Rgba, RgbaImage};
 use pack_entity_compiler::{compile_actor_assets, compile_entity_assets};
 use sha2::{Digest, Sha256};

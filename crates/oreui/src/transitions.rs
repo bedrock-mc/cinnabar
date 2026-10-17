@@ -23,6 +23,7 @@ const ICON_HIGHLIGHT_DURATION: f64 = 0.200;
 enum Control {
     Setting(u16),
     Fullscreen,
+    EnhancedRendering,
     Permission(u64, usize),
     ShowAllPermissions(u64),
 }
@@ -32,6 +33,7 @@ impl Control {
         match action {
             MenuAction::SettingsOption(index, _) => Some(Self::Setting(index)),
             MenuAction::SettingsFullscreen(_) => Some(Self::Fullscreen),
+            MenuAction::ToggleRenderMode => Some(Self::EnhancedRendering),
             MenuAction::Mods(launcher::mods::Action::Permission(id, capability, _)) => {
                 Some(Self::Permission(id, capability))
             }

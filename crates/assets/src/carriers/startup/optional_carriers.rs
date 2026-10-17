@@ -8,7 +8,7 @@ use super::{
     atmosphere_asset_path, canonical_source_manifest_sha256, entity_asset_path, font_asset_path,
     font_fallback::diagnostic_font_assets, format_sha256, local_font_asset_path, world_provenance,
 };
-use crate::{RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
+use crate::{RuntimeEntityAssets, RuntimeFontCatalog, atmosphere::RuntimeAtmosphereAssets};
 use std::{
     fs::File,
     io::{self, Read},

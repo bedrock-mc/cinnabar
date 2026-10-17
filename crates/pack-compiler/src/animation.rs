@@ -252,7 +252,7 @@ pub(crate) fn compile_animation_plan_selected(
             continue;
         };
         if image.width != image.height
-            || image.width < assets::TILE_SIZE
+            || image.width < assets::texture::TILE_SIZE
             || !image.width.is_power_of_two()
         {
             non_tile_static_sources += 1;
@@ -410,7 +410,7 @@ pub(crate) fn compile_animation_plan_selected(
 /// alpha-weighted mips would turn that RGB black at distance.
 fn source_mips(base: Box<[u8]>, overlay_mask: bool) -> Result<Box<[TextureMip]>, AssetError> {
     if overlay_mask {
-        assets::build_legacy_terrain_mip_chain(&base, assets::TILE_SIZE)
+        assets::texture::build_legacy_terrain_mip_chain(&base, assets::texture::TILE_SIZE)
     } else {
         build_texture_mip_chain(base)
     }
@@ -502,14 +502,14 @@ fn slice_frames(image: &DecodedImage, replicate: u32) -> Result<Vec<Box<[u8]>>, 
 /// at least one tile when that square is smaller. Unreplicated frames and frames outside the tile
 /// size contract pass through unchanged for `normalize_texture_tile` to check.
 fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>, u32) {
-    if replicate <= 1 || size < assets::TILE_SIZE || !size.is_power_of_two() {
+    if replicate <= 1 || size < assets::texture::TILE_SIZE || !size.is_power_of_two() {
         return (frame.into_boxed_slice(), size);
     }
     let crop = (size / replicate).max(1);
-    let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
+    let tile_size = if crop.is_power_of_two() && crop >= assets::texture::TILE_SIZE {
         crop
     } else {
-        assets::TILE_SIZE
+        assets::texture::TILE_SIZE
     };
     let mut tile = Vec::with_capacity((tile_size * tile_size * 4) as usize);
     for y in 0..tile_size {

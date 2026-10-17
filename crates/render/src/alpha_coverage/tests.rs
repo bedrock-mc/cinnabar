@@ -53,19 +53,23 @@ fn alpha_coverage_shader_variants_validate() {
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
     let block_entity = block_entity_source();
-    for source in [
-        include_str!("../chunk.wesl"),
-        include_str!("../model.wesl"),
-        include_str!("../dropped_item.wesl"),
-        &actor,
-        &block_entity,
+    for (name, source) in [
+        ("chunk", include_str!("../chunk.wesl")),
+        ("model", include_str!("../model.wesl")),
+        ("dropped item", include_str!("../dropped_item.wesl")),
+        ("actor", actor.as_str()),
+        ("block entity", block_entity.as_str()),
     ] {
-        for definitions in [&[][..], &[SHADER_DEF][..]] {
-            let module = naga::front::wgsl::parse_str(&crate::shader_source::standalone(
-                source,
-                definitions,
-            ))
-            .unwrap();
+        for definitions in [
+            &[][..],
+            &[SHADER_DEF][..],
+            &["ENHANCED"][..],
+            &[SHADER_DEF, "ENHANCED"][..],
+        ] {
+            let shader = crate::shader_source::composed(source, definitions);
+            let module = naga::front::wgsl::parse_str(&shader).unwrap_or_else(|error| {
+                panic!("{name} {definitions:?}: {}", error.emit_to_string(&shader))
+            });
             naga::valid::Validator::new(
                 naga::valid::ValidationFlags::all(),
                 naga::valid::Capabilities::all(),

@@ -1,5 +1,5 @@
-mod actor;
-mod atmosphere;
+pub mod actor;
+pub mod atmosphere;
 mod audio;
 pub mod audio_category;
 mod audio_pcm;

@@ -29,7 +29,6 @@ ui-engine = { path = "../ui-engine" }
 [dev-dependencies]
 render-model = { path = "../render-model", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
-render-api = { path = "../render-api" }
 tempfile = "3"
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 

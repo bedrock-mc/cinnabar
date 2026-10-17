@@ -94,17 +94,31 @@ fn assert_world_shader_addresses(source: &str) {
                 continue;
             }
             for (_, expression) in function.expressions.iter() {
-                let index = match expression {
+                let (image, index) = match expression {
                     Expression::ImageSample {
+                        image,
                         array_index: Some(index),
                         ..
                     }
                     | Expression::ImageLoad {
+                        image,
                         array_index: Some(index),
                         ..
-                    } => *index,
+                    } => (*image, *index),
                     _ => continue,
                 };
+                // Only carrier arrays are addressed by carrier references; Enhanced arrays,
+                // including helpers that receive one as an argument, use authored references.
+                let Expression::GlobalVariable(global) = function.expressions[image] else {
+                    continue;
+                };
+                if module.global_variables[global]
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.starts_with("enhanced_"))
+                {
+                    continue;
+                }
                 samples += 1;
                 for page in 0..assets::MAX_TEXTURE_PAGES as u32 {
                     for layer in [1, 2049, assets::TEXTURE_LAYER_MASK] {

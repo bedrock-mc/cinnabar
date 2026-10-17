@@ -407,7 +407,7 @@ impl TerrainVariant {
     }
 }
 
-pub(super) fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
+pub fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError> {
     let document: TerrainDocument = read_json(path)?;
     let texture_data = match document.texture_data.issue {
         Some(BoundedMapIssue::Duplicate(key)) => {

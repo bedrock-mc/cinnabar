@@ -5,6 +5,8 @@ use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 /// Exercises every terrain stream with nonzero relocation bases and distinct records.
 fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
     let instance = ChunkRenderInstance {
+        #[cfg(feature = "enhanced")]
+        light_emitters: Default::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         cube_quads: (0..256)
             .map(|i| PackedQuad::new([i as u8 % 16, 2, 3], Face::PositiveY, 1, 1, i))
