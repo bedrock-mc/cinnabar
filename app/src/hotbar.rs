@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn predicted_slot_state_drives_packet_and_rollback_restores_authority() {
+    fn screen_prediction_changes_presentation_but_equipment_keeps_backing_stack() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         let mut runtime = identified_runtime(&mut player_runtime);
@@ -610,8 +610,11 @@ mod tests {
             Ok(())
         });
         let predicted_bytes = protocol::encode(&predicted_packet.unwrap()).unwrap();
-        let empty_packet = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
-        assert_eq!(predicted_bytes, protocol::encode(&empty_packet).unwrap());
+        let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
+        assert_eq!(
+            predicted_bytes,
+            protocol::encode(&authoritative_packet).unwrap()
+        );
 
         runtime
             .inventory_ledger_mut(&mut player_runtime)
@@ -643,7 +646,6 @@ mod tests {
             Ok(())
         });
         let restored_bytes = protocol::encode(&restored_packet.unwrap()).unwrap();
-        let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
         assert_eq!(
             restored_bytes,
             protocol::encode(&authoritative_packet).unwrap()
@@ -651,9 +653,9 @@ mod tests {
         assert_eq!(fatal, None);
     }
 
-    /// A slot still holding a predicted stack id is announced in the frame it is selected.
+    /// A screen-predicted stack does not delay or replace the backing equipment packet.
     #[test]
-    fn predicted_selected_slot_sends_without_waiting_for_correction() {
+    fn screen_predicted_selected_slot_sends_backing_without_waiting_for_correction() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
         let mut runtime = identified_runtime(&mut player_runtime);
         runtime
@@ -738,7 +740,7 @@ mod tests {
             Ok(())
         });
         assert_eq!(sent.len(), 1);
-        let expected = select_hotbar_slot_packet(42, 0, &predicted).unwrap();
+        let expected = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
         assert_eq!(
             protocol::encode(&sent[0]).unwrap(),
             protocol::encode(&expected).unwrap()
