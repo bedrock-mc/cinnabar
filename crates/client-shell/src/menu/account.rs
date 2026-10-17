@@ -70,6 +70,9 @@ impl MenuRuntime {
     /// `core_feeds`: a launcher core serves the lists, so the one-shot catalog
     /// process (which would overwrite them with other join addresses) stays off.
     pub fn poll_catalog(&mut self, core_feeds: bool) {
+        if self.external.is_some() {
+            return;
+        }
         self.poll_sign_in();
         self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
@@ -212,6 +215,10 @@ impl MenuRuntime {
     }
 
     pub(super) fn start_sign_in(&mut self) {
+        if self.external.is_some() {
+            self.external_action(launcher::menu::MenuAction::StartSignIn);
+            return;
+        }
         self.sign_in_failure = None;
         self.sign_in_requested = true;
         self.sign_in_cancelled = false;
@@ -260,6 +267,9 @@ impl MenuRuntime {
 
     /// Uses the same auth precedence as presentation, including launcher-core codes.
     pub(super) fn update_sign_in_browser(&mut self, explicit: bool) {
+        if self.external.is_some() {
+            return;
+        }
         #[cfg(feature = "developer-control")]
         if self.fixture_active() {
             return;
@@ -436,6 +446,10 @@ impl MenuRuntime {
     }
 
     pub(super) fn stop_sign_in(&mut self) {
+        if self.external.is_some() {
+            self.external_action(launcher::menu::MenuAction::CancelSignIn);
+            return;
+        }
         self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;

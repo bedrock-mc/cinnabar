@@ -1,0 +1,157 @@
+use super::*;
+use preferences::{MAX_PREFERENCE_BYTES, MAX_SERVERS, Preferences};
+use serde_json::json;
+
+/// Delivers a relay account snapshot through the real typed event boundary.
+fn account(adapter: &mut RelayAccount, state: &str) {
+    adapter
+        .observe(&ControlEvent::Account(json!({"state": state,
+        "verification_uri": "https://example.invalid/device", "user_code": "TEST-CODE",
+        "gamertag": "Fixture"})))
+        .unwrap();
+}
+
+#[test]
+fn launcher_cancel_before_code_cancels_the_pending_relay_flow() {
+    let mut adapter = RelayAccount::default();
+    adapter.request(AccountIntent::SignIn);
+    assert_eq!(adapter.state(), AuthState::Checking);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignIn));
+    adapter.request(AccountIntent::Cancel);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignOut));
+    account(&mut adapter, "awaiting_code");
+    assert_eq!(adapter.state(), AuthState::SignedOut);
+    assert!(adapter.take_operation().is_none());
+    adapter.request(AccountIntent::SignIn);
+    account(&mut adapter, "awaiting_code");
+    assert!(matches!(adapter.state(), AuthState::AwaitingCode { .. }));
+}
+
+#[test]
+fn launcher_refusal_survives_identical_snapshots_and_retry_clears_it() {
+    let mut adapter = RelayAccount::default();
+    account(&mut adapter, "signed_out");
+    adapter.request(AccountIntent::SignIn);
+    adapter
+        .observe(&ControlEvent::Error("session_busy".into()))
+        .unwrap();
+    account(&mut adapter, "signed_out");
+    assert!(matches!(adapter.state(), AuthState::Failed(_)));
+    adapter.request(AccountIntent::SignIn);
+    assert_eq!(adapter.state(), AuthState::Checking);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignIn));
+    account(&mut adapter, "signed_in");
+    assert_eq!(adapter.state(), AuthState::Authenticated);
+    assert_eq!(adapter.profile().gamertag, "Fixture");
+    adapter.request(AccountIntent::Cancel);
+    // Dismissing a completed prompt must not sign out a completed account.
+    assert_eq!(adapter.take_operation(), None);
+    adapter.request(AccountIntent::SignOut);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignOut));
+    account(&mut adapter, "signed_out");
+    assert_eq!(adapter.state(), AuthState::SignedOut);
+    assert!(adapter.profile().gamertag.is_empty());
+}
+
+#[test]
+fn launcher_disconnect_and_new_join_retire_old_presentation() {
+    let mut adapter = RelayAccount::default();
+    account(&mut adapter, "signed_in");
+    adapter
+        .observe(&ControlEvent::Connect(
+            json!({"stage":"packs", "packs_done":1, "packs_total":2}),
+        ))
+        .unwrap();
+    assert!(adapter.join_stage().is_some());
+    adapter.begin_join();
+    assert!(adapter.join_stage().is_none());
+    adapter.disconnected();
+    assert!(matches!(adapter.state(), AuthState::Failed(_)));
+    assert!(adapter.profile().gamertag.is_empty());
+    account(&mut adapter, "signed_in");
+    assert_eq!(adapter.state(), AuthState::Authenticated);
+}
+
+#[test]
+fn launcher_rejects_unsafe_or_incomplete_prompts() {
+    let mut adapter = RelayAccount::default();
+    for uri in [
+        "javascript:alert(1)",
+        "http://example.invalid",
+        "https://name:secret@example.invalid",
+    ] {
+        adapter
+            .observe(&ControlEvent::Account(
+                json!({"state":"awaiting_code", "verification_uri":uri, "user_code":"TEST"}),
+            ))
+            .unwrap();
+        assert!(matches!(adapter.state(), AuthState::Failed(_)));
+    }
+    assert!(
+        adapter
+            .observe(&ControlEvent::Account(json!({"state": false})))
+            .is_err()
+    );
+}
+
+#[test]
+fn launcher_addressed_servers_get_default_port_and_other_targets_are_refused() {
+    let port = bridge::contract::DEFAULT_BEDROCK_PORT;
+    for (input, expected) in [
+        ("example.invalid", format!("example.invalid:{port}")),
+        ("[2001:db8::1]", format!("[2001:db8::1]:{port}")),
+        ("2001:db8::1", format!("[2001:db8::1]:{port}")),
+        ("example.invalid:20000", "example.invalid:20000".into()),
+    ] {
+        assert_eq!(addressed_target(input), Ok(ConnectTarget::RakNet(expected)));
+    }
+    for input in [
+        "",
+        "realm_id/1",
+        "friend/1",
+        "gathering/1",
+        "example.invalid:0",
+        "example.invalid:99999",
+        "example.invalid:abc",
+        "https://example.invalid",
+        "name@example.invalid",
+        "[bad]",
+        "a b",
+    ] {
+        assert!(addressed_target(input).is_err(), "{input}");
+    }
+}
+
+#[test]
+fn launcher_preferences_round_trip_and_bound_untrusted_storage() {
+    let mut preferences = Preferences {
+        gui_scale_offset: 1,
+        servers: vec![::launcher::menu::view::SavedServer {
+            name: "Fixture".into(),
+            address: "example.invalid".into(),
+            favorite: true,
+            last_joined_unix: 0,
+        }],
+    };
+    assert_eq!(
+        Preferences::decode(&preferences.encode().unwrap()).unwrap(),
+        preferences
+    );
+    assert!(Preferences::decode(&" ".repeat(MAX_PREFERENCE_BYTES + 1)).is_err());
+    assert!(
+        Preferences::decode("{\"gui_scale_offset\":1,\"servers\":[],\"token\":\"secret\"}")
+            .is_err()
+    );
+    preferences.servers = vec![preferences.servers[0].clone(); MAX_SERVERS + 1];
+    assert!(preferences.encode().is_err());
+    preferences.servers.clear();
+    preferences
+        .servers
+        .push(::launcher::menu::view::SavedServer {
+            name: String::new(),
+            address: "example.invalid".into(),
+            favorite: false,
+            last_joined_unix: 0,
+        });
+    assert!(preferences.encode().is_err());
+}

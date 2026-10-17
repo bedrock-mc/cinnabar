@@ -200,6 +200,13 @@ resumption retains account intent and bearer expiry; play reconnects never repla
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+The browser account adapter projects checking, device-code prompts, refusals and identity
+into the shared menu. External menu services expose account intents and preference changes
+without native helper launches. Browser preference documents bound saved addressed servers
+and GUI scale; storage failures are reported. The sign-in gesture bridge validates links,
+resolves the current input action and removes its listeners on teardown.
+Incomplete: these menu, gesture and persistence handoffs still need the playable browser host
+and rendered browser acceptance. The current page remains the entry preview.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
