@@ -276,6 +276,7 @@ impl UiRuntime {
                 }
                 _ => {}
             }
+            self.observe_inventory_window(player_runtime);
             self.gameplay_hud.apply_inventory(&event);
             self.observe_use_on_identity(
                 player_runtime,

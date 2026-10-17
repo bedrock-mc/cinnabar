@@ -162,6 +162,11 @@ jobs:
       - name: Enforce architecture boundaries
         if: ${{ !cancelled() }}
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
+      - name: Check the wgpu fork pin is on its release branch
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/wgpu_fork_pin.py Cargo.toml
 
   # Full runs retain every diagnostic and cache writer even when preflight fails.
   verify:
