@@ -24,7 +24,10 @@ enum Job {
     Rename(usize, String),
     Delete(usize),
     SelectCape(Option<usize>),
-    SelectCosmetic(Option<cosmetics::Item>),
+    SelectCosmetic(
+        Option<cosmetics::Item>,
+        launcher::dressing_room::DressingRoomSection,
+    ),
     ImportCape(Option<PathBuf>),
     RenameCape(usize, String),
     DeleteCape(usize),
@@ -192,7 +195,7 @@ fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> R
         Job::Rename(index, name) => catalog::rename(layout, view, index, &name),
         Job::Delete(index) => catalog::delete(layout, view, index),
         Job::SelectCape(index) => catalog::select_cape(layout, view, index),
-        Job::SelectCosmetic(hat) => catalog::select_cosmetic(layout, view, hat),
+        Job::SelectCosmetic(hat, section) => catalog::select_cosmetic(layout, view, hat, section),
         Job::ImportCape(None) => picker::pick(true)
             .and_then(|path| path.map_or(Ok(()), |path| catalog::import_cape(layout, view, &path))),
         Job::ImportCape(Some(path)) => catalog::import_cape(layout, view, &path),
@@ -254,7 +257,9 @@ impl MenuRuntime {
             Action::Import => self.queue_skin_job(Job::Import(None)),
             Action::ImportCape => self.queue_skin_job(Job::ImportCape(None)),
             Action::SelectCape(index) => self.queue_skin_job(Job::SelectCape(index)),
-            Action::SelectCosmetic(hat) => self.queue_skin_job(Job::SelectCosmetic(hat)),
+            Action::SelectCosmetic(hat) => {
+                self.queue_skin_job(Job::SelectCosmetic(hat, self.dressing_room.section))
+            }
             Action::SetModel(model) => self.queue_skin_job(Job::Model(model)),
             Action::BeginRename(index) => self.begin_skin_editor(
                 index,
@@ -458,11 +463,16 @@ impl MenuRuntime {
             }
             return actions;
         }
-        if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Cosmetics {
+        if self.dressing_room.section.is_cosmetic_gallery() {
             actions.push(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
             actions.extend(
                 cosmetics::Item::all()
                     .iter()
+                    .filter(|item| {
+                        self.dressing_room
+                            .section
+                            .includes_cosmetic_slot(&item.descriptor().slot)
+                    })
                     .map(|hat| MenuAction::DressingRoom(Action::SelectCosmetic(Some(*hat)))),
             );
             return actions;

@@ -725,6 +725,7 @@ fn cosmetics_persist_independently_of_the_selected_skin_and_can_be_removed() {
         &layout,
         &mut view,
         Some(render_model::hats::fixture::bunny()),
+        launcher::dressing_room::DressingRoomSection::Cosmetics,
     )
     .unwrap();
     assert_eq!(
@@ -742,7 +743,13 @@ fn cosmetics_persist_independently_of_the_selected_skin_and_can_be_removed() {
         cosmetics::resolve(&load(&layout, &fallback).selected_cosmetics, |_| false),
         vec![render_model::hats::fixture::bunny()]
     );
-    select_cosmetic(&layout, &mut reloaded, None).unwrap();
+    select_cosmetic(
+        &layout,
+        &mut reloaded,
+        None,
+        launcher::dressing_room::DressingRoomSection::Cosmetics,
+    )
+    .unwrap();
     assert!(load(&layout, &fallback).selected_cosmetics.is_empty());
     fs::remove_dir_all(layout.user_data_root).unwrap();
 }

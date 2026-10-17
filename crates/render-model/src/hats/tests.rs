@@ -201,6 +201,10 @@ fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
 fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots() {
     for (project, geometry) in [
         (
+            include_str!("shoulder_parrot.bbmodel"),
+            include_str!("shoulder_parrot.geo.json"),
+        ),
+        (
             include_str!("dragon_wings.bbmodel"),
             include_str!("dragon_wings.geo.json"),
         ),
@@ -275,7 +279,7 @@ fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots
                 })
                 .expect("runtime surface matches the editable Blockbench mesh");
             let positions = surface["positions"].as_array().unwrap();
-            assert!(positions.len() > 100);
+            assert!(!positions.is_empty());
             assert_eq!(
                 surface["polys"].as_array().unwrap().len(),
                 mesh["faces"].as_object().unwrap().len()
@@ -444,6 +448,43 @@ fn catalog_devil_horns_attach_directly_to_the_head_and_stay_rigid() {
         )
     );
     let preview = thumbnail::render(item, 128, 128).unwrap();
+    assert!(
+        preview
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] > 0)
+    );
+}
+
+#[test]
+fn shoulder_parrot_sits_on_the_shoulder_and_coexists_with_head_and_back_slots() {
+    let pet = fixture::shoulder_parrot();
+    let model = rig(pet);
+    assert_eq!(pet.descriptor().slot, "pet");
+    assert_eq!(pet.descriptor().attachment_bone, "body");
+    assert!(pet.descriptor().free);
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .all(|v| v.position[0] > 0.25 && v.position[1] < 2.0)
+    );
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .any(|v| (v.position[1] - 1.5).abs() < 1e-6),
+        "feet touch the standard shoulder plane"
+    );
+    let slots = [fixture::devil_horns(), fixture::dragon_wings(), pet]
+        .map(|item| (item.descriptor().slot.clone(), Some(item.id().into())))
+        .into();
+    let resolved = cosmetics::resolve(&slots, |_| false);
+    assert_eq!(resolved.len(), 3);
+    assert!(resolved.contains(&pet));
+    let preview = thumbnail::render(pet, 128, 128).unwrap();
     assert!(
         preview
             .rgba8

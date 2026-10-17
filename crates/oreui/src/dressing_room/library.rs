@@ -39,15 +39,20 @@ pub(super) fn toolbar(
         HEADER5,
         TEXT,
     )?;
+    let has_import = !view.dressing_room.section.is_cosmetic_gallery();
     let description_height = canvas.text(
-        "Choose your skin, cape and cosmetics.",
+        "Choose your skin, cape, cosmetics or pet.",
         [left, y + canvas.r(3.0)],
-        width - canvas.r(16.0),
+        if has_import {
+            width - canvas.r(16.0)
+        } else {
+            width
+        },
         CAPTION,
         TEXT_DIMMER,
         false,
     )?;
-    if view.dressing_room.section != DressingRoomSection::Cosmetics {
+    if has_import {
         let import_bounds = [right - canvas.r(14.8), y, right, y + canvas.r(4.4)];
         let import_action = command(if cape_tab {
             Action::ImportCape
@@ -72,22 +77,35 @@ pub(super) fn toolbar(
         }
     }
     y += canvas.r(6.0).max(canvas.r(4.4) + description_height);
-    widgets::tabs(
-        canvas,
-        view,
-        [left, y, right, y + canvas.r(4.4)],
-        &DressingRoomSection::ALL.map(|section| {
-            (
-                section.label(),
-                enabled(view).then_some(command(Action::SetSection(section))),
-            )
-        }),
-        DressingRoomSection::ALL
-            .iter()
-            .position(|section| *section == view.dressing_room.section)
-            .unwrap_or_default(),
-    )?;
-    y += canvas.r(6.2);
+    let labels = DressingRoomSection::ALL.map(|section| {
+        (
+            section.label(),
+            enabled(view).then_some(command(Action::SetSection(section))),
+        )
+    });
+    let mut minimum = 0.0_f32;
+    for (label, _) in &labels {
+        minimum = minimum.max(canvas.measure(label, BODY)? + canvas.r(3.2));
+    }
+    let columns = ((width / minimum).floor() as usize).clamp(1, labels.len());
+    let selected = DressingRoomSection::ALL
+        .iter()
+        .position(|section| *section == view.dressing_room.section)
+        .unwrap_or_default();
+    for (row, labels) in labels.chunks(columns).enumerate() {
+        widgets::tabs(
+            canvas,
+            view,
+            [left, y, right, y + canvas.r(4.4)],
+            labels,
+            selected
+                .checked_sub(row * columns)
+                .filter(|index| *index < labels.len())
+                .unwrap_or(usize::MAX),
+        )?;
+        y += canvas.r(5.2);
+    }
+    y += canvas.r(1.0);
     Ok(y)
 }
 
@@ -118,7 +136,7 @@ pub(super) fn collection(
         )?;
         y = note[3] + space(canvas, 4);
     }
-    if view.dressing_room.section == DressingRoomSection::Cosmetics {
+    if view.dressing_room.section.is_cosmetic_gallery() {
         let end = super::hats::collection(canvas, view, [left, y, right, b[3]], viewport, preview)?;
         canvas.end_entrance(entrance, [viewport[2], viewport[3]])?;
         return Ok(end);

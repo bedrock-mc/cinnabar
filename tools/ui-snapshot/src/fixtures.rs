@@ -73,6 +73,20 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-pets",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: parrot,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-pets-narrow",
+        size: [360, 720],
+        gui_scale: GUI_SCALE,
+        fixture: parrot,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "craft-overlap-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -662,6 +676,7 @@ fn wardrobe() -> Fixture {
     let item = render_model::hats::fixture::bunny();
     render_model::hats::fixture::crown();
     render_model::hats::fixture::devil_horns();
+    render_model::hats::fixture::shoulder_parrot();
     Arc::make_mut(&mut view.dressing_room).section =
         launcher::dressing_room::DressingRoomSection::Cosmetics;
     Arc::make_mut(&mut view.dressing_room)
@@ -690,6 +705,21 @@ fn dragon_wings() -> Fixture {
     if let Fixture::Menu(view) = &mut fixture {
         let item = render_model::hats::fixture::dragon_wings();
         Arc::make_mut(&mut view.dressing_room)
+            .selected_cosmetics
+            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
+    }
+    fixture
+}
+
+/// Shows the separate Pets category while head and back choices remain equipped.
+#[cfg(feature = "test-support")]
+fn parrot() -> Fixture {
+    let mut fixture = dragon_wings();
+    if let Fixture::Menu(view) = &mut fixture {
+        let item = render_model::hats::fixture::shoulder_parrot();
+        let wardrobe = Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = launcher::dressing_room::DressingRoomSection::Pets;
+        wardrobe
             .selected_cosmetics
             .insert(item.descriptor().slot.clone(), Some(item.id().into()));
     }

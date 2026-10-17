@@ -86,7 +86,23 @@ macro_rules! wardrobe_sections {
     };
 }
 
-wardrobe_sections! { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics" }
+wardrobe_sections! { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics", Pets => "Pets" }
+
+impl DressingRoomSection {
+    /// Whether this section lists catalog items rather than imported skins or capes.
+    pub const fn is_cosmetic_gallery(self) -> bool {
+        matches!(self, Self::Cosmetics | Self::Pets)
+    }
+
+    /// Keeps pet-slot items in Pets and all other catalog slots in Cosmetics.
+    pub fn includes_cosmetic_slot(self, slot: &str) -> bool {
+        match self {
+            Self::Pets => slot == "pet",
+            Self::Cosmetics => slot != "pet",
+            _ => false,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkinEditorMode {

@@ -34,3 +34,9 @@ span. All coincident vertices keep the same transform, including thick supports;
 only bone poses change during playback. The profile is a Cinnabar cosmetic
 extension, separate from Bedrock actor animation behavior. The world and HUD
 share a caller-owned looping phase. Head and back selections remain independent.
+
+Open `shoulder_parrot.bbmodel` for the original pet-slot shoulder parrot. Its
+original atlas is embedded and available in `shoulder_parrot.png`. Export with
+`python3 crates/render-model/src/hats/export.py shoulder_parrot`. The body-root
+attachment sits on the shoulder independently of headwear and back cosmetics.
+The head, wings and tail remain separate editable groups; this item is rigid.

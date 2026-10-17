@@ -559,6 +559,7 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     let items = [
         render_model::hats::fixture::bunny(),
         render_model::hats::fixture::dragon_wings(),
+        render_model::hats::fixture::shoulder_parrot(),
     ];
     let selections: Vec<_> = items
         .into_iter()
@@ -613,7 +614,7 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
         } else {
             assert_eq!(
                 initial[&model.geometry.id], draw.input.current_bones,
-                "flapping wings cannot move the hat"
+                "flapping wings cannot move rigid headwear or pets"
             );
         }
     }

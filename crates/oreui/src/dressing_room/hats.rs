@@ -1,4 +1,4 @@
-//! Compact preview tiles for removable local headwear.
+//! Compact preview tiles for the active cosmetic or pet catalog category.
 
 use super::{command, enabled, library};
 use crate::{
@@ -28,21 +28,37 @@ pub(super) fn collection(
         if view
             .dressing_room
             .selected_cosmetics
-            .values()
-            .all(Option::is_none)
+            .iter()
+            .filter(|(slot, _)| view.dressing_room.section.includes_cosmetic_slot(slot))
+            .all(|(_, value)| value.is_none())
         {
             Variant::Primary
         } else {
             Variant::Secondary
         },
-        "Remove all",
+        if view.dressing_room.section == launcher::dressing_room::DressingRoomSection::Pets {
+            "Remove pet"
+        } else {
+            "Remove all"
+        },
         enabled(view).then_some(command(Action::SelectCosmetic(None))),
     )?;
     let y = top + canvas.r(6.0);
     let gap = canvas.r(1.2);
     let columns = (((right - left + gap) / (side + gap)).floor() as usize).max(1);
     let items = cosmetics::Item::all();
-    for (slot, hat) in items.iter().enumerate() {
+    let mut count: usize = 0;
+    for (slot, (catalog_index, hat)) in items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            view.dressing_room
+                .section
+                .includes_cosmetic_slot(&item.descriptor().slot)
+        })
+        .enumerate()
+    {
+        count = slot + 1;
         let x = left + (slot % columns) as f32 * (side + gap);
         let y = y + (slot / columns) as f32 * (side + gap);
         let bounds = [x, y, x + side, y + side];
@@ -51,11 +67,24 @@ pub(super) fn collection(
             && bounds[1] < viewport[3]
             && bounds[3] > viewport[1]
         {
-            preview.visible_cosmetics.push(slot);
+            preview.visible_cosmetics.push(catalog_index);
         }
         tile(canvas, view, bounds, *hat)?;
     }
-    Ok(y + items.len().div_ceil(columns) as f32 * (side + gap))
+    if count == 0 {
+        canvas.text_line(
+            if view.dressing_room.section == launcher::dressing_room::DressingRoomSection::Pets {
+                "No pets available yet."
+            } else {
+                "No cosmetics available yet."
+            },
+            [left, y],
+            right - left,
+            crate::theme::BODY,
+            TEXT,
+        )?;
+    }
+    Ok(y + count.div_ceil(columns).max(1) as f32 * (side + gap))
 }
 
 /// Uses the existing surface feedback, selection mark and focus frame around the preview.

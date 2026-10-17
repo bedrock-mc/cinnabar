@@ -114,3 +114,22 @@ pub fn dragon_wings() -> Item {
         .unwrap()
     })
 }
+
+/// Admits the original shoulder parrot in its independent pet slot.
+pub fn shoulder_parrot() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let catalog: Catalog = serde_json::from_str(include_str!("fixture/catalog.json")).unwrap();
+        super::admit(
+            catalog
+                .items
+                .into_iter()
+                .find(|item| item.id == "cinnabar:shoulder_parrot")
+                .unwrap(),
+            include_bytes!("shoulder_parrot.geo.json"),
+            include_bytes!("shoulder_parrot.png"),
+            b"{}\n",
+        )
+        .unwrap()
+    })
+}
