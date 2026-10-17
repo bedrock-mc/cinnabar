@@ -63,12 +63,35 @@ impl PlayerInventoryLedger {
         target: InventoryTarget,
         hotbar: u8,
     ) -> Result<i32, InventoryGestureError> {
+        self.hotbar_swap(target, hotbar, true)
+    }
+
+    /// [`Self::begin_hotbar_swap`] between the player's own cells with no window open, as a
+    /// client part's modal over gameplay shows them; like the in-world drop, the request names
+    /// the player's own containers and needs no open inventory.
+    pub fn begin_windowless_hotbar_swap(
+        &mut self,
+        target: InventoryTarget,
+        hotbar: u8,
+    ) -> Result<i32, InventoryGestureError> {
+        if !matches!(target, InventoryTarget::Player(_)) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        self.hotbar_swap(target, hotbar, false)
+    }
+
+    fn hotbar_swap(
+        &mut self,
+        target: InventoryTarget,
+        hotbar: u8,
+        needs_window: bool,
+    ) -> Result<i32, InventoryGestureError> {
         let (source, destination) = (target.cell(), Cell::Inventory(hotbar));
         if hotbar >= 9 || source == destination {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let personal_generation = self
-            .gesture_preflight(!matches!(source, Cell::Storage(_)))
+            .gesture_preflight(needs_window && !matches!(source, Cell::Storage(_)))
             .or_else(|error| {
                 // A first-frame hotbar swap queues behind its unsent Open, never ahead of it.
                 if error == InventoryGestureError::PersonalInventoryUnavailable

@@ -236,6 +236,7 @@ mod tests {
                 selection: protocol::CustomSelection::Default,
                 friction: None,
                 state_physics: Default::default(),
+                player_interact: false,
                 tags: Default::default(),
                 visual: std::sync::Arc::default(),
             }]),

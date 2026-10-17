@@ -248,6 +248,7 @@ fn drive_owner(
     let mut close_view = false;
     if up && focused {
         let modifiers = held_modifiers(&input.modifier_state);
+        host.set_held_modifiers(modifiers);
         let pressed = pointer_events(presentation, cursor, modifiers, input, &mut events);
         let frame = KeyFrame {
             keys: &keys,

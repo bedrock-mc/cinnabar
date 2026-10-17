@@ -50,6 +50,12 @@ impl ModHost {
             items: true,
             recipes: true,
             keys: true,
+            // The settings file is the environment opt-in's, or the manifest's ask.
+            settings: extra.settings
+                || package
+                    .manifest
+                    .permissions
+                    .contains(&ModPermission::Settings),
             ..extra
         };
         Self::load_read_package(dir, package, grants)
@@ -324,11 +330,12 @@ impl ModGrants {
             items: asked.items && self.items,
             recipes: asked.recipes && self.recipes,
             keys: asked.keys && self.keys,
+            inventory: asked.inventory && self.inventory,
             ..self.clone()
         }
     }
 
-    /// What a package's manifest asks for, except `inventory`, which no import carries yet.
+    /// What a package's manifest asks for.
     pub fn from_manifest(manifest: &ModManifest) -> Self {
         let asks = |permission| manifest.permissions.contains(&permission);
         Self {
@@ -336,6 +343,8 @@ impl ModGrants {
             items: asks(ModPermission::Items),
             recipes: asks(ModPermission::Recipes),
             keys: asks(ModPermission::Keys),
+            inventory: asks(ModPermission::Inventory),
+            settings: asks(ModPermission::Settings),
             ..Self::default()
         }
     }

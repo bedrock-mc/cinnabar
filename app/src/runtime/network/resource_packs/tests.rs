@@ -511,6 +511,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
             state_physics: Default::default(),
+            player_interact: false,
             name: "cache:test".into(),
             tags: Default::default(),
             state_count: 1,

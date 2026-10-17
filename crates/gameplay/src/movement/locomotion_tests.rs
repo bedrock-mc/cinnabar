@@ -59,7 +59,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
         let world = VersionedFloor(1);
         let intent = ModeIntent {
             can_fly: true,
-            server_flying,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(server_flying),
             ..Default::default()
         };
         if !server_flying {
@@ -138,7 +138,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
                 &mut physics,
                 input,
                 ModeIntent {
-                    server_flying: false,
+                    flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
                     ..intent
                 },
                 &world,
@@ -344,7 +344,7 @@ fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
         input,
         ModeIntent {
             can_fly: true,
-            server_flying: true,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
             ..Default::default()
         },
         &world,
@@ -356,7 +356,7 @@ fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
         input,
         ModeIntent {
             can_fly: true,
-            server_flying: false,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
             ..Default::default()
         },
         &world,

@@ -691,6 +691,8 @@ impl PlayerInventoryLedger {
         self.controls = control::WindowControls::default();
         self.personal = None;
         self.abandon_requests(|_| true);
+        self.confirmed.clear_result();
+        self.refold();
         self.finish_closing();
     }
 
@@ -787,6 +789,7 @@ impl PlayerInventoryLedger {
     }
 
     fn discard_storage_window(&mut self) {
+        self.confirmed.clear_result();
         self.storage = None;
         self.clear_furnace_recipe();
         self.enchant_options = None;
@@ -812,6 +815,7 @@ impl PlayerInventoryLedger {
             ) => generation,
             _ => return,
         };
+        self.confirmed.clear_result();
         if acknowledged {
             self.retire_screen_requests(|request| request.personal_generation == Some(generation));
             self.personal = None;
@@ -834,6 +838,7 @@ impl PlayerInventoryLedger {
     /// Inputs are actual inventory, not a disposable preview. Never erase an
     /// unreturned ingredient just because the screen stopped owning its UI.
     fn clear_crafting(&mut self, kind: Option<protocol::WindowKind>) {
+        self.confirmed.clear_result();
         if crafting_close::screen_input_cells(kind).any(|cell| self.confirmed.get(cell).is_some()) {
             self.disown_abandoned_recovery(CellSurface::Crafting);
             self.crafting_resync_required = true;
@@ -855,8 +860,7 @@ impl PlayerInventoryLedger {
     /// Requires a refresh independently of any abandoned request's eventual answer.
     fn mark_cell_recovery(&mut self, cell: Cell) {
         self.disown_abandoned_recovery(cell.surface());
-        self.queue
-            .retain(|request| !request.locally_committed() || !request.touches(cell));
+        self.discard_requests(|request| request.locally_committed() && request.touches(cell));
         if let Some(held) = self.confirmed.get_mut(cell) {
             held.overlay = None;
         }

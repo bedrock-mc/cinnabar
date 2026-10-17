@@ -92,10 +92,12 @@ impl ScreenLayout {
         else {
             return widget();
         };
+        if let Some(player) = player_cell(collection, index) {
+            return Some(player);
+        }
         let small = u8::try_from(index).ok();
         Some(match collection {
-            "inventory_items" => InventoryCellHit::Player(small?.checked_add(9)?),
-            "hotbar_items" => InventoryCellHit::Player(small?),
+            "inventory_items" | "hotbar_items" => return None,
             "armor_items" => InventoryCellHit::Armor(small?),
             "offhand_items" => InventoryCellHit::Offhand,
             "crafting_input_items" => {
@@ -110,6 +112,17 @@ impl ScreenLayout {
                 _ => return widget(),
             },
         })
+    }
+}
+
+/// The player inventory slot that row `index` of the `inventory_items` or `hotbar_items` rows
+/// shows; `None` for any other collection.
+pub fn player_cell(collection: &str, index: usize) -> Option<InventoryCellHit> {
+    let index = u8::try_from(index).ok()?;
+    match collection {
+        "inventory_items" => Some(InventoryCellHit::Player(index.checked_add(9)?)),
+        "hotbar_items" => Some(InventoryCellHit::Player(index)),
+        _ => None,
     }
 }
 
