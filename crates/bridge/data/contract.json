@@ -116,11 +116,20 @@
     {"rust_name": "MESSAGE_ART_BANNER", "go_name": "MessageArtBanner", "value": "banner", "rust_type": "str", "doc": "Image id marker for banner artwork."},
     {"rust_name": "MESSAGE_ART_HOVER", "go_name": "MessageArtHover", "value": "hover", "rust_type": "str", "doc": "Image id marker for hover artwork."},
     {"rust_name": "MESSAGE_ART_FORE", "go_name": "MessageArtFore", "value": "fore", "rust_type": "str", "doc": "Image id marker for fore artwork."},
-    {"rust_name": "MESSAGE_ART_FG", "go_name": "MessageArtFg", "value": "fg", "rust_type": "str", "doc": "Image id marker for fg artwork."}
+    {"rust_name": "MESSAGE_ART_FG", "go_name": "MessageArtFg", "value": "fg", "rust_type": "str", "doc": "Image id marker for fg artwork."},
+    {"rust_name": "DISCONNECT_KEY_CANT_CONNECT", "go_name": "DisconnectKeyCantConnect", "value": "disconnectionScreen.cantConnect", "rust_type": "str", "doc": "Core disconnect message: The core could not join the server."},
+    {"rust_name": "DISCONNECT_KEY_CANT_CONNECT_TO_REALM", "go_name": "DisconnectKeyCantConnectToRealm", "value": "disconnectionScreen.cantConnectToRealm", "rust_type": "str", "doc": "Core disconnect message: The core could not join the Realm."},
+    {"rust_name": "DISCONNECT_KEY_RESOURCE_PACK", "go_name": "DisconnectKeyResourcePack", "value": "disconnectionScreen.resourcePack", "rust_type": "str", "doc": "Core disconnect message: The server's resource packs could not be admitted."},
+    {"rust_name": "DISCONNECT_KEY_OUTDATED_CLIENT", "go_name": "DisconnectKeyOutdatedClient", "value": "disconnectionScreen.outdatedClient", "rust_type": "str", "doc": "Core disconnect message: The client's protocol or game version is older than the core's."},
+    {"rust_name": "DISCONNECT_KEY_OUTDATED_SERVER", "go_name": "DisconnectKeyOutdatedServer", "value": "disconnectionScreen.outdatedServer", "rust_type": "str", "doc": "Core disconnect message: The client's protocol is newer than the core's."},
+    {"rust_name": "DISCONNECT_KEY_INVALID_SKIN", "go_name": "DisconnectKeyInvalidSkin", "value": "disconnectionScreen.invalidSkin", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its skin."},
+    {"rust_name": "DISCONNECT_KEY_INVALID_NAME", "go_name": "DisconnectKeyInvalidName", "value": "disconnectionScreen.invalidName", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its player name."},
+    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."}
   ],
   "string_lists": [
     {"rust_name": "INBOX_CATEGORIES", "go_name": "InboxCategories", "values": ["News", "Realms", "Invites", "Feedback"], "doc": "Inbox category names in display order."},
-    {"rust_name": "MESSAGE_EVENT_TYPES", "go_name": "MessageEventTypes", "prefix": "MESSAGE_EVENT_", "doc": "Messaging report types accepted by the core."}
+    {"rust_name": "MESSAGE_EVENT_TYPES", "go_name": "MessageEventTypes", "prefix": "MESSAGE_EVENT_", "doc": "Messaging report types accepted by the core."},
+    {"rust_name": "CORE_DISCONNECT_KEYS", "go_name": "CoreDisconnectKeys", "prefix": "DISCONNECT_KEY_", "doc": "Every lang key the core sends as a whole disconnect message."}
   ],
   "enums": [
     {

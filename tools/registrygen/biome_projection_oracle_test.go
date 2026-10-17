@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedbiome "github.com/cinnabar-mc/protocolgen/generated/data/biome"
 )
 
 const (
@@ -156,7 +156,7 @@ func encodeV2193BiomeProjection(records []BiomeRecord, stats v2193BiomeProjectio
 	manifest := v2193BiomeProjectionManifest{
 		Schema: "cinnabar.biome-projection.v3", GameVersion: shared.MinecraftVersion, Protocol: shared.ProtocolVersion,
 		Sources: v2193BiomeProjectionSources{SharedCatalog: v2193BiomeCatalogSource{
-			Module: "github.com/bedrock-mc/protocolgen/generated/data", SourceLockSHA256: shared.SourceLockSHA256, BiomeCount: stats.SourceCount,
+			Module: shared.ModulePath, SourceLockSHA256: shared.SourceLockSHA256, BiomeCount: stats.SourceCount,
 		}},
 		Allowlist:  v2193BiomeProjectionAllow{Path: v2193BiomeAllowlistPath, SHA256: v2193BiomeAllowSHA256, Count: v2193RetailBiomeCount},
 		Projection: v2193BiomeProjectionSummary{Retained: len(records), IgnoredCount: stats.IgnoredCount, IgnoredFingerprint: stats.IgnoredFingerprint},

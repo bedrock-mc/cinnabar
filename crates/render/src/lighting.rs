@@ -19,7 +19,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use render_model::LightmapInputs;
+use render_model::{LightmapInputs, LightmapUniform};
 use render_scene::{WorldFullbright, WorldLighting};
 
 #[derive(Resource)]
@@ -41,7 +41,7 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(std::mem::size_of::<[[f32; 4]; 256]>() as u64),
+                    min_binding_size: BufferSize::new(std::mem::size_of::<LightmapUniform>() as u64),
                 },
                 count: None,
             },
@@ -117,7 +117,11 @@ fn prepare(
     let inputs = (!fullbright.0).then_some(input.0);
     if let Some(mut gpu) = gpu {
         if gpu.inputs != inputs {
-            queue.profiled_write_buffer(&gpu.buffer, 0, bytemuck::cast_slice(&light_table(inputs)));
+            queue.profiled_write_buffer(
+                &gpu.buffer,
+                0,
+                bytemuck::bytes_of(&LightmapUniform::new(light_table(inputs))),
+            );
             gpu.inputs = inputs;
         }
         if let Some(atmosphere) = atmosphere.as_deref()
@@ -130,7 +134,7 @@ fn prepare(
     }
     let buffer = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("world RGB lightmap"),
-        contents: bytemuck::cast_slice(&light_table(inputs)),
+        contents: bytemuck::bytes_of(&LightmapUniform::new(light_table(inputs))),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
     let atmosphere = atmosphere.map(|gpu| gpu.buffer.clone()).unwrap_or_else(|| {
@@ -149,6 +153,7 @@ fn prepare(
     });
 }
 
+/// Returns the current raw environment, or an unlit override for every table entry.
 fn light_table(inputs: Option<LightmapInputs>) -> [[f32; 4]; 256] {
     inputs.map_or([[1.0; 4]; 256], LightmapInputs::build)
 }

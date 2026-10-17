@@ -22,6 +22,48 @@ impl UiPresentationRuntime {
         crop_icon(self, icon, max_side)
     }
 
+    /// The admitted six-face sheet for this pack item variant, falling back to variant zero.
+    pub fn session_block_sheet(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        self.session_icons
+            .sheets
+            .get(identifier)
+            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+            .copied()
+    }
+
+    /// Copies an admitted block sheet into six untinted faces for world-space item rendering.
+    pub fn block_sheet_cube(&self, sheet: IconRef) -> Option<render_model::DroppedItemCube> {
+        let pixels = crop_icon(self, sheet, assets::MAX_TILE_SIZE)?;
+        carried_cube_pixels(pixels.width, pixels.height, &pixels.rgba8)
+    }
+
+    /// Predicts the exact texture-layer cost before a dropped session model is allocated.
+    pub fn session_block_texture_layers(&self, identifier: &str, metadata: u32) -> Option<usize> {
+        self.session_block_sheet(identifier, metadata)?;
+        Some(assets::BlockFace::ALL.len())
+    }
+
+    /// Builds a session block's authored dropped model, retaining cube sheets for plain cubes.
+    pub fn session_block_model(
+        &self,
+        identifier: &str,
+        metadata: u32,
+        sheet: IconRef,
+    ) -> Option<render_model::DroppedItemModel> {
+        if let Some((_, vertices)) = self.session_icons.held_block(identifier, metadata) {
+            let pixels = crop_icon(self, sheet, assets::MAX_TILE_SIZE)?;
+            let sprite = render_model::DroppedItemSprite {
+                width: pixels.width,
+                height: pixels.height,
+                rgba8: pixels.rgba8.into(),
+            };
+            return render_model::equipment::blocks::dropped_model(sprite, &vertices)
+                .map(render_model::DroppedItemModel::Block);
+        }
+        self.block_sheet_cube(sheet)
+            .map(render_model::DroppedItemModel::Cube)
+    }
+
     /// Native carried block faces, not the inventory's projected cube thumbnail or tinted
     /// world materials. Both catalogs must have been built from the same pinned pack.
     pub fn carried_block_cube(
@@ -44,10 +86,24 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Decodes the canonical face sheet stored in the startup icon catalog.
 fn carried_cube(sprite: &assets::IconSprite) -> Option<render_model::DroppedItemCube> {
+    carried_cube_pixels(
+        u32::from(sprite.width),
+        u32::from(sprite.height),
+        &sprite.rgba8,
+    )
+}
+
+/// Splits a canonical carried sheet into six faces without projecting or tinting its pixels.
+fn carried_cube_pixels(
+    width: u32,
+    height: u32,
+    rgba8: &[u8],
+) -> Option<render_model::DroppedItemCube> {
     use assets::{BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE};
-    if [sprite.width, sprite.height] != BLOCK_ITEM_SHEET_SIZE
-        || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
+    if [width, height] != BLOCK_ITEM_SHEET_SIZE.map(u32::from)
+        || rgba8.len() != width as usize * height as usize * 4
     {
         return None;
     }
@@ -57,8 +113,8 @@ fn carried_cube(sprite: &assets::IconSprite) -> Option<render_model::DroppedItem
         let (x, y) = (face % columns * side, face / columns * side);
         let mut pixels = Vec::with_capacity(side * side * 4);
         for row in 0..side {
-            let start = ((y + row) * usize::from(sprite.width) + x) * 4;
-            pixels.extend_from_slice(&sprite.rgba8[start..start + side * 4]);
+            let start = ((y + row) * width as usize + x) * 4;
+            pixels.extend_from_slice(&rgba8[start..start + side * 4]);
         }
         std::sync::Arc::from(pixels)
     });

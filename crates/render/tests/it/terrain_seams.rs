@@ -271,7 +271,7 @@ impl Fixture {
                 wgpu::BufferUsages::UNIFORM,
             ),
             atmosphere: gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM),
-            lightmap: gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM),
+            lightmap: gpu.lightmap(bytemuck::cast_slice(&table)),
             atlas: mipmapped_pattern(&gpu),
             sampler: gpu.device.create_sampler(&wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::Repeat,

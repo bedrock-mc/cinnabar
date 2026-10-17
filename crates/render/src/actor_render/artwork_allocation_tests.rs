@@ -29,7 +29,7 @@ fn page_allocation_failure_retains_previous_texture_without_uploading() {
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
     let previous = gpu.pages[0]._texture.id();
     let uploads = work_tests::upload_count();
-    let _failure = allocation::inject(|label, _| label == "immutable actor page");
+    let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
     assert!(gpu.prepare(&publication(2, 1), &device, &queue));
     assert_eq!(gpu.pages[0]._texture.id(), previous);
     assert_eq!(
@@ -44,7 +44,7 @@ fn first_page_allocation_failure_retries_through_one_texel() {
     let (device, queue) = device();
     let attempts = Rc::new(Cell::new(0));
     let observed = Rc::clone(&attempts);
-    let _failure = allocation::inject(move |label, bytes| {
+    let _failure = gpu_allocation::inject(move |label, bytes| {
         if label != "immutable actor page" {
             return false;
         }
@@ -67,7 +67,7 @@ fn superseded_pages_are_released_before_replacement_allocation() {
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&old, &device, &queue));
     drop(old);
-    let _observe = allocation::inject(move |label, _| {
+    let _observe = gpu_allocation::inject(move |label, _| {
         if label == "immutable actor page" {
             assert!(
                 weak.upgrade().is_none(),
@@ -126,7 +126,7 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         ..default()
     });
     let mut failed = false;
-    let _failure = allocation::inject(move |label, _| {
+    let _failure = gpu_allocation::inject(move |label, _| {
         if label != "reduced fixture" || failed {
             return false;
         }
@@ -206,7 +206,7 @@ fn exhausting_all_page_sizes_skips_generic_artwork_without_repeating_allocations
     let uploads = work_tests::upload_count();
     let attempts = Rc::new(Cell::new(0));
     let observed = Rc::clone(&attempts);
-    let _failure = allocation::inject(move |label, _| {
+    let _failure = gpu_allocation::inject(move |label, _| {
         if label != "immutable actor page" {
             return false;
         }
@@ -229,7 +229,8 @@ fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
     let previous = gpu.pages[0]._texture.id();
-    let _failure = allocation::inject(|label, bytes| label == "immutable actor page" && bytes > 8);
+    let _failure =
+        gpu_allocation::inject(|label, bytes| label == "immutable actor page" && bytes > 8);
     assert!(gpu.prepare(&publication(2, 2), &device, &queue));
     assert_ne!(gpu.pages[0]._texture.id(), previous);
     assert_eq!(gpu.pages[0]._texture.depth_or_array_layers(), 2);
@@ -296,7 +297,7 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
         let hits = Rc::new(Cell::new(0));
         {
             let observed = Rc::clone(&hits);
-            let _fault = allocation::inject(move |owner, _| {
+            let _fault = gpu_allocation::inject(move |owner, _| {
                 if owner != label {
                     return false;
                 }

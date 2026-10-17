@@ -17,7 +17,7 @@ const UP: ActionPhase = ActionPhase {
 fn abilities(sequence: u64, server_flying: bool) -> ModeIntent {
     ModeIntent {
         can_fly: true,
-        server_flying,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(server_flying),
         ability_sequence: Some(sequence),
         creative_flight: true,
         ..Default::default()
