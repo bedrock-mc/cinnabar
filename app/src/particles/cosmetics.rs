@@ -14,8 +14,9 @@ mod tests;
 
 /// Players whose items may all emit at once when every item declares the per-item maximum.
 const FULLY_EMITTING_PLAYERS: usize = 16;
-/// Most cosmetic emitters alive at once (128 with eight per item), at most a quarter of the
-/// particle emitter table; placements beyond it wait, in submission order, for a free slot.
+/// Most cosmetic emitters in the particle table at once (128 with eight per item), at most a
+/// quarter of it. Stopped emitters count until their particles drain; placements beyond the
+/// budget wait, in submission order, for a free slot.
 pub(super) const MAX_COSMETIC_EMITTERS: usize =
     FULLY_EMITTING_PLAYERS * render_model::hats::MAX_COSMETIC_EMITTERS;
 const _: () = assert!(MAX_COSMETIC_EMITTERS <= particles::MAX_EMITTERS / 4);
@@ -31,6 +32,8 @@ struct Live {
 pub(super) struct CosmeticEmitters {
     instance: Option<u64>,
     live: HashMap<CosmeticEmitterKey, Live>,
+    /// Stopped or finished emitters that still occupy the table while their particles drain.
+    draining: Vec<u64>,
     /// Effects this system refused to parse; they are not offered again until it is rebuilt.
     rejected: HashSet<Arc<str>>,
     pass: u64,
@@ -40,6 +43,12 @@ impl CosmeticEmitters {
     /// Forgets every emitter after the host cleared the system or left the world.
     pub(super) fn reset(&mut self) {
         self.live.clear();
+        self.draining.clear();
+    }
+
+    /// Emitters this tracker holds in the particle table, including draining ones.
+    fn occupied(&self) -> usize {
+        self.live.len() + self.draining.len()
     }
 
     /// Starts emitters for new placements, moves existing ones and stops those whose items are
@@ -53,8 +62,10 @@ impl CosmeticEmitters {
         if self.instance != Some(system.instance()) {
             self.instance = Some(system.instance());
             self.live.clear();
+            self.draining.clear();
             self.rejected.clear();
         }
+        self.draining.retain(|id| system.contains_emitter(*id));
         self.pass = self.pass.wrapping_add(1);
         let pass = self.pass;
         for placement in placements {
@@ -67,14 +78,19 @@ impl CosmeticEmitters {
                 system.set_transform(live.id, transform.position, transform.basis);
             }
         }
+        let draining = &mut self.draining;
         self.live.retain(|_, live| {
-            if live.seen != pass {
-                system.stop(live.id);
+            if live.seen == pass {
+                return true;
             }
-            live.seen == pass
+            system.stop(live.id);
+            if system.contains_emitter(live.id) {
+                draining.push(live.id);
+            }
+            false
         });
         for placement in placements {
-            if self.live.len() >= MAX_COSMETIC_EMITTERS {
+            if self.occupied() >= MAX_COSMETIC_EMITTERS {
                 break;
             }
             if self.live.contains_key(&placement.key) || !self.admit_effect(system, placement) {

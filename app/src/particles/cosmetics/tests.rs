@@ -175,6 +175,13 @@ fn cosmetic_emitters_are_bounded_and_skip_rejected_effects() {
     tracker.sync(&mut system, &crowd[8..]);
     assert_eq!(
         emitting(&tracker, &system).len(),
+        MAX_COSMETIC_EMITTERS - 8,
+        "stopped emitters hold their slots until they leave the table"
+    );
+    system.tick(0.01, &EmptyWorld);
+    tracker.sync(&mut system, &crowd[8..]);
+    assert_eq!(
+        emitting(&tracker, &system).len(),
         MAX_COSMETIC_EMITTERS,
         "freed slots admit waiting placements"
     );
@@ -188,4 +195,78 @@ fn cosmetic_emitters_are_bounded_and_skip_rejected_effects() {
     assert!(tracker.live.is_empty());
     assert_eq!(system.emitter_count(), 0);
     assert!(tracker.rejected.contains(IDENTIFIER));
+}
+
+/// Spawns a long-lived non-cosmetic emitter first, so table eviction would remove it first.
+/// It is actor-bound because unbound looping emitters finish after one cycle.
+fn bystander(system: &mut ParticleSystem) -> u64 {
+    let effect = EFFECT.replace(IDENTIFIER, "test:bystander");
+    assert!(system.register_effect(effect.as_bytes()));
+    system
+        .spawn(&SpawnRequest {
+            effect: "test:bystander".into(),
+            bound: Some((99, [0.0; 3])),
+            ..SpawnRequest::default()
+        })
+        .unwrap()
+}
+
+/// A crowd filling the cosmetic budget with `effect`.
+fn crowd(effect: &str) -> Vec<CosmeticEmitterPlacement> {
+    (1..=MAX_COSMETIC_EMITTERS as u64)
+        .map(|runtime_id| CosmeticEmitterPlacement {
+            effect: effect.as_bytes().into(),
+            ..placement(runtime_id, 0.0)
+        })
+        .collect()
+}
+
+#[test]
+fn hiding_and_showing_cosmetics_never_exceeds_the_budget_while_particles_drain() {
+    let mut system = ParticleSystem::default();
+    let other = bystander(&mut system);
+    let mut tracker = CosmeticEmitters::default();
+    let crowd = crowd(EFFECT);
+    for _ in 0..8 {
+        tracker.sync(&mut system, &crowd);
+        system.tick(0.2, &EmptyWorld);
+        assert!(system.emitter_count() <= MAX_COSMETIC_EMITTERS + 1);
+        tracker.sync(&mut system, &[]);
+        system.tick(0.01, &EmptyWorld);
+        assert!(tracker.occupied() <= MAX_COSMETIC_EMITTERS);
+        assert!(
+            system.is_emitting(other),
+            "cosmetics never evict other effects"
+        );
+    }
+}
+
+#[test]
+fn finished_emitters_restart_without_leaking_slots() {
+    let mut system = ParticleSystem::default();
+    let other = bystander(&mut system);
+    let mut tracker = CosmeticEmitters::default();
+    // Unbound looping emitters finish after one cycle while their particles drain.
+    let brief = EFFECT.replace(r#"{"active_time":1}"#, r#"{"active_time":0.3}"#);
+    assert_ne!(brief, EFFECT);
+    let crowd = crowd(&brief);
+    tracker.sync(&mut system, &crowd);
+    let first: HashSet<u64> = tracker.live.values().map(|live| live.id).collect();
+    assert_eq!(first.len(), MAX_COSMETIC_EMITTERS);
+    let mut restarted = false;
+    for _ in 0..24 {
+        system.tick(0.25, &EmptyWorld);
+        tracker.sync(&mut system, &crowd);
+        restarted |= tracker.live.values().any(|live| !first.contains(&live.id));
+        assert!(tracker.occupied() <= MAX_COSMETIC_EMITTERS);
+        assert!(system.emitter_count() <= MAX_COSMETIC_EMITTERS + 1);
+        assert!(
+            system.is_emitting(other),
+            "cosmetics never evict other effects"
+        );
+    }
+    assert!(
+        restarted,
+        "finished emitters restart while their items are drawn"
+    );
 }
