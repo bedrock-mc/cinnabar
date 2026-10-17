@@ -38,6 +38,7 @@ struct TickJob<'a> {
 struct Evaluation {
     result: Result<EvaluatedState, EvalError>,
     used: usize,
+    body_error: Option<EvalError>,
 }
 
 /// Catalogs a tick evaluates against.
@@ -47,6 +48,7 @@ struct Catalogs<'a> {
     pack: Option<(&'a RuntimeEntityAssets, &'a VariableLayout)>,
     tick: u64,
     exempt: Option<u64>,
+    local_body_enabled: bool,
 }
 
 impl ActorAnimationStore {
@@ -111,6 +113,7 @@ impl ActorAnimationStore {
             next_reset_generation,
             next_rest_reset_generation,
             stats,
+            local_body_enabled,
             ..
         } = self;
         let completed_tick = *completed_tick;
@@ -237,6 +240,7 @@ impl ActorAnimationStore {
                 .map(|pack| (Arc::clone(&pack.assets), Arc::clone(&pack.layout))),
             tick: completed_tick,
             exempt,
+            local_body_enabled: *local_body_enabled,
         };
         let mut ledger = Ledger {
             tick: completed_tick,
@@ -398,6 +402,7 @@ struct OwnedCatalogs {
     pack: Option<(Arc<RuntimeEntityAssets>, Arc<VariableLayout>)>,
     tick: u64,
     exempt: Option<u64>,
+    local_body_enabled: bool,
 }
 
 impl OwnedCatalogs {
@@ -410,6 +415,7 @@ impl OwnedCatalogs {
                 .map(|(assets, layout)| (&**assets, &**layout)),
             tick: self.tick,
             exempt: self.exempt,
+            local_body_enabled: self.local_body_enabled,
         }
     }
 }
@@ -645,8 +651,30 @@ fn evaluate_job(
         state.ui_pose = None;
         state.ui_animation = None;
     }
+    let body_error = if catalogs.local_body_enabled
+        && catalogs.exempt == Some(actor.runtime_id())
+        && context.is_local_first_person
+    {
+        body::evaluate(
+            assets,
+            layout,
+            state,
+            actor,
+            context,
+            catalogs.tick,
+            &mut budget,
+        )
+        .err()
+    } else {
+        state.world_body = None;
+        None
+    };
     let used = budget.used;
-    Evaluation { result, used }
+    Evaluation {
+        result,
+        used,
+        body_error,
+    }
 }
 
 /// Store-wide counters a tick advances, always in the serial order.
@@ -706,7 +734,12 @@ impl Ledger<'_> {
                 state.completed_tick = self.tick;
             }
             Step::Evaluate { .. } => {
-                let Some(Evaluation { result, used }) = job.outcome.take() else {
+                let Some(Evaluation {
+                    result,
+                    used,
+                    body_error,
+                }) = job.outcome.take()
+                else {
                     self.starve(job.lifetime);
                     // A frozen tick holds the pose instead of replaying the last change.
                     if self.advance_history {
@@ -716,6 +749,20 @@ impl Ledger<'_> {
                 };
                 self.stats.evaluated_molang_ops =
                     self.stats.evaluated_molang_ops.saturating_add(used as u64);
+                if let Some(error) = body_error {
+                    match error {
+                        EvalError::ActorBudget => {
+                            self.stats.actor_budget_exhaustions =
+                                self.stats.actor_budget_exhaustions.saturating_add(1);
+                        }
+                        EvalError::WorldBudget => {
+                            self.stats.world_budget_exhaustions =
+                                self.stats.world_budget_exhaustions.saturating_add(1);
+                        }
+                        EvalError::Invalid => {}
+                    }
+                    self.freeze();
+                }
                 match result {
                     Ok(evaluated) => self.commit(job, evaluated),
                     Err(error) => {

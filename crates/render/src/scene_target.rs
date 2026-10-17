@@ -5,6 +5,8 @@ mod nodes;
 #[cfg(test)]
 #[path = "scene_target/tests.rs"]
 mod tests;
+#[path = "scene_target/water_coverage.rs"]
+pub(crate) mod water_coverage;
 
 use bevy::{
     camera::CameraMainTextureUsages,
@@ -28,6 +30,7 @@ pub(crate) struct SceneTarget {
     linear: TextureView,
     format: TextureFormat,
     resolved: AtomicBool,
+    pub(crate) water_coverage: Option<water_coverage::WaterCoverage>,
 }
 
 impl SceneTarget {
@@ -61,6 +64,7 @@ impl SceneTarget {
             linear,
             format,
             resolved: AtomicBool::new(false),
+            water_coverage: None,
         }
     }
 
@@ -292,26 +296,44 @@ fn admit_copy_destination(mut cameras: Query<&mut CameraMainTextureUsages, With<
     }
 }
 
+/// Camera targets whose scene colour may need an Enhanced-sized allocation.
+type SceneTargetView<'a> = (
+    Entity,
+    &'a ViewTarget,
+    &'a Msaa,
+    Option<&'a SceneTarget>,
+    Option<&'a render_scene::EnhancedRendering>,
+);
+
 /// Keeps one bounded colour allocation per camera and drops stale camera resources.
 pub(crate) fn prepare_scene_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ViewTarget, &Msaa, Option<&SceneTarget>), With<Camera3d>>,
+    views: Query<SceneTargetView, With<Camera3d>>,
     removed: Query<Entity, (With<SceneTarget>, Without<ViewTarget>)>,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<SceneTarget>();
     }
-    for (entity, target, msaa, previous) in &views {
+    for (entity, target, msaa, previous, enhanced) in &views {
         let size = target.main_texture().size();
         let format = target.main_texture_format();
-        if previous.is_some_and(|scene| scene.matches(size, format, msaa.samples())) {
+        let water = render_model::enhanced_rendering_enabled() && enhanced.is_some();
+        if previous.is_some_and(|scene| {
+            scene.matches(size, format, msaa.samples()) && scene.water_coverage.is_some() == water
+        }) {
             previous.unwrap().begin_frame();
             continue;
         }
-        commands
-            .entity(entity)
-            .insert(SceneTarget::new(&device, size, format, msaa.samples()));
+        let mut scene = SceneTarget::new(&device, size, format, msaa.samples());
+        if water {
+            scene.water_coverage = Some(water_coverage::WaterCoverage::new(
+                &device,
+                size,
+                msaa.samples(),
+            ));
+        }
+        commands.entity(entity).insert(scene);
     }
 }
 

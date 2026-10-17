@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
+use assets::{Material, ModelTemplate, RuntimeAssets, TextureRef, texture::TextureArray};
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
@@ -97,7 +97,7 @@ mod draw;
 #[cfg(feature = "enhanced")]
 pub(crate) mod enhanced;
 mod extract;
-mod gpu;
+pub(crate) mod gpu;
 mod gpu_cull;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
@@ -111,6 +111,8 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "enhanced")]
+pub(crate) mod resident_coverage;
 pub(crate) use coverage::TerrainCoverage;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;
@@ -145,7 +147,7 @@ use gpu::bind_groups::{
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
     init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
-    prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
+    prepare_chunk_texture_assets, storage_table_fits,
 };
 #[allow(unused_imports)]
 use gpu::layout::{

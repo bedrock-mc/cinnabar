@@ -1,7 +1,8 @@
 use assets::{
     BlockFlags, BlockOverlay, BlockVisual, ContributorRole, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MATERIAL_FLAG_DISABLE_AO, Material, ModelQuad, ModelTemplate, TextureArray, TextureMip,
-    TextureRef, VisualKind, VisualSupport,
+    MATERIAL_FLAG_DISABLE_AO, Material, ModelQuad, ModelTemplate, TextureRef, VisualKind,
+    VisualSupport,
+    texture::{TextureArray, TextureMip},
 };
 
 /// A server geometry block of one full-size top quad whose material carries `flags`.

@@ -434,6 +434,14 @@ allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
+# Java shader-pack translation: pure data in, naga modules and binding reflection out.
+[[crates]]
+name = "shaderpack"
+path = "crates/shaderpack"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
+
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
@@ -1343,12 +1351,21 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-baselines = []
+# The Enhanced PBR loader's Bedrock-to-Java texture-name map is a provisional hand table; it
+# moves to a generated Java/Bedrock mapping with the shader-pack block mapping (plan.md).
+baselines = [
+    { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
+]
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "app/src/render_mode/authored_textures/enhanced_textures/cache.rs"
+literal = "target"
+reason = "Cargo build directory skipped while hashing local authored packs, not a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/json-ui/src/transform.rs"
@@ -1709,6 +1726,21 @@ reason = "Required WebAssembly callback export name in the checked mod WIT contr
 path = "crates/mod-render/src/shader.rs"
 literal = "frame"
 reason = "Shader resource-binding name validated against the mod rendering contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/programs.rs"
+literal = "minecraft:the_end"
+reason = "Vanilla dimension id mapped to the Iris shader-pack folder `world1`."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/transform/declare.rs"
+literal = "flat"
+reason = "GLSL interpolation qualifier in translated shader source."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/transform/legacy.rs"
+literal = "active"
+reason = "GLSL reserved word that 1.20 shaders may use as a name."
 
 [[identifier_literal_exceptions]]
 path = "crates/protocol/src/actor/painting.rs"

@@ -185,6 +185,7 @@ pub struct VideoSettings {
     pub render_distance_chunks: u8,
     pub brightness: f32,
     pub render_mode: RenderMode,
+    pub enhanced_quality: render_api::EnhancedQuality,
     /// Scales speed-driven FOV changes, `0..=1`.
     pub fov_effects_scale: f32,
     /// Scales portal and nausea distortion, `0..=1`.
@@ -219,6 +220,7 @@ impl Default for VideoSettings {
             render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
+            enhanced_quality: render_api::EnhancedQuality::default(),
             fov_effects_scale: 1.0,
             distortion_scale: 1.0,
             view_bobbing: true,

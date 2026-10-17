@@ -249,7 +249,6 @@ struct Fixture {
     gpu: Gpu,
     materials: wgpu::Buffer,
     zeros: wgpu::Buffer,
-    clock: wgpu::Buffer,
     tints: wgpu::Buffer,
     query_tables: wgpu::Buffer,
     atmosphere: wgpu::Buffer,
@@ -268,13 +267,12 @@ impl Fixture {
         Some(Self {
             materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
             zeros: gpu.words(&UNUSED, storage),
-            clock: gpu.words(&[0; 4], uniform),
             tints: gpu.buffer(
                 &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
                 storage,
             ),
             query_tables: gpu.words(
-                &meshing::biome_lattice::query_table_words(),
+                &material_shader::world_uniform_words(&[0; material_shader::WORLD_CLOCK_WORDS]),
                 wgpu::BufferUsages::UNIFORM,
             ),
             atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
@@ -298,7 +296,7 @@ impl Fixture {
         streams: &'a Streams,
         uniform: &'a wgpu::Buffer,
         geometry: &'a wgpu::Buffer,
-    ) -> [(u32, wgpu::BindingResource<'a>); 24] {
+    ) -> [(u32, wgpu::BindingResource<'a>); 23] {
         [
             (0, uniform.as_entire_binding()),
             (1, streams.cube_quads.as_entire_binding()),
@@ -315,7 +313,6 @@ impl Fixture {
             ),
             (9, self.zeros.as_entire_binding()),
             (10, self.zeros.as_entire_binding()),
-            (11, self.clock.as_entire_binding()),
             (12, streams.model_templates.as_entire_binding()),
             (13, geometry.as_entire_binding()),
             (14, self.zeros.as_entire_binding()),

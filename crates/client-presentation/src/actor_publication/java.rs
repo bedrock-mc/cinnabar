@@ -16,7 +16,10 @@ use render_model::{
 
 use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
 use crate::presentation::{
-    actors::{ActorRigPresentation, convert_bones, convert_bones_with, lerp_degrees, wrap_degrees},
+    actors::{
+        ActorRigPresentation, convert_bones, convert_bones_with,
+        transform::{lerp_degrees, wrap_degrees},
+    },
     equipment::{
         ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, FirstPersonHand, WornItem,
         java_draws_attachable, remote_input,
@@ -367,7 +370,7 @@ pub(super) fn local_death_tilt(
     native_progress: Option<f32>,
     java_ticks: Option<f32>,
 ) -> [[f32; 4]; 3] {
-    let tilted = crate::presentation::actors::death_tilted(rows, native_progress);
+    let tilted = crate::presentation::actors::transform::death_tilted(rows, native_progress);
     match (native_progress, java_ticks) {
         (Some(progress), Some(ticks)) => death_tilt(tilted, progress, ticks),
         _ => tilted,
@@ -722,3 +725,7 @@ mod tests;
 #[cfg(test)]
 #[path = "java/hand_tests.rs"]
 mod hand_tests;
+
+#[cfg(test)]
+#[path = "java/shadow_tests.rs"]
+mod shadow_tests;

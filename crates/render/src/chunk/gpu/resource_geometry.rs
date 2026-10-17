@@ -37,6 +37,10 @@ impl PreparedResourceGeometry {
             .init_resource::<TransparentRetirementFence>()
             .init_resource::<GpuUpdateFairness>();
         for instance in instances {
+            #[cfg(feature = "enhanced")]
+            if instance.geometry_is_empty() {
+                continue;
+            }
             let mut instance = instance.clone();
             instance.token = None;
             instance.publication_permit = None;

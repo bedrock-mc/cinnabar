@@ -1,6 +1,34 @@
 //! Opt-in enhanced passes preserve the ordinary path for unmarked cameras.
 //! Passes require `enhanced`; the camera component and shared shader imports do not.
 
+#[cfg(all(test, feature = "enhanced"))]
+mod ao_tests;
+#[cfg(feature = "enhanced")]
+mod atmosphere_cache;
+#[cfg(all(test, feature = "enhanced"))]
+mod atmosphere_tests;
+#[cfg(all(test, feature = "enhanced"))]
+mod cache_validation;
+#[cfg(all(feature = "enhanced", target_os = "windows"))]
+mod compiler;
+#[cfg(all(feature = "enhanced", target_os = "windows"))]
+pub use compiler::configure_enhanced_shader_compiler;
+#[cfg(feature = "enhanced")]
+pub(crate) mod actor_motion;
+#[cfg(feature = "enhanced")]
+mod actor_signature;
+#[cfg(all(test, feature = "enhanced"))]
+mod cloud_fixture;
+#[cfg(feature = "enhanced")]
+mod cloud_noise;
+#[cfg(all(test, feature = "enhanced"))]
+mod cloud_noise_tests;
+#[cfg(feature = "enhanced")]
+mod depth;
+#[cfg(all(test, feature = "enhanced"))]
+mod depth_tests;
+#[cfg(feature = "enhanced")]
+mod exposure;
 #[cfg(feature = "enhanced")]
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(feature = "enhanced")]
@@ -13,40 +41,73 @@ pub(crate) mod graph;
 mod graph_tests;
 #[cfg(feature = "enhanced")]
 mod hand_layer;
+#[cfg(feature = "enhanced")]
+mod indirect;
+#[cfg(feature = "enhanced")]
+pub(crate) mod local_lights;
+#[cfg(feature = "enhanced")]
+mod local_shadow_history;
 #[cfg(any(test, feature = "enhanced"))]
 mod materials;
 #[cfg(feature = "enhanced")]
-mod post;
+mod multiple_scattering;
+#[cfg(all(test, feature = "enhanced"))]
+mod pbr_tests;
+pub(crate) mod plugin;
 #[cfg(feature = "enhanced")]
-mod shadows;
+mod post;
+#[cfg(all(test, feature = "enhanced"))]
+mod post_regressions;
+#[cfg(all(test, feature = "enhanced"))]
+mod probe_capture_tests;
+#[cfg(feature = "enhanced")]
+mod probes;
+#[cfg(all(test, feature = "enhanced"))]
+mod reflection_filter_tests;
+#[cfg(all(test, feature = "enhanced"))]
+mod reflection_tests;
+#[cfg(all(test, feature = "enhanced"))]
+mod shadow_tests;
+#[cfg(feature = "enhanced")]
+pub(crate) mod shadows;
 #[cfg(feature = "enhanced")]
 pub(crate) mod snapshot;
+#[cfg(feature = "enhanced")]
+mod sun_shadow_history;
+#[cfg(feature = "enhanced")]
+mod targets;
+#[cfg(feature = "enhanced")]
+mod temporal;
+#[cfg(all(test, feature = "enhanced"))]
+mod temporal_texture_tests;
 #[cfg(all(test, feature = "enhanced"))]
 mod validation;
+#[cfg(all(test, feature = "enhanced"))]
+mod water_tests;
+#[cfg(feature = "enhanced")]
+pub(crate) mod world_cache;
 
 #[cfg(feature = "enhanced")]
 use render_model::enhanced_rendering_enabled;
 #[cfg(feature = "enhanced")]
-use render_scene::EnhancedRendering;
-
-#[cfg(all(test, feature = "enhanced"))]
-use bevy::prelude::{Has, World};
-use bevy::{
-    asset::{load_internal_asset, uuid_handle},
-    prelude::{App, Assets, Handle, Plugin},
-    shader::Shader,
-};
-#[cfg(feature = "enhanced")]
 use {
-    bevy::render::{Render, RenderApp, RenderSystems, extract_component::ExtractComponentPlugin},
-    gpu::{EnhancedGpu, prepare_enhanced_materials, prepare_enhanced_views},
-    graph::install_graph,
-    post::EnhancedPostPipelines,
-    shadows::EnhancedShadowPipelines,
+    render_api::EnhancedQuality,
+    render_scene::{
+        EnhancedRendering,
+        enhanced::{EnhancedShadowDebug, MAX_SHADOW_CASCADES},
+    },
+};
+
+use bevy::{
+    asset::uuid_handle,
+    prelude::{Handle, Resource},
+    shader::Shader,
 };
 
 #[cfg(feature = "enhanced")]
 pub(crate) use frame::CascadeBounds;
+#[cfg(all(test, feature = "enhanced"))]
+pub(crate) use gpu::enhanced_caster_layout;
 #[cfg(feature = "enhanced")]
 pub(crate) use gpu::{EnhancedViews, SetEnhancedViewBindGroup, enhanced_view_layout};
 
@@ -56,47 +117,76 @@ const ENHANCED_VIEW_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("6a2d9c41-8e3b-4f7a-b1c5-3d9e0f2a7b62");
 const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("c4e81f23-7a9d-4b6e-8f10-5a3c2d1e9b73");
+const SHADOW_SHADER: Handle<Shader> = uuid_handle!("a899424b-ce44-4087-af6b-b267fdcf6967");
+const SUN_SHADOW_TEMPORAL_SHADER: Handle<Shader> =
+    uuid_handle!("3c89a6de-826f-45d4-a9f5-737e768793b4");
+const RADIANCE_SHADER: Handle<Shader> = uuid_handle!("e4a3a72c-cfd4-490a-bdae-1b780573965a");
+const WATER_SHADER: Handle<Shader> = uuid_handle!("aec26144-3c2c-4b2e-a2e5-0518527c3030");
+const ENVIRONMENT_SHADER: Handle<Shader> = uuid_handle!("8ffec817-4d44-4ec2-b78c-a187a067bef4");
+const TEMPORAL_SHADER: Handle<Shader> = uuid_handle!("a5986b32-f3cf-47cc-b93f-a4330d0ae964");
+const LOCAL_LIGHT_SHADER: Handle<Shader> = uuid_handle!("259e73e1-b9bd-4c75-aa2b-ece0e2e6a889");
+#[cfg(feature = "enhanced")]
+const LOCAL_SHADOW_HISTORY_SHADER: Handle<Shader> =
+    uuid_handle!("a8143a34-f3a8-40b9-afb8-d916f875e8b1");
+const INDIRECT_SHADER: Handle<Shader> = uuid_handle!("07f7a3b0-a370-4c03-a8f7-008fa5b4c011");
+const INDIRECT_TRACE_SHADER: Handle<Shader> = uuid_handle!("07f7a3b0-a370-4c03-a8f7-008fa5b4c012");
+#[cfg(feature = "enhanced")]
+const INDIRECT_COMPUTE_SHADER: Handle<Shader> =
+    uuid_handle!("07f7a3b0-a370-4c03-a8f7-008fa5b4c013");
+const PBR_SHADER: Handle<Shader> = uuid_handle!("07f7a3b0-a370-4c03-a8f7-008fa5b4c014");
+const ACTOR_MOTION_SHADER: Handle<Shader> = uuid_handle!("8ba8b5b1-4e35-45d5-95af-f90a86d38b2c");
+#[cfg(feature = "enhanced")]
+const PROBE_FILTER_SHADER: Handle<Shader> = uuid_handle!("a87683a8-486a-4511-a8ba-c94ca6fdb565");
+const ATMOSPHERE_SHADER: Handle<Shader> = uuid_handle!("4a37ec08-5f88-40b9-8ad1-ef4f05d10001");
+const CLOUDS_SHADER: Handle<Shader> = uuid_handle!("4a37ec08-5f88-40b9-8ad1-ef4f05d10002");
+const AO_SHADER: Handle<Shader> = uuid_handle!("4a37ec08-5f88-40b9-8ad1-ef4f05d10003");
+#[cfg(feature = "enhanced")]
+const EXPOSURE_SHADER: Handle<Shader> = uuid_handle!("4a37ec08-5f88-40b9-8ad1-ef4f05d10004");
+#[cfg(feature = "enhanced")]
+const PROBE_SHADER: Handle<Shader> = uuid_handle!("4a37ec08-5f88-40b9-8ad1-ef4f05d10005");
 #[cfg(feature = "enhanced")]
 const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("9b7e2c15-3f4a-4d8b-a6e2-7c1d0f5b3a84");
 
+/// Whether this device can bind every group in the Enhanced world pipeline.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct EnhancedRenderSupport(pub bool);
+
+impl EnhancedRenderSupport {
+    /// Checks the device limits before Enhanced pipelines or cameras are created.
+    pub fn for_device_limits(limits: &wgpu::Limits) -> Self {
+        #[cfg(feature = "enhanced")]
+        {
+            use bevy::render::render_resource::BindingType;
+            let layout = gpu::enhanced_view_layout();
+            let textures = layout
+                .entries
+                .iter()
+                .filter(|entry| matches!(entry.ty, BindingType::Texture { .. }))
+                .count() as u32;
+            let samplers = layout
+                .entries
+                .iter()
+                .filter(|entry| matches!(entry.ty, BindingType::Sampler(_)))
+                .count() as u32;
+            Self(
+                crate::material_shader::chunk_atlas_views_fit(limits)
+                    && limits.max_sampled_textures_per_shader_stage
+                        >= crate::material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS + textures
+                    && limits.max_samplers_per_shader_stage
+                        >= crate::material_shader::CHUNK_SAMPLER_COUNT + samplers,
+            )
+        }
+        #[cfg(not(feature = "enhanced"))]
+        {
+            let _ = limits;
+            Self(false)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnhancedRenderPlugin;
-
-/// Registers source imports that Bevy resolves even for vanilla shader variants.
-/// This creates no Enhanced GPU pipelines or render passes.
-pub(crate) fn load_shader_imports(app: &mut App) {
-    if app
-        .world()
-        .resource::<Assets<Shader>>()
-        .contains(&ENHANCED_COMMON_SHADER_HANDLE)
-    {
-        return;
-    }
-    load_internal_asset!(
-        app,
-        ENHANCED_COMMON_SHADER_HANDLE,
-        "common.wesl",
-        crate::shader_safety::from_wesl
-    );
-    load_internal_asset!(
-        app,
-        ENHANCED_VIEW_SHADER_HANDLE,
-        "view.wesl",
-        crate::shader_safety::from_wesl
-    );
-    load_internal_asset!(
-        app,
-        ENHANCED_CASTER_SHADER_HANDLE,
-        "caster.wesl",
-        crate::shader_safety::from_wesl
-    );
-}
-
-#[cfg(not(feature = "enhanced"))]
-impl Plugin for EnhancedRenderPlugin {
-    fn build(&self, _app: &mut App) {}
-}
 
 /// Binds nothing: the Enhanced view group exists only with the `enhanced` feature.
 #[cfg(not(feature = "enhanced"))]
@@ -118,47 +208,5 @@ impl<P: bevy::render::render_phase::PhaseItem, const I: usize>
         _pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
     ) -> bevy::render::render_phase::RenderCommandResult {
         bevy::render::render_phase::RenderCommandResult::Success
-    }
-}
-
-#[cfg(feature = "enhanced")]
-impl Plugin for EnhancedRenderPlugin {
-    fn build(&self, app: &mut App) {
-        if !enhanced_rendering_enabled() {
-            return;
-        }
-        load_shader_imports(app);
-        load_internal_asset!(
-            app,
-            ENHANCED_POST_SHADER_HANDLE,
-            "post.wesl",
-            crate::shader_safety::from_wesl
-        );
-        app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app.init_resource::<EnhancedViews>().add_systems(
-            Render,
-            (prepare_enhanced_materials, prepare_enhanced_views)
-                .chain()
-                .in_set(RenderSystems::PrepareResources)
-                .after(bevy::render::view::prepare_view_targets)
-                .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
-        );
-    }
-
-    fn finish(&self, app: &mut App) {
-        if !enhanced_rendering_enabled() {
-            return;
-        }
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app
-            .init_resource::<EnhancedGpu>()
-            .init_resource::<EnhancedPostPipelines>()
-            .init_resource::<EnhancedShadowPipelines>();
-        install_graph(render_app.world_mut());
     }
 }

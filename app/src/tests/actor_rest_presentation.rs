@@ -1,6 +1,6 @@
 //! Independently authored producer-to-adapter fixture; no trusted raw page constructor.
 use actor_animation::ActorRigSnapshot;
-use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
+use assets::{RuntimeAssets, RuntimeEntityAssets, actor::RuntimeActorCatalog, encode_entity_blob};
 use chunk_pipeline::WorldStream;
 use client_presentation::presentation::actors::entity_rig_presentation;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
@@ -43,7 +43,7 @@ fn weighted_fixture(
     weight: &str,
     repetitions: usize,
 ) -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
-    compiled_fixture(weight, repetitions, assets::ActorPoseMode::RestPose)
+    compiled_fixture(weight, repetitions, assets::actor::ActorPoseMode::RestPose)
 }
 
 /// A one-entity pack (`minecraft:example`) whose wave clip is weighted by `weight`, compiled with
@@ -51,7 +51,7 @@ fn weighted_fixture(
 pub(crate) fn compiled_fixture(
     weight: &str,
     repetitions: usize,
-    pose_mode: assets::ActorPoseMode,
+    pose_mode: assets::actor::ActorPoseMode,
 ) -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
     let pack = Pack::new();
     pack.write("entity/example.json", br#"{"format_version":"1.8.0","minecraft:client_entity":{"description":{"identifier":"minecraft:example","geometry":{"default":"geometry.example"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/example"},"animations":{"wave":"animation.example.wave"},"animation_controllers":[{"general":"controller.animation.example"}],"render_controllers":["controller.render.example"]}}}"#);
@@ -74,7 +74,8 @@ pub(crate) fn compiled_fixture(
     let mut bindings = catalog.bindings().to_vec();
     assert_eq!(bindings.len(), 1);
     bindings[0].pose_mode = pose_mode;
-    let rest_bytes = assets::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
+    let rest_bytes =
+        assets::actor::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
     let catalog = RuntimeActorCatalog::decode(&rest_bytes, &decoded).unwrap();
     (
         pack,
@@ -392,8 +393,9 @@ fn static_publication_observes_actors_before_actor_and_world_budget_branches() {
 fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
     use bevy::{math::Vec3, prelude::World, time::Real};
     let (_pack, artwork, entities) =
-        compiled_fixture("1.0", 1, assets::ActorPoseMode::CompiledLiteral);
-    let (_replaced_pack, replaced, _) = compiled_fixture("1.0", 1, assets::ActorPoseMode::RestPose);
+        compiled_fixture("1.0", 1, assets::actor::ActorPoseMode::CompiledLiteral);
+    let (_replaced_pack, replaced, _) =
+        compiled_fixture("1.0", 1, assets::actor::ActorPoseMode::RestPose);
     assert_ne!(artwork.identity(), replaced.identity());
     let mut stream = stream(Arc::clone(&entities));
     stream.submit(1, spawn_runtime(100, -100)).unwrap();

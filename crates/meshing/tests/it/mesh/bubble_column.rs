@@ -44,9 +44,9 @@ fn bubble_column_fixture() -> (RuntimeAssets, [RegistryRecord; 5]) {
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
             .write_image(
-                &color.repeat((assets::TILE_SIZE * assets::TILE_SIZE) as usize),
-                assets::TILE_SIZE,
-                assets::TILE_SIZE,
+                &color.repeat((assets::texture::TILE_SIZE * assets::texture::TILE_SIZE) as usize),
+                assets::texture::TILE_SIZE,
+                assets::texture::TILE_SIZE,
                 ExtendedColorType::Rgba8,
             )
             .unwrap();
@@ -73,14 +73,11 @@ fn bubble_column_mesh_retains_water_and_selects_air_only_surfaces_across_boundar
                     let placements = [([7, y, 9], column), ([7, y + 1, 9], above)];
                     let water = [([7, y, 9], 1), ([7, y + 1, 9], 1)];
                     let center = sub_chunk(vec![
-                        packed_storage(
-                            3,
-                            &ids,
-                            &placements[..if y == 15 { 1 } else { 2 }],
-                        ),
+                        packed_storage(3, &ids, &placements[..if y == 15 { 1 } else { 2 }]),
                         packed_storage(1, &[ids[0], ids[2]], &water[..if y == 15 { 1 } else { 2 }]),
                     ]);
-                    let upper = sub_chunk(vec![uniform_storage(ids[above]), uniform_storage(ids[2])]);
+                    let upper =
+                        sub_chunk(vec![uniform_storage(ids[above]), uniform_storage(ids[2])]);
                     let mut neighbourhood =
                         MeshNeighbourhood::new(&center).with_block_origin([256, -32, 0]);
                     assert!(neighbourhood.insert([0, 1, 0], &upper));

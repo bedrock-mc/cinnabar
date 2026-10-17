@@ -2,8 +2,9 @@ use super::*;
 use crate::{ChunkAnimationClock, ScreenFireTexture};
 use assets::{
     Animation, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
-    ContributorRole, LightProperties, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray,
-    TextureMip, TexturePage, TextureRef, VisualKind, VisualSupport, encode_blob,
+    ContributorRole, LightProperties, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TexturePage,
+    TextureRef, VisualKind, VisualSupport, encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 
 fn pack() -> RuntimeAssets {
@@ -67,9 +68,9 @@ fn pack() -> RuntimeAssets {
 fn page(colors: &[u8]) -> TexturePage {
     TexturePage::new(TextureArray {
         layers: colors.len() as u32,
-        mips: (0..assets::MIP_COUNT)
+        mips: (0..assets::texture::MIP_COUNT)
             .map(|level| {
-                let size = assets::TILE_SIZE >> level;
+                let size = assets::texture::TILE_SIZE >> level;
                 TextureMip {
                     size,
                     rgba8: colors
@@ -87,9 +88,9 @@ fn page(colors: &[u8]) -> TexturePage {
 #[test]
 fn camera_fire_uses_down_face_and_keeps_cross_page_pack_timeline() {
     let fire = ScreenFireTexture::from_assets(&pack(), 0).unwrap();
-    assert_eq!(fire.side, assets::TILE_SIZE);
+    assert_eq!(fire.side, assets::texture::TILE_SIZE);
     assert_eq!(fire.frames, 2);
-    let bytes = (assets::TILE_SIZE * assets::TILE_SIZE * 4) as usize;
+    let bytes = (assets::texture::TILE_SIZE * assets::texture::TILE_SIZE * 4) as usize;
     assert_eq!(fire.pixels, [vec![47; bytes], vec![17; bytes]].concat());
     assert_eq!(fire.timeline, [0, 1, 0]);
     assert_eq!(

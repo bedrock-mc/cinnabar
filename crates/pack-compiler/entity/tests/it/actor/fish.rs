@@ -69,7 +69,7 @@ fn pinned_fish_models_keep_artwork_for_every_geometry_and_controller() {
                     [..usize::from(layer.geometry_count)]
                 {
                     assert!(
-                        assets::neutral_actor_geometry_uvs_are_supported(
+                        assets::actor::neutral_actor_geometry_uvs_are_supported(
                             &entities.geometries,
                             choice.geometry as usize
                         ),
