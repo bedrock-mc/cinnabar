@@ -19,6 +19,7 @@ use tokio_util::codec::{Decoder, Encoder};
 struct Fake {
     channels: VecDeque<Vec<u8>>,
     failed: bool,
+    stall_play: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
 }
@@ -63,7 +64,10 @@ impl AsyncWrite for Stream {
 }
 impl RelayTransport for Fake {
     type Stream = Stream;
-    async fn open(&mut self, _: Channel) -> Result<Stream, CloseReason> {
+    async fn open(&mut self, channel: Channel) -> Result<Stream, CloseReason> {
+        if self.stall_play && matches!(channel, Channel::Play) {
+            return std::future::pending().await;
+        }
         if self.failed {
             return Err(CloseReason::Transport);
         }
@@ -104,6 +108,7 @@ fn fake(input: Vec<u8>, failed: bool) -> Fake {
     Fake {
         channels: [input, vec![0, 0, 0, 1, KIND_BATCH]].into(),
         failed,
+        stall_play: false,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
     }
@@ -133,6 +138,7 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
         },
         || Duration::ZERO,
         std::future::pending,
+        || Duration::ZERO,
     )
     .await
     .unwrap();
@@ -148,11 +154,15 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
             Some(refused),
             || panic!("refusal must not fall back"),
             || Duration::from_secs(1),
-            std::future::pending
+            std::future::pending,
+            || Duration::ZERO,
         )
         .await,
         Err(CloseReason::Refused)
     );
+    assert_eq!(session.refusal(), Some(RefusalCode::ResumeRefused));
+    assert_eq!(session.next_retry(), Err(CloseReason::Refused));
+    session.fresh_session();
     let stalled = fake(Vec::new(), false);
     let closed = stalled.closed.clone();
     select(
@@ -164,6 +174,7 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
         },
         || Duration::from_secs(2),
         || std::future::ready(()),
+        || Duration::ZERO,
     )
     .await
     .unwrap();
@@ -183,12 +194,21 @@ async fn both_candidates_use_the_codec_and_generation_prefix() {
             || candidate.take().unwrap(),
             || Duration::ZERO,
             std::future::pending,
+            || Duration::ZERO,
         )
         .await
         .unwrap();
-        let (mut read, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+        let (mut read, frames, writer) = session
+            .open_play(|| Duration::ZERO, std::future::pending())
+            .await
+            .unwrap();
         assert_eq!(read.next().await.unwrap().unwrap(), [KIND_BATCH][..]);
-        assert!(session.open_play(|| Duration::ZERO).await.is_err());
+        assert!(
+            session
+                .open_play(|| Duration::ZERO, std::future::pending())
+                .await
+                .is_err()
+        );
         let requests = sent(&output);
         let contract: Value =
             serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json"))
@@ -232,6 +252,7 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
         || transport,
         || Duration::from_secs(10),
         std::future::pending,
+        || Duration::ZERO,
     )
     .await
     .unwrap();
@@ -266,6 +287,7 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
         || transport,
         || Duration::from_secs(20),
         std::future::pending,
+        || Duration::ZERO,
     )
     .await
     .unwrap();
@@ -299,12 +321,13 @@ async fn unknown_events_are_counted_but_malformed_frames_end_the_session() {
             || transport,
             || Duration::ZERO,
             std::future::pending,
+            || Duration::ZERO,
         )
         .await
         .unwrap();
         assert_eq!(
             session.next_event(|| Duration::ZERO).await.unwrap(),
-            ControlEvent::Account(json!({"state": "signed_out"}))
+            ControlEvent::Account(serde_json::from_value(json!({"state": "signed_out"})).unwrap())
         );
         assert_eq!(session.unknown_events, 1);
         assert_eq!(
@@ -351,6 +374,7 @@ async fn received_capabilities_use_observation_time_and_closed_stays_terminal() 
             Duration::from_secs(if call < 2 { 0 } else { 30 })
         },
         std::future::pending,
+        || Duration::ZERO,
     )
     .await
     .unwrap();
@@ -383,10 +407,191 @@ async fn received_capabilities_use_observation_time_and_closed_stays_terminal() 
             None,
             || panic!("closed session must not open"),
             || Duration::from_secs(1000),
-            std::future::pending
+            std::future::pending,
+            || Duration::ZERO,
         )
         .await
         .is_err()
     );
     assert_eq!(session.state(), State::Closed);
+}
+
+#[tokio::test]
+async fn early_retry_reports_due_time_and_a_play_open_deadline_ends_only_that_join() {
+    let mut transport = fake(
+        wire(capability(RELAY_EVENT_WELCOME, "retained", 120)),
+        false,
+    );
+    transport.stall_play = true;
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::from_millis(250),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        session
+            .open_play(|| Duration::ZERO, std::future::ready(()))
+            .await,
+        Err(CloseReason::Transport)
+    ));
+    assert_eq!(session.state(), State::Offline);
+    assert_eq!(session.resume(Duration::ZERO), "retained");
+    let due = Duration::from_millis(1250);
+    assert_eq!(session.next_retry(), Ok(due));
+    assert_eq!(
+        select(
+            &mut session,
+            None,
+            || panic!("early wake cannot open a socket"),
+            || Duration::from_millis(1249),
+            std::future::pending,
+            || Duration::ZERO
+        )
+        .await,
+        Err(CloseReason::RetryAt(due))
+    );
+    assert_eq!(session.next_retry(), Ok(due));
+}
+
+#[tokio::test]
+async fn sequential_joins_reopen_control_with_the_retained_account() {
+    let transport = fake(
+        wire(capability(RELAY_EVENT_WELCOME, "retained", 120)),
+        false,
+    );
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    let (reader, frames, writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
+    drop((reader, frames, writer));
+    session.finish_play().unwrap();
+    assert_eq!(session.state(), State::Offline);
+    let mut welcome = capability(RELAY_EVENT_WELCOME, "rotated", 120);
+    welcome["generation"] = json!(8);
+    let transport = fake(wire(welcome), false);
+    let output = transport.written.clone();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::from_secs(1),
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    assert_eq!(session.state(), State::Ready(8));
+    assert_eq!(sent(&output)[0]["resume"], "retained");
+    assert_eq!(
+        sent(&output).len(),
+        1,
+        "a new generation never replays gameplay"
+    );
+}
+
+#[tokio::test]
+async fn expired_resume_requires_a_deliberate_fresh_session() {
+    let mut session = Session::new();
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "expires", 1)), false);
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    session.close(CloseReason::Transport);
+    let transport = fake(
+        wire(capability(RELAY_EVENT_WELCOME, "must-not-create", 120)),
+        false,
+    );
+    let output = transport.written.clone();
+    assert_eq!(
+        select(
+            &mut session,
+            Some(transport),
+            || panic!("expiry cannot fall back"),
+            || Duration::from_secs(2),
+            std::future::pending,
+            || Duration::ZERO
+        )
+        .await,
+        Err(CloseReason::Refused)
+    );
+    assert_eq!(session.refusal(), Some(RefusalCode::ResumeRefused));
+    assert!(
+        output.borrow().is_empty(),
+        "local expiry never sends a fresh Hello"
+    );
+    session.fresh_session();
+    assert_eq!(session.next_retry(), Ok(Duration::ZERO));
+}
+
+#[tokio::test]
+async fn admission_refusal_keeps_the_account_for_an_explicit_retry() {
+    let mut session = Session::new();
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "account", 120)), false);
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    session.close(CloseReason::Transport);
+    let transport = fake(
+        wire(json!({"type":"error", "error":"admission_refused"})),
+        false,
+    );
+    assert_eq!(
+        select(
+            &mut session,
+            None,
+            || transport,
+            || Duration::from_secs(1),
+            std::future::pending,
+            || Duration::ZERO
+        )
+        .await,
+        Err(CloseReason::Refused)
+    );
+    assert_eq!(session.resume(Duration::from_secs(1)), "account");
+    assert_eq!(session.next_retry(), Err(CloseReason::Refused));
+    session.restart_retries();
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "rotated", 120)), false);
+    let output = transport.written.clone();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::from_secs(2),
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    assert_eq!(sent(&output)[0]["resume"], "account");
 }

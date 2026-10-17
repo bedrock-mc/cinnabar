@@ -1,4 +1,7 @@
-use crate::contract::{AuthState, ConnectStage, ConnectTarget};
+use crate::contract::ConnectTarget;
+use crate::{Account, ConnectProgress};
+#[cfg(test)]
+use crate::{AuthState, ConnectStage};
 use std::path::Path;
 
 use bytes::Bytes;
@@ -354,20 +357,6 @@ pub struct Person {
     pub gamerpic: Artwork,
 }
 
-/// Sign-in state plus the fields that belong to it; `reason` never carries secrets or paths.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct Account {
-    pub state: AuthState,
-    #[serde(default)]
-    pub verification_uri: Option<String>,
-    #[serde(default)]
-    pub user_code: Option<String>,
-    #[serde(default)]
-    pub gamertag: Option<String>,
-    #[serde(default)]
-    pub reason: Option<String>,
-}
-
 /// The server's own reason for ending a session; `sequence` grows with every disconnect.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct ServerDisconnect {
@@ -400,22 +389,6 @@ pub struct Events {
 pub struct ServerTrustPrompt {
     pub id: u64,
     pub url: String,
-}
-
-/// The core's stage of preparing a join, and its pack download counts.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub struct ConnectProgress {
-    pub stage: ConnectStage,
-    /// Packs being downloaded (cache hits excluded) and those finished.
-    #[serde(default)]
-    pub packs_done: u32,
-    #[serde(default)]
-    pub packs_total: u32,
-    /// Across all packs; the total grows as each pack's download begins.
-    #[serde(default)]
-    pub received_bytes: u64,
-    #[serde(default)]
-    pub total_bytes: u64,
 }
 
 #[derive(Serialize)]

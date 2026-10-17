@@ -2,6 +2,8 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod account;
+mod account_state;
+pub use account_state::{Account, ConnectProgress};
 #[cfg(not(target_arch = "wasm32"))]
 mod cinnabar_api;
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,13 +48,13 @@ pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader,
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use account::{
-    Account, Artwork, ConnectProgress, Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox,
-    LiveEvent, Message, MessageButton, MessageEvent, MessageImage, Person, Profile,
-    ProfileAchievement, ProfileAchievements, ProfileStatistics, Realm, RealmMembership,
-    ServerDisconnect, ServerPing, ServerTrustPrompt, account_status, answer_server_trust,
-    connect_target, home, list_featured_servers, list_featured_servers_with_counts, list_friends,
-    list_people, list_realms, ping_servers, poll_events, profile, realm_membership,
-    report_message_event, sign_out,
+    Artwork, Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message,
+    MessageButton, MessageEvent, MessageImage, Person, Profile, ProfileAchievement,
+    ProfileAchievements, ProfileStatistics, Realm, RealmMembership, ServerDisconnect, ServerPing,
+    ServerTrustPrompt, account_status, answer_server_trust, connect_target, home,
+    list_featured_servers, list_featured_servers_with_counts, list_friends, list_people,
+    list_realms, ping_servers, poll_events, profile, realm_membership, report_message_event,
+    sign_out,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use endpoint::listener::SessionListener;

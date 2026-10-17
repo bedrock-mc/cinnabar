@@ -25,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/quic-go/webtransport-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
@@ -197,6 +198,15 @@ func TestControlFramingAndContractConformance(t *testing.T) {
 		controlEvent{Type: bridgecontract.RelayEventWelcome, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 		controlRequest{Op: bridgecontract.RelayOpSignIn},
 		controlRequest{Op: bridgecontract.RelayOpPong, Resume: "test-token"},
+		controlRequest{Op: bridgecontract.RelayOpSignOut},
+		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: bridgecontract.AuthAwaitingCode, VerificationURI: "https://example.test/verify", UserCode: "TEST-CODE"}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 3, TotalBytes: 4}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{}},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalResume},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalAdmission},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalSessionBusy},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalUnknown},
+		controlEvent{Type: bridgecontract.RelayEventPing, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 	}
 	if len(values) != len(manifest.Relay.Fixtures) {
 		t.Fatal("missing contract fixture")

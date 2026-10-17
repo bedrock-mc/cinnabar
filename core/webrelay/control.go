@@ -263,12 +263,12 @@ func (conn *uploadLimitedConn) Read(p []byte) (int, error) {
 func refusal(err error) string {
 	switch {
 	case errors.Is(err, errAdmission):
-		return "admission_refused"
+		return bridgecontract.RelayRefusalAdmission
 	case errors.Is(err, errResume):
-		return "resume_refused"
+		return bridgecontract.RelayRefusalResume
 	case errors.Is(err, errSessionBusy):
-		return "session_busy"
+		return bridgecontract.RelayRefusalSessionBusy
 	default:
-		return "refused"
+		return bridgecontract.RelayRefusalUnknown
 	}
 }
