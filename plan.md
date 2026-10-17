@@ -3977,8 +3977,16 @@ remaining wither spawn, armor and death behavior still need matched verification
 
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor
-carrier admission. Incomplete: absorbed-block scale and attachment placement remain
-unverified; restoring the shell does not close the full sulfur-cube rendering gate.
+carrier admission. The medium cube's absorbed oak log fills the shell in a matched
+local Bedrock comparison. Incomplete: other cube sizes, items and attachment placements
+remain unverified; these changes do not close the full sulfur-cube rendering gate.
+
+Client descriptions retain numeric or Molang `held_item_scale` through rig carriers.
+Equipment reads the owner's bounded frame sample and applies the factor once to the
+main hand in either perspective; omitted descriptions keep unit size. Regression
+fixtures cover carried blocks, native weapon stages, authored models, offhand isolation
+and exhausted frame budgets. Incomplete: native custom-model origins, expression
+side effects and extreme equipment visibility bounds still need matched comparisons.
 
 2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
 wildcard material with `slime_outer`. The compiler previously ignored bone-specific

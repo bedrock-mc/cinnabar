@@ -128,6 +128,7 @@ fn rig<'a>(
         fallback: EntityRigFallback::GeometryOnly,
         scale: 1.0,
         axis_scale: [1.0; 3],
+        held_item_scale: None,
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],

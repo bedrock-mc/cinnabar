@@ -72,6 +72,34 @@ pub(super) fn attach(
         skin_rigs,
     } = caches;
     let (partial_tick, delta_seconds, glint_settings) = frame;
+    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment, stream) {
+        equipment_layers::attach(
+            batch,
+            equipment,
+            stream,
+            render_frame.as_deref_mut(),
+            &poses,
+            (partial_tick, delta_seconds, glint_settings),
+            |body, runtime_skin, render_frame| {
+                let runtime_id = body.input.identity.runtime_id;
+                let render_frame = render_frame?;
+                let layers = if let Some(pose) = poses.emote(runtime_id) {
+                    std::borrow::Cow::Borrowed(pose.render.as_slice())
+                } else {
+                    render_frame.layers_with_skin(runtime_id)?.render
+                };
+                Some(crate::presentation::entity_layers::controller_style(
+                    body,
+                    &layers,
+                    artwork,
+                    layer_poses,
+                    runtime_skin,
+                ))
+            },
+        )
+    } else {
+        Default::default()
+    };
     let mut layers_of = |runtime_id| {
         let render_frame = render_frame.as_mut()?;
         if let Some(pose) = poses.emote(runtime_id) {
@@ -81,28 +109,6 @@ pub(super) fn attach(
                 .layers_with_skin(runtime_id)
                 .map(|layers| layers.render)
         }
-    };
-    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment, stream) {
-        equipment_layers::attach(
-            batch,
-            equipment,
-            stream,
-            &poses,
-            (partial_tick, delta_seconds, glint_settings),
-            |body, runtime_skin| {
-                layers_of(body.input.identity.runtime_id).map(|layers| {
-                    crate::presentation::entity_layers::controller_style(
-                        body,
-                        &layers,
-                        artwork,
-                        layer_poses,
-                        runtime_skin,
-                    )
-                })
-            },
-        )
-    } else {
-        Default::default()
     };
     // Equipment inherits animation poses before body-only visibility masks are applied.
     crate::presentation::entity_layers::apply_render_layers_cached(

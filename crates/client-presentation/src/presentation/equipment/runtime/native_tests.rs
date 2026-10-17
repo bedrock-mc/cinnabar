@@ -1,5 +1,8 @@
 //! Original pack fixtures for native weapon routing, artwork, and placement.
 
+#[path = "held_scale_native_tests.rs"]
+mod held_scale;
+
 use super::NativeItem;
 use crate::presentation::equipment::tests::held_animation_tests::{owner, owner_rig};
 use crate::presentation::equipment::tests::{pack_catalog, player_body, startup_runtime};

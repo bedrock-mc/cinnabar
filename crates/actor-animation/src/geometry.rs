@@ -140,6 +140,7 @@ pub(super) fn resolve_binding(
         render: Vec::new(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
+        held_item_scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
         server_animations: Vec::new(),

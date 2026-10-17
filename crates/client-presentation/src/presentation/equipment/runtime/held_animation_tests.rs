@@ -9,6 +9,9 @@ use client_world::WorldAuthority;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use std::sync::Arc;
 
+#[path = "held_scale_attachable_tests.rs"]
+mod held_scale;
+
 /// Builds a protocol-spawned skeleton with a distinct owner lifetime.
 pub(in crate::presentation::equipment) fn owner() -> client_world::ActorSnapshot {
     let mut world = WorldAuthority::new(
@@ -85,6 +88,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
         skin_geometry: None,
         skin_mesh: None,
         skin_layers: &[],
+        held_item_scale: None,
         hand: [actor_animation::HandPhase::default(); 2],
         item_animation: [actor_animation::ItemAnimationState::default(); 2],
         off_hand_animation: [actor_animation::ItemAnimationState::default(); 2],
@@ -1196,3 +1200,6 @@ mod artwork;
 mod style;
 #[path = "held_variant_tests.rs"]
 mod variants;
+
+#[path = "held_raster_scale_tests.rs"]
+mod raster_scale;

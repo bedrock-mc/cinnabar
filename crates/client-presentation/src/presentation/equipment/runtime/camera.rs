@@ -110,9 +110,10 @@ impl EquipmentRuntime {
         } else {
             hand
         };
-        let bone = view_bone(super::super::display::first_person_display_for_profile(
+        let mut bone = view_bone(super::super::display::first_person_display_for_profile(
             shape, hand, profile,
         ))?;
+        bone.translation_scale[3] *= input.main_hand_scale();
         let poses = self
             .poses
             .share(body, FIRST_PERSON_ITEM_LAYER, [&[bone], &[bone]]);
