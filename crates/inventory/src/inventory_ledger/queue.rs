@@ -45,13 +45,22 @@ pub(super) struct PendingRequest {
     pub(super) mining: Option<MiningPrediction>,
     /// A drop key press with no window open, which leaves as a normal transaction.
     pub(super) world_drop: Option<WorldDrop>,
+    /// Gameplay decrements admitted after this request's packet for each retained item.
+    pub(super) consumed_after: Vec<SubsequentConsumption>,
 }
 
-/// A reserved transaction identity and the admitted gameplay consumption after its drop.
+/// A reserved normal-transaction identity.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct WorldDrop {
     pub(super) legacy_request_id: i32,
-    pub(super) consumed_after: u16,
+}
+
+/// Later consumption belonging to one retained request cell, independent of its screen scope.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SubsequentConsumption {
+    cell: Cell,
+    amount: u16,
+    stack_network_id: i32,
 }
 
 /// The native sparse cell and its historic request snapshot. A later local
@@ -82,6 +91,55 @@ pub(super) struct MiningPrediction {
 const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PendingRequest {
+    /// Retains a later admitted decrement only when this sent scope keeps the consumed item.
+    pub(super) fn note_consumption(
+        &mut self,
+        cell: Cell,
+        source: &protocol::NetworkItemStack,
+        stack_network_id: i32,
+    ) {
+        if self.state != InventoryPendingState::AwaitingResponse {
+            return;
+        }
+        let retained = self.mining.as_ref().is_some_and(|mining| {
+            cell == Cell::Inventory(mining.slot)
+                && mining
+                    .source
+                    .as_ref()
+                    .is_some_and(|held| PlayerInventoryLedger::same_item(&held.stack, source))
+        }) || self.predicted.iter().any(|prediction| {
+            prediction.cell == cell
+                && prediction.current
+                && prediction
+                    .held
+                    .as_ref()
+                    .or(prediction.before.as_ref())
+                    .is_some_and(|held| PlayerInventoryLedger::same_item(&held.stack, source))
+                && self
+                    .groups
+                    .iter()
+                    .filter(|group| group.touched().any(|touched| touched == cell))
+                    .all(|group| group.retains_item_at(cell))
+        });
+        if !retained {
+            return;
+        }
+        if let Some(consumed) = self
+            .consumed_after
+            .iter_mut()
+            .find(|consumed| consumed.cell == cell)
+        {
+            consumed.amount = consumed.amount.saturating_add(1);
+            consumed.stack_network_id = stack_network_id;
+        } else {
+            self.consumed_after.push(SubsequentConsumption {
+                cell,
+                amount: 1,
+                stack_network_id,
+            });
+        }
+    }
+
     /// An admitted normal transaction is retained history, not unanswered gesture work.
     pub(super) fn locally_committed(&self) -> bool {
         self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
@@ -539,8 +597,12 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
+        let consumed = request
+            .consumed_after
+            .iter()
+            .find(|consumed| consumed.cell == requested);
         let count = u16::from(correction.count)
-            .saturating_sub(request.world_drop.map_or(0, |drop| drop.consumed_after));
+            .saturating_sub(consumed.map_or(0, |consumed| consumed.amount));
         let mut held = prediction
             .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
             .or_else(|| {
@@ -564,11 +626,9 @@ impl PlayerInventoryLedger {
             held = None;
         } else if let Some(held) = &mut held {
             held.stack.count = count;
-            held.stack.stack_network_id = request
-                .world_drop
-                .filter(|drop| drop.consumed_after != 0)
-                .and_then(|_| prediction.and_then(|prediction| prediction.held.as_ref()))
-                .map_or(correction.item_stack_id, |held| held.stack.stack_network_id);
+            held.stack.stack_network_id = consumed.map_or(correction.item_stack_id, |consumed| {
+                consumed.stack_network_id
+            });
             held.acknowledged_request_id = Some(request.request_id);
             if apply_response_item_data(held, correction).is_none() {
                 self.note_unrouted_container();
@@ -850,6 +910,7 @@ impl PlayerInventoryLedger {
                     source: self.confirmed.get(Cell::Inventory(slot)).cloned(),
                 }),
                 world_drop: None,
+                consumed_after: Vec::new(),
             },
         );
         Some(request_id)

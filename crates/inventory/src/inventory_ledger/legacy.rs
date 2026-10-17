@@ -209,13 +209,11 @@ impl PlayerInventoryLedger {
             return false;
         }
         let after = consumed_stack(Some(&before), 1, Some(change.to.stack_network_id()));
-        for request in self
-            .queue
-            .iter_mut()
-            .filter(|request| request.locally_committed() && request.touches(cell))
-        {
-            let drop = request.world_drop.as_mut().expect("committed world drop");
-            drop.consumed_after = drop.consumed_after.saturating_add(1);
+        for request in &mut self.queue {
+            request.note_consumption(cell, &before.stack, change.to.stack_network_id());
+            if !request.locally_committed() || !request.touches(cell) {
+                continue;
+            }
             for prediction in &mut request.predicted {
                 if prediction.cell != cell {
                     continue;

@@ -82,3 +82,140 @@ fn mining_correction_survives_rejected_front_replacement() {
         }
     }
 }
+
+/// Admits one decrement from the current backing item and returns its transaction identity.
+fn consume_backing(ledger: &mut PlayerInventoryLedger, slot: u8) -> i32 {
+    let original = ledger
+        .confirmed_stack(Cell::Inventory(slot))
+        .unwrap()
+        .clone();
+    let revision = ledger.authoritative_slot_revision(slot).unwrap();
+    let from =
+        protocol::VerifiedNetworkItemStack::try_new(original.clone(), original.nbt_digest).unwrap();
+    let legacy_request_id = protocol::next_legacy_request_id().unwrap();
+    let change = protocol::PredictedSlotChange {
+        to: from.less_one(legacy_request_id),
+        from,
+        legacy_request_id,
+    };
+    assert!(ledger.settle_use_slot_change(slot, revision, &change));
+    legacy_request_id
+}
+
+/// Older screen responses account for every later admitted consumption of their retained item.
+#[test]
+fn admitted_consumption_survives_accepted_screen_prediction() {
+    for consumed in 1..=3 {
+        for status in [StackResponseStatus::Accepted, StackResponseStatus::Rejected] {
+            let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+            let request = ledger
+                .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+                .unwrap();
+            send_all(&mut ledger);
+            let mut latest = 0;
+            for _ in 0..consumed {
+                latest = consume_backing(&mut ledger, 0);
+            }
+            respond(
+                &mut ledger,
+                request,
+                status,
+                if status == StackResponseStatus::Accepted {
+                    vec![correction(
+                        CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                        0,
+                        3,
+                        91,
+                    )]
+                } else {
+                    vec![]
+                },
+            );
+            let expected = if status == StackResponseStatus::Accepted {
+                3 - consumed
+            } else {
+                4 - consumed
+            };
+            let backing = ledger.confirmed_stack(Cell::Inventory(0));
+            assert_eq!(backing.map_or(0, |stack| stack.count), expected);
+            if let Some(backing) = backing {
+                assert_eq!(backing.stack_network_id, latest);
+            }
+            assert_eq!(ledger.displayed_stack(0), backing);
+        }
+    }
+}
+
+/// Unsent requests are rebuilt from consumed backing, so their later correction needs no offset.
+#[test]
+fn admitted_consumption_is_not_counted_twice_for_an_unsent_screen_request() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    consume_backing(&mut ledger, 0);
+    send_all(&mut ledger);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            0,
+            2,
+            91,
+        )],
+    );
+    let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+    assert_eq!((backing.count, backing.stack_network_id), (2, 91));
+}
+
+/// A replacement stack does not inherit consumption of the previous backing item.
+#[test]
+fn admitted_consumption_does_not_shrink_an_accepted_screen_swap() {
+    for replacement_id in [6, 7] {
+        let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (1, stack(replacement_id, 11, 1))]);
+        let request = ledger
+            .begin_hotbar_swap(InventoryTarget::Player(0), 1)
+            .unwrap();
+        send_all(&mut ledger);
+        consume_backing(&mut ledger, 0);
+        respond(
+            &mut ledger,
+            request,
+            StackResponseStatus::Accepted,
+            vec![correction(
+                CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                1,
+                91,
+            )],
+        );
+        let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+        assert_eq!(
+            (backing.network_id, backing.count, backing.stack_network_id),
+            (replacement_id, 1, 91)
+        );
+    }
+}
+
+/// HUD mining corrections retain later consumption just as front-screen corrections do.
+#[test]
+fn admitted_consumption_survives_an_older_mining_correction() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+    let request = ledger.begin_mining_request(0, 0).unwrap();
+    let latest = consume_backing(&mut ledger, 0);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            0,
+            4,
+            91,
+        )],
+    );
+    let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+    assert_eq!((backing.count, backing.stack_network_id), (3, latest));
+}

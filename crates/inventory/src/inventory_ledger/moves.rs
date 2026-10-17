@@ -136,10 +136,7 @@ impl PlayerInventoryLedger {
             .iter_mut()
             .find(|pending| pending.request_id == request)
         {
-            pending.world_drop = Some(super::queue::WorldDrop {
-                legacy_request_id,
-                consumed_after: 0,
-            });
+            pending.world_drop = Some(super::queue::WorldDrop { legacy_request_id });
         }
         self.pending_world_drops = self
             .pending_world_drops
