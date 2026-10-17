@@ -9096,7 +9096,8 @@ cannot suppress a later selection. Filtering defaults to false, with a creative
 model bypass that preserves the saved toggle. The carrier renders Classic's wide
 recipe list, and right-tab selection bindings are supplied. Pocket presentation,
 input-profile selection, persistent profile storage, recipe-unlock category guards,
-full right-panel presentation and stable-client visual acceptance remain incomplete;
+full right-panel presentation, additional search-related saves, and stable-client
+visual acceptance remain incomplete;
 these changes do not close the inventory parity gate.
 
 2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
