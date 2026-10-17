@@ -49,10 +49,8 @@ pub enum CreativeDestination {
     Cursor,
     /// An empty player cell.
     Player(u8),
-    /// A drop from the catalog creates one item, or its whole stack with Control held.
-    Drop {
-        whole_stack: bool,
-    },
+    /// Drops the created items without occupying the cursor.
+    Drop,
 }
 
 /// Where crafted output lands.
@@ -138,7 +136,7 @@ impl PlayerInventoryLedger {
         }))
     }
 
-    /// Crafts `recipe` `crafts` times into an empty cursor as one request.
+    /// Crafts `recipe` `crafts` times into the cursor, returning the first bounded request ID.
     pub fn begin_craft(
         &mut self,
         recipe: &RecipeHandle,
@@ -147,22 +145,10 @@ impl PlayerInventoryLedger {
         self.begin_craft_into(recipe, crafts, CraftSink::Cursor)
     }
 
-    /// Crafts the largest batch the grid and inventory can hold.
+    /// Crafts the largest fitting total through bounded result scopes; returns the first request ID.
     pub fn begin_craft_all(&mut self, recipe: &RecipeHandle) -> Result<i32, InventoryGestureError> {
-        let (mut low, mut high) = (0u8, self.max_crafts(recipe)?);
-        let mut fitting = None;
-        while low < high {
-            let crafts = low + (high - low).div_ceil(2);
-            match self.craft_submission(recipe, crafts, CraftSink::Inventory) {
-                Ok(submission) => {
-                    low = crafts;
-                    fitting = Some(submission);
-                }
-                Err(InventoryGestureError::InvalidRequest) => high = crafts - 1,
-                Err(error) => return Err(error),
-            }
-        }
-        self.submit(fitting.ok_or(InventoryGestureError::InvalidRequest)?)
+        let crafts = self.max_crafts(recipe)?;
+        self.begin_craft_scopes(recipe, crafts, CraftSink::Inventory, true)
     }
 
     /// How many times the presented grid can craft `recipe` at once.
@@ -186,17 +172,80 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Crafts `recipe` once per `crafts` into `sink` as one request:
-    /// CraftRecipe, CraftResultsDeprecated, one Consume per claimed cell, and
-    /// transfers out of created output named by this request's id.
+    /// Crafts the requested count atomically across bounded result scopes, returning the first ID.
     pub fn begin_craft_into(
         &mut self,
         recipe: &RecipeHandle,
         crafts: u8,
         sink: CraftSink,
     ) -> Result<i32, InventoryGestureError> {
-        let submission = self.craft_submission(recipe, crafts, sink)?;
-        self.submit(submission)
+        self.begin_craft_scopes(recipe, crafts, sink, false)
+    }
+
+    /// Plans against private predicted state so a refused explicit count leaves no partial work.
+    fn begin_craft_scopes(
+        &mut self,
+        recipe: &RecipeHandle,
+        crafts: u8,
+        sink: CraftSink,
+        fit_available: bool,
+    ) -> Result<i32, InventoryGestureError> {
+        self.gesture_preflight(true)?;
+        let output = recipe.output();
+        let capacity = self
+            .negotiated_item_entry(output.network_id)
+            .and_then(entry_capacity)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let per_scope = capacity
+            .checked_div(output.count)
+            .filter(|limit| *limit != 0)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let mut planned = self.clone();
+        let mut remaining = crafts;
+        let mut first = None;
+        while remaining != 0 {
+            let limit = remaining.min(per_scope);
+            let next = if fit_available {
+                planned.fitting_craft_scope(recipe, limit, sink)?
+            } else {
+                Some((limit, planned.craft_submission(recipe, limit, sink)?))
+            };
+            let Some((count, submission)) = next else {
+                break;
+            };
+            let request = planned.submit(submission)?;
+            first.get_or_insert(request);
+            remaining -= count;
+            if count < limit {
+                break;
+            }
+        }
+        let first = first.ok_or(InventoryGestureError::InvalidRequest)?;
+        *self = planned;
+        Ok(first)
+    }
+
+    /// Selects the largest fitting scope without reserving IDs or changing predicted cells.
+    fn fitting_craft_scope(
+        &self,
+        recipe: &RecipeHandle,
+        limit: u8,
+        sink: CraftSink,
+    ) -> Result<Option<(u8, Submission)>, InventoryGestureError> {
+        let (mut low, mut high) = (0, limit);
+        let mut fitting = None;
+        while low < high {
+            let crafts = low + (high - low).div_ceil(2);
+            match self.craft_submission(recipe, crafts, sink) {
+                Ok(submission) => {
+                    low = crafts;
+                    fitting = Some((crafts, submission));
+                }
+                Err(InventoryGestureError::InvalidRequest) => high = crafts - 1,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(fitting)
     }
 
     /// Plans a complete craft without reserving an ID or changing predicted cells.
@@ -251,7 +300,7 @@ impl PlayerInventoryLedger {
         let capacity = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
         let total = u8::try_from(u16::from(output.count) * u16::from(crafts))
             .ok()
-            .filter(|total| destination.is_none() || *total <= capacity)
+            .filter(|total| *total <= capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let request_id = self.peek_request_id()?;
         let user_data: Arc<[u8]> = if output.empty_envelope {
@@ -282,7 +331,7 @@ impl PlayerInventoryLedger {
                     block_runtime_id: output.block_runtime_id,
                     user_data,
                 }]),
-                crafts,
+                crafts: 1,
             },
         ];
         let mut groups = Vec::new();
@@ -455,6 +504,7 @@ impl PlayerInventoryLedger {
         &mut self,
         creative_network_id: u32,
         destination: CreativeDestination,
+        requested: Option<u8>,
     ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         let item = self
@@ -467,11 +517,10 @@ impl PlayerInventoryLedger {
             .negotiated_item_entry(item.stack.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let full = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
-        let amount = if destination == (CreativeDestination::Drop { whole_stack: false }) {
-            1
-        } else {
-            full
-        };
+        let amount = requested.unwrap_or(full);
+        if amount == 0 || amount > full {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         // Vanilla's creative create-item scope
         // declares the selected prototype before creating the full transfer.
         let result = CraftResult {
@@ -489,7 +538,7 @@ impl PlayerInventoryLedger {
                 }
                 Some(Cell::Inventory(slot))
             }
-            CreativeDestination::Drop { .. } => None,
+            CreativeDestination::Drop => None,
         };
         self.check_surfaces(std::iter::once(Cell::CreatedOutput).chain(target))?;
         if let Some(target) = target
@@ -513,7 +562,7 @@ impl PlayerInventoryLedger {
                 source,
                 destination: helpers::request_slot(Cell::Inventory(slot), 0, None)?,
             },
-            CreativeDestination::Drop { .. } => StackRequestAction::Drop {
+            CreativeDestination::Drop => StackRequestAction::Drop {
                 amount,
                 source,
                 randomly: false,

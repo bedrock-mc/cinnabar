@@ -1,7 +1,7 @@
 //! Slot permissions shared by every inventory gesture builder.
 
 use assets::facts::ContainerRoles;
-use protocol::NetworkItemStack;
+use protocol::{NetworkItemStack, StackRequestAction};
 use protocol_ids::ContainerName;
 
 use super::cells::{Cells, Held};
@@ -12,7 +12,7 @@ use super::{Cell, InventoryGestureError, PlayerInventoryLedger};
 
 /// Reports an equipment refusal separately from other invalid placements.
 pub(super) const fn placement_refused(cell: Cell) -> InventoryGestureError {
-    if matches!(cell, Cell::Armor(_) | Cell::Offhand) {
+    if matches!(cell, Cell::Inventory(_) | Cell::Armor(_) | Cell::Offhand) {
         InventoryGestureError::EquipmentRefused
     } else {
         InventoryGestureError::InvalidRequest
@@ -55,7 +55,7 @@ impl PlayerInventoryLedger {
     ) -> Result<(), InventoryGestureError> {
         let mut cells = self.view().clone();
         for group in &submission.groups {
-            self.validate_group(&cells, group)?;
+            self.validate_group(&cells, group, &submission.actions)?;
             if !group.apply(&mut cells) {
                 return Err(InventoryGestureError::InvalidRequest);
             }
@@ -68,6 +68,7 @@ impl PlayerInventoryLedger {
         &self,
         cells: &Cells,
         group: &DeltaGroup,
+        actions: &[StackRequestAction],
     ) -> Result<(), InventoryGestureError> {
         match group {
             DeltaGroup::Transfer {
@@ -107,20 +108,31 @@ impl PlayerInventoryLedger {
                 }
             }
             DeltaGroup::Shrink { source, .. } => {
-                self.validate_removal(*source, cells.get(*source))?
+                self.validate_removal(*source, cells.get(*source))?;
+                if cells.get(*source).is_some_and(|held| {
+                    protocol::item_extra_lock(&held.stack.extra_data).is_some_and(|lock| lock != 0)
+                }) && actions.iter().any(|action| {
+                    matches!(action,
+                    StackRequestAction::Drop { source: slot, .. }
+                    | StackRequestAction::Destroy { source: slot, .. }
+                    | StackRequestAction::Consume { source: slot, .. }
+                        if self.request_cell(*slot) == Some(*source))
+                }) {
+                    return Err(InventoryGestureError::SlotLocked);
+                }
             }
             DeltaGroup::Set { .. } | DeltaGroup::Retain { .. } => {}
         }
         Ok(())
     }
 
-    /// Refuses removal of slot-locked equipment, including swaps and drops.
+    /// Refuses ordinary removal from a locked player or equipment slot.
     fn validate_removal(
         &self,
         cell: Cell,
         held: Option<&Held>,
     ) -> Result<(), InventoryGestureError> {
-        if matches!(cell, Cell::Armor(_) | Cell::Offhand)
+        if matches!(cell, Cell::Inventory(_) | Cell::Armor(_) | Cell::Offhand)
             && held.is_some_and(|held| protocol::item_extra_slot_locked(&held.stack.extra_data))
         {
             return Err(InventoryGestureError::SlotLocked);
@@ -138,6 +150,11 @@ impl PlayerInventoryLedger {
     ) -> Result<(), InventoryGestureError> {
         if cell != Cell::Cursor {
             self.check_target(cell)?;
+        }
+        if matches!(cell, Cell::Storage(_) | Cell::Craft(_))
+            && protocol::item_extra_lock(&held.stack.extra_data).is_some_and(|lock| lock != 0)
+        {
+            return Err(InventoryGestureError::SlotLocked);
         }
         if self
             .placement_capacity(cell, &held.stack)

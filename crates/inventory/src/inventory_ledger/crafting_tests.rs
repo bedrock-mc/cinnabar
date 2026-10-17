@@ -485,7 +485,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     creative(&mut ledger);
     let request = ledger
-        .begin_creative_take(44, CreativeDestination::Cursor)
+        .begin_creative_take(44, CreativeDestination::Cursor, None)
         .unwrap();
     let actions = &ledger.newest_request().unwrap().actions;
     assert!(matches!(
@@ -543,7 +543,7 @@ fn creative_take_refuses_unparsed_stack_size_data() {
         creative(&mut ledger);
         if unrelated_depth == 0 {
             ledger
-                .begin_creative_take(44, CreativeDestination::Cursor)
+                .begin_creative_take(44, CreativeDestination::Cursor, None)
                 .unwrap();
             assert_eq!(ledger.cursor_stack().unwrap().count, 1);
             continue;
@@ -551,11 +551,10 @@ fn creative_take_refuses_unparsed_stack_size_data() {
         for destination in [
             CreativeDestination::Cursor,
             CreativeDestination::Player(4),
-            CreativeDestination::Drop { whole_stack: false },
-            CreativeDestination::Drop { whole_stack: true },
+            CreativeDestination::Drop,
         ] {
             assert_eq!(
-                ledger.begin_creative_take(44, destination),
+                ledger.begin_creative_take(44, destination, None),
                 Err(InventoryGestureError::InvalidRequest)
             );
             assert_eq!(ledger.pending_request_count(), 0);
@@ -586,7 +585,7 @@ fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
         skipped: 0,
     }));
     ledger
-        .begin_creative_take(44, CreativeDestination::Player(4))
+        .begin_creative_take(44, CreativeDestination::Player(4), None)
         .unwrap();
     let StackRequestAction::CraftResultsDeprecated { results, crafts } =
         &ledger.newest_request().unwrap().actions[1]
@@ -624,7 +623,7 @@ fn creative_take_preserves_high_bit_block_ids_and_signed_aux() {
         skipped: 0,
     }));
     ledger
-        .begin_creative_take(44, CreativeDestination::Cursor)
+        .begin_creative_take(44, CreativeDestination::Cursor, None)
         .unwrap();
     let StackRequestAction::CraftResultsDeprecated { results, .. } =
         &ledger.newest_request().unwrap().actions[1]
@@ -648,7 +647,7 @@ fn creative_drop_creates_one_or_a_whole_stack_without_occupying_the_cursor() {
         let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
         creative(&mut ledger);
         let request = ledger
-            .begin_creative_take(44, CreativeDestination::Drop { whole_stack })
+            .begin_creative_take(44, CreativeDestination::Drop, (!whole_stack).then_some(1))
             .unwrap();
         let actions = &ledger.newest_request().unwrap().actions;
         assert!(matches!(
@@ -677,12 +676,12 @@ fn creative_drop_creates_one_or_a_whole_stack_without_occupying_the_cursor() {
 fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     assert_eq!(
-        ledger.begin_creative_take(44, CreativeDestination::Cursor),
+        ledger.begin_creative_take(44, CreativeDestination::Cursor, None),
         Err(InventoryGestureError::InvalidRequest)
     );
     creative(&mut ledger);
     assert_eq!(
-        ledger.begin_creative_take(45, CreativeDestination::Cursor),
+        ledger.begin_creative_take(45, CreativeDestination::Cursor, None),
         Err(InventoryGestureError::InvalidRequest)
     );
     ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -694,12 +693,12 @@ fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
         storage_item: None,
     }));
     assert_eq!(
-        ledger.begin_creative_take(44, CreativeDestination::Player(3)),
+        ledger.begin_creative_take(44, CreativeDestination::Player(3), None),
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(ledger.pending_request_count(), 0);
     let request = ledger
-        .begin_creative_take(44, CreativeDestination::Player(4))
+        .begin_creative_take(44, CreativeDestination::Player(4), None)
         .unwrap();
     assert!(matches!(
         ledger.newest_request().unwrap().actions[2],
@@ -1207,3 +1206,6 @@ fn parity_actions_close_during_manual_craft() {
         "no answer was needed for close admission"
     );
 }
+
+#[path = "crafting_tests/batches.rs"]
+mod batches;
