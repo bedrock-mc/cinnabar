@@ -24,7 +24,7 @@ pub(crate) struct State {
     refreshed: Option<Duration>,
     reported: Option<Duration>,
     playback: Option<(CustomEmote, u64)>,
-    hat: Option<render_api::Hat>,
+    cosmetics: Vec<cosmetics::Item>,
     peers: Vec<Peer>,
 }
 
@@ -39,7 +39,7 @@ pub(super) struct Updates {
 pub(super) fn exchange(
     stream: Option<&WorldStream>,
     ui: Option<&UiRuntime>,
-    hat: Option<render_api::Hat>,
+    cosmetics: &[cosmetics::Item],
     account: Option<&LauncherAccount>,
     time: &Time<Real>,
     state: &mut State,
@@ -102,11 +102,10 @@ pub(super) fn exchange(
             .collect();
         state.refreshed = Some(now);
     }
-    let hat = stream.and(hat);
     let playback = stream.and(ui).and_then(|ui| ui.emotes().playback());
     let key = playback.map(|clip| (clip.emote, clip.revision));
     if changed
-        || hat != state.hat
+        || cosmetics != state.cosmetics
         || key != state.playback
         || state
             .reported
@@ -124,7 +123,13 @@ pub(super) fn exchange(
         account.set_shared_players(
             session.unwrap_or(0),
             CinnabarPlayerState {
-                hat_id: hat.map_or_else(String::new, |hat| hat.id().to_owned()),
+                slots: cosmetics
+                    .iter()
+                    .map(|item| bridge::contract::CinnabarCosmeticSlot {
+                        slot: item.descriptor().slot.clone(),
+                        item_id: item.id().to_owned(),
+                    })
+                    .collect(),
                 xuids,
                 uuids,
                 emote_id: playback.map_or_else(String::new, |clip| clip.emote.id().to_owned()),
@@ -140,7 +145,7 @@ pub(super) fn exchange(
             },
         );
         state.playback = key;
-        state.hat = hat;
+        state.cosmetics = cosmetics.to_vec();
         state.reported = Some(now);
     }
     let Some(stream) = stream else {
@@ -174,16 +179,26 @@ pub(super) fn exchange(
             })
             .collect(),
         hats: updates
-            .hats
+            .loadouts
             .into_iter()
-            .filter_map(|value| {
-                let hat = render_api::Hat::from_id(&value.hat_id)?;
-                let (peer, _) = peer(&value.xuid, &value.uuid)?;
-                Some(RemoteHat {
-                    runtime_id: peer.runtime_id,
-                    spawn_revision: peer.spawn_revision,
-                    hat,
-                })
+            .flat_map(|value| {
+                let Some((peer, _)) = peer(&value.xuid, &value.uuid) else {
+                    return Vec::new();
+                };
+                let slots = value
+                    .slots
+                    .into_iter()
+                    .map(|slot| (slot.slot, Some(slot.item_id)))
+                    .collect();
+                // The authenticated API has already checked the sender's entitlements.
+                cosmetics::resolve(&slots, |_| true)
+                    .into_iter()
+                    .map(|hat| RemoteHat {
+                        runtime_id: peer.runtime_id,
+                        spawn_revision: peer.spawn_revision,
+                        hat,
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect(),
     }

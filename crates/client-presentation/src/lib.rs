@@ -28,5 +28,8 @@ mod molang_conformance_tests;
 mod perspective_head_tests;
 
 #[cfg(test)]
+mod selection_test_support;
+
+#[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

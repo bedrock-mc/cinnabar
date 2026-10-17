@@ -1,4 +1,6 @@
 //! Per-frame HUD observation and publication.
+use std::sync::Arc;
+
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{Local, Transform, Vec3};
 use client_runtime::network::NetworkHandle;
@@ -66,6 +68,7 @@ type PublishExtras<'w, 's> = (
         Res<'w, NetworkHandle<PackApplication>>,
         Option<ResMut<'w, render_scene::UiGlintSettings>>,
         Res<'w, client_interaction::item_use::ItemUseRuntime>,
+        Res<'w, client_interaction::melee::MeleeRuntime>,
         Res<'w, client_interaction::movement::MovementTicker>,
         Res<'w, client_interaction::movement::LocalPhysicsController>,
     ),
@@ -109,6 +112,7 @@ pub(crate) fn prepare_ui_runtime(
             network,
             glint_settings,
             item_use,
+            melee,
             movement,
             physics,
         ),
@@ -171,8 +175,8 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
-    presentation.set_preview_hat(menu_skin.hat);
-    presentation.set_preview_hat_bend(hand_rig.hat_bend());
+    presentation.set_preview_cosmetics(&menu_skin.cosmetics);
+    presentation.set_cosmetic_motion(&hand_rig.cosmetic_motion());
     let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
@@ -191,6 +195,13 @@ pub(crate) fn prepare_ui_runtime(
     } else {
         player_preview::PlayerPreviewPose::of_local_player(stream)
     };
+    presentation.set_preview_equipment_assets(
+        client_world.entity_assets.clone(),
+        client_world
+            .pack_entities
+            .as_ref()
+            .map(|pack| Arc::clone(&pack.assets)),
+    );
     presentation.set_preview_pack_equipment(
         client_world
             .pack_entities
@@ -201,13 +212,23 @@ pub(crate) fn prepare_ui_runtime(
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
     } else {
-        presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
-            client_world
-                .stream
-                .as_ref()?
-                .authority()
-                .canonical_item_stack(stack)
-        });
+        presentation.dress_player_preview(
+            &player_runtime,
+            &runtime,
+            stream,
+            actor_animation::AttachableAnimationInput {
+                frame_alpha: actor_partial.0,
+                delta_seconds: Some(time.delta_secs()),
+                ..Default::default()
+            },
+            |stack| {
+                client_world
+                    .stream
+                    .as_ref()?
+                    .authority()
+                    .canonical_item_stack(stack)
+            },
+        );
     }
     let doll_state = client_world
         .stream
@@ -319,6 +340,7 @@ pub(crate) fn prepare_ui_runtime(
         &runtime,
         client_world.stream.as_ref(),
         &item_use,
+        &melee,
         movement.completed_tick(),
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.

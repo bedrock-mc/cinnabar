@@ -1,5 +1,5 @@
 //! Shares session armor texels between inventory previews and the HUD paper doll.
-//! Only worn textures consume bounded GUI pages, so unused attachables cannot exhaust them.
+//! Only selected equipment consumes bounded GUI pages; unused definitions cannot exhaust them.
 
 use {super::*, ui::IconRef};
 
@@ -8,6 +8,8 @@ pub(in super::super) struct PackEquipment {
     pub(in super::super) source: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     /// The pack texture each armor slot wears, helmet to boots.
     worn: [Option<Box<str>>; 4],
+    /// Default artwork for the two selected authored hand models.
+    held: [Option<Box<str>>; 2],
     pub(in super::super) pages: Vec<UiTexturePage>,
     /// GUI regions of the worn pack textures, by texture identifier.
     pub(super) regions: BTreeMap<Box<str>, IconRef>,
@@ -19,9 +21,14 @@ impl PackEquipment {
         self.regions.get(self.worn.get(slot)?.as_deref()?).copied()
     }
 
-    /// Distinct worn texture identifiers.
+    /// Distinct selected texture identifiers.
     fn wanted(&self) -> BTreeSet<&str> {
-        self.worn.iter().flatten().map(AsRef::as_ref).collect()
+        self.worn
+            .iter()
+            .chain(self.held.iter())
+            .flatten()
+            .map(AsRef::as_ref)
+            .collect()
     }
 }
 
@@ -39,6 +46,7 @@ impl UiPresentationRuntime {
         } {
             return;
         }
+        self.gui_models.clear_selected_hands();
         let placed = !self.gui_models.pack_equipment.pages.is_empty();
         self.gui_models.pack_equipment = PackEquipment {
             source: catalog,
@@ -51,13 +59,26 @@ impl UiPresentationRuntime {
 
     /// Records the pack texture each armor slot wears, placing them when the worn set changes;
     /// pieces that only trade slots keep their regions.
-    pub(in super::super) fn wear_pack_armor(&mut self, worn: [Option<&str>; 4]) {
+    pub(in super::super) fn wear_pack_equipment(
+        &mut self,
+        worn: [Option<&str>; 4],
+        held: [Option<&str>; 2],
+    ) {
         let pack = &mut self.gui_models.pack_equipment;
-        if pack.worn.each_ref().map(Option::as_deref) == worn {
+        if pack.worn.each_ref().map(Option::as_deref) == worn
+            && pack.held.each_ref().map(Option::as_deref) == held
+        {
             return;
         }
-        let same_set = pack.wanted() == worn.iter().flatten().copied().collect::<BTreeSet<_>>();
+        let same_set = pack.wanted()
+            == worn
+                .iter()
+                .chain(held.iter())
+                .flatten()
+                .copied()
+                .collect::<BTreeSet<_>>();
         pack.worn = worn.map(|texture| texture.map(Box::from));
+        pack.held = held.map(|texture| texture.map(Box::from));
         if !same_set {
             self.place_pack_armor();
         }
@@ -167,6 +188,8 @@ fn place<'a>(
 
 #[cfg(test)]
 mod material_tests;
+#[cfg(test)]
+mod owner_tests;
 #[cfg(test)]
 mod stack_tests;
 #[cfg(test)]

@@ -1,98 +1,133 @@
-//! Loads original headwear and binds flexible surface rings to their authored joints.
-
+//! Builds bounded catalog attachments from verified geometry, texture and animation bytes.
 use super::*;
 
-/// Builds immutable headwear with no internal caps or disconnected joint surfaces.
-pub(super) fn build(hat: Hat) -> HatRig {
-    let source = source(hat);
+/// Decodes an admitted attachment and checks parents before producing immutable render data.
+pub(super) fn build(
+    item: &cosmetics::Descriptor,
+    geometry: &str,
+    texture: &[u8],
+    animation: &[u8],
+) -> Option<HatRig> {
     let patch = format!(
-        r#"{{"geometry":{{"default":"geometry.cinnabar.{}"}}}}"#,
-        hat.id()
+        r#"{{"geometry":{{"default":{}}}}}"#,
+        serde_json::to_string(&item.geometry_id).ok()?
     );
-    let model = assets::parse_skin_geometry(&patch, source.geometry)
-        .expect("original headwear geometry is valid")
-        .expect("original headwear geometry exists");
-    let index = Hat::ALL
-        .iter()
-        .position(|entry| *entry == hat)
-        .expect("catalogued hat");
-    let original = crate::skin_geometry(&model, EntityRigId(0xDFFF_FFFF - index as u32))
-        .expect("original headwear mesh is valid");
+    let model = assets::parse_skin_geometry(&patch, geometry).ok()??;
+    if model.bones.is_empty() {
+        return None;
+    }
+    let mut original = crate::skin_geometry(&model, EntityRigId(0)).ok()?;
+    if original.vertices.len() > 24_576
+        || original.vertices.iter().any(|vertex| {
+            vertex
+                .position
+                .iter()
+                .any(|value| !value.is_finite() || value.abs() > 4.0)
+        })
+    {
+        return None;
+    }
     let head = model
         .bones
         .iter()
-        .position(|bone| bone.name.eq_ignore_ascii_case("head"))
-        .expect("headwear has a head attachment");
-    let parents: Vec<_> = model
+        .position(|bone| bone.name.as_ref() == item.attachment_bone.as_str())?;
+    let mut parents: Vec<_> = model
         .bones
         .iter()
-        .enumerate()
-        .map(|(index, bone)| {
-            bone.parent.as_ref().map(|name| {
-                let parent = model
-                    .bones
-                    .iter()
-                    .position(|bone| &bone.name == name)
-                    .expect("headwear parent exists");
-                assert!(parent < index, "headwear parents precede their children");
-                parent
-            })
+        .map(|bone| {
+            bone.parent
+                .as_ref()
+                .and_then(|name| model.bones.iter().position(|bone| &bone.name == name))
         })
         .collect();
-    let mut vertices = original.vertices.to_vec();
-    let mut flex = vec![0.0; model.bones.len()];
-    for (base, mesh) in model.poly_meshes.iter().enumerate() {
-        if mesh.is_none() {
-            continue;
-        }
-        let joints: Vec<_> = (0..model.bones.len())
-            .filter(|&index| {
-                let mut cursor = parents[index];
-                while let Some(parent) = cursor {
-                    if parent == base {
-                        return true;
-                    }
-                    cursor = parents[parent];
-                }
-                false
-            })
-            .collect();
-        let Some(first) = joints.first().copied() else {
-            continue;
-        };
-        let last = joints.last().copied().expect("flexible ear has joints");
-        let low = original.bone_pivots[first][1];
-        let span = original.bone_pivots[last][1] - low;
-        assert!(span > 0.0, "flexible ear joints have height");
-        for &joint in &joints {
-            flex[joint] = (original.bone_pivots[joint][1] - low) / span;
-        }
-        for vertex in vertices
-            .iter_mut()
-            .filter(|vertex| vertex.bone_index as usize == base)
-        {
-            if let Some(&joint) = joints
+    if parents
+        .iter()
+        .enumerate()
+        .any(|(index, parent)| index != head && parent.is_none_or(|parent| parent >= index))
+    {
+        return None;
+    }
+    let mut definition: cosmetics_animation::Animation = if animation.is_empty() {
+        Default::default()
+    } else {
+        serde_json::from_slice(animation).ok()?
+    };
+    if definition.wind.as_ref().is_some_and(|wind| {
+        !["x", "y", "z"].contains(&wind.axis.as_str())
+            || ![wind.max_degrees, wind.speed, wind.rise, wind.fall]
                 .iter()
-                .find(|&&joint| (original.bone_pivots[joint][1] - vertex.position[1]).abs() < 1e-5)
-            {
-                vertex.bone_index = joint as u32;
+                .all(|value| value.is_finite() && *value > 0.0)
+            || wind.max_degrees > 90.0
+            || wind.speed > 100.0
+            || wind.rise > 100.0
+            || wind.fall > 100.0
+    }) {
+        return None;
+    }
+    let mut flex: Vec<_> = model
+        .bones
+        .iter()
+        .map(|bone| {
+            definition
+                .wind
+                .as_ref()
+                .and_then(|wind| wind.joints.get(bone.name.as_ref()))
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .collect();
+    if flex
+        .iter()
+        .any(|weight| !weight.is_finite() || !(0.0..=1.0).contains(weight))
+    {
+        return None;
+    }
+    let mut vertices = original.vertices.to_vec();
+    for vertex in &mut vertices {
+        if let Some(joint) = model.bones.iter().enumerate().position(|(index, _)| {
+            flex[index] > 0.0 && {
+                let mut parent = parents[index];
+                let mut descendant = false;
+                while let Some(index) = parent {
+                    if index == vertex.bone_index as usize {
+                        descendant = true;
+                        break;
+                    }
+                    parent = parents[index];
+                }
+                descendant && (original.bone_pivots[index][1] - vertex.position[1]).abs() < 1e-5
             }
+        }) {
+            vertex.bone_index = joint as u32;
         }
     }
-    let geometry =
-        crate::ActorRigGeometry::new(original.id, vertices, original.bone_pivots.clone())
-            .expect("continuous headwear mesh is valid");
-    let image = image::load_from_memory(source.texture)
-        .expect("original headwear texture is valid")
-        .into_rgba8();
-    assert_eq!(
-        (image.width(), image.height()),
-        (
-            u32::from(model.texture_width),
-            u32::from(model.texture_height)
-        ),
-        "headwear geometry and texture dimensions agree"
-    );
+    if item.render_flags.double_sided {
+        let back = vertices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|triangle| [triangle[2], triangle[1], triangle[0]])
+            .collect::<Vec<_>>();
+        vertices.extend(back);
+    }
+    original.vertices = vertices.into();
+    let decoder = image::ImageReader::new(std::io::Cursor::new(texture))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(256);
+    limits.max_image_height = Some(256);
+    limits.max_alloc = Some(4 * 1024 * 1024);
+    let mut decoder = decoder;
+    decoder.limits(limits);
+    let image = decoder.decode().ok()?.into_rgba8();
+    if image.width() > 256
+        || image.height() > 256
+        || image.width() != u32::from(model.texture_width)
+        || image.height() != u32::from(model.texture_height)
+    {
+        return None;
+    }
     let pixels = image::imageops::resize(
         &image,
         crate::STANDARD_SKIN_SIDE as u32,
@@ -106,49 +141,77 @@ pub(super) fn build(hat: Hat) -> HatRig {
         height: image.height(),
         rgba8: image.into_raw().into(),
     };
-    let rest_vertices = geometry
+    let playback = cosmetics_animation::Playback::build(
+        &mut definition,
+        &model
+            .bones
+            .iter()
+            .map(|bone| bone.name.as_ref())
+            .collect::<Vec<_>>(),
+        &mut original,
+        &mut parents,
+    )?;
+    while flex.len() < parents.len() {
+        flex.push(flex[parents[flex.len()]?]);
+    }
+    let mut rest_rotations: Vec<_> = model
+        .bones
+        .iter()
+        .map(|bone| {
+            bone.rotation.map_or(Quat::IDENTITY, |rotation| {
+                let [x, y, z] = rotation.map(|value| value.get().to_radians());
+                Quat::from_euler(glam::EulerRot::ZYX, -z, y, -x)
+            })
+        })
+        .collect();
+    rest_rotations.resize(parents.len(), Quat::IDENTITY);
+    let mut rig = HatRig {
+        playback,
+        geometry: original,
+        parents,
+        flex,
+        rest_rotations,
+        head,
+        offset: item.offset,
+        rest_vertices: Arc::from([]),
+        texture,
+        pixels,
+        wind: definition.wind,
+    };
+    let root = rig.geometry.bone_pivots[head];
+    let poses = rig.pose(
+        RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [root[0], root[1], root[2], 1.0],
+            axis_scale: crate::UNIT_AXIS_SCALE,
+        },
+        Motion {
+            seconds: rig.playback.as_ref().map_or(0.0, |clip| clip.rest_time()),
+            ..Default::default()
+        },
+    );
+    let part = crate::STANDARD_BIPED_BONES
+        .iter()
+        .position(|bone| bone.eq_ignore_ascii_case(&item.attachment_bone))
+        .map_or(u32::MAX, |part| part as u32);
+    rig.rest_vertices = rig
+        .geometry
         .vertices
         .iter()
-        .map(|vertex| ActorVertex {
-            position: [-vertex.position[0], vertex.position[1], -vertex.position[2]],
-            uv: vertex.uv,
-            part: 0,
+        .map(|vertex| {
+            let bone = vertex.bone_index as usize;
+            let pose = poses[bone];
+            let position = Vec3::from_slice(&pose.translation_scale[..3])
+                + Quat::from_array(pose.rotation)
+                    * (Vec3::from_array(vertex.position)
+                        - Vec3::from_array(rig.geometry.bone_pivots[bone]));
+            ActorVertex {
+                position: [-position.x, position.y, -position.z],
+                uv: vertex.uv,
+                part,
+            }
         })
         .collect::<Vec<_>>()
         .into();
-    HatRig {
-        geometry,
-        parents,
-        flex,
-        head,
-        rest_vertices,
-        texture,
-        pixels,
-    }
-}
-
-/// The editable project and its runtime export travel with their original texture.
-pub(super) struct Source {
-    #[cfg(test)]
-    pub project: &'static str,
-    pub geometry: &'static str,
-    pub texture: &'static [u8],
-}
-
-/// Exhaustive asset resolution keeps every catalog choice backed by an authored model.
-pub(super) fn source(hat: Hat) -> Source {
-    macro_rules! source {
-        ($name:literal) => {
-            Source {
-                #[cfg(test)]
-                project: include_str!(concat!($name, ".bbmodel")),
-                geometry: include_str!(concat!($name, ".geo.json")),
-                texture: include_bytes!(concat!($name, ".png")),
-            }
-        };
-    }
-    match hat {
-        Hat::BunnyEars => source!("bunny_ears"),
-        Hat::Crown => source!("crown"),
-    }
+    Some(rig)
 }

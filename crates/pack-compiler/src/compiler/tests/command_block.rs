@@ -71,7 +71,7 @@ fn compile_commands(animated: bool) -> (assets::CompiledAssets, Vec<RegistryReco
         if animated {
             let mut strip = pixels.clone();
             let mut next = pixels;
-            for pixel in next.chunks_exact_mut(4) {
+            for pixel in next.as_chunks_mut::<4>().0.iter_mut() {
                 pixel[0] += 10;
             }
             strip.extend(next);

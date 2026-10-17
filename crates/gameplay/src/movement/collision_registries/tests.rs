@@ -14,6 +14,9 @@ mod custom_shapes;
 #[path = "tests/admission.rs"]
 mod admission;
 
+#[path = "tests/palette_path.rs"]
+mod palette_path;
+
 #[path = "tests/multipart.rs"]
 mod multipart;
 
@@ -133,6 +136,7 @@ fn bind(
 fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
     protocol::CustomBlock {
         state_physics: Default::default(),
+        player_interact: false,
         name: name.into(),
         tags: Default::default(),
         state_count,

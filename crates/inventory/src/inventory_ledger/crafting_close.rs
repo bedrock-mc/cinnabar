@@ -18,14 +18,22 @@ use super::{
 };
 
 impl PlayerInventoryLedger {
+    /// Enumerates the active crafting grid, if any, followed by the shared cursor.
+    fn close_return_cells(&self) -> impl Iterator<Item = Cell> {
+        let has_grid =
+            self.storage.is_none() || self.window_kind() == Some(protocol::WindowKind::Workbench);
+        self.crafting_grid()
+            .slots()
+            .filter(move |_| has_grid)
+            .map(Cell::Craft)
+            .chain(std::iter::once(Cell::Cursor))
+    }
+
     /// Build every return against one staged ledger, so an identity, pressure,
     /// or capacity failure cannot publish a partial cleanup or lose an input.
     pub(super) fn return_crafting_on_close(&mut self) -> Result<bool, InventoryGestureError> {
         let cells: Vec<Cell> = self
-            .crafting_grid()
-            .slots()
-            .map(Cell::Craft)
-            .chain(std::iter::once(Cell::Cursor))
+            .close_return_cells()
             .filter(|cell| self.view().get(*cell).is_some())
             .collect();
         if cells.is_empty() {
@@ -153,16 +161,10 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn close_return_needed(&self) -> bool {
-        self.view().get(Cell::Cursor).is_some()
-            || self
-                .crafting_grid()
-                .slots()
-                .any(|slot| self.view().get(Cell::Craft(slot)).is_some())
-            || self.queue.iter().any(|request| {
-                request
-                    .touched()
-                    .any(|cell| matches!(cell, Cell::Craft(_) | Cell::Cursor))
-            })
+        self.close_return_cells().any(|cell| {
+            self.view().get(cell).is_some()
+                || self.queue.iter().any(|request| request.touches(cell))
+        })
     }
 
     pub(super) fn note_close_return_failure(&self, error: InventoryGestureError) {

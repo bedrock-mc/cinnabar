@@ -5,6 +5,7 @@ pub mod helper;
 pub mod lease;
 pub mod parent;
 mod platform;
+pub mod privilege;
 pub mod recovery;
 pub mod stage;
 pub mod startup;
@@ -21,7 +22,7 @@ pub const TRUSTED_KEYS: &str = match option_env!("UPDATE_TRUSTED_KEYS") {
 
 /// The packaged helper's filename on this host.
 pub fn helper_filename() -> String {
-    format!("cinnabar-updater{}", std::env::consts::EXE_SUFFIX)
+    update_manifest::runtime::executable("UPDATER", std::env::consts::OS)
 }
 
 #[cfg(test)]

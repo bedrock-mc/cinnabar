@@ -16,6 +16,8 @@ pub enum ModPermission {
     Recipes,
     Keys,
     Inventory,
+    /// The mod's bounded settings file (the `settings` interface).
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]

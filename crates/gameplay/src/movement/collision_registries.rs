@@ -383,7 +383,7 @@ impl PhysicsCollisionRegistries {
                     next,
                     InteractionBlock {
                         identifier: Arc::clone(&block.name),
-                        facts: assets::facts::BlockFact::custom(&block.name),
+                        facts: custom_block_facts(block),
                         full_cube: custom_block_is_full_cube(&effective),
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -436,7 +436,7 @@ impl PhysicsCollisionRegistries {
                         state.hash,
                         InteractionBlock {
                             identifier: Arc::clone(&block.name),
-                            facts: assets::facts::BlockFact::custom(&block.name),
+                            facts: custom_block_facts(block),
                             full_cube: custom_block_is_full_cube(&effective),
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -631,6 +631,16 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
                 && shape.min.y < shape.max.y
                 && shape.min.z < shape.max.z
         })
+}
+
+/// A server block's facts: a declared player-interact handler makes a use interact with it, as
+/// vanilla's container blocks do, instead of placing the held block against it.
+fn custom_block_facts(block: &protocol::CustomBlock) -> assets::facts::BlockFact {
+    let mut facts = assets::facts::BlockFact::custom(&block.name);
+    if block.player_interact {
+        facts.traits |= assets::registry::BlockTraits::USES_LOCALLY;
+    }
+    facts
 }
 
 /// Whether the final movement bounds fill exactly one block after transformation.

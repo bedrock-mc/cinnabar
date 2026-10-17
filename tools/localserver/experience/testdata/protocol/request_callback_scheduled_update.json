@@ -1,0 +1,77 @@
+{
+  "type": "callback",
+  "seq": 8,
+  "info": {
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 48213,
+    "event_sequence": 908
+  },
+  "actor": null,
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 4096,
+  "snapshot": [
+    {
+      "pos": {
+        "x": 12,
+        "y": 64,
+        "z": -7
+      },
+      "loaded": true,
+      "id": "benergistics:controller",
+      "owned": true,
+      "data": "0100ff",
+      "states": [
+        {
+          "name": "benergistics:state",
+          "value": {
+            "type": "choice",
+            "value": "online"
+          }
+        },
+        {
+          "name": "benergistics:powered",
+          "value": {
+            "type": "bool",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "pos": {
+        "x": 13,
+        "y": 64,
+        "z": -7
+      },
+      "loaded": true,
+      "id": "minecraft:stone",
+      "owned": false,
+      "data": null,
+      "states": []
+    },
+    {
+      "pos": {
+        "x": 12,
+        "y": 64,
+        "z": 400
+      },
+      "loaded": false,
+      "id": "",
+      "owned": false,
+      "data": null,
+      "states": []
+    }
+  ],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "scheduled_update",
+    "pos": {
+      "x": 12,
+      "y": 64,
+      "z": -7
+    }
+  }
+}

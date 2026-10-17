@@ -2,10 +2,9 @@
 //! what the client already decoded, and rebuilt only when the server resends a source.
 //!
 //! Known gaps, recorded rather than fixed here:
-//! - Smelting: the vanilla client reads CraftingData entry types 0, 1 and 4–9 only, so furnace
-//!   recipes never arrive in CraftingData.
-//! - Brewing: the decoder skips CraftingData's potion and container-change vectors
-//!   (`protocol` `recipes/grammar.rs`).
+//! - Smelting: only shapeless recipes tagged `furnace`, `blast_furnace` or `smoker` are listed;
+//!   the vanilla client reads CraftingData entry types 0, 1 and 4–9 only, so furnace entries
+//!   (types 2 and 3) are not.
 //! - A recipe with a Molang, complex alias, deferred or int-id ingredient is dropped whole by the
 //!   decoder (`grammar.rs`'s `ingredient`), so it is missing here too.
 //! - `max-stack` is the registry's negotiated component value when a server sends one, else 64.
@@ -66,11 +65,11 @@ pub struct SessionDataCache {
 }
 
 impl SessionDataCache {
-    /// The session data for `inputs`, with `name` localizing an identifier.
+    /// The session data for `inputs`, with `name` localizing an identifier and aux.
     pub fn update(
         &mut self,
         inputs: SessionInputs<'_>,
-        name: &dyn Fn(&str) -> String,
+        name: &dyn Fn(&str, u16) -> String,
     ) -> Arc<SessionData> {
         let registry = inputs
             .registry
@@ -143,8 +142,9 @@ pub fn session_data(
         catalog: player_runtime.inventory.screen_catalog(),
         language: runtime.text_generation(),
     };
-    let data = cache.update(inputs, &|identifier| {
-        runtime.localized_item_name(identifier)
+    // Named as vanilla's tooltips name a stack: potions and tipped arrows by their aux.
+    let data = cache.update(inputs, &|identifier, aux| {
+        super::presentation::inventory_tooltip::default_name(runtime, identifier, u32::from(aux))
     });
     cache.language_source = runtime.translator();
     data
@@ -176,7 +176,7 @@ pub fn session_stack(
 fn build_items(
     creative: Option<&protocol::CreativeContentEvent>,
     registry: Option<&BTreeMap<i32, ItemRegistryEntry>>,
-    name: &dyn Fn(&str) -> String,
+    name: &dyn Fn(&str, u16) -> String,
 ) -> (Vec<Item>, usize) {
     let Some(registry) = registry else {
         return (Vec::new(), 0);
@@ -187,7 +187,7 @@ fn build_items(
             aux,
         },
         icon: SessionData::icon_key(entry.network_id, aux),
-        name: name(&entry.identifier),
+        name: name(&entry.identifier, aux),
         group: None,
         category: None,
         max_stack: entry.negotiated_max_stack_size.unwrap_or(DEFAULT_MAX_STACK),
@@ -360,6 +360,9 @@ fn build_recipes(
             RecipeCategory::SmithingTransform,
         ),
         (ScreenRecipeKind::SmithingTrim, RecipeCategory::SmithingTrim),
+        (ScreenRecipeKind::Furnace, RecipeCategory::Furnace),
+        (ScreenRecipeKind::BlastFurnace, RecipeCategory::BlastFurnace),
+        (ScreenRecipeKind::Smoker, RecipeCategory::Smoker),
     ] {
         for recipe in catalog.screen_recipes(kind) {
             let outputs = match &recipe.output {
@@ -386,6 +389,53 @@ fn build_recipes(
                 outputs,
             });
         }
+    }
+    for brewing in catalog.brewing_recipes() {
+        let item = |item: &protocol::BrewingItem| {
+            let entry = registry.get(&item.network_id)?;
+            let aux = u16::try_from(item.aux.unwrap_or(0)).ok()?;
+            Some((entry, aux))
+        };
+        let (Some(input), Some(reagent), Some((output, aux))) = (
+            item(&brewing.input),
+            item(&brewing.reagent),
+            item(&brewing.output),
+        ) else {
+            skipped += 1;
+            continue;
+        };
+        // A container change takes the potion of any type.
+        let ingredient = |(entry, aux): (&ItemRegistryEntry, u16), any: bool| {
+            let name = entry.identifier.to_string();
+            Some(Ingredient {
+                kind: if any {
+                    IngredientKind::AnyAux(name)
+                } else {
+                    IngredientKind::Item(ItemKey {
+                        identifier: name,
+                        aux,
+                    })
+                },
+                count: 1,
+            })
+        };
+        let any = brewing.input.aux.is_none();
+        recipes.push(Recipe {
+            network_id: 0,
+            category: RecipeCategory::Brewing,
+            shapeless: false,
+            width: 0,
+            height: 0,
+            ingredients: vec![ingredient(input, any), ingredient(reagent, any)],
+            outputs: vec![Stack {
+                key: ItemKey {
+                    identifier: output.identifier.to_string(),
+                    aux,
+                },
+                icon: SessionData::icon_key(output.network_id, aux),
+                count: 1,
+            }],
+        });
     }
     (recipes, skipped)
 }

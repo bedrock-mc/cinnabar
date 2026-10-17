@@ -84,7 +84,7 @@ fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
                     .item_icon(&entry.identifier, entry.metadata)
                     .unwrap();
                 let mesh = &presentation.gui_models.models[&icon_key(icon)];
-                assert_eq!(mesh.indices().len(), BlockFace::ALL.len() * 6);
+                assert_eq!(mesh.indices().len(), assets::gui_item::CUBE_FACES.len() * 6);
                 assert!(mesh.vertices().iter().all(|vertex| vertex.alpha_test));
             }
         }

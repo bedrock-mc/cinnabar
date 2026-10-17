@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-reads = ["packaging/release-assets.json"]
+reads = ["packaging/release-assets.json", "packaging/common/runtime-binaries.txt"]
 
 [lib]
 doctest = false

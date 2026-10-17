@@ -239,20 +239,23 @@ fn color(
 }
 
 /// Evaluates the rig's render controllers against the actor's Molang state.
+/// Unavailable attachable artwork returns `None` without invalidating authored state.
 pub(super) fn evaluate_render(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
-) -> Result<Vec<RenderTextureLayer>, EvalError> {
+) -> Result<Option<Vec<RenderTextureLayer>>, EvalError> {
     let assets = evaluator.assets;
     let render = assets.render_data();
     let mut output = Vec::new();
+    let mut unresolved_artwork = false;
     let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
-    let actor_color = assets
+    let symbol = assets
         .rig_bindings()
         .get(rig.binding)
-        .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize))
+        .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize));
+    let actor_color = symbol
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
         .map_or([1.0; 4], |_| {
             super::query::wolf::default_render_color(evaluator.actor)
@@ -313,6 +316,11 @@ pub(super) fn evaluate_render(
                 }
             }
         }
+        let visible = hidden.iter().any(|hidden| !hidden);
+        if layer.unresolved_textures {
+            unresolved_artwork |= visible;
+            continue;
+        }
         let hidden_bones: Arc<[u32]> = hidden
             .iter()
             .enumerate()
@@ -352,6 +360,7 @@ pub(super) fn evaluate_render(
                         ..slot.first_candidate as usize + usize::from(slot.candidate_count),
                 )
                 .ok_or(EvalError::Invalid)?;
+            let mut resolved = false;
             for candidate in candidates {
                 budget.charge_work()?;
                 let selected = match candidate.condition {
@@ -361,6 +370,7 @@ pub(super) fn evaluate_render(
                         .truthy(),
                 };
                 if selected {
+                    resolved = true;
                     // Later slots are samplers for this draw, not additional mesh layers.
                     if multitexture || texture_slot == 0 {
                         selected_sources.push(candidate.source);
@@ -368,6 +378,8 @@ pub(super) fn evaluate_render(
                     break;
                 }
             }
+            // A live selector with no source is missing artwork, not a disabled controller.
+            unresolved_artwork |= texture_slot == 0 && !resolved && visible;
         }
         if multitexture && selected_sources.len() != 3 {
             continue;
@@ -402,7 +414,14 @@ pub(super) fn evaluate_render(
             });
         }
     }
-    Ok(output)
+    if output.is_empty()
+        && unresolved_artwork
+        && symbol.is_some_and(|symbol| symbol.kind == EntityAssetKind::Attachable)
+    {
+        Ok(None)
+    } else {
+        Ok(Some(output))
+    }
 }
 
 #[cfg(test)]

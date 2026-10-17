@@ -1,7 +1,10 @@
 //! The standard player biped: six skin-mapped cuboids and their second layer.
 use bytemuck::{Pod, Zeroable};
 
-pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
+/// Player bone names in the order used by `ActorVertex::part` and biped previews.
+pub const STANDARD_BIPED_BONES: [&str; 6] =
+    ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
+pub const STANDARD_BIPED_VERTEX_COUNT: usize = STANDARD_BIPED_BONES.len() * 6 * 6;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]

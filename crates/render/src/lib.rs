@@ -6,7 +6,7 @@ use crate as render_api;
 mod actor_raster;
 mod alpha_coverage;
 mod depth_smaa;
-#[cfg(test)]
+#[cfg(any(test, feature = "publication-test-support"))]
 #[path = "../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 pub use depth_smaa::DepthSmaaPlugin;
@@ -115,6 +115,14 @@ use meshing::{
 pub use actor::gpu::storage_binding_bytes as actor_storage_binding_bytes;
 pub use actor::material::blend_state as actor_material_blend_state;
 pub use actor_render::ActorRenderPlugin;
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::equipment_test_support::{
+    EquipmentPreparation, PreparedEquipmentDraw, equipment_pixels,
+};
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{
+    PublicationActorPreparation, publication_actor_preparation,
+};
 
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};
@@ -157,3 +165,6 @@ pub mod startup_presentation;
 mod queue_review_support;
 
 mod runtime_profile_trace;
+
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{PreparedActorDraw, prepare_actor_test_frame};

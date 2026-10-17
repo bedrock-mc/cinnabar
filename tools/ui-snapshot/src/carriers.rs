@@ -149,3 +149,18 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
         ui_page,
     })
 }
+
+/// Installs the same runtime Steve fallback used by the client, without embedding game art.
+pub fn install_default_skin(dir: &Path) -> Result<(), Error> {
+    let bytes = read(
+        &dir.join(carriers::STARTER_SKINS.output),
+        assets::starter_skins::MAX_STARTER_SKINS_BYTES,
+    )?;
+    let skins = assets::starter_skins::decode_starter_skins(&bytes).map_err(|e| e.to_string())?;
+    let default = skins
+        .skins
+        .first()
+        .ok_or_else(|| Error::Invalid("starter skin carrier has no default".into()))?;
+    render_model::install_default_player_skin(default.rgba8.to_vec().into());
+    Ok(())
+}

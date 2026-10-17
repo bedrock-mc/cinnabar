@@ -438,7 +438,9 @@ fn build_artwork(
                 geometry_candidate: candidate_index as u32,
                 entity_symbol: rig.entity_symbol,
                 geometry: candidate.geometry,
-                render_controller: rig.render_controller,
+                render_controller: rig
+                    .render_controller
+                    .ok_or_else(|| invalid("drawable rig lacks a render controller"))?,
                 texture: texture as u32,
                 material: "entity".into(),
                 pose_mode: assets::ActorPoseMode::CompiledLiteral,

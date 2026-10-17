@@ -317,6 +317,14 @@ const (
 	ConnectStageConnecting = "connecting"
 )
 
+// CinnabarCosmeticSlot: One namespaced cosmetic item in a supported slot.
+type CinnabarCosmeticSlot struct {
+	// Slot: Catalog slot name.
+	Slot string `json:"slot"`
+	// ItemID: Namespaced item identifier.
+	ItemID string `json:"item_id"`
+}
+
 // CinnabarRelease: A release the Cinnabar API announced on the client's channel.
 type CinnabarRelease struct {
 	// Channel: Release channel name.
@@ -329,7 +337,7 @@ type CinnabarRelease struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// CinnabarPlayerState: Nearby subscriptions, custom emote and equipped hat, cleared when the game session ends.
+// CinnabarPlayerState: Nearby subscriptions, local playback and the selected slot loadout.
 type CinnabarPlayerState struct {
 	// XUIDs: Nearby Xbox account identifiers.
 	XUIDs []string `json:"xuids"`
@@ -341,8 +349,8 @@ type CinnabarPlayerState struct {
 	ElapsedMS uint32 `json:"elapsed_ms"`
 	// PlaybackID: Local start identity, including same-clip restarts.
 	PlaybackID uint64 `json:"playback_id"`
-	// HatID: Owned hat identifier; empty unequips it.
-	HatID string `json:"hat_id"`
+	// Slots: Persistent selected items by slot; empty clears the loadout.
+	Slots []CinnabarCosmeticSlot `json:"slots"`
 }
 
 // CinnabarRemoteEmote: An authenticated nearby player animation with a remaining lease.
@@ -359,24 +367,24 @@ type CinnabarRemoteEmote struct {
 	ValidForMS uint64 `json:"valid_for_ms"`
 }
 
-// CinnabarRemoteHat: An authenticated nearby hat selection with a remaining lease.
-type CinnabarRemoteHat struct {
+// CinnabarRemoteLoadout: An authenticated nearby session loadout without an emote lease.
+type CinnabarRemoteLoadout struct {
 	// XUID: Authenticated Xbox account identifier.
 	XUID string `json:"xuid"`
 	// UUID: Account UUID derived by the API.
 	UUID string `json:"uuid"`
-	// HatID: Owned hat identifier.
-	HatID string `json:"hat_id"`
-	// ValidForMS: Remaining selection lease.
-	ValidForMS uint64 `json:"valid_for_ms"`
+	// Revision: Newest accepted account revision.
+	Revision uint64 `json:"revision"`
+	// Slots: Equipped items; empty withdraws the loadout.
+	Slots []CinnabarCosmeticSlot `json:"slots"`
 }
 
-// CinnabarPlayerUpdates: Current authenticated nearby playback and cosmetic leases.
+// CinnabarPlayerUpdates: Current authenticated nearby playback and session loadouts.
 type CinnabarPlayerUpdates struct {
 	// Emotes: Nearby custom emotes.
 	Emotes []CinnabarRemoteEmote `json:"emotes"`
-	// Hats: Nearby equipped hats.
-	Hats []CinnabarRemoteHat `json:"hats"`
+	// Loadouts: Nearby authenticated loadouts.
+	Loadouts []CinnabarRemoteLoadout `json:"loadouts"`
 }
 
 // InboxCategories: Inbox category names in display order.

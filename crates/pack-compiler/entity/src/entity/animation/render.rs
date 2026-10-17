@@ -157,7 +157,7 @@ pub(super) fn compile_render(
         else {
             continue;
         };
-        if rig_geometries.get(rig.first_geometry as usize).is_none() {
+        if rig.geometry_count == 0 {
             continue;
         }
         let geometry_aliases = lowercase_map(description.get("geometry"));
@@ -254,7 +254,13 @@ pub(super) fn compile_render(
                     candidate_count: count as u16,
                 });
             }
-            if slots.len() == first_slot {
+            // Retain unresolved references so activation still controls artwork fallback.
+            if slots.len() == first_slot
+                && definition
+                    .get("textures")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty)
+            {
                 continue;
             }
             let first_geometry = layer_geometries.len();
@@ -321,6 +327,7 @@ pub(super) fn compile_render(
                 condition,
                 first_slot: first_slot as u32,
                 slot_count: (slots.len() - first_slot) as u16,
+                unresolved_textures: slots.len() == first_slot,
                 first_visibility: first_visibility as u32,
                 visibility_count,
                 color: compile_color(molang, definition.get("color"), "1.0"),

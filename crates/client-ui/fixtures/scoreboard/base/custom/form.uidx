@@ -1,0 +1,53 @@
+{
+  "namespace": "server_form",
+  "third_party_server_screen": {
+    "type": "screen",
+    "render_game_behind": true,
+    "$screen_content": "server_form.main_screen_content"
+  },
+  "main_screen_content": {
+    "type": "panel",
+    "controls": [{"server_form_factory": {
+      "type": "factory",
+      "control_ids": {"long_form": "@server_form.long_form"}
+    }}]
+  },
+  "long_form": {
+    "type": "stack_panel",
+    "size": [180, "100%c"],
+    "controls": [
+      {"title": {
+        "type": "label",
+        "size": ["100%", 16],
+        "text": "#title_text",
+        "bindings": [{"binding_name": "#title_text"}]
+      }},
+      {"buttons": {
+        "type": "stack_panel",
+        "size": ["100%", "100%c"],
+        "collection_name": "form_buttons",
+        "factory": {"name": "buttons", "control_ids": {"button": "@server_form.form_button"}}
+      }}
+    ]
+  },
+  "form_button": {
+    "type": "button",
+    "size": ["100%", 24],
+    "button_mappings": [{
+      "from_button_id": "button.menu_select",
+      "to_button_id": "button.form_button_click",
+      "mapping_type": "pressed"
+    }],
+    "bindings": [{"binding_type": "collection_details", "binding_collection_name": "form_buttons"}],
+    "controls": [{"label": {
+      "type": "label",
+      "size": ["100%", "100%"],
+      "text": "#form_button_text",
+      "bindings": [{
+        "binding_type": "collection",
+        "binding_collection_name": "form_buttons",
+        "binding_name": "#form_button_text"
+      }]
+    }}]
+  }
+}

@@ -2,6 +2,7 @@
 param([Parameter(Mandatory)][string]$Setup, [Parameter(Mandatory)][string]$Msi,
       [Parameter(Mandatory)][string]$Out, [string]$Wix = "wix")
 $ErrorActionPreference = "Stop"
+& (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $Setup
 if (Test-Path -LiteralPath $Out) { throw "Setup extraction output already exists: $Out" }
 & $Wix burn extract $Setup -o $Out
 if ($LASTEXITCODE -ne 0) { throw "Setup extraction failed" }

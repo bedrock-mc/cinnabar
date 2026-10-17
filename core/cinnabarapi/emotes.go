@@ -14,13 +14,13 @@ const emoteSpacing = 500 * time.Millisecond
 
 var sharedIDPattern = regexp.MustCompile(`^[a-z0-9_.:-]{1,128}$`)
 
-// PlayerState replaces nearby subscriptions, local playback and the equipped hat.
+// PlayerState replaces nearby subscriptions, local playback and the equipped loadout.
 type PlayerState = bridgecontract.CinnabarPlayerState
 
 // RemoteEmote is a leased animation from an authenticated account.
 type RemoteEmote = bridgecontract.CinnabarRemoteEmote
 
-// PlayerUpdates contains leased playback and hats from authenticated nearby accounts.
+// PlayerUpdates contains leased playback and loadouts from authenticated nearby accounts.
 type PlayerUpdates = bridgecontract.CinnabarPlayerUpdates
 
 type emoteMessage struct {
@@ -28,7 +28,6 @@ type emoteMessage struct {
 	XUIDs     *[]string `json:"xuids,omitempty"`
 	UUIDs     *[]string `json:"uuids,omitempty"`
 	EmoteID   *string   `json:"emote_id"`
-	HatID     *string   `json:"hat_id"`
 	ElapsedMS uint32    `json:"elapsed_ms"`
 }
 
@@ -40,11 +39,11 @@ type receivedEmote struct {
 // ValidPlayerState rejects unbounded subscriptions and malformed art identifiers.
 func ValidPlayerState(state PlayerState) bool {
 	return (state.EmoteID == "" || sharedIDPattern.MatchString(state.EmoteID)) &&
-		(state.HatID == "" || sharedIDPattern.MatchString(state.HatID)) &&
+		validSlots(state.Slots) &&
 		(len(state.XUIDs)+len(state.UUIDs) == 0 || ValidLookup(state.XUIDs, state.UUIDs))
 }
 
-// SyncPlayers coalesces local updates without waiting for the network and returns watched playback and hats.
+// SyncPlayers coalesces local updates without waiting for the network and returns watched playback and loadouts.
 func (c *Client) SyncPlayers(state PlayerState) PlayerUpdates {
 	return c.syncPlayers(state, time.Now())
 }
@@ -57,7 +56,8 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 	if s == nil || !ValidPlayerState(state) {
 		return PlayerUpdates{}
 	}
-	changed := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID || s.emoteState.HatID != state.HatID ||
+	c.queueLoadout(s, state.Slots, now)
+	changed := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID ||
 		!reflect.DeepEqual(s.emoteState.XUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteState.UUIDs, state.UUIDs)
 	watchesPending := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
 	watchDue := !s.emoteSent || now.Sub(s.emoteWatchSent) >= emoteTTL/5
@@ -69,6 +69,7 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 		default:
 		}
 	}
+	s.emoteState.XUIDs, s.emoteState.UUIDs = state.XUIDs, state.UUIDs
 	var result []RemoteEmote
 	for key, emote := range s.emotes {
 		age := max(time.Duration(0), now.Sub(emote.received))
@@ -81,7 +82,7 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 		value.ValidForMS -= uint64(age / time.Millisecond)
 		result = append(result, value)
 	}
-	return PlayerUpdates{Emotes: result, Hats: collectHats(s, state, now)}
+	return PlayerUpdates{Emotes: result, Loadouts: collectLoadouts(s, state)}
 }
 
 // watches resolves either identity namespace while keeping subscription memory bounded.
@@ -136,11 +137,7 @@ func (c *Client) emotePayload(s *session) []byte {
 	if state.EmoteID != "" {
 		id = &state.EmoteID
 	}
-	var hat *string
-	if state.HatID != "" {
-		hat = &state.HatID
-	}
-	message := emoteMessage{Type: typeEmoteState, EmoteID: id, HatID: hat, ElapsedMS: state.ElapsedMS}
+	message := emoteMessage{Type: typeEmoteState, EmoteID: id, ElapsedMS: state.ElapsedMS}
 	changed := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
 	if !s.emoteSent || (changed && s.emoteQueued.Sub(s.emoteWatchSent) >= emoteTTL/5) {
 		xuids, uuids := append([]string{}, state.XUIDs...), append([]string{}, state.UUIDs...)

@@ -13,6 +13,8 @@ mod dissolve;
 pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
+#[cfg(feature = "publication-test-support")]
+pub(crate) mod publication_test_support;
 mod skins;
 use crate::actor::gpu::allocation;
 use artwork::{GpuArtwork, draw_spans};
@@ -801,3 +803,6 @@ fn submit_actor_presented_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "publication-test-support")]
+pub(crate) mod equipment_test_support;

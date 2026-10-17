@@ -69,6 +69,7 @@ pub enum Permission {
     Messaging,
     Scene,
     Media,
+    Items,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -232,9 +233,10 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
 
-/// What the developer client advertises: the above plus media playback onto scene quads.
+/// What the developer client advertises: the above plus media playback onto scene quads and
+/// reading the session's items.
 pub fn developer_permissions() -> BTreeSet<Permission> {
     let mut permissions = implemented_permissions();
-    permissions.extend([Permission::Scene, Permission::Media]);
+    permissions.extend([Permission::Scene, Permission::Media, Permission::Items]);
     permissions
 }

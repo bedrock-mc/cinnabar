@@ -23,6 +23,8 @@ use ui_engine::pages::WHOLE_ART_PAGE;
 
 mod skin_previews;
 use skin_previews::SkinArtwork;
+pub(super) mod cosmetic_requests;
+use cosmetic_requests::CosmeticArtwork;
 mod cape_previews;
 mod packing;
 mod request_cache;
@@ -73,7 +75,7 @@ pub(super) struct ArtworkSet {
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
-    pub(super) hats: Vec<render_api::Hat>,
+    pub(super) cosmetics: Vec<CosmeticArtwork>,
 }
 
 impl ArtworkSet {
@@ -90,7 +92,7 @@ impl ArtworkSet {
                 .iter()
                 .zip(&other.images)
                 .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
-            && self.hats == other.hats
+            && self.cosmetics == other.cosmetics
             && self.capes.len() == other.capes.len()
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
@@ -287,14 +289,14 @@ enum Source {
     Bytes(String, Arc<[u8]>),
     Skin(SkinArtwork),
     Cape(CapeArtwork),
-    Hat(render_api::Hat, bool),
+    Item(cosmetics::Item, bool),
 }
 
 impl Source {
     /// Includes replacement pack bytes so a reload cannot reuse an older image.
     fn key(&self) -> DecodeKey {
         match self {
-            Self::Hat(hat, thumbnail) => (
+            Self::Item(hat, thumbnail) => (
                 if *thumbnail {
                     hat.thumbnail_key()
                 } else {
@@ -335,7 +337,7 @@ impl DecodeCache {
             .iter()
             .map(|source| {
                 let art = match source {
-                    Source::Hat(hat, thumbnail) => {
+                    Source::Item(hat, thumbnail) => {
                         super::player_preview::hats::decode(*hat, *thumbnail)
                     }
                     Source::Skin(skin) => skin.decode(),
@@ -400,19 +402,14 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .iter()
         .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = set
-        .capes
+        .cosmetics
         .iter()
+        .filter(|source| !source.thumbnail)
         .take(MAX_ARTWORKS)
-        .cloned()
-        .map(Source::Cape)
+        .map(|source| Source::Item(source.item, false))
         .collect();
     let remaining = MAX_ARTWORKS - all.len();
-    all.extend(
-        set.hats
-            .iter()
-            .flat_map(|hat| [Source::Hat(*hat, false), Source::Hat(*hat, true)])
-            .take(remaining),
-    );
+    all.extend(set.capes.iter().take(remaining).cloned().map(Source::Cape));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
     let remaining = MAX_ARTWORKS - all.len();
@@ -424,6 +421,14 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         engine
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
+    );
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        set.cosmetics
+            .iter()
+            .filter(|source| source.thumbnail)
+            .take(remaining)
+            .map(|source| Source::Item(source.item, true)),
     );
     all
 }

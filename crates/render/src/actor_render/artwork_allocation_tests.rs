@@ -235,3 +235,88 @@ fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     assert_eq!(gpu.pages[0]._texture.depth_or_array_layers(), 2);
     assert_eq!(gpu.pages[0]._texture.width(), 1);
 }
+
+#[test]
+fn gpu_fault_matrix_native_retains_and_recovers_page_pixels() {
+    let Some(native) = crate::gpu_snapshot::Gpu::for_fixture(
+        "gpu_fault_matrix_native_retains_and_recovers_page_pixels",
+    ) else {
+        return;
+    };
+    let device = RenderDevice::from(native.device.clone());
+    let queue = RenderQueue::new(native.queue.clone());
+    let sampler = native.device.create_sampler(&Default::default());
+    let pages = |marker, color: [u8; 4]| {
+        let mut pages = publication(marker, 1);
+        Arc::make_mut(&mut pages.pages)[0].rgba8 = color.repeat(16 * 16).into();
+        pages
+    };
+    let raster = |gpu: &GpuArtwork| {
+        native.render(
+            r#"
+struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
+@group(0) @binding(0) var artwork: texture_2d_array<f32>;
+@group(0) @binding(1) var artwork_sampler: sampler;
+@vertex fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
+    let p = array(vec2f(-1., -1.), vec2f(3., -1.), vec2f(-1., 3.))[index];
+    return Vertex(vec4f(p, 0.5, 1.), p * 0.5 + 0.5);
+}
+@fragment fn fragment(in: Vertex) -> @location(0) vec4f {
+    return textureSample(artwork, artwork_sampler, in.uv, 0);
+}
+"#,
+            "vertex",
+            &[crate::gpu_snapshot::Draw {
+                fragment: "fragment",
+                vertices: 0..3,
+                bindings: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&gpu.pages[0].view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                blend: None,
+                write_depth: false,
+            }],
+        )
+    };
+    for label in [
+        "immutable actor page",
+        "actor page upload",
+        "actor page view",
+    ] {
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages(1, [255, 0, 0, 255]), &device, &queue));
+        let before = raster(&gpu);
+        assert_eq!(&before[..4], &[255, 0, 0, 255], "visible artwork control");
+        let hits = Rc::new(Cell::new(0));
+        {
+            let observed = Rc::clone(&hits);
+            let _fault = allocation::inject(move |owner, _| {
+                if owner != label {
+                    return false;
+                }
+                observed.set(observed.get() + 1);
+                true
+            });
+            assert!(gpu.prepare(&pages(2, [0, 255, 0, 255]), &device, &queue));
+        }
+        assert!(hits.get() > 0);
+        assert_eq!(
+            raster(&gpu),
+            before,
+            "{label}: compatible artwork stays visible"
+        );
+        assert!(gpu.prepare(&pages(3, [0, 0, 255, 255]), &device, &queue));
+        let recovered = raster(&gpu);
+        assert_eq!(&recovered[..4], &[0, 0, 255, 255]);
+        assert_ne!(
+            recovered, before,
+            "{label}: next valid publication reaches pixels"
+        );
+    }
+}

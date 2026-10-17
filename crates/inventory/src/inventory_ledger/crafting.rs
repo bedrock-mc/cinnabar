@@ -426,6 +426,17 @@ impl PlayerInventoryLedger {
         creative_network_id: u32,
         destination: CreativeDestination,
     ) -> Result<i32, InventoryGestureError> {
+        self.begin_creative_take_count(creative_network_id, destination, None)
+    }
+
+    /// [`Self::begin_creative_take`] of `count` items, at most a full stack; none takes what
+    /// a catalog click takes.
+    pub fn begin_creative_take_count(
+        &mut self,
+        creative_network_id: u32,
+        destination: CreativeDestination,
+        count: Option<u8>,
+    ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         let item = self
             .creative
@@ -440,7 +451,7 @@ impl PlayerInventoryLedger {
         let amount = if destination == (CreativeDestination::Drop { whole_stack: false }) {
             1
         } else {
-            full
+            count.map_or(full, |count| count.clamp(1, full))
         };
         // Vanilla's creative create-item scope
         // declares the selected prototype before creating the full transfer.

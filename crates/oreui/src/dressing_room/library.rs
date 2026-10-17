@@ -40,14 +40,14 @@ pub(super) fn toolbar(
         TEXT,
     )?;
     let description_height = canvas.text(
-        "Choose your skin, cape and hat.",
+        "Choose your skin, cape and cosmetics.",
         [left, y + canvas.r(3.0)],
         width - canvas.r(16.0),
         CAPTION,
         TEXT_DIMMER,
         false,
     )?;
-    if view.dressing_room.section != DressingRoomSection::Hats {
+    if view.dressing_room.section != DressingRoomSection::Cosmetics {
         let import_bounds = [right - canvas.r(14.8), y, right, y + canvas.r(4.4)];
         let import_action = command(if cape_tab {
             Action::ImportCape
@@ -118,8 +118,8 @@ pub(super) fn collection(
         )?;
         y = note[3] + space(canvas, 4);
     }
-    if view.dressing_room.section == DressingRoomSection::Hats {
-        let end = super::hats::collection(canvas, view, [left, y, right, b[3]])?;
+    if view.dressing_room.section == DressingRoomSection::Cosmetics {
+        let end = super::hats::collection(canvas, view, [left, y, right, b[3]], viewport, preview)?;
         canvas.end_entrance(entrance, [viewport[2], viewport[3]])?;
         return Ok(end);
     }

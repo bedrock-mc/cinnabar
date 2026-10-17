@@ -26,23 +26,22 @@ BDS frames reproduce the missing tops and verify the corrected surfaces against
 the official Android client. Broader liquid parity and hardware performance gates
 remain open.
 
-## Original wardrobe hats
+## Catalog cosmetics
 
-Local headwear has an independent persisted selection, a wardrobe gallery and shared
-head attachment geometry for world and HUD presentation. Bunny ears use bounded,
-elapsed-time wind motion distributed across continuous upper-half surface rings.
-Stepped pixel surfaces attach directly to the head, with compact square gallery previews.
-Shared-edge regression coverage prevents joint gaps. This adds no Bedrock parity claim;
-Linux wardrobe and in-world standing and forward-motion rendering were inspected
-with software Vulkan. Hardware performance qualification remains incomplete.
+A domain catalog replaces the fixed hat list. Independent slot selections persist locally;
+ETag catalog caching and SHA-256 asset admission precede geometry or texture decoding.
+Original bunny ears use bounded authored joint motion. Every slot follows its declared
+attachment bone and offset, and the HUD shares local motion with world presentation.
+Saved hats migrate into the head slot without overriding current choices. Visible thumbnails
+and equipped textures share the artwork budget; stable gallery frames and cosmetic motion
+retain their catalog and raster caches. Cosmetic layers are separate from skins, flames and
+render-controller layers, with boundaries derived from the supported slot count.
 
-The original jeweled crown rests on the head with a shorter stepped silhouette.
-Its band and jewels stay within the standard head width and depth. Its rigid
-pose, editable export and original texture are covered by model tests; Linux Vulkan
-in-world fit was inspected. Authenticated nearby hat exchange extends the existing emote
-connection, with actor-lifetime checks, bounded leases and shared cosmetic textures.
-API and client implementation are local. API deployment and live authenticated
-multi-account acceptance remain incomplete; no broader parity or performance gate advances.
+Session loadouts use authenticated mutual nearby subscriptions with account revision
+ordering and server-side ownership validation. Loadouts have no emote lease. The current
+catalog is free for every account. API and client implementation require API-first rollout;
+live authenticated multi-account acceptance, payments, moderation and hardware qualification
+remain incomplete. No broader parity or performance gate advances.
 
 Settings mod cards now show permission summaries, explicit requested-grant consent
 and a compact customization grid. Capability metadata supplies gameplay warnings;
@@ -270,6 +269,10 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Sulfur-cube material states and content-pinned shell opacity have alias, carrier
+roundtrip and custom-raster exclusion regressions. Absorbed-block attachment
+placement remains open; no complete actor parity claim.
+
 Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
 matched pack frames, authored sword display transforms and first-person face shading
 remain open in `plan.md`.
@@ -329,6 +332,10 @@ vocabulary. Screen routing and core form/context consumers use those names;
 remaining controller migrations and stale-name corrections are incomplete.
 This adds no live visual evidence and leaves the UI acceptance gate open.
 
+Cube inventory thumbnails and alpha-tested GUI meshes share the canonical outward
+faces. Regressions cover projected surface orientation, transparent front holes and
+retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
+
 ## P5.2-HUD
 
 | Field | Evidence |
@@ -339,6 +346,10 @@ This adds no live visual evidence and leaves the UI acceptance gate open.
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Attack-category cooldown shading has owning timer and hotbar-publication regressions
+for admission rollback, shared categories and expiry. A local spear jab reproduces
+the missing overlay against the official client; broader HUD parity remains open.
 
 ## P5.3-CHAT
 

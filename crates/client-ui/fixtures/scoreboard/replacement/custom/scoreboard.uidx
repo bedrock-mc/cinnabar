@@ -1,0 +1,55 @@
+{
+  "namespace": "scoreboard",
+  "scoreboard_sidebar@scoreboard.names_only": {
+    "offset": [8, 8],
+    "$sidebar_texture": "textures/fixture/sidebar_green"
+  },
+  "names_only": {
+    "type": "panel",
+    "size": [140, 80],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "controls": [
+      {"background": {
+        "type": "image",
+        "texture": "$sidebar_texture",
+        "size": ["100%", "100%"],
+        "keep_ratio": false
+      }},
+      {"heading": {
+        "type": "label",
+        "size": [120, 12],
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [8, 8],
+        "layer": 1,
+        "text": "#objective_sidebar_name",
+        "bindings": [{"binding_name": "#objective_sidebar_name"}]
+      }},
+      {"players": {
+        "type": "stack_panel",
+        "size": [120, "100%c"],
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [8, 24],
+        "layer": 1,
+        "collection_name": "scoreboard_players",
+        "factory": {"name": "players", "control_name": "scoreboard.name"},
+        "bindings": [{
+          "binding_name": "#scoreboard_sidebar_size",
+          "binding_name_override": "#collection_length"
+        }]
+      }}
+    ]
+  },
+  "name": {
+    "type": "label",
+    "size": ["100%", 12],
+    "text": "#player_name_sidebar",
+    "bindings": [{
+      "binding_type": "collection",
+      "binding_collection_name": "scoreboard_players",
+      "binding_name": "#player_name_sidebar"
+    }]
+  }
+}

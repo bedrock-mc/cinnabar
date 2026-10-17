@@ -1,9 +1,7 @@
 use super::*;
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 
-#[path = "../../../../tests/it/support/gpu_snapshot.rs"]
-mod gpu_snapshot;
-use gpu_snapshot::{Draw, DrawPipeline, Gpu, RasterState, SNAPSHOT_SIDE};
+use crate::gpu_snapshot::{Draw, DrawPipeline, Gpu, RasterState, SNAPSHOT_SIDE};
 
 /// Reads the actual specialized states, including the retained terrain-unit path.
 fn depth_biases(units: bool, msaa: Msaa) -> [bevy::render::render_resource::DepthBiasState; 2] {
@@ -43,8 +41,9 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
             for frame in 0..12 {
                 let angle = frame as f32 * 0.07 - 0.35;
                 let eye = Vec3::new(1.5 + angle, 0.75 + angle * 0.25, 2.0);
-                let clip = Mat4::perspective_infinite_reverse_rh(0.9, 1.0, 0.05)
-                    * Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
+                let clip =
+                    glam::camera::rh::proj::directx::perspective_infinite_reverse(0.9, 1.0, 0.05)
+                        * glam::camera::rh::view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y);
                 let uniform = gpu.buffer(&clip.to_cols_array(), wgpu::BufferUsages::UNIFORM);
                 let bindings = [wgpu::BindGroupEntry {
                     binding: 0,
@@ -80,8 +79,10 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                 let stone_first = render(false);
                 let leaf_first = render(true);
                 let different_pixels = stone_first
-                    .chunks_exact(4)
-                    .zip(leaf_first.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(leaf_first.as_chunks::<4>().0.iter())
                     .filter(|(a, b)| a != b)
                     .count();
                 assert_eq!(
@@ -92,7 +93,7 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                 let mut leaf_pixels = 0;
                 let mut hole_pixels = 0;
                 let world_from_clip = clip.inverse();
-                for (index, pixel) in stone_first.chunks_exact(4).enumerate() {
+                for (index, pixel) in stone_first.as_chunks::<4>().0.iter().enumerate() {
                     let x = index % SNAPSHOT_SIDE as usize;
                     let y = index / SNAPSHOT_SIDE as usize;
                     let ndc = Vec3::new(
@@ -107,9 +108,13 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                         continue;
                     }
                     if on_face.y < 0.0 {
-                        assert_eq!(pixel, [255, 0, 0, 255], "cutout overwrites the opaque half");
+                        assert_eq!(
+                            *pixel,
+                            [255, 0, 0, 255],
+                            "cutout overwrites the opaque half"
+                        );
                         stone_pixels += 1;
-                    } else if pixel == [0, 255, 0, 255] {
+                    } else if *pixel == [0, 255, 0, 255] {
                         leaf_pixels += 1;
                     } else if pixel[0] > 0 && pixel[1] > 0 && pixel[2] > 0 {
                         hole_pixels += 1;

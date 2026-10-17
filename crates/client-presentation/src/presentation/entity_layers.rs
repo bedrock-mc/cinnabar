@@ -8,15 +8,15 @@ use bevy::platform::collections::HashMap;
 use actor_animation::ActorRigSnapshot;
 use actor_animation::{BoneTransform, RenderTextureLayer};
 use render_model::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
-    pack_actor_light_without_lightmap, pack_overlay_rgba8,
+    ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission, pack_actor_light_without_lightmap,
+    pack_overlay_rgba8,
 };
 use render_model::{EntityRigId, RenderBoneTransform, layer_geometry_rig_id};
 
 use super::actors::ActorPresentationBatch;
 
 /// First render layer id of extra texture layers; equipment layers use the ids below.
-pub const ACTOR_LAYER_TEXTURE_BASE: u8 = 32;
+pub const ACTOR_LAYER_TEXTURE_BASE: u8 = render_model::hats::ACTOR_LAYER_HAT_END;
 /// Every layer id above the base, so no authored controller is dropped.
 const MAX_TEXTURE_LAYERS: usize = (u8::MAX - ACTOR_LAYER_TEXTURE_BASE) as usize + 2;
 
@@ -155,6 +155,60 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
+/// Resolves one admitted controller layer for both body drawing and equipment styling.
+fn resolve_layer(
+    submission: &ActorRigSubmission,
+    layer: &RenderTextureLayer,
+    artwork: &ActorArtworkPages,
+    cache: &mut LayerPoseCache,
+    player_skin: bool,
+) -> Option<ResolvedLayer> {
+    if player_skin && (layer.geometry.is_some() || layer.texture_slot != 0) {
+        return None;
+    }
+    let model = match layer.geometry {
+        None if player_skin => None,
+        None if layer.pose.is_empty() => None,
+        None => Some(LayerModel {
+            rig: submission.input.rig,
+            previous: cache.convert(&layer.previous_pose)?,
+            current: cache.convert(&layer.pose)?,
+        }),
+        Some(geometry) => Some(LayerModel {
+            rig: layer_geometry_rig_id(submission.input.rig, geometry),
+            previous: cache.convert(&layer.previous_pose)?,
+            current: cache.convert(&layer.pose)?,
+        }),
+    };
+    Some(ResolvedLayer {
+        material: render_model::ActorMaterial {
+            color_mask: false,
+            glint: Default::default(),
+            kind: layer.material,
+            state: layer.material_state,
+            suppress_overlay: false,
+            dissolve_multiplier: layer.overlay[3],
+            light_color_multiplier: layer.light_color_multiplier,
+        },
+        model,
+        ignore_lighting: layer.ignore_lighting,
+        location: if player_skin {
+            None
+        } else {
+            Some(match layer.multitexture {
+                Some([second, third]) => artwork
+                    .multitexture_location(submission.input.rig, [layer.source, second, third])?,
+                None => artwork.variant_location(submission.input.rig, layer.source)?,
+            })
+        },
+        tint: pack_layer_tint(layer.color),
+        overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
+        hidden_bones: Arc::clone(&layer.hidden_bones),
+        uv_anim: layer.uv_anim,
+    })
+}
+
+/// Refills the bounded body layers using the same admission as inherited equipment styling.
 fn resolve(
     submission: &ActorRigSubmission,
     layers: &[RenderTextureLayer],
@@ -167,55 +221,56 @@ fn resolve(
     resolved.extend(
         layers
             .iter()
-            .filter_map(|layer| {
-                if player_skin && (layer.geometry.is_some() || layer.texture_slot != 0) {
-                    return None;
-                }
-                let model = match layer.geometry {
-                    None if player_skin => None,
-                    None if layer.pose.is_empty() => None,
-                    None => Some(LayerModel {
-                        rig: submission.input.rig,
-                        previous: cache.convert(&layer.previous_pose)?,
-                        current: cache.convert(&layer.pose)?,
-                    }),
-                    Some(geometry) => Some(LayerModel {
-                        rig: layer_geometry_rig_id(submission.input.rig, geometry),
-                        previous: cache.convert(&layer.previous_pose)?,
-                        current: cache.convert(&layer.pose)?,
-                    }),
-                };
-                Some(ResolvedLayer {
-                    material: render_model::ActorMaterial {
-                        color_mask: false,
-                        glint: Default::default(),
-                        kind: layer.material,
-                        state: layer.material_state,
-                        suppress_overlay: false,
-                        dissolve_multiplier: layer.overlay[3],
-                        light_color_multiplier: layer.light_color_multiplier,
-                    },
-                    model,
-                    ignore_lighting: layer.ignore_lighting,
-                    location: if player_skin {
-                        None
-                    } else {
-                        Some(match layer.multitexture {
-                            Some([second, third]) => artwork.multitexture_location(
-                                submission.input.rig,
-                                [layer.source, second, third],
-                            )?,
-                            None => artwork.variant_location(submission.input.rig, layer.source)?,
-                        })
-                    },
-                    tint: pack_layer_tint(layer.color),
-                    overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
-                    hidden_bones: Arc::clone(&layer.hidden_bones),
-                    uv_anim: layer.uv_anim,
-                })
-            })
+            .filter_map(|layer| resolve_layer(submission, layer, artwork, cache, player_skin))
             .take(MAX_TEXTURE_LAYERS),
     );
+}
+
+/// Admitted controller styling inherited by equipment without replacing attachment poses.
+pub(crate) struct ControllerStyle {
+    pub overlay_rgba8: u32,
+    pub light: u32,
+}
+
+/// Resolves the primary body's style independently of its model and visibility masks.
+pub(crate) fn controller_style(
+    body: &ActorRigSubmission,
+    layers: &[RenderTextureLayer],
+    artwork: &ActorArtworkPages,
+    cache: &mut LayerPoseCache,
+    player_skin: bool,
+) -> ControllerStyle {
+    layers
+        .iter()
+        .find_map(|layer| resolve_layer(body, layer, artwork, cache, player_skin))
+        .map_or(
+            ControllerStyle {
+                overlay_rgba8: body.overlay_rgba8,
+                light: body.light,
+            },
+            |layer| ControllerStyle {
+                overlay_rgba8: layer_overlay(body.overlay_rgba8, &layer),
+                light: layer_light(body.light, &layer),
+            },
+        )
+}
+
+/// Preserves baseline lighting unless the admitted controller bypasses the world lightmap.
+fn layer_light(inherited: u32, layer: &ResolvedLayer) -> u32 {
+    if layer.ignore_lighting {
+        pack_actor_light_without_lightmap()
+    } else {
+        inherited
+    }
+}
+
+/// Applies the controller's overlay precedence independently of its model and visibility.
+fn layer_overlay(inherited: u32, layer: &ResolvedLayer) -> u32 {
+    if !layer.material.allows_overlay() {
+        0
+    } else {
+        layer.overlay.unwrap_or(inherited)
+    }
 }
 
 /// The zero-scale pose vanilla uses to hide a bone.
@@ -248,16 +303,10 @@ fn layered(
         submission.texture_layer = location.layer();
     }
     submission.material = layer.material;
-    if !submission.material.allows_overlay() {
-        submission.overlay_rgba8 = 0;
-    } else if let Some(overlay) = layer.overlay {
-        submission.overlay_rgba8 = overlay;
-    }
+    submission.overlay_rgba8 = layer_overlay(body.overlay_rgba8, layer);
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
-    if layer.ignore_lighting {
-        submission.light = pack_actor_light_without_lightmap();
-    }
+    submission.light = layer_light(body.light, layer);
     if !layer.hidden_bones.is_empty() {
         submission.input.previous_bones =
             cache.hide(&submission.input.previous_bones, &layer.hidden_bones);
@@ -295,13 +344,9 @@ pub fn apply_render_layers_cached<'a>(
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
-        let player_skin = !batch.artwork.contains_key(&identity)
-            && (body.texture_layer as usize) < batch.skin_layers.len();
-        if identity.layer != ACTOR_LAYER_BODY
-            || (!player_skin && !batch.artwork.contains_key(&identity))
-        {
+        let Some(player_skin) = batch.body_render_skin(body) else {
             continue;
-        }
+        };
         let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
@@ -395,6 +440,92 @@ mod tests {
                 .iter()
                 .all(|bone| bone.translation_scale[3] == 0.0)
         );
+    }
+
+    #[test]
+    fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
+        let layer = RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source: 0,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [1.0, 0.0, 0.0, 0.5],
+            hidden_bones: Arc::from([0]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: None,
+            previous_pose: Arc::from([]),
+            pose: Arc::from([]),
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+        };
+        for dissolve in [false, true] {
+            let presentation = super::super::actors::local_diagnostic_presentation(
+                1,
+                0,
+                1,
+                render_api::PoseGeneration::new(1),
+                [0.0; 3],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+            let mut batch =
+                super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+            let mut rejected = layer.clone();
+            rejected.geometry = Some(0);
+            rejected.overlay = [0.0, 1.0, 0.0, 0.5];
+            let mut primary = layer.clone();
+            rejected.ignore_lighting = !dissolve;
+            primary.ignore_lighting = dissolve;
+            if dissolve {
+                primary.material = assets::EntityRenderMaterial::DissolveColor;
+            }
+            let mut extra = layer.clone();
+            extra.overlay = [0.0, 0.0, 1.0, 0.5];
+            let layers = [rejected, primary, extra];
+            let artwork = ActorArtworkPages::default();
+            let mut cache = LayerPoseCache::default();
+            let baseline_light = render_model::pack_actor_light(2, 3);
+            batch.submissions[0].light = baseline_light;
+            let body = &batch.submissions[0];
+            let original_bones = Arc::clone(&body.input.current_bones);
+            let expected = if dissolve {
+                0
+            } else {
+                pack_overlay_rgba8(layer.overlay)
+            };
+            let style = controller_style(body, &layers, &artwork, &mut cache, true);
+            assert_eq!(style.overlay_rgba8, expected);
+            assert_eq!(
+                style.light,
+                if dissolve {
+                    pack_actor_light_without_lightmap()
+                } else {
+                    body.light
+                }
+            );
+            assert_eq!(body.input.current_bones, original_bones);
+            apply_render_layers_cached(
+                &mut batch,
+                |_| Some(Cow::Borrowed(&layers)),
+                &artwork,
+                &mut cache,
+            );
+            assert_eq!(batch.submissions[0].overlay_rgba8, expected);
+            assert_eq!(batch.submissions[0].light, style.light);
+            assert_eq!(batch.submissions[1].light, baseline_light);
+            assert_eq!(
+                batch.submissions[0].input.current_bones[0].translation_scale[3],
+                0.0
+            );
+            assert_eq!(
+                batch.submissions[1].overlay_rgba8,
+                pack_overlay_rgba8(layers[2].overlay)
+            );
+        }
     }
 
     #[test]

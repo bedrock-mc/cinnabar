@@ -17,6 +17,7 @@ test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test
 tracy = ["oreui/tracy"]
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 uuid.workspace = true
 protocol-ids = { path = "../protocol-ids" }
 pack-json = { path = "../pack-json" }
@@ -63,6 +64,7 @@ resource-pack = { path = "../resource-pack" }
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 
 [dev-dependencies]
+render-model = { path = "../render-model", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
 launcher = { path = "../launcher", features = ["test-support"] }
 oreui = { path = "../oreui", features = ["test-support"] }

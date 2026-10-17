@@ -183,6 +183,7 @@ pub struct UiPresentationRuntime {
     /// Worn armor and the held item the model shows, and where armor art comes from.
     player_preview_gear: player_preview::PreviewEquipment,
     equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    preview_equipment_selection: player_preview::selection::EquipmentSelection,
     gui_models: gui_models::GuiModels,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
@@ -215,6 +216,7 @@ pub struct UiPresentationRuntime {
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     menu_skin_thumbnail_indices: Vec<usize>,
     menu_cape_thumbnail_indices: Vec<usize>,
+    menu_cosmetic_thumbnail_indices: Vec<usize>,
     /// Full settings slider geometry, including steps clipped from view.
     settings_slider_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: ui_engine::menu_scroll::MenuScrolls<launcher::menu::MenuAction>,

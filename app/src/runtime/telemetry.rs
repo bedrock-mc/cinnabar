@@ -255,6 +255,8 @@ pub(crate) fn send_player_auth_inputs(
     local_frame: Res<LocalPlayerFrameCarrier>,
     mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
+    target: Option<Res<crate::melee::MeleeTarget>>,
+    mut hover: bevy::prelude::Local<gameplay::entity_hover::EntityHover>,
     client_world: Res<ClientWorld>,
     mut fatal_error: ResMut<FatalError>,
     real_time: Option<Res<Time<Real>>>,
@@ -300,23 +302,34 @@ pub(crate) fn send_player_auth_inputs(
         );
         return;
     }
+    let session = movement.interaction_authority_identity().0;
+    let hover_snapshot = target.as_ref().and_then(|target| target.hover);
     let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet, mining_guard, sampled_at| match trace {
-            Some(trace) => {
-                let sampled = real_time
-                    .as_deref()
-                    .and_then(|time| movement_trace::sample_instant(time, sampled_at))
-                    .map_or(0, |instant| trace.at(instant));
-                trace.record_admitted(
-                    bridge::latency_trace::kind::TICK_SENT,
-                    &[identity.tick.get() as i64, sampled],
-                    || network.send_physics_packet(identity, packet, mining_guard),
-                )
+        |identity, packet, mining_guard, sampled_at| {
+            if let Some((first_tick, snapshot)) = hover_snapshot
+                && identity.tick.get() >= first_tick
+            {
+                hover.send_tick(session, identity.tick.get(), snapshot, |packet| {
+                    network.send_inventory_packet(packet)
+                })?;
             }
-            None => network.send_physics_packet(identity, packet, mining_guard),
+            match trace {
+                Some(trace) => {
+                    let sampled = real_time
+                        .as_deref()
+                        .and_then(|time| movement_trace::sample_instant(time, sampled_at))
+                        .map_or(0, |instant| trace.at(instant));
+                    trace.record_admitted(
+                        bridge::latency_trace::kind::TICK_SENT,
+                        &[identity.tick.get() as i64, sampled],
+                        || network.send_physics_packet(identity, packet, mining_guard),
+                    )
+                }
+                None => network.send_physics_packet(identity, packet, mining_guard),
+            }
         },
     );
     match result {

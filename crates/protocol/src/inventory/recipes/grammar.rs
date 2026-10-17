@@ -2,7 +2,7 @@ use super::{
     budget::MAX_RECORDS,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
-    screen::ScreenRecipeKind,
+    screen::{BrewingItem, BrewingRecipe, ScreenRecipeKind},
 };
 
 #[derive(Clone, Copy, Default)]
@@ -42,6 +42,7 @@ pub(super) enum ScreenItem<'a> {
     },
     /// A station recipe outside the supported input shape.
     Skipped,
+    Brewing(super::screen::BrewingRecipe),
 }
 
 pub(super) fn identifier(value: &str) -> bool {
@@ -304,10 +305,33 @@ pub(super) fn walk<'a>(
                     }
                     record(id, None)?;
                 }
-                8 | 9 => {
-                    for _ in 0..if family == 8 { 6 } else { 3 } {
-                        reader.int()?;
-                    }
+                8 => {
+                    let mut item = || -> ReadResult<BrewingItem> {
+                        Ok(BrewingItem {
+                            network_id: reader.int()?,
+                            aux: Some(reader.int()?),
+                        })
+                    };
+                    let (input, reagent, output) = (item()?, item()?, item()?);
+                    screen(ScreenItem::Brewing(BrewingRecipe {
+                        input,
+                        reagent,
+                        output,
+                    }))?;
+                }
+                9 => {
+                    let mut item = || -> ReadResult<BrewingItem> {
+                        Ok(BrewingItem {
+                            network_id: reader.int()?,
+                            aux: None,
+                        })
+                    };
+                    let (input, reagent, output) = (item()?, item()?, item()?);
+                    screen(ScreenItem::Brewing(BrewingRecipe {
+                        input,
+                        reagent,
+                        output,
+                    }))?;
                 }
                 10 => {
                     reader.int()?;

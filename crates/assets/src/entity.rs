@@ -195,7 +195,7 @@ pub struct EntityGeometryCube {
     pub pivot: [EntityGeometryScalar; 3],
     pub rotation: [EntityGeometryScalar; 3],
     pub uv: EntityGeometryUv,
-    /// Final cube inflation; retained bone metadata must not be added again.
+    /// Resolved cube inflation; retained bone metadata must not be added again.
     pub inflate: EntityGeometryScalar,
     /// Final cube mirroring, including an explicit false override of a bone default.
     pub mirror: bool,
@@ -348,6 +348,7 @@ impl CompiledEntityAssets {
     }
 }
 
+mod attachable;
 mod runtime;
 pub use runtime::RuntimeEntityAssets;
 

@@ -9,6 +9,7 @@ use render_model::{EntityRigId, entity_geometry};
 
 use crate::presentation::actors::{PoseConversions, actor_rig_presentation_cached};
 
+/// Loads the single installed entity carrier, explaining when its fixture is absent.
 fn installed_entities() -> Option<Arc<RuntimeEntityAssets>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let entries = match std::fs::read_dir(&root) {
@@ -46,12 +47,14 @@ fn installed_entities() -> Option<Arc<RuntimeEntityAssets>> {
     ))
 }
 
+/// Applies one published affine transform to a point.
 fn transform(rows: [[f32; 4]; 3], point: Vec3) -> Vec3 {
     Vec3::from_array(std::array::from_fn(|axis| {
         Vec3::from_array([rows[axis][0], rows[axis][1], rows[axis][2]]).dot(point) + rows[axis][3]
     }))
 }
 
+/// Spawns an installed XP orb with an arbitrary server orientation.
 fn installed_orb_world() -> Option<WorldAuthority> {
     let entities = installed_entities()?;
     let mut world = WorldAuthority::new(
@@ -162,6 +165,9 @@ fn installed_xp_orb_publishes_each_server_timed_tick_and_partial_frame() {
     let Some(mut world) = installed_orb_world() else {
         return;
     };
+    world
+        .mark_chunk_loaded(world::ChunkKey::new(0, 0, 0))
+        .unwrap();
     world
         .apply_ordered_event(
             WorldEvent::Actor(ActorEvent::Move(protocol::ActorMoveEvent {

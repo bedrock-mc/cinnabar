@@ -1,0 +1,5 @@
+{
+  "scoreboard_sidebar": {
+    "$sidebar_texture": "textures/fixture/sidebar_blue"
+  }
+}

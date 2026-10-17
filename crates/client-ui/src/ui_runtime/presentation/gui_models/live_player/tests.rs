@@ -1,4 +1,28 @@
 use super::*;
+
+#[test]
+fn cosmetic_motion_keeps_software_hand_rasters() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let item = render_model::hats::fixture::bunny();
+    presentation.set_preview_cosmetics(&[item]);
+    presentation.set_player_preview_skin(None, Default::default());
+    let hands = presentation.player_preview_pixels.as_ref().unwrap();
+    let before = (hands.left_hand.as_ptr(), hands.right_hand.as_ptr());
+    presentation.set_cosmetic_motion(&[(
+        item,
+        render_model::hats::Motion {
+            bend: 0.5,
+            ..Default::default()
+        },
+    )]);
+    presentation.set_player_preview_skin(None, Default::default());
+    let hands = presentation.player_preview_pixels.as_ref().unwrap();
+    assert_eq!(
+        before,
+        (hands.left_hand.as_ptr(), hands.right_hand.as_ptr())
+    );
+}
 use std::sync::Arc;
 
 /// Compiles original one-cube player geometry without installed assets or a server.
@@ -298,20 +322,29 @@ fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
 }
 
 #[test]
-fn hud_hat_uses_the_shared_head_pose_wind_angle_and_removal() {
+fn hud_cosmetic_uses_the_shared_head_pose_wind_angle_and_removal() {
     let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
     let stream = player_stream(Arc::clone(&catalog), catalog);
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    presentation.set_preview_hat(Some(render_api::Hat::BunnyEars));
+    presentation.set_preview_cosmetics(&[render_model::hats::fixture::bunny()]);
     presentation.capture_hud_player(Some(&stream), false);
-    let upright = presentation.gui_models.live_player.hat_vertices.clone();
+    let upright = presentation.gui_models.live_player.hat_vertices
+        [&render_model::hats::fixture::bunny()]
+        .clone();
     assert!(!upright.is_empty());
-    presentation.set_preview_hat_bend(0.9);
+    presentation.set_cosmetic_motion(&[(
+        render_model::hats::fixture::bunny(),
+        render_model::hats::Motion {
+            bend: 0.9,
+            ..Default::default()
+        },
+    )]);
     presentation.capture_hud_player(Some(&stream), false);
-    let folded = &presentation.gui_models.live_player.hat_vertices;
+    let folded =
+        &presentation.gui_models.live_player.hat_vertices[&render_model::hats::fixture::bunny()];
     assert_eq!(upright.len(), folded.len());
     assert!(
         upright
@@ -319,7 +352,55 @@ fn hud_hat_uses_the_shared_head_pose_wind_angle_and_removal() {
             .zip(folded)
             .any(|(old, new)| old.position != new.position)
     );
-    presentation.set_preview_hat(None);
+    presentation.set_preview_cosmetics(&[]);
     presentation.capture_hud_player(Some(&stream), false);
     assert!(presentation.gui_models.live_player.hat_vertices.is_empty());
+}
+
+#[test]
+fn hud_wings_follow_shared_time_without_moving_the_equipped_hat() {
+    let catalog = player_catalog_geometry(br#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},
+        "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]},
+        {"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec());
+    let stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let wings = render_model::hats::fixture::dragon_wings();
+    let hat = render_model::hats::fixture::devil_horns();
+    presentation.set_preview_cosmetics(&[hat, wings]);
+    presentation.capture_hud_player(Some(&stream), false);
+    let first = presentation.gui_models.live_player.hat_vertices.clone();
+    for seconds in [0.7, 2.1] {
+        presentation.set_cosmetic_motion(&[(
+            wings,
+            render_model::hats::Motion {
+                seconds,
+                ..Default::default()
+            },
+        )]);
+        presentation.capture_hud_player(Some(&stream), false);
+        let current = &presentation.gui_models.live_player.hat_vertices;
+        assert_eq!(first[&hat], current[&hat]);
+        assert!(!current[&wings].is_empty());
+        assert!(
+            first[&wings]
+                .iter()
+                .zip(&current[&wings])
+                .any(|(a, b)| a.position != b.position)
+        );
+    }
+    presentation.set_preview_cosmetics(&[hat]);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert!(
+        !presentation
+            .gui_models
+            .live_player
+            .hat_vertices
+            .contains_key(&wings)
+    );
+    assert_eq!(
+        first[&hat],
+        presentation.gui_models.live_player.hat_vertices[&hat]
+    );
 }

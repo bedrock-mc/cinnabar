@@ -519,6 +519,7 @@ impl Gpu {
 }
 
 /// Saves diagnostic pixels outside git when an offline snapshot run requests them.
+#[cfg(test)]
 pub fn save(name: &str, pixels: &[u8]) {
     if let Some(directory) = std::env::var_os("CINNABAR_REVIEW_SNAPSHOT_DIR") {
         image::save_buffer(

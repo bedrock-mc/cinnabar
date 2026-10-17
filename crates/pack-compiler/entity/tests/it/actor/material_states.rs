@@ -171,6 +171,28 @@ fn actor_material_states_keep_slime_outer_blended_culled_and_depth_writing() {
 }
 
 #[test]
+fn sulfur_cube_material_aliases_match_authored_parent_states() {
+    let definitions = json!({"materials": {
+        "fixture_inner:entity_alphatest": {},
+        "fixture_outer:entity": {"+states": ["Blending"]},
+        "fixture_override:sulfur_cube_outer": {"-states": ["Blending"]}
+    }});
+    for (native, authored) in [
+        ("sulfur_cube", "fixture_inner"),
+        ("sulfur_cube_outer", "fixture_outer"),
+    ] {
+        let expected = state(authored, Some(&definitions));
+        assert!(expected.is_object());
+        assert_eq!(state(native, None), expected);
+        assert_eq!(state(&format!("{native}.skinning"), None), expected);
+    }
+    assert_eq!(
+        state("fixture_override", Some(&definitions)),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
+    );
+}
+
+#[test]
 fn wind_material_uses_the_native_double_sided_blended_route_without_depth_writes() {
     let expected = json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":false,"disable_overlay":true});
     assert_eq!(state("breeze_wind", None), expected);

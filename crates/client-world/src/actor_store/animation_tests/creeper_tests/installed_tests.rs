@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::*;
 use actor_animation::{
     ActorAnimationStore, ActorTickContext, MAX_MOLANG_OPS_PER_RENDER_FRAME,
-    test_support::total_scale,
+    test_support::{quat_from_euler, total_scale},
 };
 
 #[test]
@@ -16,6 +16,7 @@ fn installed_powered_creeper_samples_pack_swelling_and_motion_between_ticks() {
     assert_installed_creeper_samples(true);
 }
 
+/// Checks fractional swelling and head motion on every installed creeper layer.
 fn assert_installed_creeper_samples(powered: bool) {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
@@ -127,34 +128,37 @@ fn assert_installed_creeper_samples(powered: bool) {
         .position(|name| name.as_ref() == "head")
         .unwrap();
     assert_ne!(rig.previous[head].rotation, rig.current[head].rotation);
-    let expected = [rig.previous[head].rotation, rig.current[head].rotation];
-    for alpha in [0.25, 0.75] {
+    let actor = store.get(1).unwrap();
+    let previous_pitch = actor.previous_pose.pitch;
+    let pitch = actor.pitch;
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let expected = quat_from_euler([
+            -(previous_pitch + (pitch - previous_pitch) * alpha),
+            0.0,
+            0.0,
+        ]);
         let layers = store.render_frame(alpha).layers(1).unwrap();
-        let layer_count = if powered {
+        if powered {
             assert!(layers.len() > 1);
-            2
-        } else {
-            1
-        };
-        for (index, layer) in layers.iter().take(layer_count).enumerate() {
-            let rotations = if layer.pose.is_empty() {
-                expected
-            } else {
+        }
+        for (index, layer) in layers.iter().enumerate() {
+            let drawn = interpolated_pitch(
                 [
                     layer.previous_pose[head].rotation,
                     layer.pose[head].rotation,
-                ]
-            };
-            let drawn = interpolated_pitch(rotations, alpha);
-            let expected = interpolated_pitch(expected, alpha);
+                ],
+                alpha,
+            );
+            let expected = interpolated_pitch([expected; 2], alpha);
             assert!(
                 (drawn - expected).abs() < 1e-4,
                 "layer {index} head pitch at {alpha}: {drawn}, expected {expected}"
             );
         }
     }
+
     let mut actor = store.get(1).unwrap().clone();
-    let mut animation = ActorAnimationStore::with_assets(assets);
+    let mut animation = ActorAnimationStore::with_assets(Arc::clone(&assets));
     animation.insert(1, 0, &actor);
     animation.advance_tick(
         &HashMap::from([(1, actor.clone())]),
@@ -285,13 +289,41 @@ fn assert_installed_creeper_samples(powered: bool) {
         }
     }
     store.advance_interpolation_ticks(1);
-    let completed = store.actor_rig(1).unwrap();
+    // A fresh stationary rig has no decaying walk speed that still needs frame sampling.
+    let actor = store.get(1).unwrap().clone();
+    let mut resting = ActorAnimationStore::with_assets(assets);
+    resting.insert(1, 0, &actor);
+    let actors = HashMap::from([(1, actor)]);
+    for _ in 0..2 {
+        resting.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let completed = resting.get(1).unwrap();
     for alpha in [0.25, 0.75] {
-        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let mut remaining = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = resting
+            .render_layers(
+                &actors[&1],
+                alpha,
+                [0.0; 2],
+                [0.0; 3],
+                &mut remaining,
+                false,
+            )
+            .unwrap()
+            .render;
+        if powered {
+            assert!(Arc::ptr_eq(&completed.render[1].pose, &layers[1].pose));
+            assert!(Arc::ptr_eq(
+                &completed.render[1].previous_pose,
+                &layers[1].previous_pose
+            ));
+        }
         for layer in layers.iter().take(if powered { 2 } else { 1 }) {
             for (pose, fallback) in [
-                (layer.previous_pose.as_ref(), completed.previous.as_ref()),
-                (layer.pose.as_ref(), completed.current.as_ref()),
+                (layer.previous_pose.as_ref(), completed.previous),
+                (layer.pose.as_ref(), completed.current),
             ] {
                 let body_pose = if pose.is_empty() {
                     &fallback[body]
@@ -305,7 +337,12 @@ fn assert_installed_creeper_samples(powered: bool) {
                 );
             }
         }
+        assert!(
+            layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
+            "unchanged swelling must reuse tick-owned poses"
+        );
     }
+
     store.apply(
         1,
         4,

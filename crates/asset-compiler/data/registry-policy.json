@@ -6817,6 +6817,8 @@
       "experience_orb": "AlphaTest",
       "player_spectator": "AlphaBlend",
       "slime_outer": "AlphaBlend",
+      "sulfur_cube": "AlphaTestNoCull",
+      "sulfur_cube_outer": "AlphaBlend",
       "breeze_wind": "Wind",
       "charged_creeper": "Charged",
       "ender_dragon": "Dragon",
@@ -6852,7 +6854,8 @@
     ],
     "item_visuals": {
       "minecraft:banner": "BlockModel",
-      "minecraft:bed": "Sprite"
+      "minecraft:bed": "Sprite",
+      "minecraft:nether_wart": "Sprite"
     },
     "alias_cubes": {
       "minecraft:bone_block": {

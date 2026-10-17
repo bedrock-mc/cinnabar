@@ -22,17 +22,17 @@ func (api *fakeSharedPlayers) SyncPlayers(state cinnabarapi.PlayerState) cinnaba
 
 func TestNearbyPlayerControlExchangesHatsAndClearsWithoutAnAccount(t *testing.T) {
 	api := &fakeSharedPlayers{states: make(chan cinnabarapi.PlayerState, 1), updates: cinnabarapi.PlayerUpdates{
-		Hats: []bridgecontract.CinnabarRemoteHat{{XUID: "11", UUID: "00112233-4455-6677-8899-aabbccddeeff", HatID: "bunny_ears", ValidForMS: 15000}},
+		Loadouts: []bridgecontract.CinnabarRemoteLoadout{{XUID: "11", UUID: "00112233-4455-6677-8899-aabbccddeeff", Revision: 1, Slots: []bridgecontract.CinnabarCosmeticSlot{{Slot: "head", ItemID: "cinnabar:bunny_ears"}}}},
 	}}
 	dir, _ := startCinnabarControl(t, api)
 	request, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": bridgecontract.MethodCinnabarPlayers,
-		"params": cinnabarapi.PlayerState{XUIDs: []string{"11"}, HatID: "crown"}})
+		"params": cinnabarapi.PlayerState{XUIDs: []string{"11"}, Slots: []bridgecontract.CinnabarCosmeticSlot{{Slot: "head", ItemID: "cinnabar:bunny_ears"}}}})
 	payload := exchange(t, dir, request)
 	if err := rpcError(t, payload); err != nil {
 		t.Fatal(err)
 	}
 	state := <-api.states
-	if state.HatID != "crown" || len(state.XUIDs) != 1 || state.XUIDs[0] != "11" {
+	if len(state.Slots) != 1 || state.Slots[0].ItemID != "cinnabar:bunny_ears" || len(state.XUIDs) != 1 || state.XUIDs[0] != "11" {
 		t.Fatal(state)
 	}
 	var answer struct {
@@ -41,7 +41,7 @@ func TestNearbyPlayerControlExchangesHatsAndClearsWithoutAnAccount(t *testing.T)
 	if err := json.Unmarshal(payload, &answer); err != nil {
 		t.Fatal(err)
 	}
-	if len(answer.Result.Hats) != 1 || answer.Result.Hats[0].HatID != "bunny_ears" || answer.Result.Emotes == nil {
+	if len(answer.Result.Loadouts) != 1 || answer.Result.Loadouts[0].Slots[0].ItemID != "cinnabar:bunny_ears" || answer.Result.Emotes == nil {
 		t.Fatalf("updates: %s", payload)
 	}
 	offline, _ := startCinnabarControl(t, nil)
@@ -49,7 +49,7 @@ func TestNearbyPlayerControlExchangesHatsAndClearsWithoutAnAccount(t *testing.T)
 	if err := json.Unmarshal(payload, &answer); err != nil {
 		t.Fatal(err)
 	}
-	if answer.Result.Hats == nil || len(answer.Result.Hats) != 0 || answer.Result.Emotes == nil {
+	if answer.Result.Loadouts == nil || len(answer.Result.Loadouts) != 0 || answer.Result.Emotes == nil {
 		t.Fatalf("offline updates: %s", payload)
 	}
 }

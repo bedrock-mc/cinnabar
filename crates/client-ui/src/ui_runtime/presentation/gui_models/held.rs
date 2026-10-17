@@ -144,8 +144,16 @@ pub(super) fn prepare(
         }
     }
     if let Some(equipment) = equipment {
-        for binding in equipment.bindings() {
-            let Some(model) = authored(atlas, entities, equipment, binding, hand_pivots)? else {
+        for binding in equipment
+            .bindings()
+            .iter()
+            .filter(|binding| player_preview::selection::unrestricted(binding, Some(entities)))
+        {
+            let Some(texture) = equipment.texture(&binding.texture.identifier) else {
+                continue;
+            };
+            let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
+            let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };
             models.insert(
@@ -213,13 +221,14 @@ fn block(source: IconRef, hand_pivots: [[f32; 3]; 2]) -> PreviewHeldModel {
     }
 }
 
+/// Builds the selected literal model using an already admitted artwork region.
 fn authored(
-    atlas: &mut atlas::Atlas,
     entities: &RuntimeEntityAssets,
     equipment: &RuntimeEquipmentCatalog,
     binding: &assets::EquipmentBinding,
     hand_pivots: [[f32; 3]; 2],
-) -> Result<Option<PreviewHeldModel>, UiPresentationError> {
+    source: IconRef,
+) -> Option<PreviewHeldModel> {
     use render_model::equipment::{BoneChannels, attach};
     let channels = |off_hand: bool| -> Option<BoneChannels> {
         match binding.category {
@@ -248,34 +257,29 @@ fn authored(
         }
     };
     let (Some(main), Some(off)) = (channels(false), channels(true)) else {
-        return Ok(None);
+        return None;
     };
-    let Some(index) = entities
+    let index = entities
         .geometries()
         .iter()
-        .position(|geometry| geometry.identifier == binding.geometry.identifier)
-    else {
-        return Ok(None);
-    };
+        .position(|geometry| geometry.identifier == binding.geometry.identifier)?;
     let Ok(bones) = render_model::resolve_geometry_bones(entities, index) else {
-        return Ok(None);
+        return None;
     };
     let [root] = &*bones else {
-        return Ok(None);
+        return None;
     };
-    let Some(texture) = equipment.texture(&binding.texture.identifier) else {
-        return Ok(None);
-    };
+    let texture = equipment.texture(&binding.texture.identifier)?;
     let Ok(geometry) = render_model::attachable_geometry(
         entities,
         index,
         render_model::item_mesh_rig_id(0),
         texture,
     ) else {
-        return Ok(None);
+        return None;
     };
     let [pivot] = &*geometry.bone_pivots else {
-        return Ok(None);
+        return None;
     };
     let identity = RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
@@ -286,10 +290,9 @@ fn authored(
         attach(identity, *pivot, main, root.binding.is_some()),
         attach(identity, *pivot, off, root.binding.is_some()),
     ) else {
-        return Ok(None);
+        return None;
     };
-    let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
-    Ok(Some(PreviewHeldModel {
+    Some(PreviewHeldModel {
         source,
         hand_pivots,
         vertices: Arc::clone(&geometry.vertices),
@@ -297,10 +300,46 @@ fn authored(
             bone,
             pivot: *pivot,
         }),
-    }))
+    })
 }
 
 #[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod variant_tests;
+
+mod dressing;
+
+/// One demanded authored definition; retaining the asset Arc prevents stale identity reuse.
+pub(super) struct SelectedModel {
+    pub item: ItemVisualKey,
+    definition: Box<str>,
+    entities: Arc<RuntimeEntityAssets>,
+    artwork: Arc<RuntimeEquipmentCatalog>,
+    /// Missing geometry is cached; unavailable artwork retains prepared geometry for retry.
+    pub model: Option<PreviewHeldModel>,
+    /// Whether the current atlas admits this model's artwork.
+    pub ready: bool,
+}
+
+impl SelectedModel {
+    /// Reuses geometry only while its definition, source artifacts and hand frame are unchanged.
+    fn matches(
+        &self,
+        binding: &assets::EquipmentBinding,
+        entities: &Arc<RuntimeEntityAssets>,
+        artwork: &Arc<RuntimeEquipmentCatalog>,
+        hand_pivots: [[f32; 3]; 2],
+    ) -> bool {
+        self.definition.as_ref() == binding.attachable_identifier()
+            && Arc::ptr_eq(&self.entities, entities)
+            && Arc::ptr_eq(&self.artwork, artwork)
+            && self
+                .model
+                .as_ref()
+                .is_none_or(|model| model.hand_pivots == hand_pivots)
+    }
+}

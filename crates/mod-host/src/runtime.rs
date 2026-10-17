@@ -39,9 +39,10 @@ mod exports;
 mod gameplay;
 #[path = "hud.rs"]
 mod hud;
+mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
-mod player_mod;
+pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
 #[path = "render.rs"]
@@ -104,6 +105,8 @@ struct State {
     calls: usize,
     output: usize,
     block_highlights: block_highlights::HighlightState,
+    inventory: inventory::InventoryRequests,
+    events: player_mod::EventContext,
 }
 
 impl State {
@@ -168,6 +171,8 @@ impl State {
             calls: 0,
             output: 0,
             block_highlights: block_highlights::HighlightState::default(),
+            inventory: Default::default(),
+            events: Default::default(),
         }
     }
 }
@@ -563,6 +568,7 @@ impl Instance {
         state.calls = 0;
         state.output = 0;
         state.pending_screens = None;
+        state.inventory.begin();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -680,6 +686,7 @@ impl Instance {
         state.pending_show_real_position = None;
         state.pending_screens = None;
         state.screens = ModScreens::default();
+        state.inventory.revoke();
     }
 
     pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
@@ -934,6 +941,7 @@ fn commit_event(store: &mut Store<State>) {
         }
     }
     state.controls.commit();
+    state.inventory.commit();
     if let Some(enabled) = state.pending_fullbright.take() {
         state.fullbright = enabled;
     }

@@ -193,6 +193,18 @@ impl GpuArtwork {
         true
     }
 
+    /// Reports whether this page binds the exact immutable pixels supplied by the publication.
+    #[cfg(feature = "publication-test-support")]
+    pub(super) fn page_is_bound(
+        &self,
+        page: ActorArtworkPageId,
+        source: &render_model::ActorTexturePage,
+    ) -> bool {
+        self.pages
+            .get(usize::from(page) - 1)
+            .is_some_and(|page| page.bind_group.is_some() && page.source.shares_pixels_with(source))
+    }
+
     /// Buffer and glint replacements invalidate bindings without discarding page textures.
     pub fn invalidate_bindings(&mut self) {
         for page in &mut self.pages {

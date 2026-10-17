@@ -149,11 +149,24 @@ pub(super) fn recognize(
         .iter()
         .chain(inherited)
         .filter_map(|binding| {
-            let candidate_assets = if catalog.binding(&binding.identifier).is_some() {
-                pack
+            let (candidate_assets, candidates) = if catalog.binding(&binding.identifier).is_some() {
+                (pack, catalog)
             } else {
-                base
+                (base, startup)
             };
+            // An item-wide shortcut cannot represent owner-selected definitions.
+            if candidates.bindings_for(&binding.identifier).len() != 1
+                || binding.attachable.is_some()
+                || candidate_assets
+                    .attachable_rig_binding(binding.attachable_identifier())
+                    .is_some_and(|rig| {
+                        candidate_assets.rig_bindings()[rig]
+                            .item_condition
+                            .is_some()
+                    })
+            {
+                return None;
+            }
             let kind = NativeItem::from_identifier(&binding.identifier)?;
             let stock = startup.binding(&binding.identifier)?;
             let mut references = geometry_names(base, stock);

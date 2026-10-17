@@ -158,11 +158,16 @@ impl<'a> Model<'a> {
         })
     }
 
-    /// A full cube from six 16x16 tiles and their alpha modes in `BlockFace` order.
+    /// A GUI cube's outward surfaces from six tiles and alpha modes in `BlockFace` order.
     pub(super) fn cube(tiles: [Box<[u8]>; 6], blending: [bool; 6]) -> Model<'static> {
         let faces = BlockFace::ALL
             .into_iter()
             .zip(tiles)
+            .filter(|(face, _)| {
+                assets::gui_item::CUBE_FACES
+                    .iter()
+                    .any(|(visible, _, _, _)| visible == face)
+            })
             .map(|(face, tile)| {
                 let (corners, uvs) = cube_face(face);
                 Face {
@@ -346,6 +351,34 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
 #[cfg(test)]
 mod review_tests {
     use super::*;
+    #[test]
+    fn cube_thumbnail_hides_rear_texels_through_front_holes() {
+        for blend in [false, true] {
+            let tiles = BlockFace::ALL.map(|face| {
+                let visible = assets::gui_item::CUBE_FACES
+                    .iter()
+                    .any(|(front, _, _, _)| *front == face);
+                let color = if visible {
+                    [0, 0, 0, 0]
+                } else {
+                    [255, 0, 0, 255]
+                };
+                color
+                    .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+                    .into_boxed_slice()
+            });
+            let icon = Model::cube(tiles, [blend; 6]).raster();
+            assert!(
+                icon.rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[3] == 0),
+                "rear cube faces must not show through transparent front texels"
+            );
+        }
+    }
+
     #[test]
     fn review_translucent_faces_preserve_opaque_geometry_in_both_orders() {
         for reverse in [false, true] {

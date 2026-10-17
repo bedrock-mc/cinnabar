@@ -9,7 +9,7 @@ pub(crate) struct MenuPreviewModel {
     source: Option<Arc<render_api::SkinGeometrySource>>,
     pub(crate) vertices: Option<Arc<[ActorVertex]>>,
     pub(crate) cape: Option<render_api::CapeImage>,
-    pub(crate) hat: Option<render_api::Hat>,
+    pub(crate) cosmetics: Vec<cosmetics::Item>,
     pub(crate) cape_key: Option<String>,
     pub(super) bounds: Option<super::fitting::OrbitBounds>,
     body_bounds: Option<super::fitting::OrbitBounds>,
@@ -51,11 +51,11 @@ impl MenuPreviewModel {
 
 impl super::UiPresentationRuntime {
     /// Updates headwear without reloading skin geometry or regenerating skin textures.
-    pub fn set_preview_hat(&mut self, hat: Option<render_api::Hat>) {
-        if self.menu_preview_model.hat == hat {
+    pub fn set_preview_cosmetics(&mut self, items: &[cosmetics::Item]) {
+        if self.menu_preview_model.cosmetics == items {
             return;
         }
-        self.menu_preview_model.hat = hat;
+        self.menu_preview_model.cosmetics = items.to_vec();
         let mut bounds = self
             .menu_preview_model
             .body_bounds
@@ -63,12 +63,13 @@ impl super::UiPresentationRuntime {
         if self.menu_preview_model.cape.is_some() {
             bounds = bounds.with_static_geometry(super::cape::rest_vertices());
         }
-        if let Some(hat) = hat {
+        for &hat in items {
             bounds = bounds.with_static_geometry(&render_model::hats::rig(hat).rest_vertices);
         }
         self.menu_preview_model.bounds = Some(bounds);
         self.last_frame = None;
         self.player_preview_source_hash = None;
+        self.sync_equipped_cosmetic_artwork();
     }
 
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
@@ -98,7 +99,7 @@ impl super::UiPresentationRuntime {
                     .with_static_geometry(super::cape::rest_vertices()),
             );
         }
-        if let Some(hat) = self.menu_preview_model.hat {
+        for &hat in &self.menu_preview_model.cosmetics {
             bounds = Some(
                 bounds
                     .unwrap_or_else(super::fitting::standard)
@@ -106,7 +107,7 @@ impl super::UiPresentationRuntime {
             );
         }
         self.menu_preview_model = MenuPreviewModel {
-            hat: self.menu_preview_model.hat,
+            cosmetics: self.menu_preview_model.cosmetics.clone(),
             source: skin.geometry.clone(),
             cape_key: if cape_matches {
                 self.menu_preview_model.cape_key.clone()

@@ -229,6 +229,8 @@ fn current_storage_close_waits_for_the_previous_storage_reply() {
     let request = ledger.begin_storage_click(0).unwrap();
     assert!(ledger.mark_transport_enqueued(20));
     ledger.request_storage_close();
+    // Cursor cleanup can leave while the earlier close awaits its acknowledgement.
+    assert!(ledger.mark_transport_enqueued(29));
     assert!(!ledger.mark_transport_enqueued(30));
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(3),
