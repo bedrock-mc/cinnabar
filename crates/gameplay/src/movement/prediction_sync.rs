@@ -54,7 +54,7 @@ pub fn send_movement_prediction_sync(
     );
     let sync = MovementPredictionSync {
         actor_flags: predicted_flag_words(&actor.metadata, physics.latest_sneak_sprint()),
-        bounding_box: bounding_box(&actor.metadata),
+        bounding_box: predicted_bounding_box(&actor.metadata, physics.completed_walking_height()),
         attributes,
         unique_id: stream.local_player_unique_id(),
         flying: physics.mode() == sim::MovementMode::Flying,
@@ -97,6 +97,22 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
     ]
 }
 
+/// Uses completed walking size for the standard unscaled player model.
+/// Other models and poses retain their supplied metadata until their local contracts are available.
+fn predicted_bounding_box(
+    metadata: &HashMap<u32, ActorMetadataValue>,
+    walking_height: Option<f32>,
+) -> [f32; 3] {
+    let mut size = bounding_box(metadata);
+    if size == [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]
+        && let Some(height) = walking_height
+    {
+        size[2] = height;
+    }
+    size
+}
+
+/// Reads the server-supplied model, with defaults for absent or non-finite fields.
 fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
     let float = |key, default| match metadata.get(&key) {
         Some(ActorMetadataValue::Float(value)) if value.is_finite() => *value,
@@ -169,6 +185,29 @@ mod tests {
             ActorMetadataValue::Float(f32::NAN),
         );
         assert_eq!(bounding_box(&metadata), [1.0, 0.6, 0.6]);
+    }
+
+    #[test]
+    fn local_walking_size_waits_for_a_sample_and_preserves_other_models() {
+        let metadata = HashMap::new();
+        let standing = [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32];
+        let crouching = sim::MovementMode::Walking.hitbox_height(true) as f32;
+        assert_eq!(predicted_bounding_box(&metadata, None), standing);
+        assert_eq!(
+            predicted_bounding_box(&metadata, Some(crouching)),
+            [standing[0], standing[1], crouching]
+        );
+        for key in [
+            ActorDataKey::Scale,
+            ActorDataKey::Width,
+            ActorDataKey::Height,
+        ] {
+            let metadata = HashMap::from([(key.wire_value(), ActorMetadataValue::Float(2.0))]);
+            assert_eq!(
+                predicted_bounding_box(&metadata, Some(crouching)),
+                bounding_box(&metadata)
+            );
+        }
     }
 
     #[test]
@@ -362,7 +401,7 @@ mod tests {
         }
     }
 
-    /// Correction sync follows completed local posture, preserving unrelated server flags.
+    /// Correction sync follows completed walking posture and size before a server echo.
     #[test]
     fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
         use protocol_ids::ActorFlag;
@@ -409,7 +448,11 @@ mod tests {
                     sent.expect("due correction sync"),
                     client_movement_prediction_sync(MovementPredictionSync {
                         actor_flags: [expected_flags, 1, 2],
-                        bounding_box: [1.0, 0.6, 1.8],
+                        bounding_box: [
+                            1.0,
+                            sim::PLAYER_WIDTH as f32,
+                            sim::MovementMode::Walking.hitbox_height(sneaking) as f32,
+                        ],
                         attributes: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.0, 1.0],
                         unique_id: 70,
                         flying: false,

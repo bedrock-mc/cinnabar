@@ -926,6 +926,19 @@ impl LocalPhysicsController {
         Some((sample.processed.sneaking, sample.processed.sprinting))
     }
 
+    /// Returns the completed non-spinning walking pose height, not a pending input's pose.
+    pub(super) fn completed_walking_height(&self) -> Option<f32> {
+        let frame = self.controller_history.back()?;
+        let state = self.state.as_ref()?;
+        if frame.tick != state.tick
+            || frame.input.mode != sim::MovementMode::Walking
+            || state.spin_attack_ticks.is_some()
+        {
+            return None;
+        }
+        Some(frame.input.mode.hitbox_height(frame.input.sneaking) as f32)
+    }
+
     #[must_use]
     /// Whether the last completed simulation tick intersected water.
     pub const fn in_water(&self) -> bool {

@@ -8264,8 +8264,11 @@ from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 s
 with any exact difference. This comparison is not a native parity acceptance gate.
 
 Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
-a due packet. Known values and transport-admission retries are retained. Full correction-state,
-locomotion and packet-order parity remain incomplete.
+a due packet. Known values and transport-admission retries are retained. Completed local
+sneak/sprint flags and the standard unscaled walking pose height reach a due sync before
+a server echo. Other models and poses retain their supplied sizes. Full correction-state,
+custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
+incomplete.
 
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
