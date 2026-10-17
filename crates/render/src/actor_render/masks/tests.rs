@@ -199,3 +199,56 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);
 }
+
+#[test]
+fn guest_sampling_requires_this_views_current_encoded_owner_target() {
+    use bevy::render::texture::CachedTexture;
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let texture = device.create_texture(&TextureDescriptor {
+        label: None,
+        size: Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: CORE_3D_DEPTH_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let depth = ViewDepthStencilTexture::new(
+        CachedTexture {
+            default_view: texture.create_view(&default()),
+            texture,
+        },
+        Some(0.0),
+        None,
+    );
+    let mut target = MaskTarget::new(&device, &depth).unwrap();
+    target.ready = true;
+    let handle = DrawingHandle {
+        owner: 1,
+        generation: 1,
+        slot: 1,
+    };
+    let view = Entity::PLACEHOLDER;
+    let mut gpu = MaskGpu::from_world(&mut World::new());
+    gpu.targets.insert((view, handle), target);
+    assert!(gpu.planned(view, handle).is_some());
+    assert!(gpu.sample(view, handle).is_none());
+    gpu.targets[&(view, handle)]
+        .encoded
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(gpu.sample(view, handle).is_some());
+    assert!(
+        gpu.sample(view, DrawingHandle { owner: 2, ..handle })
+            .is_none()
+    );
+    gpu.targets[&(view, handle)]
+        .encoded
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    assert!(gpu.sample(view, handle).is_none());
+}
