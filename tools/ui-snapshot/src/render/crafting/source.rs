@@ -66,7 +66,7 @@ impl ContainerSource for Source<'_> {
         &self.screen
     }
     fn translation(&self, key: &str) -> Option<Arc<str>> {
-        self.lang.lookup(key).map(Arc::from)
+        self.lang.lookup(key)
     }
     fn experience_level(&self) -> u32 {
         0
