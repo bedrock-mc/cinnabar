@@ -25,6 +25,14 @@ struct Face<'a> {
     face_dimming: bool,
 }
 
+/// Sampled texels and their inventory material properties.
+struct Tile<'a> {
+    pixels: Cow<'a, [u8]>,
+    side: usize,
+    blend: bool,
+    uv_scale: f32,
+}
+
 /// Where a visual's material tiles live.
 #[derive(Clone, Copy)]
 enum Textures<'a> {
@@ -152,13 +160,15 @@ impl<'a> Model<'a> {
             .map_err(reject)?
             .into_iter()
             .map(|quad| {
-                let (tile, side, blend, uv_scale) = tile(parts, quad.material)?;
+                let tile = tile(parts, quad.material)?;
                 Ok(Face {
                     corners: quad.corners,
-                    uvs: quad.uvs.map(|uv| uv.map(|component| component * uv_scale)),
-                    tile,
-                    size: [side; 2],
-                    blend,
+                    uvs: quad
+                        .uvs
+                        .map(|uv| uv.map(|component| component * tile.uv_scale)),
+                    tile: tile.pixels,
+                    size: [tile.side; 2],
+                    blend: tile.blend,
                     face_dimming: parts.materials[quad.material as usize].flags
                         & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
                         == 0,
@@ -240,7 +250,7 @@ impl<'a> Model<'a> {
 }
 
 /// Reads a material tile and preserves a session overlay's source texture scale.
-fn tile(parts: Parts<'_>, id: u32) -> Result<(Cow<'_, [u8]>, usize, bool, f32), Reject> {
+fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if id == assets::DIAGNOSTIC_MATERIAL {
         return Err(Reject::Material);
     }
@@ -302,7 +312,12 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<(Cow<'_, [u8]>, usize, bool, f32), 
     {
         return Err(Reject::Texture);
     }
-    Ok((tile, side, blend, 1.0 / (1u32 << grid) as f32))
+    Ok(Tile {
+        pixels: tile,
+        side,
+        blend,
+        uv_scale: 1.0 / (1u32 << grid) as f32,
+    })
 }
 
 /// Maps shared GUI geometry errors to the thumbnail baker's errors.
