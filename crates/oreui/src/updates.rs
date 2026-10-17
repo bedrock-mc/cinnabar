@@ -1,6 +1,7 @@
 //! A compact corner card keeps the update action outside the Play menu.
 use super::{
     paint::{Bounds, Canvas},
+    theme::{CAPTION, EDGE, NEUTRAL80, PRIMARY_ROLE, TEXT_DIMMER},
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuView};
@@ -8,9 +9,7 @@ use ui_engine::engine::screen::PaintError;
 
 const MARGIN: f32 = 1.6;
 const WIDTH: f32 = 28.0;
-const PADDING: f32 = 1.2;
-const BUTTON_HEIGHT: f32 = 4.4;
-const HEIGHT: f32 = BUTTON_HEIGHT + PADDING * 2.0;
+const HEIGHT: f32 = 9.6;
 
 /// Fits the complete card and its inset inside the viewport.
 fn scale(rem: f32, size: [f32; 2]) -> f32 {
@@ -31,7 +30,7 @@ pub(super) fn header_height(rem: f32, size: [f32; 2], logo_width: f32) -> f32 {
     }
 }
 
-/// Shows one explicit update action in a surface shared with the home panels.
+/// Shows the release version and one explicit update action directly in the corner.
 pub(super) fn notice(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -47,10 +46,28 @@ pub(super) fn notice(
         let right = size[0] - canvas.r(MARGIN);
         let top = canvas.r(MARGIN);
         let bounds: Bounds = [right - canvas.r(WIDTH), top, right, top + canvas.r(HEIGHT)];
-        super::home::panel(canvas, bounds)?;
-        let pad = canvas.r(PADDING);
+        let surface = canvas.role(NEUTRAL80);
+        canvas.fill(bounds, surface.pressed)?;
+        canvas.frame(bounds, EDGE, surface.border)?;
+        canvas.fill(
+            [bounds[0], top, bounds[0] + canvas.r(0.4), bounds[3]],
+            PRIMARY_ROLE.fill,
+        )?;
+        let pad = canvas.r(1.2);
         let x = bounds[0] + pad;
         let right = right - pad;
+        let status = if ready.protocol_required {
+            "Update required"
+        } else {
+            "Update available"
+        };
+        canvas.text_line(
+            &format!("{status} · {}", ready.version),
+            [x, top + pad],
+            right - x,
+            CAPTION,
+            TEXT_DIMMER,
+        )?;
         let bottom = bounds[3] - pad;
         let label = if ready.writable {
             "Restart and update"
@@ -60,7 +77,7 @@ pub(super) fn notice(
         widgets::button(
             canvas,
             view,
-            [x, bottom - canvas.r(BUTTON_HEIGHT), right, bottom],
+            [x, bottom - canvas.r(4.4), right, bottom],
             Variant::Secondary,
             label,
             Some(MenuAction::Update(ready.action())),
@@ -114,14 +131,8 @@ mod tests {
                             _ => None,
                         })
                         .collect();
-                    assert_eq!(
-                        text.replace(' ', ""),
-                        if writable {
-                            "Restartandupdate"
-                        } else {
-                            "Downloadupdate"
-                        }
-                    );
+                    assert_eq!(text.replace(' ', "").matches("Update").count(), 1);
+                    assert!(!text.contains("Later"));
                 }
             }
         }

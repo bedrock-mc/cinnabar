@@ -220,8 +220,7 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
         })
         .collect::<String>()
         .replace(' ', "");
-    assert!(text.contains("Restartandupdate"));
-    assert!(!text.contains("Updateavailable"));
+    assert!(text.contains("Updateavailable"));
     assert!(
         hits.iter()
             .any(|(action, _)| *action

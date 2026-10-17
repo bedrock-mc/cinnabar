@@ -277,7 +277,7 @@ fn action_panel(
 }
 
 /// Draws a lighter home surface while leaving the panorama visible beneath it.
-pub(super) fn panel(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
+fn panel(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
     let role = canvas.role(NEUTRAL80);
     let mut fill = role.fill;
     fill[3] = 200;
