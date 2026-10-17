@@ -1,4 +1,5 @@
 //! Bounded recipe admission. Limits are client policy, not server maxima.
+mod brewing;
 mod budget;
 mod catalog;
 mod crafting;
@@ -10,6 +11,7 @@ mod observation;
 mod reader;
 mod screen;
 
+pub use brewing::{BrewingItem, BrewingMix};
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
 pub use crafting::{RecipeIngredientView, RecipeOutput};
