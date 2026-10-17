@@ -9939,3 +9939,14 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+## Held-use progress events
+
+Accepted eating and drinking uses report due progress before their movement
+inputs, using the negotiated item identity. Progress admission survives an input
+retry without sending the event twice; release, reselection and life changes end it.
+
+Incomplete validation: focused timing, cancellation, admission and packet tests
+are queued. Other animation kinds, block-backed item uses, relevant-user-data
+cancellation, mounted phases and special movement catch-up need further parity
+work. This does not close the complete serverbound parity gate.
