@@ -16,6 +16,7 @@ mod furnace_recipe_tests;
 mod hotbar_open_tests;
 mod inventory_layout_tests;
 mod prewarm_tests;
+mod search_focus_tests;
 
 #[test]
 fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {

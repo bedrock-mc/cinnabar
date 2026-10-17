@@ -171,12 +171,7 @@ pub fn visible_creative_entries<'a>(
 impl UiRuntime {
     /// Releases the keyboard when the inventory search field cannot be shown.
     pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
-        if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
-            != super::presentation::inventory_pointer::InventoryScreen::Creative
-            && !(self
-                .furnace_options(player)
-                .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook))
-        {
+        if !super::presentation::forms::recipe_book_shown(player, self) {
             self.screen_state_mut().search_focused = false;
         }
     }
@@ -308,6 +303,12 @@ impl UiRuntime {
         match hit {
             InventoryCellHit::Widget(widget) => self.activate_widget(player_runtime, widget),
             InventoryCellHit::CreativeTab(tab) => self.select_inventory_tab(player_runtime, tab),
+            InventoryCellHit::CreativeSearch
+                if ui_screens::furnace_book::active(player_runtime) =>
+            {
+                self.screen_state_mut().search_focused = true;
+                Ok(0)
+            }
             InventoryCellHit::CreativeSearch => {
                 self.select_inventory_tab(player_runtime, SEARCH_TAB)
             }

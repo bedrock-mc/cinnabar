@@ -22,7 +22,9 @@ use ui_screens::container_actions::{InventoryCellHit, Widget};
 use {
     client_ui::ui_runtime::{
         UiRuntime,
-        presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen},
+        presentation::{
+            UiPresentationRuntime, forms::recipe_book_shown, inventory_pointer::InventoryScreen,
+        },
     },
     inventory::inventory_ledger::DropSource,
 };
@@ -218,7 +220,7 @@ pub(super) fn apply_inventory_pointer(
         }
         return;
     }
-    let book_open = runtime.screen_state().book_open.unwrap_or(false);
+    let book_open = recipe_book_shown(player_runtime, runtime);
     let reader_mode = runtime
         .screen_state()
         .book
