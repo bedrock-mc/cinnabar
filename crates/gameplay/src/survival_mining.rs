@@ -120,6 +120,7 @@ impl SurvivalTickPayload {
     ) {
         let block_interaction = self.destroy.map(|target| {
             BlockItemInteraction::Destroy(BlockUseRequest {
+                hand: protocol::ItemUseHand::Mainhand,
                 block_position: target.position,
                 face: target.face,
                 selected_slot: target.selection.slot,
