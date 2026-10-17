@@ -28,9 +28,10 @@ fn server_actor_open_supersedes_an_admitted_personal_open_without_a_rejection_cl
     assert!(ledger.pending_batch().unwrap().is_none());
 
     ledger.apply(&InventoryEvent::Open(personal_open(7)));
-    assert_eq!(ledger.window_actor(), Some(-91));
-    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.window_kind().is_none());
+    assert!(ledger.personal_inventory_desired_open());
     assert!(ledger.pending_batch().unwrap().is_none());
+    assert!(ledger.begin_click(0).is_ok());
 }
 
 #[test]

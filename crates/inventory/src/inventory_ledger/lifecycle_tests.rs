@@ -480,7 +480,7 @@ fn server_personal_open_after_local_cancellation_reopens_the_assigned_window() {
 }
 
 #[test]
-fn personal_open_for_another_screen_keeps_storage_authority() {
+fn server_personal_open_and_close_replace_storage_authority() {
     let mut ledger = ledger_with_slot_zero();
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(4),
@@ -488,12 +488,11 @@ fn personal_open_for_another_screen_keeps_storage_authority() {
         position: [1, 64, 1],
         runtime_entity_id: -1,
     }));
-    let generation = ledger.storage_generation();
     assert!(!ledger.request_personal_open(42));
 
     ledger.apply(&InventoryEvent::Open(personal_open(2)));
-    assert_eq!(ledger.storage_generation(), generation);
-    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.storage_generation().is_none());
+    assert!(ledger.personal_inventory_desired_open());
     assert_eq!(ledger.skipped_unknown_containers(), 0);
 
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
@@ -501,7 +500,7 @@ fn personal_open_for_another_screen_keeps_storage_authority() {
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
         server_initiated: true,
     }));
-    assert_eq!(ledger.storage_generation(), generation);
+    assert!(ledger.storage_generation().is_none());
     assert!(ledger.personal.is_none());
 }
 

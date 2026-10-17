@@ -10032,7 +10032,8 @@ ID instead of the local player's ID. On-foot and unresolved mounts retain the pe
 request. The chosen runtime ID survives transport delay. Supported server window opens
 are handled without request correlation, including replies received after cancellation,
 timeout, or a changed target. An open settles the pending input without retaining reply
-history or sending a rejection close; an already active screen keeps its normal open guard.
+history or sending a rejection close. Personal opens supersede storage; storage opens
+keep the active personal screen guard.
 Open timeouts release local admission without closing a guessed window ID.
 Item requests and admitted user closes retain their window generations for settlement.
 Full mount container, vehicle input and platform-specific inventory-opening guards

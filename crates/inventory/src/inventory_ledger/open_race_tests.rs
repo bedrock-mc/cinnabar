@@ -165,15 +165,14 @@ fn server_storage_open_supersedes_personal_inventory_at_each_request_stage() {
 }
 
 #[test]
-fn an_open_for_another_screen_does_not_close_the_active_window() {
+fn a_personal_open_replaces_storage_while_storage_keeps_the_active_personal_guard() {
     let mut ledger = ledger_with_slot_zero();
     open_chest(&mut ledger, 3);
-    let generation = ledger.storage_generation();
     ledger.apply(&InventoryEvent::Open(personal_open(3)));
-    assert_eq!(ledger.storage_generation(), generation);
-    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.storage_generation().is_none());
+    assert!(ledger.personal_inventory_desired_open());
     assert!(ledger.pending_batch().unwrap().is_none());
-    assert!(ledger.begin_storage_click(0).is_ok());
+    assert!(ledger.begin_click(0).is_ok());
 
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);

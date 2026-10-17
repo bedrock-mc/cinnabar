@@ -31,9 +31,6 @@ impl PlayerInventoryLedger {
             return;
         };
         let requested_generation = self.settle_open_request();
-        if self.storage.is_some() {
-            return;
-        }
         let generation = requested_generation
             .or_else(|| {
                 self.controls
@@ -55,6 +52,11 @@ impl PlayerInventoryLedger {
             self.discard_pending_personal_open();
             self.finish_personal_close(false);
         }
+        if self.storage.is_some() {
+            self.close_storage();
+        }
+        self.controls.storage.confirmed = None;
+        self.controls.storage.desired_open = false;
         self.controls.personal.confirmed = Some(ControlWindow {
             generation,
             window_id,
