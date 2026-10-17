@@ -24,6 +24,7 @@ impl UiRuntime {
             self.initialize_inventory_controller(player);
         } else {
             self.screen.inventory = None;
+            self.screen.search_focused = false;
         }
         if self.screen.furnace.is_none()
             && let Some(kind) = player
