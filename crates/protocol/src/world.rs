@@ -446,6 +446,9 @@ world_packets! {
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
     ContainerSetData(packet) => WorldEvent::Inventory(normalize_container_data(packet)?),
+    UnlockedRecipes(packet) => WorldEvent::Inventory(crate::InventoryEvent::RecipeUnlocks(
+        crate::inventory::recipes::normalize_recipe_unlocks(packet)
+    )),
     SetPlayerFurnaceOptions(packet) => {
         let Some(event) = crate::inventory::normalize_furnace_options(packet) else {
             return Ok(None);

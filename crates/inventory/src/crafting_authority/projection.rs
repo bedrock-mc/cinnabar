@@ -129,6 +129,7 @@ pub(super) enum Observation {
     Cells([Option<Arc<StackOwner>>; 5]),
     Registry(Option<Arc<RegistryOwner>>),
     Recipes(protocol::RecipeUpdate),
+    RecipeUnlocks(protocol::RecipeUnlockUpdate),
     Authority(protocol::InventoryAuthority),
 }
 
@@ -137,6 +138,7 @@ impl Observation {
         match self {
             Self::Registry(_) => 1,
             Self::Recipes(_) => 2,
+            Self::RecipeUnlocks(_) => 8,
             Self::Authority(_) => 4,
             Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
         }
