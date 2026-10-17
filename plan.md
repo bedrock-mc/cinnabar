@@ -1028,7 +1028,7 @@ screen-effect parity remain incomplete.
   startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
   panels and controls. Home keeps the shipped title above translucent, top-aligned Play and character
-  cards. Account access sits with the character, Realms uses a full button, and the three utility
+  cards. Account access sits with the character, Realms keeps its original text link, and the three utility
   buttons have equal widths and a neutral Quit action. Compact menus use a centred column whose
   width stays proportional to its controls. The footer states Bedrock compatibility;
   General's Advanced section retains the protocol number. Versions use their canonical sources.

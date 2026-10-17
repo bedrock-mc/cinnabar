@@ -23,7 +23,7 @@ pub(super) struct Layout {
 
 /// The action group's height in rem, including account and wardrobe controls on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 36.0 } else { 24.8 }
+    if compact { 34.8 } else { 23.6 }
 }
 
 /// The panel inset in logical pixels, limited by its width.

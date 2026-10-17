@@ -250,15 +250,14 @@ fn action_panel(
         Some(MenuAction::Navigate(MenuScreen::Settings)),
     )?;
     y += canvas.r(5.6);
-    widgets::button(
+    link(
         canvas,
         view,
-        [x, y, right, y + canvas.r(4.8)],
-        Variant::Neutral,
+        [x, y, right, y + canvas.r(3.6)],
         "Realms",
-        Some(MenuAction::Navigate(MenuScreen::Social)),
+        MenuAction::Navigate(MenuScreen::Social),
     )?;
-    y += canvas.r(5.6);
+    y += canvas.r(4.4);
     if compact {
         widgets::button(
             canvas,
