@@ -174,14 +174,18 @@ pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
     })
 }
 
+/// Reads the typed item-lock byte, preserving unknown values for special-removal checks.
+#[must_use]
+pub fn item_extra_lock(extra_data: &[u8]) -> Option<u8> {
+    let mut cursor = decode_extra_nbt(extra_data)?;
+    let mut value = root_tag(&mut cursor, 1, b"minecraft:item_lock")?;
+    read_u8(&mut value)
+}
+
 /// Whether retained item data locks the item into its current slot.
 #[must_use]
 pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
-    decode_extra_nbt(extra_data).is_some_and(|nbt| {
-        let mut cursor = nbt;
-        root_tag(&mut cursor, 1, b"minecraft:item_lock")
-            .is_some_and(|mut value| read_u8(&mut value) == Some(1))
-    })
+    item_extra_lock(extra_data) == Some(1)
 }
 
 /// Reads one enchantment's level from the root `ench` list of a stack's extra data.
