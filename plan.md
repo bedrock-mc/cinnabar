@@ -238,12 +238,15 @@ Pending cloud windows yield until their exact geometry is ready. WebGPU reports 
 errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
 
 The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
-The existing decoder and mixer feed Web Audio, resumed by a canvas gesture and suspended
-on cached navigation. Browser range/decode/playback acceptance remains unverified.
-Incomplete: interactive inventory/chat/forms controls remain pending. A wasm artifact builds; browser boot,
-relay join/transfer acceptance, shader output comparisons on WebGPU and Metal, and indivisible
-job costs still require verification. Cached navigation retains page resources and restores
-relay controls with an unexpired capability. No browser release or parity gate closes here.
+The existing decoder and mixer feed Web Audio. Headless Chrome with Metal WebGPU fetches
+encoded ranges, plays nonzero game samples after a canvas gesture, suspends on cached
+navigation, resumes on another gesture and closes its stream once on final disposal.
+Native owner checks and a wasm artifact pass. The host boots, renders an offline world's
+terrain and HUD, and moves its player. WebSocket transfer, disconnect and rejoin pass.
+Incomplete: interactive inventory/chat/forms controls, initial terrain latency, shader output
+comparisons, audio parity and indivisible job costs remain unverified. Cached navigation retains
+page resources and restores relay controls with an unexpired capability. No browser release
+or parity gate closes here.
 
 The browser account adapter projects device-code prompts, refusals and identity into the shared
 menu. External services expose account intents and preference changes without native helper
