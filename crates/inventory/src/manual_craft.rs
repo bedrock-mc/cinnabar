@@ -134,6 +134,7 @@ impl ManualCraftPlan {
             if let (Some(count), Some(input)) = (counts[index], input) {
                 if input.slot != 28 + index as u8
                     || input.stack.stack_network_id() <= 0
+                    || crate::item_permissions::special_removal_locked(input.stack.extra_data())
                     || consume
                         .iter()
                         .flatten()

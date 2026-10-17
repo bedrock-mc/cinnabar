@@ -26,8 +26,10 @@ impl PlayerInventoryLedger {
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
         let held = self.view().get(Cell::Inventory(slot))?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
-        (recipe_input_valid(&held.stack) && !self.awaiting_identity(held))
-            .then_some((&held.stack, entry))
+        (recipe_input_valid(&held.stack)
+            && !crate::item_permissions::special_removal_locked(&held.stack.extra_data)
+            && !self.awaiting_identity(held))
+        .then_some((&held.stack, entry))
     }
 
     /// Player cells to draw `ingredient` from: `(cell, amount, stack id)`.

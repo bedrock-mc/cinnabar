@@ -130,3 +130,61 @@ fn item_data_corrupted_retained_bytes_cannot_supply_an_ordinary_recipe() {
     assert!(ledger.begin_auto_craft(&recipe).is_err());
     assert_eq!(ledger.pending_request_count(), 0);
 }
+
+/// Builds an original typed item-lock input through the retained extra-data envelope.
+fn locked_input(mode: u8) -> NetworkItemStack {
+    let name = b"minecraft:item_lock";
+    let mut extra = vec![255, 255, 1, 10, 0, 0, 1];
+    extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    extra.extend_from_slice(name);
+    extra.extend_from_slice(&[mode, 0]);
+    extra.extend_from_slice(&[0; 8]);
+    assert_eq!(protocol::item_extra_lock(&extra), Some(mode));
+    NetworkItemStack {
+        nbt_digest: Sha256::digest(&extra).into(),
+        extra_data: extra.into(),
+        ..stack(LOG, 101, 2)
+    }
+}
+
+#[test]
+fn item_data_recipe_book_skips_locked_ingredients_and_uses_later_unlocked_stacks() {
+    for mode in [1, 2] {
+        for tagged in [false, true] {
+            let mut ledger = named_ledger();
+            let locked = locked_input(mode);
+            for (slot, stack) in [(9, locked.clone()), (10, stack(LOG, 102, 2))] {
+                ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                    identity: SlotIdentity {
+                        container: ContainerIdentity::window(0),
+                        slot,
+                    },
+                    stack,
+                    storage_item: None,
+                }));
+            }
+            let (_, recipe) = ordinary_recipe(false, tagged);
+            assert!(ledger.can_auto_craft(&recipe));
+            ledger
+                .begin_auto_craft(&recipe)
+                .expect("the later unlocked stack supplies this craft");
+            assert_eq!(ledger.displayed_stack(9), Some(&locked));
+            assert_eq!(ledger.displayed_stack(10).unwrap().count, 1);
+            assert!(ledger.newest_request().unwrap().actions.iter().any(|action| matches!(action,
+                StackRequestAction::Consume { source, .. } if source.slot == 10 && source.stack_network_id == 102)));
+
+            let mut only_locked = named_ledger();
+            only_locked.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 9,
+                },
+                stack: locked,
+                storage_item: None,
+            }));
+            assert!(!only_locked.can_auto_craft(&recipe));
+            assert!(only_locked.begin_auto_craft(&recipe).is_err());
+            assert_eq!(only_locked.pending_request_count(), 0);
+        }
+    }
+}
