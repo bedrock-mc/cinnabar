@@ -2213,6 +2213,11 @@ keeps its own binding.
   online roster.
 - Compact centered columns, bounded to 80 players with an explicit overflow count.
 - Roster changes refresh cached JSON-UI; binding release, focus loss and menus hide it.
+- Each name has its skin's front face and hat layer, with the runtime Steve skin for
+  missing or unsupported portraits. UUID-based skin updates refresh cached portraits;
+  stock, legacy, HD, custom cube UVs and static first-frame face animations are supported.
+  Rotated or otherwise unsupported head geometry uses the fallback. This is a
+  user-requested extension; native Bedrock parity and performance acceptance remain incomplete.
 - Input, rendered collection, focus/release, roster refresh and cache tests passed.
 - Incomplete live Windows acceptance: installed-client Tab capture pending.
 

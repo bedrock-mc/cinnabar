@@ -203,6 +203,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             }
         }
         Fixture::TabList(rows) => {
+            carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
             for now in [0.0, CAPTURE_SECONDS] {
