@@ -4,9 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{
-    RuntimeAssets, RuntimeEntityAssets, RuntimeFontCatalog, atmosphere::RuntimeAtmosphereAssets,
-};
+use crate::{RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
 
 mod font_fallback;
 mod optional_carriers;

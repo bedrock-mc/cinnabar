@@ -1,8 +1,8 @@
 //! Minimal valid startup carriers pinned to the checkout's vanilla manifest.
 
 use crate::{
-    CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
-    atmosphere::{AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets},
+    AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, CompiledEntityAssets,
+    EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
 };
 use sha2::{Digest, Sha256};
 
@@ -133,7 +133,7 @@ pub fn synthetic_atmosphere_blob() -> Box<[u8]> {
         }
     })
     .collect();
-    crate::atmosphere::encode_atmosphere_blob(&CompiledAtmosphereAssets {
+    crate::encode_atmosphere_blob(&CompiledAtmosphereAssets {
         source_manifest_sha256: manifest(),
         textures,
         biome_profiles: Box::new([]),

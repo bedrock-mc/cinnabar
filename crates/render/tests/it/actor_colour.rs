@@ -39,7 +39,6 @@ struct Case {
     overlay: u32,
     material: [u32; 4],
     unlit: bool,
-    emissive: bool,
     fog_amount: f32,
     sample: (u8, u8),
     gradient: bool,
@@ -65,7 +64,6 @@ impl Default for Case {
             overlay: 0,
             material: [0; 4],
             unlit: false,
-            emissive: false,
             fog_amount: 0.0,
             sample: (2, 9),
             gradient: false,
@@ -295,12 +293,7 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
     for i in 0..3 {
         color[i] = color[i] * (1.0 - overlay[3]) + overlay[i] * overlay[3];
         if !case.unlit {
-            let lighting = shade * light[i];
-            color[i] *= if case.emissive {
-                1.0 + (lighting - 1.0) * texel[3]
-            } else {
-                lighting
-            };
+            color[i] *= shade * light[i];
         }
         let glint = if enchanted {
             let sum = (foil[0][i] + foil[1][i])
@@ -337,25 +330,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     let Some(gpu) = Gpu::for_fixture("actual actor colour shader") else {
         return;
     };
-    render_cases(&gpu, cases(), false);
-}
-
-#[test]
-fn msaa_actor_emissive_lighting_uses_authored_alpha_instead_of_coverage() {
-    let Some(gpu) = Gpu::for_fixture("actor MSAA emissive alpha") else {
-        return;
-    };
-    render_cases(
-        &gpu,
-        vec![Case {
-            name: "half-opacity emissive cutout with full coverage",
-            texture: 1,
-            light: [0.13, 0.15, 0.25],
-            emissive: true,
-            ..Default::default()
-        }],
-        true,
-    );
+    render_cases(&gpu, cases());
 }
 
 #[test]
@@ -377,7 +352,7 @@ fn dye_mask_pages_keep_zero_alpha_rgb_and_depth_in_both_profiles() {
             })
         })
         .collect();
-    render_cases(&gpu, cases, false);
+    render_cases(&gpu, cases);
 }
 
 /// Creates an original one-pixel foil image with independent actor/item sampler contents.
@@ -536,12 +511,11 @@ fn legacy_fragment_keeps_leather_dye_red_lighting_and_untinted_glint_after_fog()
             ..Default::default()
         });
     }
-    render_cases(&gpu, cases, false);
+    render_cases(&gpu, cases);
 }
 
-/// Compares production fragment arithmetic and depth against scalar expectations; `coverage`
-/// renders the alpha-to-coverage variant into four samples.
-fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
+/// Compares production fragment arithmetic and depth against scalar expectations.
+fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("actor native colour witness"),
         size: wgpu::Extent3d {
@@ -586,12 +560,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
         );
     // Test-only resource remapping lets the shared single-group readback helper run
     // production actor_fragment unchanged, including its actual imported helpers.
-    let defs: &[&str] = if coverage {
-        &["ALPHA_TO_COVERAGE"]
-    } else {
-        &[]
-    };
-    let source = shader_source::standalone(&format!("{actor}\n{VERTEX}"), defs)
+    let source = shader_source::standalone(&format!("{actor}\n{VERTEX}"), &[])
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)");
     let view = gpu.buffer(
@@ -626,21 +595,13 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
         } else {
             render_model::pack_actor_light(case.sample.0, case.sample.1)
         };
-        let material_word = if case.emissive {
-            case.material_word
-                | assets::EntityRenderMaterialState::AUTHORED
-                | assets::EntityRenderMaterialState::EMISSIVE
-                | assets::EntityRenderMaterialState::ALPHA_TEST
-        } else {
-            case.material_word
-        };
         let mut words = case.normal.to_vec();
         words.push(f32::from(case.interpolate_normals));
         words.extend([case.texture, case.tint, case.overlay, light].map(f32::from_bits));
         words.extend([
             case.fog_amount * 100.0,
             f32::from_bits(u32::from(case.material[2] != 0)),
-            f32::from_bits(material_word),
+            f32::from_bits(case.material_word),
             0.5,
         ]);
         words.extend([case.uv[0], case.uv[1], 0.0, 0.0]);
@@ -741,11 +702,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
         if case.material_word & mask_flag == mask_flag {
             state.write_mask = wgpu::ColorWrites::COLOR;
         }
-        let pixels = if coverage {
-            gpu.render_with_samples(&source, "actor_witness_vertex", &draws, 4)
-        } else {
-            gpu.render_srgb_with_state(&source, "actor_witness_vertex", &draws, state)
-        };
+        let pixels = gpu.render_srgb_with_state(&source, "actor_witness_vertex", &draws, state);
         let offset = (128 * 256 + 128) * 4;
         let alpha = f32::from(TEXELS[case.texture as usize][3]) / 255.0;
         let legacy = case.material_word & render_model::LEGACY_COMBAT_MATERIAL_FLAG != 0;
@@ -757,20 +714,16 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
                 | assets::EntityRenderMaterialState::ALPHA_TEST)
             == (assets::EntityRenderMaterialState::AUTHORED
                 | assets::EntityRenderMaterialState::ALPHA_TEST);
-        // Coverage replaces the alpha test; emissive cutouts keep their authored opacity.
-        let alpha_tested = !coverage && !(legacy && mask);
-        let discard = (authored_cutout
-            && !case.emissive
-            && alpha_tested
-            && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
-            || (legacy && mask && alpha == 0.0)
-            || (enchanted && alpha_tested && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
-            || (case.material[1] == 0
-                && !mask
-                && case.material[2] == 0
-                && ((case.material[0] == 0 && alpha < 0.1)
-                    || (case.material[0] == 1 && alpha == 0.0)));
-        let mut expected = if discard {
+        let discard =
+            (authored_cutout && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
+                || (legacy && mask && alpha == 0.0)
+                || (enchanted && !(legacy && mask) && alpha < assets::ENTITY_ALPHA_TEST_THRESHOLD)
+                || (case.material[1] == 0
+                    && !mask
+                    && case.material[2] == 0
+                    && ((case.material[0] == 0 && alpha < 0.1)
+                        || (case.material[0] == 1 && alpha == 0.0)));
+        let expected = if discard {
             if case.depth_probe {
                 [0.0, 0.0, 1.0, 1.0]
             } else {
@@ -780,12 +733,6 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>, coverage: bool) {
         } else {
             expected(case, &table, fog)
         };
-        if coverage {
-            for channel in &mut expected[..3] {
-                *channel = linear(*channel);
-            }
-            expected[3] = 1.0;
-        }
         for channel in 0..4 {
             let target = expected[channel].clamp(0.0, 1.0) * 255.0;
             if (f32::from(pixels[offset + channel]) - target).abs() > 2.0 {

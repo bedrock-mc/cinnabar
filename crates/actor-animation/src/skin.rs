@@ -93,7 +93,6 @@ impl ActorRigState {
             None => compose_pose(&self.bones, &[]),
         };
         if let Some(rest) = rest {
-            self.world_body = None;
             self.reset_to_skeleton(rest);
         }
     }

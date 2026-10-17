@@ -15,7 +15,7 @@ pub const TRANSPARENT_WATER_RECORD_FLAG: u32 = 1 << 30;
 
 /// Visual medium containing the active camera eye.
 ///
-/// Liquids come from palette-native layers; powder snow comes from the eye probe. Unknown data is
+/// This is resolved from palette-native liquid layers. Unknown world data is
 /// deliberately [`Self::Air`] so an unloaded boundary cannot flash opaque fog.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CameraMedium {
@@ -23,7 +23,6 @@ pub enum CameraMedium {
     Air,
     Water,
     Lava,
-    PowderSnow,
 }
 
 /// A bounded Bedrock liquid level. Raw values 8..=15 are falling states and

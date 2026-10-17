@@ -162,9 +162,6 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         ),
         CameraMedium::Water => profiled.with_environment_profile(None, resolve(FogMedium::Water)),
         CameraMedium::Lava => profiled.with_environment_profile(None, resolve(FogMedium::Lava)),
-        CameraMedium::PowderSnow => {
-            profiled.with_environment_profile(None, resolve(FogMedium::PowderSnow))
-        }
     };
     (
         frame,
@@ -196,10 +193,7 @@ type AtmospherePreferences<'w> = (
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
-    time_overrides: (
-        Option<Res<super::VisualTimeOverride>>,
-        Option<Res<super::DebugTimeOverride>>,
-    ),
+    time_override: Option<Res<super::VisualTimeOverride>>,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -218,7 +212,6 @@ pub(crate) fn update_atmosphere_frame(
     preferences: AtmospherePreferences,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
-    let (time_override, debug_time_override) = time_overrides;
     let vision = vision
         .1
         .as_deref()
@@ -230,12 +223,6 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
-    let clock = debug_time_override
-        .as_ref()
-        .and_then(|value| value.ticks)
-        .map_or(clock, |ticks| {
-            super::VisualTimeOverride(Some(ticks)).rendering_clock(clock)
-        });
     let (menu, clouds, skybox) = preferences;
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     if let Some(mut clouds) = clouds {
@@ -263,8 +250,6 @@ pub(crate) fn update_atmosphere_frame(
     display.set_precipitation_count(context.precipitation_sample_count);
     let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
     *view_inputs = render_scene::AtmosphereViewInputs {
-        dimension: context.dimension,
-        session_generation: clock.session_generation,
         forward: cameras
             .single()
             .map_or([0.0; 3], |transform| transform.forward().to_array()),
@@ -368,7 +353,7 @@ where
     state
 }
 
-/// Boss effects respond only in air; submerged media own their fog
+/// Boss effects respond only in air; water and lava media own their fog
 /// completely and must not be overridden by a boss flag.
 pub(crate) fn apply_boss_environment(
     frame: AtmosphereFrame,
@@ -377,7 +362,7 @@ pub(crate) fn apply_boss_environment(
 ) -> AtmosphereFrame {
     match medium {
         CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
-        CameraMedium::Water | CameraMedium::Lava | CameraMedium::PowderSnow => frame,
+        CameraMedium::Water | CameraMedium::Lava => frame,
     }
 }
 

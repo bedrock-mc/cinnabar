@@ -1,8 +1,8 @@
 use assets::{
     BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
-    LightProperties, MATERIAL_FLAG_OVERLAY_MASK, Material, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TexturePage, TextureRef, VisualKind, VisualSupport, encode_blob,
-    texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip},
+    LightProperties, MATERIAL_FLAG_OVERLAY_MASK, MIP_COUNT, Material, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TILE_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    VisualSupport, encode_blob,
 };
 
 use super::*;

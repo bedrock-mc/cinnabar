@@ -59,14 +59,13 @@ fn compiled_fire_fixture() -> &'static CompiledFireFixture {
             ("floor", [80, 70, 60, 255]),
             ("glass", [100, 150, 200, 0]),
         ] {
-            let pixels =
-                colour.repeat((assets::texture::TILE_SIZE * assets::texture::TILE_SIZE) as usize);
+            let pixels = colour.repeat((assets::TILE_SIZE * assets::TILE_SIZE) as usize);
             let mut png = Vec::new();
             PngEncoder::new(&mut png)
                 .write_image(
                     &pixels,
-                    assets::texture::TILE_SIZE,
-                    assets::texture::TILE_SIZE,
+                    assets::TILE_SIZE,
+                    assets::TILE_SIZE,
                     ExtendedColorType::Rgba8,
                 )
                 .unwrap();

@@ -20,7 +20,6 @@ world = { path = "../world" }
 
 [features]
 benchmark-mimalloc = []
-enhanced = []
 
 [dev-dependencies]
 mimalloc.workspace = true

@@ -2,7 +2,7 @@ use bevy::render::render_resource::ShaderType;
 use bytemuck::Zeroable;
 use std::collections::HashMap;
 
-use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
+use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,

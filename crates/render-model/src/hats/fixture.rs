@@ -133,3 +133,38 @@ pub fn shoulder_parrot() -> Item {
         .unwrap()
     })
 }
+
+/// A small original looping particle effect for cosmetic emitter fixtures.
+pub const EMITTER_EFFECT: &str = r##"{"format_version":"1.10.0","particle_effect":{"description":{"identifier":"fixture:spark","basic_render_parameters":{"material":"particles_alpha","texture":"textures/particle/particles"}},"components":{"minecraft:emitter_rate_steady":{"spawn_rate":4,"max_particles":8},"minecraft:emitter_lifetime_looping":{"active_time":1},"minecraft:particle_lifetime_expression":{"max_lifetime":1},"minecraft:particle_appearance_billboard":{"size":[0.05,0.05],"facing_camera_mode":"lookat_xyz"}}}}"##;
+
+/// Builds a catalog animation asset whose digest matches `bytes`.
+pub fn animation_asset(bytes: &[u8]) -> cosmetics::Asset {
+    use sha2::Digest;
+    cosmetics::Asset {
+        url: "fixture".into(),
+        sha256: format!("{:x}", sha2::Sha256::digest(bytes)),
+        bytes: bytes.len(),
+    }
+}
+
+/// Admits an emissive crown with one particle emitter ten pixels above its head pivot.
+pub fn glowing_crown() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let animation = format!(
+            r#"{{"particles":[{{"bone":"head","offset":[0,10,0],"effect":{EMITTER_EFFECT}}}]}}"#
+        );
+        let mut item = crown().descriptor().clone();
+        item.id = "fixture:glowing_crown".into();
+        item.slot = "aura".into();
+        item.render_flags.emissive = true;
+        item.assets.animation = Some(animation_asset(animation.as_bytes()));
+        super::admit(
+            item,
+            include_bytes!("crown.geo.json"),
+            include_bytes!("crown.png"),
+            animation.as_bytes(),
+        )
+        .unwrap()
+    })
+}

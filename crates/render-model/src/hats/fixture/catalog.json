@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "items": [
     {
       "id": "cinnabar:bunny_ears",
@@ -188,6 +188,388 @@
       ],
       "render_flags": {
         "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:fox_tail",
+      "slot": "body",
+      "display_name": "Fox tail",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/e94dbbc2d509a5e9f3f4b228acd5987232775ac3c3af62ba1588df6b836d643e",
+          "sha256": "e94dbbc2d509a5e9f3f4b228acd5987232775ac3c3af62ba1588df6b836d643e",
+          "bytes": 1605
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/785c70a37688da13cc38d26e7f1275eabb4cd9656ee21dba01a7339765450497",
+          "sha256": "785c70a37688da13cc38d26e7f1275eabb4cd9656ee21dba01a7339765450497",
+          "bytes": 959
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/5b5ccab18064ee0d59c234728f4f730fe495d7e6df55a682ceb333de14d80e79",
+          "sha256": "5b5ccab18064ee0d59c234728f4f730fe495d7e6df55a682ceb333de14d80e79",
+          "bytes": 4621
+        }
+      },
+      "geometry_id": "geometry.cinnabar.fox_tail",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:pixel_shades",
+      "slot": "face",
+      "display_name": "Pixel shades",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/9cdbde18b0a9999fcd1f4acc89459d0e55cc21fca94809f814ccdc4d2a5e7a9c",
+          "sha256": "9cdbde18b0a9999fcd1f4acc89459d0e55cc21fca94809f814ccdc4d2a5e7a9c",
+          "bytes": 1206
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/7de2a2ad3d2ae6740a2d2e932e42c1e4861a04ca801db85110619878f49dbb9e",
+          "sha256": "7de2a2ad3d2ae6740a2d2e932e42c1e4861a04ca801db85110619878f49dbb9e",
+          "bytes": 293
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/e9edf48dc5deb81178c762a11c6ac91248b5deb2f0212b7588773a76c59a8b6f",
+          "sha256": "e9edf48dc5deb81178c762a11c6ac91248b5deb2f0212b7588773a76c59a8b6f",
+          "bytes": 5357
+        }
+      },
+      "geometry_id": "geometry.cinnabar.pixel_shades",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:bee_buddy",
+      "slot": "pet",
+      "display_name": "Bee buddy",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/996226a723ee15caf73b899bbe4dea5cf466d18cfe930f2364609f6873d1f59f",
+          "sha256": "996226a723ee15caf73b899bbe4dea5cf466d18cfe930f2364609f6873d1f59f",
+          "bytes": 2295
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/d5def0326f43b0e4749c6d53a58611ede0b482524e0c7f34e7e8a65c227e9751",
+          "sha256": "d5def0326f43b0e4749c6d53a58611ede0b482524e0c7f34e7e8a65c227e9751",
+          "bytes": 587
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/4d21d9630c02fa05a7c4e0c0a74dcc5cba636b4d9ecbace3638b1e5b5d1748ef",
+          "sha256": "4d21d9630c02fa05a7c4e0c0a74dcc5cba636b4d9ecbace3638b1e5b5d1748ef",
+          "bytes": 16201
+        }
+      },
+      "geometry_id": "geometry.cinnabar.bee_buddy",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:morpho_wings",
+      "slot": "back",
+      "display_name": "Morpho wings",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/3da21bef8870877d00cd9e3fdd2a985294d84d92fc54e603f8b8242fc3e8cd1d",
+          "sha256": "3da21bef8870877d00cd9e3fdd2a985294d84d92fc54e603f8b8242fc3e8cd1d",
+          "bytes": 1153
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/b01f7c5586b447914af6b339b60310a96f4e7b11148a2104a0517b3023c45c65",
+          "sha256": "b01f7c5586b447914af6b339b60310a96f4e7b11148a2104a0517b3023c45c65",
+          "bytes": 1290
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/805b798208d3efab32df27f3b3e042c306e2d08355f745f418aa83243b4c0482",
+          "sha256": "805b798208d3efab32df27f3b3e042c306e2d08355f745f418aa83243b4c0482",
+          "bytes": 4277
+        }
+      },
+      "geometry_id": "geometry.cinnabar.morpho_wings",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:knit_scarf",
+      "slot": "body",
+      "display_name": "Knit scarf",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/4661c8072a8fe5d8360bbd7658e48c8e33c2bad2f98412a0d038fbcdd88af223",
+          "sha256": "4661c8072a8fe5d8360bbd7658e48c8e33c2bad2f98412a0d038fbcdd88af223",
+          "bytes": 2277
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/e2f3626e5a939ca30f7c3526f7c559964e090a37d56a8b9cd2f1a774a4ed1ddd",
+          "sha256": "e2f3626e5a939ca30f7c3526f7c559964e090a37d56a8b9cd2f1a774a4ed1ddd",
+          "bytes": 765
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/0087bf2d93cef1ef6a0201218e4ed5f4e05b0f922ae8481965e2eb775b5f26eb",
+          "sha256": "0087bf2d93cef1ef6a0201218e4ed5f4e05b0f922ae8481965e2eb775b5f26eb",
+          "bytes": 6912
+        }
+      },
+      "geometry_id": "geometry.cinnabar.knit_scarf",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:kitsune_mask",
+      "slot": "face",
+      "display_name": "Kitsune mask",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/61d23502bdd05103138b402db216e6731f933f07caf0e2986af2ebdcd2bf327b",
+          "sha256": "61d23502bdd05103138b402db216e6731f933f07caf0e2986af2ebdcd2bf327b",
+          "bytes": 2274
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/059df0700424c4dad19d0babc9504d1a991e46762db6fd6bdd5669ab9f34dce5",
+          "sha256": "059df0700424c4dad19d0babc9504d1a991e46762db6fd6bdd5669ab9f34dce5",
+          "bytes": 872
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/f441c9716fe1a1630049013a82908f44004221a289237937b675803856c164c5",
+          "sha256": "f441c9716fe1a1630049013a82908f44004221a289237937b675803856c164c5",
+          "bytes": 1034
+        }
+      },
+      "geometry_id": "geometry.cinnabar.kitsune_mask",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:studio_headphones",
+      "slot": "head",
+      "display_name": "Studio headphones",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/9baf776c619fc459188415117aa5d1bd757fbb6b6143d9cadc289f9d5c191e38",
+          "sha256": "9baf776c619fc459188415117aa5d1bd757fbb6b6143d9cadc289f9d5c191e38",
+          "bytes": 1786
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/36797edb38af38d9082cab21a167af9105b31d863d99fac877920880af84c401",
+          "sha256": "36797edb38af38d9082cab21a167af9105b31d863d99fac877920880af84c401",
+          "bytes": 454
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/a4bd72c3d4a40c2ea268ff97964a4e1d812eeb4824458078a7b374ad4b190694",
+          "sha256": "a4bd72c3d4a40c2ea268ff97964a4e1d812eeb4824458078a7b374ad4b190694",
+          "bytes": 2272
+        }
+      },
+      "geometry_id": "geometry.cinnabar.studio_headphones",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:halo",
+      "slot": "head",
+      "display_name": "Halo",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/f102c4c05a32fbcd7329406ac4d384e2ff571fa62ccf0b5d2c9c76946eeac3f4",
+          "sha256": "f102c4c05a32fbcd7329406ac4d384e2ff571fa62ccf0b5d2c9c76946eeac3f4",
+          "bytes": 2452
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/f006ec113482dd4c27e326b9bf1fc904bdaec80f571d5f5f70dc1bbf7fc2fc77",
+          "sha256": "f006ec113482dd4c27e326b9bf1fc904bdaec80f571d5f5f70dc1bbf7fc2fc77",
+          "bytes": 327
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/cf534403bb5aca6827dee343ce2b14bbb48ec04d3dc8b4930c1ebb6d2e950068",
+          "sha256": "cf534403bb5aca6827dee343ce2b14bbb48ec04d3dc8b4930c1ebb6d2e950068",
+          "bytes": 6013
+        }
+      },
+      "geometry_id": "geometry.cinnabar.halo",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false,
+        "emissive": true
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:ember_jetpack",
+      "slot": "back",
+      "display_name": "Ember jetpack",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/279d4aec58385cdb1da3453fd5c70b53503ed8c6a31e3442ce2cb23c58e42af2",
+          "sha256": "279d4aec58385cdb1da3453fd5c70b53503ed8c6a31e3442ce2cb23c58e42af2",
+          "bytes": 3060
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/2e62d30e2a4180f432d8713f2d6573c880923e47b3063f7054c2292cbddfbf32",
+          "sha256": "2e62d30e2a4180f432d8713f2d6573c880923e47b3063f7054c2292cbddfbf32",
+          "bytes": 1634
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/eee3b57f3568688eb85e168470385ef6799a58d788d230a7782b1f64ded8d452",
+          "sha256": "eee3b57f3568688eb85e168470385ef6799a58d788d230a7782b1f64ded8d452",
+          "bytes": 4912
+        }
+      },
+      "geometry_id": "geometry.cinnabar.ember_jetpack",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:amethyst_orbit",
+      "slot": "aura",
+      "display_name": "Amethyst orbit",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/d1db518a76fbb3a7a0fe6f149ea90382bd6e39aeae90af0c8020532f1b97bd1a",
+          "sha256": "d1db518a76fbb3a7a0fe6f149ea90382bd6e39aeae90af0c8020532f1b97bd1a",
+          "bytes": 4155
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/a0072a47c3f5010ca34dfa3ae51f576d5d07cd125ce235b17d42b77e74679900",
+          "sha256": "a0072a47c3f5010ca34dfa3ae51f576d5d07cd125ce235b17d42b77e74679900",
+          "bytes": 628
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/10e869d7a41498123a4e8701b930696671f322cc18e4765fdebac1063f8e6a5b",
+          "sha256": "10e869d7a41498123a4e8701b930696671f322cc18e4765fdebac1063f8e6a5b",
+          "bytes": 26852
+        }
+      },
+      "geometry_id": "geometry.cinnabar.amethyst_orbit",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false,
+        "emissive": true
       },
       "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
     }

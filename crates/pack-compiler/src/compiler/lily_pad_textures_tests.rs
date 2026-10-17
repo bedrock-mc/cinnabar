@@ -17,8 +17,7 @@ fn repeated_page(chain: &[TextureMip], layers: usize) -> TexturePage {
 #[test]
 fn lily_pad_copies_keep_pages_device_compatible_and_fail_at_total_capacity() {
     let base = [80, 100, 120, 255].repeat((TILE_SIZE * TILE_SIZE) as usize);
-    let chain =
-        assets::texture::build_texture_mip_chain(base.into_boxed_slice(), TILE_SIZE).unwrap();
+    let chain = assets::build_texture_mip_chain(base.into_boxed_slice(), TILE_SIZE).unwrap();
     let full = repeated_page(&chain, MAX_CARRIER_TEXTURE_LAYERS);
     let mut pages = vec![full.clone()];
     let tinted = copy_chain(&pages, TextureRef::DIAGNOSTIC, [128, 255, 255]).unwrap();

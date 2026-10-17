@@ -222,10 +222,8 @@ pub(crate) fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBi
     true
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_camera_medium(
     client_world: Res<ClientWorld>,
-    collisions: Option<Res<PhysicsCollisionRegistries>>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
@@ -255,21 +253,6 @@ pub(crate) fn update_camera_medium(
     let (camera_profile, profile_route, camera_fog) =
         fog_bindings.camera(raw_id, stream.current_dimension());
     medium.0 = stream.camera_medium(position);
-    if medium.0 == CameraMedium::Air
-        && let Some(collisions) = collisions.as_deref()
-    {
-        let world = sim::PaletteWorld::new(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            Default::default(),
-        );
-        if client_presentation::camera::probe_head_medium(&world, camera.translation)
-            == client_presentation::camera::HeadMedium::PowderSnow
-        {
-            medium.0 = CameraMedium::PowderSnow;
-        }
-    }
     let camera_biome =
         raw_id.and_then(|raw_id| stream.authority().resolved_biome_tints().biome(raw_id));
     *context = environment::EnvironmentContext {

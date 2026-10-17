@@ -1,7 +1,7 @@
 use crate::{gpu_snapshot, shader_source};
 use wgpu::util::DeviceExt;
 
-use assets::atmosphere::ResolvedFog;
+use assets::ResolvedFog;
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
 use render_scene::{AtmosphereFrame, SkyKind};

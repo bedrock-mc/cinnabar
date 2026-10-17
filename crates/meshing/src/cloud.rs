@@ -1,6 +1,6 @@
 use std::{error::Error, fmt, mem::size_of};
 
-use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
+use assets::{AtmosphereRole, AtmosphereTexture};
 
 pub const CLOUD_MASK_SIZE: u32 = 256;
 /// Blocks per `clouds.png` texel on each horizontal axis.

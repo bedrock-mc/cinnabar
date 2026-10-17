@@ -12,15 +12,12 @@ use std::{
 };
 
 use ::assets::{
-    BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
-    CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, FontPixels,
-    FontTexturePage, GlyphMetrics, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
-    TexturePage, TextureRef, VisualKind,
-    atmosphere::{
-        AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, encode_atmosphere_blob,
-    },
-    encode_blob, encode_entity_blob, encode_font_catalog,
-    texture::{TextureArray, TextureMip},
+    AtmosphereRole, AtmosphereTexture, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
+    CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
+    EntityAssetSource, EntityAssetSymbol, FontPixels, FontTexturePage, GlyphMetrics, Material,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    encode_font_catalog,
 };
 use cinnabar::args::{ClientArgs, ParseOutcome};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};

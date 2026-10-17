@@ -10,9 +10,6 @@ use std::mem::size_of;
 mod artwork;
 mod bones;
 mod dissolve;
-mod draws;
-#[cfg(feature = "enhanced")]
-mod enhanced_motion;
 pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
@@ -21,16 +18,8 @@ pub(crate) mod publication_test_support;
 mod skins;
 use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};
-#[cfg(feature = "enhanced")]
-pub(crate) use draws::{draw_depth_actors, draw_shadow_actors};
-#[cfg(feature = "enhanced")]
-pub(crate) use enhanced_motion::mark_actor_motion_submitted;
 use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
 use pipeline::*;
-#[cfg(test)]
-pub(crate) use pipeline::{actor_bind_group_layout, actor_pipeline_descriptor};
-#[cfg(feature = "enhanced")]
-pub(crate) use pipeline::{actor_motion_pipeline_descriptor, actor_shadow_pipeline_descriptor};
 use skins::GpuSkinArrays;
 
 use bevy::{
@@ -81,8 +70,7 @@ use {
     render_scene::{ActorPresentationGate, ActorRenderFrame, ActorRuntimeWitness},
 };
 
-pub(crate) const ACTOR_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
+const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
 const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wesl");
 
@@ -118,7 +106,6 @@ fn install_actor_render(app: &mut App) {
     {
         return;
     }
-    crate::enhanced::plugin::load_shader_imports(app);
     let presentation_gate = app.world().resource::<ActorPresentationGate>().clone();
     let runtime_witness = app.world().resource::<ActorRuntimeWitness>().clone();
     let pipeline_readiness = app
@@ -169,15 +156,6 @@ fn install_actor_render(app: &mut App) {
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
-    #[cfg(feature = "enhanced")]
-    app.sub_app_mut(RenderApp)
-        .init_resource::<enhanced_motion::ActorMotionGpu>()
-        .add_systems(
-            Render,
-            enhanced_motion::prepare_actor_motion
-                .after(prepare_actor_resources)
-                .in_set(RenderSystems::PrepareResources),
-        );
 }
 
 #[derive(Resource)]
@@ -189,9 +167,6 @@ pub(crate) struct ActorGpu {
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     sorted: dissolve::SortedDraws,
-    /// Sorted plan over every span, shadow-only bodies included, for reflection captures.
-    capture_sorted: dissolve::SortedDraws,
-    main_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
     /// The immutable draw identity installed by the current queue pass.
@@ -216,7 +191,6 @@ pub(crate) struct ActorGpu {
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
     manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
-    main_manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
 }
 
 /// Whether every player-page instance samples a resident skin slot.
@@ -290,8 +264,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         )?,
         spans: Vec::new(),
         sorted: dissolve::SortedDraws::default(),
-        capture_sorted: dissolve::SortedDraws::default(),
-        main_spans: Vec::new(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         queued_draw: None,
@@ -349,7 +321,6 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         skin_revision: u64::MAX,
         view_buffer_id: None,
         manifest: std::sync::Arc::from([]),
-        main_manifest: std::sync::Arc::from([]),
     })
 }
 
@@ -512,36 +483,13 @@ fn prepare_actor_resources(
                 &rig.geometry_spans,
             );
             gpu.instances = prepared.instances;
-            let main_count = gpu
-                .manifest
-                .iter()
-                .position(|entry| entry.route == render_model::ActorRigRoute::ShadowOnly)
-                .unwrap_or(gpu.manifest.len());
-            gpu.main_manifest = if main_count == gpu.manifest.len() {
-                std::sync::Arc::clone(&gpu.manifest)
-            } else {
-                std::sync::Arc::from(&gpu.manifest[..main_count])
-            };
             let ActorGpu {
                 sorted,
-                capture_sorted,
                 spans,
-                main_spans,
                 manifest,
-                main_manifest,
                 ..
             } = &mut *gpu;
-            main_spans.clear();
-            main_spans.extend(
-                spans
-                    .iter()
-                    .filter_map(|span| draws::main_span(*span, main_count as u32)),
-            );
-            sorted.prepare(main_spans, main_manifest);
-            // Reflection captures exist only in Enhanced builds.
-            if render_model::ENHANCED_RENDERING_ENABLED {
-                capture_sorted.prepare(spans, manifest);
-            }
+            sorted.prepare(spans, manifest);
         } else {
             gpu.bones.clear();
             gpu.instance_count = 0;
@@ -549,10 +497,7 @@ fn prepare_actor_resources(
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
             gpu.sorted.prepare(&[], &[]);
-            gpu.capture_sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
-            gpu.main_spans.clear();
-            gpu.main_manifest = std::sync::Arc::from([]);
             gate.clear();
             tracker.clear();
         }

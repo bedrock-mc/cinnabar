@@ -1,6 +1,6 @@
 //! Installs decoded carrier data into renderer and pack-runtime state.
 use assets::{
-    actor::RuntimeActorCatalog,
+    RuntimeActorCatalog,
     carriers::startup::{LoadedAssets, LoadedAtmosphereAssets},
 };
 use sha2::{Digest, Sha256};
@@ -25,7 +25,7 @@ pub(crate) fn actor_artwork(
         catalog
             .bindings()
             .iter()
-            .filter(|binding| binding.pose_mode == assets::actor::ActorPoseMode::RestPose)
+            .filter(|binding| binding.pose_mode == assets::ActorPoseMode::RestPose)
             .count()
     );
     artwork

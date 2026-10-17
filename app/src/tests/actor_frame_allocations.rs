@@ -99,7 +99,7 @@ fn spawn(runtime_id: u64, position: [f32; 3]) -> WorldEvent {
 /// actors stand in view.
 fn steady_frame_allocations(actors: u64) -> u64 {
     let (_pack, artwork, entities) =
-        compiled_fixture("1.0", 1, assets::actor::ActorPoseMode::CompiledLiteral);
+        compiled_fixture("1.0", 1, assets::ActorPoseMode::CompiledLiteral);
     let mut stream = stream(Arc::clone(&entities));
     for index in 0..actors {
         let position = [

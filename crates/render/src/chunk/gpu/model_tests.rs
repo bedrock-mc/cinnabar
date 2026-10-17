@@ -319,8 +319,6 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
     let key = SubChunkKey::new(0, 1, 2, 3);
     let tint = ChunkBiomeTintIdentity::new(4, 5);
     let instance = ChunkRenderInstance {
-        #[cfg(feature = "enhanced")]
-        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),
@@ -407,8 +405,6 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
 fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let instance = ChunkRenderInstance {
-        #[cfg(feature = "enhanced")]
-        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),
@@ -570,34 +566,4 @@ fn same_key_render_replacement_preserves_urgent_priority() {
         .try_remove_inner(key, ChunkUploadPriority::new(0.0), None)
         .unwrap();
     assert!(queue.removals[&key].priority.is_urgent());
-}
-
-/// Ordinary sorting retains the packed turn even for position-dependent Enhanced templates.
-#[cfg(not(feature = "enhanced"))]
-#[test]
-fn vanilla_model_sort_keeps_the_packed_centroid_placement() {
-    let key = SubChunkKey::new(0, 0, 4, 0);
-    let reference = PackedModelRef::new(0, 0, 0, 1);
-    let template = assets::ModelTemplate {
-        quad_start: 0,
-        quad_count: 1,
-        flags: assets::MODEL_TEMPLATE_FLAG_LILY_PAD,
-    };
-    let quad = assets::ModelQuad {
-        positions: [[64, 0, 192]; 4],
-        uvs: [[0; 2]; 4],
-        material: 0,
-        flags: 0,
-    };
-    let candidate = transparent_model_draw_candidate(
-        key,
-        &[reference],
-        &[],
-        PackedModelDrawRef::new(0, 0),
-        &[template],
-        &[quad],
-        41,
-    )
-    .unwrap();
-    assert_eq!(candidate, (Vec3::new(0.25, 64.0, 0.75), [41, 0]));
 }

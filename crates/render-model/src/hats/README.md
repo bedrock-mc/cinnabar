@@ -47,3 +47,52 @@ first pose. All clip transitions must have matching joint transforms. Positions
 are authored model pixels; rotations are degrees. Static gallery artwork uses the
 first cycle pose, while world and character previews share caller-owned time.
 Exporting this project also updates its animation channels, preserving the playback profile.
+
+## Emissive items
+
+`render_flags.emissive: true` (optional, default false) draws the item fullbright in the
+world. Admission derives a world raster from the texture: texels with alpha of at least 128
+keep their colour with alpha 0, which the actor's emissive-alpha material draws without world
+lighting; all other texels are discarded. Pure black is lifted to `(1, 1, 1)` so it still
+draws. Gallery thumbnails and HUD or wardrobe previews use the authored texture unchanged.
+
+## Particle emitters
+
+An animation file may add a top-level `particles` array of at most eight entries:
+
+```json
+{"bone": "nozzle_left", "offset": [0, -2.5, 0], "sprites": [0, 16], "effect": {"format_version": "1.10.0", "particle_effect": {...}}}
+```
+
+- `bone` names a bone in the item's geometry.
+- `offset` is in model pixels from that bone's pivot, on the authored geometry axes (the same
+  axes as `.geo.json` cube origins); each component is finite and within ±64. The renderer
+  mirrors X with the geometry, so the emitter sits exactly where a cube corner at
+  `pivot + offset` renders, and it turns with the bone's rest rotation and animation.
+- `effect` is a complete Bedrock particle effect object with a string
+  `particle_effect.description.identifier`. Admission replaces that identifier with
+  `cinnabar_cosmetic:<first 16 hex digits of the animation SHA-256>_<index>`, so revisions never
+  collide with each other or with pack effects. Use a looping emitter lifetime; finished
+  emitters restart while the item remains drawn. Textures resolve against the runtime particle
+  atlas, for example `textures/particle/particles`.
+- An effect whose texture is `atlas.cosmetic` draws the item's own art instead: `sprites` gives
+  the top-left texel `[u, v]` of a 16x16 region of the item texture, which must fit inside it.
+  Its UVs and flipbooks address that region with `texture_width` and `texture_height` set to 16.
+  `sprites` is required with `atlas.cosmetic` and rejected with any other texture.
+
+The emitter basis is the posed bone's axes in world space, including player scale. Any
+malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
+most 128 alive at once (sixteen players with eight each); previews never emit.
+
+Ten cube projects fill every slot: `studio_headphones`, `halo`, `pixel_shades`, `kitsune_mask`,
+`morpho_wings`, `ember_jetpack`, `fox_tail`, `knit_scarf`, `bee_buddy` and `amethyst_orbit`.
+Each `.bbmodel` embeds its original 64x64 texture, also saved beside it as a PNG; items with
+particles keep their 16x16 sprite sheet in the texture's bottom-right corner. Export each
+with `python3 crates/render-model/src/hats/export.py <name>`. Cube rotations and pivots are
+exported, faces without a texture are omitted, and two-sided cards are thin cubes so their
+faces never share a plane. The `animation.json` files keep their `playback` and `particles`
+fields when clips are re-exported. Wings, tail, scarf and tassel use looping clips; the bee and
+the amethyst shards circle on looping position clips; the pixel shades drop in once and then
+lift and drop back after each delay. The halo and amethyst orbit are `emissive`.
+Rotation keys interpolate along the shortest turn, so a continuous spin is authored as keys
+that wrap from +180 to -180 degrees a few microseconds apart.

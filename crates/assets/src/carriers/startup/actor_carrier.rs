@@ -1,5 +1,5 @@
 use super::{AssetStartupError, LoadedEntityAssets, shell_quote_path};
-use crate::actor::RuntimeActorCatalog;
+use crate::RuntimeActorCatalog;
 use std::{
     fs::File,
     io::Read,
@@ -36,7 +36,7 @@ fn read_coherent_actor_assets(
         detail: detail.into(),
         rebuild_command: command.clone(),
     };
-    let limit = crate::actor::MAX_ACTOR_CARRIER_BYTES;
+    let limit = crate::MAX_ACTOR_CARRIER_BYTES;
     let file = File::open(&path).map_err(|source| error(source.to_string()))?;
     if file
         .metadata()

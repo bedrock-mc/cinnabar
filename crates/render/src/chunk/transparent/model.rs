@@ -295,16 +295,15 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
     model_quads: &[assets::ModelQuad],
     model_record_base: u32,
 ) -> Option<(Vec3, [u32; 2])> {
-    let origin = chunk_origin(key);
+    let [chunk_x, chunk_y, chunk_z] = chunk_origin(key).map(|coordinate| coordinate as f32);
     let [local_model_ref, quad_index] = draw_ref.words();
-    let reference = *model_refs.get(local_model_ref as usize)?;
-    let model_ref = reference.words();
+    let model_ref = model_refs.get(local_model_ref as usize)?.words();
     let template = model_templates.get(model_ref[1] as usize)?;
     if quad_index >= template.quad_count || model_ref[3] & (1_u32 << quad_index) == 0 {
         return None;
     }
     let quad = model_quads.get(template.quad_start.checked_add(quad_index)? as usize)?;
-    let centroid = quad.positions.iter().fold(Vec3::ZERO, |total, position| {
+    let mut centroid = quad.positions.iter().fold(Vec3::ZERO, |total, position| {
         total
             + Vec3::new(
                 f32::from(position[0]),
@@ -312,59 +311,40 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
                 f32::from(position[2]),
             )
     }) / (4.0 * 256.0);
-    #[cfg(not(feature = "enhanced"))]
-    {
-        let mut centroid = centroid;
-        let has_offset = model_ref[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0;
-        if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-            let transform = model_ref[0] >> 12;
-            let mut offset = assets::bamboo::quad_offset(transform, quad_index);
-            if has_offset {
-                let default = block_transform::bamboo::offset_from_transform(transform);
-                offset = std::array::from_fn(|axis| offset[axis] - default[axis]);
-            }
-            centroid += Vec3::from_array(offset);
-        } else {
-            let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
-            centroid = match (model_ref[0] >> 12) & 3 {
-                1 => Vec3::new(-centered.z, centered.y, centered.x),
-                2 => Vec3::new(-centered.x, centered.y, -centered.z),
-                3 => Vec3::new(centered.z, centered.y, -centered.x),
-                _ => centered,
-            } + Vec3::new(0.5, 0.0, 0.5);
-        }
+    let has_offset = model_ref[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0;
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+        let transform = model_ref[0] >> 12;
+        let mut offset = assets::bamboo::quad_offset(transform, quad_index);
         if has_offset {
-            let base = model_ref[2] as usize;
-            let records = model_lighting.get(base.checked_sub(2)?..base)?;
-            centroid += Vec3::from_array(meshing::PackedQuadLighting::offset_from_prefix([
-                records[0], records[1],
-            ]));
+            let default = block_transform::bamboo::offset_from_transform(transform);
+            offset = std::array::from_fn(|axis| offset[axis] - default[axis]);
         }
-        let block = Vec3::new(
-            (model_ref[0] & 15) as f32,
-            ((model_ref[0] >> 4) & 15) as f32,
-            ((model_ref[0] >> 8) & 15) as f32,
-        );
-        Some((
-            Vec3::from_array(origin.map(|coordinate| coordinate as f32)) + block + centroid,
-            [local_model_ref.checked_add(model_record_base)?, quad_index],
-        ))
+        centroid += Vec3::from_array(offset);
+    } else {
+        let centered = centroid - Vec3::new(0.5, 0.0, 0.5);
+        centroid = match (model_ref[0] >> 12) & 3 {
+            1 => Vec3::new(-centered.z, centered.y, centered.x),
+            2 => Vec3::new(-centered.x, centered.y, -centered.z),
+            3 => Vec3::new(centered.z, centered.y, -centered.x),
+            _ => centered,
+        } + Vec3::new(0.5, 0.0, 0.5);
     }
-    #[cfg(feature = "enhanced")]
-    {
-        // Placement is the same translation and turn for every corner, so it carries the centroid.
-        let placed = reference.place_vertex(
-            template.flags,
-            quad_index,
-            centroid.to_array(),
-            origin,
-            model_lighting,
-        )?;
-        Some((
-            Vec3::from_array(origin.map(|coordinate| coordinate as f32)) + Vec3::from_array(placed),
-            [local_model_ref.checked_add(model_record_base)?, quad_index],
-        ))
+    if has_offset {
+        let base = model_ref[2] as usize;
+        let records = model_lighting.get(base.checked_sub(2)?..base)?;
+        centroid += Vec3::from_array(meshing::PackedQuadLighting::offset_from_prefix([
+            records[0], records[1],
+        ]));
     }
+    let block = Vec3::new(
+        (model_ref[0] & 15) as f32,
+        ((model_ref[0] >> 4) & 15) as f32,
+        ((model_ref[0] >> 8) & 15) as f32,
+    );
+    Some((
+        Vec3::new(chunk_x, chunk_y, chunk_z) + block + centroid,
+        [local_model_ref.checked_add(model_record_base)?, quad_index],
+    ))
 }
 
 pub(in crate::chunk) fn sort_transparent_model_candidates(
