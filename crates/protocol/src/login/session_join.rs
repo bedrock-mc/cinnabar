@@ -66,24 +66,27 @@ impl LoginSequence {
         reader.set_trace_conn(handoff.trace_conn);
         let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
         let mut preparation = None;
-        let spawned =
-            match super::startup::await_spawn(&mut transport, |start_game, item_registry| {
+        let spawned = match super::startup::await_spawn(
+            &mut transport,
+            settings.view_distance_chunks,
+            |start_game, item_registry| {
                 preparation = Some(tokio::task::spawn_blocking(move || {
                     prepare(packs, GameData::from_wire(&start_game, &item_registry))
                 }));
-            })
-            .await
-            {
-                Ok(spawned) => spawned,
-                Err(error) => {
-                    if let ProtocolError::Session(session) = &error
-                        && session.0.is_packet_failure()
-                    {
-                        transport.reject_current(PacketOutcome::Failed);
-                    }
-                    return Err(error);
+            },
+        )
+        .await
+        {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                if let ProtocolError::Session(session) = &error
+                    && session.0.is_packet_failure()
+                {
+                    transport.reject_current(PacketOutcome::Failed);
                 }
-            };
+                return Err(error);
+            }
+        };
         let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
         // Keep reading while the packs prepare, so the server's backlog never stalls the core.
         let prepared = tokio::select! {
