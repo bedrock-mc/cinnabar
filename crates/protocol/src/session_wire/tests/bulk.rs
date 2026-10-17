@@ -121,22 +121,54 @@ fn web_handoff_preserves_play_batches_and_inline_fallback() {
 }
 
 #[test]
-fn bulk_handoff_replays_a_bounded_play_queue() {
+fn bulk_handoff_ready_archives_precede_ready_play_batches() {
+    futures::executor::block_on(async {
+        for batch in [encode_batch([b"\x09\x00"]).unwrap(), full_budget_batch()] {
+            let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
+            let count = 32;
+            let frames = std::iter::once(Ok(handoff)).chain((0..count).map(|_| Ok(batch.clone())));
+            let reader = futures::stream::iter(frames).chain(futures::stream::pending());
+            let wire = pack_stream(9, b"abc");
+            let (_, archives, mut reader) = LoginSequence::receive_web_handoff(
+                reader,
+                9,
+                async { Ok(Some(wire.as_slice())) },
+                pending_timers(),
+            )
+            .now_or_never()
+            .expect("ready archives must complete despite ready gameplay")
+            .expect("ready gameplay must not reject completed archive delivery");
+            assert_eq!(archives, [b"abc".to_vec()]);
+            for _ in 0..count {
+                assert_eq!(reader.next().await.unwrap().unwrap(), batch);
+            }
+        }
+    });
+}
+
+#[test]
+fn bulk_handoff_replays_many_play_batches_while_archives_are_pending() {
     futures::executor::block_on(async {
         let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
         let batch = encode_batch([b"\x09\x00"]).unwrap();
-        let count = crate::session_transport::MAX_READ_AHEAD_FRAMES;
+        let count = 32;
         let frames = std::iter::once(Ok(handoff)).chain((0..count).map(|_| Ok(batch.clone())));
         let reader = futures::stream::iter(frames).chain(futures::stream::pending());
         let wire = pack_stream(9, b"abc");
-        let (_, archives, mut reader) = LoginSequence::receive_web_handoff(
+        let (ready, packs) = futures::channel::oneshot::channel();
+        let receiving = LoginSequence::receive_web_handoff(
             reader,
             9,
-            async { Ok(Some(wire.as_slice())) },
+            async {
+                packs.await.unwrap();
+                Ok(Some(wire.as_slice()))
+            },
             pending_timers(),
-        )
-        .await
-        .unwrap();
+        );
+        tokio::pin!(receiving);
+        assert!(receiving.as_mut().now_or_never().is_none());
+        ready.send(()).unwrap();
+        let (_, archives, mut reader) = receiving.await.unwrap();
         assert_eq!(archives, [b"abc".to_vec()]);
         for _ in 0..count {
             assert_eq!(reader.next().await.unwrap().unwrap(), batch);
@@ -168,10 +200,14 @@ fn terminal_play_message_cancels_pending_bulk_open() {
     });
 }
 
-/// Fills a play read-ahead budget and retains an archive peer to observe reader cancellation.
+/// Returns one play batch large enough to fill the shared read-ahead byte budget.
+fn full_budget_batch() -> Bytes {
+    encode_batch([vec![9; crate::session_transport::MAX_READ_AHEAD_BYTES]]).unwrap()
+}
+
+/// Fills the play byte budget and retains an archive peer to observe reader cancellation.
 fn full_bulk_queue(
     pending_open: bool,
-    byte_budget: bool,
 ) -> (
     futures::channel::mpsc::UnboundedSender<Result<Bytes, BridgeError>>,
     impl std::future::Future<Output = crate::ProtocolError>,
@@ -180,20 +216,7 @@ fn full_bulk_queue(
     let (send, reader) = futures::channel::mpsc::unbounded();
     let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
     send.unbounded_send(Ok(handoff)).unwrap();
-    let (batch, count) = if byte_budget {
-        (
-            encode_batch([vec![9; crate::session_transport::MAX_READ_AHEAD_BYTES]]).unwrap(),
-            1,
-        )
-    } else {
-        (
-            encode_batch([b"\x09\x00"]).unwrap(),
-            crate::session_transport::MAX_READ_AHEAD_FRAMES,
-        )
-    };
-    for _ in 0..count {
-        send.unbounded_send(Ok(batch.clone())).unwrap();
-    }
+    send.unbounded_send(Ok(full_budget_batch())).unwrap();
     let (read, write) = tokio::io::duplex(1);
     let receiving = async move {
         LoginSequence::receive_web_handoff(
@@ -216,59 +239,57 @@ fn full_bulk_queue(
 
 #[test]
 fn bulk_handoff_full_queue_preserves_terminal_messages() {
-    for byte_budget in [false, true] {
-        for pending_open in [false, true] {
-            for terminal in [
-                CoreMessage::Disconnect(SessionDisconnect {
-                    reason: 0,
-                    message: "closed during pack delivery".into(),
-                    filtered_message: "filtered disconnect text".into(),
-                    hide_screen: false,
-                }),
-                CoreMessage::Transfer(SessionTransfer {
-                    address: "next.example.test".into(),
-                    port: 19133,
-                    reload_world: true,
-                }),
-            ] {
-                let (send, receiving, mut archive) = full_bulk_queue(pending_open, byte_budget);
-                tokio::pin!(receiving);
-                assert!(receiving.as_mut().now_or_never().is_none());
-                send.unbounded_send(Ok(encode_core_message(&terminal).unwrap()))
-                    .unwrap();
-                let error = receiving
-                    .now_or_never()
-                    .expect("a full play queue must not hide terminal messages");
-                match terminal {
-                    CoreMessage::Disconnect(expected) => {
-                        let actual = error.server_disconnect().expect("retain the server reason");
-                        assert_eq!(actual.message.as_deref(), Some(expected.message.as_str()));
-                        assert_eq!(
-                            actual.filtered_message.as_deref(),
-                            Some(expected.filtered_message.as_str())
-                        );
-                    }
-                    CoreMessage::Transfer(expected) => {
-                        let actual = error.server_transfer().expect("retain the transfer target");
-                        assert_eq!(actual.host, expected.address);
-                        assert_eq!(actual.port, expected.port);
-                        assert_eq!(actual.reload_world, expected.reload_world);
-                    }
-                    _ => unreachable!(),
+    for pending_open in [false, true] {
+        for terminal in [
+            CoreMessage::Disconnect(SessionDisconnect {
+                reason: 0,
+                message: "closed during pack delivery".into(),
+                filtered_message: "filtered disconnect text".into(),
+                hide_screen: false,
+            }),
+            CoreMessage::Transfer(SessionTransfer {
+                address: "next.example.test".into(),
+                port: 19133,
+                reload_world: true,
+            }),
+        ] {
+            let (send, receiving, mut archive) = full_bulk_queue(pending_open);
+            tokio::pin!(receiving);
+            assert!(receiving.as_mut().now_or_never().is_none());
+            send.unbounded_send(Ok(encode_core_message(&terminal).unwrap()))
+                .unwrap();
+            let error = receiving
+                .now_or_never()
+                .expect("a full play queue must not hide terminal messages");
+            match terminal {
+                CoreMessage::Disconnect(expected) => {
+                    let actual = error.server_disconnect().expect("retain the server reason");
+                    assert_eq!(actual.message.as_deref(), Some(expected.message.as_str()));
+                    assert_eq!(
+                        actual.filtered_message.as_deref(),
+                        Some(expected.filtered_message.as_str())
+                    );
                 }
-                assert!(
-                    archive.write_all(b"x").now_or_never().unwrap().is_err(),
-                    "release the pending archive lane"
-                );
-                assert!(send.is_closed(), "release the play lane");
+                CoreMessage::Transfer(expected) => {
+                    let actual = error.server_transfer().expect("retain the transfer target");
+                    assert_eq!(actual.host, expected.address);
+                    assert_eq!(actual.port, expected.port);
+                    assert_eq!(actual.reload_world, expected.reload_world);
+                }
+                _ => unreachable!(),
             }
+            assert!(
+                archive.write_all(b"x").now_or_never().unwrap().is_err(),
+                "release the pending archive lane"
+            );
+            assert!(send.is_closed(), "release the play lane");
         }
     }
 }
 
 #[test]
 fn bulk_handoff_full_queue_rejects_nonterminal_overflow() {
-    for byte_budget in [false, true] {
+    for pending_open in [false, true] {
         for message in [
             encode_batch([b"\x09\x00"]).unwrap(),
             encode_core_message(&CoreMessage::PackData {
@@ -277,7 +298,7 @@ fn bulk_handoff_full_queue_rejects_nonterminal_overflow() {
             })
             .unwrap(),
         ] {
-            let (send, receiving, mut archive) = full_bulk_queue(true, byte_budget);
+            let (send, receiving, mut archive) = full_bulk_queue(pending_open);
             tokio::pin!(receiving);
             assert!(receiving.as_mut().now_or_never().is_none());
             send.unbounded_send(Ok(message)).unwrap();
@@ -296,22 +317,20 @@ fn bulk_handoff_full_queue_rejects_nonterminal_overflow() {
 
 #[test]
 fn bulk_handoff_full_queue_observes_relay_cancellation_before_archive_publication() {
-    for byte_budget in [false, true] {
-        let (send, receiving, mut archive) = full_bulk_queue(true, byte_budget);
-        tokio::pin!(receiving);
-        assert!(receiving.as_mut().now_or_never().is_none());
-        // Cancelling the relay's archive open closes play without ever publishing an archive.
-        drop(send);
-        let error = receiving
-            .now_or_never()
-            .expect("relay closure must end an unpublished archive wait");
-        assert!(
-            error
-                .to_string()
-                .contains("play closed during pack delivery")
-        );
-        assert!(archive.write_all(b"x").now_or_never().unwrap().is_err());
-    }
+    let (send, receiving, mut archive) = full_bulk_queue(true);
+    tokio::pin!(receiving);
+    assert!(receiving.as_mut().now_or_never().is_none());
+    // Cancelling the relay's archive open closes play without ever publishing an archive.
+    drop(send);
+    let error = receiving
+        .now_or_never()
+        .expect("relay closure must end an unpublished archive wait");
+    assert!(
+        error
+            .to_string()
+            .contains("play closed during pack delivery")
+    );
+    assert!(archive.write_all(b"x").now_or_never().unwrap().is_err());
 }
 
 #[test]
@@ -325,9 +344,10 @@ fn bulk_handoff_replays_batches_crossing_the_byte_budget() {
             .collect();
         let polls = std::cell::Cell::new(0);
         let frames = std::iter::once(Ok(handoff)).chain(batches.iter().cloned().map(Ok));
+        let (send, extra) = futures::channel::mpsc::unbounded();
         let reader = futures::stream::iter(frames)
             .inspect(|_| polls.set(polls.get() + 1))
-            .chain(futures::stream::pending());
+            .chain(extra);
         let (ready, packs) = futures::channel::oneshot::channel();
         let wire = pack_stream(9, b"abc");
         let receiving = LoginSequence::receive_web_handoff(
@@ -347,26 +367,29 @@ fn bulk_handoff_replays_batches_crossing_the_byte_budget() {
             "retain both batches while archives remain pending"
         );
         ready.send(()).unwrap();
+        let extra = encode_batch([b"\x09\x00"]).unwrap();
+        send.unbounded_send(Ok(extra.clone())).unwrap();
         let (_, archives, mut reader) = receiving.await.unwrap();
         assert_eq!(archives, [b"abc".to_vec()]);
         for batch in &batches {
             assert_eq!(&reader.next().await.unwrap().unwrap(), batch);
         }
+        assert_eq!(reader.next().await.unwrap().unwrap(), extra);
     });
 }
 
 /// Delivers a terminal play message only after the independent archive lane has failed.
 async fn terminal_after_bulk_failure(
     terminal: CoreMessage,
-    queued_batches: usize,
+    full_queue: bool,
     fail_open: bool,
 ) -> crate::ProtocolError {
     let (send, reader) = futures::channel::mpsc::unbounded();
     let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
     let batch = encode_batch([b"\x09\x00"]).unwrap();
     send.unbounded_send(Ok(handoff)).unwrap();
-    for _ in 0..queued_batches {
-        send.unbounded_send(Ok(batch.clone())).unwrap();
+    if full_queue {
+        send.unbounded_send(Ok(full_budget_batch())).unwrap();
     }
     let receiving = LoginSequence::receive_web_handoff(
         reader,
@@ -384,7 +407,7 @@ async fn terminal_after_bulk_failure(
     if let Some(result) = receiving.as_mut().now_or_never() {
         return result.err().expect("archive failure ends the join");
     }
-    if queued_batches < crate::session_transport::MAX_READ_AHEAD_FRAMES {
+    if !full_queue {
         send.unbounded_send(Ok(batch)).unwrap();
     }
     send.unbounded_send(Ok(encode_core_message(&terminal).unwrap()))
@@ -398,7 +421,7 @@ async fn terminal_after_bulk_failure(
 #[test]
 fn bulk_failure_preserves_later_disconnect() {
     futures::executor::block_on(async {
-        for queued_batches in [0, crate::session_transport::MAX_READ_AHEAD_FRAMES] {
+        for full_queue in [false, true] {
             for fail_open in [false, true] {
                 let terminal = CoreMessage::Disconnect(SessionDisconnect {
                     reason: 0,
@@ -406,7 +429,7 @@ fn bulk_failure_preserves_later_disconnect() {
                     filtered_message: "filtered disconnect text".into(),
                     hide_screen: false,
                 });
-                let error = terminal_after_bulk_failure(terminal, queued_batches, fail_open).await;
+                let error = terminal_after_bulk_failure(terminal, full_queue, fail_open).await;
                 let disconnect = error.server_disconnect().expect("retain the server reason");
                 assert_eq!(
                     disconnect.message.as_deref(),
@@ -424,14 +447,14 @@ fn bulk_failure_preserves_later_disconnect() {
 #[test]
 fn bulk_failure_preserves_later_transfer() {
     futures::executor::block_on(async {
-        for queued_batches in [0, crate::session_transport::MAX_READ_AHEAD_FRAMES] {
+        for full_queue in [false, true] {
             for fail_open in [false, true] {
                 let terminal = CoreMessage::Transfer(SessionTransfer {
                     address: "next.example.test".into(),
                     port: 19133,
                     reload_world: true,
                 });
-                let error = terminal_after_bulk_failure(terminal, queued_batches, fail_open).await;
+                let error = terminal_after_bulk_failure(terminal, full_queue, fail_open).await;
                 let transfer = error.server_transfer().expect("retain the transfer target");
                 assert_eq!(transfer.host, "next.example.test");
                 assert_eq!(transfer.port, 19133);
