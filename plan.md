@@ -1979,8 +1979,10 @@ not close a parity or visual acceptance gate.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
-- Brewing bottle cells use a one-item limit derived from their named window run. Ingredient
-  and fuel cells use admitted item capacity; configured brewing membership remains incomplete.
+- Brewing bottle cells use a one-item limit derived from their named window run. Decoded
+  potion and container mix records retain their wire order and allocation credit separately
+  from ordinary recipe IDs. Runtime configured membership and routing remain incomplete.
+  Ingredient and fuel cells use admitted item capacity.
 - Loom banner inputs check the admitted item identity and typed root Type. Grindstone inputs
   require an enchantment List or admitted damageability without a true Unbreakable Byte.
   Valid durability components retain a zero Int maximum as damageable, without a durability bar

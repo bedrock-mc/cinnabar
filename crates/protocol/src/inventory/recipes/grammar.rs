@@ -1,4 +1,5 @@
 use super::{
+    brewing::{BrewingItem, BrewingMix},
     budget::MAX_RECORDS,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
@@ -247,6 +248,7 @@ pub(super) fn walk<'a>(
     reader: &mut Reader<'a>,
     mut record: impl FnMut(u32, Option<Candidate<'a>>) -> ReadResult<()>,
     mut screen: impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
+    mut brewing: impl FnMut(BrewingMix) -> ReadResult<()>,
 ) -> ReadResult<(bool, usize)> {
     let mut total = 0usize;
     for family in 0..11 {
@@ -304,10 +306,28 @@ pub(super) fn walk<'a>(
                     }
                     record(id, None)?;
                 }
-                8 | 9 => {
-                    for _ in 0..if family == 8 { 6 } else { 3 } {
-                        reader.int()?;
-                    }
+                8 => {
+                    brewing(BrewingMix::Potion {
+                        input: BrewingItem {
+                            network_id: reader.int()?,
+                            aux: reader.int()?,
+                        },
+                        reagent: BrewingItem {
+                            network_id: reader.int()?,
+                            aux: reader.int()?,
+                        },
+                        output: BrewingItem {
+                            network_id: reader.int()?,
+                            aux: reader.int()?,
+                        },
+                    })?;
+                }
+                9 => {
+                    brewing(BrewingMix::Container {
+                        input: reader.int()?,
+                        reagent: reader.int()?,
+                        output: reader.int()?,
+                    })?;
                 }
                 10 => {
                     reader.int()?;

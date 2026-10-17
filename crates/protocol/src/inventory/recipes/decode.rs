@@ -1,4 +1,5 @@
 use super::{
+    brewing::BrewingMix,
     budget::{Credits, MAX_UPDATE_BYTES},
     crafting::RecipeOutput,
     grammar,
@@ -23,9 +24,12 @@ pub(super) fn decode_with_credits(
         let mut screen_count = 0usize;
         let mut screen_names = 0usize;
         let mut multi_count = 0usize;
-        let (clear, total) = grammar::walk(
+        let mut brewing_count = 0usize;
+        let mut recipe_count = 0usize;
+        let (clear, _) = grammar::walk(
             &mut reader,
             |_, candidate| {
+                recipe_count += 1;
                 retained_names += candidate.map_or(0, |candidate| {
                     candidate
                         .ingredients
@@ -46,6 +50,10 @@ pub(super) fn decode_with_credits(
                 }
                 Ok(())
             },
+            |_| {
+                brewing_count += 1;
+                Ok(())
+            },
         )?;
         // Conservative string allocation allowance includes per-string allocator
         // metadata for each retained ingredient name, Vec capacity, the batch
@@ -53,12 +61,13 @@ pub(super) fn decode_with_credits(
         let retained_names = retained_names
             .checked_add(screen_names)
             .ok_or(Refusal::Policy)?;
-        let charge = total
+        let charge = recipe_count
             .checked_mul(size_of::<Record>())
             .and_then(|n| n.checked_add(retained_names.checked_mul(128)?))
             .and_then(|n| n.checked_add(screen_names.checked_mul(size_of::<ScreenIngredient>())?))
             .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
             .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
+            .and_then(|n| n.checked_add(brewing_count.checked_mul(size_of::<BrewingMix>())?))
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -68,9 +77,13 @@ pub(super) fn decode_with_credits(
         let permit = credits.reserve(charge).ok_or(Refusal::Policy)?;
         let mut records = Vec::new();
         records
-            .try_reserve_exact(total)
+            .try_reserve_exact(recipe_count)
             .map_err(|_| Refusal::Policy)?;
         let mut reader = Reader::new(body)?;
+        let mut brewing = Vec::new();
+        brewing
+            .try_reserve_exact(brewing_count)
+            .map_err(|_| Refusal::Policy)?;
         let mut screens = ScreenRecipes::default();
         screens
             .recipes
@@ -152,6 +165,10 @@ pub(super) fn decode_with_credits(
                 }
                 Ok(())
             },
+            |mix| {
+                brewing.push(mix);
+                Ok(())
+            },
         )?;
         records.sort_unstable_by_key(|record| record.id);
         // Ambiguous duplicates are tombstones, independent of arrival order.
@@ -194,6 +211,7 @@ pub(super) fn decode_with_credits(
             batch: Some(Arc::new(Batch {
                 records,
                 screen: screens,
+                brewing,
                 clear,
                 _permit: permit,
             })),
