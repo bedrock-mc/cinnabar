@@ -1955,6 +1955,8 @@ not close a parity or visual acceptance gate.
   merge and drag; a drag clamps contributions after an authoritative decrease.
 - World-use selection reads player backing separately from screen predictions and recovery.
   Local backing mutations and hotbar changes still wait for transport admission.
+- Held books read their identity and contents from player backing. Opening admits an item-use
+  transaction, including initialized and written books; initialization only creates absent user data.
 - A normal close acknowledgement retires that screen's unanswered requests without
   committing their predictions. HUD mining requests retain their separate ownership,
   and HUD/crafting observers follow the admitted packet and backing state.
@@ -1977,7 +1979,7 @@ not close a parity or visual acceptance gate.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
-- Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
+- Incomplete: book-edit publication and replacement ordering, crafting remainders and multiple results, enchanting prediction and availability,
   all station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
