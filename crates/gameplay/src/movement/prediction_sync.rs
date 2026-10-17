@@ -1,6 +1,6 @@
 //! Sends `ClientMovementPredictionSync` after the server corrected the local player.
 
-use protocol_ids::{ActorDataKey, Attribute};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 mod countdown;
 
 pub(super) use countdown::PredictionSyncCountdown;
@@ -53,7 +53,7 @@ pub fn send_movement_prediction_sync(
         air_drag_modifier,
     );
     let sync = MovementPredictionSync {
-        actor_flags: flag_words(&actor.metadata),
+        actor_flags: predicted_flag_words(&actor.metadata, physics.latest_sneak_sprint()),
         bounding_box: bounding_box(&actor.metadata),
         attributes,
         unique_id: stream.local_player_unique_id(),
@@ -64,6 +64,27 @@ pub fn send_movement_prediction_sync(
     }
 }
 
+/// Overlays completed local posture while preserving flags owned by server metadata.
+fn predicted_flag_words(
+    metadata: &HashMap<u32, ActorMetadataValue>,
+    posture: Option<(bool, bool)>,
+) -> [u64; 3] {
+    let mut words = flag_words(metadata);
+    if let Some((sneaking, sprinting)) = posture {
+        for (flag, enabled) in [
+            (ActorFlag::Sneaking, sneaking),
+            (ActorFlag::Sprinting, sprinting),
+        ] {
+            let bit = flag.wire_value() as usize;
+            let mask = 1_u64 << (bit % u64::BITS as usize);
+            let word = &mut words[bit / u64::BITS as usize];
+            *word = (*word & !mask) | if enabled { mask } else { 0 };
+        }
+    }
+    words
+}
+
+/// Reads all server-owned flag words, defaulting absent words to zero.
 fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
     let word = |key| match metadata.get(&key) {
         Some(ActorMetadataValue::Flags(bits) | ActorMetadataValue::FlagsExtended(bits)) => *bits,
@@ -327,6 +348,76 @@ mod tests {
             attempts,
             vec![[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0]; 2]
         );
+    }
+
+    struct OpenWorld;
+
+    impl sim::CollisionWorld for OpenWorld {
+        /// Supplies empty terrain so the test runs the ordinary local tick.
+        fn collision_boxes(
+            &self,
+            _query: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    /// Correction sync follows completed local posture, preserving unrelated server flags.
+    #[test]
+    fn correction_sync_uses_local_sneak_and_sprint_before_server_echo() {
+        use protocol_ids::ActorFlag;
+        let sneak = 1_u64 << ActorFlag::Sneaking.wire_value();
+        let sprint = 1_u64 << ActorFlag::Sprinting.wire_value();
+        let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
+        for (sneaking, sprinting) in [(false, true), (true, false), (false, false)] {
+            let mut actor = local_actor();
+            let stale =
+                unrelated | if sneaking { 0 } else { sneak } | if sprinting { 0 } else { sprint };
+            actor.0.metadata.insert(
+                ActorDataKey::Flags.wire_value(),
+                ActorMetadataValue::Flags(stale),
+            );
+            actor.0.metadata.insert(
+                ActorDataKey::FlagsTwo.wire_value(),
+                ActorMetadataValue::FlagsExtended(1),
+            );
+            actor.0.metadata.insert(
+                ActorDataKey::FlagsThird.wire_value(),
+                ActorMetadataValue::FlagsExtended(2),
+            );
+            let mut physics = due_physics();
+            physics.advance(
+                std::time::Duration::from_millis(100),
+                sim::MovementInput {
+                    forward: 1.0,
+                    sneaking,
+                    sprinting,
+                    ..Default::default()
+                },
+                &OpenWorld,
+            );
+            assert_eq!(physics.latest_sneak_sprint(), Some((sneaking, sprinting)));
+            let expected_flags =
+                unrelated | if sneaking { sneak } else { 0 } | if sprinting { sprint } else { 0 };
+            for accepted in [false, true] {
+                let mut sent = None;
+                send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+                    sent = Some(packet);
+                    accepted
+                });
+                assert_eq!(
+                    sent.expect("due correction sync"),
+                    client_movement_prediction_sync(MovementPredictionSync {
+                        actor_flags: [expected_flags, 1, 2],
+                        bounding_box: [1.0, 0.6, 1.8],
+                        attributes: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.0, 1.0],
+                        unique_id: 70,
+                        flying: false,
+                    }),
+                );
+                assert_eq!(physics.prediction_sync.due(), !accepted);
+            }
+        }
     }
 
     struct NoEffects;
