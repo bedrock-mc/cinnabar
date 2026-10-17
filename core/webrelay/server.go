@@ -238,26 +238,19 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 			stream.CancelRead(0)
 		}
 	})
-	playing := make(chan struct{}, 1)
 	for {
 		stream, err := transport.AcceptStream(ctx)
 		if err != nil {
 			return
 		}
 		conn := &transportConn{Stream: stream, session: transport}
-		select {
-		case playing <- struct{}{}:
-		default:
-			conn.abort()
-			continue
-		}
 		request, err := readHello(conn, bridgecontract.RelayChannelPlay)
 		if err != nil {
-			<-playing
 			conn.abort()
 			continue
 		}
-		workers.Go(func() { defer func() { <-playing }(); relay.runPlay(ctx, conn, client, session, request) })
+		// Leave replacement streams in QUIC's bounded accept queue until teardown completes.
+		relay.runPlay(ctx, conn, client, session, request)
 	}
 }
 

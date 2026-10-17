@@ -18,6 +18,7 @@ use tokio_util::codec::{Decoder, Encoder};
 
 struct Fake {
     channels: VecDeque<Vec<u8>>,
+    play_joins: Rc<RefCell<Vec<u64>>>,
     failed: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
@@ -63,9 +64,12 @@ impl AsyncWrite for Stream {
 }
 impl RelayTransport for Fake {
     type Stream = Stream;
-    async fn open(&mut self, _: Channel) -> Result<Stream, CloseReason> {
+    async fn open(&mut self, channel: Channel) -> Result<Stream, CloseReason> {
         if self.failed {
             return Err(CloseReason::Transport);
+        }
+        if let Channel::Play { join } = channel {
+            self.play_joins.borrow_mut().push(join);
         }
         let input = self.channels.pop_front().unwrap_or_default();
         Ok(Stream {
@@ -103,6 +107,7 @@ fn capability(kind: &str, token: &str, seconds: u64) -> Value {
 fn fake(input: Vec<u8>, failed: bool) -> Fake {
     Fake {
         channels: [input, vec![0, 0, 0, 1, KIND_BATCH]].into(),
+        play_joins: Rc::default(),
         failed,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
@@ -389,4 +394,38 @@ async fn received_capabilities_use_observation_time_and_closed_stays_terminal() 
         .is_err()
     );
     assert_eq!(session.state(), State::Closed);
+}
+/// Each new play claims a fresh identity; stale completion cannot reset the active join.
+#[tokio::test]
+async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false);
+    let output = transport.written.clone();
+    let play_joins = transport.play_joins.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    let (reader, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let first = session.play_join().unwrap();
+    let packs = session.pack_stream();
+    session.desire_account(AccountOperation::SignOut);
+    assert!(packs.await.unwrap().is_none());
+    drop((reader, frames, writer));
+    session.finish_play(first).unwrap();
+    assert_eq!(session.state(), State::Ready(7));
+    let (_reader, _frames, _writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let second = session.play_join().unwrap();
+    assert!(second > first);
+    assert_eq!(session.finish_play(first), Err(CloseReason::Protocol));
+    assert_eq!(session.play_join(), Some(second));
+    let requests = sent(&output);
+    assert_eq!(requests[1]["join"], first);
+    assert_eq!(requests[2]["join"], second);
+    assert_eq!(*play_joins.borrow(), [first, second]);
 }

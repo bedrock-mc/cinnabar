@@ -207,6 +207,11 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+Server archives can use a separate reliable WebTransport stream per join. The handoff receiver
+checks count and byte admission before accepting archives, verifies streamed SHA-256 digests,
+and waits for stream completion before startup. WebSocket keeps serial pack delivery on play.
+Incomplete: connecting this receiver to the playable browser host and browser acceptance remain
+part of the gameplay composition and release gates below.
 
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached

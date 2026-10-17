@@ -26,6 +26,7 @@ mod raw_equipment;
 pub(crate) mod session_join;
 mod startup;
 mod unused_packets;
+mod web_handoff;
 use boundary::boundary_wakeup;
 
 /// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
