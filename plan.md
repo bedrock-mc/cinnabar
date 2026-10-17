@@ -4169,7 +4169,7 @@ Codec, fixture and unit coverage only: no 1.26.50 server join, native visual, or
 vanilla acceptance gate has been run on this target yet. New 2193 fields are
 decoded but not yet consumed (MoveActorDelta interpolation ticks, PlaySound
 range bypass and playback offset, camera preset starting rotation, dimension
-default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
+default biome, RecordStarted); that parity work is
 incomplete. The account/auth cache is keyed on the game version, so the first
 join re-authenticates.
 
@@ -9146,8 +9146,18 @@ result; repeat selection returns the ingredient before clearing the preview.
 Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
-recipe discovery and server-persisted
-furnace UI options remain incomplete; the full furnace parity gate stays open.
+recipe discovery remain incomplete; the full furnace parity gate stays open.
+
+2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
+inventory ingress and retain separate player choices for furnace, blast furnace
+and smoker. Each open controller snapshots its saved tab, filtering and layout;
+later server updates change retained preferences without replacing that snapshot.
+Changed controls save and queue one options packet, unchanged controls send none,
+and a full queue leaves the choice available to retry. Furnace filtering no
+longer uses the crafting filter, and the inventory tab is independent of layout.
+Stored unspecified layouts resolve to the recipe-book layout on opening. The
+profile-specific forced-layout branch, exact stable-client gameplay acceptance,
+recipe discovery, ghost rendering and other station rules remain incomplete.
 
 ## Entity interaction and emote starts
 
@@ -9931,6 +9941,18 @@ captures and measured renderer work remain outstanding; no speedup is claimed.
 Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
 
 Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.
+
+## UI texture allocation recovery
+
+UI texture resizes keep unchanged dimension buckets. If replacement storage fails,
+superseded buckets are released before another attempt. Successfully allocated
+and uploaded pages remain drawable; unavailable pages are absent. An unchanged
+failed plan retries after 250 ms using time from the caller, while plan changes
+retry immediately. Residency changes invalidate retained UI pixels even when the
+publication revision stays the same.
+
+Hardware memory-pressure captures remain outstanding. This recovery does not
+close the texture streaming or hardware frame budget acceptance gates.
 
 ## Actor GPU allocation recovery
 
