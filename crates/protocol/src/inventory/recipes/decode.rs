@@ -2,6 +2,7 @@ use super::{
     budget::{Credits, MAX_UPDATE_BYTES},
     crafting::RecipeOutput,
     grammar,
+    identity::{RecipeIdentity, RecipeUnlockingContext},
     model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
     screen::{
@@ -27,6 +28,7 @@ pub(super) fn decode_with_credits(
         let mut screen_names = 0usize;
         let mut multi_count = 0usize;
         let mut brewing_count = 0usize;
+        let mut identities_count = 0usize;
         let (clear, total) = grammar::walk(
             &mut reader,
             |_, candidate| {
@@ -46,6 +48,7 @@ pub(super) fn decode_with_credits(
                         screen_names += record.len;
                     }
                     grammar::ScreenItem::Multi { .. } => multi_count += 1,
+                    grammar::ScreenItem::Identity { .. } => identities_count += 1,
                     grammar::ScreenItem::Brewing(_) if brewing_count < MAX_SCREEN_RECIPES => {
                         brewing_count += 1;
                     }
@@ -67,6 +70,9 @@ pub(super) fn decode_with_credits(
             .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
             .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
             .and_then(|n| n.checked_add(brewing_count.checked_mul(size_of::<BrewingRecipe>())?))
+            .and_then(|n| {
+                n.checked_add(identities_count.checked_mul(size_of::<RecipeIdentity>() + 64)?)
+            })
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -79,6 +85,10 @@ pub(super) fn decode_with_credits(
             .try_reserve_exact(total)
             .map_err(|_| Refusal::Policy)?;
         let mut reader = Reader::new(body)?;
+        let mut identities = Vec::new();
+        identities
+            .try_reserve_exact(identities_count)
+            .map_err(|_| Refusal::Policy)?;
         let mut screens = ScreenRecipes::default();
         screens
             .recipes
@@ -130,6 +140,19 @@ pub(super) fn decode_with_credits(
             },
             |item| {
                 match item {
+                    grammar::ScreenItem::Identity {
+                        name,
+                        tag,
+                        context,
+                        id,
+                    } => {
+                        identities.push(RecipeIdentity {
+                            name: owned_text(name)?,
+                            tag: owned_text(tag)?,
+                            context: RecipeUnlockingContext::from_index(context),
+                            network_id: id,
+                        });
+                    }
                     grammar::ScreenItem::Skipped => screens.skipped += 1,
                     grammar::ScreenItem::Brewing(recipe) => {
                         if screens.brewing.len() < MAX_SCREEN_RECIPES {
@@ -210,6 +233,7 @@ pub(super) fn decode_with_credits(
         Ok(RecipeUpdate {
             batch: Some(Arc::new(Batch {
                 records,
+                identities,
                 screen: screens,
                 clear,
                 _permit: permit,
@@ -221,6 +245,15 @@ pub(super) fn decode_with_credits(
         Err(Refusal::Policy) => Ok(RecipeUpdate::unavailable()),
         Err(Refusal::Wire) => Err(super::super::InventoryPacketError::MalformedWire),
     }
+}
+
+/// Copies text only after the complete decoded batch has reserved its allocation credit.
+fn owned_text(value: &str) -> Result<String, Refusal> {
+    let mut text = String::new();
+    text.try_reserve_exact(value.len())
+        .map_err(|_| Refusal::Policy)?;
+    text.push_str(value);
+    Ok(text)
 }
 
 #[cfg(test)]
