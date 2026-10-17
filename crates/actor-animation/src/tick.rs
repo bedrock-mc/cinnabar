@@ -562,6 +562,7 @@ pub(super) fn evaluate_state(
         motion_layers: BTreeMap::new(),
         swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
     });
+    let held_item_scale = scale::evaluate_held_item(&evaluator, rig, &mut variables, budget)?;
     if let Some(script) = rig.pre_animation {
         let static_draw = budget.static_draw.take().map(|cacheable| {
             cacheable
@@ -580,7 +581,6 @@ pub(super) fn evaluate_state(
             .apply(&mut variables, actor, context, &input, input.attack_time);
     }
     let scale = scale::evaluate_model(&evaluator, rig, &mut variables, budget)?;
-    let held_item_scale = scale::evaluate_held_item(&evaluator, rig, &mut variables, budget)?;
     set_item_rotation_factor(engine, &mut variables);
     let mut controllers = topology
         .map_or(&state.controllers, |replay| &replay.controllers)

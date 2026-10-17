@@ -6,9 +6,42 @@ fn fixture() -> (
     ActorAnimationStore,
     HashMap<u64, crate::test_actor::TestActor>,
 ) {
-    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    fixture_with(crate::test_support::counting_random_compiled(
+        "minecraft:test",
+    ))
+}
+
+/// Starts an owner with a held scale reading its authored variable and frame fraction.
+fn fixture_with(
+    compiled: assets::CompiledEntityAssets,
+) -> (
+    ActorAnimationStore,
+    HashMap<u64, crate::test_actor::TestActor>,
+) {
+    fixture_with_query(compiled, 1)
+}
+
+/// Keeps query symbols ordered while selecting which live frame input drives held scale.
+fn fixture_with_query(
+    mut compiled: assets::CompiledEntityAssets,
+    query: u32,
+) -> (
+    ActorAnimationStore,
+    HashMap<u64, crate::test_actor::TestActor>,
+) {
     let mut ops = compiled.molang_ops.into_vec();
     let mut expressions = compiled.molang_expressions.into_vec();
+    compiled.rig_bindings[0].initialize = Some(expressions.len() as u32);
+    expressions.push(CompiledMolangExpression {
+        first_op: ops.len() as u32,
+        op_count: 3,
+        max_stack: 1,
+    });
+    ops.extend([
+        MolangOp::Push(EntityGeometryScalar::new(2.0).unwrap()),
+        MolangOp::StoreVariable(7),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+    ]);
     compiled.rig_bindings[0].held_item_scale = Some(expressions.len() as u32);
     expressions.push(CompiledMolangExpression {
         first_op: ops.len() as u32,
@@ -17,7 +50,7 @@ fn fixture() -> (
     });
     ops.extend([
         MolangOp::LoadVariable(7),
-        MolangOp::LoadQuery(1),
+        MolangOp::LoadQuery(query),
         MolangOp::Add,
     ]);
     compiled.molang_ops = ops.into();
@@ -32,6 +65,45 @@ fn fixture() -> (
         ActorTickContext::default()
     });
     (store, actors)
+}
+
+#[test]
+fn held_scale_keeps_tick_and_frame_script_order() {
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    let mut ops = compiled.molang_ops.into_vec();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    compiled.rig_bindings[0].scale_expressions = Some([expressions.len() as u32; 4]);
+    expressions.push(CompiledMolangExpression {
+        first_op: ops.len() as u32,
+        op_count: 5,
+        max_stack: 2,
+    });
+    ops.extend([
+        MolangOp::LoadVariable(7),
+        MolangOp::Push(EntityGeometryScalar::new(1.0).unwrap()),
+        MolangOp::Add,
+        MolangOp::StoreVariable(7),
+        MolangOp::Push(EntityGeometryScalar::new(1.0).unwrap()),
+    ]);
+    compiled.molang_ops = ops.into();
+    compiled.molang_expressions = expressions.into();
+    let (store, actors) = fixture_with(compiled);
+    let before = authored_state(&store);
+    let tick = store.get(1).unwrap();
+    assert_eq!(
+        tick.held_item_scale,
+        Some(2.0),
+        "held scale reads the initialized value before pre-animation and model scale"
+    );
+    for alpha in [0.25, 0.75] {
+        let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
+        assert_eq!(
+            frame.sample_held_item_scale(tick).held_item_scale,
+            tick.held_item_scale.map(|value| value + alpha),
+            "held scale uses the same script order at the tick and each frame"
+        );
+        assert_eq!(authored_state(&store), before);
+    }
 }
 
 #[test]
@@ -65,6 +137,31 @@ fn held_scale_samples_once_without_committing_owner_variables() {
         assert_eq!(frame.remaining_ops(), remaining);
         assert_eq!(authored_state(&store), before);
         assert_eq!(store.get(1).unwrap().held_item_scale, tick.held_item_scale);
+    }
+}
+
+#[test]
+fn held_scale_lifetime_stays_live_during_isolated_rotation_sampling() {
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    compiled.molang_symbols[1].identifier = "query.body_y_rotation".into();
+    compiled.molang_symbols[2].identifier = "query.life_time".into();
+    compiled.molang_ops[10] = MolangOp::LoadQuery(1);
+    let (mut store, mut actors) = fixture_with_query(compiled, 2);
+    let actor = actors.get_mut(&1).unwrap();
+    actor.yaw = 90.0;
+    actor.body_yaw = 90.0;
+    store.advance_tick(&actors, None, None, true, true, |_| Default::default());
+    let before = authored_state(&store);
+    let tick = store.get(1).unwrap();
+    for alpha in [0.25, 0.75] {
+        let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
+        let sampled = frame.sample_held_item_scale(tick).held_item_scale.unwrap();
+        let expected = tick.held_item_scale.unwrap() + alpha * ACTOR_TICK_DURATION.as_secs_f32();
+        assert!(
+            (sampled - expected).abs() < 1.0e-6,
+            "lifetime follows the frame while rotation is sampled: {sampled} vs {expected}"
+        );
+        assert_eq!(authored_state(&store), before);
     }
 }
 

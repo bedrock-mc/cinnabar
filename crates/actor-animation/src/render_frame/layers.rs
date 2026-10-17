@@ -135,6 +135,11 @@ impl ActorAnimationStore {
             variables.set(layout.engine.attack_time, swing);
         }
         let rig = assets.rig_bindings().get(state.rig_binding)?;
+        let Ok(held_item_scale) =
+            tick::scale::evaluate_held_item(&evaluator, rig, &mut variables, &mut budget)
+        else {
+            return Some(fallback());
+        };
         if let Some(script) = rig.pre_animation
             && evaluator
                 .run(script as usize, &mut variables, 0.0, &mut budget)
@@ -207,16 +212,6 @@ impl ActorAnimationStore {
             scale
         } else {
             None
-        };
-        let held_item_scale = if let Some((_, current)) = &endpoints {
-            current.held_item_scale
-        } else {
-            let Ok(scale) =
-                tick::scale::evaluate_held_item(&evaluator, rig, &mut variables, &mut budget)
-            else {
-                return Some(fallback());
-            };
-            scale
         };
         let sampled_scale = frame
             .motion

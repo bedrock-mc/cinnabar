@@ -23,7 +23,6 @@ pub(super) struct MotionEndpoint<'a> {
     pub variables: ScratchVariables,
     pub clips: Vec<tick::WeightedClip>,
     pub scale: Option<[f32; 4]>,
-    pub held_item_scale: Option<f32>,
 }
 
 impl MotionEndpointState {
@@ -55,6 +54,13 @@ impl MotionEndpointState {
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }
+        // Replay held-expression effects before this endpoint's downstream scripts.
+        tick::scale::evaluate_held_item(
+            &evaluator,
+            &evaluator.assets.rig_bindings()[state.rig_binding],
+            &mut variables,
+            budget,
+        )?;
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
@@ -71,12 +77,6 @@ impl MotionEndpointState {
             variables.capture_writes();
         }
         let scale = tick::scale::evaluate_model(
-            &evaluator,
-            &evaluator.assets.rig_bindings()[state.rig_binding],
-            &mut variables,
-            budget,
-        )?;
-        let held_item_scale = tick::scale::evaluate_held_item(
             &evaluator,
             &evaluator.assets.rig_bindings()[state.rig_binding],
             &mut variables,
@@ -110,7 +110,6 @@ impl MotionEndpointState {
             variables,
             clips,
             scale,
-            held_item_scale,
         })
     }
 }
