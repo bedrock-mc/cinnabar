@@ -296,6 +296,12 @@ impl PhysicsCollisionRegistries {
                 {
                     registry.set_dripstone_column_offset(id);
                 }
+                if shapes
+                    .flags
+                    .contains(assets::block_shapes::ShapeFlags::GRASS_OFFSET)
+                {
+                    registry.set_random_offset(id, block_transform::random_offset::SHORT_GRASS);
+                }
                 if shapes.flags.contains(assets::block_shapes::ShapeFlags::AIR) {
                     registry.set_air_runtime_id(id);
                 }
