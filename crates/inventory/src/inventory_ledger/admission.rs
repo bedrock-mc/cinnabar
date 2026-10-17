@@ -51,6 +51,7 @@ impl PlayerInventoryLedger {
                     .is_some_and(|previous| previous != *authority)
                 {
                     self.queue.clear();
+                    self.confirmed.clear_result();
                     self.personal = None;
                     self.confirmed.set(Cell::Cursor, None);
                     self.player_resync_required = false;
@@ -382,6 +383,7 @@ impl PlayerInventoryLedger {
         let Some(window_id) = open.container.window_id else {
             return;
         };
+        self.confirmed.clear_result();
         let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
             .filter(|_| valid_storage_window_id(window_id))
         else {

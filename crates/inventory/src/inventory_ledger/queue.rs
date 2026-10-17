@@ -74,8 +74,37 @@ pub(super) struct CellPrediction {
 pub(super) struct MiningPrediction {
     pub(super) slot: u8,
     pub(super) damage: i32,
-    /// The selected item snapshot owned by this request's HUD scope.
-    pub(super) source: Option<Held>,
+    /// Identifies the selected item; accepted metadata stays in backing truth.
+    source: Option<MiningSource>,
+}
+
+/// Stable item lineage for a HUD request, independent of mutable NBT and wire IDs.
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct MiningSource {
+    source_stack_id: i32,
+    network_id: i32,
+    metadata: u32,
+    block_runtime_id: i32,
+}
+
+impl MiningSource {
+    /// Retains only the identity needed to reject responses for replacement items.
+    fn new(held: &Held) -> Option<Self> {
+        Some(Self {
+            source_stack_id: held.source_stack_id?,
+            network_id: held.stack.network_id,
+            metadata: held.stack.metadata,
+            block_runtime_id: held.stack.block_runtime_id,
+        })
+    }
+}
+
+impl MiningPrediction {
+    /// Resolves this request's still-current item from authoritative backing, never history.
+    fn current_source<'a>(&self, cells: &'a Cells) -> Option<&'a Held> {
+        let held = cells.get(Cell::Inventory(self.slot))?;
+        (MiningSource::new(held).as_ref()? == self.source.as_ref()?).then_some(held)
+    }
 }
 
 /// Bounds outstanding mining predictions; the oldest is forgotten first.
@@ -469,16 +498,11 @@ impl PlayerInventoryLedger {
                     continue;
                 };
                 // HUD mining owns a separate sparse scope from front-screen predictions.
-                let owned = request.mining.as_ref().is_some_and(|mining| {
-                    self.confirmed.get(requested).is_none_or(|held| {
-                        held.source_stack_id
-                            != mining
-                                .source
-                                .as_ref()
-                                .and_then(|source| source.source_stack_id)
-                    })
-                });
-                if !owned {
+                let stale_mining = request
+                    .mining
+                    .as_ref()
+                    .is_some_and(|mining| mining.current_source(&self.confirmed).is_none());
+                if !stale_mining {
                     self.apply_correction(request, requested, cell, correction);
                 }
             }
@@ -548,7 +572,7 @@ impl PlayerInventoryLedger {
                     .mining
                     .as_ref()
                     .filter(|mining| requested == Cell::Inventory(mining.slot))
-                    .and_then(|mining| mining.source.as_ref())
+                    .and_then(|mining| mining.current_source(&self.confirmed))
             })
             .cloned();
         if held.as_ref().is_some_and(|held| {
@@ -559,6 +583,10 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
+        let from = prediction
+            .and_then(|prediction| prediction.held.as_ref())
+            .or_else(|| request.mining.as_ref()?.current_source(&self.confirmed))
+            .cloned();
         self.note_authoritative_write(cell);
         if count == 0 {
             held = None;
@@ -577,13 +605,7 @@ impl PlayerInventoryLedger {
         } else if !matches!(cell, Cell::Craft(_) | Cell::CreatedOutput) {
             self.mark_cell_recovery(cell);
         }
-        self.publish_request_cell(
-            request,
-            cell,
-            prediction.and_then(|prediction| prediction.held.as_ref()),
-            held,
-            false,
-        );
+        self.publish_request_cell(request, cell, from.as_ref(), held, false);
     }
 
     fn split_is_distinct(&self, request: &PendingRequest) -> bool {
@@ -847,7 +869,10 @@ impl PlayerInventoryLedger {
                 mining: Some(MiningPrediction {
                     slot,
                     damage,
-                    source: self.view().get(Cell::Inventory(slot)).cloned(),
+                    source: self
+                        .view()
+                        .get(Cell::Inventory(slot))
+                        .and_then(MiningSource::new),
                 }),
                 world_drop: None,
             },
