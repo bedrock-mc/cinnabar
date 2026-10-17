@@ -77,7 +77,7 @@ impl InventorySession {
         self.pending_hotbar_selection
     }
     /// Builds the pending selection from current authority without consuming it.
-    /// Unknown cells and unsent local backing changes wait; admitted screen predictions do not.
+    /// Unknown cells announce an empty hand; unsent local backing changes still wait.
     pub fn pending_hotbar_packet(
         &self,
         game_mode: Option<PlayerGameMode>,
@@ -98,12 +98,13 @@ impl InventorySession {
             return Ok(None);
         }
         let packet = match snapshot.state {
-            PlayerInventorySlot::Unknown => return Ok(None),
-            PlayerInventorySlot::Empty => protocol::select_hotbar_slot_packet(
-                runtime_id,
-                target,
-                &protocol::NetworkItemStack::empty(),
-            ),
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
+                protocol::select_hotbar_slot_packet(
+                    runtime_id,
+                    target,
+                    &protocol::NetworkItemStack::empty(),
+                )
+            }
             // The equipment descriptor omits the backing stack's network ID.
             PlayerInventorySlot::Present(stack) => {
                 protocol::select_hotbar_slot_packet(runtime_id, target, stack)
@@ -250,6 +251,24 @@ impl InventorySession {
 mod tests {
     use super::*;
     use protocol::{ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent};
+
+    /// Unreported cells announce an empty hand without manufacturing slot authority.
+    #[test]
+    fn unknown_hotbar_cell_can_announce_empty_equipment() {
+        let mode = Some(PlayerGameMode::Survival);
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        session.queue_local_hotbar_selection(2, mode);
+        let (slot, packet) = session.pending_hotbar_packet(mode).unwrap().unwrap();
+        assert_eq!(slot, 2);
+        let equipment = protocol::test_support::packets::equipment(&packet).unwrap();
+        assert_eq!(equipment.network_id, 0);
+        assert_eq!(equipment.count, 0);
+        assert_eq!(
+            session.ledger().backing_slot_state(2),
+            Some(PlayerInventorySlot::Unknown)
+        );
+    }
 
     /// A local drop publishes backing only after its transaction enters transport.
     #[test]
