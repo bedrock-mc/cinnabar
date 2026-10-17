@@ -13,20 +13,21 @@ use super::cells::{Cell, Held};
 use super::gesture::Submission;
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
-use super::registry::{entry_capacity, plain_stack};
+use super::registry::{entry_capacity, recipe_input_valid};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
 mod allocation;
 
 impl PlayerInventoryLedger {
-    /// Only plain, settled stacks with a negotiated item binding can supply auto-crafting.
+    /// Settled stacks with intact retained bytes and a negotiated binding can supply ingredients.
     fn auto_craft_stack(
         &self,
         slot: u8,
     ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
         let held = self.view().get(Cell::Inventory(slot))?;
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
-        (plain_stack(&held.stack) && !self.awaiting_identity(held)).then_some((&held.stack, entry))
+        (recipe_input_valid(&held.stack) && !self.awaiting_identity(held))
+            .then_some((&held.stack, entry))
     }
 
     /// Player cells to draw `ingredient` from: `(cell, amount, stack id)`.

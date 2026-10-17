@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use super::cells::{Cell, FIRST_CRAFT_SLOT, Held};
 use super::gesture::Submission;
 use super::overlay::DeltaGroup;
-use super::registry::{entry_capacity, plain_stack};
+use super::registry::{entry_capacity, plain_stack, recipe_input_valid};
 use super::{InventoryGestureError, PlayerInventoryLedger, WORKBENCH_WINDOW_TYPE, helpers};
 
 /// Which crafting grid the open screen offers.
@@ -72,7 +72,6 @@ pub struct CraftGridCell {
     pub identifier: Arc<str>,
     pub metadata: u32,
     pub count: u16,
-    pub plain: bool,
     pub tags: Arc<[Arc<str>]>,
 }
 
@@ -83,7 +82,6 @@ impl CraftGridCell {
             identifier: &self.identifier,
             metadata: self.metadata,
             count: self.count,
-            plain: self.plain,
             tags: &self.tags,
         }
     }
@@ -127,11 +125,13 @@ impl PlayerInventoryLedger {
             return Some(None);
         };
         let entry = self.negotiated_item_entry(held.stack.network_id)?;
+        if !recipe_input_valid(&held.stack) {
+            return None;
+        }
         Some(Some(CraftGridCell {
             identifier: Arc::clone(&entry.identifier),
             metadata: held.stack.metadata,
             count: held.stack.count,
-            plain: plain_stack(&held.stack),
             tags: Arc::clone(&entry.item_tags),
         }))
     }

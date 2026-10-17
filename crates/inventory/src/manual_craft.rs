@@ -89,7 +89,6 @@ pub(crate) fn validate_grid<'a>(
             (Some(expected), Some(stack)) => {
                 if stack.count() < u16::from(expected.count())
                     || !expected.accepts_metadata(stack.metadata())
-                    || !protocol::empty_recipe_extra(stack.extra_data())
                     || lookup(stack.network_id())?.identifier.as_ref() != expected.name()
                 {
                     return Err(ManualCraftError::Unsupported);
