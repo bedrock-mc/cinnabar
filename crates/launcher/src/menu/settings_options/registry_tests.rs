@@ -134,6 +134,10 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
         SettingSection::Sound.definition().reset_group,
         Some(SettingsGroup::Audio)
     );
+    assert_eq!(
+        SettingSection::Chat.definition().reset_group,
+        Some(SettingsGroup::Chat)
+    );
 }
 
 #[test]

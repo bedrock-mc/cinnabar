@@ -548,3 +548,28 @@ fn command_macro_invalid_draft_shows_a_chat_limit_error() {
     assert!(labels.contains("Commandistoolong."));
     assert!(labels.contains(&format!("{}-bytechatlimit.", ui::MAX_CHAT_INPUT_BYTES)));
 }
+
+#[test]
+fn chat_section_draws_all_chat_panel_options_and_reset() {
+    let view = MenuView::new(true, "Player".into());
+    for width in [400.0, 800.0] {
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 100.0 + width],
+                column_width: width,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(
+                &mut content,
+                launcher::menu::settings_sections::SettingSection::Chat,
+            )
+            .unwrap();
+        });
+        assert!(!nodes.is_empty());
+    }
+}
+

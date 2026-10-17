@@ -36,6 +36,7 @@ enum Glyph {
     Chest,
     Shelves,
     Puzzle,
+    Chat,
 }
 
 /// Adds OreUI artwork to the shared section metadata.
@@ -61,6 +62,12 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             [158, 101, 64],
             Glyph::Grid,
             Some("options.social"),
+        ),
+        Chat => (
+            None,
+            [74, 144, 226],
+            Glyph::Chat,
+            None,
         ),
         General => (
             Some(SETTINGS_ICONS[5]),
@@ -343,6 +350,12 @@ fn icon(canvas: &mut Canvas<'_>, tab: &Tab, at: [f32; 2]) -> Result<(), PaintErr
             block(3.0, 5.0, 8.0, 8.0, TEXT)?;
             block(6.0, 3.0, 2.0, 2.0, TEXT)?;
             block(11.0, 8.0, 2.0, 2.0, TEXT)?;
+        }
+        Glyph::Chat => {
+            block(2.0, 3.0, 12.0, 7.0, theme::BORDER)?;
+            block(3.0, 4.0, 10.0, 5.0, [230, 230, 230, 255])?;
+            block(4.0, 10.0, 4.0, 2.0, theme::BORDER)?;
+            block(4.0, 10.0, 2.0, 1.0, [230, 230, 230, 255])?;
         }
         Glyph::Grid => {
             for row in 0..3 {
