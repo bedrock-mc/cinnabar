@@ -413,7 +413,12 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
         ) else {
             continue;
         };
-        if !ordinary_cube_sheet(&sheet.rgba8) {
+        if icons
+            .block_material_flags
+            .get(&sheet.identifier)
+            .is_some_and(|flags| flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING != 0)
+            || !ordinary_cube_sheet(&sheet.rgba8)
+        {
             continue;
         }
         if let Some(mesh) = item_gui::cube(sheet_faces(*placed)) {

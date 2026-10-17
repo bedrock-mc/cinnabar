@@ -3,9 +3,12 @@
 Custom terrain aliases resolve their selected filenames against server packs and the
 installed carrier, retaining destination tint and UV sampling. Inventory thumbnails and
 cube sheets can read borrowed base-page materials. Standalone custom item icons can inherit
-base sprite files without creating replacements for ordinary vanilla items.
+base sprite files without creating replacements for ordinary vanilla items. The icon
+carrier retains raw source-filename bindings independently of processed thumbnails,
+including nonzero atlas variants and original mask alpha; older carriers require `make assets`.
 Isolated item texels admit ambient-occlusion and face-dimming flags; baked thumbnails
-honor disabled face dimming. Grass-tinted thumbnails use the winning carried-grass
+honor disabled face dimming. GUI cubes that cannot retain this flag keep their unshaded
+thumbnail while their carried face sheet remains available. Grass-tinted thumbnails use the winning carried-grass
 overlay colour from the installed pack and server stack; other unresolved tint operations
 remain rejected.
 Block inventory geometry and materials use `minecraft:item_visual` descriptions when

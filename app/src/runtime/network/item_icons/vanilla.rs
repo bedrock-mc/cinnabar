@@ -129,25 +129,13 @@ pub(crate) fn set_vanilla_item_sprites(
     if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
         return;
     }
-    let sprites = entities
-        .item_visuals()
+    let sprites = icons
+        .sources()
+        .unwrap_or_default()
         .iter()
-        .filter_map(|item| {
-            let ItemVisualDefinitionRoute::Sprite { texture } = item.route else {
-                return None;
-            };
-            if texture.variant != 0 || item.key.metadata != 0 {
-                return None;
-            }
-            let path = entities
-                .sources()
-                .get(texture.source as usize)?
-                .path
-                .to_ascii_lowercase();
-            let sprite = icons
-                .lookup(&item.key.identifier, item.key.metadata)?
-                .clone();
-            Some((path, sprite))
+        .filter_map(|source| {
+            let sprite = icons.sprites().get(source.sprite as usize)?.clone();
+            Some((source.path.to_string(), sprite))
         })
         .collect();
     let _ = SPRITES.set(sprites);
