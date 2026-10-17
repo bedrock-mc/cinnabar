@@ -2018,7 +2018,8 @@ not close a parity or visual acceptance gate.
   acceptance remain incomplete.
 - Metal now admits current-frame visibility for views with at least 64 candidates. An
   inactive view probes once per 64 frames and remains active while completed feedback
-  hides at least half its candidates. Feedback only chooses whether to do fresh work;
+  hides at least half its candidates. Settled still views keep the cheaper readback path.
+  Feedback only chooses whether to do fresh work;
   current depth supplies every visibility mask, including during motion. Falling back
   clears masks before direct draws. `CINNABAR_TERRAIN_VISIBILITY=0` keeps the legacy path;
   `1` forces the current-frame path. The admission thresholds are provisional and do not

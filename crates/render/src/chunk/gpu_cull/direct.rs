@@ -872,12 +872,21 @@ impl<P: PhaseItem> RenderCommand<P> for SkipOccludedTerrain {
 }
 
 /// Chooses fresh visibility before queueing and clears masks when falling back to direct drawing.
-fn select_visibility(mut occlusion: ResMut<DirectOcclusion>) {
+fn select_visibility(
+    mut occlusion: ResMut<DirectOcclusion>,
+    views: Query<(&ExtractedView, &Msaa)>,
+) {
     let previous = occlusion.same_frame;
     if occlusion.adaptive {
+        // A settled still view already has safe CPU verdicts and needs no repeated depth work.
+        let settled = occlusion.last_view.is_some_and(|(entity, _)| {
+            views
+                .get(entity)
+                .is_ok_and(|(view, msaa)| !occlusion.wants_verdict(entity, view, *msaa))
+        });
         let frame = occlusion.frame + 1;
         let candidates = occlusion.stats.candidates as usize;
-        occlusion.same_frame = occlusion.admission.select(frame, candidates);
+        occlusion.same_frame = !settled && occlusion.admission.select(frame, candidates);
     }
     occlusion.reset_masks = previous && !occlusion.same_frame;
 }

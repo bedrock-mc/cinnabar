@@ -164,3 +164,38 @@ fn adaptive_visibility_requests_fresh_depth_and_resets_masks_on_fallback() {
     world.run_system_once(select_visibility).unwrap();
     assert!(!world.resource::<DirectOcclusion>().reset_masks);
 }
+
+#[test]
+fn adaptive_visibility_keeps_a_settled_still_view_on_the_cheaper_readback_path() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    {
+        let mut occlusion = world.resource_mut::<DirectOcclusion>();
+        let tag = VerdictTag {
+            frame: occlusion.frame,
+            basis: occlusion.last_view.unwrap().1,
+            slots: occlusion.table.slot_count(),
+        };
+        for _ in 0..super::super::occlusion::REQUIRED_OCCLUDED_READBACKS {
+            occlusion.history.apply(&tag, &[0]);
+        }
+        assert!(occlusion.history.settled(&tag.basis));
+        occlusion.same_frame = true;
+        occlusion.adaptive = true;
+        occlusion.stats.candidates = 128;
+        occlusion.admission.observe(tag.frame, 128, 100);
+    }
+    use bevy::ecs::system::RunSystemOnce;
+    world.run_system_once(select_visibility).unwrap();
+    let occlusion = world.resource::<DirectOcclusion>();
+    assert!(!occlusion.same_frame());
+    assert!(occlusion.reset_masks);
+}
