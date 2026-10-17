@@ -182,7 +182,7 @@ impl PlayerInventoryLedger {
         self.begin_craft_scopes(recipe, crafts, sink, false)
     }
 
-    /// Plans against private predicted state so a refused explicit count leaves no partial work.
+    /// Preserves a full-total ingredient assignment while planning bounded scopes atomically.
     fn begin_craft_scopes(
         &mut self,
         recipe: &RecipeHandle,
@@ -191,6 +191,11 @@ impl PlayerInventoryLedger {
         fit_available: bool,
     ) -> Result<i32, InventoryGestureError> {
         self.gesture_preflight(true)?;
+        let cells = self
+            .crafting_grid_cells()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let assignment = ingredient_assignment(recipe, &cells, crafts)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
         let output = recipe.output();
         let capacity = self
             .negotiated_item_entry(output.network_id)
@@ -206,9 +211,12 @@ impl PlayerInventoryLedger {
         while remaining != 0 {
             let limit = remaining.min(per_scope);
             let next = if fit_available {
-                planned.fitting_craft_scope(recipe, limit, sink)?
+                planned.fitting_craft_scope(recipe, limit, sink, &assignment)?
             } else {
-                Some((limit, planned.craft_submission(recipe, limit, sink)?))
+                Some((
+                    limit,
+                    planned.craft_submission(recipe, limit, sink, &assignment)?,
+                ))
             };
             let Some((count, submission)) = next else {
                 break;
@@ -231,12 +239,13 @@ impl PlayerInventoryLedger {
         recipe: &RecipeHandle,
         limit: u8,
         sink: CraftSink,
+        assignment: &[usize],
     ) -> Result<Option<(u8, Submission)>, InventoryGestureError> {
         let (mut low, mut high) = (0, limit);
         let mut fitting = None;
         while low < high {
             let crafts = low + (high - low).div_ceil(2);
-            match self.craft_submission(recipe, crafts, sink) {
+            match self.craft_submission(recipe, crafts, sink, assignment) {
                 Ok(submission) => {
                     low = crafts;
                     fitting = Some((crafts, submission));
@@ -254,6 +263,7 @@ impl PlayerInventoryLedger {
         recipe: &RecipeHandle,
         crafts: u8,
         sink: CraftSink,
+        assignment: &[usize],
     ) -> Result<Submission, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
@@ -274,10 +284,22 @@ impl PlayerInventoryLedger {
             .crafting_grid_cells()
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let slots: Vec<u8> = self.crafting_grid().slots().collect();
-        let assignment = ingredient_assignment(recipe, &cells, crafts)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
+        if assignment.len() != recipe.ingredient_counts().count() {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         let mut consumed = Vec::new();
-        for ((_, per_craft), cell) in recipe.ingredient_counts().enumerate().zip(assignment) {
+        for ((ingredient, per_craft), &cell) in
+            recipe.ingredient_counts().enumerate().zip(assignment)
+        {
+            if !cells
+                .get(cell)
+                .and_then(Option::as_ref)
+                .is_some_and(|grid| {
+                    crate::recipe_ingredient_accepts(recipe, ingredient, &grid.item(), crafts)
+                })
+            {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             let held = self
                 .view()
                 .get(Cell::Craft(slots[cell]))

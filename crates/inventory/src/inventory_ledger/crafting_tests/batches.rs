@@ -88,3 +88,48 @@ fn craft_scopes_explicit_count_remains_atomic_when_the_sink_cannot_fit() {
     );
     assert!(ledger.cursor_stack().is_none());
 }
+
+/// Resolves an original shapeless recipe whose identical ingredients need different counts.
+fn unequal_recipe(ledger: &PlayerInventoryLedger) -> protocol::RecipeHandle {
+    let one = IngredientFixture::named("minecraft:oak_log", 0);
+    let two = IngredientFixture {
+        count: 2,
+        ..one.clone()
+    };
+    let mut recipe = RecipeFixture::shapeless(
+        "fixture:unequal_counts",
+        vec![one, two],
+        vec![OutputFixture::new(PLANKS, 4)],
+    );
+    recipe.net_id = 56;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![recipe]).update()));
+    unique(ledger, &catalog)
+}
+
+#[test]
+fn craft_scopes_keep_an_assignment_that_can_finish_the_requested_total() {
+    for explicit in [false, true] {
+        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+        ledger.apply(&craft_slot(28, stack(LOG, 101, 64)));
+        ledger.apply(&craft_slot(29, stack(LOG, 102, 32)));
+        let recipe = unequal_recipe(&ledger);
+        if explicit {
+            ledger
+                .begin_craft_into(&recipe, 32, CraftSink::Inventory)
+                .unwrap();
+        } else {
+            ledger.begin_craft_all(&recipe).unwrap();
+        }
+        let total: u16 = (0..36)
+            .filter_map(|slot| ledger.displayed_stack(slot))
+            .map(|stack| stack.count)
+            .sum();
+        assert_eq!(total, 128);
+        assert_eq!(ledger.pending_request_count(), 2);
+        for slot in [28, 29] {
+            assert!(ledger.target_stack(InventoryTarget::Craft(slot)).is_none());
+        }
+    }
+}
