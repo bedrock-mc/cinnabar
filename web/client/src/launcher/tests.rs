@@ -133,6 +133,24 @@ fn launcher_cancel_after_disconnect_retires_the_retained_flow() {
 }
 
 #[test]
+fn launcher_fresh_session_retires_old_flow_and_restores_only_unsent_intent() {
+    let mut adapter = RelayAccount::default();
+    adapter.request(AccountIntent::SignIn);
+    adapter.take_operation();
+    adapter.disconnected();
+    adapter.fresh_session();
+    account(&mut adapter, "signed_out");
+    assert_eq!(adapter.state(), AuthState::SignedOut);
+    adapter.request(AccountIntent::Cancel);
+    assert_eq!(adapter.take_operation(), None);
+    adapter.fresh_session();
+    adapter.restore_operation(AccountOperation::SignIn);
+    assert_eq!(adapter.state(), AuthState::Checking);
+    adapter.request(AccountIntent::Cancel);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignOut));
+}
+
+#[test]
 fn launcher_rejects_unsafe_or_incomplete_prompts() {
     let mut adapter = RelayAccount::default();
     for uri in [

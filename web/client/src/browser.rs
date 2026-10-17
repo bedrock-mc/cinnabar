@@ -76,7 +76,15 @@ impl Page {
                         let quic = BrowserTransport::new(&origin, true).ok();
                         let socket = BrowserTransport::new(&origin, false)?;
                         web_transport::select(&mut session, quic, || socket, now, deadline).await?;
+                        if !session.resumed_account() {
+                            let mut account = observed_account.borrow_mut();
+                            account.fresh_session();
+                            if let Some(operation) = session.pending_account() {
+                                account.restore_operation(operation);
+                            }
+                        }
                         while let Ok(operation) = pending.try_recv() {
+                            observed_account.borrow_mut().restore_operation(operation);
                             session.desire_account(operation);
                         }
                         session.flush_account().await?;
@@ -108,6 +116,7 @@ impl Page {
                                     while let Ok(next) = pending.try_recv() {
                                         operation = next;
                                     }
+                                    observed_account.borrow_mut().restore_operation(operation);
                                     session.desire_account(operation);
                                     session.flush_account().await?;
                                 }

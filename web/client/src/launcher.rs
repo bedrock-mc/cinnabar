@@ -70,6 +70,20 @@ impl RelayAccount {
         self.pending.take()
     }
 
+    /// Retires presentation belonging to an expired account before a fresh control session.
+    pub fn fresh_session(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Restores presentation for an operation retained by the Session or its bounded host queue.
+    pub fn restore_operation(&mut self, operation: AccountOperation) {
+        self.request(match operation {
+            AccountOperation::SignIn => AccountIntent::SignIn,
+            AccountOperation::SignOut => AccountIntent::SignOut,
+        });
+        self.pending = None;
+    }
+
     /// Applies typed relay observations; transport failures remain owned by the host.
     pub fn observe(&mut self, event: &ControlEvent) -> Result<(), &'static str> {
         match event {
