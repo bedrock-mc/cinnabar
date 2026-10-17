@@ -1981,8 +1981,11 @@ not close a parity or visual acceptance gate.
   display and taking together.
 - Brewing bottle cells use a one-item limit derived from their named window run. Ingredient
   and fuel cells use admitted item capacity; configured brewing membership remains incomplete.
+- Loom banner inputs check the admitted item identity and typed root Type. Grindstone inputs
+  require an enchantment List or positive admitted durability without a true Unbreakable Byte.
+  Complete component damageability and the remaining station membership checks are incomplete.
 - Incomplete: book-edit publication and replacement ordering, crafting remainders and multiple results, enchanting prediction and availability,
-  all station membership rules, ability updates beyond retained evidence,
+  remaining station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.

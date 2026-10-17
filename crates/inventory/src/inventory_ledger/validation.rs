@@ -43,6 +43,25 @@ impl PlayerInventoryLedger {
             },
             Cell::Craft(slot) => {
                 match protocol::ui_slot_container_name(slot).and_then(ContainerName::from_wire) {
+                    Some(ContainerName::LoomInput)
+                        if !self.item_facts.is_banner(stack.network_id)
+                            || protocol::item_banner_type(&stack.extra_data)
+                                .is_some_and(|kind| kind != 0) =>
+                    {
+                        Some(0)
+                    }
+                    Some(ContainerName::GrindstoneInput | ContainerName::GrindstoneAdditional)
+                        if !protocol::item_has_enchantment_list(&stack.extra_data)
+                            && (self
+                                .item_facts
+                                .get(stack.network_id)
+                                .durability
+                                .maximum()
+                                .is_none()
+                                || protocol::item_extra_unbreakable(&stack.extra_data)) =>
+                    {
+                        Some(0)
+                    }
                     Some(ContainerName::EnchantingInput) => Some(1),
                     Some(ContainerName::EnchantingMaterial)
                         if !roles.contains(ContainerRoles::ENCHANTING_LAPIS) =>

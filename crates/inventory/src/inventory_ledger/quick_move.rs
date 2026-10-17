@@ -255,9 +255,11 @@ impl PlayerInventoryLedger {
                 WindowKind::Horse => item_roles::horse_slot(fact)
                     .map(Cell::Storage)
                     .map(QuickMoveInput::Single),
-                WindowKind::Loom => item_roles::loom_slot(fact)
-                    .map(Cell::Craft)
-                    .map(QuickMoveInput::Single),
+                WindowKind::Loom => {
+                    item_roles::loom_slot(fact, self.item_facts.is_banner(network_id))
+                        .map(Cell::Craft)
+                        .map(QuickMoveInput::Single)
+                }
                 WindowKind::Smithing => item_roles::smithing_slot(fact)
                     .map(Cell::Craft)
                     .map(QuickMoveInput::Single),
@@ -345,7 +347,10 @@ impl PlayerInventoryLedger {
             Some(kind) => self.window_destinations(kind, stack.network_id, stack.metadata),
             None => self.equipment_destinations(from),
         };
-        cells.retain(|cell| !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot)));
+        cells.retain(|cell| {
+            !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot))
+                && self.placement_capacity(*cell, stack) != Some(0)
+        });
         if !cells.is_empty() {
             return cells;
         }
