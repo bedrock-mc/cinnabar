@@ -6,8 +6,9 @@ are loaded from bounded, SHA-256-checked assets. The catalog includes original b
 ears, the crown, rigid red devil horns, animated back-slot dragon wings and a pet-slot
 shoulder parrot, plus studio headphones and a halo (head), pixel shades and a kitsune
 mask (face), morpho wings and an ember jetpack (back), a fox tail and a knit scarf (body),
-a bee buddy (pet) and an amethyst orbit (aura); editable artwork and export conformance
-tests remain available.
+a bee buddy (pet) and an amethyst orbit (aura). Editable artwork and export conformance
+checks live in cinnabar-api; the client keeps stable regression fixtures and an optional
+compatibility check against an API checkout.
 The parrot stays in Cosmetics, with its existing pet slot exposed by the category filter.
 Each attachment follows its declared bone and offset. World and HUD share local motion.
 Bounded transform clips and continuous span flex animate wings alongside independent hats.
