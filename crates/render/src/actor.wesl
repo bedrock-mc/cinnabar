@@ -442,6 +442,16 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     return actor_colour(input, front);
 }
 
+@fragment
+fn actor_mask_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // The scene's function owns every material rejection and multisample cutout footprint.
+    let colour = actor_colour(input, front);
+    @if(MASK_BLEND)
+    return vec4(vec3(clamp(colour.a, 0.0, 1.0)), 1.0);
+    @if(!MASK_BLEND)
+    return vec4(vec3(1.0), colour.a);
+}
+
 @if(ACTOR_MOTION)
 // Both frames retain local detail by projecting their actor roots relative to their cameras.
 fn actor_motion_velocity(input: VertexOutput) -> vec2<f32> {

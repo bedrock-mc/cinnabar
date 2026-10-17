@@ -10020,3 +10020,10 @@ Drawing permissions and connection fences cover legacy post effects, block highl
 unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
 renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
+
+Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
+vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
+material coverage. Depth-tested coverage is filtered before post effects; always-visible
+coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
+observation and through-wall consent until a visibility-filtered target source exists.
+Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.

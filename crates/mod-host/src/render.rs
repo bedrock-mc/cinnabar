@@ -20,22 +20,26 @@ fn next_revision() -> u64 {
 }
 
 pub(super) struct RenderState {
+    pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
     calls: u32,
+    mask_calls: u32,
     compiles_left: u32,
 }
 
 impl RenderState {
     pub fn new() -> Self {
         Self {
+            masks: mod_render::masks::MaskStore::new(next_revision()),
             committed: RenderOutput::default(),
             generation: next_revision(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
             calls: 0,
+            mask_calls: 0,
             compiles_left: MAX_RENDER_PASSES as u32,
         }
     }
@@ -49,7 +53,17 @@ impl RenderState {
         self.generation
     }
 
+    /// Publishes retained masks after any successful callback, including event callbacks.
+    pub(super) fn commit_masks(&mut self) {
+        let masks = self.masks.commit();
+        if masks != self.committed.masks {
+            self.committed.masks = masks;
+            self.generation = next_revision();
+        }
+    }
+
     pub fn begin_frame(&mut self) {
+        self.masks.begin();
         self.calls = 0;
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
@@ -59,6 +73,9 @@ impl RenderState {
     pub fn commit(&mut self) {
         let primitives = std::mem::take(&mut self.staged_primitives);
         let mut changed = false;
+        let masks = self.masks.commit();
+        changed |= masks != self.committed.masks;
+        self.committed.masks = masks;
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
             changed |= passes != self.committed.passes;
@@ -75,6 +92,7 @@ impl RenderState {
     }
 
     pub fn revoke(&mut self) {
+        self.masks.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
         if self.committed != RenderOutput::default() {
@@ -83,12 +101,27 @@ impl RenderState {
         }
     }
 
-    fn budget(&mut self) -> Result<()> {
+    pub(super) fn budget(&mut self) -> Result<()> {
         self.calls += 1;
         if self.calls > MAX_RENDER_CALLS {
             bail!("render import budget exhausted");
         }
         Ok(())
+    }
+
+    /// Charges mask imports separately from legacy primitives and pass mutations.
+    pub(super) fn mask_budget(&mut self) -> Result<()> {
+        self.mask_calls += 1;
+        if self.mask_calls > mod_api::drawing::MAX_MASK_CALLS {
+            bail!("mask import budget exhausted");
+        }
+        Ok(())
+    }
+
+    /// Starts a retained-mask transaction for any callback without expiring legacy primitives.
+    pub(super) fn begin_masks(&mut self) {
+        self.mask_calls = 0;
+        self.masks.begin();
     }
 
     fn staged(&mut self) -> &mut Vec<Pass> {

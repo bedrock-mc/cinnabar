@@ -47,6 +47,7 @@ mod tests {
         });
         scene.apply(
             &mod_render::RenderOutput {
+                masks: Default::default(),
                 passes: Vec::new(),
                 primitives: Arc::new(primitives),
             },

@@ -10,3 +10,15 @@ interface drawing {
     enum error-code { denied, invalid, budget-exceeded, stale-handle, unsupported, in-use }
     record draw-error { code: error-code, detail: string }
 }
+
+/// Retained union silhouettes. Tokens are private to one component and session.
+interface masks {
+    use drawing.{handle, draw-error};
+    enum depth-policy { test, always }
+    /// Resolves an already authorized actor. Unfiltered lookup requires observation authority.
+    entity: func(runtime-id: u64) -> result<handle, draw-error>;
+    create: func(depth: depth-policy) -> result<handle, draw-error>;
+    /// Atomically replaces membership; an empty selection clears coverage.
+    select: func(mask: handle, entities: list<handle>) -> result<_, draw-error>;
+    remove: func(mask: handle) -> result<_, draw-error>;
+}

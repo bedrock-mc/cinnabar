@@ -42,6 +42,8 @@ mod hud;
 mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
+#[path = "masks.rs"]
+mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -303,6 +305,9 @@ impl Instance {
         state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
+        let mut effective = session;
+        effective.permissions = state.grants.drawing_permissions();
+        state.render.masks.bind(effective);
     }
 
     /// Returns current effective grants rather than the retained loader consent.
@@ -359,6 +364,10 @@ impl Instance {
         PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
+        if let Some(mut session) = policy {
+            session.permissions = state.grants.drawing_permissions();
+            state.render.masks.bind(session);
+        }
         if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
             state.controls.panel = Some(bundle.panel.clone());
             state.controls.bundle = Some(bundle);
@@ -623,6 +632,7 @@ impl Instance {
         state.output = 0;
         state.pending_screens = None;
         state.inventory.begin();
+        state.render.begin_masks();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -985,6 +995,7 @@ fn commit(store: &mut Store<State>) {
 /// replaces the frame's drawn set; what an event stages there is dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
+    state.render.commit_masks();
     state.hud.commit();
     if let Some(claims) = &state.exclusive.hud {
         claims.release(state.exclusive.owner);

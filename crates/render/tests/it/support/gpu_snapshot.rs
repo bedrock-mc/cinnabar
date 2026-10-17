@@ -35,6 +35,8 @@ pub struct Draw<'a> {
 }
 
 pub struct RasterState {
+    /// Optional production actor fragment selected by the actor raster fixture.
+    pub actor_fragment: Option<&'static str>,
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
@@ -59,6 +61,7 @@ struct RasterConfiguration<'a> {
 impl Default for RasterState {
     fn default() -> Self {
         Self {
+            actor_fragment: None,
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,

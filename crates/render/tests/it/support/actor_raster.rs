@@ -393,11 +393,12 @@ pub(crate) fn raster_material_in_scene(
         resource: wgpu::BindingResource::TextureView(&glint_view),
     });
     let draws = [Draw {
-        fragment: "actor_fragment",
+        fragment: state.actor_fragment.unwrap_or("actor_fragment"),
         vertices: 0..vertices.len() as u32,
         bindings: &bindings,
         blend: material.state.and_then(render::actor_material_blend_state),
-        write_depth: material.state.is_none_or(|state| state.depth_write),
+        write_depth: state.actor_fragment.is_none()
+            && material.state.is_none_or(|state| state.depth_write),
     }];
     // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
     let entries: Vec<_> = bindings
