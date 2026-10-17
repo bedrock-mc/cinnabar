@@ -8,7 +8,7 @@ function canvas() {
   return {
     addEventListener: (name, callback) => listeners.set(name, callback),
     removeEventListener: name => listeners.delete(name),
-    emit: (name, values = {}) => listeners.get(name)?.({ isTrusted: true, isPrimary: true, button: 0, clientX: 10, clientY: 20, preventDefault() {}, ...values }),
+    emit: (name, values = {}) => listeners.get(name)?.({ type: name, pointerId: 1, pointerType: "mouse", isTrusted: true, isPrimary: true, button: 0, clientX: 10, clientY: 20, preventDefault() {}, ...values }),
     listeners,
   };
 }
@@ -82,4 +82,33 @@ test("browser opener exceptions are reported by the gesture owner", () => {
   assert.equal(reports.length, 1);
   assert.match(reports[0], /could not be opened/);
   stop();
+});
+
+test("touch and pen open links on release while mouse opens only on press", () => {
+  const target = canvas(), opened = [];
+  let hit = "open_sign_in_link";
+  const stop = signInGestures(target, () => hit, () => null,
+    () => "https://example.invalid/device", () => {}, { open: () => opened.push(true) });
+  for (const pointerType of ["touch", "pen"]) {
+    const before = opened.length;
+    target.emit("pointerdown", { pointerType });
+    assert.equal(opened.length, before);
+    target.emit("pointerup", { pointerType });
+    assert.equal(opened.length, before + 1);
+  }
+  const before = opened.length;
+  target.emit("pointerdown");
+  target.emit("pointerup");
+  assert.equal(opened.length, before + 1);
+  target.emit("pointerdown", { pointerType: "touch" });
+  target.emit("pointercancel", { pointerType: "touch" });
+  target.emit("pointerup", { pointerType: "touch" });
+  assert.equal(opened.length, before + 1);
+  hit = "cancel_sign_in";
+  target.emit("pointerdown", { pointerType: "touch" });
+  hit = "open_sign_in_link";
+  target.emit("pointerup", { pointerType: "touch" });
+  assert.equal(opened.length, before + 1);
+  stop();
+  assert.equal(target.listeners.size, 0);
 });

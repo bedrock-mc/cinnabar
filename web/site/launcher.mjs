@@ -1,6 +1,7 @@
 /** Opens only freshly hit-tested sign-in actions inside a trusted browser gesture. */
 export function signInGestures(canvas, actionAt, focusedAction, link, report, view = window) {
   let disposed = false;
+  let pressedPointer = null;
   /** Validates the current prompt URL again at the browser boundary. */
   const open = () => {
     const uri = link();
@@ -13,21 +14,37 @@ export function signInGestures(canvas, actionAt, focusedAction, link, report, vi
     try { view.open(url.href, "_blank", "noopener,noreferrer"); }
     catch { report("The sign-in page could not be opened. Try opening the link again."); }
   };
-  /** Uses this event's coordinates rather than a previous frame's hover state. */
+  /** Resolves a fresh hit within the pointer's activation event. */
   const pointer = (event) => {
-    if (!disposed && event.isTrusted && event.isPrimary && event.button === 0 &&
-        actionAt(event.clientX, event.clientY) === "open_sign_in_link") open();
+    if (disposed || !event.isTrusted) return;
+    if (event.type === "pointercancel") {
+      if (pressedPointer === event.pointerId) pressedPointer = null;
+      return;
+    }
+    if (!event.isPrimary || event.button !== 0) return;
+    const hit = actionAt(event.clientX, event.clientY) === "open_sign_in_link";
+    if (event.pointerType === "mouse") {
+      if (event.type === "pointerdown" && hit) open();
+    } else if (event.type === "pointerdown") {
+      pressedPointer = hit ? event.pointerId : null;
+    } else {
+      const pressed = pressedPointer === event.pointerId;
+      pressedPointer = null;
+      if (pressed && hit) open();
+    }
   };
   /** Lets focused menu links be activated without relying on pointer hover. */
   const keyboard = (event) => {
     if (!disposed && event.isTrusted && !event.repeat && ["Enter", " "].includes(event.key) &&
         focusedAction() === "open_sign_in_link") { event.preventDefault(); open(); }
   };
-  canvas.addEventListener("pointerdown", pointer, true);
+  const pointerEvents = ["pointerdown", "pointerup", "pointercancel"];
+  for (const name of pointerEvents) canvas.addEventListener(name, pointer, true);
   canvas.addEventListener("keydown", keyboard, true);
   return () => {
     disposed = true;
-    canvas.removeEventListener("pointerdown", pointer, true);
+    pressedPointer = null;
+    for (const name of pointerEvents) canvas.removeEventListener(name, pointer, true);
     canvas.removeEventListener("keydown", keyboard, true);
   };
 }
