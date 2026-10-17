@@ -78,14 +78,14 @@ pub(super) fn air_use_for_stack(
     )
 }
 
-/// The use duration of the selected stack when vanilla animates its use as eating or drinking.
+/// The presented stack's duration for the eating or drinking animation, independent of transport.
 pub fn consume_ticks(
     player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
 ) -> Option<u32> {
-    let stack = player_runtime.selected_backing_stack()?;
+    let stack = player_runtime.selected_stack()?;
     let profile = stream.authority().item_use_profile(stack.network_id);
-    match selected_air_use(player_runtime, stream)? {
+    match air_use_for_stack(stack, stream, None)? {
         AirUse::Hold { max_ticks, .. }
             if matches!(
                 profile.consumption,
