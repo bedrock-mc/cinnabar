@@ -246,7 +246,20 @@ mod tests {
             types::ErrorCode::Denied
         );
         state.grants.render_post = true;
-        state.register_effect(spec).unwrap().unwrap();
+        state.render.commit_masks();
+        state.render.begin_frame();
+        state.register_effect(spec.clone()).unwrap().unwrap();
+        assert_eq!(
+            state
+                .register_effect(wit::EffectSpec {
+                    name: "exhausted".into(),
+                    ..spec
+                })
+                .unwrap()
+                .unwrap_err()
+                .code,
+            types::ErrorCode::BudgetExceeded
+        );
         state.render.commit_masks();
         assert_eq!(state.render.output().passes.len(), 1);
         assert_eq!(
