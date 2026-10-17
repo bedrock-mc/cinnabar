@@ -45,6 +45,8 @@ struct Instance<H> {
     callback: &'static str,
     /// The revision of the session's items its helper last received.
     items_sent: Option<u64>,
+    /// Whether Shift was held when the guest was last told.
+    shift: bool,
 }
 
 impl<H: Worker> Instance<H> {
@@ -199,6 +201,7 @@ impl<H: Worker> Live<H> {
                     stopped: None,
                     callback: "init",
                     items_sent: None,
+                    shift: false,
                 },
             );
         }

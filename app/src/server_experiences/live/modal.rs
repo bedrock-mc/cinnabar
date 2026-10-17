@@ -139,6 +139,30 @@ impl<H: Worker> Live<H> {
         true
     }
 
+    /// Queues Shift now being `held` for the open modal's bundle when that changed and `input`
+    /// is granted; a change still waiting is replaced, so a tap queues at most one callback.
+    pub(in crate::server_experiences) fn shift_changed(&mut self, held: bool) -> bool {
+        let ready = self.ready;
+        let Some(instance) = self.open_instance() else {
+            return false;
+        };
+        if !ready || !instance.capabilities.may_read_input() || instance.shift == held {
+            return false;
+        }
+        let waiting = instance
+            .events
+            .iter()
+            .position(|e| matches!(e, Event::Shift { .. }));
+        if let Some(at) = waiting {
+            instance.events.remove(at);
+        } else if instance.events.len() >= MAX_PENDING_EVENTS {
+            return false;
+        }
+        instance.shift = held;
+        instance.events.push_back(Event::Shift { held });
+        true
+    }
+
     /// Queues the open modal's scroll view `view` showing `range` for its bundle, only when the
     /// manifest declares `view` as an action and `input` is granted; a later range of the same
     /// view replaces one still waiting, so a fast scroll queues one callback, not one per frame.

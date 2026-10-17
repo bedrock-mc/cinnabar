@@ -169,6 +169,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     stopped: None,
                     callback: "init",
                     items_sent: None,
+                    shift: false,
                 },
             )
         })
@@ -863,6 +864,27 @@ fn scroll_ranges_coalesce_for_declared_views_only() {
     );
     live.close_modal();
     assert!(!live.scroll_changed("bundle0.pick", range(54.0)));
+}
+
+/// Shift reaches the open bundle only when it changes, a change still waiting being replaced, so
+/// a quick tap queues its release alone.
+#[test]
+fn shift_reaches_the_open_bundle_when_it_changes() {
+    let mut live = opened();
+    assert!(!live.shift_changed(false));
+    assert!(live.shift_changed(true));
+    assert!(!live.shift_changed(true));
+    assert!(live.shift_changed(false));
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Shift { held: false }]
+    );
+    live.close_modal();
+    assert!(!live.shift_changed(true));
 }
 
 /// A secondary press (a right click) reaches the open bundle as its own event, only for a
