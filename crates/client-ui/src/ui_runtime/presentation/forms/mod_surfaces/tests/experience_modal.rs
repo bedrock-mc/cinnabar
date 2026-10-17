@@ -484,6 +484,107 @@ const VANILLA_SEARCH: &str = r#"{"namespace": "demo",
             "$text_edit_clipping_panel_size": [79, "100%"],
             "$text_edit_box_label_anchor_point": "top_right"}}]}}"#;
 
+/// A terminal's search field as a client part writes it: inside an offset `input_panel`, on
+/// vanilla's `common.text_edit_box` with its own background, colours, offset and button mappings.
+/// Vanilla's box clips its text to its height less 4px, which in a 12-unit box cuts off the caret
+/// below the baseline, so the clipper is 2px taller and the label 1px lower, keeping the text put.
+const TERMINAL_SEARCH: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"screen@demo.screen": {}}]},
+    "screen": {"type": "input_panel", "size": [195, 152], "offset": [40, 30],
+        "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1,
+        "controls": [{"search@demo.search": {}}]},
+    "search@common.text_edit_box": {
+        "anchor_from": "top_left", "anchor_to": "top_left", "offset": [80, 4], "size": [89, 12],
+        "layer": 2, "max_length": 25,
+        "$text_box_name": "demo.search",
+        "$place_holder_text": "Search...",
+        "$place_holder_text_color": [0.8706, 0.8745, 0.8902],
+        "$text_box_text_color": [1, 1, 1],
+        "$text_offset": [-1, 0],
+        "$text_edit_clipping_panel_size": [79, "100% + 2px"],
+        "$text_edit_box_label_offset": [0, 1],
+        "$text_edit_box_label_anchor_point": "top_right",
+        "$text_background_default": "demo.search_field",
+        "$text_background_hover": "demo.search_field",
+        "button_mappings": [
+            {"from_button_id": "button.menu_select", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": true, "handle_deselect": false, "mapping_type": "pressed"},
+            {"from_button_id": "button.menu_select", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global", "consume_event": false},
+            {"from_button_id": "button.menu_ok", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": true, "handle_deselect": true, "mapping_type": "pressed"},
+            {"from_button_id": "button.menu_ok", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global"},
+            {"from_button_id": "button.menu_cancel", "to_button_id": "$text_edit_box_deselected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global"},
+            {"to_button_id": "$text_edit_box_hovered_button_id", "mapping_type": "pressed"},
+            {"from_button_id": "$text_edit_box_clear_from_button_id", "to_button_id": "$text_edit_box_clear_to_button_id", "handle_select": false, "handle_deselect": false, "mapping_type": "focused"},
+            {"from_button_id": "button.menu_secondary_select", "to_button_id": "demo.search", "mapping_type": "pressed"}]},
+    "search_field": {"type": "panel", "size": [89, 12]}}"#;
+
+/// Whether `text`'s last glyph, the caret, lies inside the panel that clips it.
+fn caret_in_clip(presentation: &UiPresentationRuntime, text: &str) -> bool {
+    let nodes = &presentation.last_frame.as_ref().expect("a frame").nodes;
+    nodes.iter().any(|node| {
+        let ui::UiVisual::Text { layout, .. } = node.visual() else {
+            return false;
+        };
+        let glyphs = layout.glyphs();
+        if glyphs
+            .iter()
+            .map(|glyph| glyph.codepoint)
+            .collect::<String>()
+            != text
+        {
+            return false;
+        }
+        let Some(clip) = node
+            .parent()
+            .and_then(|id| nodes.iter().find(|n| n.id() == id))
+        else {
+            return false;
+        };
+        let caret = glyphs.last().expect("the caret glyph");
+        let bottom = node.bounds().min().y() + caret.bounds_64[3] as f32 / 64.0;
+        bottom <= clip.bounds().height()
+    })
+}
+
+/// The terminal's search field draws the caret after what was typed, as the driver feeds it:
+/// one edit pass per frame on an advancing clock.
+#[test]
+fn a_terminal_search_field_draws_its_caret() {
+    let Some(mut presentation) = super::super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", TERMINAL_SEARCH)]));
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([(40.0 + 120.0) * scale, (30.0 + 9.0) * scale]);
+    let none: Vec<String> = Vec::new();
+    let caret = format!("ston{}", json_ui::CARET_GLYPH);
+    let mut now = 0.0;
+    let mut frame = |presentation: &mut UiPresentationRuntime,
+                     modal: &screen::Modal,
+                     pressed,
+                     typed: &[String]| {
+        now += 1.0 / 60.0;
+        let edits = presentation
+            .mod_ui_mut()
+            .edit_experience_modal(inside, pressed, typed, false, now);
+        redraw(presentation, modal, &files, [1280, 720]);
+        (edits, drawn_texts(presentation))
+    };
+    frame(&mut presentation, &modal, true, &none);
+    let (edits, texts) = frame(&mut presentation, &modal, false, &["ston".to_owned()]);
+    assert_eq!(edits.edits, [("demo.search".to_owned(), "ston".to_owned())]);
+    assert!(texts.contains(&caret), "{texts:?}");
+    assert!(caret_in_clip(&presentation, &caret));
+    // The client part answers the edit by binding new values, as a terminal filtering its list
+    // does; the box keeps its selection and caret.
+    modal.set_value("#shown".into(), screen::Value::Integer(3));
+    let (_, texts) = frame(&mut presentation, &modal, false, &none);
+    assert!(texts.contains(&caret), "{texts:?}");
+}
+
 /// Vanilla's own edit box draws the caret after the typed text too.
 #[test]
 fn a_selected_vanilla_box_draws_its_caret() {

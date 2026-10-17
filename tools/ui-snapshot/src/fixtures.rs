@@ -59,6 +59,41 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-cosmetics-head",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Head),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-filter",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: cosmetic_filter,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-filter-narrow",
+        size: [320, 720],
+        gui_scale: GUI_SCALE,
+        fixture: cosmetic_filter,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-back",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-back-narrow",
+        size: [320, 720],
+        gui_scale: GUI_SCALE,
+        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "dressing-room-devil-horns",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -677,12 +712,33 @@ fn wardrobe() -> Fixture {
     render_model::hats::fixture::crown();
     render_model::hats::fixture::devil_horns();
     render_model::hats::fixture::shoulder_parrot();
+    render_model::hats::fixture::dragon_wings();
     Arc::make_mut(&mut view.dressing_room).section =
         launcher::dressing_room::DressingRoomSection::Cosmetics;
     Arc::make_mut(&mut view.dressing_room)
         .selected_cosmetics
         .insert(item.descriptor().slot.clone(), Some(item.id().into()));
     Fixture::Menu(Box::new(view))
+}
+
+/// Shows a filtered cosmetic gallery without changing the equipped character.
+#[cfg(feature = "test-support")]
+fn cosmetic_category(category: launcher::dressing_room::CosmeticCategory) -> Fixture {
+    let mut fixture = wardrobe();
+    if let Fixture::Menu(view) = &mut fixture {
+        Arc::make_mut(&mut view.dressing_room).cosmetic_category = category;
+    }
+    fixture
+}
+
+/// Shows the anchored category choices with a selected filter.
+#[cfg(feature = "test-support")]
+fn cosmetic_filter() -> Fixture {
+    let mut fixture = cosmetic_category(launcher::dressing_room::CosmeticCategory::Head);
+    if let Fixture::Menu(view) = &mut fixture {
+        Arc::make_mut(&mut view.dressing_room).cosmetic_filter_open = true;
+    }
+    fixture
 }
 
 /// Shows the catalog gallery with the original devil horns selected.

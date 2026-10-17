@@ -150,7 +150,7 @@ impl UiPresentationRuntime {
                 },
             )?;
             paint.apply_entrance(nodes, size)?;
-            if view.dressing_room.editor.is_some() {
+            if view.dressing_room.editor.is_some() || view.dressing_room.cosmetic_filter_open {
                 self.menu_preview.control = None;
                 self.cancel_menu_player_preview_input();
                 let mut frame = PaintFrame {
@@ -167,7 +167,7 @@ impl UiPresentationRuntime {
                     next: &mut *next,
                     renderers: &mut [],
                 };
-                let editor = self.screens.oreui.paint_editor(
+                let editor = self.screens.oreui.paint_dressing_overlay(
                     &paint,
                     view,
                     size,

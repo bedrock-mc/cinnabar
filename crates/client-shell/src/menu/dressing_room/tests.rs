@@ -489,7 +489,7 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
 
 #[test]
 fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change() {
-    use launcher::dressing_room::DressingRoomSection;
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
     let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
     let mut local = menu.player_skin.clone();
     let mut world = None;
@@ -508,6 +508,9 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
             .contains(&MenuAction::DressingRoom(Action::Import))
     );
     let before = local.standard_skin();
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Head,
+    )));
     menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(Some(
         render_model::hats::fixture::bunny(),
     ))));
@@ -516,7 +519,64 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
     assert_eq!(menu.player_skin.cosmetics, local.cosmetics);
     assert_eq!(local.standard_skin(), before);
     assert!(menu.skin_packet_pending.is_none());
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Head);
+    let back = render_model::hats::fixture::dragon_wings();
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Back,
+    )));
+    let actions = menu.dressing_room_focus();
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::ToggleCosmeticFilter)));
+    assert!(
+        !actions.contains(&MenuAction::DressingRoom(Action::SetCosmeticCategory(
+            CosmeticCategory::All,
+        )))
+    );
+    assert!(
+        actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            back
+        ))))
+    );
+    assert!(
+        !actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            render_model::hats::fixture::bunny(),
+        ))))
+    );
+    assert_eq!(local.cosmetics, vec![render_model::hats::fixture::bunny()]);
     menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
     wait(&mut menu, &mut local, &mut world);
     assert!(local.cosmetics.is_empty());
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Back);
+}
+
+#[test]
+fn cosmetic_filter_closes_on_selection_and_back_and_restores_button_focus() {
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
+    let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
+    menu.screen = MenuScreen::DressingRoom;
+    Arc::make_mut(&mut menu.dressing_room).section = DressingRoomSection::Cosmetics;
+    let equipped = menu.dressing_room.selected_cosmetics.clone();
+    let toggle = MenuAction::DressingRoom(Action::ToggleCosmeticFilter);
+    menu.activate_from_navigation(toggle);
+    assert!(menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(
+        menu.dressing_room_focus()[menu.focused],
+        MenuAction::DressingRoom(Action::SetCosmeticCategory(CosmeticCategory::All))
+    );
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Back,
+    )));
+    assert!(!menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Back);
+    assert_eq!(menu.dressing_room_focus()[menu.focused], toggle);
+    assert_eq!(menu.dressing_room.selected_cosmetics, equipped);
+    menu.activate(toggle);
+    menu.go_back();
+    assert_eq!(menu.screen(), MenuScreen::DressingRoom);
+    assert!(!menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(menu.dressing_room_focus()[menu.focused], toggle);
+    menu.activate(toggle);
+    menu.activate(MenuAction::DressingRoom(Action::SetSection(
+        DressingRoomSection::Skins,
+    )));
+    assert!(!menu.dressing_room.cosmetic_filter_open);
 }
