@@ -194,6 +194,11 @@ impl Page {
         (account.state(), account.profile(), account.join_stage())
     }
 
+    /// Reports operation failures without changing a confirmed signed-in identity.
+    pub fn menu_account_error(&self) -> Option<String> {
+        self.account.borrow().operation_error().map(str::to_owned)
+    }
+
     /// Refuses additional UI actions while the controller's command slot is full.
     fn command(&mut self, operation: AccountOperation) -> Result<(), JsError> {
         self.commands

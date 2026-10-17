@@ -102,6 +102,37 @@ fn launcher_handoff_clears_progress_for_the_menu_generating_stage() {
 }
 
 #[test]
+fn launcher_refused_sign_out_keeps_the_confirmed_account() {
+    let mut adapter = RelayAccount::default();
+    account(&mut adapter, "signed_in");
+    adapter.request(AccountIntent::SignOut);
+    adapter.take_operation();
+    adapter
+        .observe(&ControlEvent::Error("session_busy".into()))
+        .unwrap();
+    assert_eq!(adapter.state(), AuthState::Authenticated);
+    assert_eq!(adapter.profile().gamertag, "Fixture");
+    assert!(adapter.operation_error().is_some());
+}
+
+#[test]
+fn launcher_cancel_after_disconnect_retires_the_retained_flow() {
+    for code_arrived in [false, true] {
+        let mut adapter = RelayAccount::default();
+        adapter.request(AccountIntent::SignIn);
+        adapter.take_operation();
+        if code_arrived {
+            account(&mut adapter, "awaiting_code");
+        }
+        adapter.disconnected();
+        adapter.request(AccountIntent::Cancel);
+        assert_eq!(adapter.take_operation(), Some(AccountOperation::SignOut));
+        account(&mut adapter, "awaiting_code");
+        assert_eq!(adapter.state(), AuthState::SignedOut);
+    }
+}
+
+#[test]
 fn launcher_rejects_unsafe_or_incomplete_prompts() {
     let mut adapter = RelayAccount::default();
     for uri in [

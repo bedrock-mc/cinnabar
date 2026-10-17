@@ -17,7 +17,8 @@ use web_transport::session::{AccountOperation, ControlEvent};
 pub struct RelayAccount {
     account: Option<Account>,
     pending: Option<AccountOperation>,
-    checking: bool,
+    /// The Session or relay may retain this attempt until cancellation or completed sign-in.
+    cancel_needed: bool,
     dismissed: bool,
     refusal: Option<String>,
     progress: Option<JoinStage>,
@@ -29,34 +30,37 @@ impl RelayAccount {
         self.refusal = None;
         match intent {
             AccountIntent::SignIn => {
-                self.checking = self
+                let retain = self
                     .account
                     .as_ref()
-                    .is_none_or(|account| match account.state {
-                        bridge::contract::AuthState::SignedIn => false,
-                        bridge::contract::AuthState::AwaitingCode => self.dismissed,
+                    .is_some_and(|account| match account.state {
+                        bridge::contract::AuthState::Failed => false,
+                        bridge::contract::AuthState::AwaitingCode => !self.dismissed,
                         _ => true,
                     });
+                if !retain {
+                    self.account = None;
+                }
+                self.cancel_needed = !self
+                    .account
+                    .as_ref()
+                    .is_some_and(|account| account.state == bridge::contract::AuthState::SignedIn);
                 self.dismissed = false;
                 self.pending = Some(AccountOperation::SignIn);
             }
             AccountIntent::SignOut => {
                 self.dismissed = true;
-                self.checking = false;
+                self.cancel_needed = false;
                 self.pending = Some(AccountOperation::SignOut);
             }
             AccountIntent::Cancel => {
                 self.dismissed = true;
                 // Cancel even before a device code arrives. Signing out invalidates the
                 // relay's pending device flow, so a late result cannot authenticate it.
-                if self.checking
-                    || self.account.as_ref().is_some_and(|account| {
-                        account.state == bridge::contract::AuthState::AwaitingCode
-                    })
-                {
+                if self.cancel_needed {
                     self.pending = Some(AccountOperation::SignOut);
                 }
-                self.checking = false;
+                self.cancel_needed = false;
             }
         }
     }
@@ -75,16 +79,16 @@ impl RelayAccount {
                 if self.account.as_ref() != Some(&account) {
                     self.refusal = None;
                 }
-                if !matches!(
-                    account.state,
-                    bridge::contract::AuthState::SignedOut | bridge::contract::AuthState::Offline
-                ) {
-                    self.checking = false;
+                match account.state {
+                    bridge::contract::AuthState::SignedIn => self.cancel_needed = false,
+                    bridge::contract::AuthState::AwaitingCode if !self.dismissed => {
+                        self.cancel_needed = true
+                    }
+                    _ => {}
                 }
                 self.account = Some(account);
             }
             ControlEvent::Error(reason) => {
-                self.checking = false;
                 self.refusal = Some(
                     match reason.as_str() {
                         "rate_limited" => "The relay is busy. Wait a moment, then try again.",
@@ -120,20 +124,27 @@ impl RelayAccount {
     pub fn disconnected(&mut self) {
         self.account = None;
         self.progress = None;
-        self.checking = false;
         self.refusal = Some("The relay disconnected. Reconnect to continue.".into());
     }
 
     /// Projects the current account into the game's existing sign-in prompt states.
     pub fn state(&self) -> AuthState {
+        if self
+            .account
+            .as_ref()
+            .is_some_and(|account| account.state == bridge::contract::AuthState::SignedIn)
+        {
+            return AuthState::Authenticated;
+        }
         if let Some(message) = &self.refusal {
             return AuthState::Failed(message.clone());
         }
-        if self.checking {
-            return AuthState::Checking;
-        }
         let Some(account) = &self.account else {
-            return AuthState::SignedOut;
+            return if self.cancel_needed {
+                AuthState::Checking
+            } else {
+                AuthState::SignedOut
+            };
         };
         match account.state {
             bridge::contract::AuthState::SignedIn => AuthState::Authenticated,
@@ -155,8 +166,14 @@ impl RelayAccount {
             bridge::contract::AuthState::Failed if !self.dismissed => {
                 AuthState::Failed("Sign-in failed. Try again.".into())
             }
+            _ if self.cancel_needed => AuthState::Checking,
             _ => AuthState::SignedOut,
         }
+    }
+
+    /// Reports refused operations separately from the confirmed authentication state.
+    pub fn operation_error(&self) -> Option<&str> {
+        self.refusal.as_deref()
     }
 
     /// Supplies only the identity the relay actually reports, leaving service details unavailable.

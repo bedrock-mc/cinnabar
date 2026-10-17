@@ -8,7 +8,7 @@ use launcher::menu::{
 };
 
 /// The browser cannot use account-service join targets yet.
-const SERVICE_JOINS_UNAVAILABLE: &str =
+pub(super) const SERVICE_JOINS_UNAVAILABLE: &str =
     "Realms, friends' worlds and featured experiences cannot be joined from a browser yet.";
 
 /// Plain menu data only; the platform host owns all runtime and storage handles.
@@ -24,8 +24,6 @@ impl MenuRuntime {
     /// Selects externally driven services before the first menu frame.
     pub fn use_external_services(&mut self, servers: Vec<SavedServer>, gui_scale_offset: i8) {
         self.stop_catalog();
-        self.catalog_started = true;
-        self.catalog_message = Some(SERVICE_JOINS_UNAVAILABLE.into());
         self.auth_process = None;
         self.auth_attempted = true;
         self.auth_restart_requested = false;
@@ -274,8 +272,13 @@ mod tests {
             menu.view().catalog_message.as_deref(),
             Some(SERVICE_JOINS_UNAVAILABLE)
         );
+        menu.activate(MenuAction::RefreshCatalog);
+        assert!(!menu.view().catalog_loading);
+        assert!(menu.view().catalog_message.is_some());
         menu.request_connect("example.invalid".into());
         assert!(menu.take_join_intent().is_some());
+        menu.show_join_failure("Fixture failure".into());
+        assert!(!menu.view().catalog_loading);
         menu.sync_external_account(
             AuthState::Failed("Disconnected".into()),
             MenuProfile::default(),
