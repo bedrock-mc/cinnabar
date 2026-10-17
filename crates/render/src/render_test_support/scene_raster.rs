@@ -67,6 +67,7 @@ fn fixture_opaque(
 }
 
 /// Requests a native adapter and its actual texture capabilities without creating a surface.
+#[allow(clippy::print_stderr, reason = "explains missing native GPU fixtures")]
 pub(crate) fn renderer() -> Option<RenderPlugin> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
