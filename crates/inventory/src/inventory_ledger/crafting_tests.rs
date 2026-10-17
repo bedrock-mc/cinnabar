@@ -468,7 +468,7 @@ fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
     })
 }
 
-
+/// Close returns real inputs, and the close follows them without waiting for an answer.
 #[test]
 fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     let mut personal = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);

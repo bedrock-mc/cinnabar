@@ -242,5 +242,3 @@ fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
     ));
     assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
 }
-
-/// Close returns real inputs, and the close follows them without waiting for an answer.
