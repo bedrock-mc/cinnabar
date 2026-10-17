@@ -109,7 +109,7 @@ pub(crate) fn fixture_pipeline(
 }
 
 /// Uses the requested scene format to exercise both encoded colour and HDR filtering.
-fn fixture_pipeline_format(
+pub(crate) fn fixture_pipeline_format(
     device: &RenderDevice,
     samples: u32,
     format: TextureFormat,
@@ -349,7 +349,7 @@ pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
 }
 
 /// Saves optional native fixture evidence outside the checkout when capture is requested.
-fn capture(name: &str, samples: u32, pixels: &[u8]) {
+pub(crate) fn capture(name: &str, samples: u32, pixels: &[u8]) {
     if std::env::var_os("CINNABAR_SMAA_RASTER_CAPTURE").as_deref()
         != Some(std::ffi::OsStr::new("1"))
     {

@@ -2085,7 +2085,9 @@ not close a parity or visual acceptance gate.
   transparent passes; their sharp text draws share one later pass in the same order.
   The main scene transfer still preserves encoded material blending and post-processing
   colour ownership. Native regression fixtures compare direct and restored LDR/HDR colour
-  with partial-sample overlays.
+  with partial-sample overlays. World-projected UI shares compatible depth attachments across
+  material modes, with unchanged authored order and a separate-pass fallback while pipelines
+  compile. Native comparisons preserve LDR/HDR pixels at one and four samples.
 - Incomplete: these bounded native fixtures and work-count checks do not establish the
   MacBook Neo frame-rate gain or close the live frame, join, streaming or settings parity
   gates. Simple Graphics precipitation and stock Fancy Skies behavior remain unverified.
