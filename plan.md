@@ -7238,11 +7238,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   simulator was built and no value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
-  `ClientMovementPredictionSync` is sent (fields match vanilla and the pinned gophertunnel) after a server correction is applied, at most once per second, and is
-  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
-  live-test gate item: confirm anti-cheat servers accept the sync; the
-  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
-  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `ClientMovementPredictionSync` becomes due 200 completed client ticks after a
+  server correction. Undefined base attributes send zero; undefined friction,
+  bounciness and air drag modifiers send 1.0/0.0/1.0. All three metadata flag
+  words are retained, with completed local sneak/sprint overlaid. Accepted server
+  posture updates supersede that sample until a new local tick completes, including
+  retries on frames without a completed tick. Standard unscaled walking height
+  follows the same sneak state. Transport refusal leaves the sync due. Other
+  predicted flags, custom/scaled and horizontal-pose sizes, history loss, exact
+  send phase and live server acceptance remain incomplete.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
   not imply prediction and no vehicle simulator exists, so all rides send ordinary player
   input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw

@@ -53,8 +53,11 @@ pub fn send_movement_prediction_sync(
         air_drag_modifier,
     );
     let sync = MovementPredictionSync {
-        actor_flags: predicted_flag_words(&actor.metadata, physics.latest_sneak_sprint()),
-        bounding_box: predicted_bounding_box(&actor.metadata, physics.completed_walking_height()),
+        actor_flags: predicted_flag_words(&actor.metadata, physics.prediction_sync_posture()),
+        bounding_box: predicted_bounding_box(
+            &actor.metadata,
+            physics.prediction_sync_walking_height(),
+        ),
         attributes,
         unique_id: stream.local_player_unique_id(),
         flying: physics.mode() == sim::MovementMode::Flying,
@@ -64,7 +67,7 @@ pub fn send_movement_prediction_sync(
     }
 }
 
-/// Overlays completed local posture while preserving flags owned by server metadata.
+/// Overlays current accepted posture while preserving flags owned by server metadata.
 fn predicted_flag_words(
     metadata: &HashMap<u32, ActorMetadataValue>,
     posture: Option<(bool, bool)>,
@@ -97,7 +100,7 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
     ]
 }
 
-/// Uses completed walking size for the standard unscaled player model.
+/// Uses current accepted walking size for the standard unscaled player model.
 /// Other models and poses retain their supplied metadata until their local contracts are available.
 fn predicted_bounding_box(
     metadata: &HashMap<u32, ActorMetadataValue>,
@@ -461,6 +464,119 @@ mod tests {
                 assert_eq!(physics.prediction_sync.due(), !accepted);
             }
         }
+    }
+
+    /// Live metadata wins over a refused sync's retained sample until another tick completes.
+    #[test]
+    fn correction_sync_retry_preserves_server_posture_without_a_completed_tick() {
+        let sneak = 1_u64 << ActorFlag::Sneaking.wire_value();
+        let sprint = 1_u64 << ActorFlag::Sprinting.wire_value();
+        let unrelated = 1_u64 << ActorFlag::AlwaysShowName.wire_value();
+        for (sneaking, sprinting) in [(true, false), (false, true), (true, true), (false, false)] {
+            for stamp in [0, 102, 103] {
+                let mut actor = local_actor();
+                let mut physics = due_physics();
+                let input = sim::MovementInput {
+                    forward: 1.0,
+                    sneaking,
+                    sprinting,
+                    ..Default::default()
+                };
+                let frame =
+                    physics.advance(std::time::Duration::from_millis(100), input, &OpenWorld);
+                assert_eq!(frame.completed_ticks, 2);
+                let completed = physics.latest_sneak_sprint().unwrap();
+                send_movement_prediction_sync(&mut physics, &actor, None, |_| false);
+                assert!(physics.prediction_sync.due());
+
+                let accepted = (!completed.0, !completed.1);
+                let expected_flags = unrelated
+                    | if accepted.0 { sneak } else { 0 }
+                    | if accepted.1 { sprint } else { 0 };
+                actor.0.metadata.insert(
+                    ActorDataKey::Flags.wire_value(),
+                    ActorMetadataValue::Flags(expected_flags),
+                );
+                assert_eq!(
+                    physics.apply_server_movement_flags(
+                        stamp,
+                        client_world::MovementFlagUpdate {
+                            sneaking: Some(accepted.0),
+                            sprinting: Some(accepted.1),
+                            ..Default::default()
+                        },
+                    ),
+                    None,
+                );
+                // The frame owner consumes these latches even when its frame completes no tick.
+                assert!(physics.take_server_control_flags().is_some());
+                let frame = physics.advance(std::time::Duration::ZERO, input, &OpenWorld);
+                assert_eq!(frame.completed_ticks, 0);
+                assert_eq!(physics.latest_sneak_sprint(), Some(completed));
+
+                for admitted in [false, true] {
+                    send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+                        assert_eq!(
+                            packet,
+                            client_movement_prediction_sync(MovementPredictionSync {
+                                actor_flags: [expected_flags, 0, 0],
+                                bounding_box: [
+                                    1.0,
+                                    sim::PLAYER_WIDTH as f32,
+                                    sim::MovementMode::Walking.hitbox_height(accepted.0) as f32,
+                                ],
+                                attributes: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 1.0, 0.0, 1.0],
+                                unique_id: 70,
+                                flying: false,
+                            }),
+                            "server posture at stamp {stamp} must supersede {completed:?}",
+                        );
+                        admitted
+                    });
+                    assert_eq!(physics.prediction_sync.due(), !admitted);
+                }
+            }
+        }
+    }
+
+    /// Sparse server updates compose, then a completed local tick can replace their posture.
+    #[test]
+    fn correction_sync_posture_replaces_only_supplied_flags_until_the_next_tick() {
+        let mut physics = due_physics();
+        let input = sim::MovementInput {
+            forward: 1.0,
+            sneaking: true,
+            ..Default::default()
+        };
+        physics.advance(std::time::Duration::from_millis(50), input, &OpenWorld);
+        physics.apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                sprinting: Some(true),
+                ..Default::default()
+            },
+        );
+        assert_eq!(physics.prediction_sync_posture(), Some((true, true)));
+        physics.apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                sneaking: Some(false),
+                ..Default::default()
+            },
+        );
+        assert_eq!(physics.prediction_sync_posture(), Some((false, true)));
+        assert_eq!(
+            physics.prediction_sync_walking_height(),
+            Some(sim::PLAYER_HEIGHT as f32),
+        );
+        physics.take_server_control_flags();
+        let frame = physics.advance(std::time::Duration::from_millis(50), input, &OpenWorld);
+        assert_eq!(frame.completed_ticks, 1);
+        assert_eq!(physics.prediction_sync_posture(), Some((true, false)));
+        assert_eq!(
+            physics.prediction_sync_walking_height(),
+            Some(sim::MovementMode::Walking.hitbox_height(true) as f32),
+        );
     }
 
     struct NoEffects;
