@@ -253,3 +253,18 @@ fn desktop_home_aligns_panel_headings_and_uses_equal_neutral_utility_actions() {
             < bounds(MenuAction::Navigate(MenuScreen::Social)).min().y()
     );
 }
+
+#[test]
+fn portrait_menu_does_not_stretch_as_the_window_grows() {
+    let mut previous = None;
+    for size in [[480.0, 640.0], [720.0, 1280.0], [1080.0, 1920.0]] {
+        let layout = layout::Layout::new(5.0, size, Some(title(400, 80)), false, false);
+        assert!(layout.compact);
+        if let Some((width, height)) = previous {
+            assert_eq!(layout.width, width);
+            assert_eq!(layout.height, height);
+        }
+        previous = Some((layout.width, layout.height));
+        assert_fits(size, 1.0, Some(2), Some(title(400, 80)), false, true);
+    }
+}

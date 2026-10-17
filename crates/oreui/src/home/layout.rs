@@ -4,6 +4,8 @@ use ui::IconRef;
 
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
 pub(super) const PANEL_PADDING: f32 = 2.4;
+const COMPACT_WIDTH: f32 = 44.0;
+const DESKTOP_WIDTH: f32 = 86.0;
 
 pub(super) struct Layout {
     pub scale: f32,
@@ -40,8 +42,14 @@ impl Layout {
     ) -> Self {
         let margin = (rem * 3.2).min(size[0] * 0.04).min(size[1] * 0.035);
         let available_width = size[0] - margin * 2.0;
-        let width = (rem * 86.0).min(available_width);
+        let width = (rem * DESKTOP_WIDTH).min(available_width);
         let compact = width < rem * 68.0 || size[1] < rem * 44.0 || size[0] < size[1] * 0.85;
+        let column_width = if compact {
+            COMPACT_WIDTH
+        } else {
+            DESKTOP_WIDTH
+        };
+        let width = (rem * column_width).min(available_width);
         let compact_footer = width < rem * 60.0;
         let footer = 4.8;
         let version = if compact_footer { 4.0 } else { 2.8 };
@@ -72,7 +80,7 @@ impl Layout {
             1.0
         };
         let rem = rem * scale;
-        let width = (rem * 86.0).min(available_width);
+        let width = (rem * column_width).min(available_width);
         let logo_width = (rem * 56.0).min(width * 0.78);
         let logo_height = ratio.map_or(rem * 6.4, |ratio| logo_width / ratio);
         let outside = logo_height + rem * (3.2 + footer + version);
