@@ -8,11 +8,30 @@ use rodio::{
     },
     dynamic_mixer::{DynamicMixerController, mixer},
 };
-use std::sync::Arc;
+use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+/// Page control of the mixer; dropping it releases the same stream as the audio device.
+pub struct BrowserAudio {
+    stream: Rc<RefCell<Option<cpal::Stream>>>,
+    context: web_sys::AudioContext,
+}
+
+impl BrowserAudio {
+    /// Borrows the stream's context for gesture resume and cached-page suspension.
+    pub fn context(&self) -> &web_sys::AudioContext {
+        &self.context
+    }
+}
+
+impl Drop for BrowserAudio {
+    fn drop(&mut self) {
+        self.stream.borrow_mut().take();
+    }
+}
 
 /// Retains CPAL's scheduled Web Audio callbacks and the shared source mixer.
 pub(super) struct Output {
-    stream: cpal::Stream,
+    stream: Rc<RefCell<Option<cpal::Stream>>>,
     mixer: Arc<DynamicMixerController<f32>>,
 }
 
@@ -39,7 +58,7 @@ impl Output {
             stream.play().ok()?;
             Some((
                 Self {
-                    stream,
+                    stream: Rc::new(RefCell::new(Some(stream))),
                     mixer: controller,
                 },
                 rate,
@@ -53,9 +72,13 @@ impl Output {
     }
 
     /// Shares control of the output's real context without rescheduling callbacks.
-    pub(super) fn context(&self) -> web_sys::AudioContext {
-        let cpal::platform::StreamInner::WebAudio(stream) = self.stream.as_inner();
-        stream.audio_context().clone()
+    pub(super) fn control(&self) -> Option<BrowserAudio> {
+        let stream = self.stream.borrow();
+        let cpal::platform::StreamInner::WebAudio(stream) = stream.as_ref()?.as_inner();
+        Some(BrowserAudio {
+            stream: Rc::clone(&self.stream),
+            context: stream.audio_context().clone(),
+        })
     }
 
     /// Adds an admitted source to the same mixer used by the native audio engine.
@@ -63,10 +86,16 @@ impl Output {
         &self,
         source: impl Source<Item = f32> + Send + 'static,
     ) -> Result<(), rodio::PlayError> {
-        if self.context().state() == web_sys::AudioContextState::Closed {
+        if self.stream.borrow().is_none() {
             return Err(rodio::PlayError::NoDevice);
         }
         self.mixer.add(source);
         Ok(())
+    }
+}
+
+impl Drop for Output {
+    fn drop(&mut self) {
+        self.stream.borrow_mut().take();
     }
 }

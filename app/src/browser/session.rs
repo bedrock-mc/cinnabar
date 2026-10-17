@@ -1,7 +1,7 @@
 //! Browser host admission and lifetime around the shared protocol login and session pump.
 use std::{cell::RefCell, future::Future, pin::Pin, rc::Rc};
 
-use bevy::prelude::{NonSend, ResMut};
+use bevy::prelude::{AppExit, MessageWriter, NonSend, ResMut};
 use client_runtime::network::NetworkHandle;
 use simulation_clock::identity::SessionGeneration;
 
@@ -25,6 +25,7 @@ enum Command {
         network: NetworkHandle<PackApplication>,
     },
     Disconnect,
+    Stop,
 }
 
 /// A single bounded command and terminal observation shared with the browser event loop.
@@ -141,11 +142,18 @@ impl Host {
     }
 }
 
+impl Drop for Host {
+    fn drop(&mut self) {
+        self.mailbox.borrow_mut().command = Some(Command::Stop);
+    }
+}
+
 /// Applies page intent before network ingress can publish a replacement world.
 pub(super) fn apply_commands(
     commands: NonSend<HostCommands>,
     mut network: ResMut<NetworkHandle<PackApplication>>,
     mut state: SessionWorld,
+    mut exit: MessageWriter<AppExit>,
 ) {
     let mut mailbox = commands.0.borrow_mut();
     let Some(command) = mailbox.command.take() else {
@@ -165,11 +173,14 @@ pub(super) fn apply_commands(
             *network = next;
             mailbox.connected = true;
         }
-        Command::Disconnect => {
+        Command::Disconnect | Command::Stop => {
             state.retire(0);
             *network = NetworkHandle::disconnected();
             mailbox.connected = false;
             mailbox.event = Some(Event::Disconnected);
+            if matches!(command, Command::Stop) {
+                exit.write(AppExit::Success);
+            }
         }
     }
 }

@@ -6,6 +6,8 @@ use rodio::{OutputStream, OutputStreamHandle};
 #[cfg(target_arch = "wasm32")]
 mod browser;
 #[cfg(target_arch = "wasm32")]
+pub use browser::BrowserAudio;
+#[cfg(target_arch = "wasm32")]
 use browser::Output;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -232,10 +234,10 @@ impl AudioDevice {
             ..Self::disabled()
         }
     }
-    /// Returns the context driving the actual mixer so gestures resume the retained stream.
+    /// Gives the page gesture and teardown control over the actual mixer stream.
     #[cfg(target_arch = "wasm32")]
-    pub fn browser_context(&self) -> Option<web_sys::AudioContext> {
-        self.output.as_ref().map(Output::context)
+    pub fn browser_audio(&self) -> Option<BrowserAudio> {
+        self.output.as_ref().and_then(Output::control)
     }
     /// Takes the output once its owner thread finishes opening it; a failed open stays disabled.
     fn resolve(&mut self) {

@@ -64,13 +64,13 @@ pub struct Game {
     play: Option<Task>,
     _jobs: Task,
     _audio_task: Option<Task>,
-    audio: Option<web_sys::AudioContext>,
+    audio: Option<client_audio::named_audio::BrowserAudio>,
 }
 impl Game {
     /// Adopts the game host returned after canvas startup.
     pub(super) fn new(
         host: cinnabar::browser::Host,
-        audio: Option<web_sys::AudioContext>,
+        audio: Option<client_audio::named_audio::BrowserAudio>,
         audio_task: Option<Task>,
     ) -> Self {
         let jobs = Task::spawn(async {
@@ -100,7 +100,7 @@ impl Game {
     pub fn resume_audio(&self) -> Result<js_sys::Promise, wasm_bindgen::JsValue> {
         self.audio.as_ref().map_or_else(
             || Ok(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)),
-            web_sys::AudioContext::resume,
+            |audio| audio.context().resume(),
         )
     }
 
@@ -108,7 +108,7 @@ impl Game {
     pub fn suspend_audio(&self) -> Result<js_sys::Promise, wasm_bindgen::JsValue> {
         self.audio.as_ref().map_or_else(
             || Ok(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)),
-            web_sys::AudioContext::suspend,
+            |audio| audio.context().suspend(),
         )
     }
 
@@ -140,9 +140,6 @@ impl Game {
 impl Drop for Game {
     fn drop(&mut self) {
         self.disconnect();
-        if let Some(audio) = &self.audio {
-            let _ = audio.close();
-        }
     }
 }
 

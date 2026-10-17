@@ -278,7 +278,7 @@ impl Carriers {
         } else {
             client_audio::named_audio::AudioDevice::disabled()
         };
-        let context = output.browser_context();
+        let audio = output.browser_audio();
         let host = cinnabar::browser::run(
             startup,
             canvas,
@@ -288,7 +288,7 @@ impl Carriers {
             output,
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
-        Ok(Game::new(host, context, audio_task))
+        Ok(Game::new(host, audio, audio_task))
     }
 }
 /// Presents a carrier validation failure with the canonical rebuild hint.

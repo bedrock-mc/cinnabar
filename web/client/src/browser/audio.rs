@@ -4,7 +4,7 @@ use client_audio::audio::{SoundBank, SoundDecodeDriver, SoundDecodeRequest};
 use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 use js_sys::{Promise, Uint8Array};
 use std::{sync::Arc, time::Duration};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::{JsCast, JsError, JsValue, wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 
 use super::{game::Task, timer};

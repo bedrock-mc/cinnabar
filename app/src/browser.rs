@@ -114,6 +114,7 @@ impl Jobs {
         let drivers: &[fn(&mut Self, simulation_clock::Moment) -> bool] = &[
             |jobs, now| jobs.world.run_one(now),
             |jobs, _| jobs.images.run_one(),
+            |_, _| client_world::browser_jobs::run_one(),
             |jobs, _| jobs.ui.run_one(),
             |_, _| render::browser_jobs::run_one(),
             |_, _| client_runtime::browser_jobs::run_one(),
