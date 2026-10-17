@@ -407,3 +407,42 @@ fn review_regression_personal_registry_models_do_not_require_storage() {
     ));
     assert_eq!(ledger.cursor_stack(), Some(&item(201, 4)));
 }
+
+/// Registry-only furnace models establish the same interactive request address as Content.
+#[test]
+fn registry_only_furnace_contents_support_ordinary_clicks() {
+    use protocol_ids::ContainerName;
+    for full in [false, true] {
+        let mut ledger = ready(InventoryAuthority::Server);
+        ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(7),
+            window_type: protocol::WINDOW_TYPE_FURNACE,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+        for (name, held) in [
+            (ContainerName::FurnaceIngredient, item(200, 9)),
+            (ContainerName::FurnaceFuel, NetworkItemStack::empty()),
+            (ContainerName::FurnaceResult, NetworkItemStack::empty()),
+        ] {
+            let container = named(protocol::DYNAMIC_STORAGE_WINDOW_ID, name.wire_value(), None);
+            if full {
+                ledger.apply(&content(container, vec![held]));
+            } else {
+                ledger.apply(&InventoryEvent::Slot(update(container, 0, held)));
+            }
+        }
+        assert_eq!(ledger.storage_slot_count(), Some(3));
+        ledger.begin_storage_click(0).unwrap();
+        assert_eq!(ledger.cursor_stack().unwrap().count, 9);
+        assert!(ledger.pending_batch().unwrap().is_some());
+        assert_eq!(
+            ledger.storage_identity(),
+            Some(named(
+                7,
+                ContainerName::FurnaceIngredient.wire_value(),
+                None
+            ))
+        );
+    }
+}

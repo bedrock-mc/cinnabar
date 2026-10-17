@@ -187,6 +187,7 @@ impl PlayerInventoryLedger {
                 self.cursor_resync_required = false;
                 self.surface_refreshed(CellSurface::Cursor);
             }
+            Cell::Storage(_) => self.bind_storage_request_identity(),
             _ => {}
         }
     }
