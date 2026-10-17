@@ -64,3 +64,14 @@ fn traps_are_not_recovered_by_an_authority_transition() {
     assert!(!host.is_revoked());
     assert!(!host.reload_if_changed().unwrap());
 }
+
+#[test]
+fn rejected_reload_cannot_change_the_identity_used_for_drawing_grants() {
+    let (directory, mut host) = load_fixture("");
+    let admitted = host.admitted_source_digest();
+    std::fs::write(directory.path().join("mod.wat"), "(component)").unwrap();
+    assert!(host.reload_if_changed().is_err());
+    assert_ne!(host.source_digest(), admitted);
+    assert_eq!(host.admitted_source_digest(), admitted);
+    assert!(host.is_active());
+}
