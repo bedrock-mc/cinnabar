@@ -309,7 +309,8 @@ pub fn overlay_cube_icon(
 }
 
 /// Draws a block thumbnail with explicit carried colours for its biome-tinted materials.
-/// Unresolved tints and unsupported material operations still reject the thumbnail.
+/// Each material is prepared once and shared by its faces. Unresolved tints and unsupported
+/// material operations still reject the thumbnail.
 #[must_use]
 pub fn overlay_block_icon_with_tint(
     overlay: &assets::BlockOverlay,

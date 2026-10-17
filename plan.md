@@ -10,7 +10,8 @@ Isolated item texels admit ambient-occlusion and face-dimming flags; baked thumb
 honor disabled face dimming. GUI cubes that cannot retain this flag keep their unshaded
 thumbnail while their carried face sheet remains available. Grass-tinted thumbnails use the winning carried-grass
 overlay colour from the installed pack and server stack; other unresolved tint operations
-remain rejected.
+remain rejected. Each thumbnail prepares its material texels once and shares processed
+pixels between model faces.
 Block inventory geometry and materials use `minecraft:item_visual` descriptions when
 present, independently of placed-state transforms and world palette offsets. Compound
 placement traits with enabled-state lists retain complete state identities.

@@ -1,7 +1,7 @@
 //! Depth-tested and alpha-tested block thumbnails from shared GUI geometry.
 //! Includes slabs, stairs, walls, glass and server custom blocks.
 
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use assets::gui_item::{
     GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face,
@@ -19,15 +19,32 @@ pub(super) const SIDE: usize = 32;
 struct Face<'a> {
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
-    tile: Cow<'a, [u8]>,
+    tile: Pixels<'a>,
     size: [usize; 2],
     blend: bool,
     face_dimming: bool,
 }
 
+/// Carrier texels remain borrowed; processed texels share one immutable allocation.
+#[derive(Clone)]
+enum Pixels<'a> {
+    Borrowed(&'a [u8]),
+    Shared(Arc<[u8]>),
+}
+
+impl Pixels<'_> {
+    /// Exposes texels independently of their carrier or material-cache owner.
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(pixels) => pixels,
+            Self::Shared(pixels) => pixels,
+        }
+    }
+}
+
 /// Sampled texels and their inventory material properties.
 struct Tile<'a> {
-    pixels: Cow<'a, [u8]>,
+    pixels: Pixels<'a>,
     side: usize,
     blend: bool,
     uv_scale: f32,
@@ -76,7 +93,7 @@ impl<'a> Model<'a> {
             .map(|(corners, uvs, sprite)| Face {
                 corners,
                 uvs,
-                tile: Cow::Borrowed(&sprite.rgba8),
+                tile: Pixels::Borrowed(&sprite.rgba8),
                 size: [usize::from(sprite.width), usize::from(sprite.height)],
                 blend: false,
                 face_dimming: true,
@@ -156,17 +173,23 @@ impl<'a> Model<'a> {
         materials: [u32; 6],
         template: Option<u32>,
     ) -> Result<Self, Reject> {
+        let mut tiles = std::collections::BTreeMap::new();
         let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
             .map(|quad| {
-                let tile = tile(parts, quad.material)?;
+                let tile = match tiles.entry(quad.material) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(tile(parts, quad.material)?)
+                    }
+                };
                 Ok(Face {
                     corners: quad.corners,
                     uvs: quad
                         .uvs
                         .map(|uv| uv.map(|component| component * tile.uv_scale)),
-                    tile: tile.pixels,
+                    tile: tile.pixels.clone(),
                     size: [tile.side; 2],
                     blend: tile.blend,
                     face_dimming: parts.materials[quad.material as usize].flags
@@ -198,7 +221,7 @@ impl<'a> Model<'a> {
                 Face {
                     corners,
                     uvs,
-                    tile: Cow::Owned(tile.into_vec()),
+                    tile: Pixels::Shared(Arc::from(tile)),
                     size: [usize::from(assets::BLOCK_ITEM_FACE_SIDE); 2],
                     blend: blending[face as usize],
                     face_dimming: true,
@@ -288,9 +311,9 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
         Some(tint) => {
             let mut pixels = tile.to_vec();
             pack_compile_input::apply_atlas_tint(&mut pixels, tint);
-            Cow::Owned(pixels)
+            Pixels::Shared(Arc::from(pixels))
         }
-        None => Cow::Borrowed(tile),
+        None => Pixels::Borrowed(tile),
     };
     let grid = match parts.textures {
         Textures::World(_) => 0,
@@ -375,7 +398,7 @@ fn triangle(
             let [width, height] = face.size;
             let tx = ((u.rem_euclid(1.) * width as f32) as usize).min(width - 1);
             let ty = ((v.rem_euclid(1.) * height as f32) as usize).min(height - 1);
-            let texel = &face.tile[(ty * width + tx) * 4..][..4];
+            let texel = &face.tile.as_slice()[(ty * width + tx) * 4..][..4];
             if texel[3] < GUI_BLOCK_ALPHA_THRESHOLD && !(face.blend && texel[3] > 0) {
                 continue;
             }
@@ -452,7 +475,7 @@ mod review_tests {
             let rear = Face {
                 corners: [[0.0; 3]; 4],
                 uvs: [[0.0; 2]; 4],
-                tile: Cow::Owned(vec![0, 0, 255, 255]),
+                tile: Pixels::Shared(Arc::from([0, 0, 255, 255])),
                 size: [1; 2],
                 blend: false,
                 face_dimming: true,
@@ -460,7 +483,7 @@ mod review_tests {
             let front = Face {
                 corners: [[0.0; 3]; 4],
                 uvs: [[0.0; 2]; 4],
-                tile: Cow::Owned(vec![255, 0, 0, 128]),
+                tile: Pixels::Shared(Arc::from([255, 0, 0, 128])),
                 size: [1; 2],
                 blend: true,
                 face_dimming: true,
@@ -486,5 +509,69 @@ mod review_tests {
             composite_fragments(&mut pixels, &depth, &mut fragments);
             assert_eq!(&pixels[..4], &[128, 0, 127, 255]);
         }
+    }
+
+    #[test]
+    fn repeated_tinted_faces_share_one_material_tile() {
+        let side = assets::gui_item::MAX_GUI_TILE_SIDE;
+        let texture = TextureArray {
+            layers: 1,
+            mips: vec![assets::TextureMip {
+                size: side as u32,
+                rgba8: [200, 200, 200, 255].repeat(side * side).into(),
+            }]
+            .into(),
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_GRASS_TINT,
+                ..Material::unvaried()
+            },
+        ];
+        let quad = ModelQuad {
+            positions: [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+            uvs: [[0, 0], [0, 4096], [4096, 4096], [4096, 0]],
+            material: 1,
+            flags: 0,
+        };
+        let quads = vec![quad; 256 * BlockFace::ALL.len()];
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: quads.len() as u32,
+            flags: 0,
+        }];
+        let resolved = std::cell::Cell::new(0);
+        let tint = |_| {
+            resolved.set(resolved.get() + 1);
+            Some([80, 180, 120])
+        };
+        let model = Model::build(
+            Parts {
+                materials: &materials,
+                templates: &templates,
+                quads: &quads,
+                textures: Textures::Overlay(std::slice::from_ref(&texture), &[], None),
+                tint: Some(&tint),
+            },
+            VisualKind::Model,
+            [1; 6],
+            Some(0),
+        )
+        .unwrap();
+        assert_eq!(model.faces.len(), quads.len());
+        let buffers = model
+            .faces
+            .iter()
+            .map(|face| face.tile.as_slice().as_ptr())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            buffers.len(),
+            1,
+            "one retained processed texture per material"
+        );
+        assert_eq!(resolved.get(), 1, "one tint preparation per material");
+        assert_eq!(model.faces[0].tile.as_slice().len(), side * side * 4);
     }
 }
