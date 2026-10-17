@@ -10013,3 +10013,12 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+### Resolve NPC reply targets through their admitted actor lifetime
+
+NPC dialogue carries a unique ID; action and closing replies use the runtime ID
+of the actor resolved when the dialogue was admitted. Recheck that actor's full
+lifetime before each enqueue, including retries, and retire replies locally when
+it despawns or is replaced. Preserve the signed unique-ID bits while normalizing
+the incoming dialogue. Full NPC component admission, opening-command dispatch,
+server-close targeting and exact-current timing parity remain incomplete.

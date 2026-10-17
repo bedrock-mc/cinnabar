@@ -242,6 +242,7 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         let mut packets = Vec::new();
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |packet| {
                 packets.push(packet);
                 Ok(())
@@ -284,6 +285,7 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -333,6 +335,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         app.update();
         let sent = flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(()),
         )
         .unwrap();
@@ -340,6 +343,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         assert!(
             !flush_form_response(
                 &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+                |_| false,
                 |_| Ok(())
             )
             .unwrap()
@@ -420,6 +424,7 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     assert!(
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(())
         )
         .unwrap()
@@ -427,6 +432,7 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     assert!(
         !flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(())
         )
         .unwrap()
@@ -500,6 +506,7 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -581,6 +588,7 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -660,6 +668,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
         let mut sent = Vec::new();
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |packet| {
                 sent.push(packet);
                 Ok(())
@@ -954,6 +963,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         );
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(()),
         )
         .unwrap();

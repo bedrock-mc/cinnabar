@@ -7,6 +7,7 @@ pub mod shape_probe;
 pub mod store_tests;
 pub mod values;
 use super::UiRuntime;
+use actor_animation::ActorLifetimeId;
 use protocol::{
     CustomFormValue, FormKind, FormRequestEvent, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID,
     NpcRequestKind, Packet, ServerFormModel, custom_form_submit_response, modal_form_busy_response,
@@ -31,6 +32,7 @@ pub struct ServerFormEntry {
     pub title: Option<Arc<str>>,
     pub model: ServerFormModel,
     fifo_sequence: u64,
+    npc_actor: Option<ActorLifetimeId>,
 }
 impl ServerFormEntry {
     pub const fn fifo_sequence(&self) -> u64 {
@@ -67,7 +69,7 @@ enum RetainedAnswer {
     Modal(bool),
     Custom(Arc<[CustomFormValue]>),
     Npc {
-        npc_runtime_id: u64,
+        actor: Option<ActorLifetimeId>,
         scene_name: Arc<str>,
         request: NpcRequestKind,
     },
@@ -165,7 +167,16 @@ impl ServerFormStore {
             title: event.title,
             model: event.model,
             fifo_sequence,
+            npc_actor: None,
         });
+    }
+    /// Binds the admitted dialogue to its original actor lifetime, before local input.
+    pub fn bind_npc_actor(&mut self, identity: ServerFormIdentity, actor: ActorLifetimeId) {
+        if let Some(entry) = self.active.as_mut().filter(|entry| {
+            entry.identity == identity && matches!(entry.model, ServerFormModel::NpcDialogue(_))
+        }) {
+            entry.npc_actor = Some(actor);
+        }
     }
     pub fn active(&self) -> Option<&ServerFormEntry> {
         self.active.as_ref()
@@ -245,7 +256,7 @@ impl ServerFormStore {
             },
             LocalFormAction::Dismiss => match &entry.model {
                 ServerFormModel::NpcDialogue(npc) => RetainedAnswer::Npc {
-                    npc_runtime_id: npc.npc_runtime_id,
+                    actor: entry.npc_actor,
                     scene_name: Arc::clone(&npc.scene_name),
                     request: NpcRequestKind::ExecuteClosingCommands,
                 },
@@ -258,7 +269,7 @@ impl ServerFormStore {
                         .get(index as usize)
                         .ok_or(FormRespondError::InvalidButton)?;
                     RetainedAnswer::Npc {
-                        npc_runtime_id: npc.npc_runtime_id,
+                        actor: entry.npc_actor,
                         scene_name: Arc::clone(&npc.scene_name),
                         request: NpcRequestKind::ExecuteAction(button.action_index),
                     }
@@ -319,8 +330,12 @@ impl ServerFormStore {
         self.busy.len()
     }
 }
-fn pending_packet(pending: &PendingFormResponse) -> Packet {
-    match &pending.answer {
+/// Builds a retained reply only while its original NPC actor is still alive.
+fn pending_packet(
+    pending: &PendingFormResponse,
+    npc_is_alive: &mut impl FnMut(ActorLifetimeId) -> bool,
+) -> Option<Packet> {
+    Some(match &pending.answer {
         RetainedAnswer::ButtonIndex(index) => modal_form_submit_response(
             pending.identity.form_id,
             ModalFormResponseSelection::ButtonIndex(*index),
@@ -330,21 +345,26 @@ fn pending_packet(pending: &PendingFormResponse) -> Packet {
             ModalFormResponseSelection::ModalButton(*choice),
         ),
         RetainedAnswer::Npc {
-            npc_runtime_id,
+            actor,
             scene_name,
             request,
-        } => npc_request_packet(*npc_runtime_id, scene_name, *request),
+        } => {
+            let actor = (*actor).filter(|actor| npc_is_alive(*actor))?;
+            npc_request_packet(actor.runtime_id, scene_name, *request)
+        }
         RetainedAnswer::Custom(values) => {
             custom_form_submit_response(pending.identity.form_id, values)
         }
         RetainedAnswer::Dismissed => modal_form_cancel_response(pending.identity.form_id),
         RetainedAnswer::Busy => modal_form_busy_response(pending.identity.form_id),
-    }
+    })
 }
 /// Drains every due response, the local answer first, and returns whether any was sent.
 /// Accepted enqueue is consumed once, never retried on an uncertain later delivery failure.
+/// NPC replies revalidate their bound actor on every attempt and retire locally after actor loss.
 pub fn flush_form_response(
     runtime: &mut UiRuntime,
+    mut npc_is_alive: impl FnMut(ActorLifetimeId) -> bool,
     mut send: impl FnMut(Packet) -> Result<(), FormTransportError>,
 ) -> Result<bool, FormTransportError> {
     let session = runtime.session_id();
@@ -358,7 +378,10 @@ pub fn flush_form_response(
         if pending.identity.session != session {
             continue;
         }
-        match send(pending_packet(&pending)) {
+        let Some(packet) = pending_packet(&pending, &mut npc_is_alive) else {
+            continue;
+        };
+        match send(packet) {
             Ok(()) => sent = true,
             Err(FormTransportError::Full) => {
                 if local {
