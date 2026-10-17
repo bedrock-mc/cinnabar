@@ -68,9 +68,8 @@ pub struct ScreenView<'a> {
     pub crafter_powered: Option<bool>,
     pub furnace_book_open: bool,
     pub furnace_tab: Option<i32>,
-    pub creative_tab: u8,
-    /// Creative's wide list stands in for its recipe book layout.
-    pub creative_wide: bool,
+    /// The Classic controller snapshot read by all inventory bindings.
+    pub inventory: inventory::InventoryController,
     /// Creative catalog groups the player expanded, by group index.
     pub creative_expanded: &'a BTreeSet<u32>,
     pub search: &'a str,

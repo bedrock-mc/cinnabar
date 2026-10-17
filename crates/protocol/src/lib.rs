@@ -170,6 +170,9 @@ pub use inventory::{
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
+pub use inventory::{
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+};
 pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
