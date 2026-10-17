@@ -222,7 +222,7 @@ impl ItemUseRuntime {
         if !self.is_releasing(held) {
             return false;
         }
-        if active.selection_changed(selection, !self.release_pending) {
+        if active.release_selection_changed(selection, !self.release_pending) {
             self.active = None;
             self.release_pending = false;
             self.riptide_release = None;
@@ -357,7 +357,7 @@ impl ItemUseRuntime {
         };
         let mut selection = match &frame.selection {
             Some(_)
-                if active.selection_changed(
+                if active.release_selection_changed(
                     frame.selection.as_ref(),
                     !frame.held && !release_pending,
                 ) =>
@@ -565,18 +565,24 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
-    /// Checks the selected slot and item, adding count when admitting a fresh release.
-    /// Held updates and pending releases keep their existing policies.
-    fn selection_changed(
+    /// Unverified inventory preserves a use; a different selected slot or item cancels it.
+    fn selection_changed(&self, selection: Option<&FrozenMiningSelection>) -> bool {
+        selection.is_some_and(|selection| {
+            selection.slot != self.selection.slot
+                || selection.item.network_id() != self.selection.item.network_id()
+        })
+    }
+
+    /// Adds count admission for a fresh release while retaining held and retry policies.
+    fn release_selection_changed(
         &self,
         selection: Option<&FrozenMiningSelection>,
         check_count: bool,
     ) -> bool {
-        selection.is_some_and(|selection| {
-            selection.slot != self.selection.slot
-                || selection.item.network_id() != self.selection.item.network_id()
-                || (check_count && selection.item.count() != self.selection.item.count())
-        })
+        self.selection_changed(selection)
+            || (check_count
+                && selection
+                    .is_some_and(|selection| selection.item.count() != self.selection.item.count()))
     }
 
     /// Resolves launch eligibility from this charge and the facts observed at release.
@@ -594,7 +600,7 @@ impl ActiveUse {
                     && !riptide.mounted
                     && riptide.usable
                     && selection.is_some()
-                    && !self.selection_changed(selection, true)
+                    && !self.release_selection_changed(selection, true)
                     && tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
             })
             .map(|riptide| riptide.level)
