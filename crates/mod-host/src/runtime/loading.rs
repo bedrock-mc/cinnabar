@@ -1,5 +1,4 @@
-//! Compilation and initialization of isolated guest candidates.
-
+//! Component admission and replacement under the current drawing session authority.
 use super::*;
 use wasmtime::{
     Engine,
@@ -7,6 +6,24 @@ use wasmtime::{
 };
 
 impl Instance {
+    /// Revokes previously published drawing and installs the current admission ceiling.
+    pub(crate) fn bind_drawing_policy(
+        &mut self,
+        grants: ModGrants,
+        session: mod_api::drawing::DrawingSession,
+    ) {
+        let state = self.store.data_mut();
+        state.render.revoke();
+        state.block_highlights.revoke();
+        state.grants = grants;
+        state.drawing_policy = Some(session);
+    }
+
+    /// Returns current effective grants rather than the retained loader consent.
+    pub(crate) fn grants(&self) -> &ModGrants {
+        &self.store.data().grants
+    }
+
     /// Compiles a component and checks its imports and callbacks without running guest code.
     pub(crate) fn check(engine: &Engine, bytes: &[u8]) -> Result<()> {
         let component = Component::new(engine, bytes)?;

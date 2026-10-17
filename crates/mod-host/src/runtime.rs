@@ -25,7 +25,6 @@ wasmtime::component::bindgen!({
 });
 
 const MAX_IMPORT_WRITES: u32 = 8;
-mod admission;
 #[path = "block_highlights.rs"]
 mod block_highlights;
 #[path = "camera.rs"]
@@ -40,6 +39,7 @@ mod hud;
 mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
+mod loading;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -290,24 +290,6 @@ pub(super) struct Instance {
 }
 
 impl Instance {
-    /// Revokes previously published drawing and installs the current admission ceiling.
-    pub(super) fn bind_drawing_policy(
-        &mut self,
-        grants: ModGrants,
-        session: mod_api::drawing::DrawingSession,
-    ) {
-        let state = self.store.data_mut();
-        state.render.revoke();
-        state.block_highlights.revoke();
-        state.grants = grants;
-        state.drawing_policy = Some(session);
-    }
-
-    /// Returns current effective grants rather than the retained loader consent.
-    pub(super) fn grants(&self) -> &ModGrants {
-        &self.store.data().grants
-    }
-
     /// Validates presentation observations before they enter the callback sandbox.
     pub(super) fn observe_presentation(
         &mut self,
