@@ -45,9 +45,15 @@ done
             fixture = output / "DiagnosticsFixture.java"
             fixture.write_text("package " + pins["application_id"] + ";\n" + '''
 import android.app.ApplicationExitInfo;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.zip.ZipInputStream;
 public final class DiagnosticsFixture {
     public static void main(String[] args) throws Exception {
         for (int reason : new int[] {ApplicationExitInfo.REASON_CRASH,
@@ -70,6 +76,41 @@ public final class DiagnosticsFixture {
         log.delete();
         if (StartupDiagnostics.logTail(log).isEmpty())
             throw new AssertionError("missing log was not explained");
+        byte[] trace = new byte[200000];
+        for (int i = 0; i < trace.length; i++) trace[i] = (byte) i;
+        for (boolean nativeCrash : new boolean[] {true, false}) {
+            ByteArrayOutputStream report = new ByteArrayOutputStream();
+            CrashReport.write(report, "exit details", new ByteArrayInputStream(trace), nativeCrash);
+            try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(report.toByteArray()))) {
+                if (!"details.txt".equals(zip.getNextEntry().getName())
+                        || !"exit details".equals(new String(read(zip), StandardCharsets.UTF_8)))
+                    throw new AssertionError("exit details missing");
+                if (!(nativeCrash ? "tombstone.pb" : "trace.txt").equals(zip.getNextEntry().getName())
+                        || !Arrays.equals(trace, read(zip)))
+                    throw new AssertionError("Android trace was changed or truncated");
+                if (zip.getNextEntry() != null) throw new AssertionError("unexpected report contents");
+            }
+        }
+        ByteArrayOutputStream report = new ByteArrayOutputStream();
+        CrashReport.write(report, "no trace", null, true);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(report.toByteArray()))) {
+            zip.getNextEntry();
+            if (!"trace-unavailable.txt".equals(zip.getNextEntry().getName()) || read(zip).length == 0)
+                throw new AssertionError("missing OS trace was not explained");
+        }
+        try {
+            CrashReport.write(new ByteArrayOutputStream(), "bad trace", new InputStream() {
+                public int read() throws IOException { throw new IOException("fixture failure"); }
+            }, true);
+            throw new AssertionError("unreadable trace produced a successful report");
+        } catch (IOException expected) { }
+    }
+    /** Reads one ZIP entry without depending on post-Java-8 convenience APIs. */
+    private static byte[] read(InputStream source) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        for (int count; (count = source.read(buffer)) != -1; ) output.write(buffer, 0, count);
+        return output.toByteArray();
     }
 }
 ''')
