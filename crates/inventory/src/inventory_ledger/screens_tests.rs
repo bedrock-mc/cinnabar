@@ -605,3 +605,102 @@ fn quick_move_storage_filter_falls_back_to_player_inventory() {
         );
     }
 }
+
+/// A response without item data cannot restore a superseded enchanting input snapshot.
+#[test]
+fn enchanting_restatement_survives_a_later_count_response() {
+    let mut ledger = ledger_with(&[]);
+    open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
+    ledger.apply(&slot_update(named(124, 22), 14, stack(50, 1)));
+    ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from([EnchantOption {
+            cost: 2,
+            name: Arc::from("offer"),
+            network_id: 3,
+            enchants: Arc::from([(15, 2)]),
+        }]),
+    }));
+    let request = ledger.begin_enchant(3).unwrap();
+    assert!(ledger.mark_transport_enqueued(1));
+    let extra = protocol::edit_item_extra(
+        &[0; 10],
+        &protocol::ItemNbtEdit {
+            enchantments: Some(vec![(15, 2)]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let replacement = NetworkItemStack {
+        network_id: 7,
+        stack_network_id: 70,
+        count: 1,
+        nbt_digest: sha2::Sha256::digest(&extra).into(),
+        extra_data: Arc::clone(&extra),
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&slot_update(named(124, 22), 14, replacement.clone()));
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id: request,
+                status: protocol::StackResponseStatus::Accepted,
+                containers: Arc::from([protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(22),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([protocol::StackResponseSlot {
+                        slot: 14,
+                        hotbar_slot: 14,
+                        count: 1,
+                        item_stack_id: 80,
+                        custom_name: Arc::from(""),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: 0,
+                    }]),
+                }]),
+            }]),
+        },
+    ));
+    let held = ledger.target_stack(InventoryTarget::Craft(14)).unwrap();
+    assert_eq!(held.network_id, replacement.network_id);
+    assert_eq!(held.extra_data, replacement.extra_data);
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
+/// An admitted grindstone result remains visible and takeable through either UI receipt form.
+#[test]
+fn server_previewed_grindstone_result_can_be_taken() {
+    for whole_content in [false, true] {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 7, protocol::WINDOW_TYPE_GRINDSTONE);
+        let input = stack(50, 1);
+        let result = stack(51, 1);
+        if whole_content {
+            let mut slots = vec![NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+            slots[16] = input;
+            slots[usize::from(protocol::CREATED_OUTPUT_SLOT)] = result.clone();
+            ledger.apply(&content(
+                ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                slots,
+            ));
+        } else {
+            ledger.apply(&slot_update(named(124, 22), 16, input));
+            ledger.apply(&slot_update(
+                ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                u16::from(protocol::CREATED_OUTPUT_SLOT),
+                result.clone(),
+            ));
+        }
+        assert_eq!(ledger.created_output_stack(), Some(&result));
+        ledger
+            .begin_screen_output(&ScreenCraft::Grindstone {
+                recipe_network_id: 50,
+                repair_cost: 0,
+            })
+            .unwrap();
+        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+        assert!(ledger.target_stack(InventoryTarget::Craft(16)).is_none());
+    }
+}

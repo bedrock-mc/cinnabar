@@ -19,9 +19,6 @@ impl PlayerInventoryLedger {
         }
         self.set_authoritative_cell(Cell::Cursor, Held::new(&content.slots[0]));
         for (slot, stack) in content.slots.iter().enumerate().skip(1) {
-            if slot == usize::from(protocol::CREATED_OUTPUT_SLOT) {
-                continue;
-            }
             if let Some(cell) = ui_cell(slot as u8) {
                 self.set_authoritative_cell(cell, Held::new(stack));
             }
@@ -33,7 +30,7 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// UI Slot packets use their raw index; result slot 50 is deferred.
+    /// UI Slot packets use their raw index, including retained server result previews.
     pub(super) fn apply_ui_slot(
         &mut self,
         identity: SlotIdentity,
@@ -46,9 +43,7 @@ impl PlayerInventoryLedger {
             self.set_authoritative_cell(Cell::Cursor, Held::new(stack));
             self.cursor_resync_required = false;
             self.surface_refreshed(CellSurface::Cursor);
-        } else if identity.slot != u16::from(protocol::CREATED_OUTPUT_SLOT)
-            && let Some(cell) = u8::try_from(identity.slot).ok().and_then(ui_cell)
-        {
+        } else if let Some(cell) = u8::try_from(identity.slot).ok().and_then(ui_cell) {
             self.set_authoritative_cell(cell, Held::new(stack));
         } else {
             self.note_unrouted_container();
@@ -192,6 +187,7 @@ impl PlayerInventoryLedger {
                 self.cursor_resync_required = false;
                 self.surface_refreshed(CellSurface::Cursor);
             }
+            Cell::Storage(_) => self.bind_storage_request_identity(),
             _ => {}
         }
     }
