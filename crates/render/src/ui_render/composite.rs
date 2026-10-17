@@ -42,6 +42,7 @@ const UI_LAYER_BYTES_PER_TEXEL: u64 = {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UiLayerContent {
     pub(crate) revision: u64,
+    pub(crate) texture_generation: u64,
     pub(crate) skip: Option<Range<u32>>,
     pub(crate) viewport: Option<(UVec2, UVec2)>,
     pub(crate) model_depth: bool,
@@ -170,6 +171,7 @@ impl HeldLayer {
             || self.content.segment != content.segment
             || self.content.inverted != content.inverted
             || self.content.model_depth != content.model_depth
+            || self.content.texture_generation != content.texture_generation
             || self.content.revision != previous.revision
             || content.revision != input.revision
             || extent != input.viewport_size

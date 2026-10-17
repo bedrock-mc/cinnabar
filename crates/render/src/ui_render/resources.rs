@@ -175,8 +175,7 @@ pub(crate) fn prepare_ui_resources(
         }
     }
     if gpu.accepted_revision == Some(input.revision) {
-        if !gpu.textures.resident(&input.textures)
-            || (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
+        if (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
             || (!input.indices.is_empty() && gpu.index_buffer.is_none())
         {
             gpu.accepted_revision = None;
@@ -187,8 +186,11 @@ pub(crate) fn prepare_ui_resources(
                 input.revision,
                 UiRenderRejectReason::InvalidTextureExtent,
             );
+            return;
         }
-        return;
+        if gpu.textures.resident(&input.textures) {
+            return;
+        }
     }
     if let Err(reason) = input.validate() {
         gpu.accepted_revision = None;
@@ -202,7 +204,9 @@ pub(crate) fn prepare_ui_resources(
         &uploads.device,
         &uploads.queue,
         profile.as_deref(),
-    ) {
+        started.elapsed(),
+    ) && !matches!(reason, UiRenderRejectReason::TextureAllocationFailed { .. })
+    {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
         gpu.animation_damage = Arc::from([]);
@@ -210,9 +214,13 @@ pub(crate) fn prepare_ui_resources(
         return;
     }
 
-    if let Err(reason) = gpu
-        .textures
-        .prepare_fonts(input, &uploads.queue, profile.as_deref())
+    if let Err(reason) = gpu.textures.prepare_fonts(
+        input,
+        &uploads.device,
+        &uploads.queue,
+        profile.as_deref(),
+        started.elapsed(),
+    ) && !matches!(reason, UiRenderRejectReason::TextureAllocationFailed { .. })
     {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
