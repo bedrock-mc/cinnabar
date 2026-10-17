@@ -1956,8 +1956,13 @@ not close a parity or visual acceptance gate.
 - A normal close acknowledgement retires that screen's unanswered requests without
   committing their predictions. HUD mining requests retain their separate ownership,
   and HUD/crafting observers follow the admitted packet and backing state.
+  Enchant selection leaves item mutation unpredicted until its complete result pipeline
+  is implemented; it does not keep an unchanged input as a predicted result.
 - Manual crafting can fill a compatible occupied destination and selects fitting work
   within a bounded result scope. Placement checks are shared by gesture builders.
+- Server UI result previews remain admitted for existing screen consumers. Moving their
+  ownership to locally generated station previews is incomplete and must preserve result
+  display and taking together.
 - Incomplete: full crafting batches and remainders, enchanting prediction and availability,
   creative secondary actions, mode-dependent removal, all station membership rules,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live

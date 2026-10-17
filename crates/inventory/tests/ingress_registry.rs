@@ -209,16 +209,16 @@ fn registry_and_ui_positive_controls() {
     );
 }
 
-/// UI output Slot traffic is deferred even when its packet name looks like a result.
+/// UI result previews retain the raw slot used by existing result-click consumers.
 #[test]
-fn ui_output_slot_is_not_direct_authority() {
+fn ui_output_slot_retains_the_server_preview() {
     let mut l = ready(InventoryAuthority::Server);
     l.apply(&InventoryEvent::Slot(update(
         named(124, protocol::CONTAINER_NAME_CREATED_OUTPUT, None),
         50,
         item(200, 9),
     )));
-    assert!(l.created_output_stack().is_none());
+    assert_eq!(l.created_output_stack(), Some(&item(200, 9)));
 }
 
 #[test]
@@ -329,9 +329,9 @@ fn offhand_slot_without_matching_manager_is_ignored() {
     );
 }
 
-/// A complete UI receipt publishes its cursor while leaving deferred output untouched.
+/// A complete UI receipt publishes both its cursor and server result preview.
 #[test]
-fn ui_content_skips_deferred_output() {
+fn ui_content_retains_the_server_preview() {
     let mut ledger = ready(InventoryAuthority::Server);
     let mut slots = vec![NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
     slots[0] = item(200, 9);
@@ -341,7 +341,7 @@ fn ui_content_skips_deferred_output() {
         slots,
     ));
     assert_eq!(ledger.cursor_stack(), Some(&item(200, 9)));
-    assert!(ledger.created_output_stack().is_none());
+    assert_eq!(ledger.created_output_stack(), Some(&item(201, 1)));
 }
 
 /// A complete registered storage model releases the same recovery scope as ordinary Content.

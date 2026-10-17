@@ -109,7 +109,7 @@ impl PlayerInventoryLedger {
             DeltaGroup::Shrink { source, .. } => {
                 self.validate_removal(*source, cells.get(*source))?
             }
-            DeltaGroup::Set { .. } | DeltaGroup::Retain { .. } => {}
+            DeltaGroup::Set { .. } => {}
         }
         Ok(())
     }
