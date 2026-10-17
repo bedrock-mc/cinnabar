@@ -90,6 +90,15 @@ impl UiRuntime {
         tab: u8,
     ) -> Result<i32, InventoryGestureError> {
         let selected = inventory_tab(tab).ok_or(InventoryGestureError::InvalidRequest)?;
+        let previous = self
+            .inventory_controller(player)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        if previous.options.left_tab == selected {
+            if selected == InventoryTab::Search {
+                self.screen.search_focused = true;
+            }
+            return Ok(0);
+        }
         let result = self.change_inventory_options(player, true, |controller| {
             controller.options.left_tab = selected
         });
@@ -117,6 +126,9 @@ impl UiRuntime {
             && controller.allows_recipe_book_only(creative))
         {
             return Err(InventoryGestureError::InvalidRequest);
+        }
+        if controller.layout() == layout {
+            return Ok(0);
         }
         let result =
             self.change_inventory_options(player, true, |controller| controller.set_layout(layout));

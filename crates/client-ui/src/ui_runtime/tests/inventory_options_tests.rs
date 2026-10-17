@@ -110,12 +110,26 @@ fn inventory_options_controls_deduplicate_and_keep_false_state_changes_local() {
     let mut runtime = crate::test_support::inventory_session(&mut player);
     runtime.toggle_inventory(&mut player);
     let before = runtime.inventory_controller(&player).unwrap();
+    runtime.screen_state_mut().creative_row = 4;
+    runtime
+        .screen_state_mut()
+        .container_scroll
+        .insert("recipe_list".into(), 12.0);
     click(&mut runtime, &mut player, Widget::InventoryLayout(2));
     runtime.perform_pointer_action(
         &mut player,
         PointerAction::Click(InventoryCellHit::CreativeSearch),
     );
     assert!(runtime.take_client_packet().is_none());
+    assert_eq!(
+        runtime.screen_state().creative_row,
+        4,
+        "reselecting a tab keeps its row"
+    );
+    assert_eq!(
+        runtime.screen_state().container_scroll.get("recipe_list"),
+        Some(&12.0)
+    );
     runtime
         .change_inventory_options(&mut player, false, |controller| {
             controller.options.left_tab = InventoryTab::Equipment
