@@ -180,13 +180,13 @@ pub(super) fn merge_response_overlay(
 }
 
 /// Applies response identity fields to retained NBT before future gestures compare it.
+/// Normalizes the response damage while retaining the stored integer's full width.
 pub(super) fn apply_response_item_data(
     held: &mut Held,
     correction: &StackResponseSlot,
 ) -> Option<()> {
     let damage = i32::from(correction.durability_correction as i16);
-    let previous =
-        i32::from(protocol::item_extra_damage_value(&held.stack.extra_data).unwrap_or(0) as i16);
+    let previous = protocol::item_extra_damage_value(&held.stack.extra_data).unwrap_or(0);
     let rename = !correction.custom_name.is_empty()
         && (protocol::item_custom_name(&held.stack.extra_data).as_deref()
             != Some(correction.custom_name.as_ref())
