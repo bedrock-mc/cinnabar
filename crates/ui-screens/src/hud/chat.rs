@@ -23,15 +23,9 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         return Vec::new();
     };
     let overlay_ref = ControlRef::parse(reference, "hud");
-    let message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
-    let message_text = authored_content(catalog, builtin, "chat", "messages_text");
-    let dependencies = content::dependencies(
-        catalog,
-        message_row
-            .as_ref()
-            .into_iter()
-            .chain(message_text.as_ref()),
-    );
+    let mut message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
+    let mut message_text = authored_content(catalog, builtin, "chat", "messages_text");
+    let content_scope = content::isolate(catalog, &mut message_row, &mut message_text);
     let empty = screen
         .props
         .get("$cinnabar_additional_content|default")
@@ -43,7 +37,11 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         .collect::<BTreeSet<_>>();
     chat.insert(overlay_ref.clone());
     let mut derived = BTreeMap::<_, Vec<_>>::new();
-    for control in catalog.controls() {
+    for control in catalog.controls().filter(|control| {
+        content_scope
+            .as_ref()
+            .is_none_or(|scope| !scope.contains_namespace(&control.owner_ns))
+    }) {
         if let Some(base) = &control.base {
             derived
                 .entry(ControlRef::parse(base, &control.owner_ns))
@@ -77,7 +75,11 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
                 .or_default(),
         );
     }
-    for control in catalog.controls_mut() {
+    for control in catalog.controls_mut().filter(|control| {
+        content_scope
+            .as_ref()
+            .is_none_or(|scope| !scope.contains_namespace(&control.owner_ns))
+    }) {
         suppress_chat(control, &chat);
     }
     let mut restore = BTreeSet::new();
@@ -99,12 +101,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     if let Some(row) = message_row {
         catalog.insert(row);
     }
-    let mut filtered =
-        restore_chat_screen(catalog, builtin, &mut global_names, message_text.as_ref());
-    for dependency in dependencies {
-        catalog.insert(dependency.clone());
-        filtered.push(dependency);
-    }
+    let filtered = restore_chat_screen(catalog, builtin, &mut global_names, message_text.as_ref());
     let globals = global_names
         .into_iter()
         .filter_map(|name| Some((format!("${name}"), builtin.global(&name)?.clone())))

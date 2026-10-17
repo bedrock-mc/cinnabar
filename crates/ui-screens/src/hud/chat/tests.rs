@@ -41,6 +41,18 @@ fn layered(builtin: &Catalog, entry: &str, document: serde_json::Value) -> Catal
     catalog
 }
 
+/// Assembles the protected screen catalog from the finisher's retained content.
+fn builtin_chat(pack: &Catalog, builtin: &Catalog, retained: Vec<RawControl>) -> Catalog {
+    let mut chat = pack.clone();
+    for control in builtin.controls() {
+        chat.insert(control.clone());
+    }
+    for control in retained {
+        chat.insert(control);
+    }
+    chat
+}
+
 fn visible_when(expression: &str) -> serde_json::Value {
     json!({"binding_type":"view","source_property_name":expression,"target_property_name":"#visible"})
 }
@@ -83,10 +95,7 @@ fn chat_screen_filters_survive_pack_overrides_of_shared_templates() {
     );
     let filtered = prefer_builtin(&mut pack, &builtin);
     assert!(!filtered.is_empty());
-    let mut chat = builtin;
-    for control in filtered {
-        chat.insert(control);
-    }
+    let chat = builtin_chat(&pack, &builtin, filtered);
     let context = crate::menu_screens::retail_context();
     let screen = json_ui::resolve(&chat, "chat.chat_screen", &context)
         .control
@@ -120,6 +129,7 @@ fn copied_filters_keep_the_bindings_and_values_that_feed_them() {
     );
     let mut control = RawControl {
         owner_ns: "chat".into(),
+        definition_scope: None,
         name: "text".into(),
         base: None,
         props: serde_json::Map::from_iter([(
@@ -426,10 +436,7 @@ fn open_chat_keeps_inline_captions_inheriting_hud_labels() {
         }),
     );
     let retained = prefer_builtin(&mut pack, &builtin);
-    let mut chat = builtin;
-    for control in retained {
-        chat.insert(control);
-    }
+    let chat = builtin_chat(&pack, &builtin, retained);
     for catalog in [&pack, &chat] {
         let messages = json_ui::resolve(catalog, "chat.messages_text", &json_ui::Context::empty())
             .control
@@ -460,10 +467,7 @@ fn open_chat_grids_keep_caption_template_dependencies() {
         .to_string(),
     );
     let retained = prefer_builtin(&mut pack, &builtin);
-    let mut chat = builtin;
-    for control in retained {
-        chat.insert(control);
-    }
+    let chat = builtin_chat(&pack, &builtin, retained);
     for catalog in [&pack, &chat] {
         let context = json_ui::Context::empty();
         let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
@@ -516,10 +520,7 @@ fn scoped_message_dependencies_survive_suppression() {
             .to_string(),
         );
         let retained = prefer_builtin(&mut pack, &builtin);
-        let mut chat = builtin;
-        for control in retained {
-            chat.insert(control);
-        }
+        let chat = builtin_chat(&pack, &builtin, retained);
         for catalog in [&pack, &chat] {
             let context = json_ui::Context::empty();
             let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
@@ -543,4 +544,43 @@ fn scoped_message_dependencies_survive_suppression() {
             );
         }
     }
+}
+
+#[test]
+fn message_templates_cannot_replace_shared_chat_shell_definitions() {
+    let builtin = builtin();
+    let mut policy = ui_engine::engine::pack_catalog::CatalogPolicy::default();
+    policy.after_layers(prefer_builtin);
+    let files = vec![
+        (
+            json_ui::UI_DEFS_PATH.into(),
+            br#"{"ui_defs":["ui/ui_common.json","ui/chat_screen.json"]}"#.to_vec(),
+        ),
+        (
+            "ui/ui_common.json".into(),
+            json!({"namespace":"common",
+            "base_screen":{"ignored":true,"size":[43,17]}})
+            .to_string()
+            .into_bytes(),
+        ),
+        (
+            "ui/chat_screen.json".into(),
+            json!({"namespace":"chat",
+            "messages_text":{"controls":[{"caption@common.base_screen":{
+                "ignored":false,"text":"Isolated caption"}}]}})
+            .to_string()
+            .into_bytes(),
+        ),
+    ];
+    let layered = policy.layer(&builtin, &[files]);
+    let catalog = layered.builtin_screens.as_ref().unwrap();
+    let root = json_ui::resolve(catalog, "chat.chat_screen", &json_ui::Context::empty())
+        .control
+        .expect("shared shell keeps its built-in base");
+    assert_eq!(root.properties["size"], json!(["100%", "100%"]));
+    let caption = root
+        .find(&|control: &ResolvedControl| control.name == "caption")
+        .unwrap();
+    assert_eq!(caption.properties["text"], "Isolated caption");
+    assert_eq!(caption.properties["size"], json!([43, 17]));
 }

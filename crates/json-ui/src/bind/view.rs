@@ -15,7 +15,7 @@ use crate::predicate::{self, Scalar};
 
 /// Changed-value notifications followed in one refresh, as the client's bag
 /// setter bounds its nesting.
-const VIEW_PASSES: usize = 20;
+pub(super) const VIEW_PASSES: usize = 20;
 /// Rounds of settling views then building the subtrees they revealed.
 const EXPANSION_ROUNDS: usize = 8;
 
@@ -233,17 +233,22 @@ impl Binder<'_> {
                     .push(slot);
             }
         }
-        // Share the ordinary settling bound so cyclic observers cannot grow the queue forever.
-        for _ in 0..VIEW_PASSES.saturating_mul(list.len()) {
-            let Some(input) = pending.pop_front() else {
-                break;
-            };
+        let mut remaining = VIEW_PASSES.saturating_mul(list.len());
+        while let Some(input) = pending.pop_front() {
+            queued.remove(&input);
             for &slot in readers.get(&input).into_iter().flatten() {
+                if remaining == 0 {
+                    return;
+                }
+                remaining -= 1;
                 let (path, index) = &list[slot];
                 if self.notify(root, path, *index, sources[slot].as_deref()) {
                     let node = node_at(root, path);
                     if let Kind::View { target, .. } = &node.bindings[*index].kind {
-                        pending.push_back((node.key, target.clone()));
+                        let output = (node.key, target.clone());
+                        if queued.insert(output.clone()) {
+                            pending.push_back(output);
+                        }
                     }
                 }
             }

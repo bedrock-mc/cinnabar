@@ -196,6 +196,31 @@ fn retained_factory_views_receive_changed_item_values() {
 }
 
 #[test]
+fn changed_creation_inputs_bound_cyclic_view_notifications() {
+    for count in [10, 100] {
+        let root = Arc::new(control(
+            "cycle",
+            "label",
+            json!({"text":"#x", "bindings":
+            (0..count).map(|_| json!({"binding_type":"view", "source_property_name":"(#x + 1)",
+                "target_property_name":"#x"})).collect::<Vec<_>>() }),
+            vec![],
+        ));
+        let mut state = BindState::new();
+        for value in [0, 1] {
+            let mut data = DataSource::new();
+            data.set_creation_value("#x", Scalar::Int(value));
+            crate::bind_stateful(&root, &data, &EmptyLibrary, &mut state);
+            assert!(
+                state.views_run() <= 2 * crate::bind::view::VIEW_PASSES * count,
+                "cyclic input evaluated {} views for {count} bindings",
+                state.views_run()
+            );
+        }
+    }
+}
+
+#[test]
 fn an_unread_change_leaves_a_subtree_reading_many_keys_standing() {
     // Enough distinct reads that a fixed-size summary of them would claim every key.
     const READERS: usize = 2_000;
