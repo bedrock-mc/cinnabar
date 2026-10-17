@@ -201,7 +201,7 @@ fn failed_artwork_replacement_keeps_its_source_until_upload_recovers() {
     let previous = gpu.pages[0]._texture.id();
     let (mut replacement, _) = first.with_equipment_raster_page_updates(&[(0, raster(19))]);
     {
-        let _failure = allocation::inject(|label, _| label == "immutable actor page");
+        let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
         assert!(gpu.prepare(&replacement, &device, &queue));
     }
     assert_eq!(gpu.pages[0]._texture.id(), previous);

@@ -286,6 +286,7 @@ fn filled_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
     assert_builder_matches_fixture(
         CLICK_BLOCK,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [13, 71, -29],
             face: 5,
             selected_slot: 7,
@@ -304,6 +305,7 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
     assert_builder_matches_fixture(
         CLICK_BLOCK_EMPTY_HAND,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [-8, 63, 21],
             face: 0,
             selected_slot: 0,
@@ -322,6 +324,7 @@ fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [24, 68, -41],
             face: 3,
             selected_slot: 5,
@@ -337,6 +340,7 @@ fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [-17, 92, 6],
             face: 1,
             selected_slot: 0,
@@ -401,6 +405,7 @@ fn container_close_fixture_cross_decodes_and_round_trips_exactly() {
 fn base_request() -> BlockUseRequest {
     let digest: [u8; 32] = Sha256::digest([]).into();
     BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [0, 64, 0],
         face: 1,
         selected_slot: 4,
@@ -707,6 +712,7 @@ fn click_block_transaction_carries_trigger_and_prediction() {
         panic!("item use");
     };
     let request = BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [
             fixture.position.x.0,
             fixture.position.y.0,
@@ -771,6 +777,7 @@ fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketDa
 
 fn held_request() -> HeldItemRequest {
     HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: 3,
         selected_item: VerifiedNetworkItemStack::try_new(
             NetworkItemStack::empty(),

@@ -34,6 +34,7 @@ fn movement() -> PlayerAuthInputSnapshot {
 
 fn request() -> BlockUseRequest {
     BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [0, 64, -2],
         face: 3,
         selected_slot: 2,
@@ -221,6 +222,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
     let interactions = PlayerAuthInputInteractions {
         block_actions: protocol::BlockActions::new(),
         block_interaction: Some(BlockItemInteraction::Use(BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [13, 71, -29],
             face: 5,
             selected_slot: 7,

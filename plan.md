@@ -4157,6 +4157,14 @@ default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
 incomplete. The account/auth cache is keyed on the game version, so the first
 join re-authenticates.
 
+Item-use request builders now carry an explicit logical hand through standalone
+transactions and embedded PlayerAuthInput block interactions. Offhand requests
+use transaction slot zero and retain the caller-supplied authoritative stack.
+Independent byte tests cover both hands, stack identity and the following fields.
+This is a request/builder foundation: gameplay still selects the main hotbar hand.
+Offhand gameplay selection, predicted inventory changes, item release and exact
+stable-target gameplay acceptance remain incomplete. Full inventory parity is open.
+
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
 The reviewed ordered-batch dependency is published on `resource-pack-changes` at
