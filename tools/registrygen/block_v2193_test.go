@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"github.com/segmentio/fasthash/fnv1"
@@ -214,7 +214,7 @@ func TestV2193ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
 	if invalidCensus || invalidTwins || len(projection.DeniedFingerprint) != 64 || projection.States != classified {
 		t.Fatalf("projection aggregate = %+v", projection)
 	}
-	if manifest.Source.Module != "github.com/bedrock-mc/protocolgen/generated/data" || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
+	if manifest.Source.Module != shared.ModulePath || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
 		t.Fatalf("source identity = %+v", manifest.Source)
 	}
 	if bytes.Contains(bytes.ToLower(payload), []byte("denied_names")) || bytes.Contains(bytes.ToLower(payload), []byte("unresolved_names")) {

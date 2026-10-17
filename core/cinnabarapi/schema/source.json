@@ -1,6 +1,6 @@
 {
-  "repository": "https://github.com/bedrock-mc/cinnabar-api",
-  "commit": "fde5df2ccf956519e77f96169e3c3c24971a6639",
+  "repository": "https://github.com/cinnabar-mc/cinnabar-api",
+  "commit": "a0ab86b12b1a3f1e19b2f18f9c8ce4dcd49ffc0d",
   "path": "schema/v1.json",
-  "sha256": "3a1b94eb4d8923c479d302203ee911ff227ed8669f2f61db1020cbeba961f24a"
+  "sha256": "1bb3077771e509b58176b1c85bc51c2dada8d5e7bea8219a02fbeac3f1c41664"
 }
