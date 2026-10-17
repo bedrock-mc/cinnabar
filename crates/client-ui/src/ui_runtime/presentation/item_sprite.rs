@@ -40,17 +40,7 @@ impl UiPresentationRuntime {
     /// Predicts the exact texture-layer cost before a dropped session model is allocated.
     pub fn session_block_texture_layers(&self, identifier: &str, metadata: u32) -> Option<usize> {
         self.session_block_sheet(identifier, metadata)?;
-        Some(
-            if self
-                .session_icons
-                .held_block(identifier, metadata)
-                .is_some()
-            {
-                1
-            } else {
-                assets::BlockFace::ALL.len()
-            },
-        )
+        Some(assets::BlockFace::ALL.len())
     }
 
     /// Builds a session block's authored dropped model, retaining cube sheets for plain cubes.

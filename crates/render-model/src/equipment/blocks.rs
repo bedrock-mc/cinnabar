@@ -424,7 +424,7 @@ pub fn overlay_item(
     ))
 }
 
-/// Reuses a held block's sheet and quad geometry for native dropped-item instances.
+/// Splits a held block sheet into tile-local dropped materials, preserving glint coverage.
 /// Vertices must contain complete quads in the held model's triangle order.
 pub fn dropped_model(
     sheet: crate::DroppedItemSprite,
@@ -432,6 +432,33 @@ pub fn dropped_model(
 ) -> Option<crate::DroppedItemBlock> {
     if vertices.is_empty() || !vertices.len().is_multiple_of(6) {
         return None;
+    }
+    let grid = BLOCK_ITEM_SHEET_GRID.map(u32::from);
+    let [width, height] = [sheet.width / grid[0], sheet.height / grid[1]];
+    if width == 0
+        || height == 0
+        || sheet.width != width * grid[0]
+        || sheet.height != height * grid[1]
+        || sheet.rgba8.len() != sheet.width as usize * sheet.height as usize * 4
+    {
+        return None;
+    }
+    let mut materials = Vec::with_capacity(BlockFace::ALL.len());
+    for tile in 0..BlockFace::ALL.len() as u32 {
+        let origin = [tile % grid[0] * width, tile / grid[0] * height];
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for y in origin[1]..origin[1] + height {
+            let start = ((y * sheet.width + origin[0]) * 4) as usize;
+            pixels.extend_from_slice(&sheet.rgba8[start..start + width as usize * 4]);
+        }
+        materials.push((
+            crate::DroppedItemSprite {
+                width,
+                height,
+                rgba8: pixels.into(),
+            },
+            crate::OPAQUE_WHITE,
+        ));
     }
     let mut quads = Vec::with_capacity(vertices.len() / 6);
     for vertices in vertices.as_chunks::<6>().0 {
@@ -455,23 +482,44 @@ pub fn dropped_model(
         }) {
             return None;
         }
+        let origin = corners[0].glint_origin;
+        let tile = std::array::from_fn::<_, 2, _>(|axis| {
+            (origin[axis] * grid[axis] as f32).round() as u32
+        });
+        if tile.iter().zip(grid).any(|(&tile, size)| tile >= size)
+            || corners.iter().any(|vertex| vertex.glint_origin != origin)
+        {
+            return None;
+        }
+        let local_uvs = corners.map(|vertex| {
+            std::array::from_fn::<_, 2, _>(|axis| {
+                (vertex.uv[axis] - origin[axis]) * grid[axis] as f32
+            })
+        });
+        if local_uvs
+            .iter()
+            .flatten()
+            .any(|value| !(-0.0001..=1.0001).contains(value))
+        {
+            return None;
+        }
         quads.push(assets::ModelQuad {
             positions: corners.map(|vertex| {
                 vertex
                     .position
                     .map(|value| ((value + 0.5) * 256.0).round() as i16)
             }),
-            uvs: corners.map(|vertex| {
-                vertex
-                    .uv
-                    .map(|value| (value * f32::from(assets::MODEL_UV_SCALE)).round() as u16)
+            uvs: local_uvs.map(|uv| {
+                uv.map(|value| {
+                    (value.clamp(0.0, 1.0) * f32::from(assets::MODEL_UV_SCALE)).round() as u16
+                })
             }),
-            material: 0,
+            material: tile[1] * grid[0] + tile[0],
             flags: 0,
         });
     }
     Some(crate::DroppedItemBlock {
-        materials: Arc::from([(sheet, crate::OPAQUE_WHITE)]),
+        materials: materials.into(),
         quads: quads.into(),
         rotation: 0,
     })

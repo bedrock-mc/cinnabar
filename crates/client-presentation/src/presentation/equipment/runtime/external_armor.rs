@@ -49,9 +49,14 @@ impl EquipmentRuntime {
         equipment: &ActorEquipmentInput,
         animation: EquipmentAnimation<'_>,
         slot: ArmorSlot,
-    ) -> Option<(Box<str>, Arc<ArmorGeometry>)> {
+        worn: &WornItem,
+    ) -> Option<(Box<str>, Arc<ArmorGeometry>, Box<str>)> {
         let items = Arc::clone(self.external_armor.items.get(identifier)?);
         let catalog = Arc::clone(self.catalog.as_ref()?);
+        let variables = [(
+            assets::entity::EngineVariable::IsEnchanted.name(),
+            f32::from(worn.enchanted),
+        )];
         let mut operations_left = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
         for item in items.iter() {
             let Some(index) = self.attachables.select_equipment_binding(
@@ -59,7 +64,7 @@ impl EquipmentRuntime {
                 item,
                 animation.owner,
                 animation.rig,
-                animation.worn_input(equipment, slot, &[]),
+                animation.worn_input(equipment, slot, &variables),
                 &mut operations_left,
                 |binding| {
                     !self
@@ -72,7 +77,11 @@ impl EquipmentRuntime {
             };
             let model = &catalog.bindings()[index].geometry.identifier;
             if let Some(geometry) = self.armor_geometry_for(model, false) {
-                return Some((model.clone(), geometry));
+                return Some((
+                    model.clone(),
+                    geometry,
+                    catalog.bindings()[index].attachable_identifier().into(),
+                ));
             }
         }
         None

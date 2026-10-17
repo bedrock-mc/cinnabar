@@ -747,7 +747,7 @@ fn custom_content_dropped_models_keep_held_shape_and_sheet_uvs() {
     };
     let model = dropped_model(sheet, &vertices).unwrap();
     assert_eq!(model.quads.len(), 6);
-    assert_eq!(model.materials.len(), 1);
+    assert_eq!(model.materials.len(), assets::BlockFace::ALL.len());
     let dropped = crate::dropped_item::block_mesh(&model, 1, 64).unwrap();
     assert_eq!(vertices.len(), dropped.len());
     for held in &vertices {
@@ -755,8 +755,15 @@ fn custom_content_dropped_models_keep_held_shape_and_sheet_uvs() {
             held.position == dropped.position
                 && held.normal == dropped.normal
                 && (0..2).all(|axis| {
-                    let expected = held.uv[axis] * [width, height][axis] as f32 / 64.0;
+                    let tile = [width, height][axis] as f32
+                        / f32::from(assets::BLOCK_ITEM_SHEET_GRID[axis]);
+                    let local = (held.uv[axis] - held.glint_origin[axis])
+                        * f32::from(assets::BLOCK_ITEM_SHEET_GRID[axis]);
+                    let expected = local * tile / 64.0;
+                    let glint = crate::ActorGlint::item(0.0, [1.0; 2]).uv_scale[axis];
                     (dropped.uv[axis] - expected).abs() < 0.0002
+                        && (dropped.uv[axis] * dropped.glint_scale[axis] - local * glint).abs()
+                            < 0.001
                 })
         }));
     }

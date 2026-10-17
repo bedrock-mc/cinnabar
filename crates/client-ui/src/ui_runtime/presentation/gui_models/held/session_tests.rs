@@ -686,7 +686,7 @@ fn custom_content_preview_uses_authored_mesh_and_matching_sheet() {
     let dropped = presentation
         .session_block_model(ITEM, 0, held.source)
         .unwrap();
-    assert_eq!(layers, 1);
+    assert_eq!(layers, assets::BlockFace::ALL.len());
     assert_eq!(layers, dropped.texture_layers());
     assert!(
         held.placements
