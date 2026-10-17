@@ -100,7 +100,7 @@ impl Admissions {
             return Err(failed.error.clone());
         }
         let result = match &settings {
-            Ok(_) => build_candidate(snapshot),
+            Ok(_) => build_candidate_with_settings(snapshot, None),
             Err(error) => Err(error.clone()),
         };
         match &result {
