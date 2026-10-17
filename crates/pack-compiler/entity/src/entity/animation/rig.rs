@@ -219,6 +219,7 @@ pub(super) fn compile_rigs(
                 item_condition,
                 scale: EntityGeometryScalar::new(1.0).expect("unit scale is valid"),
                 scale_expressions: None,
+                held_item_scale: None,
             });
             index
         });
