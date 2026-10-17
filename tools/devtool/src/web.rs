@@ -127,7 +127,10 @@ fn build(args: &[String]) -> Result<()> {
         ])
         .arg(&wasm_target);
     if release {
-        cargo.arg("--release");
+        // The workspace release profile packs native debuginfo, which wasm32 rejects.
+        cargo
+            .arg("--release")
+            .env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "off");
     }
     execute(&mut cargo)?;
     execute(
