@@ -21,6 +21,8 @@ pub struct InventorySession {
     pub(crate) local_selected_equipment: Option<SequencedLocalEquipment>,
     pub(crate) local_selected_slot: Option<u8>,
     pub(crate) pending_hotbar_selection: Option<u8>,
+    pub(crate) announced_offhand: protocol::NetworkItemStack,
+    pub(crate) announced_hotbar: (u8, protocol::NetworkItemStack),
     pub(crate) server_selected_slot: Option<u8>,
     pub(crate) inventory_ledger: Arc<PlayerInventoryLedger>,
 }
@@ -41,6 +43,8 @@ impl InventorySession {
             local_selected_equipment: None,
             local_selected_slot: None,
             pending_hotbar_selection: None,
+            announced_offhand: protocol::NetworkItemStack::empty(),
+            announced_hotbar: (0, protocol::NetworkItemStack::empty()),
             server_selected_slot: None,
             inventory_ledger: Arc::new(inventory_ledger),
         }
@@ -67,6 +71,8 @@ impl InventorySession {
             local_selected_equipment: self.local_selected_equipment.clone(),
             local_selected_slot: self.local_selected_slot,
             pending_hotbar_selection: self.pending_hotbar_selection,
+            announced_offhand: self.announced_offhand.clone(),
+            announced_hotbar: self.announced_hotbar.clone(),
             server_selected_slot: self.server_selected_slot,
             inventory_ledger: ledger,
         }

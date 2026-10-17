@@ -53,6 +53,9 @@ mod attack_progress_tests;
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
 
+#[path = "published_tests/held_equipment.rs"]
+mod held_equipment_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
