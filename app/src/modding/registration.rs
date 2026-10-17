@@ -15,7 +15,7 @@ mod worker;
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
-use candidate::{Candidate, build_candidate_with_settings};
+use candidate::Candidate;
 use client_extensions::modding::multi::ModHosts;
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
@@ -66,6 +66,7 @@ struct SourceSnapshot {
     registration: Entry,
     identity: [u8; 32],
     component: Vec<u8>,
+    drawing: Option<super::admission::DrawingContext>,
     font: Option<Vec<u8>>,
     ui: Option<Vec<u8>>,
 }
@@ -128,17 +129,24 @@ struct Desired {
     generation: u64,
     registration: Option<Registration>,
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct SettingsSnapshot {
     path: PathBuf,
     json: String,
+}
+
+/// Source and fence accepted by the frame for one registration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Admitted {
+    source: [u8; 32],
+    drawing: Option<mod_api::drawing::DrawingSession>,
 }
 
 enum Message {
     Acknowledge {
         generation: u64,
         request_id: String,
-        installed: BTreeMap<PathBuf, [u8; 32]>,
+        installed: BTreeMap<PathBuf, Admitted>,
         statuses: Vec<Status>,
     },
     AwaitRetirement {
@@ -170,6 +178,7 @@ pub(super) struct Watcher {
     fallback_retired: Mutex<Vec<ModHost>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     companions: Arc<Mutex<Vec<PathBuf>>>,
+    drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
 }
 impl Watcher {
     /// Gives the library a fence that waits off-frame for final settings writes.
@@ -189,6 +198,8 @@ impl Watcher {
         let desired = Arc::new(Mutex::new(Desired::default()));
         let alive = Arc::new(AtomicBool::new(true));
         let settings = Arc::new(Mutex::new(BTreeMap::new()));
+        let drawing = Arc::new(Mutex::new(BTreeMap::new()));
+        let fences = drawing.clone();
         let (generation, selection, life, current) = (
             latest.clone(),
             desired.clone(),
@@ -206,6 +217,7 @@ impl Watcher {
                     generation,
                     selection,
                     current,
+                    fences,
                 );
                 life.store(false, Ordering::Release);
             })
@@ -223,6 +235,7 @@ impl Watcher {
             fallback_retired: Mutex::new(Vec::new()),
             companions: Arc::new(Mutex::new(Vec::new())),
             settings,
+            drawing,
         })
     }
     /// Publishes every surviving settings writer, including environment-loaded instances.
@@ -239,6 +252,8 @@ impl Watcher {
     /// Captures each mod's latest in-memory preferences before preparing replacements.
     pub(super) fn remember_settings(&self, runtime: &ModRuntime) {
         self.remember_companions(Some(runtime));
+        let mut drawing = self.drawing.lock().expect("mod drawing fences");
+        drawing.clear();
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
         for (index, metadata) in runtime.metadata.iter().enumerate() {
@@ -246,6 +261,9 @@ impl Watcher {
                 continue;
             };
             let host = runtime.hosts.host(index);
+            if let Some(context) = super::admission::DrawingContext::capture(host) {
+                drawing.insert(registered.entry.component.clone(), context);
+            }
             if let Some((path, json)) = host.settings_path().zip(host.settings_snapshot()) {
                 current.insert(
                     registered.entry.component.clone(),

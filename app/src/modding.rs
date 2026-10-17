@@ -483,14 +483,11 @@ fn drive_mod(
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
         for index in 0..extension.hosts.host_count() {
-            if extension.metadata[index].registration.is_some()
-                && !extension.hosts.host(index).needs_drawing_restart()
-            {
+            if extension.metadata[index].registration.is_some() {
                 continue;
             }
             if environment_loader.is_some()
                 && extension.hosts.host(index).component_source().is_some()
-                && !extension.hosts.host(index).needs_drawing_restart()
             {
                 continue;
             }

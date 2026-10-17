@@ -123,9 +123,10 @@ pub struct ModHost {
     panel_bundle_override: Option<Arc<ui::mod_panel::PanelBundle>>,
     source: Source,
     attempted: [u8; 32],
+    attempted_session: Option<mod_api::drawing::DrawingSession>,
     admitted_digest: [u8; 32],
     grants: ModGrants,
-    /// The loader's authorization before the manifest narrows package permissions.
+    /// The loader's authorization before component or manifest requests narrow it.
     authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,

@@ -60,21 +60,22 @@ impl ModHost {
         if self.drawing_session == Some(session) {
             return;
         }
-        self.drawing_restart = self.is_active() || self.is_revoked();
-        self.revoke();
+        self.drawing_restart |= self.is_active();
+        self.pending_events.clear();
+        self.instance.revoke();
         self.drawing_session = Some(session);
         self.instance
             .bind_drawing_policy(self.grants.for_drawing_session(session), session);
     }
 
+    /// Returns the fence used to admit callbacks and prepare an off-frame replacement.
+    pub fn drawing_session(&self) -> Option<DrawingSession> {
+        self.drawing_session
+    }
+
     /// Whether a session fence needs a fresh guest, independently of registration changes.
     pub fn needs_drawing_restart(&self) -> bool {
         self.drawing_restart
-    }
-
-    /// Digest of the admitted source, used only for an explicit signed bundle scope.
-    pub fn source_digest(&self) -> [u8; 32] {
-        self.admitted_digest
     }
 }
 

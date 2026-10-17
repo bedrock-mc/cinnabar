@@ -89,6 +89,13 @@ fn publish(world: &mut World, mut candidate: Candidate) -> Result<(), Box<Candid
     let owner = mod_ui::PanelUiOwner::Registration(selection::component_id(
         &candidate.registration.component,
     ));
+    if previous.is_some_and(|index| {
+        super::super::admission::DrawingContext::capture(
+            world.resource::<ModRuntime>().hosts.host(index),
+        ) != candidate.drawing
+    }) {
+        return Err(Box::new(candidate));
+    }
     let mut old = previous.map(|index| detach(world, index));
     candidate.host.activate_settings(old.as_mut());
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
@@ -316,12 +323,19 @@ pub(super) fn apply(world: &mut World, update: Update) {
                 .iter()
                 .enumerate()
                 .filter_map(move |(index, metadata)| {
-                    (!runtime.hosts.host(index).is_revoked())
-                        .then_some(metadata.registration.as_ref())
-                        .flatten()
+                    let host = runtime.hosts.host(index);
+                    let registered = metadata.registration.as_ref()?;
+                    (!host.is_revoked()).then(|| {
+                        (
+                            registered.entry.component.clone(),
+                            Admitted {
+                                source: registered.identity,
+                                drawing: host.drawing_session(),
+                            },
+                        )
+                    })
                 })
         })
-        .map(|registered| (registered.entry.component.clone(), registered.identity))
         .collect();
     world
         .resource::<Watcher>()

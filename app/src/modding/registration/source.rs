@@ -101,6 +101,7 @@ pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, Str
     }
     Ok(SourceSnapshot {
         registration,
+        drawing: None,
         identity: digest.finalize().into(),
         component,
         font,

@@ -24,8 +24,11 @@ struct Request {
     source: Source,
     previous: [u8; 32],
     settings: Option<(PathBuf, String)>,
+    drawing: Option<admission::DrawingContext>,
+    restart: bool,
 }
 struct Update {
+    drawing: Option<admission::DrawingContext>,
     source: Source,
     previous: [u8; 32],
     result: Result<admission::PreparedMod, String>,
@@ -113,11 +116,11 @@ impl Drop for Loader {
     }
 }
 
+type Attempts =
+    BTreeMap<(mod_ui::PanelUiOwner, PathBuf), ([u8; 32], Option<admission::DrawingContext>)>;
+
 /// Captures one changed component and all explicit overrides before initializing its candidate.
-fn prepare(
-    request: Request,
-    attempted: &mut BTreeMap<(mod_ui::PanelUiOwner, PathBuf), [u8; 32]>,
-) -> Option<Update> {
+fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
     let key = (request.source.owner, request.source.component.clone());
     let mut candidate_identity = None;
     let result = (|| {
@@ -127,11 +130,11 @@ fn prepare(
         )
         .map_err(|error| error.to_string())?;
         let hash: [u8; 32] = Sha256::digest(&bytes).into();
-        if hash == request.previous {
+        if hash == request.previous && !request.restart {
             return Ok(None);
         }
         let inputs = inputs::Inputs::read(&request);
-        let fingerprint = inputs.fingerprint(&request, hash)?;
+        let fingerprint = (inputs.fingerprint(&request, hash)?, request.drawing);
         if attempted.get(&key) == Some(&fingerprint) {
             return Ok(None);
         }
@@ -148,12 +151,14 @@ fn prepare(
                 .settings
                 .as_ref()
                 .map(|(path, json)| (path.as_path(), json.as_str())),
+            request.drawing,
         )?;
         Ok(Some(prepared))
     })();
     match result {
         Ok(None) => None,
         Ok(Some(prepared)) => Some(Update {
+            drawing: request.drawing,
             source: request.source,
             previous: request.previous,
             result: Ok(prepared),
@@ -163,6 +168,7 @@ fn prepare(
                 attempted.insert(key, identity);
             }
             Some(Update {
+                drawing: request.drawing,
                 source: request.source,
                 previous: request.previous,
                 result: Err(error),
@@ -183,8 +189,10 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
                 (metadata.owner == update.source.owner
                     && metadata.registration.is_none()
                     && host.component_source() == Some(update.source.component.as_path())
-                    && host.source_digest() == update.previous)
-                    .then_some(index)
+                    && host.source_digest() == update.previous
+                    && admission::DrawingContext::capture(host) == update.drawing
+                    && (!host.is_revoked() || host.needs_drawing_restart()))
+                .then_some(index)
             })
     });
     let Some(index) = index else {
@@ -272,7 +280,11 @@ pub(super) fn poll(world: &mut World) {
                         metadata.owner == source.owner && metadata.registration.is_none()
                     })?;
                     let host = runtime.hosts.host(index);
-                    (host.component_source() == Some(source.component.as_path())).then(|| Request {
+                    (host.component_source() == Some(source.component.as_path())
+                        && (!host.is_revoked() || host.needs_drawing_restart()))
+                    .then(|| Request {
+                        drawing: admission::DrawingContext::capture(host),
+                        restart: host.needs_drawing_restart(),
                         source: source.clone(),
                         previous: host.source_digest(),
                         settings: host

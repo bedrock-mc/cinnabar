@@ -81,6 +81,7 @@ impl ModHost {
             None,
             declared,
             package.digest,
+            None,
         )?;
         host.package = Some(loaded(package));
         host.authorized_grants = authorized_grants;
@@ -96,6 +97,17 @@ impl ModHost {
         grants: ModGrants,
         current_settings: Option<(&Path, &str)>,
     ) -> Result<Self> {
+        Self::prepare_snapshot_in_session(path, bytes, grants, current_settings, None)
+    }
+
+    /// Prepares a candidate with its drawing fence installed before guest initialization.
+    pub fn prepare_snapshot_in_session(
+        path: &Path,
+        bytes: &[u8],
+        grants: ModGrants,
+        current_settings: Option<(&Path, &str)>,
+        session: Option<mod_api::drawing::DrawingSession>,
+    ) -> Result<Self> {
         let source = Source::Component(path.to_owned());
         let digest = Sha256::digest(bytes).into();
         Self::prepare(
@@ -105,9 +117,11 @@ impl ModHost {
             current_settings,
             Declared::default(),
             digest,
+            session,
         )
     }
 
+    /// Initializes one bounded snapshot while retaining the loader authorization ceiling.
     fn prepare(
         source: Source,
         bytes: &[u8],
@@ -115,7 +129,9 @@ impl ModHost {
         current_settings: Option<(&Path, &str)>,
         declared: Declared,
         digest: [u8; 32],
+        session: Option<mod_api::drawing::DrawingSession>,
     ) -> Result<Self> {
+        let authorized_grants = grants.clone();
         let grants = if matches!(source, Source::Component(_)) {
             let request = crate::declarations::declarations_snapshot(bytes)?
                 .requested?
@@ -149,13 +165,14 @@ impl ModHost {
             read_settings(path, &grants)?
         };
         let settings_seed = grants.settings.then(|| seed.clone());
-        let instance = Instance::new(
+        let instance = Instance::new_with_drawing_policy(
             &engine,
             &assets.executable,
             grants.clone(),
             seed,
             declared,
             assets.panel_bundle.filter(|_| grants.controls),
+            session,
         )?;
         Ok(Self {
             engine,
@@ -168,8 +185,9 @@ impl ModHost {
             panel_bundle_override: None,
             source,
             attempted: digest,
+            attempted_session: session,
             admitted_digest: digest,
-            authorized_grants: grants.clone(),
+            authorized_grants,
             grants,
             settings_writer,
             settings_seed,
@@ -177,7 +195,7 @@ impl ModHost {
             package: None,
             layout: None,
             session: Arc::default(),
-            drawing_session: None,
+            drawing_session: session,
             drawing_restart: false,
         })
     }
@@ -201,6 +219,9 @@ impl ModHost {
     /// re-read whole; the new instance gets the current layout and session, and
     /// `screen-changed` and `data-changed` when it has events.
     pub fn reload_if_changed(&mut self) -> Result<bool> {
+        if self.is_revoked() && !self.drawing_restart {
+            return Ok(false);
+        }
         let (bytes, digest, package) = match &self.source {
             Source::Component(path) => {
                 let bytes = read_component(path)?;
@@ -212,19 +233,21 @@ impl ModHost {
                 (Vec::new(), package.digest, Some(package))
             }
         };
-        if self.attempted == digest && !self.instance.is_revoked() {
+        let changed_fence = self.drawing_restart && self.attempted_session != self.drawing_session;
+        if self.attempted == digest && !changed_fence {
             return Ok(false);
         }
         if !self.instance.can_reload() {
             return Ok(false);
         }
         self.attempted = digest;
+        self.attempted_session = self.drawing_session;
         let (bytes, declared) = match &package {
             Some(package) => (&package.component, declared(package)),
             None => (&bytes, Declared::default()),
         };
         let grants = package.as_ref().map_or_else(
-            || self.grants.clone(),
+            || self.authorized_grants.clone(),
             |package| self.authorized_grants.with_manifest(&package.manifest),
         );
         let grants = if package.is_none() {
@@ -327,9 +350,9 @@ impl ModHost {
         }
     }
 
-    /// The last attempted full source identity, including embedded static presentation data.
+    /// The admitted source identity, including embedded static presentation data.
     pub fn source_digest(&self) -> [u8; 32] {
-        self.attempted
+        self.admitted_digest
     }
 }
 

@@ -3,7 +3,37 @@
 use assets::RuntimeFontCatalog;
 use client_extensions::modding::font;
 use mod_host::{ModGrants, ModHost};
+use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Arc};
+
+/// The predecessor fence captured before an off-frame admission request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DrawingContext {
+    source: [u8; 32],
+    session: mod_api::drawing::DrawingSession,
+    pub(super) restartable: bool,
+}
+
+impl DrawingContext {
+    /// Captures only admitted identity and trusted drawing authority.
+    pub(super) fn capture(host: &ModHost) -> Option<Self> {
+        host.drawing_session().map(|session| Self {
+            source: host.source_digest(),
+            session,
+            restartable: host.is_active() || host.needs_drawing_restart(),
+        })
+    }
+
+    /// A remote bundle's permission never authorizes different component bytes.
+    pub(super) fn policy(self, source: [u8; 32]) -> mod_api::drawing::DrawingSession {
+        let mut session = self.session;
+        if !session.local && self.source != source {
+            session.permissions =
+                client_extensions::modding::drawing_policy::remote_permissions(None, &source, 0);
+        }
+        session
+    }
+}
 
 pub(super) struct PreparedMod {
     pub(super) host: ModHost,
@@ -22,9 +52,11 @@ pub(super) fn prepare(
     font_bytes: Option<&[u8]>,
     ui: Option<&[u8]>,
     settings: Option<(&Path, &str)>,
+    drawing: Option<DrawingContext>,
 ) -> Result<PreparedMod, String> {
     let controls = grants.controls;
-    let mut host = ModHost::prepare_snapshot_with_grants(path, component, grants, settings)
+    let session = drawing.map(|drawing| drawing.policy(Sha256::digest(component).into()));
+    let mut host = ModHost::prepare_snapshot_in_session(path, component, grants, settings, session)
         .map_err(|error| format!("{error:#}"))?;
     let font = if controls {
         font_bytes
@@ -70,4 +102,37 @@ pub(super) fn prepare_branding(
         mod_api::MAX_MENU_LOGO_PIXELS,
     )
     .map(|branding| Some(Arc::new(branding)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+
+    #[test]
+    fn changed_remote_bytes_keep_plain_drawing_without_inheriting_digest_scopes() {
+        let context = DrawingContext {
+            source: [1; 32],
+            session: DrawingSession {
+                connection: 1,
+                permissions: DrawingPermissions::ALL,
+                ..Default::default()
+            },
+            restartable: true,
+        };
+        assert_eq!(context.policy([1; 32]), context.session);
+        let changed = context.policy([2; 32]);
+        assert_eq!(
+            changed.permissions,
+            client_extensions::modding::drawing_policy::remote_permissions(None, &[2; 32], 0)
+        );
+        let local = DrawingContext {
+            session: DrawingSession {
+                local: true,
+                ..context.session
+            },
+            ..context
+        };
+        assert_eq!(local.policy([2; 32]), local.session);
+    }
 }

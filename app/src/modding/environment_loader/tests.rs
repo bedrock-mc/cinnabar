@@ -55,6 +55,8 @@ fn request(path: &std::path::Path, previous: [u8; 32]) -> Request {
         },
         previous,
         settings: None,
+        drawing: None,
+        restart: false,
     }
 }
 
@@ -97,6 +99,7 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     assert!(previous.panel_ui.is_some());
@@ -136,6 +139,7 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     let digest = previous.host.source_digest();
@@ -169,6 +173,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
             &path,
             &first,
             request(&path, [0; 32]).source.grants,
+            None,
             None,
             None,
             None,
@@ -233,6 +238,7 @@ fn changed_committed_settings_retry_a_rejected_component() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     let digest = previous.host.source_digest();
@@ -277,6 +283,7 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
         &path,
         &component("First", None),
         granted.clone(),
+        None,
         None,
         None,
         None,
@@ -356,6 +363,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     let companion = previous.host.settings_path().unwrap().to_owned();
@@ -413,6 +421,7 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     let font = previous.font.as_ref().unwrap();
@@ -436,4 +445,107 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
         "Second"
     );
     assert!(world.resource::<ModRuntime>().metadata[0].font.is_some());
+}
+
+#[test]
+fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let first = component("First", None);
+    std::fs::write(&path, &first).unwrap();
+    let previous = admission::prepare(
+        &path,
+        &first,
+        request(&path, [0; 32]).source.grants,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut world = world(previous);
+    let session = mod_api::drawing::DrawingSession {
+        connection: 1,
+        local: true,
+        permissions: mod_api::drawing::DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .bind_drawing_session(session);
+    let old = world.resource::<ModRuntime>().hosts.host(0);
+    let mut restart = request(&path, old.source_digest());
+    restart.drawing = admission::DrawingContext::capture(old);
+    restart.restart = old.needs_drawing_restart();
+    std::fs::write(&path, component("Second", None)).unwrap();
+    let update = prepare(restart, &mut BTreeMap::new()).unwrap();
+    let prepared = update.result.as_ref().unwrap();
+    assert!(prepared.panel_ui.is_some() && prepared.branding.is_some());
+    assert!(prepared.host.is_active());
+    assert_eq!(prepared.host.drawing_session(), Some(session));
+    apply(&mut world, update).unwrap();
+    let runtime = world.resource::<ModRuntime>();
+    assert_eq!(runtime.hosts.host(0).panel().unwrap().title, "Second");
+    assert_eq!(runtime.hosts.host(0).menu_title(), Some("Second"));
+    assert!(runtime.metadata[0].branding.is_some());
+    assert!(!runtime.hosts.host(0).needs_drawing_restart());
+}
+
+#[test]
+fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let bytes = component("First", None);
+    std::fs::write(&path, &bytes).unwrap();
+    let previous = admission::prepare(
+        &path,
+        &bytes,
+        request(&path, [0; 32]).source.grants,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut world = world(previous);
+    let mut attempted = BTreeMap::new();
+    for connection in [1, 2] {
+        let mut runtime = world.resource_mut::<ModRuntime>();
+        let host = runtime.hosts.host_mut(0);
+        host.bind_drawing_session(mod_api::drawing::DrawingSession {
+            connection,
+            ..Default::default()
+        });
+        let mut restart = request(&path, host.source_digest());
+        restart.drawing = admission::DrawingContext::capture(host);
+        restart.restart = true;
+        restart.source.font = Some(directory.path().join("missing-font"));
+        assert!(prepare(restart, &mut attempted).unwrap().result.is_err());
+        let mut retry = request(&path, host.source_digest());
+        retry.drawing = admission::DrawingContext::capture(host);
+        retry.restart = true;
+        retry.source.font = Some(directory.path().join("missing-font"));
+        assert!(prepare(retry, &mut attempted).is_none());
+    }
+    let old = world.resource::<ModRuntime>().hosts.host(0);
+    let mut restart = request(&path, old.source_digest());
+    restart.drawing = admission::DrawingContext::capture(old);
+    restart.restart = true;
+    let update = prepare(restart, &mut attempted).unwrap();
+    assert!(update.result.is_ok());
+    {
+        let mut runtime = world.resource_mut::<ModRuntime>();
+        runtime
+            .hosts
+            .host_mut(0)
+            .bind_drawing_session(mod_api::drawing::DrawingSession {
+                connection: 3,
+                ..Default::default()
+            });
+    }
+    let retired = apply(&mut world, update).unwrap();
+    assert!(retired.is_active());
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_revoked());
 }
