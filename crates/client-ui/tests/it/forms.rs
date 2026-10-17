@@ -422,8 +422,8 @@ fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
     );
 }
 
-/// Normalizes a dialogue from the server and retains its selected action.
-fn pending_npc_response(unique_id: i64, action: LocalFormAction) -> UiRuntime {
+/// Normalizes a dialogue and binds its admitted actor lifetime.
+fn active_npc_dialogue(unique_id: i64) -> UiRuntime {
     // NPCDialogue: header 169, fixed-width unique ID, Open, then four strings.
     let mut packet = vec![0xa9, 1];
     packet.extend_from_slice(&unique_id.to_le_bytes());
@@ -460,6 +460,13 @@ fn pending_npc_response(unique_id: i64, action: LocalFormAction) -> UiRuntime {
     runtime
         .server_forms_mut()
         .bind_npc_actor(identity, npc_actor());
+    runtime
+}
+
+/// Retains one user response against the admitted dialogue.
+fn pending_npc_response(unique_id: i64, action: LocalFormAction) -> UiRuntime {
+    let mut runtime = active_npc_dialogue(unique_id);
+    let identity = identity(&runtime);
     runtime.respond_to_server_form(identity, action).unwrap();
     runtime
 }
@@ -588,4 +595,47 @@ fn npc_reply_after_despawn_is_consumed_without_sending() {
         .unwrap()
     );
     assert!(!runtime.server_forms().owns_input());
+}
+
+/// A menu takeover closes the dialogue through its actor protocol, including retries.
+#[test]
+fn npc_menu_takeover_keeps_its_closing_reply_and_actor_lifetime() {
+    for actor_alive in [true, false] {
+        let mut runtime = active_npc_dialogue(-77);
+        runtime.server_forms_mut().reject_active_busy();
+        runtime.server_forms_mut().reject_active_busy();
+        assert_eq!(
+            flush_form_response(&mut runtime, |_| true, |_| Err(FormTransportError::Full)),
+            Err(FormTransportError::Full)
+        );
+        let mut packets = Vec::new();
+        let sent = flush_form_response(
+            &mut runtime,
+            |actor| actor_alive && actor == npc_actor(),
+            |packet| {
+                packets.push(bytes(packet));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(sent, actor_alive);
+        let expected = if actor_alive {
+            vec![bytes(protocol::npc_request_packet(
+                99,
+                "shop",
+                protocol::NpcRequestKind::ExecuteClosingCommands,
+            ))]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(packets, expected);
+        assert!(
+            !flush_form_response(
+                &mut runtime,
+                |_| true,
+                |_| panic!("duplicate closing reply")
+            )
+            .unwrap()
+        );
+    }
 }
