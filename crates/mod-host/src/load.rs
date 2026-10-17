@@ -308,6 +308,11 @@ impl ModHost {
         self.grants.settings.then(|| self.instance.settings())
     }
 
+    /// Returns the loader's consent before component requests or session ceilings narrow it.
+    pub fn authorized_grants(&self) -> &ModGrants {
+        &self.authorized_grants
+    }
+
     pub fn grants(&self) -> &ModGrants {
         self.instance.grants()
     }

@@ -549,3 +549,44 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
     assert!(retired.is_active());
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_revoked());
 }
+
+#[test]
+fn worker_sources_retain_loader_consent_before_a_component_requests_drawing() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let first = component("First", None);
+    let previous = admission::prepare(
+        &path,
+        &first,
+        ModGrants {
+            world_draw: true,
+            ..Default::default()
+        },
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(!previous.host.grants().world_draw);
+    let source = Source::from_host(mod_ui::PanelUiOwner::Environment(0), &previous.host).unwrap();
+    let mut changed = component("Second", None);
+    section(
+        &mut changed,
+        mod_host::REQUESTED_GRANTS_SECTION,
+        b"{\"world_draw\":true}",
+    );
+    std::fs::write(&path, changed).unwrap();
+    let update = prepare(
+        Request {
+            source,
+            previous: previous.host.source_digest(),
+            settings: None,
+            drawing: None,
+            restart: false,
+        },
+        &mut BTreeMap::new(),
+    )
+    .unwrap();
+    assert!(update.result.unwrap().host.grants().world_draw);
+}

@@ -20,6 +20,19 @@ pub(super) struct Source {
     pub(super) ui: Option<PathBuf>,
 }
 
+impl Source {
+    /// Retains loader consent so later component requests can restore authorized capabilities.
+    pub(super) fn from_host(owner: mod_ui::PanelUiOwner, host: &ModHost) -> Option<Self> {
+        Some(Self {
+            owner,
+            component: host.component_source()?.to_owned(),
+            grants: host.authorized_grants().clone(),
+            font: None,
+            ui: None,
+        })
+    }
+}
+
 struct Request {
     source: Source,
     previous: [u8; 32],

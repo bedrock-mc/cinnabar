@@ -286,16 +286,16 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
         .iter()
         .enumerate()
         .filter_map(|(index, host)| {
-            Some(environment_loader::Source {
-                owner: mod_ui::PanelUiOwner::Environment(index),
-                component: host.component_source()?.to_owned(),
-                grants: host.grants().clone(),
-                font: std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from),
-                ui: (Some(index) == first_controls)
-                    .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
-                    .flatten()
-                    .map(std::path::PathBuf::from),
-            })
+            let mut source = environment_loader::Source::from_host(
+                mod_ui::PanelUiOwner::Environment(index),
+                host,
+            )?;
+            source.font = std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from);
+            source.ui = (Some(index) == first_controls)
+                .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
+                .flatten()
+                .map(std::path::PathBuf::from);
+            Some(source)
         })
         .collect::<Vec<_>>();
     if !sources.is_empty() {
