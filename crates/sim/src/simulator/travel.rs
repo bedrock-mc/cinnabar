@@ -177,16 +177,23 @@ pub(super) fn tick_mode(
         super::inside::slow_request(&mut next.velocity, multiplier);
     }
     next.requested_movement = next.velocity;
-    let motion = resolve_motion(&view, collision_box, next.velocity, grounded_at_start)?;
+    let motion = resolve_motion(
+        &view,
+        collision_box,
+        next.velocity,
+        grounded_at_start,
+        input.no_clip,
+    )?;
     let mut identity = identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
     next.position = motion.position;
     next.retain_collision_box(motion.aabb, height);
-    next.on_ground = motion.stepped
-        || (motion.collisions.y && pre_collision_velocity.y < 0.0)
-        || (grounded_at_start
-            && !motion.collisions.y
-            && pre_collision_velocity.y.abs() <= COLLISION_EPSILON);
+    next.on_ground = !input.no_clip
+        && (motion.stepped
+            || (motion.collisions.y && pre_collision_velocity.y < 0.0)
+            || (grounded_at_start
+                && !motion.collisions.y
+                && pre_collision_velocity.y.abs() <= COLLISION_EPSILON));
     next.movement = motion.resolved;
     next.velocity = motion.resolved;
     if motion.stepped || motion.collisions.y {
