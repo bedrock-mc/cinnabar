@@ -72,16 +72,10 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         &labels,
         visibility.entry(ordinary_label.clone()).or_default(),
     );
-    if let Some(scope) = &content_scope {
-        let reference = scope.reference(&ordinary_label);
-        if let Some(mut label) = catalog
-            .lookup(&reference.namespace, &reference.name)
-            .cloned()
-        {
-            // Explicit per-label binding arrays keep their own filters through inheritance.
-            visibility[&ordinary_label].merge_into(&mut label);
-            catalog.insert(label);
-        }
+    if let Some(row) = &mut message_row
+        && let Some(original) = builtin.lookup("hud", "chat_grid_item")
+    {
+        content::retain_fallback_filters(row, original, &visibility[&ordinary_label]);
     }
     for control in catalog.controls_mut().filter(|control| {
         content_scope

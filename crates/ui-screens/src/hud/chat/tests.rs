@@ -615,7 +615,7 @@ fn cosmetic_rows_keep_active_ordinary_label_filters() {
             .unwrap();
         assert_eq!(label.properties["color"], json!([1, 0, 0]));
         assert_eq!(
-            label
+            bound
                 .properties
                 .get("visible")
                 .and_then(Value::as_bool)
@@ -651,5 +651,51 @@ fn retained_named_caption_filters_stay_independent() {
         let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
         assert_eq!(bound.children[0].properties["visible"], text == "one");
         assert_eq!(bound.children[1].properties["visible"], text == "two");
+    }
+}
+
+#[test]
+fn retained_unfiltered_captions_do_not_inherit_sibling_filters() {
+    let builtin = builtin();
+    let children = json!([
+        {"chat_text@hud.chat_label":{}},
+        {"conditional@hud.conditional":{}}
+    ]);
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "conditional@hud.chat_label":{"bindings":[visible_when("(#text = 'shown')")]},
+            "chat_grid_item":{"controls":children},
+            "root_panel":{"controls":[{"chat":{"type":"stack_panel","factory":{
+                "name":"chat_item_factory","control_ids":{"chat_item":"hud.chat_grid_item"}}}}]}
+        }),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat","messages_text":{"controls":children}}).to_string(),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let chat = builtin_chat(&pack, &builtin, retained);
+    let context = json_ui::Context::empty();
+    for (catalog, reference) in [(&pack, "hud.chat_grid_item"), (&chat, "chat.messages_text")] {
+        let root = json_ui::resolve(catalog, reference, &context)
+            .control
+            .unwrap();
+        let mut state = json_ui::BindState::new();
+        for text in ["shown", "hidden", "shown"] {
+            let mut data = json_ui::DataSource::new();
+            data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+            let bound = json_ui::bind_screen(&root, catalog, &context, &data, &mut state);
+            assert!(
+                bound.children[0]
+                    .properties
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                "unfiltered caption stays visible for {text} in {reference}"
+            );
+            assert_eq!(bound.children[1].properties["visible"], text == "shown");
+        }
     }
 }
