@@ -2015,7 +2015,7 @@ not close a parity or visual acceptance gate.
 - Provisional: no version-matched witness of the current engine's values is recorded, and the
   first-person crumb point (0.45 ahead, 0.15 below the camera) is an approximation.
 
-## Read-back terrain occlusion on direct-draw devices
+## Terrain occlusion on direct-draw devices
 
 - Metal (any direct-draw device with compute) never draws indirectly. While the view holds
   still and a verdict could change, solid terrain draws in its own pass ahead of other opaque
@@ -2038,7 +2038,33 @@ not close a parity or visual acceptance gate.
   ties and current-frame depth handles disocclusion. Missing depth or pipelines clears the
   flags. Metal indirect draws remain disabled. Native raster fixtures cover page tails,
   camera changes and one-sample/2× MSAA output equality. Performance and presentation
-  acceptance remain incomplete; this path does not change the default.
+  acceptance remain incomplete.
+- Opt-in Metal admission (`CINNABAR_TERRAIN_VISIBILITY=adaptive`) probes current-frame
+  visibility for views with at least 64 candidates. An inactive view probes once per 64 frames and remains active while completed feedback
+  hides at least half its candidates. Settled still views keep the cheaper readback path.
+  Feedback only chooses whether to do fresh work;
+  current depth supplies every visibility mask, including during motion. Falling back
+  clears masks before direct draws. The default and `CINNABAR_TERRAIN_VISIBILITY=0` keep
+  the legacy path; `1` forces the current-frame path. The admission thresholds are
+  provisional and do not close the hardware performance gate.
+
+## Video quality and repeated renderer work
+
+- Smooth Lighting now chooses corner interpolation/AO or one light sample per face.
+  Transparent Leaves now chooses exposed cutout leaves or opaque leaves with internal
+  shared faces removed. Runtime changes rebuild resident meshes, cancel old work and
+  invalidate resource-pack snapshots even after an A/B/A toggle. Existing defaults keep
+  full-quality rendering.
+- Native lightmap bytes are prepared once per upload. Sky fan lookup uses a bounded
+  search while preserving rim-edge rounding and the existing draw order. Uniform sky
+  colour conversions run at vertices. Actor readiness polls retained unique pipelines, and retained UI
+  layers reuse composite bindings across both scene ping-pong views.
+- Single-sample SMAA writes its filtered result directly into the shared scene, removing
+  the extra restoration copy. The main scene transfer still preserves encoded material
+  blending and post-processing colour ownership.
+- Incomplete: these bounded native fixtures and work-count checks do not establish the
+  MacBook Neo frame-rate gain or close the live frame, join, streaming or settings parity
+  gates. Simple Graphics precipitation and stock Fancy Skies behavior remain unverified.
 
 ## Bounded lighting CPU work
 

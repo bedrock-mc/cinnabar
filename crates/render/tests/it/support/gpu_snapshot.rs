@@ -97,6 +97,18 @@ fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) 
 }
 
 impl Gpu {
+    /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
+    pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
+        let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
+            .try_into()
+            .expect("256 RGBA light entries");
+        let table = render_model::LightmapUniform::new(*raw);
+        self.buffer(
+            bytemuck::cast_slice(bytemuck::bytes_of(&table)),
+            wgpu::BufferUsages::UNIFORM,
+        )
+    }
+
     /// Creates a physical device for explicitly requested snapshot fixtures.
     pub fn new() -> Option<Self> {
         Self::for_fixture("native GPU snapshot")
