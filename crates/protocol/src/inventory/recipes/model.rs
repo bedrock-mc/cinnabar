@@ -115,6 +115,7 @@ pub(in crate::inventory) struct Record {
 pub(in crate::inventory) struct Batch {
     pub(in crate::inventory) records: Vec<Record>,
     pub(super) screen: super::screen::ScreenRecipes,
+    pub(super) identities: Vec<super::identity::RecipeIdentity>,
     pub(in crate::inventory) clear: bool,
     pub(super) _permit: Permit,
 }
@@ -148,7 +149,10 @@ impl PartialEq for RecipeUpdate {
     fn eq(&self, other: &Self) -> bool {
         match (&self.batch, &other.batch) {
             (Some(a), Some(b)) => {
-                a.clear == b.clear && a.records == b.records && a.screen == b.screen
+                a.clear == b.clear
+                    && a.records == b.records
+                    && a.screen == b.screen
+                    && a.identities == b.identities
             }
             (None, None) => true,
             _ => false,

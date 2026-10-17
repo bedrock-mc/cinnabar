@@ -17,7 +17,7 @@ fn creative_rows_follow_their_inputs() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.screen_state_mut().creative_tab = SEARCH_TAB;
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
     runtime.screen_state_mut().search = "stone".into();
     player_runtime
         .facts
@@ -61,9 +61,9 @@ fn creative_rows_follow_their_inputs() {
     runtime.screen_state_mut().creative_expanded.insert(1);
     assert!(!reuse(&player_runtime, &runtime, &frame));
     runtime.screen_state_mut().creative_expanded.clear();
-    runtime.screen_state_mut().creative_tab += 1;
+    runtime.screen_state_mut().select_tab(0);
     assert!(!reuse(&player_runtime, &runtime, &frame));
-    runtime.screen_state_mut().creative_tab -= 1;
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
     let mut other_frame = frame.clone();
     other_frame.window_icons.book_entries.push(None);
     assert!(!reuse(&player_runtime, &runtime, &other_frame));
@@ -114,7 +114,7 @@ fn display_name_replacement_refreshes_retained_creative_rows() {
             ..Default::default()
         },
     )]))));
-    runtime.screen_state_mut().creative_tab = SEARCH_TAB;
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
     runtime.screen_state_mut().search = "Crystal".into();
     let mut cache = None;
     let frame = HudFrame::default();

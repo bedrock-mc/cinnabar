@@ -49,6 +49,7 @@ pub(super) struct CraftingAuthority {
     /// Shared so presentation copies never deep-clone the recipe lists.
     catalog: Arc<RecipeCatalog>,
     catalog_lost: bool,
+    unlocks: protocol::RecipeUnlockState,
     grid: [Option<Arc<StackOwner>>; 4],
     cursor: Option<Arc<StackOwner>>,
     queue: Option<Arc<Queue>>,
@@ -81,6 +82,7 @@ impl CraftingAuthority {
             registry: None,
             catalog: Arc::new(catalog),
             catalog_lost: true,
+            unlocks: Default::default(),
             grid: std::array::from_fn(|_| None),
             cursor: None,
             queue: None,
@@ -131,6 +133,9 @@ impl CraftingAuthority {
             Arc::make_mut(&mut self.catalog).begin_session(self.session);
             self.catalog_lost = true;
         }
+        if domains & 8 != 0 {
+            self.unlocks.clear();
+        }
         if domains & 4 != 0 {
             self.authority = None;
             self.authority_loss = self.authority_loss.max(barrier);
@@ -138,7 +143,7 @@ impl CraftingAuthority {
     }
 
     pub(super) fn bypass(&mut self, sequence: u64) {
-        self.lose(sequence, 7);
+        self.lose(sequence, 15);
     }
 
     pub(super) fn note_ingress(&mut self, sequence: u64, event: &InventoryAuthorityEvent) {
@@ -163,6 +168,11 @@ impl CraftingAuthority {
     /// Retains the committed recipe allocation for numeric inventory admission.
     pub(super) fn catalog_snapshot(&self) -> Option<Arc<RecipeCatalog>> {
         self.catalog().map(|_| Arc::clone(&self.catalog))
+    }
+
+    /// The committed name authority; recipe and unlock observations share one FIFO.
+    pub(super) fn recipe_unlocks(&self) -> &protocol::RecipeUnlockState {
+        &self.unlocks
     }
 
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
@@ -291,6 +301,9 @@ impl CraftingAuthority {
             }
             InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)) => {
                 Observation::Recipes(update.clone())
+            }
+            InventoryAuthorityEvent::Inventory(InventoryEvent::RecipeUnlocks(update)) => {
+                Observation::RecipeUnlocks(update.clone())
             }
             InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) => {
                 let index = match protocol::project_container_cell(
@@ -433,6 +446,7 @@ impl CraftingAuthority {
                         }
                     }
                 }
+                Observation::RecipeUnlocks(update) => self.unlocks.apply(&self.catalog, update),
                 Observation::Authority(authority) if record.sequence > self.authority_loss => {
                     self.authority = Some(*authority)
                 }

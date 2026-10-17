@@ -8310,6 +8310,16 @@ Rendered survival/creative selected-name geometry is inspected at the owner's
 Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
 local evidence paths and verification state.
 
+Recipe unlock packets now have a retained authority foundation: exact names and
+contexts survive recipe admission, additions resolve against the ordered catalog,
+and explicit membership survives ordinary catalog clears while a new session
+resets it. Unsupported crafting shapes and furnace-family identities remain
+addressable. Duplicate names across eligible tags are conservatively unresolved;
+exact tag priority and synthesized multi-recipe identities remain incomplete.
+This foundation does not gate existing manual or book consumers. Game-rule
+consumers, category masks, toast presentation, exact player lifecycle and stable
+live acceptance remain incomplete.
+
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
@@ -9086,6 +9096,19 @@ Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery remain incomplete; the full furnace parity gate stays open.
+
+2026-10-17 inventory preferences: protocol 2193 inventory-option updates enter
+ordered startup/play ingress and remain session-owned. Classic personal inventories
+and crafting tables snapshot the complete tuple, resolve their own active layout,
+and preserve the inactive layout. Tabs use explicit UI/wire conversion. Changed
+controls save immediately without echoing incoming updates; queued older choices
+cannot suppress a later selection. Filtering defaults to false, with a creative
+model bypass that preserves the saved toggle. The carrier renders Classic's wide
+recipe list, and right-tab selection bindings are supplied. Pocket presentation,
+input-profile selection, persistent profile storage, recipe-unlock category guards,
+full right-panel presentation, additional search-related saves, and stable-client
+visual acceptance remain incomplete;
+these changes do not close the inventory parity gate.
 
 2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
 inventory ingress and retain separate player choices for furnace, blast furnace
