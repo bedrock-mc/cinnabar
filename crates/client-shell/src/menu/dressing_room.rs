@@ -4,7 +4,12 @@ use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuAction};
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
 mod editor;
+#[cfg(any(target_arch = "wasm32", test))]
+mod memory;
+#[cfg(not(target_arch = "wasm32"))]
 mod picker;
 #[cfg(test)]
 mod tests;
@@ -14,6 +19,8 @@ pub(super) struct Worker {
     commands: crossbeam_channel::Sender<Job>,
     results: crossbeam_channel::Receiver<Outcome>,
     pending: usize,
+    #[cfg(target_arch = "wasm32")]
+    alive: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -28,6 +35,11 @@ enum Job {
     ImportCape(Option<PathBuf>),
     RenameCape(usize, String),
     DeleteCape(usize),
+    #[cfg(target_arch = "wasm32")]
+    Pick(
+        bool,
+        crossbeam_channel::Receiver<Result<Vec<launcher::skin_import::picked::PickedFile>, String>>,
+    ),
 }
 
 #[derive(Debug)]
@@ -89,6 +101,8 @@ fn selection_key(
 }
 
 impl Worker {
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Starts the native catalog thread and its optional catalog refresh.
     fn start(
         layout: InstallLayout,
         fallback: crate::player_skin::LocalPlayerSkin,
@@ -103,6 +117,8 @@ impl Worker {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Runs native I/O away from the frame loop while keeping command admission bounded.
     fn start_with_refresh(
         layout: InstallLayout,
         fallback: crate::player_skin::LocalPlayerSkin,
@@ -181,6 +197,8 @@ impl Worker {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+/// Applies a native command through the durable catalog owner.
 fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> Result<(), String> {
     use crate::player_skin::catalog;
     match job {
@@ -337,7 +355,10 @@ impl MenuRuntime {
         #[cfg(not(any(test, feature = "test-support")))]
         self.ensure_dressing_room();
         if let Some(worker) = self.dressing_room_worker.as_mut() {
-            while let Ok(mut result) = worker.results.try_recv() {
+            for _ in 0..6 {
+                let Ok(mut result) = worker.results.try_recv() else {
+                    break;
+                };
                 if result.completed_command {
                     worker.pending = worker.pending.saturating_sub(1);
                 }

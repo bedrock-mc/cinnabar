@@ -9,6 +9,8 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+launcher = { path = "../../crates/launcher" }
+serde = { version = "1", features = ["derive"] }
 assets = { path = "../../crates/assets" }
 bridge = { path = "../../crates/bridge" }
 web-transport = { path = "../transport" }
