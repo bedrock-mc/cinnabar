@@ -1,7 +1,7 @@
 //! Bounded component and package admission and deferred settings activation.
 
 use crate::{
-    DataSource, MAX_COMPONENT_SOURCE_BYTES, ModEvent, ModGrants, ModHost, Source,
+    DataSource, DrawingRestart, MAX_COMPONENT_SOURCE_BYTES, ModEvent, ModGrants, ModHost, Source,
     component_assets::ComponentAssets,
     execution, local_files,
     package::{self, Package},
@@ -196,7 +196,7 @@ impl ModHost {
             embedded_notices: assets.notices,
             panel_bundle_override: None,
             source,
-            attempted: Some(digest),
+            attempted: digest,
             admitted_digest: digest,
             authorized_grants,
             grants,
@@ -207,7 +207,7 @@ impl ModHost {
             layout: None,
             session: Arc::default(),
             drawing_session: session,
-            drawing_restart: false,
+            drawing_restart: DrawingRestart::None,
         })
     }
 
@@ -230,7 +230,7 @@ impl ModHost {
     /// re-read whole; the new instance gets the current layout and session, and
     /// `screen-changed` and `data-changed` when it has events.
     pub fn reload_if_changed(&mut self) -> Result<bool> {
-        if self.is_revoked() && !self.drawing_restart {
+        if self.is_revoked() && !self.needs_drawing_restart() {
             return Ok(false);
         }
         let (bytes, digest, package) = match &self.source {
@@ -244,13 +244,17 @@ impl ModHost {
                 (Vec::new(), package.digest, Some(package))
             }
         };
-        if self.attempted == Some(digest) {
+        let pending_fence = matches!(self.drawing_restart, DrawingRestart::Pending);
+        if self.attempted == digest && !pending_fence {
             return Ok(false);
         }
         if !self.instance.can_reload() {
             return Ok(false);
         }
-        self.attempted = Some(digest);
+        self.attempted = digest;
+        if self.needs_drawing_restart() {
+            self.drawing_restart = DrawingRestart::Attempted;
+        }
         let (bytes, declared) = match &package {
             Some(package) => (&package.component, declared(package)),
             None => (&bytes, Declared::default()),
@@ -288,7 +292,7 @@ impl ModHost {
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
         self.admitted_digest = digest;
-        self.drawing_restart = false;
+        self.drawing_restart = DrawingRestart::None;
         self.embedded_font = assets.font;
         self.embedded_logo = assets.logo;
         self.embedded_title = assets.title;

@@ -2,6 +2,7 @@
 
 mod declarations;
 mod drawing_policy;
+use drawing_policy::DrawingRestart;
 mod grants;
 pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
 pub mod helper;
@@ -123,7 +124,7 @@ pub struct ModHost {
     embedded_notices: Option<Arc<str>>,
     panel_bundle_override: Option<Arc<ui::mod_panel::PanelBundle>>,
     source: Source,
-    attempted: Option<[u8; 32]>,
+    attempted: [u8; 32],
     admitted_digest: [u8; 32],
     grants: ModGrants,
     /// The loader's authorization before component or manifest requests narrow it.
@@ -135,7 +136,7 @@ pub struct ModHost {
     layout: Option<ScreenLayout>,
     session: Arc<SessionData>,
     drawing_session: Option<mod_api::drawing::DrawingSession>,
-    drawing_restart: bool,
+    drawing_restart: DrawingRestart,
 }
 
 /// Builds an empty, unfocused control snapshot for a frame with no routed input.

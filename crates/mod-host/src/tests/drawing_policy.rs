@@ -208,15 +208,21 @@ fn restored_component_requests_use_the_original_loader_consent() {
 
 #[test]
 fn quarantine_cancels_a_pending_drawing_restart() {
-    let (_directory, mut host) = load_fixture("");
-    host.bind_drawing_session(DrawingSession::default());
-    assert!(host.needs_drawing_restart());
-    host.quarantine();
-    host.bind_drawing_session(DrawingSession {
-        connection: 2,
-        ..Default::default()
-    });
-    assert!(!host.needs_drawing_restart());
-    assert!(!host.reload_if_changed().unwrap());
-    assert!(!host.is_active());
+    for failed_source in [false, true] {
+        let (directory, mut host) = load_fixture("");
+        if failed_source {
+            std::fs::write(directory.path().join("mod.wat"), "broken").unwrap();
+            assert!(host.reload_if_changed().is_err());
+        }
+        host.bind_drawing_session(DrawingSession::default());
+        assert!(host.needs_drawing_restart());
+        host.quarantine();
+        host.bind_drawing_session(DrawingSession {
+            connection: 2,
+            ..Default::default()
+        });
+        assert!(!host.needs_drawing_restart());
+        assert!(!host.reload_if_changed().unwrap());
+        assert!(!host.is_active());
+    }
 }

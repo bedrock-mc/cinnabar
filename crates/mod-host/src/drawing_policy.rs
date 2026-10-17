@@ -3,6 +3,13 @@
 use crate::{ModGrants, ModHost};
 use mod_api::drawing::{DrawingPermissions, DrawingSession};
 
+/// Tracks whether a revoked guest still needs an admission attempt under its latest fence.
+pub(crate) enum DrawingRestart {
+    None,
+    Pending,
+    Attempted,
+}
+
 impl ModGrants {
     /// Extracts the individually consented capabilities without extending legacy grants.
     pub fn drawing_permissions(&self) -> DrawingPermissions {
@@ -60,10 +67,8 @@ impl ModHost {
         if self.drawing_session == Some(session) {
             return;
         }
-        self.drawing_restart |= self.is_active();
-        // Every revocation needs a fresh attempt, even if the fence returns before polling.
-        if self.drawing_restart {
-            self.attempted = None;
+        if self.is_active() || self.needs_drawing_restart() {
+            self.drawing_restart = DrawingRestart::Pending;
         }
         self.pending_events.clear();
         self.instance.revoke();
@@ -79,7 +84,7 @@ impl ModHost {
 
     /// Whether a session fence needs a fresh guest, independently of registration changes.
     pub fn needs_drawing_restart(&self) -> bool {
-        self.drawing_restart
+        !matches!(self.drawing_restart, DrawingRestart::None)
     }
 }
 
