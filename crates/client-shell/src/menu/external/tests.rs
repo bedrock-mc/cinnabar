@@ -53,6 +53,8 @@ fn external_menu_refuses_service_targets_and_keeps_addressed_join_intent() {
         menu.request_connect(address);
         assert!(menu.take_join_intent().is_none());
         assert!(menu.view().message.is_some());
+        assert_eq!(menu.view().dialog, Some(launcher::menu::MenuDialog::Notice));
+        menu.activate(MenuAction::DismissDialog);
     }
     menu.request_connect("example.invalid".into());
     let join = menu.take_join_intent().unwrap();

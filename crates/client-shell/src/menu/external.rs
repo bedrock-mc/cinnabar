@@ -136,11 +136,10 @@ impl MenuRuntime {
             }
             MenuAction::OpenSignInLink => {} // The host opens it within the browser gesture.
             MenuAction::AddAccount | MenuAction::SwitchAccount(_) => {
-                self.message =
-                    Some("Sign out before using another account in this browser tab.".into());
+                self.external_error("Sign out before using another account in this browser tab.");
             }
             MenuAction::PlayRealm(_) | MenuAction::PlayFriend(_) => {
-                self.message = Some(SERVICE_JOINS_UNAVAILABLE.into());
+                self.external_error(SERVICE_JOINS_UNAVAILABLE);
             }
             _ => return false,
         }
@@ -153,11 +152,11 @@ impl MenuRuntime {
             super::target_for(&address),
             bridge::contract::ConnectTarget::RakNet(_)
         ) {
-            self.message = Some(SERVICE_JOINS_UNAVAILABLE.into());
+            self.external_error(SERVICE_JOINS_UNAVAILABLE);
             return;
         }
         if address.trim().is_empty() {
-            self.message = Some("That server has no address.".into());
+            self.external_error("That server has no address.");
             return;
         }
         self.remember_session_origin();
