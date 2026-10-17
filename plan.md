@@ -9918,3 +9918,12 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+## Chat editor submission prefixes
+
+Editor submissions remove leading ASCII spaces, tabs and line-control whitespace before
+validation, history and slash-command routing. Trailing whitespace and non-ASCII spaces
+remain intact. Explicit message-queue calls retain their exact-text contract.
+
+Incomplete parity: native blank-line dismissal settings, account safety restrictions,
+platform chat identities and the current command-version value remain unverified.
