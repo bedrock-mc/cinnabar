@@ -52,6 +52,7 @@ fn collision_flags_use_the_native_float_epsilon_boundary() {
             Aabb::player_at(Vec3::new(0.0, 1.0, 0.0)),
             Vec3::new(f64::from(speed), 0.0, 0.0),
             false,
+            false,
         )
         .unwrap();
         assert_eq!(motion.resolved.x, 0.0);

@@ -45,25 +45,27 @@ impl PlayerInventoryLedger {
             // Recipe execution is not activated by protocol admission alone.
             InventoryEvent::Recipes(_) => {}
             InventoryEvent::Authority(authority) => {
-                if self
+                let changed = self
                     .authority
-                    .replace(*authority)
-                    .is_some_and(|previous| previous != *authority)
-                {
-                    self.queue.clear();
+                    .is_some_and(|previous| previous != *authority);
+                if changed {
                     self.confirmed.clear_result();
                     self.personal = None;
                     self.confirmed.set(Cell::Cursor, None);
-                    self.player_resync_required = false;
-                    self.cursor_resync_required = false;
                     self.storage = None;
                     self.controls.personal.desired_open = false;
                     self.controls.storage.desired_open = false;
                     self.abandoned.clear();
+                    self.discard_requests(|_| true);
+                }
+                self.authority = Some(*authority);
+                if changed {
+                    self.verify_backing_authority();
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
             InventoryEvent::Close(close) => self.apply_close(*close),
+            InventoryEvent::RegistryCleanup(removed) => self.apply_bundle_cleanup(removed),
             InventoryEvent::Content(content) => self.apply_content(content),
             InventoryEvent::Slot(update) => {
                 self.apply_slot_update(
