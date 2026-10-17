@@ -66,6 +66,7 @@ pub struct SessionIcons {
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
+    pub(super) sheets: HashMap<Arc<str>, IconRef>,
     /// Only admitted sprites get meshes; replacing the page replaces this lazy cache.
     held_sprites: BTreeMap<IconKey, HeldSprite>,
     held_meshes: Mutex<held::HeldMeshes>,
@@ -309,9 +310,10 @@ fn install(
         .as_ref()
         .map(|(icons, packed)| block_cubes(icons, packed))
         .unwrap_or_default();
-    let (page, refs) = packed.map_or((None, HashMap::new()), |(_, packed)| {
-        (Some(packed.page), packed.refs)
-    });
+    let (page, refs, sheets) = packed
+        .map_or((None, HashMap::new(), HashMap::new()), |(_, packed)| {
+            (Some(packed.page), packed.refs, packed.sheets)
+        });
     let mut held_sprites = BTreeMap::new();
     if let Some(icons) = icons {
         let policy = device_policy();
@@ -338,6 +340,7 @@ fn install(
     runtime.session_icons = SessionIconPage {
         source: icons.cloned(),
         refs,
+        sheets,
         held_sprites,
         held_meshes: Mutex::default(),
         models,
