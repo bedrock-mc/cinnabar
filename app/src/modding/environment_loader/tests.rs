@@ -762,10 +762,11 @@ fn replacement_init_checks_its_own_digest_against_the_authenticated_grant() {
         let next = post_component();
         let old_digest: [u8; 32] = Sha256::digest(&first).into();
         let new_digest: [u8; 32] = Sha256::digest(&next).into();
+        let digests = [old_digest, new_digest];
         let mut grant = post_grant(if scope == "unlisted" {
-            &[old_digest]
+            &digests[..1]
         } else {
-            &[old_digest, new_digest]
+            &digests
         });
         if scope == "expired" {
             grant.expires_unix = 0;
