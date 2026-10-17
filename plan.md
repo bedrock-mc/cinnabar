@@ -9937,5 +9937,5 @@ builder, so the selected radius stays separate from the advertised capability.
 Regression coverage exercises saved preferences with a hidden menu and the
 core-to-client spawn sequence, including a selection above the advertised byte.
 The focused startup and join suites, saved-setting checks and both owner checks
-pass. An additional above-capability join case is queued. Platform-specific
+pass, including a join selection above the advertised byte. Platform-specific
 scaling, duplicate update timing and full startup packet parity remain incomplete.
