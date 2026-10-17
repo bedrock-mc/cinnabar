@@ -16,6 +16,7 @@ mod furnace_recipe_tests;
 mod hotbar_open_tests;
 mod inventory_layout_tests;
 mod prewarm_tests;
+mod search_focus_tests;
 
 #[test]
 fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
@@ -250,7 +251,7 @@ fn screens() -> Vec<(
             "inventory_recipe_book",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = Some(true);
+                runtime.select_inventory_layout(player_runtime, 2).unwrap();
                 runtime
             },
             vec![
@@ -263,7 +264,7 @@ fn screens() -> Vec<(
             "inventory_recipe_search",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = Some(true);
+                runtime.select_inventory_layout(player_runtime, 2).unwrap();
                 runtime
                     .screen_state_mut()
                     .select_tab(ui_screens::container_actions::SEARCH_TAB);
@@ -653,7 +654,9 @@ fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
         return;
     };
     let mut runtime = creative(&mut player_runtime);
-    runtime.screen_state_mut().creative_wide = true;
+    runtime
+        .select_inventory_layout(&mut player_runtime, 3)
+        .unwrap();
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
         presentation

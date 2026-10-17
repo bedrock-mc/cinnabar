@@ -9087,6 +9087,19 @@ ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery remain incomplete; the full furnace parity gate stays open.
 
+2026-10-17 inventory preferences: protocol 2193 inventory-option updates enter
+ordered startup/play ingress and remain session-owned. Classic personal inventories
+and crafting tables snapshot the complete tuple, resolve their own active layout,
+and preserve the inactive layout. Tabs use explicit UI/wire conversion. Changed
+controls save immediately without echoing incoming updates; queued older choices
+cannot suppress a later selection. Filtering defaults to false, with a creative
+model bypass that preserves the saved toggle. The carrier renders Classic's wide
+recipe list, and right-tab selection bindings are supplied. Pocket presentation,
+input-profile selection, persistent profile storage, recipe-unlock category guards,
+full right-panel presentation, additional search-related saves, and stable-client
+visual acceptance remain incomplete;
+these changes do not close the inventory parity gate.
+
 2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
 inventory ingress and retain separate player choices for furnace, blast furnace
 and smoker. Each open controller snapshots its saved tab, filtering and layout;

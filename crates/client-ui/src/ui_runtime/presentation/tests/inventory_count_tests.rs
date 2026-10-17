@@ -437,7 +437,9 @@ fn review_carried_item_draws_after_the_recipe_panel() {
             storage_item: NetworkItemStack::empty(),
         }));
     runtime.set_inventory_pointer_gui(Some([80.0, 120.0]));
-    runtime.screen_state_mut().book_open = Some(true);
+    runtime
+        .select_inventory_layout(&mut player_runtime, 2)
+        .unwrap();
     let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
@@ -577,7 +579,9 @@ fn recipe_book_entries_glint_like_inventory_slots() {
             skipped: 0,
         }));
     // Search lists the whole catalog flat, independent of the default tab.
-    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+    runtime
+        .screen_state_mut()
+        .select_tab(ui_screens::container_actions::SEARCH_TAB);
     capture_hud_frame(
         &player_runtime,
         &mut runtime,

@@ -161,7 +161,7 @@ pub(super) fn book_page(
         window_text.book_title = runtime
             .translation("recipe.book.title")
             .map(|text| text.to_string());
-        if runtime.screen_state().book_open.unwrap_or(false) {
+        if crate::ui_runtime::presentation::forms::recipe_book_shown(player_runtime, runtime) {
             let first = runtime.screen_state().book_page * presentation::screens::BOOK_CELLS;
             let page =
                 runtime.book_recipes(player_runtime, first, presentation::screens::BOOK_CELLS + 1);
