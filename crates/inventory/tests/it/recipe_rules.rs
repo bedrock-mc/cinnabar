@@ -60,7 +60,7 @@ fn session(always: bool) -> InventorySession {
         ),
     );
     let mut slots = vec![NetworkItemStack::empty(); ::protocol::UI_SLOT_COUNT];
-    slots[28] = NetworkItemStack {
+    slots[usize::from(*::protocol::CRAFTING_INPUT_SLOTS.start())] = NetworkItemStack {
         network_id: log,
         count: 1,
         stack_network_id: 10,
@@ -249,7 +249,7 @@ fn rule_updates_in_the_outer_fifo_are_retired_when_cell_pressure_discards_the_fr
                         container: ::protocol::ContainerIdentity::window(
                             ::protocol::UI_INVENTORY_WINDOW_ID,
                         ),
-                        slot: 28,
+                        slot: u16::from(*::protocol::CRAFTING_INPUT_SLOTS.start()),
                     },
                     stack: NetworkItemStack::empty(),
                     storage_item: None,
