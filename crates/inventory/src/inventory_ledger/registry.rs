@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack};
 use sha2::{Digest, Sha256};
 
+use super::cells::Held;
 use super::equipment::equipment_admission;
 use super::{Cell, PlayerInventoryLedger};
 
@@ -19,7 +20,7 @@ impl PlayerInventoryLedger {
         a.network_id == b.network_id
             && a.metadata == b.metadata
             && a.block_runtime_id == b.block_runtime_id
-            && a.extra_data == b.extra_data
+            && protocol::item_user_data_equal(&a.extra_data, &b.extra_data) == Some(true)
     }
 
     /// Retained registry identity for consumers caching identifier-dependent data.
@@ -104,11 +105,33 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
+    /// Checks item compatibility and the settled identities needed for a new merge.
     pub(super) fn occupied_stack_relation(
         &self,
-        source: &NetworkItemStack,
-        destination: &NetworkItemStack,
+        source: &Held,
+        destination: &Held,
     ) -> OccupiedStackRelation {
+        let (source_stack, destination_stack) = (&source.stack, &destination.stack);
+        if self.authority == Some(protocol::InventoryAuthority::Server)
+            && (self.stack_awaiting_identity(source_stack)
+                || self.stack_awaiting_identity(destination_stack)
+                || ((source_stack.stack_network_id > 0
+                    || protocol::is_legacy_request_id(source_stack.stack_network_id))
+                    && source_stack.stack_network_id == destination_stack.stack_network_id))
+        {
+            return OccupiedStackRelation::Unsupported;
+        }
+        self.merge_item_relation(source, destination)
+    }
+
+    /// Compares retained item identity and capacity without requiring transport-ready stack IDs.
+    pub(super) fn merge_item_relation(
+        &self,
+        source: &Held,
+        destination: &Held,
+    ) -> OccupiedStackRelation {
+        let (source_held, destination_held) = (source, destination);
+        let (source, destination) = (&source.stack, &destination.stack);
         let distinct_network_ids = source.network_id != destination.network_id;
         // Vanilla item matching compares block/aux identity; a
         // nonzero block identity is an ordinary block stack, not an unknown
@@ -117,22 +140,6 @@ impl PlayerInventoryLedger {
             || source.block_runtime_id != destination.block_runtime_id
         {
             return OccupiedStackRelation::Incompatible;
-        }
-        if !plain_stack(source) || !plain_stack(destination) {
-            return if distinct_network_ids {
-                OccupiedStackRelation::Incompatible
-            } else {
-                OccupiedStackRelation::Unsupported
-            };
-        }
-        if self.authority == Some(protocol::InventoryAuthority::Server)
-            && (self.stack_awaiting_identity(source)
-                || self.stack_awaiting_identity(destination)
-                || ((source.stack_network_id > 0
-                    || protocol::is_legacy_request_id(source.stack_network_id))
-                    && source.stack_network_id == destination.stack_network_id))
-        {
-            return OccupiedStackRelation::Unsupported;
         }
         let Some(registry) = self.item_registry.as_ref() else {
             return if distinct_network_ids {
@@ -157,6 +164,11 @@ impl PlayerInventoryLedger {
         };
         if source_entry.identifier != destination_entry.identifier {
             return OccupiedStackRelation::Incompatible;
+        }
+        match held_item_data_equal(source_held, destination_held) {
+            Some(true) => {}
+            Some(false) => return OccupiedStackRelation::Incompatible,
+            None => return OccupiedStackRelation::Unsupported,
         }
         let Some(source_capacity) = entry_capacity(source_entry) else {
             return OccupiedStackRelation::Unsupported;
@@ -183,6 +195,17 @@ impl PlayerInventoryLedger {
             .map(|(cell, _)| cell)
             .collect()
     }
+}
+
+/// Compares retained user data after checking each descriptor's integrity.
+pub(super) fn held_item_data_equal(left: &Held, right: &Held) -> Option<bool> {
+    for held in [left, right] {
+        let digest: [u8; 32] = Sha256::digest(&held.stack.extra_data).into();
+        if digest != held.stack.nbt_digest {
+            return None;
+        }
+    }
+    protocol::item_user_data_equal(&left.stack.extra_data, &right.stack.extra_data)
 }
 
 fn registry_map(event: &ItemRegistryEvent) -> Option<BTreeMap<i32, ItemRegistryEntry>> {

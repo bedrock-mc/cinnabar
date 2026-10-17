@@ -1988,6 +1988,33 @@ not close a parity or visual acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Inventory authority and cursor cleanup
+
+- Ordinary container updates use the open window ID and its manager indices. UI-window
+  updates use raw UI slots, and registered containers use their full key and relative
+  indices. Invalid normal transactions publish no valid sibling updates.
+- Full player snapshots retire removed slots. Accepted request corrections use their owned
+  snapshots, skip unrelated containers, and retain corrected names and damage in item data.
+  Supported typed item data compares independently of compound and restriction-list order.
+- Closing a screen returns its active temporary inputs and cursor, drops what does not fit,
+  and keeps unrelated inactive inputs from blocking world interaction. Named stacks can
+  merge and drag; a drag clamps contributions after an authoritative decrease.
+- A normal close acknowledgement retires that screen's unanswered requests without
+  committing their predictions. HUD mining requests retain their separate ownership,
+  and HUD/crafting observers follow the admitted packet and backing state.
+  Enchant selection leaves item mutation unpredicted until its complete result pipeline
+  is implemented; it does not keep an unchanged input as a predicted result.
+- Manual crafting can fill a compatible occupied destination and selects fitting work
+  within a bounded result scope. Placement checks are shared by gesture builders.
+- Server UI result previews remain admitted for existing screen consumers. Moving their
+  ownership to locally generated station previews is incomplete and must preserve result
+  display and taking together.
+- Incomplete: full crafting batches and remainders, enchanting prediction and availability,
+  creative secondary actions, mode-dependent removal, all station membership rules,
+  complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
+  pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
+  parity gate.
+
 ## Item stack sizes
 
 - DataDriven entries use component stack sizes even for known item names. They use
