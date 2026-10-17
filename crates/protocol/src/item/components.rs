@@ -52,6 +52,8 @@ pub struct ItemComponents {
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
+    /// The top-level stack component, independent from item_properties precedence.
+    pub max_stack_size_component: Option<u8>,
     /// Duplicate capacity fields or ancestors make the stack capacity unresolved.
     pub stack_capacity_ambiguous: bool,
     /// The components carry an `item_properties` entry, whose stack size a component item takes.
@@ -276,6 +278,9 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         })
         .filter(|maximum| *maximum > 0),
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
+            .filter(|size| (1..=255).contains(size))
+            .map(|size| size as u8),
+        max_stack_size_component: count(component("minecraft:max_stack_size"))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
         stack_capacity_ambiguous,
@@ -773,6 +778,24 @@ mod tests {
         assert_eq!(components.hover_text_color.as_deref(), Some("gold"));
         assert_eq!(components.block_placer.as_deref(), Some("test:ore"));
         assert!(parse_components(&compound("", &[])).is_none());
+    }
+
+    #[test]
+    fn custom_content_stack_component_retains_its_own_value_with_property_precedence() {
+        let payload = compound(
+            "",
+            &[compound(
+                "components",
+                &[
+                    compound("item_properties", &[int("max_stack_size", 64)]),
+                    int("minecraft:max_stack_size", 1),
+                ],
+            )],
+        );
+        let components = parse_components(&payload).unwrap();
+        assert_eq!(components.max_stack_size, Some(64));
+        assert_eq!(components.max_stack_size_component, Some(1));
+        assert!(!components.stack_capacity_ambiguous);
     }
 
     #[test]

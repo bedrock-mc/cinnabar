@@ -41,49 +41,100 @@ impl ExternalArmor {
     }
 }
 
+/// A resolved native model, retaining controller poses for bones absent from the wearer.
+pub(super) struct ExternalArmorModel {
+    pub identifier: Box<str>,
+    pub geometry: Arc<ArmorGeometry>,
+    pub render: Option<types::WornRender>,
+}
+
 impl EquipmentRuntime {
-    /// Selects the native family's drawable model using the actual wearer's owner context.
-    pub(super) fn external_armor_geometry(
+    /// Selects a drawable native variant using the caller's complete inputs and operation budget.
+    pub(super) fn external_armor_binding(
         &mut self,
         identifier: &str,
-        equipment: &ActorEquipmentInput,
         animation: EquipmentAnimation<'_>,
-        slot: ArmorSlot,
-        worn: &WornItem,
-    ) -> Option<(Box<str>, Arc<ArmorGeometry>, Box<str>)> {
+        input: actor_animation::AttachableAnimationInput<'_>,
+        operations_left: &mut usize,
+    ) -> Option<usize> {
         let items = Arc::clone(self.external_armor.items.get(identifier)?);
-        let catalog = Arc::clone(self.catalog.as_ref()?);
-        let variables = [(
-            assets::entity::EngineVariable::IsEnchanted.name(),
-            f32::from(worn.enchanted),
-        )];
-        let mut operations_left = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
-        for item in items.iter() {
-            let Some(index) = self.attachables.select_equipment_binding(
-                &catalog,
+        let catalog = self.catalog.as_ref()?;
+        items.iter().find_map(|item| {
+            self.attachables.select_equipment_binding(
+                catalog,
                 item,
                 animation.owner,
                 animation.rig,
-                animation.worn_input(equipment, slot, &variables),
-                &mut operations_left,
+                input,
+                operations_left,
                 |binding| {
                     !self
                         .assets
                         .geometry_candidates(&binding.geometry.identifier)
                         .is_empty()
                 },
-            ) else {
-                continue;
-            };
-            let model = &catalog.bindings()[index].geometry.identifier;
-            if let Some(geometry) = self.armor_geometry_for(model, false) {
-                return Some((
-                    model.clone(),
-                    geometry,
-                    catalog.bindings()[index].attachable_identifier().into(),
-                ));
-            }
+            )
+        })
+    }
+
+    /// Resolves the variant's evaluated model and pose; an authored empty draw remains hidden.
+    pub(super) fn external_armor_model(
+        &mut self,
+        identifier: &str,
+        (item, equipment, animation, slot): (
+            &WornItem,
+            &ActorEquipmentInput,
+            EquipmentAnimation<'_>,
+            ArmorSlot,
+        ),
+        body: &ActorRigSubmission,
+        bones: &BodyBones,
+    ) -> Result<Option<ExternalArmorModel>, ()> {
+        let variables = [(
+            assets::entity::EngineVariable::IsEnchanted.name(),
+            f32::from(item.enchanted),
+        )];
+        let mut operations_left = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
+        let index = self
+            .external_armor_binding(
+                identifier,
+                animation,
+                animation.worn_input(equipment, slot, &variables),
+                &mut operations_left,
+            )
+            .ok_or(())?;
+        let catalog = Arc::clone(self.catalog.as_ref().ok_or(())?);
+        let binding = &catalog.bindings()[index];
+        let render = match self.worn_render(
+            item,
+            slot,
+            equipment,
+            animation,
+            false,
+            binding.attachable_identifier(),
+            body,
+            bones,
+        ) {
+            Ok(None) => return Ok(None),
+            Ok(render) => render,
+            Err(()) => None,
+        };
+        let identifier = render
+            .as_ref()
+            .map_or(&binding.geometry.identifier, |render| &render.geometry);
+        let geometry = self.armor_geometry_for(identifier, false).ok_or(())?;
+        if identifier != &binding.geometry.identifier
+            && self.selected_geometries.insert(geometry.rig)
+            && let Some(index) = find_geometry_index(&self.assets, identifier)
+            && let Some(mesh) =
+                render_model::equipment_geometry(&self.assets, index as usize, geometry.rig)
+        {
+            self.pending.push(mesh);
         }
-        None
+        Ok(Some(ExternalArmorModel {
+            identifier: identifier.clone(),
+            geometry,
+            render,
+        }))
     }
 }

@@ -129,7 +129,12 @@ fn fixture_item() -> WornItem {
 }
 
 /// Builds an external family, its conditional owner model, and an optional direct startup fallback.
-fn conditional_fixture(condition: &str, startup_fallback: bool) -> EquipmentRuntime {
+fn conditional_fixture(
+    condition: &str,
+    startup_fallback: bool,
+    alternate: bool,
+    pack_fallback: bool,
+) -> EquipmentRuntime {
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(16, 16, image::Rgba([210, 30, 50, 255]))
         .write_to(&mut png, image::ImageFormat::Png)
@@ -146,7 +151,19 @@ fn conditional_fixture(condition: &str, startup_fallback: bool) -> EquipmentRunt
     .unwrap();
     mapped["minecraft:attachable"]["description"]["item"]["minecraft:iron_helmet"] =
         condition.into();
+    if alternate {
+        mapped["minecraft:attachable"]["description"]["geometry"]["alternate"] =
+            "geometry.fixture.alternate".into();
+        mapped["minecraft:attachable"]["description"]["render_controllers"] =
+            serde_json::json!(["controller.render.alternate"]);
+    }
     let mut base = shared.clone();
+    if alternate {
+        base.extend([
+            ("render_controllers/alternate.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.alternate":{"geometry":"Geometry.alternate","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#.to_vec()),
+            ("models/entity/alternate.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture.alternate","texture_width":16,"texture_height":16},"bones":[{"name":"alternate_shell","pivot":[0,24,0],"cubes":[{"origin":[-3,24,-3],"size":[6,6,6],"uv":[0,0]}]}]}]}"#.to_vec()),
+        ]);
+    }
     base.extend([
         ("attachables/ordinary.json".into(), definition("minecraft:iron_helmet", None, "geometry.fixture.external")),
         ("attachables/owner.json".into(), serde_json::to_vec(&mapped).unwrap()),
@@ -173,6 +190,14 @@ fn conditional_fixture(condition: &str, startup_fallback: bool) -> EquipmentRunt
         "attachables/custom.json".into(),
         definition("fixture:custom", None, "geometry.fixture.external"),
     ));
+    if pack_fallback {
+        pack.retain(|(path, _)| path.as_ref() != "attachables/custom.json");
+        pack.extend([
+            ("attachables/custom.json".into(), definition("fixture:custom", None, "geometry.fixture.pack")),
+            ("attachables/custom_owner.json".into(), definition("fixture:mapped_custom", Some("fixture:custom"), "geometry.fixture.external")),
+            ("models/entity/pack.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture.pack","texture_width":16,"texture_height":16},"bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#.to_vec()),
+        ]);
+    }
     let (assets, catalog) = compile(pack);
     let (_, locations) = pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
     runtime.set_pack_layer(Some((assets, Some(catalog), locations)));
@@ -186,7 +211,7 @@ fn conditional_fixture(condition: &str, startup_fallback: bool) -> EquipmentRunt
 
 #[test]
 fn custom_content_external_armor_uses_stack_enchantment_and_unmatched_authored_poses() {
-    let mut runtime = conditional_fixture("v.is_enchanted", false);
+    let mut runtime = conditional_fixture("v.is_enchanted", false, false, false);
     let body = crate::presentation::equipment::tests::player_body(&mut runtime);
     let owner = owner();
     let names = [Box::from("head")];
@@ -228,7 +253,12 @@ fn custom_content_external_armor_uses_stack_enchantment_and_unmatched_authored_p
 
 #[test]
 fn custom_content_external_armor_keeps_startup_draw_when_family_rejects_owner() {
-    let mut runtime = conditional_fixture("query.owner_identifier == 'minecraft:player'", true);
+    let mut runtime = conditional_fixture(
+        "query.owner_identifier == 'minecraft:player'",
+        true,
+        false,
+        false,
+    );
     let body = crate::presentation::equipment::tests::player_body(&mut runtime);
     let owner = owner();
     let names = [Box::from("head")];
@@ -264,4 +294,95 @@ fn custom_content_external_armor_keeps_startup_draw_when_family_rejects_owner() 
         .collect();
     assert_eq!(startup.len(), 1);
     assert_eq!(with_pack, startup);
+}
+
+#[test]
+fn custom_content_external_armor_keeps_ordinary_pack_model_when_family_rejects_owner() {
+    let mut runtime = conditional_fixture(
+        "query.owner_identifier == 'minecraft:player'",
+        false,
+        false,
+        true,
+    );
+    let body = crate::presentation::equipment::tests::player_body(&mut runtime);
+    let owner = owner();
+    let names = [Box::from("head")];
+    let rig = owner_rig(&owner, &names);
+    let input = ActorEquipmentInput {
+        armor: [
+            Some(WornItem {
+                identifier: "fixture:custom".into(),
+                ..fixture_item()
+            }),
+            None,
+            None,
+            None,
+        ],
+        ..Default::default()
+    };
+    let animation = EquipmentAnimation {
+        owner: &owner,
+        rig: &rig,
+        frame_alpha: 1.0,
+        delta_seconds: 0.05,
+    };
+    let source = runtime
+        .worn_binding_source(
+            input.armor[0].as_ref().unwrap(),
+            &input,
+            Some(animation),
+            ArmorSlot::Helmet,
+        )
+        .unwrap();
+    assert!(source.from_pack);
+    assert!(source.catalog.bindings()[source.index].attachable.is_none());
+    assert_eq!(runtime.layers_for(&body, &input, Some(animation)).len(), 1);
+}
+
+#[test]
+fn custom_content_external_armor_uses_controller_geometry_and_registers_its_mesh() {
+    let mut runtime = conditional_fixture("1.0", false, true, false);
+    let body = crate::presentation::equipment::tests::player_body(&mut runtime);
+    runtime.take_pending_geometries();
+    let expected = runtime
+        .armor_geometry_for("geometry.fixture.alternate", false)
+        .unwrap()
+        .rig;
+    let owner = owner();
+    let names = [Box::from("head")];
+    let rig = owner_rig(&owner, &names);
+    let input = ActorEquipmentInput {
+        armor: [
+            Some(WornItem {
+                identifier: "fixture:custom".into(),
+                ..fixture_item()
+            }),
+            None,
+            None,
+            None,
+        ],
+        ..Default::default()
+    };
+    let layers = runtime.layers_for(
+        &body,
+        &input,
+        Some(EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 1.0,
+            delta_seconds: 0.05,
+        }),
+    );
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].submission.input.rig, expected);
+    assert_ne!(
+        layers[0].submission.input.current_bones[0].translation_scale[3],
+        0.0
+    );
+    assert!(
+        runtime
+            .take_pending_geometries()
+            .iter()
+            .any(|mesh| mesh.id == expected)
+    );
 }

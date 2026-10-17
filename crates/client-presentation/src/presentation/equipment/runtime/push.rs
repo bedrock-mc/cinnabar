@@ -310,9 +310,20 @@ impl EquipmentRuntime {
         let external = if direct.is_none()
             && binding.geometry.resolution == EntityDependencyResolution::External
         {
-            animation.and_then(|animation| {
-                self.external_armor_geometry(geometry_identifier, equipment, animation, slot, item)
-            })
+            if let Some(animation) = animation {
+                match self.external_armor_model(
+                    geometry_identifier,
+                    (item, equipment, animation, slot),
+                    body,
+                    bones,
+                ) {
+                    Ok(None) => return,
+                    Ok(model) => model,
+                    Err(()) => None,
+                }
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -321,7 +332,7 @@ impl EquipmentRuntime {
             .or_else(|| {
                 external
                     .as_ref()
-                    .map(|(identifier, geometry, _)| (identifier.as_ref(), Arc::clone(geometry)))
+                    .map(|model| (model.identifier.as_ref(), Arc::clone(&model.geometry)))
             })
             .or_else(|| {
                 if from_pack
@@ -365,14 +376,6 @@ impl EquipmentRuntime {
             }
             return;
         };
-        let external_selected = external.as_ref().and_then(|(_, _, attachable)| {
-            self.worn_render(
-                item, slot, equipment, animation?, false, attachable, body, bones,
-            )
-            .ok()
-            .flatten()
-            .filter(|render| render.geometry.as_ref() == geometry_identifier)
-        });
         if selected.is_some()
             && geometry_identifier != binding.geometry.identifier.as_ref()
             && self.selected_geometries.insert(geometry.rig)
@@ -406,7 +409,10 @@ impl EquipmentRuntime {
             remap_pose(&map, &body.input.previous_bones),
             remap_pose(&map, &body.input.current_bones),
         );
-        if let Some(selected) = selected.as_ref().or(external_selected.as_ref()) {
+        if let Some(selected) = selected
+            .as_ref()
+            .or_else(|| external.as_ref().and_then(|model| model.render.as_ref()))
+        {
             for poses in [&mut previous, &mut current] {
                 for (index, pose) in poses.iter_mut().enumerate() {
                     if selected.layer.hidden_bones.contains(&(index as u32)) {
@@ -452,7 +458,7 @@ impl EquipmentRuntime {
 
     /// Returns selected worn artwork and shading; the binding supplies missing state.
     #[allow(clippy::too_many_arguments)]
-    fn worn_render(
+    pub(super) fn worn_render(
         &mut self,
         item: &WornItem,
         slot: ArmorSlot,
