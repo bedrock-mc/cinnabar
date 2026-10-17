@@ -80,6 +80,22 @@ pub(super) struct MiningPrediction {
     pub(super) source: Option<Held>,
 }
 
+impl MiningPrediction {
+    /// Whether the mining input retains this source, independently of its wire name.
+    pub(super) fn retains_source(&self, held: &Held) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|source| source.same_source(held))
+    }
+
+    /// Whether later consumption belongs to the retained mining input.
+    pub(super) fn retains_source_item(&self, held: &Held) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|source| source.same_source_item(held))
+    }
+}
+
 /// Bounds outstanding mining predictions; the oldest is forgotten first.
 const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
@@ -181,8 +197,7 @@ impl PlayerInventoryLedger {
                 let mut held = predicted.get(cell).cloned();
                 if server_authoritative && let Some(held) = &mut held {
                     // Stamp each changed prediction with the request that owns it.
-                    held.source_stack_id.get_or_insert(request.request_id);
-                    held.stack.stack_network_id = request.request_id;
+                    held.bind_prediction(request.request_id, cell);
                 }
                 CellPrediction {
                     cell,
@@ -406,8 +421,7 @@ impl PlayerInventoryLedger {
                     let same_item = match (prediction.before.as_ref(), replacement.as_ref()) {
                         (Some(before), Some(after)) => {
                             Self::same_item(&before.stack, &after.stack)
-                                || (before.source_stack_id.is_some()
-                                    && before.source_stack_id == after.source_stack_id
+                                || (before.same_source(after)
                                     && before.stack.network_id == after.stack.network_id
                                     && before.stack.metadata == after.stack.metadata
                                     && before.stack.block_runtime_id
@@ -457,7 +471,7 @@ impl PlayerInventoryLedger {
                     if self.authority == Some(protocol::InventoryAuthority::Server)
                         && let Some(held) = &mut prediction.held
                     {
-                        held.stack.stack_network_id = request.request_id;
+                        held.bind_prediction(request.request_id, prediction.cell);
                     }
                     replacements.push((prediction.cell, old, prediction.held.clone()));
                 }
@@ -505,13 +519,9 @@ impl PlayerInventoryLedger {
                 };
                 // HUD mining owns a separate sparse scope from front-screen predictions.
                 let owned = request.mining.as_ref().is_some_and(|mining| {
-                    self.confirmed.get(requested).is_none_or(|held| {
-                        held.source_stack_id
-                            != mining
-                                .source
-                                .as_ref()
-                                .and_then(|source| source.source_stack_id)
-                    })
+                    self.confirmed
+                        .get(requested)
+                        .is_none_or(|held| !mining.retains_source(held))
                 });
                 if !owned {
                     self.apply_correction(request, requested, cell, correction);

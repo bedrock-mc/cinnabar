@@ -5,7 +5,6 @@ use protocol::{
 };
 
 use super::cells::Held;
-use super::consumption::consumed_stack;
 use super::gesture::Submission;
 use super::{
     Cell, InventoryGestureError, InventoryPendingState, PendingRequest, PlayerInventoryLedger,
@@ -209,13 +208,7 @@ impl PlayerInventoryLedger {
         if verified(Some(&before)).ok().as_ref() != Some(&change.from) {
             return false;
         }
-        let after = consumed_stack(Some(&before), 1, Some(change.legacy_request_id));
-        for request in &mut self.queue {
-            request.note_consumption(cell, &before, change.legacy_request_id);
-        }
-        self.confirmed.set(cell, after.clone());
-        self.rebase_predictions(i32::MAX, cell, Some(&before), after);
-        self.refold();
+        self.consume_retained_source(cell, &before, change.legacy_request_id);
         true
     }
 

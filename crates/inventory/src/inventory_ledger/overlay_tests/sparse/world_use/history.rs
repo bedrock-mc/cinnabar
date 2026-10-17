@@ -155,8 +155,8 @@ fn consumption_does_not_shrink_a_swapped_out_rollback_source() {
     for replacement_id in [6, 7] {
         for world_first in [false, true] {
             let original = stack(6, 10, 5);
-            let mut ledger =
-                open_ledger(&[(0, original.clone()), (1, stack(replacement_id, 11, 5))]);
+            let replacement = stack(replacement_id, 11, 5);
+            let mut ledger = open_ledger(&[(0, original.clone()), (1, replacement.clone())]);
             let screen = ledger
                 .begin_hotbar_swap(InventoryTarget::Player(0), 1)
                 .unwrap();
@@ -173,6 +173,10 @@ fn consumption_does_not_shrink_a_swapped_out_rollback_source() {
             }
             assert_eq!(ledger.confirmed_stack(Cell::Inventory(0)), Some(&original));
             assert_settled_count(&ledger, original.count);
+            let mut remaining = replacement;
+            remaining.count -= 1;
+            assert_eq!(ledger.confirmed_stack(Cell::Inventory(1)), Some(&remaining));
+            assert_eq!(ledger.displayed_stack(1), Some(&remaining));
         }
     }
 }

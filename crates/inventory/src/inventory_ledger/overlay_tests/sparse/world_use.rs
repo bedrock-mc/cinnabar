@@ -313,3 +313,6 @@ fn authoritative_restatement_retires_consumption_offsets() {
 
 #[path = "world_use/history.rs"]
 mod history;
+
+#[path = "world_use/cross_cell.rs"]
+mod cross_cell;
