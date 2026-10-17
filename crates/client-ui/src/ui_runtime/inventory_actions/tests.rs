@@ -186,3 +186,102 @@ fn creative_secondary_destroys_one_from_any_ordinary_cursor_selection() {
         );
     }
 }
+
+/// Accepted empty abilities replace Creative's initial creation permission.
+#[test]
+fn received_empty_instabuild_refuses_creative_catalog_creation() {
+    let Some((mut runtime, mut player)) = creative_selection(None) else {
+        return;
+    };
+    player.facts.bind_local_abilities(1, 4, 17, true);
+    player.facts.apply_local_abilities(
+        1,
+        4,
+        1,
+        protocol::AbilitiesUpdate {
+            actor_unique_id: 17,
+            player_permission: 1,
+            command_permission: 0,
+            layers: protocol::AbilityLayersEvidence::Received([].into()),
+        },
+    );
+    assert_eq!(
+        runtime.click_hit(&mut player, InventoryCellHit::CreativeGrid(0)),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(player.inventory.ledger().pending_request_count(), 0);
+}
+
+/// Installs an explicit higher-layer creation grant independently of the actor mode.
+fn grant_instabuild(player: &mut player_state::PlayerState) {
+    let bit = client_world::game_mode_capabilities::ability_bit::INSTANT_BUILD;
+    player.facts.bind_local_abilities(1, 4, 17, true);
+    player.facts.apply_local_abilities(
+        1,
+        4,
+        1,
+        protocol::AbilitiesUpdate {
+            actor_unique_id: 17,
+            player_permission: 1,
+            command_permission: 0,
+            layers: protocol::AbilityLayersEvidence::Received(
+                [protocol::AbilityLayerEvidence {
+                    layer_type: 3,
+                    abilities: bit,
+                    values: bit,
+                    fly_speed_bits: 0,
+                    vertical_fly_speed_bits: 0,
+                    walk_speed_bits: 0,
+                }]
+                .into(),
+            ),
+        },
+    );
+}
+
+#[test]
+fn stale_creative_hits_do_not_create_or_destroy_outside_creative_mode() {
+    for selection in [None, Some((9000, 8))] {
+        for route in 0..3 {
+            let Some((mut runtime, mut player)) = creative_selection(selection) else {
+                return;
+            };
+            grant_instabuild(&mut player);
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+            assert_eq!(player.facts.instabuild(), Some(true));
+            let result = match route {
+                0 => runtime.click_hit(&mut player, InventoryCellHit::CreativeGrid(0)),
+                1 => runtime.secondary_click_hit(&mut player, InventoryCellHit::CreativeGrid(0)),
+                _ => runtime.quick_move_hit(&mut player, InventoryCellHit::CreativeGrid(0)),
+            };
+            assert_eq!(result, Err(InventoryGestureError::InvalidRequest));
+            assert_eq!(player.inventory.ledger().pending_request_count(), 0);
+            assert_eq!(
+                player
+                    .inventory
+                    .ledger()
+                    .cursor_stack()
+                    .map(|stack| (stack.network_id, stack.count)),
+                selection
+            );
+        }
+    }
+}
+
+#[test]
+fn survival_empty_recipe_book_hit_keeps_the_cursor_selection() {
+    let Some((mut runtime, mut player)) = creative_selection(Some((9000, 8))) else {
+        return;
+    };
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert_eq!(
+        runtime.recipe_book_click(&mut player, 0, false),
+        Err(InventoryGestureError::EmptyGesture)
+    );
+    assert_eq!(player.inventory.ledger().cursor_stack().unwrap().count, 8);
+    assert_eq!(player.inventory.ledger().pending_request_count(), 0);
+}

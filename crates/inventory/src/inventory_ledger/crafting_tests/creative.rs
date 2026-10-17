@@ -3,6 +3,10 @@ use super::*;
 
 /// Installs an original catalog entry for creative gestures.
 fn creative(ledger: &mut PlayerInventoryLedger) {
+    ledger.set_permissions(InventoryPermissions {
+        creative: true,
+        instabuild: Some(true),
+    });
     ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
         groups: Arc::from([]),
         items: Arc::from([protocol::CreativeItem {
@@ -105,6 +109,7 @@ fn creative_take_refuses_unparsed_stack_size_data() {
 #[test]
 fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    creative(&mut ledger);
     let prototype = NetworkItemStack {
         metadata: 2,
         block_runtime_id: 123,
@@ -144,6 +149,7 @@ fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
 #[test]
 fn creative_take_preserves_high_bit_block_ids_and_signed_aux() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    creative(&mut ledger);
     let prototype = NetworkItemStack {
         metadata: u32::MAX,
         block_runtime_id: i32::MIN + 123,

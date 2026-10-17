@@ -137,6 +137,18 @@ impl PlayerInventoryLedger {
         {
             return Err(InventoryGestureError::SlotLocked);
         }
+        if matches!(cell, Cell::Armor(_))
+            && !self.permissions.creative
+            && held.is_some_and(|held| {
+                protocol::item_enchantment_level_value(
+                    &held.stack.extra_data,
+                    i16::from(protocol_ids::Enchantment::Curseofbinding.wire_value()),
+                )
+                .is_some_and(|level| level > 0)
+            })
+        {
+            return Err(InventoryGestureError::SlotLocked);
+        }
         Ok(())
     }
 

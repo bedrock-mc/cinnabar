@@ -27,6 +27,13 @@ pub mod ability_bit {
     pub const VERTICAL_FLY_SPEED: u32 = 1 << 19;
 }
 
+/// Known ability-layer identities shared by effective permission consumers.
+pub mod ability_layer {
+    pub const COUNT: usize = 6;
+    pub const BASE: usize = 1;
+    pub const SPECTATOR: usize = 2;
+}
+
 /// The interaction gates one game mode grants, after server ability overrides.
 ///
 /// `attack_reach` is 0.0 exactly when attacking is disallowed. `creative_reach`
@@ -191,7 +198,7 @@ pub fn resolved_layer(
     let AbilityLayersEvidence::Received(layers) = &update.layers else {
         return None;
     };
-    (0..6).rev().find_map(|kind| {
+    (0..ability_layer::COUNT as u16).rev().find_map(|kind| {
         layers
             .iter()
             .rev()
