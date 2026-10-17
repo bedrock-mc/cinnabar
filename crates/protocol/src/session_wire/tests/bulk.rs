@@ -150,3 +150,35 @@ fn terminal_play_message_cancels_pending_bulk_open() {
         assert!(result.is_err());
     });
 }
+
+#[test]
+fn bulk_handoff_backpressures_batches_crossing_the_byte_budget() {
+    futures::executor::block_on(async {
+        let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
+        let budget = crate::session_transport::MAX_READ_AHEAD_BYTES;
+        let batches: Vec<_> = [budget * 5 / 8, budget * 15 / 32, 2]
+            .into_iter()
+            .map(|size| encode_batch([vec![9; size]]).unwrap())
+            .collect();
+        let polls = std::cell::Cell::new(0);
+        let frames = std::iter::once(Ok(handoff)).chain(batches.iter().cloned().map(Ok));
+        let reader = futures::stream::iter(frames)
+            .inspect(|_| polls.set(polls.get() + 1))
+            .chain(futures::stream::pending());
+        let (ready, packs) = futures::channel::oneshot::channel();
+        let wire = pack_stream(9, b"abc");
+        let receiving = LoginSequence::receive_web_handoff(reader, 9, async {
+            packs.await.unwrap();
+            Ok(Some(wire.as_slice()))
+        });
+        tokio::pin!(receiving);
+        assert!(receiving.as_mut().now_or_never().is_none());
+        assert_eq!(polls.get(), 3, "pause after retaining the crossing batch");
+        ready.send(()).unwrap();
+        let (_, archives, mut reader) = receiving.await.unwrap();
+        assert_eq!(archives, [b"abc".to_vec()]);
+        for batch in batches {
+            assert_eq!(reader.next().await.unwrap().unwrap(), batch);
+        }
+    });
+}

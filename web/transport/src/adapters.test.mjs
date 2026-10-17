@@ -89,7 +89,7 @@ test("a blocked send re-arms its timer and closure cancels it immediately", asyn
     globalThis.clearTimeout = key => timers.delete(key);
     try {
         const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
-        const ch = await adapter.open(t, values.RELAY_CHANNEL_PLAY); const ws = Socket.instances.at(-1);
+        const ch = await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1"); const ws = Socket.instances.at(-1);
         ws.bufferedAmount = config.playBytes;
         const writing = adapter.write(ch, new Uint8Array([1]));
         for (let i = 0; i < 3; i++) {
@@ -148,7 +148,7 @@ test("closed candidates reject channels without creating browser handles", async
     await adapter.open(t, config.control);
     Socket.instances.at(-1).onmessage({ data: new ArrayBuffer(config.controlBytes + 5) });
     const sockets = Socket.instances.length;
-    await assert.rejects(adapter.open(t, values.RELAY_CHANNEL_PLAY));
+    await assert.rejects(adapter.open(t, values.RELAY_CHANNEL_PLAY, "1"));
     assert.equal(Socket.instances.length, sockets);
 });
 
@@ -166,22 +166,24 @@ test("WebSocket writes reject cancellation after an unthrottled drain", async ()
 });
 
 /** Emits an archive stream with observable reset and lock ownership. */
-function archiveStream(bytes) {
+function archiveStream(payload, join = 1n) {
+    const bytes = new Uint8Array(8 + payload.length);
+    new DataView(bytes.buffer).setBigUint64(0, join); bytes.set(payload, 8);
     let resets = 0;
     const stream = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(bytes)); },
         cancel() { resets++; } });
-    return { stream, resets: () => resets };
+    return { stream, bytes, resets: () => resets };
 }
 
 test("pack streams stay independent from control and play and reset between joins", async () => {
     const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
     const control = await adapter.open(t, config.control);
-    const play = await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const play = await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
     const peer = Quic.instances.at(-1);
     const archive = archiveStream([3, 4]);
     peer.incoming.enqueue(archive.stream);
     const packs = await adapter.acceptPacks(t);
-    assert.deepEqual(await adapter.read(packs), new Uint8Array([3, 4]));
+    assert.deepEqual(await adapter.read(packs), archive.bytes);
     assert.deepEqual(await adapter.read(play), new Uint8Array([1, 2]));
     const extra = archiveStream([5]); peer.incoming.enqueue(extra.stream); await turns();
     assert.equal(extra.resets(), 1);
@@ -189,22 +191,22 @@ test("pack streams stay independent from control and play and reset between join
     adapter.finishPlay(t); await assert.rejects(reading); await turns();
     assert.equal(archive.resets(), 1); assert.equal(archive.stream.locked, false);
     assert.deepEqual(await adapter.read(control), new Uint8Array([1, 2]));
-    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
-    const next = archiveStream([6]); peer.incoming.enqueue(next.stream);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
+    const next = archiveStream([6], 2n); peer.incoming.enqueue(next.stream);
     const fresh = await adapter.acceptPacks(t);
     assert.notEqual(fresh, packs);
-    assert.deepEqual(await adapter.read(fresh), new Uint8Array([6]));
+    assert.deepEqual(await adapter.read(fresh), next.bytes);
     adapter.close(t); await turns(); assert.equal(next.resets(), 1);
 });
 
 test("pending pack acceptance cancels immediately and fallback opens no bulk connection", async () => {
     const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
-    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
     const accepting = adapter.acceptPacks(t);
     adapter.finishPlay(t); await assert.rejects(accepting);
-    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
-    const archive = archiveStream([7]); Quic.instances.at(-1).incoming.enqueue(archive.stream);
-    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), new Uint8Array([7]));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
+    const archive = archiveStream([7], 2n); Quic.instances.at(-1).incoming.enqueue(archive.stream);
+    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), archive.bytes);
     adapter.close(t);
     const ws = adapter.create("https://relay.invalid", false, JSON.stringify(config));
     const sockets = Socket.instances.length;
@@ -215,12 +217,62 @@ test("pending pack acceptance cancels immediately and fallback opens no bulk con
 
 test("an unpolled old pack wait cannot claim the next join", async () => {
     const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
-    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
     const stale = adapter.packChannel(t);
     adapter.finishPlay(t);
-    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
     await assert.rejects(adapter.acceptPacks(t, stale));
-    const archive = archiveStream([8]); Quic.instances.at(-1).incoming.enqueue(archive.stream);
-    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), new Uint8Array([8]));
+    const archive = archiveStream([8], 2n); Quic.instances.at(-1).incoming.enqueue(archive.stream);
+    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), archive.bytes);
+    adapter.close(t);
+});
+
+test("a retired archive arriving after rejoin cannot claim the current pack channel", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
+    adapter.finishPlay(t);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
+    const stale = archiveStream([1], 1n), fresh = archiveStream([2], 2n);
+    const peer = Quic.instances.at(-1);
+    peer.incoming.enqueue(stale.stream);
+    peer.incoming.enqueue(fresh.stream);
+    const packs = await adapter.acceptPacks(t);
+    assert.deepEqual(await adapter.read(packs), fresh.bytes);
+    await turns();
+    assert.equal(stale.resets(), 1); assert.equal(stale.stream.locked, false);
+    adapter.close(t);
+});
+
+test("fragmented prefixes preserve bytes and a stalled retired stream cannot block a fresh join", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    const join = 9007199254740993n;
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, String(join));
+    let resets = 0;
+    const stalled = new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0])); },
+        cancel() { resets++; } });
+    const encoded = archiveStream([4, 5], join).bytes;
+    const fresh = new ReadableStream({ start(c) {
+        for (const chunk of [encoded.slice(0, 3), encoded.slice(3, 8), encoded.slice(8)]) c.enqueue(chunk);
+        c.close();
+    } });
+    const peer = Quic.instances.at(-1);
+    peer.incoming.enqueue(stalled); peer.incoming.enqueue(fresh);
+    const packs = await adapter.acceptPacks(t);
+    const delivered = [];
+    for (let bytes; (bytes = await adapter.read(packs)) !== null;) delivered.push(...bytes);
+    assert.deepEqual(new Uint8Array(delivered), encoded);
+    await turns(); assert.equal(resets, 1); assert.equal(stalled.locked, false);
+    adapter.close(t);
+});
+
+test("finishing a join resets readers still waiting for their archive prefix", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
+    const partial = new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0])); } });
+    Quic.instances.at(-1).incoming.enqueue(partial); await turns();
+    assert.equal(partial.locked, true);
+    const accepting = adapter.acceptPacks(t);
+    adapter.finishPlay(t); await assert.rejects(accepting); await turns();
+    assert.equal(partial.locked, false);
     adapter.close(t);
 });

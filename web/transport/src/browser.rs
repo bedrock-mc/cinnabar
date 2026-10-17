@@ -19,7 +19,7 @@ extern "C" {
     fn available() -> bool;
     #[wasm_bindgen(catch)]
     fn create(origin: &str, quic: bool, config: &str) -> Result<JsValue, JsValue>;
-    fn open(transport: &JsValue, name: &str) -> Promise;
+    fn open(transport: &JsValue, name: &str, join: &str) -> Promise;
     #[wasm_bindgen(js_name = packChannel)]
     fn pack_channel(transport: &JsValue) -> JsValue;
     #[wasm_bindgen(js_name = acceptPacks)]
@@ -61,7 +61,11 @@ impl BrowserTransport {
 impl RelayTransport for BrowserTransport {
     type Stream = BrowserStream;
     async fn open(&mut self, channel: Channel) -> Result<BrowserStream, CloseReason> {
-        let handle = JsFuture::from(open(&self.0, channel.name()))
+        let join = match channel {
+            Channel::Control => String::new(),
+            Channel::Play { join } => join.to_string(),
+        };
+        let handle = JsFuture::from(open(&self.0, channel.name(), &join))
             .await
             .map_err(|_| CloseReason::Transport)?;
         Ok(BrowserStream::new(handle))

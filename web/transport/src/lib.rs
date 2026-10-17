@@ -14,14 +14,14 @@ use tokio::io::{AsyncRead, AsyncWrite};
 #[derive(Clone, Copy)]
 pub enum Channel {
     Control,
-    Play,
+    Play { join: u64 },
 }
 impl Channel {
     /// Returns the channel's wire name.
     pub fn name(self) -> &'static str {
         match self {
             Self::Control => bridge::contract::RELAY_CHANNEL_CONTROL,
-            Self::Play => bridge::contract::RELAY_CHANNEL_PLAY,
+            Self::Play { .. } => bridge::contract::RELAY_CHANNEL_PLAY,
         }
     }
 }

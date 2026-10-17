@@ -138,10 +138,10 @@ func TestAccountChangesRejectStaleSignInAndSecondPlay(t *testing.T) {
 	if state, _ := session.Auth(); state.State != control.AuthSignedOut {
 		t.Fatal("stale sign-in published after sign-out")
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); err != nil {
+	if _, err = session.beginPlay(t.Context(), session.controlCtx, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); !errors.Is(err, errSessionBusy) {
+	if _, err = session.beginPlay(t.Context(), session.controlCtx, 0); !errors.Is(err, errSessionBusy) {
 		t.Fatal("second play admitted")
 	}
 	if err = session.SignOut(); !errors.Is(err, errSessionBusy) {

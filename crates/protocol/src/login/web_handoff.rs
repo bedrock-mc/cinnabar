@@ -67,9 +67,6 @@ impl LoginSequence {
                     frame = reader.next(), if pending.len() < MAX_READ_AHEAD_FRAMES && bytes < crate::session_transport::MAX_READ_AHEAD_BYTES => {
                         let frame = frame.ok_or_else(|| invalid("play closed during pack delivery"))?.map_err(bridge_error)?;
                         if batch_frame_body(&frame).is_some() {
-                            if frame.len() > crate::session_transport::MAX_READ_AHEAD_BYTES - bytes {
-                                return Err(invalid("pack handoff play read-ahead limit"));
-                            }
                             bytes += frame.len();
                             pending.push(Ok(frame));
                         } else {

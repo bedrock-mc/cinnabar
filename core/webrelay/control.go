@@ -226,7 +226,7 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 		return
 	}
 	defer func() { detach(time.Now()) }()
-	handler, err := session.beginPlay(ctx, controlCtx)
+	handler, err := session.beginPlay(ctx, controlCtx, request.Join)
 	if err != nil {
 		return
 	}

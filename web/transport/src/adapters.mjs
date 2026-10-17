@@ -19,6 +19,7 @@ function channel(t, limit) {
     ch.fail = () => {
         if (ch.failed) return;
         ch.failed = true; ch.packs?.fail();
+        for (const probe of ch.probes ?? []) probe.fail();
         if (t.packs === ch) t.packs = undefined;
         ch.queue = []; ch.bytes = 0;
         for (const cancel of ch.waiters) cancel(); ch.waiters.clear();
@@ -41,12 +42,12 @@ function wait(ch, promise) {
     });
 }
 /** Opens a QUIC stream or the named fallback socket; both return reliable byte chunks. */
-export async function open(t, name) {
+export async function open(t, name, join) {
     const control = name === t.c.control;
     const ch = channel(t, !t.quic && control ? t.c.controlBytes + 4 : t.c.playBytes);
     if (!control) { finishPlay(t); t.play = ch; }
     if (t.quic) {
-        if (!control) preparePacks(t, ch);
+        if (!control) preparePacks(t, ch, join);
         await wait(ch, t.connection.ready);
         if (t.closed || ch.failed) throw new Error("relay closed");
         // Own late-created streams too when cancellation wins the stream-creation race.
@@ -81,8 +82,9 @@ export async function open(t, name) {
     return ch;
 }
 /** Owns one archive reader per play and resets unsolicited or extra incoming streams. */
-function preparePacks(t, play) {
+function preparePacks(t, play, join) {
     const packs = play.packs = t.packs = channel(t, t.c.playBytes);
+    packs.join = BigInt(join); packs.probes = new Set();
     packs.opening = new Promise(resolve => { packs.accept = resolve; });
     if (!t.incomingTask) {
         t.incomingTask = (async () => {
@@ -94,13 +96,34 @@ function preparePacks(t, play) {
                     const { done, value } = await incoming.read();
                     if (done) { close(t); return; }
                     const active = t.packs;
-                    if (active && !active.failed && !active.reader) {
-                        active.reader = value.getReader(); active.accept(active);
+                    if (active && !active.failed && !active.reader && active.probes.size < t.c.chunks) {
+                        const probe = channel(t, t.c.playBytes);
+                        probe.reader = value.getReader(); active.probes.add(probe);
+                        routePacks(active, probe).catch(() => {}).finally(() => {
+                            active.probes.delete(probe); probe.fail();
+                        });
                     } else { value.cancel().catch(() => {}); }
                 }
             } finally { incoming.releaseLock(); t.incoming = undefined; }
         })().catch(() => close(t));
     }
+}
+/** Checks the join prefix before claiming the archive reader, preserving every byte for Rust. */
+async function routePacks(packs, probe) {
+    const prefix = new Uint8Array(8), chunks = [];
+    let size = 0;
+    while (size < prefix.length) {
+        const bytes = await read(probe);
+        if (!bytes) return;
+        const count = Math.min(bytes.length, prefix.length - size);
+        prefix.set(bytes.subarray(0, count), size); size += count;
+        if (bytes.length) chunks.push(bytes);
+    }
+    if (packs.failed || packs.reader || new DataView(prefix.buffer).getBigUint64(0) !== packs.join) return;
+    packs.reader = probe.reader; probe.reader = undefined;
+    packs.queue = chunks; packs.bytes = chunks.reduce((total, bytes) => total + bytes.length, 0);
+    packs.accept(packs);
+    for (const other of packs.probes) if (other !== probe) other.fail();
 }
 /** Captures the current archive channel so cancelling an old wait cannot reset a new join. */
 export function packChannel(t) { return t.quic ? t.packs ?? null : null; }
@@ -116,6 +139,10 @@ export function finishPlay(t) { t.play?.fail(); t.play = undefined; }
 /** Reads only on demand; checks chunk size before Rust makes its JS-to-wasm copy. */
 export async function read(ch) {
     if (ch.failed) throw new Error("relay closed");
+    if (ch.queue.length) {
+        const bytes = ch.queue.shift(); ch.bytes -= bytes.byteLength;
+        return bytes;
+    }
     if (ch.reader) {
         const { done, value } = await wait(ch, ch.reader.read());
         if (done) return null;

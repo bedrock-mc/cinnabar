@@ -259,15 +259,15 @@ impl<T: RelayTransport> Session<T> {
         self.join = self.join.checked_add(1).ok_or(CloseReason::Protocol)?;
         self.state = State::Playing(generation);
         let result = async {
+            let channel = Channel::Play { join: self.join };
             let stream = self
                 .transport
                 .as_mut()
                 .ok_or(CloseReason::Transport)?
-                .open(Channel::Play)
+                .open(channel)
                 .await?;
             let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
-            let mut prefix = hello(Channel::Play, self.resume(now()), generation);
-            prefix["join"] = self.join.into();
+            let prefix = hello(channel, self.resume(now()), generation);
             play.send(Bytes::from(prefix.to_string()))
                 .await
                 .map_err(|_| CloseReason::Transport)?;
@@ -381,7 +381,11 @@ impl<T: RelayTransport> Drop for Session<T> {
 }
 /// Builds both channel prefixes from the shared contract.
 fn hello(channel: Channel, resume: &str, generation: u64) -> Value {
-    json!({"version": RELAY_VERSION, "channel": channel.name(), "channels": [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY], "resume": resume, "generation": generation})
+    let mut prefix = json!({"version": RELAY_VERSION, "channel": channel.name(), "channels": [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY], "resume": resume, "generation": generation});
+    if let Channel::Play { join } = channel {
+        prefix["join"] = join.into();
+    }
+    prefix
 }
 /// Admits an object with a typed event name; extension fields remain forward compatible.
 fn parse(frame: &[u8]) -> Result<Value, CloseReason> {
