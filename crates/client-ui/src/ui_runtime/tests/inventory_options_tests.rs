@@ -391,3 +391,53 @@ fn inventory_options_closing_search_releases_keyboard_without_flushing_preferenc
         assert!(runtime.take_client_packet().is_none());
     }
 }
+
+/// A server close releases personal search focus without relying on a storage generation change.
+#[test]
+fn inventory_options_server_close_releases_personal_search_focus() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player);
+    assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
+    let container = protocol::ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID);
+    let window_type = inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE;
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            1,
+            InventoryEvent::Open(protocol::ContainerOpenEvent {
+                container,
+                window_type,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    runtime.perform_pointer_action(
+        &mut player,
+        PointerAction::Click(InventoryCellHit::CreativeSearch),
+    );
+    runtime.screen_state_mut().type_text("iron");
+    assert!(runtime.screen_state().text_focused());
+    assert_eq!(player.inventory.ledger().storage_generation(), None);
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            2,
+            InventoryEvent::Close(protocol::ContainerCloseEvent {
+                container,
+                window_type,
+                server_initiated: true,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert!(!runtime.inventory_open());
+    assert!(runtime.screen_state().inventory.is_none());
+    assert!(!runtime.screen_state().text_focused());
+    assert_eq!(runtime.screen_state().search, "iron");
+    assert!(runtime.take_client_packet().is_none());
+}
