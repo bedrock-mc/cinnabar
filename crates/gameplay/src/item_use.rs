@@ -222,7 +222,7 @@ impl ItemUseRuntime {
         if !self.is_releasing(held) {
             return false;
         }
-        if active.selection_changed(selection, self.release_pending) {
+        if active.selection_changed(selection, !self.release_pending) {
             self.active = None;
             self.release_pending = false;
             self.riptide_release = None;
@@ -356,7 +356,12 @@ impl ItemUseRuntime {
             return;
         };
         let mut selection = match &frame.selection {
-            Some(_) if active.selection_changed(frame.selection.as_ref(), release_pending) => {
+            Some(_)
+                if active.selection_changed(
+                    frame.selection.as_ref(),
+                    !frame.held && !release_pending,
+                ) =>
+            {
                 // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
                 self.riptide_release = None;
@@ -560,17 +565,17 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
-    /// Slot and item changes cancel a use; count changes cancel before a release is observed.
-    /// A pending release keeps its existing retry policy.
+    /// Checks the selected slot and item, adding count when admitting a fresh release.
+    /// Held updates and pending releases keep their existing policies.
     fn selection_changed(
         &self,
         selection: Option<&FrozenMiningSelection>,
-        release_pending: bool,
+        check_count: bool,
     ) -> bool {
         selection.is_some_and(|selection| {
             selection.slot != self.selection.slot
                 || selection.item.network_id() != self.selection.item.network_id()
-                || (!release_pending && selection.item.count() != self.selection.item.count())
+                || (check_count && selection.item.count() != self.selection.item.count())
         })
     }
 
@@ -589,7 +594,7 @@ impl ActiveUse {
                     && !riptide.mounted
                     && riptide.usable
                     && selection.is_some()
-                    && !self.selection_changed(selection, false)
+                    && !self.selection_changed(selection, true)
                     && tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
             })
             .map(|riptide| riptide.level)

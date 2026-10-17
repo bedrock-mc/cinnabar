@@ -489,6 +489,35 @@ fn selected_count_change_cancels_the_old_use_without_release() {
     assert_eq!(kinds(&released), ["release"]);
 }
 
+/// Count admission belongs to release; a held update does not replace its start snapshot.
+#[test]
+fn selected_count_change_while_held_keeps_the_original_use_until_release() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    runtime.step(&item_frame(
+        100,
+        true,
+        stack(2, MENU_ITEM, 16),
+        "minecraft:golden_apple",
+    ));
+    let timing = runtime.active_timing();
+    let held = runtime.step(&item_frame(
+        101,
+        true,
+        stack(2, MENU_ITEM, 15),
+        "minecraft:golden_apple",
+    ));
+    assert!(held.packets.is_empty() && !held.started);
+    assert_eq!(runtime.active_timing(), timing);
+    let released = runtime.step(&item_frame(
+        102,
+        false,
+        stack(2, MENU_ITEM, 16),
+        "minecraft:golden_apple",
+    ));
+    assert_eq!(kinds(&released), ["release"]);
+}
+
 /// A briefly unverifiable selection (inventory request in flight) keeps the use and its release.
 #[test]
 fn an_unverified_selection_keeps_the_use_and_still_releases() {
