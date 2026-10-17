@@ -120,7 +120,29 @@ fn occupied_native_image_routes_the_live_player_marker_without_fabricating_empty
         presentation.player_preview_view,
         super::super::super::player_preview::PreviewView::Hud
     );
-    assert_eq!(nodes.iter().filter(|node| matches!(node.visual(), ui::UiVisual::Sprite { texture_page, uv, .. } if *texture_page == marker.page && *uv == marker.uv)).count(), 1, "only the occupied native emote image uses the live model marker");
+    assert_eq!(nodes.iter().filter(|node| matches!(node.visual(), ui::UiVisual::Sprite { texture_page, uv, .. } if *texture_page == marker.page && *uv == marker.uv)).count(), runtime.emotes().slots().iter().flatten().count(), "only occupied native emote images use the live model marker");
+}
+
+#[test]
+fn equip_popup_names_the_unequipped_breakdance_from_saved_preferences() {
+    let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut runtime = super::super::pack_harness::menu_runtime();
+    runtime.emotes_mut().apply_preferences(Some(&[
+        Some(actor_animation::CustomEmote::Twerk.id().to_owned()),
+        None,
+        None,
+        None,
+    ]));
+    runtime.emotes_mut().open();
+    runtime.emotes_mut().change_emotes();
+    let nodes = draw(&mut presentation, &runtime);
+    assert!(
+        super::super::pack_harness::drawn_texts(&nodes)
+            .iter()
+            .any(|text| text == actor_animation::CustomEmote::Breakdance.label())
+    );
 }
 
 #[test]

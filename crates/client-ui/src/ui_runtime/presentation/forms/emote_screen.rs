@@ -47,6 +47,7 @@ impl UiPresentationRuntime {
             renderer,
             EmoteInput {
                 equipping: state.is_equipping(),
+                equipping_emote: state.equipping_emote(),
                 selected_slot: state.selected_slot(),
                 slots: state.slots(),
                 preview,

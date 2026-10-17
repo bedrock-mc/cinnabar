@@ -6,6 +6,8 @@ slots; pointer selection uses the authored radial control's geometry and dead zo
 The control is listed in Keyboard & Mouse and Controller settings. Change Emotes equips the
 original custom dance in a chosen slot and persists the complete slot array.
 Equipping an already equipped piece moves/swaps it rather than duplicating it.
+Fresh preferences equip Twerk at the top and Breakdance on the right. Change
+Emotes offers an unequipped clip first, so existing saved wheels can add Breakdance.
 
 ## Vanilla rules
 
@@ -26,7 +28,15 @@ Equipping an already equipped piece moves/swaps it rather than duplicating it.
 - Nonzero horizontal movement requests emote cancellation.
 - Emoting keeps the HUD paper doll visible with the existing hold timer.
 
-## Original custom emote
+## Original custom emotes
+
+Breakdance is an original looping sequence with alternating top rock steps,
+a floor windmill with scissoring legs, an inverted freeze and a return to standing.
+Its period, label and identifier come from the shared catalog. Named body targets
+preserve attached clothing and independent skin hierarchies, retain the source
+rigid mesh, and ground the classic biped silhouette. Unusual custom proportions
+may need further ground-contact tuning. This clip makes no native or Marketplace
+animation parity claim.
 
 Twerk is an owned animation authored from observing the public
 [Lunar product preview](https://store.lunarclient.com/products/3720241/twerk).

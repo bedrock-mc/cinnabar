@@ -38,7 +38,9 @@ pub struct EmoteState {
 impl Default for EmoteState {
     fn default() -> Self {
         let mut slots = [None; EMOTE_SLOT_COUNT];
-        slots[0] = CustomEmote::ALL.first().copied();
+        for (slot, emote) in slots.iter_mut().zip(CustomEmote::ALL) {
+            *slot = Some(*emote);
+        }
         Self {
             slots,
             mode: Mode::Closed,
@@ -77,6 +79,14 @@ impl EmoteState {
     pub fn change_emotes(&mut self) {
         self.mode = Mode::Equip;
     }
+    /// Offers unequipped catalog entries before moving an already equipped piece.
+    pub fn equipping_emote(&self) -> Option<CustomEmote> {
+        CustomEmote::ALL
+            .iter()
+            .copied()
+            .find(|emote| !self.slots.contains(&Some(*emote)))
+            .or_else(|| CustomEmote::ALL.first().copied())
+    }
     pub fn playback(&self) -> Option<EmotePlayback> {
         self.playback
     }
@@ -90,7 +100,7 @@ impl EmoteState {
         }
         self.selected = Some(slot);
         if self.is_equipping() {
-            let emote = *CustomEmote::ALL.first()?;
+            let emote = self.equipping_emote()?;
             if self.slots[slot] != Some(emote) {
                 if let Some(previous) = self.slots.iter().position(|value| *value == Some(emote)) {
                     self.slots.swap(previous, slot);

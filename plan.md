@@ -2429,7 +2429,12 @@ keep their existing easing after movement stops. Rendered acceptance and native
 player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
-the native four-slot JSON-UI wheel and remappable emote control select an original,
+The original Breakdance clip adds top rock, a scissoring windmill, an inverted
+freeze and a looping return. Fresh wheels equip it on the right; saved wheels
+can add it through Change Emotes. It uses the existing playback, cancellation
+and sharing paths. Classic biped floor contact is authored locally; unusual
+custom proportions and native/Marketplace emote parity remain incomplete.
+The native four-slot JSON-UI wheel and remappable emote control select an original,
 owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the
 native first-person hand and remote actor animations intact. Slot preferences

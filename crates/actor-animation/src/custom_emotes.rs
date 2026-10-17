@@ -10,28 +10,33 @@ use std::sync::Arc;
 
 type PosePair = (Arc<[BoneTransform]>, Arc<[BoneTransform]>);
 mod articulated;
+mod breakdance;
 
 /// The single catalog identity shared by UI, persisted slots and playback.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CustomEmote {
     Twerk,
+    Breakdance,
 }
 
 impl CustomEmote {
-    pub const ALL: &[Self] = &[Self::Twerk];
+    pub const ALL: &[Self] = &[Self::Twerk, Self::Breakdance];
     pub const fn id(self) -> &'static str {
         match self {
             Self::Twerk => "cinnabar:twerk",
+            Self::Breakdance => "cinnabar:breakdance",
         }
     }
     pub const fn label(self) -> &'static str {
         match self {
             Self::Twerk => "Twerk",
+            Self::Breakdance => "Breakdance",
         }
     }
     pub const fn duration_seconds(self) -> f64 {
         match self {
             Self::Twerk => 0.45,
+            Self::Breakdance => 6.4,
         }
     }
     pub const fn looping(self) -> bool {
@@ -116,7 +121,10 @@ pub fn sample_custom_emote(
     }
     let leg_height =
         bones[names.iter().position(|name| name.as_ref() == "leftleg")?].pivot[1].abs();
-    let articulated_model = rig.skin_geometry.and_then(articulated::model);
+    let articulated_model = rig
+        .skin_geometry
+        .filter(|_| emote == CustomEmote::Twerk)
+        .and_then(articulated::model);
     let (bones, names) = if let Some(model) = &articulated_model {
         geometry::skeleton(&model.geometry.bones)?
     } else {
@@ -159,7 +167,9 @@ pub fn sample_custom_emote(
     }
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
-        if let Some(model) = articulated::model(&layer.geometry) {
+        if emote == CustomEmote::Twerk
+            && let Some(model) = articulated::model(&layer.geometry)
+        {
             layer.geometry = model.geometry;
             layer.mesh = Some(model.mesh);
         }
@@ -222,11 +232,14 @@ fn targets(
     seconds: f64,
     leg_height: f32,
 ) -> Vec<Option<BoneTransform>> {
-    if let Some(joints) = ArticulatedJoints::resolve(names) {
+    if emote == CustomEmote::Twerk
+        && let Some(joints) = ArticulatedJoints::resolve(names)
+    {
         return bent_knee_targets(bones, names, rest, emote, seconds, leg_height, joints);
     }
     match emote {
         CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
+        CustomEmote::Breakdance => breakdance::targets(bones, names, rest, seconds, leg_height),
     }
 }
 

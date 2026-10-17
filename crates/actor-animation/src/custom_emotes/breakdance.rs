@@ -1,0 +1,196 @@
+//! Original top rock, windmill and inverted freeze, authored for the named biped rig.
+use super::*;
+
+const WINDMILL_START: f32 = 0.32;
+const WINDMILL_END: f32 = 0.70;
+const SPIN_DEGREES: f32 = 3.0 * 360.0;
+
+#[derive(Clone, Copy)]
+struct Frame {
+    phase: f32,
+    turn: [f32; 3],
+    arms: [[f32; 3]; 2],
+    legs: [[f32; 3]; 2],
+}
+
+/// Stores the authored channels once; phase is a fraction of the catalog period.
+const fn frame(phase: f32, turn: [f32; 3], arms: [[f32; 3]; 2], legs: [[f32; 3]; 2]) -> Frame {
+    Frame {
+        phase,
+        turn,
+        arms,
+        legs,
+    }
+}
+
+const FRAMES: &[Frame] = &[
+    frame(0.0, [0.0, 0.0, 0.0], [[0.0; 3]; 2], [[0.0; 3]; 2]),
+    frame(
+        0.08,
+        [0.0, -18.0, -8.0],
+        [[-45.0, 0.0, -35.0], [30.0, 0.0, 40.0]],
+        [[-25.0, 0.0, -18.0], [15.0, 0.0, 8.0]],
+    ),
+    frame(
+        0.16,
+        [0.0, 18.0, 8.0],
+        [[30.0, 0.0, -40.0], [-45.0, 0.0, 35.0]],
+        [[15.0, 0.0, -8.0], [-25.0, 0.0, 18.0]],
+    ),
+    frame(
+        0.24,
+        [-45.0, 0.0, -25.0],
+        [[-85.0, 0.0, -20.0], [-50.0, 0.0, 30.0]],
+        [[65.0, 0.0, -25.0], [-55.0, 0.0, 35.0]],
+    ),
+    frame(
+        WINDMILL_START,
+        [-105.0, 0.0, 0.0],
+        [[-30.0, 0.0, -75.0], [-30.0, 0.0, 75.0]],
+        [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
+    ),
+    frame(
+        WINDMILL_END,
+        [-105.0, SPIN_DEGREES, 0.0],
+        [[-30.0, 0.0, -75.0], [-30.0, 0.0, 75.0]],
+        [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
+    ),
+    frame(
+        0.78,
+        [-180.0, SPIN_DEGREES, -12.0],
+        [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
+        [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
+    ),
+    frame(
+        0.85,
+        [-180.0, SPIN_DEGREES, -12.0],
+        [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
+        [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
+    ),
+    frame(
+        0.94,
+        [-330.0, SPIN_DEGREES, 0.0],
+        [[-65.0, 0.0, -20.0], [-65.0, 0.0, 20.0]],
+        [[35.0, 0.0, -15.0], [35.0, 0.0, 15.0]],
+    ),
+    frame(
+        1.0,
+        [-360.0, SPIN_DEGREES, 0.0],
+        [[0.0; 3]; 2],
+        [[0.0; 3]; 2],
+    ),
+];
+
+/// Eases entrances and the freeze; the windmill keeps its angular speed between turns.
+fn sample(seconds: f64) -> Frame {
+    let phase = (seconds.rem_euclid(CustomEmote::Breakdance.duration_seconds())
+        / CustomEmote::Breakdance.duration_seconds()) as f32;
+    let [a, b] = FRAMES
+        .windows(2)
+        .find(|pair| phase <= pair[1].phase)
+        .unwrap()
+    else {
+        unreachable!("windows always yields two frames")
+    };
+    let linear = (phase - a.phase) / (b.phase - a.phase);
+    let amount = if a.phase == WINDMILL_START {
+        linear
+    } else {
+        linear * linear * (3.0 - 2.0 * linear)
+    };
+    let blend = |a: [f32; 3], b: [f32; 3]| {
+        std::array::from_fn(|axis| a[axis] + (b[axis] - a[axis]) * amount)
+    };
+    let mut result = frame(
+        phase,
+        blend(a.turn, b.turn),
+        std::array::from_fn(|side| blend(a.arms[side], b.arms[side])),
+        std::array::from_fn(|side| blend(a.legs[side], b.legs[side])),
+    );
+    if (WINDMILL_START..WINDMILL_END).contains(&phase) {
+        let scissor = (result.turn[1].to_radians() * 2.0).sin() * 22.0;
+        result.legs[0][0] += scissor;
+        result.legs[1][0] -= scissor;
+    }
+    result
+}
+
+/// Applies world-space joint targets so independent limbs and hierarchical skins agree.
+pub(super) fn targets(
+    bones: &[RuntimeBone],
+    names: &[Box<str>],
+    rest: &[BoneTransform],
+    seconds: f64,
+    height: f32,
+) -> Vec<Option<BoneTransform>> {
+    let frame = sample(seconds);
+    // Separate world yaw from the floor tilt so the windmill circles the floor.
+    let turn = quat_multiply(
+        quat_from_euler([0.0, frame.turn[1].rem_euclid(360.0), 0.0]),
+        quat_from_euler([frame.turn[0].rem_euclid(360.0), 0.0, frame.turn[2]]),
+    );
+    let mut targets: Vec<_> = bones
+        .iter()
+        .zip(names)
+        .zip(rest)
+        .map(|((bone, name), rest)| {
+            let rotation = match name.as_ref() {
+                "waist" | "body" | "head" => [0.0; 3],
+                "leftarm" => frame.arms[0],
+                "rightarm" => frame.arms[1],
+                "leftleg" => frame.legs[0],
+                "rightleg" => frame.legs[1],
+                _ if bone.parent.is_none() => [0.0; 3],
+                _ => return None,
+            };
+            let mut target = *rest;
+            let relative = [
+                rest.translation_scale[0],
+                rest.translation_scale[1] - height,
+                rest.translation_scale[2],
+            ];
+            let pivot = rotate_vector(turn, relative);
+            target.translation_scale[..3].copy_from_slice(&[pivot[0], pivot[1] + height, pivot[2]]);
+            target.rotation = quat_multiply(
+                turn,
+                quat_multiply(quat_from_euler(rotation), rest.rotation),
+            );
+            Some(target)
+        })
+        .collect();
+    // Rest the standard cuboid silhouette on the floor throughout rotations. This
+    // affects presentation only; the actor position and collision box never move.
+    let lowest = names
+        .iter()
+        .zip(&targets)
+        .filter_map(|(name, target)| {
+            let target = target.as_ref()?;
+            let (width, bottom, top, depth) = match name.as_ref() {
+                "head" => (4.0, 0.0, 8.0, 4.0),
+                "body" => (4.0, -12.0, 0.0, 2.0),
+                "leftarm" | "rightarm" | "leftleg" | "rightleg" => (2.0, -12.0, 0.0, 2.0),
+                _ => return None,
+            };
+            let scale = height / 12.0;
+            let mut minimum = f32::INFINITY;
+            for x in [-width, width] {
+                for y in [bottom, top] {
+                    for z in [-depth, depth] {
+                        minimum = minimum.min(
+                            target.translation_scale[1]
+                                + rotate_vector(target.rotation, [x * scale, y * scale, z * scale])
+                                    [1],
+                        );
+                    }
+                }
+            }
+            Some(minimum)
+        })
+        .fold(f32::INFINITY, f32::min);
+    if lowest.is_finite() {
+        for target in targets.iter_mut().flatten() {
+            target.translation_scale[1] -= lowest;
+        }
+    }
+    targets
+}
