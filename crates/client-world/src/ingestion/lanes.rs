@@ -298,7 +298,14 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         | WorldEvent::WorldSpawn(_)
         | WorldEvent::WorldClocks(_)
         | WorldEvent::Weather(_) => Footprint::session(C::CONTROLS),
-        WorldEvent::GameRules(_) => Footprint::session(C::CONTROLS.with(C::UI)),
+        WorldEvent::GameRules(rules) => {
+            let consumers = C::CONTROLS.with(C::UI);
+            Footprint::session(if rules.crafting.is_empty() {
+                consumers
+            } else {
+                consumers.with(C::INVENTORY)
+            })
+        }
         // Positional sounds may wait in the actor store for their actor's synchronization.
         WorldEvent::Audio(AudioEvent::Level(level)) if level.fire_at_position.is_some() => {
             Footprint::session(C::AUDIO.with(C::ACTORS))

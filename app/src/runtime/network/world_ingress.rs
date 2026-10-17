@@ -8,7 +8,9 @@ use bevy::prelude::ResMut;
 use chunk_pipeline::WorldStream;
 use client_runtime::{
     ingress::{WORLD_INGRESS_DRAIN_BUDGET, WorldIngressDrain},
-    inventory::{route_inventory_ingress, route_item_registry_ingress},
+    inventory::{
+        route_crafting_rules_ingress, route_inventory_ingress, route_item_registry_ingress,
+    },
     network::NetworkHandle,
 };
 use client_shell::ui_resources::UiRuntimeResource;
@@ -254,6 +256,11 @@ fn route_player_ingress(
         }
         Ok(None)
     } else {
+        if matches!(&sequenced.event, WorldEvent::GameRules(_))
+            && let Err(error) = route_crafting_rules_ingress(player_runtime, ui_runtime, &sequenced)
+        {
+            return Err(format!("crafting rule ingress rejected: {error:?}"));
+        }
         if matches!(
             &sequenced.event,
             WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))

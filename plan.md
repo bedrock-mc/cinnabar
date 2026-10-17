@@ -8316,12 +8316,17 @@ and explicit membership survives ordinary catalog clears while a new session
 resets it. Unsupported crafting shapes and furnace-family identities remain
 addressable. Duplicate names across eligible tags are conservatively unresolved;
 exact tag priority and synthesized multi-recipe identities remain incomplete.
-This foundation does not gate existing manual or book consumers. Game-rule
-consumers, category masks, toast presentation, exact player lifecycle and stable
-live acceptance remain incomplete.
+Startup and later crafting rules now reach the committed inventory frontier.
+Manual results check exact recipe discovery when both recipe unlocking and
+limited crafting are enabled. The book distinguishes absent discovery state
+from an empty component, and nonempty search can show locked recipes disabled
+when limited crafting is off. Book actions recheck the current recipe handle
+and discovery; rule and unlock changes invalidate retained output previews.
+Category masks, toast presentation, exact player lifecycle, complete book
+variant ranking and stable live acceptance remain incomplete.
 
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
-limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+complete recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
 

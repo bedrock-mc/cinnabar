@@ -267,9 +267,10 @@ fn modifier(entry: &BookEntry<'_>) -> i64 {
     }
 }
 
+/// Chooses a row's enabled appearance from current discovery and material authority.
 fn background(source: &dyn ContainerSource, entry: &BookEntry<'_>) -> &'static str {
     match entry {
-        BookEntry::Recipe(recipe) if !source.player().inventory.ledger().can_auto_craft(recipe) => {
+        BookEntry::Recipe(recipe) if !source.player().inventory.book_recipe_craftable(recipe) => {
             RECIPE_DISABLED
         }
         BookEntry::Group {

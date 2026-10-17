@@ -56,8 +56,11 @@ impl UiRuntime {
         skip: usize,
         take: usize,
     ) -> Vec<RecipeHandle> {
-        player_runtime
-            .inventory
-            .book_recipes(self.recipe_filtering(player_runtime), skip, take)
+        player_runtime.inventory.book_recipes(
+            self.recipe_filtering(player_runtime),
+            !self.screen_state().search.is_empty(),
+            skip,
+            take,
+        )
     }
 }

@@ -47,4 +47,15 @@ impl CraftingRules {
     pub fn is_empty(self) -> bool {
         self == Self::default()
     }
+
+    /// Whether both fields have authoritative values after bootstrap or later recovery.
+    pub fn is_complete(self) -> bool {
+        matches!(
+            self,
+            Self {
+                recipes_unlock: Some(_),
+                limited_crafting: Some(_)
+            }
+        )
+    }
 }

@@ -64,3 +64,71 @@ pub fn route_item_registry_ingress(
         event.clone(),
     )
 }
+
+/// Queues crafting rules alongside their world packet without moving its FIFO position.
+pub fn route_crafting_rules_ingress(
+    player_runtime: &mut client_state::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    sequenced: &SequencedWorldEvent,
+) -> Result<(), UiRuntimeError> {
+    let WorldEvent::GameRules(rules) = &sequenced.event else {
+        unreachable!("crafting-rule routing accepts only game-rule world events")
+    };
+    if rules.crafting.is_empty() {
+        return Ok(());
+    }
+    runtime.enqueue_inventory_event(
+        player_runtime,
+        sequenced.session_generation.get(),
+        sequenced.sequence.get(),
+        InventoryEvent::CraftingRules(rules.crafting),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crafting_rules_route_to_inventory_at_the_world_commit_position() {
+        let mut player = client_state::PlayerRuntime::new(1);
+        let mut runtime = UiRuntime::new(1);
+        let event = SequencedWorldEvent {
+            session_generation: simulation_clock::identity::SessionGeneration::new(1),
+            sequence: protocol::identity::FifoSequence::new(5),
+            event: WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: None,
+                weather_cycle: None,
+                hud: Default::default(),
+                death: Default::default(),
+                crafting: protocol::CraftingRules {
+                    recipes_unlock: None,
+                    limited_crafting: Some(true),
+                },
+            }),
+        };
+        route_crafting_rules_ingress(&mut player, &mut runtime, &event).unwrap();
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(4))));
+        player.inventory.drain_pending_inventory();
+        assert!(
+            !player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(5))));
+        player.inventory.finish_drain();
+        assert!(
+            player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
+    }
+}

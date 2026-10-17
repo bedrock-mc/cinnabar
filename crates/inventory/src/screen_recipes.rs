@@ -120,18 +120,43 @@ impl InventorySession {
         }
     }
 
-    /// Crafting recipes the recipe book lists for the open grid, after
-    /// skipping `skip`, at most `take`. Filtering keeps the craftable ones,
-    /// first, then those the inventory holds some ingredient of; otherwise
-    /// every output lists, the uncraftable ones shown disabled. Alternate
-    /// recipes share one entry, preferring usable ingredients, then priority.
-    pub fn book_recipes(&self, filtering: bool, skip: usize, take: usize) -> Vec<RecipeHandle> {
-        let Some(catalog) = self.screen_catalog() else {
+    /// Whether a current book recipe is discovered and its ingredients can be supplied now.
+    pub fn book_recipe_craftable(&self, recipe: &RecipeHandle) -> bool {
+        self.crafting_authority.contains_recipe(recipe)
+            && self.crafting_authority.book_recipe_unlocked(recipe)
+            && self.ledger().can_auto_craft(recipe)
+    }
+
+    /// Rechecks recipe discovery at the action frontier before allocating any request.
+    pub fn begin_book_craft(
+        &mut self,
+        recipe: &RecipeHandle,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        if !self.crafting_authority.contains_recipe(recipe)
+            || !self.crafting_authority.book_recipe_unlocked(recipe)
+        {
+            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
+        }
+        self.ledger_mut().begin_auto_craft(recipe)
+    }
+
+    /// Lists one variant per output for the open grid, with pagination after grouping.
+    /// Discovery takes precedence over ingredients and priority. Filtering keeps held
+    /// ingredients, with craftable results first. Nonempty search may show locked
+    /// results disabled when limited crafting is off.
+    pub fn book_recipes(
+        &self,
+        filtering: bool,
+        search_active: bool,
+        skip: usize,
+        take: usize,
+    ) -> Vec<RecipeHandle> {
+        let (Some(catalog), Some(rules)) = (self.screen_catalog(), self.crafting_rules()) else {
             return Vec::new();
         };
         let ledger = self.ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        let mut listed: Vec<(bool, bool, RecipeHandle)> = Vec::new();
+        let mut listed: Vec<(bool, bool, bool, RecipeHandle)> = Vec::new();
         let mut outputs = std::collections::HashMap::new();
         for recipe in catalog.crafting_recipes().filter(|recipe| {
             let (width, height) = recipe.dimensions();
@@ -142,7 +167,8 @@ impl InventorySession {
                     width <= 2 && height <= 2
                 }
         }) {
-            let craftable = ledger.can_auto_craft(recipe);
+            let unlocked = self.crafting_authority.book_recipe_unlocked(recipe);
+            let craftable = unlocked && ledger.can_auto_craft(recipe);
             let held = craftable || ledger.holds_any_ingredient(recipe);
             if filtering && !held {
                 continue;
@@ -150,24 +176,29 @@ impl InventorySession {
             let output = recipe.output();
             let key = (output.network_id, output.aux, output.block_runtime_id);
             if let Some(&index) = outputs.get(&key) {
-                let previous: &(bool, bool, RecipeHandle) = &listed[index];
-                let rank = |craftable: bool, held: bool, recipe: &RecipeHandle| {
-                    (!craftable, !held, recipe.recipe().priority())
+                let previous: &(bool, bool, bool, RecipeHandle) = &listed[index];
+                let rank = |unlocked: bool, craftable: bool, held: bool, recipe: &RecipeHandle| {
+                    (!unlocked, !craftable, !held, recipe.recipe().priority())
                 };
-                if rank(craftable, held, recipe) < rank(previous.0, previous.1, &previous.2) {
-                    listed[index] = (craftable, held, recipe.clone());
+                if rank(unlocked, craftable, held, recipe)
+                    < rank(previous.0, previous.1, previous.2, &previous.3)
+                {
+                    listed[index] = (unlocked, craftable, held, recipe.clone());
                 }
             } else {
                 outputs.insert(key, listed.len());
-                listed.push((craftable, held, recipe.clone()));
+                listed.push((unlocked, craftable, held, recipe.clone()));
             }
         }
         if filtering {
-            listed.sort_by_key(|(craftable, _, _)| !craftable);
+            listed.sort_by_key(|(_, craftable, _, _)| !craftable);
         }
         listed
             .into_iter()
-            .map(|(_, _, recipe)| recipe)
+            .filter(|(unlocked, _, _, _)| {
+                *unlocked || (search_active && !rules.limited_crafting_enabled())
+            })
+            .map(|(_, _, _, recipe)| recipe)
             .skip(skip)
             .take(take)
             .collect()

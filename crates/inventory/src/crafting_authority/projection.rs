@@ -130,6 +130,7 @@ pub(super) enum Observation {
     Registry(Option<Arc<RegistryOwner>>),
     Recipes(protocol::RecipeUpdate),
     RecipeUnlocks(protocol::RecipeUnlockUpdate),
+    CraftingRules(protocol::CraftingRules),
     Authority(protocol::InventoryAuthority),
 }
 
@@ -139,11 +140,15 @@ impl Observation {
             Self::Registry(_) => 1,
             Self::Recipes(_) => 2,
             Self::RecipeUnlocks(_) => 8,
+            Self::CraftingRules(_) => CRAFTING_RULES_DOMAIN,
             Self::Authority(_) => 4,
             Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
         }
     }
 }
+
+/// Rule observations form an independent authority domain during queue loss.
+pub(super) const CRAFTING_RULES_DOMAIN: u8 = 1 << 4;
 
 #[derive(Debug, Clone)]
 pub(super) struct Record {

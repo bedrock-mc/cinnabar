@@ -753,8 +753,7 @@ impl UiRuntime {
                     .into_iter()
                     .next()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_auto_craft(&recipe)
+                player_runtime.inventory.begin_book_craft(&recipe)
             }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
@@ -804,9 +803,7 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_auto_craft(&recipe),
+            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
