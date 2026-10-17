@@ -94,3 +94,5 @@ faces never share a plane. The `animation.json` files keep their `playback` and 
 fields when clips are re-exported. Wings, tail, scarf and tassel use looping clips; the bee and
 the amethyst shards circle on looping position clips; the pixel shades drop in once and then
 lift and drop back after each delay. The halo and amethyst orbit are `emissive`.
+Rotation keys interpolate along the shortest turn, so a continuous spin is authored as keys
+that wrap from +180 to -180 degrees a few microseconds apart.

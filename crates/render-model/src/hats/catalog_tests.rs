@@ -93,3 +93,55 @@ fn every_slot_has_a_catalog_item_and_glow_is_limited_to_the_halo_and_aura() {
         .collect();
     assert_eq!(glowing, ["cinnabar:halo", "cinnabar:amethyst_orbit"]);
 }
+
+#[test]
+fn spinning_items_turn_smoothly_through_their_wrap_keys() {
+    let catalog: Catalog = serde_json::from_str(include_str!("fixture/catalog.json")).unwrap();
+    let attachment = RenderBoneTransform {
+        rotation: Quat::IDENTITY.to_array(),
+        translation_scale: [0.0, 1.5, 0.0, 1.0],
+        axis_scale: crate::UNIT_AXIS_SCALE,
+    };
+    for shipped in wave() {
+        let descriptor = catalog
+            .items
+            .iter()
+            .find(|item| item.id == shipped.id)
+            .unwrap()
+            .clone();
+        let item = admit(
+            descriptor,
+            shipped.geometry,
+            shipped.texture,
+            shipped.animation,
+        )
+        .unwrap();
+        let model = rig(item);
+        let Some(length) = model.playback.as_ref().map(|clip| clip.length) else {
+            continue;
+        };
+        let step = 0.000_5;
+        let mut previous = model.pose(attachment, Motion::default());
+        for index in 1..=(length / step) as usize {
+            let seconds = index as f32 * step;
+            let pose = model.pose(
+                attachment,
+                Motion {
+                    seconds,
+                    ..Default::default()
+                },
+            );
+            for (bone, (before, after)) in previous.iter().zip(pose.iter()).enumerate() {
+                let turn = Quat::from_array(before.rotation)
+                    .angle_between(Quat::from_array(after.rotation));
+                assert!(
+                    turn < 3f32.to_radians(),
+                    "{} bone {bone} turns {}° at {seconds}s",
+                    shipped.id,
+                    turn.to_degrees()
+                );
+            }
+            previous = pose;
+        }
+    }
+}

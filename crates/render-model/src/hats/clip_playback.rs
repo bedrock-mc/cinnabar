@@ -90,6 +90,23 @@ fn sample(keys: &Keys, time: f32) -> Vec3 {
         a.1.lerp(b.1, ((time - a.0) / (b.0 - a.0)).clamp(0.0, 1.0))
     }
 }
+/// Samples authored degrees along the shortest turn between keys, so a key pair that wraps
+/// from +180 to -180 continues a spin instead of sweeping back through zero.
+fn sample_rotation(keys: &Keys, time: f32) -> Vec3 {
+    if keys.is_empty() {
+        return Vec3::ZERO;
+    }
+    let upper = keys
+        .partition_point(|key| key.0 <= time)
+        .min(keys.len() - 1);
+    let (a, b) = (keys[upper.saturating_sub(1)], keys[upper]);
+    if a.0 == b.0 {
+        return a.1;
+    }
+    let turn = (b.1 - a.1).map(|degrees| (degrees + 180.0).rem_euclid(360.0) - 180.0);
+    a.1 + turn * ((time - a.0) / (b.0 - a.0)).clamp(0.0, 1.0)
+}
+
 impl Clip {
     /// Rejects empty, unknown or oversized bone channels before constructing indexed tracks.
     fn build(definition: Definition, names: &[&str]) -> Option<Self> {
@@ -119,7 +136,9 @@ impl Clip {
     fn joins(&self, next: &Self) -> bool {
         self.tracks.iter().zip(&next.tracks).all(|(a, b)| {
             sample(&a.position, self.length).distance(sample(&b.position, 0.0)) < 1e-5
-                && sample(&a.rotation, self.length).distance(sample(&b.rotation, 0.0)) < 1e-5
+                && sample_rotation(&a.rotation, self.length)
+                    .distance(sample_rotation(&b.rotation, 0.0))
+                    < 1e-5
         })
     }
 }
@@ -251,7 +270,10 @@ impl Clips {
         clip.tracks
             .get(bone)
             .map_or((Vec3::ZERO, Vec3::ZERO), |track| {
-                (sample(&track.rotation, time), sample(&track.position, time))
+                (
+                    sample_rotation(&track.rotation, time),
+                    sample(&track.position, time),
+                )
             })
     }
 

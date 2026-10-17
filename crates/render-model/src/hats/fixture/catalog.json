@@ -288,9 +288,9 @@
           "bytes": 587
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/98993c203f6ff8a09339eb8b6f5d53af62060a7f31d3d67c934d013d2d0e942f",
-          "sha256": "98993c203f6ff8a09339eb8b6f5d53af62060a7f31d3d67c934d013d2d0e942f",
-          "bytes": 16199
+          "url": "/v1/cosmetics/assets/4d21d9630c02fa05a7c4e0c0a74dcc5cba636b4d9ecbace3638b1e5b5d1748ef",
+          "sha256": "4d21d9630c02fa05a7c4e0c0a74dcc5cba636b4d9ecbace3638b1e5b5d1748ef",
+          "bytes": 16201
         }
       },
       "geometry_id": "geometry.cinnabar.bee_buddy",
@@ -478,8 +478,8 @@
           "bytes": 327
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/3fb10cbd70f514a8cefcb1f65498d4f4dcd702dea6cf8edee3d69ecd95967da8",
-          "sha256": "3fb10cbd70f514a8cefcb1f65498d4f4dcd702dea6cf8edee3d69ecd95967da8",
+          "url": "/v1/cosmetics/assets/cf534403bb5aca6827dee343ce2b14bbb48ec04d3dc8b4930c1ebb6d2e950068",
+          "sha256": "cf534403bb5aca6827dee343ce2b14bbb48ec04d3dc8b4930c1ebb6d2e950068",
           "bytes": 6013
         }
       },
@@ -555,9 +555,9 @@
           "bytes": 628
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/5d001daca3ab47b8d3110bd58662a064cf7e9c0d92fd1aa567685c6dfd29707a",
-          "sha256": "5d001daca3ab47b8d3110bd58662a064cf7e9c0d92fd1aa567685c6dfd29707a",
-          "bytes": 26838
+          "url": "/v1/cosmetics/assets/10e869d7a41498123a4e8701b930696671f322cc18e4765fdebac1063f8e6a5b",
+          "sha256": "10e869d7a41498123a4e8701b930696671f322cc18e4765fdebac1063f8e6a5b",
+          "bytes": 26852
         }
       },
       "geometry_id": "geometry.cinnabar.amethyst_orbit",
