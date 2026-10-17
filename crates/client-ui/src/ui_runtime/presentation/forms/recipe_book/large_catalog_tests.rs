@@ -12,6 +12,7 @@ fn inventory_pack_replacement_preserves_pixels_and_rechecks_virtualization() {
     };
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::creative_with(&mut player, 256);
+    runtime.select_inventory_layout(&mut player, 2).unwrap();
     runtime
         .screen_state_mut()
         .select_tab(ui_screens::container_actions::SEARCH_TAB);
@@ -94,6 +95,7 @@ fn unrelated_server_ui_keeps_creative_search_virtualized() {
     )];
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::creative_with(&mut player, 2048);
+    runtime.select_inventory_layout(&mut player, 2).unwrap();
     runtime
         .screen_state_mut()
         .select_tab(ui_screens::container_actions::SEARCH_TAB);

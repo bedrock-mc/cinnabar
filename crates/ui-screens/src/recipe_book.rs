@@ -198,7 +198,9 @@ fn option_bindings(
 ) {
     let options = controller.options;
     let tab = options.left_tab;
-    let wide = shown && controller.layout() == InventoryLayout::RecipeBookOnly;
+    let wide = shown
+        && controller.allows_recipe_book_only(creative)
+        && controller.layout() == InventoryLayout::RecipeBookOnly;
     for (name, value) in [
         (
             "#is_survival_layout",

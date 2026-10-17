@@ -786,6 +786,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
+        self.screen.inventory = None;
         player_runtime
             .inventory
             .ledger_mut()

@@ -22,6 +22,8 @@ impl UiRuntime {
             .observe_window(player.inventory.ledger().storage_generation());
         if self.inventory_open() {
             self.initialize_inventory_controller(player);
+        } else {
+            self.screen.inventory = None;
         }
         if self.screen.furnace.is_none()
             && let Some(kind) = player

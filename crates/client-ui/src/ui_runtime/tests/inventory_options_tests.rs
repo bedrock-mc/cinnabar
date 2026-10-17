@@ -292,3 +292,31 @@ fn inventory_options_creative_bypasses_effective_filter_and_workbench_rejects_wi
     assert_eq!(runtime.inventory_controller(&player), Some(shown));
     assert!(runtime.take_client_packet().is_none());
 }
+
+#[test]
+fn inventory_options_unsaved_choices_retire_on_close_without_a_flush() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player);
+    runtime
+        .change_inventory_options(&mut player, false, |controller| {
+            controller.options.left_tab = InventoryTab::Nature
+        })
+        .unwrap();
+    runtime.close_inventory(&mut player);
+    assert!(runtime.screen_state().inventory.is_none());
+    assert!(runtime.take_client_packet().is_none());
+    runtime.toggle_inventory(&mut player);
+    assert_eq!(
+        runtime
+            .inventory_controller(&player)
+            .unwrap()
+            .options
+            .left_tab,
+        InventoryTab::Search
+    );
+    assert_eq!(
+        player.inventory.inventory_options(),
+        InventoryOptions::default()
+    );
+}
