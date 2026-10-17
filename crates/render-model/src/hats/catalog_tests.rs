@@ -64,8 +64,12 @@ fn every_new_catalog_item_admits_with_its_digests_slot_glow_and_emitters() {
         assert_eq!(model.emitters().len(), shipped.emitters, "{}", shipped.id);
         assert!(!model.rest_vertices.is_empty(), "{}", shipped.id);
         assert!(
-            thumbnail::render(item, 64, 64)
-                .is_some_and(|image| image.rgba8.chunks_exact(4).any(|texel| texel[3] > 0)),
+            thumbnail::render(item, 64, 64).is_some_and(|image| image
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|texel| texel[3] > 0)),
             "{} needs visible gallery artwork",
             shipped.id
         );

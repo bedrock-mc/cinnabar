@@ -250,9 +250,9 @@
           "bytes": 293
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/04f61ca9f5752521e05c450578ddfa309be2047c4cfaaee1aae58efaa1425268",
-          "sha256": "04f61ca9f5752521e05c450578ddfa309be2047c4cfaaee1aae58efaa1425268",
-          "bytes": 3678
+          "url": "/v1/cosmetics/assets/e9edf48dc5deb81178c762a11c6ac91248b5deb2f0212b7588773a76c59a8b6f",
+          "sha256": "e9edf48dc5deb81178c762a11c6ac91248b5deb2f0212b7588773a76c59a8b6f",
+          "bytes": 5357
         }
       },
       "geometry_id": "geometry.cinnabar.pixel_shades",

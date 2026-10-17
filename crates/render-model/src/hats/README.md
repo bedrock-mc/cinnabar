@@ -83,3 +83,14 @@ An animation file may add a top-level `particles` array of at most eight entries
 The emitter basis is the posed bone's axes in world space, including player scale. Any
 malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
 most 128 alive at once (sixteen players with eight each); previews never emit.
+
+Ten cube projects fill every slot: `studio_headphones`, `halo`, `pixel_shades`, `kitsune_mask`,
+`morpho_wings`, `ember_jetpack`, `fox_tail`, `knit_scarf`, `bee_buddy` and `amethyst_orbit`.
+Each `.bbmodel` embeds its original 64x64 texture, also saved beside it as a PNG; items with
+particles keep their 16x16 sprite sheet in the texture's bottom-right corner. Export each
+with `python3 crates/render-model/src/hats/export.py <name>`. Cube rotations and pivots are
+exported, faces without a texture are omitted, and two-sided cards are thin cubes so their
+faces never share a plane. The `animation.json` files keep their `playback` and `particles`
+fields when clips are re-exported. Wings, tail, scarf and tassel use looping clips; the bee and
+the amethyst shards circle on looping position clips; the pixel shades drop in once and then
+lift and drop back after each delay. The halo and amethyst orbit are `emissive`.
