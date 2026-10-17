@@ -8324,8 +8324,9 @@ when limited crafting is off. Their selection remains guarded. Book actions rech
 and discovery; rule and unlock changes invalidate retained output previews.
 Book rows aggregate ingredient availability across same-output variants separately
 from the candidate's discovery permission, and selection rechecks that permission.
-Category masks, toast presentation, exact player lifecycle, complete book
-variant ranking and stable live acceptance remain incomplete.
+Initial discovery-state absence is provisional; player creation, respawn and
+listener ordering still require verification. Category masks, toast presentation,
+complete book variant ranking and stable live acceptance remain incomplete.
 
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 complete recipe-book discovery state,
