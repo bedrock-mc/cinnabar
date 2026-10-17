@@ -261,6 +261,8 @@ impl HatPoseCache {
 
 #[cfg(test)]
 mod animation_tests;
+#[cfg(test)]
+mod catalog_tests;
 mod clip_playback;
 mod cosmetics_animation;
 #[cfg(test)]

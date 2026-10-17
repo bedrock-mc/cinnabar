@@ -220,6 +220,43 @@ fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots
             include_str!("devil_horns.bbmodel"),
             include_str!("devil_horns.geo.json"),
         ),
+        (
+            include_str!("fox_tail.bbmodel"),
+            include_str!("fox_tail.geo.json"),
+        ),
+        (
+            include_str!("pixel_shades.bbmodel"),
+            include_str!("pixel_shades.geo.json"),
+        ),
+        (
+            include_str!("bee_buddy.bbmodel"),
+            include_str!("bee_buddy.geo.json"),
+        ),
+        (
+            include_str!("morpho_wings.bbmodel"),
+            include_str!("morpho_wings.geo.json"),
+        ),
+        (
+            include_str!("knit_scarf.bbmodel"),
+            include_str!("knit_scarf.geo.json"),
+        ),
+        (
+            include_str!("kitsune_mask.bbmodel"),
+            include_str!("kitsune_mask.geo.json"),
+        ),
+        (
+            include_str!("studio_headphones.bbmodel"),
+            include_str!("studio_headphones.geo.json"),
+        ),
+        (include_str!("halo.bbmodel"), include_str!("halo.geo.json")),
+        (
+            include_str!("ember_jetpack.bbmodel"),
+            include_str!("ember_jetpack.geo.json"),
+        ),
+        (
+            include_str!("amethyst_orbit.bbmodel"),
+            include_str!("amethyst_orbit.geo.json"),
+        ),
     ] {
         let project: serde_json::Value = serde_json::from_str(project).unwrap();
         let exported: serde_json::Value = serde_json::from_str(geometry).unwrap();
@@ -244,6 +281,59 @@ fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots
                 .find(|bone| bone["name"] == group["name"])
                 .expect("exported project joint");
             assert_eq!(bone["pivot"], group["origin"]);
+        }
+        let cubes: Vec<_> = geometry["bones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|bone| bone["cubes"].as_array().cloned().unwrap_or_default())
+            .collect();
+        for cube in project["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|element| element["type"] == "cube")
+        {
+            let from = cube["from"].as_array().unwrap();
+            let size: Vec<f64> = (0..3)
+                .map(|axis| cube["to"][axis].as_f64().unwrap() - from[axis].as_f64().unwrap())
+                .collect();
+            let rotated = cube["rotation"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n.as_f64() != Some(0.0));
+            // Repeated parts share origins and sizes, so a cube matches only with all its faces.
+            let matches = |candidate: &&serde_json::Value| {
+                candidate["origin"] == cube["from"]
+                    && (0..3).all(|axis| {
+                        (candidate["size"][axis].as_f64().unwrap() - size[axis]).abs() < 1e-9
+                    })
+                    && (!rotated
+                        || (candidate["rotation"] == cube["rotation"]
+                            && candidate["pivot"] == cube["origin"]))
+                    && cube["faces"]
+                        .as_object()
+                        .unwrap()
+                        .iter()
+                        .all(|(name, face)| {
+                            let uv = face["uv"].as_array().unwrap();
+                            if face["texture"].is_null() {
+                                return candidate["uv"].get(name).is_none();
+                            }
+                            let corner = |i: usize| uv[i].as_f64().unwrap();
+                            let exported = &candidate["uv"][name];
+                            exported["uv"] == serde_json::json!([uv[0], uv[1]])
+                                && [
+                                    exported["uv_size"][0].as_f64(),
+                                    exported["uv_size"][1].as_f64(),
+                                ] == [Some(corner(2) - corner(0)), Some(corner(3) - corner(1))]
+                        })
+            };
+            assert!(
+                cubes.iter().any(|candidate| matches(&candidate)),
+                "Blockbench cubes, transforms and face UVs must be exported together"
+            );
         }
         for mesh in project["elements"]
             .as_array()
