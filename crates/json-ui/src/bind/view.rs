@@ -206,9 +206,9 @@ impl Binder<'_> {
         let mut queued = HashSet::new();
         let mut pending = VecDeque::new();
         for (path, _) in list {
-            let node = node_at(root, path);
-            for name in &node.memory.creation_writes {
-                let input = (node.key, name.clone());
+            let node = node_at_mut(root, path);
+            for name in std::mem::take(&mut node.memory.creation_writes) {
+                let input = (node.key, name);
                 if queued.insert(input.clone()) {
                     pending.push_back(input);
                 }
@@ -353,7 +353,7 @@ impl Binder<'_> {
         let mut wrote = false;
         node.track.touched |= first;
         if source.is_some() {
-            let refreshed = observed.is_some() && node.memory.creation_writes.remove(target);
+            let refreshed = observed.is_some() && node.memory.creation_views.remove(&index);
             let fire = observed.is_some()
                 && (refreshed || node.memory.views.get(&index) != Some(&observed));
             if !registered || node.memory.views.get(&index) != Some(&observed) {

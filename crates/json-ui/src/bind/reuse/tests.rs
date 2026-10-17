@@ -196,6 +196,38 @@ fn retained_factory_views_receive_changed_item_values() {
 }
 
 #[test]
+fn refreshed_creation_targets_preserve_the_last_view_writer() {
+    let root = Arc::new(control(
+        "caption",
+        "label",
+        json!({"text":"#text","bindings":[
+            {"binding_type":"view","source_property_name":"#a","target_property_name":"#text"},
+            {"binding_type":"view","source_property_name":"#b","target_property_name":"#text"}
+        ]}),
+        vec![],
+    ));
+    for incremental in [false, true] {
+        let mut state = BindState::new();
+        for input in ["seed", "B", "B", "next", "B"] {
+            let mut data = DataSource::new();
+            for (name, value) in [("#text", input), ("#a", "A"), ("#b", "B")] {
+                data.set_creation_value(name, Scalar::Text(value.into()));
+            }
+            let data = Arc::new(data);
+            let bound = if incremental {
+                crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state)
+            } else {
+                crate::bind_stateful(&root, &data, &EmptyLibrary, &mut state).0
+            };
+            assert_eq!(
+                bound.properties["text"], "B",
+                "incremental={incremental}, input={input}"
+            );
+        }
+    }
+}
+
+#[test]
 fn changed_creation_inputs_bound_cyclic_view_notifications() {
     for count in [10, 100] {
         let root = Arc::new(control(

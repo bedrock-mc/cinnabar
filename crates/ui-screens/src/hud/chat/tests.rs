@@ -584,3 +584,72 @@ fn message_templates_cannot_replace_shared_chat_shell_definitions() {
     assert_eq!(caption.properties["text"], "Isolated caption");
     assert_eq!(caption.properties["size"], json!([43, 17]));
 }
+
+#[test]
+fn cosmetic_rows_keep_active_ordinary_label_filters() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "unused@hud.chat_label":{"bindings":[visible_when("(#text = 'unused')")]},
+            "used@hud.chat_label":{"bindings":[visible_when("(not (#text = 'hidden'))")]},
+            "custom_row":{"type":"panel","controls":[{"message@hud.used":{}}]},
+            "chat_grid_item/chat_text":{"color":[1,0,0]},
+            "root_panel":{"controls":[{"custom_chat":{"type":"stack_panel",
+                "factory":{"name":"chat_item_factory","control_ids":{"chat_item":"hud.custom_row"}}}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let mut state = json_ui::BindState::new();
+    for text in ["visible", "hidden", "visible"] {
+        let mut data = json_ui::DataSource::new();
+        data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        let label = bound
+            .find(&|control: &ResolvedControl| control.name == "chat_text")
+            .unwrap();
+        assert_eq!(label.properties["color"], json!([1, 0, 0]));
+        assert_eq!(
+            label
+                .properties
+                .get("visible")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            text != "hidden"
+        );
+    }
+}
+
+#[test]
+fn retained_named_caption_filters_stay_independent() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "one@hud.chat_label":{"bindings":[visible_when("(#text = 'one')")]},
+            "two@hud.chat_label":{"bindings":[visible_when("(#text = 'two')")]},
+            "chat_grid_item":{"controls":[{"first@hud.one":{}},{"second@hud.two":{}}]},
+            "root_panel":{"controls":[{"chat":{"type":"stack_panel","factory":{
+                "name":"chat_item_factory","control_ids":{"chat_item":"hud.chat_grid_item"}}}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let mut state = json_ui::BindState::new();
+    for text in ["one", "two", "one"] {
+        let mut data = json_ui::DataSource::new();
+        data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        assert_eq!(bound.children[0].properties["visible"], text == "one");
+        assert_eq!(bound.children[1].properties["visible"], text == "two");
+    }
+}

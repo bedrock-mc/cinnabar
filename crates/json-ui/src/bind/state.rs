@@ -107,6 +107,8 @@ pub(super) struct Retained {
     pub(super) creation_inputs: Arc<super::bag::Bag>,
     /// Changed creation inputs that view observers must consume before normal settling.
     pub(super) creation_writes: BTreeSet<String>,
+    /// Each view writer invalidated by a changed creation target.
+    pub(super) creation_views: BTreeSet<usize>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
     /// `once` bindings already applied, by index.
@@ -136,10 +138,17 @@ impl Retained {
     ) {
         for (name, value) in inputs {
             let changed = self.creation_inputs.get(name) != Some(value);
-            let written = bindings.iter().enumerate().any(|(index, binding)| {
-                matches!(&binding.kind, super::spec::Kind::View { target, .. } if target == name)
+            let mut written = false;
+            for (index, binding) in bindings.iter().enumerate() {
+                if matches!(&binding.kind, super::spec::Kind::View { target, .. } if target == name)
                     && self.views.get(&index).is_some_and(Option::is_some)
-            });
+                {
+                    written = true;
+                    if changed {
+                        self.creation_views.insert(index);
+                    }
+                }
+            }
             if written && changed {
                 self.creation_writes.insert(name.clone());
             }

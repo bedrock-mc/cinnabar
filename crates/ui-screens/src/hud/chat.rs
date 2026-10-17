@@ -66,14 +66,22 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         })
         .collect::<BTreeMap<_, _>>();
     let labels = derived_labels(&derived);
-    if message_row.is_none() {
-        collect_active_labels(
-            catalog,
-            &labels,
-            visibility
-                .entry(ControlRef::new("hud", "chat_label"))
-                .or_default(),
-        );
+    let ordinary_label = ControlRef::new("hud", "chat_label");
+    collect_active_labels(
+        catalog,
+        &labels,
+        visibility.entry(ordinary_label.clone()).or_default(),
+    );
+    if let Some(scope) = &content_scope {
+        let reference = scope.reference(&ordinary_label);
+        if let Some(mut label) = catalog
+            .lookup(&reference.namespace, &reference.name)
+            .cloned()
+        {
+            // Explicit per-label binding arrays keep their own filters through inheritance.
+            visibility[&ordinary_label].merge_into(&mut label);
+            catalog.insert(label);
+        }
     }
     for control in catalog.controls_mut().filter(|control| {
         content_scope
