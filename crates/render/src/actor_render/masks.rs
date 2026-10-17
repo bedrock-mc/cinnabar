@@ -369,11 +369,18 @@ pub(crate) fn prepare(
 /// Clears even an empty or unavailable selection so a previous silhouette is never reused.
 fn draw(
     world: &World,
-    query: ViewQuery<(&ViewDepthStencilTexture, &ExtractedView)>,
+    query: ViewQuery<(
+        &ViewDepthStencilTexture,
+        &ExtractedView,
+        Option<&bevy::render::camera::ExtractedCamera>,
+    )>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let entity = query.entity();
-    let (depth, view) = query.into_inner();
+    let (depth, view, camera) = query.into_inner();
+    let depth_range = camera
+        .and_then(|camera| camera.viewport.as_ref())
+        .map_or(0.0..1.0, |viewport| viewport.depth.clone());
     let (Some(masks), Some(gpu), Some(lightmap), Some(offset), Some(cache)) = (
         world.get_resource::<MaskGpu>(),
         world.get_resource::<ActorGpu>(),
@@ -416,14 +423,26 @@ fn draw(
         if !target.ready || target.frame_generation != gpu.frame_generation {
             continue;
         }
+        let Some(rect) = crate::render_bounds::scissor(
+            render_model::UiScissor::new(
+                view.viewport.x,
+                view.viewport.y,
+                view.viewport.z,
+                view.viewport.w,
+            ),
+            crate::render_bounds::extent(&target.render_view),
+        ) else {
+            continue;
+        };
         pass.set_viewport(
-            view.viewport.x as f32,
-            view.viewport.y as f32,
-            view.viewport.z as f32,
-            view.viewport.w as f32,
-            0.0,
-            1.0,
+            rect.x as f32,
+            rect.y as f32,
+            rect.width as f32,
+            rect.height as f32,
+            depth_range.start,
+            depth_range.end,
         );
+        pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
         pass.set_bind_group(1, &lightmap.bind_group, &[]);
         for (span, id) in &target.draws {
             let Some(pipeline) = cache.get_render_pipeline(*id) else {
