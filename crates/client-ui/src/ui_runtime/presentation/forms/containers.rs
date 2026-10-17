@@ -164,6 +164,7 @@ pub(crate) fn container_frame(frame: &HudFrame) -> ContainerFrame<'_> {
         offhand_icon: frame.offhand_icon,
         offhand_durability: frame.offhand_durability,
         cursor_icon: frame.cursor_icon,
+        cursor_durability: frame.cursor_durability,
         recipe_icons: &frame.window_icons.recipe,
         recipe_output: frame.window_icons.recipe_output.as_ref(),
         book_entries: &frame.window_icons.book_entries,
