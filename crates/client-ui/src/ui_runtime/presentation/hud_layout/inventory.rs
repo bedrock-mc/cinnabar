@@ -278,7 +278,7 @@ impl HudLayout<'_> {
                 frame.cursor_icon,
                 [pointer[0] - 8.0, pointer[1] - 8.0],
                 Some(stack),
-                None,
+                frame.cursor_durability,
             )?;
         }
         Ok(())
@@ -364,7 +364,7 @@ impl HudLayout<'_> {
                 frame.cursor_icon,
                 [pointer[0] - 8.0, pointer[1] - 8.0],
                 Some(stack),
-                None,
+                frame.cursor_durability,
             )?;
         }
         Ok(())

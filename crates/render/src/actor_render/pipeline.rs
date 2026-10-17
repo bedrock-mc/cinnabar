@@ -14,9 +14,8 @@ pub(crate) struct ActorPipeline {
     >,
     motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
-    /// View configurations whose every draw and motion contract is already specialized, so
-    /// later frames skip the per-material map probes.
-    prewarmed: Vec<(Msaa, bool, bool)>,
+    /// Unique draw and motion pipelines for each view, retained for readiness and shader reloads.
+    prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
 }
 
 impl FromWorld for ActorPipeline {
@@ -28,7 +27,7 @@ impl FromWorld for ActorPipeline {
         Self {
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
-            prewarmed: Vec::new(),
+            prewarmed: Default::default(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
             bind_group_layout,
             draw_variants: Default::default(),
@@ -46,7 +45,8 @@ impl ActorPipeline {
         enhanced: bool,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
         let view = (msaa, hdr, enhanced);
-        if !self.prewarmed.contains(&view) {
+        if !self.prewarmed.contains_key(&view) {
+            let mut ids = Vec::new();
             for material in prewarm_materials() {
                 let key = ActorPipelineKey {
                     msaa,
@@ -55,19 +55,29 @@ impl ActorPipeline {
                     material,
                 };
                 let contract = key.contract();
-                if let Entry::Vacant(entry) = self.draw_variants.entry(contract) {
-                    let id = self.variants.specialize(cache, key).ok()?;
-                    entry.insert(id);
+                let id = match self.draw_variants.entry(contract) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        *entry.insert(self.variants.specialize(cache, key).ok()?)
+                    }
+                };
+                if !ids.contains(&id) {
+                    ids.push(id);
                 }
-                if super::motion::eligible(material)
-                    && let Entry::Vacant(entry) = self.motion_ids.entry(contract)
-                {
-                    let id = self.motion_variants.specialize(cache, key).ok()?;
-                    entry.insert(id);
+                if super::motion::eligible(material) {
+                    let id = match self.motion_ids.entry(contract) {
+                        Entry::Occupied(entry) => *entry.get(),
+                        Entry::Vacant(entry) => {
+                            *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
+                        }
+                    };
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
                 }
             }
             // A failed specialization returned above, so it retries next frame as before.
-            self.prewarmed.push(view);
+            self.prewarmed.insert(view, ids);
         }
         self.draw_variant(
             msaa,
@@ -110,21 +120,26 @@ impl ActorPipeline {
         hdr: bool,
         enhanced: bool,
     ) -> bool {
-        prewarm_materials().all(|material| {
-            self.draw_variant(msaa, hdr, enhanced, material)
-                .is_some_and(|id| cache.get_render_pipeline(id).is_some())
-                && (!super::motion::eligible(material)
-                    || self
-                        .motion_variant(ActorPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced,
-                            material,
-                        })
-                        .is_some_and(|id| cache.get_render_pipeline(id).is_some()))
+        self.ready_with((msaa, hdr, enhanced), |id| {
+            cache.get_render_pipeline(id).is_some()
         })
     }
+
+    /// Polls each distinct pipeline once, including pipelines invalidated by a shader reload.
+    fn ready_with(
+        &self,
+        view: (Msaa, bool, bool),
+        mut compiled: impl FnMut(CachedRenderPipelineId) -> bool,
+    ) -> bool {
+        self.prewarmed
+            .get(&view)
+            .is_some_and(|ids| ids.iter().copied().all(&mut compiled))
+    }
 }
+
+#[cfg(test)]
+#[path = "pipeline_readiness_tests.rs"]
+mod readiness_tests;
 
 /// Requests every distinct raster contract before the first actor reaches a view.
 fn prewarm_materials() -> impl Iterator<Item = u32> {

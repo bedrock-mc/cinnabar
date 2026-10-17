@@ -82,6 +82,15 @@ The preview supports relay account controls and validates the required startup c
 Gameplay startup, server joining, sound-bank range downloads and playback still need client composition.
 There is no persistent pack import or Dressing Room.
 
+The menu integration exposes relay sign-in, cancellation, sign-out and join progress to
+the game's existing screens. Addressed servers get the default Bedrock port when omitted;
+Realms, friends' worlds and featured experiences are unavailable in browsers. Its browser
+preference document stores at most 32 addressed servers and the GUI scale modifier, with
+a 32 KiB limit and visible read/write failures. It stores no account credentials. The
+click and keyboard link bridge validates HTTPS links and owns its listener teardown.
+These adapters still require the playable browser host; the current preview does not yet
+render the game's menu or persist those menu preferences.
+
 Back/forward-cache navigation suspends input and audio while retaining the page's wasm
 objects and canvas listeners. Returning reopens relay control with any unexpired resume
 capability; sign in again if it expired. Audio resumes on the next canvas click. A final
