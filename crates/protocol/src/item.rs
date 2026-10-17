@@ -23,10 +23,11 @@ mod components;
 mod display;
 mod equipment;
 mod facts;
-pub use equipment::{offhand_equipment_packet, select_hotbar_slot_packet};
+pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
+mod nbt_equal;
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};

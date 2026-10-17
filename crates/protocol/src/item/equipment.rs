@@ -4,6 +4,16 @@ use bedrock_protocol_1_26_51::{
     packets::MobEquipment as MobEquipmentPacket, types::ActorRuntimeID, wire,
 };
 
+/// Compares held item descriptors independently of count and stack network IDs.
+/// Compound entry order is ignored; trailer bytes and other item fields remain exact.
+#[must_use]
+pub fn held_items_match(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
+    a.network_id == b.network_id
+        && a.metadata == b.metadata
+        && a.block_runtime_id == b.block_runtime_id
+        && super::nbt_equal::same_extra(&a.extra_data, &b.extra_data)
+}
+
 /// Builds the vanilla outbound packet announcing a local hotbar-slot selection.
 ///
 /// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a

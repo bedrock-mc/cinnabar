@@ -116,7 +116,7 @@ impl InventorySession {
         if self.pending_hotbar_selection.is_none()
             && *announced_slot == target
             && announced_stack.count == stack.count
-            && crate::PlayerInventoryLedger::same_item(announced_stack, stack)
+            && protocol::held_items_match(announced_stack, stack)
         {
             return Ok(None);
         }
@@ -134,7 +134,7 @@ impl InventorySession {
             return Ok(None);
         };
         if self.announced_offhand.count == stack.count
-            && crate::PlayerInventoryLedger::same_item(&self.announced_offhand, &stack)
+            && protocol::held_items_match(&self.announced_offhand, &stack)
         {
             return Ok(None);
         }
@@ -403,6 +403,66 @@ mod tests {
                 stack,
                 storage_item: None,
             }));
+    }
+
+    /// Builds original item data with the same fields in either compound order.
+    fn held_compound(reverse: bool, damage: i32) -> std::sync::Arc<[u8]> {
+        let mut extra = vec![0xff, 0xff, 1, 10, 0, 0];
+        let mut fields = [("Damage", damage), ("RepairCost", 3)];
+        if reverse {
+            fields.reverse();
+        }
+        for (name, value) in fields {
+            extra.push(3);
+            extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            extra.extend_from_slice(name.as_bytes());
+            extra.extend_from_slice(&value.to_le_bytes());
+        }
+        extra.push(0);
+        extra.extend_from_slice(&[0; 8]);
+        extra.into()
+    }
+
+    #[test]
+    fn held_equipment_ignores_compound_order_but_keeps_value_changes() {
+        use sha2::{Digest, Sha256};
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        let mode = Some(PlayerGameMode::Survival);
+        let mut stack = protocol::NetworkItemStack {
+            network_id: 7,
+            count: 1,
+            extra_data: held_compound(false, 2),
+            ..protocol::NetworkItemStack::empty()
+        };
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack.clone());
+        session.queue_local_hotbar_selection(2, mode);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+        assert!(session.clear_pending_hotbar_selection(2));
+        stack.extra_data = held_compound(true, 2);
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack.clone());
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+        stack.extra_data = held_compound(true, 4);
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
