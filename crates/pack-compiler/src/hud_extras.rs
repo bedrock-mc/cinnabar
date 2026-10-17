@@ -37,7 +37,5 @@ pub fn compile_hud_extras_to_file(pack: &Path, out: &Path) -> Result<(), String>
         .collect::<Result<Vec<_>, _>>()?;
     let extras = HudExtras::new(images).map_err(|error| error.to_string())?;
     let blob = encode_hud_extras(&extras);
-    let temporary = out.with_extension("tmp");
-    fs::write(&temporary, &blob).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, out).map_err(|error| format!("{}: {error}", out.display()))
+    assets::write_blob_atomic(out, &blob).map_err(|error| error.to_string())
 }
