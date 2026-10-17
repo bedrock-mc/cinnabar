@@ -98,7 +98,7 @@ fn behavior_cross_material_renders_red_shrub_art_with_four_inset_faces() {
         let quads = &compiled.model_quads
             [model.quad_start as usize..(model.quad_start + model.quad_count) as usize];
         assert_eq!(quads.len(), 4);
-        for pair in quads.chunks_exact(2) {
+        for pair in quads.as_chunks::<2>().0 {
             assert_eq!(
                 pair[1].positions,
                 [
