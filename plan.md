@@ -1979,6 +1979,8 @@ not close a parity or visual acceptance gate.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
+- Brewing bottle cells use a one-item limit derived from their named window run. Ingredient
+  and fuel cells use admitted item capacity; configured brewing membership remains incomplete.
 - Incomplete: book-edit publication and replacement ordering, crafting remainders and multiple results, enchanting prediction and availability,
   all station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
