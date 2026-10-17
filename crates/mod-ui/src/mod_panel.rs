@@ -65,10 +65,21 @@ pub(super) struct ModPanel {
     /// Native feedback and surface transitions, including an exit after closing.
     motion: motion::PanelMotion,
     motion_data_dirty: bool,
+    text_events: Vec<ui::mod_panel::TextEvent>,
     prepared: Option<Arc<prepared::PreparedRoute>>,
 }
 
 impl ModUi {
+    /// Drains committed native text edits once for the active personal-panel owner.
+    pub fn take_mod_panel_text_events(
+        &mut self,
+        owner: PanelUiOwner,
+    ) -> Vec<ui::mod_panel::TextEvent> {
+        self.mod_panel
+            .as_mut()
+            .filter(|panel| panel.owner == owner)
+            .map_or_else(Vec::new, |panel| std::mem::take(&mut panel.text_events))
+    }
     /// Drops the panel's laid-out text and pointer capture after its private font changed.
     pub fn invalidate_mod_panel_font(&mut self) {
         self.cancel_mod_hud_editor();
@@ -134,6 +145,7 @@ impl ModUi {
         }
         if let Some(current) = self.mod_panel.as_mut() {
             if !same_shape {
+                current.text_events.clear();
                 current.owner = owner;
                 current.edit = None;
                 current.screen = CachedScreen::default();
@@ -154,7 +166,7 @@ impl ModUi {
                 current.prepared = prepared.clone();
                 current.catalog = prepared.as_ref().map(|route| Arc::clone(&route.catalog));
             }
-            if panel.capture_key {
+            if panel.capture_key && !current.editing_text() {
                 current.cancel_edit();
             }
             current.panel = panel.clone();
@@ -182,6 +194,7 @@ impl ModUi {
                 edit: None,
                 motion: motion::PanelMotion::default(),
                 motion_data_dirty: false,
+                text_events: Vec::new(),
                 prepared,
             });
         }
@@ -432,6 +445,14 @@ impl ModUi {
                     .map(|owner| owner.screen(route))
             })
             .unwrap_or(&mut panel.screen);
+        if let Some(surface) = &panel.panel.surface {
+            for name in surface.collections.keys() {
+                screen.virtualize_clipped_grid(
+                    name,
+                    ui::mod_panel::SurfaceCollection::INITIAL_WINDOW,
+                );
+            }
+        }
         match renderer.draw(art, paint_frame, |env, root| {
             screen.render_shared_with(
                 SCREEN,
@@ -443,7 +464,12 @@ impl ModUi {
                 &panel.view,
             )
         }) {
-            Ok(Some(frame)) => {
+            Ok(Some(mut frame)) => {
+                if let Some(surface) = &panel.panel.surface
+                    && !surface.collections.is_empty()
+                {
+                    surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
+                }
                 for (key, metrics) in &frame.report.scrolls {
                     if let Some(offset) = panel.view.scroll.get_mut(key) {
                         *offset = metrics.offset;
@@ -509,6 +535,7 @@ impl ModPanel {
         if self.panel.surface.is_some() {
             surface::viewport(&mut data, self.viewport);
         }
+        self.write_editor_data(&mut data);
         self.data = Arc::new(data);
         self.motion_data_dirty = true;
     }
@@ -557,4 +584,8 @@ impl ModUi {
 }
 
 #[cfg(test)]
+mod collection_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod text_tests;

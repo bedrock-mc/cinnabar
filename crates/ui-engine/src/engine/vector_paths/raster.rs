@@ -51,34 +51,60 @@ impl Domain {
     }
 }
 
-/// Extends a fully covered run while keeping every changing coverage cell on the original grid.
-fn covered_run(
+/// Chooses a large unused rectangle on one coverage plane, with bounded search work.
+fn coverage_rect(
     samples: &[u8],
-    stride: usize,
+    used: &[bool],
+    cells: [usize; 2],
     x: usize,
     y: usize,
-    width: usize,
-    alpha: u8,
-) -> usize {
+    work: &mut usize,
+) -> (usize, usize) {
+    let [width, height] = cells;
+    let stride = width + 1;
     let start = y * stride + x;
-    if alpha == 0
-        || [start, start + 1, start + stride, start + stride + 1]
-            .into_iter()
-            .any(|index| samples[index] != alpha)
-    {
-        return x + 1;
+    let origin = i32::from(samples[start]);
+    let dx = i32::from(samples[start + 1]) - origin;
+    let dy = i32::from(samples[start + stride]) - origin;
+    if i32::from(samples[start + stride + 1]) != origin + dx + dy {
+        return (x + 1, y + 1);
     }
-    let mut end = x + 1;
-    while end < width
-        && samples[y * stride + end + 1] == alpha
-        && samples[(y + 1) * stride + end + 1] == alpha
-    {
-        end += 1;
+    let mut best = (x + 1, y + 1);
+    let mut area = 1;
+    let mut limit = width - x;
+    for row in y..height {
+        let mut count = 0;
+        while count < limit && *work > 0 {
+            *work -= 1;
+            let expected = origin + dx * count as i32 + dy * (row - y) as i32;
+            let at = row * stride + x + count;
+            if used[row * width + x + count]
+                || i32::from(samples[at]) != expected
+                || i32::from(samples[at + 1]) != expected + dx
+                || i32::from(samples[at + stride]) != expected + dy
+                || i32::from(samples[at + stride + 1]) != expected + dx + dy
+            {
+                break;
+            }
+            count += 1;
+        }
+        limit = count;
+        if limit == 0 {
+            break;
+        }
+        let covered = limit * (row + 1 - y);
+        if covered > area {
+            area = covered;
+            best = (x + limit, row + 1);
+        }
+        if *work == 0 {
+            break;
+        }
     }
-    end
+    best
 }
 
-/// Packs constant interior runs into quads while preserving the half-pixel antialiased edges.
+/// Packs coplanar coverage rectangles without changing the half-pixel edge samples.
 pub(super) fn mesh(key: &Key) -> Option<UiMesh> {
     let size = key.size.map(f32::from_bits);
     let coverage = Coverage::new(key)?;
@@ -92,23 +118,31 @@ pub(super) fn mesh(key: &Key) -> Option<UiMesh> {
         }
     }
     let mut packed = vec![u32::MAX; count];
+    let mut used = vec![false; width * height];
+    // Limit optimization work independently of the admitted coverage sampling work.
+    let mut packing_work = 4 * MAX_GRID_CELLS * MAX_GRID_CELLS;
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for y in 0..height {
         let mut x = 0;
         while x < width {
+            if used[y * width + x] {
+                x += 1;
+                continue;
+            }
             let a = y * (width + 1) + x;
             let corners = [a, a + 1, a + width + 1, a + width + 2];
             if corners.iter().all(|&index| samples[index] == 0) {
                 x += 1;
                 continue;
             }
-            let end = covered_run(&samples, width + 1, x, y, width, key.color[3]);
+            let (end, bottom) =
+                coverage_rect(&samples, &used, [width, height], x, y, &mut packing_work);
             let corners = [
                 a,
                 y * (width + 1) + end,
-                a + width + 1,
-                (y + 1) * (width + 1) + end,
+                bottom * (width + 1) + x,
+                bottom * (width + 1) + end,
             ];
             if indices.len() + 6 > MAX_MESH_INDICES {
                 return None;
@@ -142,6 +176,9 @@ pub(super) fn mesh(key: &Key) -> Option<UiMesh> {
                 referenced[3],
                 referenced[2],
             ]);
+            for row in y..bottom {
+                used[row * width + x..row * width + end].fill(true);
+            }
             x = end;
         }
     }

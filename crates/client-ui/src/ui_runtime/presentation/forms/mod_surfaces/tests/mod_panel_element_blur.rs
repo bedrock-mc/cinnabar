@@ -26,7 +26,7 @@ fn entering_panel() -> Panel {
             "color":color})
     };
     let mut panel = panel();
-    panel.surface = Some(Surface {
+    panel.surface = Some(Surface { collections: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
@@ -115,10 +115,20 @@ fn a_filtered_subtree_blurs_as_one_group_while_its_entrance_eases() {
     let [(members, blur)] = groups(&opening)[..] else {
         panic!("one filter group: {:?}", groups(&opening));
     };
-    assert!(
-        members >= 3,
-        "the glass tint, fill and label share the group"
-    );
+    assert!(members > 0, "the filtered group contains drawing");
+    for rgb in [[0, 0, 0], [0, 255, 0], [255, 255, 255]] {
+        assert!(
+            opening
+                .batches
+                .iter()
+                .filter(|batch| batch.filter_group.is_some())
+                .any(|batch| opening.indices
+                    [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
+                    .iter()
+                    .any(|index| opening.vertices[*index as usize].color[..3] == rgb)),
+            "glass tint, fill and text colors must remain inside the filter group: {rgb:?}"
+        );
+    }
     assert!(
         opening
             .batches

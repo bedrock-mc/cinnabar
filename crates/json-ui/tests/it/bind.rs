@@ -91,6 +91,40 @@ fn global_binding_bakes_into_text() {
     assert_eq!(prop(&bound, "text"), &json!("Welcome"));
 }
 
+/// Immutable collection items can follow changing controller values without being republished.
+#[test]
+fn collection_global_bindings_follow_live_values_on_rebind() {
+    let label = ctrl(
+        "title",
+        Some("label"),
+        json!({"text":"#title", "bindings":[{
+            "binding_type":"collection", "binding_collection_name":"items",
+            "binding_name":"#title"
+        }]}),
+    );
+    let mut data = DataSource::new();
+    data.set_collection(
+        "items",
+        vec![CollectionItem::default().with_global_binding("#title", "#live_title")],
+    );
+    data.set_global("#live_title", Scalar::Text("First".into()));
+    let label = std::sync::Arc::new(label);
+    let mut data = std::sync::Arc::new(data);
+    let mut memory = json_ui::BindState::new();
+    let mut bound = json_ui::bind_incremental(&label, &data, &EmptyLibrary, &mut memory);
+    assert_eq!(prop(&bound, "text"), &json!("First"));
+    std::sync::Arc::make_mut(&mut data).set_global("#live_title", Scalar::Text("Changed".into()));
+    json_ui::rebind(
+        &label,
+        &data,
+        &EmptyLibrary,
+        &mut memory,
+        &mut bound,
+        &mut json_ui::MeasureCache::default(),
+    );
+    assert_eq!(prop(&bound, "text"), &json!("Changed"));
+}
+
 #[test]
 fn global_binding_override_targets_a_different_name() {
     // `#submit_button_visible` drives `#visible`, exactly the submit-button binding.

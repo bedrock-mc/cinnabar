@@ -122,7 +122,7 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
                 controls.push(named(&format!("resize_{index}_{corner}"), group));
             }
         }
-        if !hud.hide_editor_labels {
+        if !hud.hide_editor_labels && hud.surface.is_some() {
             let text = if card.editor_label.is_empty() {
                 &card.id
             } else {
@@ -136,22 +136,28 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     if let Some(surface) = &hud.surface {
         controls.push(named(&format!("surface@{}", surface.screen), json!({})));
     } else {
-        let width = 220.;
+        let actions: &[(&str, &str)] = if hud.autosave {
+            &[
+                ("close", "Done"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+            ]
+        } else {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+            ]
+        };
+        let width = actions.len() as f64 * 53. + 8.;
         let x = ((viewport[0] - width) * 0.5).max(0.);
         let y = viewport[1] - 32.;
         let mut toolbar = vec![named(
             "surface",
             rect([width, 28.], [0.; 2], [0.055, 0.065, 0.08, 0.97]),
         )];
-        for (index, (action, text)) in [
-            ("save", "Save"),
-            ("cancel", "Cancel"),
-            ("reset", "Reset"),
-            ("grid", "#grid_label"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        for (index, &(action, text)) in actions.iter().enumerate() {
             let mut textnode = label(text, [49., 12.], [4., 7.]);
             if action == "grid" {
                 textnode["bindings"] = json!([{"binding_name":"#grid_label"}]);
@@ -171,10 +177,24 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
             json!({"type":"panel","size":[width,28.],"offset":[x,y],
         "anchor_from":"top_left","anchor_to":"top_left","controls":toolbar}),
         ));
+        if !hud.hide_editor_labels {
+            let mut caption = label(
+                "#editor_label",
+                [310_f64.min(viewport[0] - 12.), 12.],
+                [((viewport[0] - 310.) * 0.5).max(6.), viewport[1] - 61.],
+            );
+            caption["text_alignment"] = json!("center");
+            caption["bindings"] = json!([{"binding_name":"#editor_label"}]);
+            controls.push(named("selection_label", caption));
+        }
         controls.push(named(
             "help",
             label(
-                "Drag cards / arrows nudge / Enter saves / Esc cancels",
+                if hud.autosave {
+                    "Drag / arrows nudge / autosaved / Esc closes"
+                } else {
+                    "Drag cards / arrows nudge / Enter saves / Esc cancels"
+                },
                 [310_f64.min(viewport[0] - 12.), 12.],
                 [((viewport[0] - 310.) * 0.5).max(6.), viewport[1] - 46.],
             ),

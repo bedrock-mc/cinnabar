@@ -1,6 +1,7 @@
 use super::{DrawSpace, UiDrawBatch, UiError, UiVertex};
 use crate::{UiLimits, UiRect};
 
+/// Emits shared indexed vertices once per material while preserving topology and cutoff boundaries.
 pub(super) fn emit_mesh(
     mesh: &crate::UiMesh,
     bounds: UiRect,
@@ -22,13 +23,23 @@ pub(super) fn emit_mesh(
             limit: UiLimits::MAX_DRAW_BATCHES,
         });
     }
-    // Material cutoffs belong to batches. Copy each material's referenced vertices
-    // separately so sharing a source vertex cannot leak a cutoff into another layer.
+    // Reuse vertices inside each material while keeping different material cutoffs independent.
+    let mut remap = vec![u32::MAX; mesh.vertices().len()];
+    let depth_scope = mesh
+        .batches()
+        .iter()
+        .any(|material| material.depth_test || material.depth_write)
+        .then_some(space.node.get());
     for material in mesh.batches() {
+        remap.fill(u32::MAX);
         let start = u32::try_from(indices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
         for &index in
             &mesh.indices()[material.index_range.start as usize..material.index_range.end as usize]
         {
+            if remap[index as usize] != u32::MAX {
+                indices.push(remap[index as usize]);
+                continue;
+            }
             let vertex = mesh.vertices()[index as usize];
             if vertices.len() == UiLimits::MAX_UI_VERTICES {
                 return Err(UiError::VertexLimitExceeded {
@@ -36,7 +47,9 @@ pub(super) fn emit_mesh(
                     limit: UiLimits::MAX_UI_VERTICES,
                 });
             }
-            indices.push(u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?);
+            let mapped = u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
+            remap[index as usize] = mapped;
+            indices.push(mapped);
             let position = [
                 bounds.min().x() * vertex.clip_w + vertex.position[0] * bounds.width(),
                 bounds.min().y() * vertex.clip_w + vertex.position[1] * bounds.height(),
@@ -64,7 +77,7 @@ pub(super) fn emit_mesh(
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             world_projection: false,
-            isolated_depth_scope: Some(space.node.get()),
+            isolated_depth_scope: depth_scope,
             filter_group: space.filter_for(material.blend),
             index_range: start
                 ..u32::try_from(indices.len()).map_err(|_| UiError::DrawIndexOverflow)?,

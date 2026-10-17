@@ -28,6 +28,105 @@ fn finite_slider_and_physical_key_are_accepted() {
     assert!(panel().validate().is_ok());
 }
 
+/// Each route admits its own bounded controls before any sparse changes are applied.
+#[test]
+fn route_schemas_switch_atomically_and_keep_repeated_values() {
+    let surface = serde_json::json!({"screen":"local.page","document":
+        serde_json::json!({"namespace":"local","page":{"type":"button","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.control:0"}]}}).to_string()});
+    let bundle = serde_json::json!({"panel":panel(),"surfaces":{"main":surface,"options":surface},
+        "control_schemas":{"options":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}});
+    let bundle = PanelBundle::parse(&bundle.to_string()).unwrap();
+    let changed =
+        PanelPatch::parse(r#"{"surface":"options","controls":[{"id":"enabled","value":true}]}"#)
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+    assert!(bundle.matches_schema(&changed));
+    assert!(matches!(
+        changed.controls[0],
+        Control::Toggle { value: true, .. }
+    ));
+    let repeated = PanelPatch::parse(r#"{"surface":"options"}"#)
+        .unwrap()
+        .apply_bundle(&changed, &bundle)
+        .unwrap();
+    assert_eq!(repeated.controls, changed.controls);
+    assert!(
+        PanelPatch::parse(r#"{"surface":"main","controls":[{"id":"enabled","value":false}]}"#)
+            .unwrap()
+            .apply_bundle(&changed, &bundle)
+            .is_err()
+    );
+    let restored =
+        PanelPatch::parse(r#"{"surface":"main","controls":[{"id":"distance","value":4}]}"#)
+            .unwrap()
+            .apply_bundle(&changed, &bundle)
+            .unwrap();
+    assert!(matches!(
+        restored.controls[0],
+        Control::Slider { value: 4., .. }
+    ));
+    let mut invalid = bundle.clone();
+    invalid.control_schemas.insert("missing".into(), vec![]);
+    assert!(invalid.validate().is_err());
+    invalid = bundle.clone();
+    invalid.control_schemas.get_mut("options").unwrap().clear();
+    assert!(invalid.validate().is_err());
+    invalid = bundle;
+    invalid
+        .control_schemas
+        .get_mut("options")
+        .unwrap()
+        .resize(super::MAX_PANEL_CONTROLS + 1, changed.controls[0].clone());
+    assert!(invalid.validate().is_err());
+}
+
+/// Compact scalar edits keep the exact kinds, ranges and transaction rules of named edits.
+#[test]
+fn indexed_control_values_are_typed_bounded_and_unambiguous() {
+    let mut original = panel();
+    original.controls.push(Control::Choice {
+        id: "choice".into(),
+        label: "Choice".into(),
+        index: 0,
+        options: vec!["A".into(), "B".into()],
+    });
+    let changed = PanelPatch::parse(r#"{"control_values":[[0,4],[1,1]]}"#)
+        .unwrap()
+        .apply(&original, &Default::default())
+        .unwrap();
+    assert!(matches!(
+        changed.controls[0],
+        Control::Slider { value: 4., .. }
+    ));
+    assert!(matches!(
+        changed.controls[1],
+        Control::Choice { index: 1, .. }
+    ));
+    for json in [
+        r#"{"control_values":[[0,true]]}"#,
+        r#"{"control_values":[[0,8]]}"#,
+        r#"{"control_values":[[2,1]]}"#,
+        r#"{"control_values":[[1,-1]]}"#,
+        r#"{"control_values":[[1,0.5]]}"#,
+        r#"{"control_values":[[1,2]]}"#,
+        r#"{"control_values":[[0,4],[0,5]]}"#,
+        r#"{"controls":[{"id":"distance","value":4}],"control_values":[[0,5]]}"#,
+    ] {
+        assert!(
+            PanelPatch::parse(json)
+                .unwrap()
+                .apply(&original, &Default::default())
+                .is_err(),
+            "{json}"
+        );
+    }
+    assert!(matches!(
+        original.controls[0],
+        Control::Slider { value: 3., .. }
+    ));
+}
+
 /// Route and scalar changes preserve the schema, and invalid batches leave it untouched.
 #[test]
 fn sparse_panel_updates_validate_every_change_before_replacement() {
@@ -120,6 +219,32 @@ fn local_panel_bundle_checks_routes_and_replaces_custom_bindings() {
     assert_eq!(
         unchanged.surface.as_ref().unwrap().bindings["#custom"],
         SurfaceValue::Bool(true)
+    );
+    let updated = PanelPatch::parse(r##"{"binding_changes":{"#other":2}}"##)
+        .unwrap()
+        .apply(&unchanged, &bundle.surfaces)
+        .unwrap();
+    assert_eq!(
+        updated.surface.as_ref().unwrap().bindings["#custom"],
+        SurfaceValue::Bool(true)
+    );
+    assert_eq!(
+        updated.surface.as_ref().unwrap().bindings["#other"],
+        SurfaceValue::Number(2.)
+    );
+    assert!(
+        !unchanged
+            .surface
+            .as_ref()
+            .unwrap()
+            .bindings
+            .contains_key("#other")
+    );
+    assert!(
+        PanelPatch::parse(r##"{"binding_changes":{"bad":true}}"##)
+            .unwrap()
+            .apply(&unchanged, &bundle.surfaces)
+            .is_err()
     );
     assert!(
         PanelPatch::parse(r##"{"surface":"main","bindings":{"bad":true}}"##)
@@ -247,7 +372,7 @@ fn expanded_panels_still_reject_controls_above_the_capacity() {
 
 /// Supplies a small extension-authored screen with one declared button route.
 fn surface(action: &str) -> Surface {
-    Surface {
+    Surface { collections: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
@@ -443,7 +568,7 @@ fn bounded_large_external_catalog_rejects_one_excess_control() {
 #[test]
 fn resolved_template_routes_still_require_declared_panel_controls() {
     let mut spec = panel();
-    spec.surface=Some(Surface {transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
+    spec.surface=Some(Surface { collections: Default::default(),transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
     assert!(spec.validate().is_err());
     let surface = spec.surface.as_mut().unwrap();
     surface.document = surface.document.replace("mod.control:7", "mod.control:0");
@@ -453,6 +578,7 @@ fn resolved_template_routes_still_require_declared_panel_controls() {
 /// A surface whose panel carries `transform` and a bound scale over a `child` control.
 fn transformed(transform: serde_json::Value, child: &str) -> Surface {
     Surface {
+        collections: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{

@@ -31,6 +31,7 @@ const HEAD_WIDTH: f64 = 9.0;
 pub struct RosterRow {
     pub name: Arc<str>,
     pub badged: bool,
+    pub annotation: Option<Arc<ui::mod_hud::CounterAnnotation>>,
     /// The admitted skin for this UUID; absent or unusable skins display Steve.
     pub skin: Option<render_api::StandardSkin>,
 }
@@ -107,27 +108,6 @@ impl PlayerList {
                 })
                 .collect();
             self.portraits = portraits;
-            // Grids consume row-major collections; Java presents names down each column.
-            let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
-            let entries = cells
-                .map(|index| {
-                    let row = shown.get(index);
-                    CollectionItem::default()
-                        .with(
-                            "#player_name",
-                            Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
-                        )
-                        .with("#row_visible", Scalar::Bool(row.is_some()))
-                        .with(
-                            "#player_head",
-                            Scalar::Text(self.heads.get(index).cloned().unwrap_or_default()),
-                        )
-                        .with(
-                            "#cinnabar_badge",
-                            Scalar::Bool(row.is_some_and(|row| row.badged)),
-                        )
-                })
-                .collect();
             self.rows = shown.to_vec();
             self.total = players.len();
             self.dimensions = [columns, rows];
@@ -139,12 +119,102 @@ impl PlayerList {
                 format!("Online players: {}", players.len())
             };
             data.set_global("#online_title", Scalar::Text(title));
-            data.set_collection("online_players", entries);
             data.set_grid_dimensions("#players_dimensions", [columns as u32, rows as u32]);
             self.data = Arc::new(data);
         }
         [columns, rows]
     }
+
+    /// Binds names and independently tinted counter runs after the measured column width is known.
+    fn bind_rows(&mut self, width: f64, text: &dyn json_ui::TextMeasure) {
+        let [columns, rows] = self.dimensions;
+        let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
+        let entries = cells
+            .map(|index| {
+                let row = self.rows.get(index);
+                let annotation = row.and_then(|row| row.annotation.as_deref());
+                let [name, prefix, count, space] = row.map_or([0.; 4], |row| row_widths(row, text));
+                let inner = (width
+                    - 8.
+                    - HEAD_WIDTH
+                    - if row.is_some_and(|row| row.badged) {
+                        BADGE_WIDTH
+                    } else {
+                        0.
+                    })
+                .max(0.);
+                let count = count.min(inner);
+                let prefix = prefix.min(inner - count);
+                let space = space.min(inner - count - prefix);
+                let name = name.min(inner - count - prefix - space);
+                let before = annotation.is_some_and(|annotation| annotation.before);
+                let name_x = 2. + HEAD_WIDTH + if before { prefix + count + space } else { 0. };
+                let prefix_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
+                let rgba = |color: [u8; 4]| {
+                    Scalar::Json(serde_json::json!(color.map(|v| f64::from(v) / 255.)))
+                };
+                CollectionItem::default()
+                    .with(
+                        "#player_name",
+                        Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
+                    )
+                    .with("#row_visible", Scalar::Bool(row.is_some()))
+                    .with(
+                        "#player_head",
+                        Scalar::Text(self.heads.get(index).cloned().unwrap_or_default()),
+                    )
+                    .with(
+                        "#cinnabar_badge",
+                        Scalar::Bool(row.is_some_and(|row| row.badged)),
+                    )
+                    .with(
+                        "#name_offset",
+                        Scalar::Json(serde_json::json!([name_x, 0.])),
+                    )
+                    .with("#name_width", Scalar::Num(name))
+                    .with(
+                        "#counter_prefix",
+                        Scalar::Text(annotation.map_or_else(String::new, |v| v.prefix.to_string())),
+                    )
+                    .with(
+                        "#counter_value",
+                        Scalar::Text(annotation.map_or_else(String::new, |v| v.value.to_string())),
+                    )
+                    .with(
+                        "#prefix_offset",
+                        Scalar::Json(serde_json::json!([prefix_x, 0.])),
+                    )
+                    .with(
+                        "#value_offset",
+                        Scalar::Json(serde_json::json!([prefix_x + prefix, 0.])),
+                    )
+                    .with("#prefix_width", Scalar::Num(prefix))
+                    .with("#value_width", Scalar::Num(count))
+                    .with(
+                        "#prefix_color",
+                        rgba(annotation.map_or([255; 4], |v| v.prefix_color)),
+                    )
+                    .with(
+                        "#value_color",
+                        rgba(annotation.map_or([255; 4], |v| v.value_color)),
+                    )
+            })
+            .collect();
+        Arc::make_mut(&mut self.data).set_collection("online_players", entries);
+    }
+}
+
+/// Shares actual font measurements between column sizing and clipped row placement.
+fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> [f64; 4] {
+    let name = text.extent(&row.name)[0];
+    row.annotation.as_ref().map_or([name, 0., 0., 0.], |value| {
+        [
+            name,
+            text.extent(&value.prefix)[0],
+            text.extent(&value.value)[0],
+            text.extent(" ")[0],
+        ]
+    })
 }
 
 /// Equal portraits share one atlas allocation, including every Steve fallback row.
@@ -185,11 +255,12 @@ impl PlayerList {
                 let widest = self
                     .rows
                     .iter()
-                    .map(|row| env.text.extent(&row.name)[0])
+                    .map(|row| row_widths(row, env.text).iter().sum())
                     .fold(60.0, f64::max);
                 let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
                 let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
                     .min((root[0] - 8.0).max(1.0) / columns as f64);
+                self.bind_rows(width, env.text);
                 let title = format!("Online players: {}", self.total);
                 let panel_width = (width * columns as f64 + 4.0)
                     .max(env.text.extent(&title)[0] + 4.0)

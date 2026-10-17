@@ -513,6 +513,7 @@ impl ModuleObserver {
                 .map(PathBuf::from),
         );
         ModuleObservations {
+            local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
             motion,
             vitals,
             ping_ms,

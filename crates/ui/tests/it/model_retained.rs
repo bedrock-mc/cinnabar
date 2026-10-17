@@ -574,7 +574,7 @@ fn changing_a_parent_clip_rebuilds_before_drawing_its_children() {
     assert_equal(&retained(&nodes), &nodes);
 }
 
-/// Reuses one triangle's source vertices while reserving the requested number of emitted corners.
+/// Reuses one triangle's source vertices while retaining the requested number of indices.
 fn repeated_mesh(corners: usize) -> Arc<UiMesh> {
     let source = mesh(0.0);
     let indices: Vec<u32> = (0..corners).map(|index| (index % 3) as u32).collect();
@@ -587,7 +587,7 @@ fn repeated_mesh(corners: usize) -> Arc<UiMesh> {
 fn over_budget_replacements_are_refused_before_materializing_a_mesh() {
     let small = mesh(0.0);
     let large = repeated_mesh((UiLimits::MAX_UI_VERTICES / 4) / 3 * 3);
-    let mut previous: Vec<_> = (1..=5)
+    let mut previous: Vec<_> = (1..=7)
         .map(|number| {
             UiNode::new(id(number), None, rect(0.0, 0.0, 10.0, 10.0))
                 .with_visual(UiVisual::Mesh(Arc::clone(&small)))

@@ -3,6 +3,17 @@
 use super::{MAX_IMPORT_WRITES, State};
 use anyhow::{Result, bail};
 use ui::mod_hud::{Crosshair, EditorResult, Hud, MAX_CROSSHAIR_BYTES, MAX_HUD_BYTES};
+#[path = "hud/bounds.rs"]
+pub(super) mod bounds;
+#[path = "hud/clock.rs"]
+mod clock;
+#[path = "hud/compass.rs"]
+mod compass;
+#[path = "hud/sources.rs"]
+pub(super) mod sources;
+#[cfg(test)]
+#[path = "hud/sources_tests.rs"]
+mod sources_tests;
 
 #[derive(Default)]
 pub(super) struct HudState {
@@ -16,6 +27,15 @@ pub(super) struct HudState {
     result_read: bool,
     pub local_messages: Vec<String>,
     pending_messages: Vec<String>,
+    source_snapshot: Option<crate::PlayerStateSnapshot>,
+    source_sidebar: Option<crate::SidebarSnapshot>,
+    sources_dirty: bool,
+    pub(super) resolved: Option<Hud>,
+    source_actors: Vec<crate::ActorObservation>,
+    source_world: Option<crate::WorldObservation>,
+    source_motion: Option<crate::MotionObservation>,
+    source_clock: Option<clock::LocalMinute>,
+    source_totem_uses: Option<u32>,
 }
 impl HudState {
     pub fn commit(&mut self) {
@@ -27,6 +47,7 @@ impl HudState {
             self.result_read = false;
         }
         if let Some(content) = self.pending_content.take() {
+            self.sources_dirty = true;
             self.content = content;
         }
         if let Some(crosshair) = self.pending_crosshair.take() {
@@ -52,13 +73,37 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     if json.len() > MAX_HUD_BYTES {
         return Ok(Err("HUD preview exceeds its byte limit".into()));
     }
-    let preview: Hud = match serde_json::from_str(&json) {
+    let mut preview: Hud = match serde_json::from_str(&json) {
         Ok(preview) => preview,
         Err(error) => return Ok(Err(format!("invalid HUD preview: {error}"))),
     };
     if let Err(error) = preview.validate() {
         return Ok(Err(error));
     }
+    if let Err(error) = sources::admit(state, &preview) {
+        return Ok(Err(error));
+    }
+    let minute = clock::observe(&preview);
+    clock::hydrate(&mut preview, minute);
+    sources::hydrate_totems(
+        &mut preview,
+        state.player_state.observations.local_totem_uses,
+    );
+    sources::hydrate_preview(
+        &mut preview,
+        state.player_state.snapshot.as_ref(),
+        state.player_state.sidebar.as_ref(),
+    );
+    sources::hydrate_health(
+        &mut preview,
+        &state.player_state.observations.actors,
+        state.player_state.world.as_ref(),
+    );
+    compass::hydrate(
+        &mut preview,
+        state.player_state.world.as_ref(),
+        state.player_state.observations.motion.as_ref(),
+    );
     state.hud.pending_editor = Some(preview);
     Ok(Ok(()))
 }
@@ -146,7 +191,12 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         if let Err(error) = hud.validate() {
             return Ok(Err(error));
         }
+        if let Err(error) = sources::admit(state, &hud) {
+            return Ok(Err(error));
+        }
         (hud.actor_style.is_some()
+            || hud.actor_health.is_some()
+            || hud.actor_bounds.is_some()
             || hud.hunger_overlay.is_some()
             || !hud.cards.is_empty()
             || hud.hide_effect_icons
@@ -165,6 +215,42 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         return Ok(Err(state.exclusive.refuse()));
     }
     state.hud.pending_content = Some(content);
+    Ok(Ok(()))
+}
+
+/// Replaces individual cards while keeping unrelated geometry and presentation retained.
+pub(super) fn update_content(state: &mut State, json: String) -> Result<Result<(), String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    if json.len() > MAX_HUD_BYTES {
+        return Ok(Err("HUD update exceeds its byte limit".into()));
+    }
+    let update: ui::mod_hud::HudUpdate = match serde_json::from_str(&json) {
+        Ok(update) => update,
+        Err(error) => return Ok(Err(format!("invalid HUD update: {error}"))),
+    };
+    let existing = state
+        .hud
+        .pending_content
+        .as_ref()
+        .unwrap_or(&state.hud.content);
+    let content = match update.apply(existing.as_ref()) {
+        Ok(content) => content,
+        Err(error) => return Ok(Err(error)),
+    };
+    if let Err(error) = sources::admit(state, &content) {
+        return Ok(Err(error));
+    }
+    if let Some(claims) = &state.exclusive.hud
+        && !claims.claim(
+            state.exclusive.owner,
+            content.cards.iter().map(|card| card.id.clone()),
+        )
+    {
+        return Ok(Err(state.exclusive.refuse()));
+    }
+    state.hud.pending_content = Some(Some(content));
     Ok(Ok(()))
 }
 pub(super) fn set_crosshair(state: &mut State, json: String) -> Result<Result<(), String>> {
@@ -194,6 +280,41 @@ pub(super) fn set_crosshair(state: &mut State, json: String) -> Result<Result<()
 mod tests {
     use super::*;
     use crate::ModGrants;
+    /// Retained edits compose in one callback and publish only on successful commit.
+    #[test]
+    fn card_updates_are_granted_bounded_and_transactional() {
+        let mut state = State::new(
+            ModGrants {
+                hud: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        let first = r#"{"cards":[{"id":"fps","rows":[]}]}"#;
+        let second = r#"{"cards":[{"id":"cps","rows":[]}]}"#;
+        assert!(update_content(&mut state, first.into()).unwrap().is_ok());
+        assert!(state.hud.content.is_none());
+        assert!(update_content(&mut state, second.into()).unwrap().is_ok());
+        assert!(
+            update_content(
+                &mut state,
+                r#"{"cards":[{"id":"bad","width":0,"rows":[]}]}"#.into()
+            )
+            .unwrap()
+            .is_err()
+        );
+        state.hud.commit();
+        assert_eq!(state.hud.content.as_ref().unwrap().cards.len(), 2);
+        state.grants.hud = false;
+        assert!(
+            update_content(&mut state, r#"{"remove":["fps"]}"#.into())
+                .unwrap()
+                .is_err()
+        );
+        state.hud.commit();
+        assert_eq!(state.hud.content.as_ref().unwrap().cards.len(), 2);
+    }
     #[test]
     fn effect_icon_replacement_commits_without_cards_and_clears_transactionally() {
         let mut state = State::new(

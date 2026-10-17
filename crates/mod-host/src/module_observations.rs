@@ -5,6 +5,8 @@ use anyhow::{Result, ensure};
 /// Callback-scoped read-only facts captured by native owning adapters.
 #[derive(Clone, Default)]
 pub struct ModuleObservations {
+    /// Confirmed activations in the current native counting interval; absent while tracking is disabled.
+    pub local_totem_uses: Option<u32>,
     pub motion: Option<MotionObservation>,
     pub vitals: Option<VitalsObservation>,
     pub ping_ms: Option<u32>,

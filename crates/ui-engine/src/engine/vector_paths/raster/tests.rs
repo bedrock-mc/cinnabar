@@ -234,3 +234,28 @@ fn packed_interiors_preserve_grid_edge_pixels_at_each_dpi() {
         );
     }
 }
+
+/// Repeated straight stroke edges fit at Retina density without dropping their coverage.
+#[test]
+fn parallel_strokes_fit_without_coarsening_their_antialiased_edges() {
+    let paths: Vec<_> = (0..6)
+        .map(|row| {
+            [
+                [1.0, 1.0 + row as f32 * 2.0],
+                [15.0, 1.0 + row as f32 * 2.0],
+            ]
+        })
+        .collect();
+    for vertical in [false, true] {
+        let paths: Vec<_> = paths
+            .iter()
+            .map(|line| line.map(|[x, y]| if vertical { [y, x] } else { [x, y] }))
+            .collect();
+        let key = key(json!(paths), Some(0.8), [60.0; 2], 2.0);
+        let original = reference(&key);
+        assert!(original.indices().len() > MAX_MESH_INDICES);
+        let packed = mesh(&key).expect("parallel strokes must fit the bounded vector mesh");
+        assert!(packed.indices().len() <= MAX_MESH_INDICES);
+        assert_eq!(pixels(&packed, &key), pixels(&original, &key));
+    }
+}

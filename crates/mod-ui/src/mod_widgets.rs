@@ -1,7 +1,9 @@
 //! Private, retained JSON-UI cards supplied as bounded cosmetic data.
 
 mod cells;
+mod compass;
 pub(super) mod template;
+pub(crate) mod text_plate;
 mod world_labels;
 
 use crate::{ModUi, RowIcons};
@@ -191,6 +193,11 @@ impl ModUi {
             ScreenArt::default(),
             &mut paint_frame.with_renderers(&mut renderers),
             |env, root| {
+                if text_plate::measure(&mut widgets.content, env.text) {
+                    for (n, card) in widgets.content.cards.iter().enumerate() {
+                        text_plate::data(Arc::make_mut(&mut widgets.data), card, n, viewport);
+                    }
+                }
                 widgets.screen.render_shared_with(
                     "cinnabar_personal_hud.cards",
                     &widgets.catalog,

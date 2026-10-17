@@ -2,56 +2,297 @@
 {
   "namespace": "cinnabar_tab",
   "screen": {
-    "type": "panel", "size": ["100%", "100%"],
-    "controls": [{"list": {
-      "type": "panel", "size": ["$panel_width", "$panel_height"],
-      "anchor_from": "top_middle", "anchor_to": "top_middle", "offset": [0, 10],
-      "controls": [
-        {"background": {
-          "type": "image", "texture": "textures/ui/Black", "alpha": 0.5,
-          "size": ["100%", "100%"]
-        }},
-        {"title": {
-          "type": "label", "size": ["100% - 4px", "$row_height"], "offset": [0, 2],
-          "anchor_from": "top_middle", "anchor_to": "top_middle",
-          "text": "#online_title", "text_alignment": "center", "localize": false,
-          "color": [1, 1, 1], "shadow": true, "layer": 1,
-          "bindings": [{"binding_name": "#online_title"}]
-        }},
-        {"players": {
-          "type": "grid", "size": ["100%c", "100%c"],
-          "anchor_from": "top_middle", "anchor_to": "top_middle", "offset": [0, "$grid_top"],
-          "grid_dimension_binding": "#players_dimensions", "grid_item_template": "cinnabar_tab.row",
-          "collection_name": "online_players", "layer": 1,
-          "bindings": [{"binding_name": "#players_dimensions"}]
-        }}
-      ]
-    }}]
+    "type": "panel",
+    "size": [
+      "100%",
+      "100%"
+    ],
+    "controls": [
+      {
+        "list": {
+          "type": "panel",
+          "size": [
+            "$panel_width",
+            "$panel_height"
+          ],
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "offset": [
+            0,
+            10
+          ],
+          "controls": [
+            {
+              "background": {
+                "type": "image",
+                "texture": "textures/ui/Black",
+                "alpha": 0.5,
+                "size": [
+                  "100%",
+                  "100%"
+                ]
+              }
+            },
+            {
+              "title": {
+                "type": "label",
+                "size": [
+                  "100% - 4px",
+                  "$row_height"
+                ],
+                "offset": [
+                  0,
+                  2
+                ],
+                "anchor_from": "top_middle",
+                "anchor_to": "top_middle",
+                "text": "#online_title",
+                "text_alignment": "center",
+                "localize": false,
+                "color": [
+                  1,
+                  1,
+                  1
+                ],
+                "shadow": true,
+                "layer": 1,
+                "bindings": [
+                  {
+                    "binding_name": "#online_title"
+                  }
+                ]
+              }
+            },
+            {
+              "players": {
+                "type": "grid",
+                "size": [
+                  "100%c",
+                  "100%c"
+                ],
+                "anchor_from": "top_middle",
+                "anchor_to": "top_middle",
+                "offset": [
+                  0,
+                  "$grid_top"
+                ],
+                "grid_dimension_binding": "#players_dimensions",
+                "grid_item_template": "cinnabar_tab.row",
+                "collection_name": "online_players",
+                "layer": 1,
+                "bindings": [
+                  {
+                    "binding_name": "#players_dimensions"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
   },
   "row": {
-    "type": "panel", "size": ["$cell_width", "$row_height"],
-    "controls": [
-      {"background": {
-        "type": "image", "texture": "textures/ui/Black", "alpha": 0.25,
-        "size": ["100% - 5px", "$row_background_height"], "anchor_from": "top_left", "anchor_to": "top_left"
-      }},
-      {"head": {
-        "type": "image", "texture": "#player_head", "size": ["$head_size", "$head_size"], "offset": [2, 0],
-        "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1,
-        "bindings": [{"binding_name": "#player_head", "binding_type": "collection", "binding_collection_name": "online_players", "binding_name_override": "#texture"}]
-      }},
-      {"name": {
-        "type": "label", "size": ["$name_width", "$row_height"], "offset": ["$name_offset", 0],
-        "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1,
-        "text": "#player_name", "localize": false, "color": [1, 1, 1], "shadow": true,
-        "bindings": [{"binding_name": "#player_name", "binding_type": "collection", "binding_collection_name": "online_players"}]
-      }},
-      {"cinnabar_badge": {
-        "type": "image", "texture": "$cinnabar_badge_texture", "size": [7, 7], "offset": [-6, 0],
-        "anchor_from": "top_right", "anchor_to": "top_right", "layer": 2,
-        "bindings": [{"binding_name": "#cinnabar_badge", "binding_type": "collection", "binding_collection_name": "online_players", "binding_name_override": "#visible"}]
-      }}
+    "type": "panel",
+    "size": [
+      "$cell_width",
+      "$row_height"
     ],
-    "bindings": [{"binding_name": "#row_visible", "binding_type": "collection", "binding_collection_name": "online_players", "binding_name_override": "#visible"}]
+    "controls": [
+      {
+        "background": {
+          "type": "image",
+          "texture": "textures/ui/Black",
+          "alpha": 0.25,
+          "size": [
+            "100% - 5px",
+            "$row_background_height"
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left"
+        }
+      },
+      {
+        "head": {
+          "type": "image",
+          "texture": "#player_head",
+          "size": [
+            "$head_size",
+            "$head_size"
+          ],
+          "offset": [
+            2,
+            0
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "layer": 1,
+          "bindings": [
+            {
+              "binding_name": "#player_head",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#texture"
+            }
+          ]
+        }
+      },
+      {
+        "name": {
+          "type": "label",
+          "size": [
+            "100% - 8px",
+            "$row_height"
+          ],
+          "offset": [
+            2,
+            0
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "layer": 1,
+          "text": "#player_name",
+          "localize": false,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "shadow": true,
+          "bindings": [
+            {
+              "binding_name": "#player_name",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players"
+            },
+            {
+              "binding_name": "#name_offset",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#offset"
+            },
+            {
+              "binding_name": "#name_width",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#size_binding_x_absolute"
+            }
+          ]
+        }
+      },
+      {
+        "cinnabar_badge": {
+          "type": "image",
+          "texture": "$cinnabar_badge_texture",
+          "size": [
+            7,
+            7
+          ],
+          "offset": [
+            -6,
+            0
+          ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "layer": 2,
+          "bindings": [
+            {
+              "binding_name": "#cinnabar_badge",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      },
+      {
+        "counter_prefix": {
+          "type": "label",
+          "size": [
+            1,
+            "$row_height"
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "layer": 1,
+          "text": "#counter_prefix",
+          "localize": false,
+          "shadow": true,
+          "bindings": [
+            {
+              "binding_name": "#counter_prefix",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players"
+            },
+            {
+              "binding_name": "#prefix_offset",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#offset"
+            },
+            {
+              "binding_name": "#prefix_width",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#size_binding_x_absolute"
+            },
+            {
+              "binding_name": "#prefix_color",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#color"
+            }
+          ]
+        }
+      },
+      {
+        "counter_value": {
+          "type": "label",
+          "size": [
+            1,
+            "$row_height"
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "layer": 1,
+          "text": "#counter_value",
+          "localize": false,
+          "shadow": true,
+          "bindings": [
+            {
+              "binding_name": "#counter_value",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players"
+            },
+            {
+              "binding_name": "#value_offset",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#offset"
+            },
+            {
+              "binding_name": "#value_width",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#size_binding_x_absolute"
+            },
+            {
+              "binding_name": "#value_color",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#color"
+            }
+          ]
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#row_visible",
+        "binding_type": "collection",
+        "binding_collection_name": "online_players",
+        "binding_name_override": "#visible"
+      }
+    ]
   }
 }

@@ -890,6 +890,14 @@ fn private_use_glyphs_keep_sheet_colors_and_text_alpha() {
 
 /// Creates sheet-like metrics including the private-use boundaries and a replacement glyph.
 fn private_use_layout(text: &str) -> Arc<TextLayout> {
+    private_use_layout_with_rendering(text, assets::FontRendering::Coverage)
+}
+
+/// Builds identical private-use metrics with the selected runtime coverage interpretation.
+fn private_use_layout_with_rendering(
+    text: &str,
+    rendering: assets::FontRendering,
+) -> Arc<TextLayout> {
     let pixels = vec![255, 80, 30, 255].into_boxed_slice();
     let pages = [FontTexturePage {
         source_path: "font/glyph_E1.png".into(),
@@ -911,7 +919,9 @@ fn private_use_layout(text: &str) -> Arc<TextLayout> {
         advance_64: 64,
     });
     let bytes = encode_font_catalog([9; 32], &glyphs, &pages).unwrap();
-    let font = CompiledFontCatalog::decode(&bytes, [9; 32]).unwrap();
+    let font = CompiledFontCatalog::decode(&bytes, [9; 32])
+        .unwrap()
+        .with_rendering(rendering);
     TextLayoutCache::new(1, 64 * 1024)
         .layout(TextLayoutRequest {
             text,
@@ -924,6 +934,26 @@ fn private_use_layout(text: &str) -> Arc<TextLayout> {
             wrap: Default::default(),
         })
         .unwrap()
+}
+
+/// Outline icon glyphs honor gold favorites and animated alpha instead of forcing bitmap white.
+#[test]
+fn private_use_outline_icons_retain_the_requested_tint() {
+    let layout = private_use_layout_with_rendering(
+        "\u{e000}\u{e101}",
+        assets::FontRendering::OutlineCoverage,
+    );
+    let draw = draw_list(UiVisual::Text {
+        layout,
+        color: [240, 190, 45, 91],
+        shadow: TextShadow::None,
+    });
+    assert_eq!(draw.vertices.len(), 8);
+    assert!(
+        draw.vertices
+            .iter()
+            .all(|vertex| vertex.color == [240, 190, 45, 91])
+    );
 }
 
 fn draw_list(visual: UiVisual) -> UiDrawList {

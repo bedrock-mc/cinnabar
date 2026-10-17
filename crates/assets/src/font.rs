@@ -280,7 +280,7 @@ impl CompiledFontCatalog {
 
     pub const fn linear_sampling(&self) -> bool {
         match self.rendering {
-            FontRendering::Coverage => self.linear_sampling,
+            FontRendering::Coverage | FontRendering::OutlineCoverage => self.linear_sampling,
             FontRendering::NativeCoverage => false,
             FontRendering::NativeSdf => true,
         }
@@ -291,7 +291,7 @@ impl CompiledFontCatalog {
             let mut hash = Sha256::new();
             hash.update(self.identity.carrier_sha256);
             hash.update(b"runtime font rendering");
-            hash.update([rendering.style_flags()]);
+            hash.update([rendering as u8]);
             self.identity.carrier_sha256 = hash.finalize().into();
             self.rendering = rendering;
         }
@@ -364,7 +364,12 @@ impl CompiledFontCatalog {
     /// Keeps white-glyph pages as one coverage byte per texel, a quarter of their RGBA size.
     /// Native distance fields use white RGB throughout, so their linear sampling also permits R8.
     pub fn with_coverage_pages(mut self) -> Self {
-        if self.linear_sampling() && self.rendering != FontRendering::NativeSdf {
+        if self.linear_sampling()
+            && !matches!(
+                self.rendering,
+                FontRendering::NativeSdf | FontRendering::OutlineCoverage
+            )
+        {
             return self;
         }
         if self

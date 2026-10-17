@@ -20,6 +20,7 @@ fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
         "bindings":[{"binding_name":"#slide","binding_name_override":"#offset"}],
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]});
     panel.surface = Some(Surface {
+        collections: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"slider":button}]

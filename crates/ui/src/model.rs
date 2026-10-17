@@ -57,7 +57,7 @@ pub enum UiBlendMode {
 pub enum UiVisual {
     #[default]
     None,
-    /// Direct geometry at this control's authored draw position, with private model depth.
+    /// Direct geometry at this control's authored draw position; depth-using materials get private depth.
     Mesh(Arc<UiMesh>),
     Solid {
         texture_page: u16,

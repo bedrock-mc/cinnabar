@@ -30,7 +30,10 @@ mod size;
 mod stack;
 mod style;
 
-pub(crate) use grid::{PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY, TEMPLATE_KEY as GRID_TEMPLATE_KEY};
+pub(crate) use grid::{
+    CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
+    TEMPLATE_KEY as GRID_TEMPLATE_KEY,
+};
 pub use measure::MeasureCache;
 pub(crate) use reuse::Output;
 
@@ -692,17 +695,21 @@ fn place_subtree<'a>(
         {
             child_rect = frame.place_box(child_rect);
         }
-        // A cell within a view's extent of the view counts as shown, so content it draws past
-        // its rect, as a selection frame or a shifted label, reaches in from a built cell.
+        // Clipped cells cannot paint outside their bounds. Other cells retain a viewport of
+        // margin so a selection frame or shifted label can reach in from a built cell.
         if placeholders.is_some()
             && child_shown
             && !disjoint(
                 subtree_bounds(child, child_rect, ctx.env),
-                Rect {
-                    x: clip_for_child.x - clip_for_child.w,
-                    y: clip_for_child.y - clip_for_child.h,
-                    w: clip_for_child.w * 3.0,
-                    h: clip_for_child.h * 3.0,
+                if child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)) {
+                    clip_for_child
+                } else {
+                    Rect {
+                        x: clip_for_child.x - clip_for_child.w,
+                        y: clip_for_child.y - clip_for_child.h,
+                        w: clip_for_child.w * 3.0,
+                        h: clip_for_child.h * 3.0,
+                    }
                 },
             )
             && let Some(index) =

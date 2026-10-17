@@ -39,7 +39,7 @@ impl ModUi {
         let offset = if pixels {
             (current.offset - delta / f64::from(frame.scale)).clamp(0.0, current.max_offset())
         } else {
-            current.offset_for_wheel(delta)
+            current.offset_for_wheel_local(delta)
         };
         if panel.panel.motion && !pixels {
             let target = panel.motion.scroll_target(&region.key, current.offset);
@@ -50,7 +50,7 @@ impl ModUi {
             panel.motion.scroll(
                 &region.key,
                 current.offset,
-                pending.offset_for_wheel(delta) - target,
+                pending.offset_for_wheel_local(delta) - target,
                 current.max_offset(),
             );
             return true;

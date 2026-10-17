@@ -224,7 +224,13 @@ fn camera_activation_keeps_full_viewport_coordinates_below_screen_overlays() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    assert_eq!(&plain.vertices[..6], &inset.vertices[..6]);
+    let activation = |input: &render_model::UiRenderInput| {
+        input.indices[..6]
+            .iter()
+            .map(|index| input.vertices[*index as usize])
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(activation(&plain), activation(&inset));
     runtime.item_activation.as_mut().unwrap().elapsed_millis = 1_050;
     let advanced = presentation
         .build(

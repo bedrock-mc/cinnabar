@@ -226,7 +226,19 @@ impl ScrollMetrics {
         if self.horizontal {
             return self.offset;
         }
-        let sensitivity = *WHEEL_SENSITIVITY.get_or_init(|| self.speed);
+        self.wheel_offset(notches, *WHEEL_SENSITIVITY.get_or_init(|| self.speed))
+    }
+
+    /// Uses this view's declared speed for client-owned surfaces outside vanilla's global latch.
+    pub fn offset_for_wheel_local(&self, notches: f64) -> f64 {
+        self.wheel_offset(notches, self.speed)
+    }
+
+    /// Shares wheel direction, byte normalization and extent clamping across both speed policies.
+    fn wheel_offset(&self, notches: f64, sensitivity: f64) -> f64 {
+        if self.horizontal {
+            return self.offset;
+        }
         let byte = if notches > 0.0 {
             120.0 / 127.0
         } else {

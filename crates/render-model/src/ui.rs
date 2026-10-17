@@ -85,6 +85,7 @@ mod style_tests {
     fn font_coverage_never_enables_opaque_model_color_masks() {
         for rendering in [
             assets::FontRendering::Coverage,
+            assets::FontRendering::OutlineCoverage,
             assets::FontRendering::NativeCoverage,
             assets::FontRendering::NativeSdf,
         ] {

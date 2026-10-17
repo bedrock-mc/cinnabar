@@ -38,12 +38,16 @@ pub(crate) fn advance_local_physics(
     mut movement_speed: ResMut<LocalMovementSpeedAuthority>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
-    settings: Option<Res<RuntimeSettings>>,
+    settings: (
+        Option<Res<RuntimeSettings>>,
+        Option<Res<crate::modding::ModRuntime>>,
+    ),
     player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
+    let (settings, mods) = settings;
     movement_effects.begin_frame();
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
@@ -76,10 +80,15 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
-    let gameplay = settings
+    let mut gameplay = settings
         .as_deref()
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
+    if let Some(policy) = mods.as_deref().and_then(|mods| mods.movement_toggles()) {
+        gameplay.toggle_sprint = policy.toggle_sprint;
+        gameplay.toggle_sneak = policy.toggle_sneak;
+        gameplay.always_sprint = policy.always_sprint;
+    }
     let frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),

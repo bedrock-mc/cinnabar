@@ -3,6 +3,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use ui_screens::player_list::RosterRow;
+mod counters;
 
 /// The session's named roster entries and their tab-list rows.
 #[derive(Clone, Debug, Default)]
@@ -12,9 +13,28 @@ pub struct PlayerRoster {
     reported: Arc<HashSet<String>>,
     hide_badges: bool,
     rows: Vec<RosterRow>,
+    counters: counters::Counters,
 }
 
 impl PlayerRoster {
+    /// Publishes one native interval's counts to both roster rows and eligible world nametags.
+    pub fn set_totem_annotations(
+        &mut self,
+        style: Option<&ui::mod_hud::TotemCounterStyle>,
+        facts: impl Iterator<Item = ([u8; 16], u32, bool)>,
+    ) {
+        if self.counters.update(style, facts) {
+            self.rebadge();
+        }
+    }
+
+    /// Looks up a UUID-bound nametag decoration independently of the tab visibility switch.
+    pub fn totem_annotation(
+        &self,
+        uuid: &[u8; 16],
+    ) -> Option<&Arc<ui::mod_hud::CounterAnnotation>> {
+        self.counters.annotation(uuid)
+    }
     /// Replaces the `(username, xuid, uuid)` roster; the revision advances only when it changed.
     pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>) {
         if self.entries != entries {
@@ -113,6 +133,13 @@ impl PlayerRoster {
             .map(|(index, (name, xuid, uuid))| RosterRow {
                 name: Arc::clone(name),
                 badged: self.has_badge(xuid, uuid),
+                annotation: self
+                    .counters
+                    .style
+                    .as_ref()
+                    .filter(|style| style.show_tab)
+                    .and_then(|_| self.counters.annotation(uuid))
+                    .cloned(),
                 skin: self.rows.get(index).and_then(|row| row.skin.clone()),
             })
             .collect();

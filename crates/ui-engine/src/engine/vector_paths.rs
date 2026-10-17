@@ -94,6 +94,34 @@ impl Cache {
 
 thread_local! { static CACHE: RefCell<Cache> = RefCell::default(); }
 
+/// Rejects only paths whose authored coverage, including outside-box art and transforms, misses the clip.
+fn visible(
+    key: &Key,
+    dest: [f32; 4],
+    clip: [f32; 4],
+    transform: Option<json_ui::transform::Affine>,
+) -> bool {
+    let rect = |[x, y, right, bottom]: [f32; 4]| {
+        json_ui::Rect::new(
+            f64::from(x),
+            f64::from(y),
+            f64::from(right - x),
+            f64::from(bottom - y),
+        )
+    };
+    let Some(bounds) = json_ui::vector_path::Bounds::new(&key.path) else {
+        return false;
+    };
+    let pixel = 1. / f64::from(f32::from_bits(key.dpi));
+    let bounds = bounds.at(rect(dest), pixel);
+    let bounds = transform.map_or(bounds, |transform| transform.bounds(bounds));
+    let clip = clip.map(f64::from);
+    bounds.x - pixel < clip[2]
+        && bounds.y - pixel < clip[3]
+        && bounds.x + bounds.w + pixel > clip[0]
+        && bounds.y + bounds.h + pixel > clip[1]
+}
+
 impl Canvas<'_> {
     /// Draws finite authored contours with even-odd fills or a union of rounded strokes.
     pub(super) fn vector_path(
@@ -122,6 +150,12 @@ impl Canvas<'_> {
             page: self.solid_page,
             color,
         };
+        if self
+            .clip()
+            .is_some_and(|clip| !visible(&key, dest, clip, self.residual))
+        {
+            return None;
+        }
         CACHE.with(|cache| cache.borrow_mut().get_or_create(key).map(UiVisual::Mesh))
     }
 }

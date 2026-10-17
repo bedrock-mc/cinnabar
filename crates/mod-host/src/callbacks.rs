@@ -143,6 +143,11 @@ impl ModHost {
         self.instance.camera_view_scale()
     }
 
+    /// Current-frame damage styling; absence restores the player's camera preferences.
+    pub fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
+        self.instance.camera_hurt_style()
+    }
+
     /// Consumes a successful callback's jump request once.
     pub fn take_jump_pulse(&mut self) -> bool {
         self.instance.take_jump_pulse()

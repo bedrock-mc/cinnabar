@@ -368,6 +368,7 @@ mod tests {
     /// Builds a caller-owned local document for structural validation.
     fn surface(document: Value) -> Surface {
         Surface {
+            collections: Default::default(),
             transitions: Default::default(),
             screen: "local.root".into(),
             document: document.to_string(),

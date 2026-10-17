@@ -26,6 +26,7 @@ mod-render = { path = "../mod-render" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
 render-model = { path = "../render-model" }
+render-api = { path = "../render-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 server-experience = { path = "../server-experience" }

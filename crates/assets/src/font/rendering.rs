@@ -9,12 +9,14 @@ pub enum FontRendering {
     Coverage,
     NativeCoverage,
     NativeSdf,
+    /// Monochrome outline glyphs, including private-use icons, retain the caller's tint.
+    OutlineCoverage,
 }
 
 impl FontRendering {
     pub const fn style_flags(self) -> u8 {
         match self {
-            Self::Coverage => 0,
+            Self::Coverage | Self::OutlineCoverage => 0,
             Self::NativeCoverage => FONT_STYLE_COVERAGE_GAMMA,
             Self::NativeSdf => FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF,
         }
@@ -57,6 +59,19 @@ mod tests {
             .clone()
             .with_rendering(FontRendering::NativeSdf)
             .with_coverage_pages();
+        let outline = base
+            .clone()
+            .with_linear_sampling()
+            .with_rendering(FontRendering::OutlineCoverage)
+            .with_coverage_pages();
+        assert!(outline.linear_sampling());
+        assert_ne!(base.identity(), outline.identity());
+        assert!(matches!(outline.pages()[0].pixels, FontPixels::Coverage(_)));
+        let alias = base.clone().with_named_font("outline", &outline).unwrap();
+        assert_eq!(
+            alias.font_named("outline").rendering(),
+            FontRendering::OutlineCoverage
+        );
         assert!(!pixel.linear_sampling());
         assert!(sdf.linear_sampling());
         assert_ne!(base.identity(), pixel.identity());

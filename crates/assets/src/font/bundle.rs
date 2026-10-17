@@ -84,6 +84,7 @@ pub fn decode_font_face_bundle(
             0 => FontRendering::Coverage,
             1 => FontRendering::NativeCoverage,
             2 => FontRendering::NativeSdf,
+            3 => FontRendering::OutlineCoverage,
             _ => return Err(invalid("unknown face bundle rendering")),
         };
         let length = usize::try_from(u64::from_le_bytes(entry[5..].try_into().unwrap()))
@@ -132,6 +133,7 @@ const fn rendering_code(rendering: FontRendering) -> u8 {
         FontRendering::Coverage => 0,
         FontRendering::NativeCoverage => 1,
         FontRendering::NativeSdf => 2,
+        FontRendering::OutlineCoverage => 3,
     }
 }
 
@@ -202,5 +204,22 @@ mod tests {
             decode_font_face_bundle(&corrupt, manifest),
             Err(FontCatalogError::CarrierHashMismatch)
         ));
+    }
+
+    /// Monochrome icon coverage keeps its interpretation through carrier serialization.
+    #[test]
+    fn outline_coverage_survives_bundle_roundtrip() {
+        let manifest = [3; 32];
+        let bytes = encode_font_face_bundle(
+            manifest,
+            &[FontFaceRaster {
+                em_pixels: 18,
+                rendering: FontRendering::OutlineCoverage,
+                carrier: carrier(manifest, 1),
+            }],
+        )
+        .unwrap();
+        let decoded = decode_font_face_bundle(&bytes, manifest).unwrap();
+        assert_eq!(decoded[0].1, FontRendering::OutlineCoverage);
     }
 }

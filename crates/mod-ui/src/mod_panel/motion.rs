@@ -188,6 +188,10 @@ impl PanelMotion {
                 Scalar::Num(progress),
             );
             data.set_global(
+                format!("#row_{index}_toggle_inverse_progress"),
+                Scalar::Num(1.0 - progress),
+            );
+            data.set_global(
                 format!("#row_{index}_knob_offset"),
                 Scalar::Json(json!([2.0 + 10.0 * progress, 2.0])),
             );

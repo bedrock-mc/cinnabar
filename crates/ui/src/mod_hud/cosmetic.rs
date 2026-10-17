@@ -37,6 +37,8 @@ pub struct ActorStyle {
     pub attackable_color: Option<[f32; 4]>,
     #[serde(default)]
     pub nametags: Option<NametagStyle>,
+    #[serde(default)]
+    pub totems: Option<super::TotemCounterStyle>,
 }
 
 /// Styles the already eligible native tag quads without exposing hidden actors.
@@ -96,6 +98,10 @@ pub(super) fn validate(
         if style.hurt_armor_color.as_ref().is_some_and(invalid_color)
             || style.hurt_color.as_ref().is_some_and(invalid_color)
             || style.attackable_color.as_ref().is_some_and(invalid_color)
+            || style
+                .totems
+                .as_ref()
+                .is_some_and(|totems| totems.validate().is_err())
             || style.nametags.as_ref().is_some_and(|tag| {
                 !tag.opacity.is_finite()
                     || !(0. ..=1.).contains(&tag.opacity)

@@ -3,7 +3,7 @@
 use super::*;
 
 // Java Gui geometry: hotbar flush at the bottom centre, selection 1 px out,
-// status rows and the level from H-39, with the XP bar at H-29.
+// status rows from H-39, the outlined level from H-40, and the XP bar at H-29.
 #[test]
 fn java_pack_geometry_on_a_real_viewport() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -57,7 +57,7 @@ fn java_pack_geometry_on_a_real_viewport() {
         .filter(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "7"))
         .collect();
     assert_eq!(level.len(), 5, "the level and its four outline copies");
-    assert_eq!(level[4].dest.y, hearts[0].dest.y);
+    assert_eq!(level[4].dest.y + 1.0, hearts[0].dest.y);
     // The frame lands in physical pixels, allowing float noise from DPI conversion.
     assert!(
         quad_bounds(&input).any(|bounds| {

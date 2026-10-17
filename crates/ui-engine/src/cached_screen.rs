@@ -17,6 +17,8 @@ pub struct CachedScreen {
     library: ResolveCache,
     /// The screen's live bindings across data refreshes.
     binding: BindState,
+    /// Fixed native grids retain their admission settings when the catalog changes.
+    virtual_grids: std::collections::BTreeMap<String, usize>,
     laid: Option<Laid>,
     measures: json_ui::MeasureCache,
     /// Bind+layout passes run, for cache tests and profiling.
@@ -45,6 +47,14 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Opts one admitted native grid into bounded tile creation before its first bind.
+    pub fn virtualize_clipped_grid(&mut self, collection: &str, initial: usize) {
+        if self.virtual_grids.get(collection) == Some(&initial) {
+            return;
+        }
+        self.virtual_grids.insert(collection.to_owned(), initial);
+        self.binding.virtualize_clipped_grid(collection, initial);
+    }
     /// Starts from a worker-resolved root belonging to this exact catalog and context.
     pub fn from_resolved(
         reference: &str,
@@ -174,6 +184,9 @@ impl CachedScreen {
                 });
                 self.library = ResolveCache::default();
                 self.binding = BindState::new();
+                for (name, initial) in &self.virtual_grids {
+                    self.binding.virtualize_clipped_grid(name, *initial);
+                }
             }
             let tree = self.resolved.as_ref()?.tree.as_ref()?;
             let library = CachedLibrary {
@@ -208,10 +221,29 @@ impl CachedScreen {
                 }
             };
             self.passes += 1;
+            let mut render = render_bound_cached(bound, root, env, view, &mut self.measures);
+            let mut grid_passes = 0;
+            while self.binding.show_grid_cells(&render.report) {
+                if grid_passes == 3 {
+                    return None;
+                }
+                grid_passes += 1;
+                let mut bound = render.bound;
+                rebind(
+                    tree,
+                    &data,
+                    &library,
+                    &mut self.binding,
+                    &mut bound,
+                    &mut self.measures,
+                );
+                render = render_bound_cached(bound, root, env, view, &mut self.measures);
+                self.passes += 1;
+            }
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
-                render: render_bound_cached(bound, root, env, view, &mut self.measures),
+                render,
                 data,
                 view: view.clone(),
                 layout,

@@ -1,5 +1,6 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
+mod data;
 mod input;
 mod template;
 
@@ -138,19 +139,6 @@ impl ModUi {
             editor.frame = None;
             editor.cancel_pointer_input();
         }
-        if editor.catalog.is_none() {
-            match template::catalog(editor, viewport) {
-                Ok(catalog) => {
-                    editor.catalog = Some(Arc::new(catalog));
-                    editor.screen = CachedScreen::default();
-                }
-                Err(error) => {
-                    editor.finish(false);
-                    tracing::warn!(%error, "HUD editor template rejected");
-                    return;
-                }
-            }
-        }
         let mut data = editor.data();
         if let Some(surface) = &editor.draft.surface {
             editor
@@ -193,14 +181,35 @@ impl ModUi {
         };
         let mut glass = GlassRenderer::new(world);
         let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut items, &mut glass];
+        // Keep pointer feedback outside the editor borrow while measuring native hit bounds.
+        let view = std::mem::take(&mut editor.view);
         let art = ScreenArt {
-            view: Some(&editor.view),
+            view: Some(&view),
             ..Default::default()
         };
         let result = renderer.draw(
             art,
             &mut paint_frame.with_renderers(&mut renderers),
             |env, root| {
+                if crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text) {
+                    editor.catalog = None;
+                    let data = Arc::make_mut(&mut editor.data);
+                    for (n, card) in editor.draft.cards.iter().enumerate() {
+                        crate::mod_widgets::text_plate::data(data, card, n, viewport);
+                    }
+                    data::write_bounds(data, &editor.draft, viewport, editor.selected);
+                }
+                if editor.catalog.is_none() {
+                    let catalog = match template::catalog(editor, viewport) {
+                        Ok(catalog) => catalog,
+                        Err(error) => {
+                            tracing::warn!(%error,"HUD editor template rejected");
+                            return None;
+                        }
+                    };
+                    editor.catalog = Some(Arc::new(catalog));
+                    editor.screen = CachedScreen::default();
+                }
                 editor.screen.render_shared_with(
                     SCREEN,
                     editor.catalog.as_ref().expect("installed"),
@@ -208,10 +217,11 @@ impl ModUi {
                     Arc::clone(&editor.data),
                     (root, px, language),
                     env,
-                    &editor.view,
+                    &view,
                 )
             },
         );
+        editor.view = view;
         match result {
             Ok(Some(frame)) => editor.frame = Some(frame),
             result => {
@@ -223,59 +233,6 @@ impl ModUi {
                 }
             }
         }
-    }
-}
-
-impl HudEditor {
-    /// Binds changing positions and selection without regenerating the catalog.
-    fn data(&self) -> DataSource {
-        let mut data = cards::data(&self.draft, self.viewport);
-        data.set_global("#grid_visible", Scalar::Bool(self.snap));
-        for axis in 0..2 {
-            let guide = self.drag.as_ref().and_then(|drag| drag.guides[axis]);
-            data.set_global(
-                format!("#guide_{axis}_visible"),
-                Scalar::Bool(guide.is_some()),
-            );
-            let mut at = [0.; 2];
-            at[axis] = guide.unwrap_or(0.);
-            data.set_global(
-                format!("#guide_{axis}_offset"),
-                Scalar::Json(serde_json::json!(at)),
-            );
-        }
-        if let Some(surface) = &self.draft.surface {
-            crate::mod_panel::surface::bind(surface, &mut data);
-            crate::mod_panel::surface::viewport(&mut data, self.viewport);
-        }
-        data.set_global(
-            "#grid_label",
-            Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
-        );
-        let style = self.draft.editor_style.unwrap_or_default();
-        for (index, card) in self.draft.cards.iter().enumerate() {
-            let at = cards::origin(card, self.viewport);
-            let size = cards::dimensions(card);
-            let label_y = if at[1] >= 12. {
-                at[1] - 12.
-            } else {
-                at[1] + size[1] + 2.
-            };
-            let label_y = label_y.clamp(0., (self.viewport[1] - 12.).max(0.));
-            data.set_global(
-                format!("#bounds_{index}_label_offset"),
-                Scalar::Json(serde_json::json!([at[0], label_y])),
-            );
-            data.set_global(
-                format!("#bounds_{index}_color"),
-                Scalar::Json(serde_json::json!(if self.selected == Some(index) {
-                    style.selected
-                } else {
-                    style.outline
-                })),
-            );
-        }
-        data
     }
 }
 

@@ -159,6 +159,116 @@ fn view_frame(
     )
 }
 
+/// Calls the actual lowered option-record import and checks its success or capability refusal.
+fn hurt_call(present: bool, intensity: &str, old_tilt: bool, denied: bool) -> String {
+    format!(
+        "i32.const {} f32.const {intensity} i32.const {} i32.const 256 call $hurt-style i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
+        u8::from(present),
+        u8::from(old_tilt),
+        u8::from(denied)
+    )
+}
+
+/// The complete published intensity range is real, and malformed input never changes the camera.
+#[test]
+fn hurt_camera_style_checks_capability_bounds_and_explicit_release() {
+    let (_dir, mut denied) = load(&hurt_call(true, "1", false, true), false);
+    view_frame(&mut denied, true, false, true).unwrap();
+    assert_eq!(denied.camera_hurt_style(), None);
+    let (_dir, mut claimed) = load(&hurt_call(true, "1", false, true), true);
+    claimed.set_frame_authority(
+        CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        true,
+        false,
+        1,
+        HudClaims::default(),
+    );
+    view_frame(&mut claimed, true, false, true).unwrap();
+    assert_eq!(claimed.camera_hurt_style(), None);
+    for value in ["-0.1", "2.1", "nan", "inf", "-inf"] {
+        let (_dir, mut host) = load(&hurt_call(true, value, false, true), true);
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_hurt_style(), None);
+    }
+    for value in ["0", "1", "2"] {
+        let (_dir, mut host) = load(&hurt_call(true, value, true, false), true);
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(
+            host.camera_hurt_style(),
+            render_api::HurtCameraStyle::new(value.parse().unwrap(), true)
+        );
+        assert!(host.has_camera_output());
+    }
+    let (_dir, mut host) = load(
+        &format!(
+            "{} {}",
+            hurt_call(true, "1", false, false),
+            hurt_call(true, "nan", true, true)
+        ),
+        true,
+    );
+    view_frame(&mut host, true, false, true).unwrap();
+    assert_eq!(
+        host.camera_hurt_style(),
+        render_api::HurtCameraStyle::new(1.0, false)
+    );
+    let (_dir, mut host) = load(
+        &format!(
+            "{} {}",
+            hurt_call(true, "2", true, false),
+            hurt_call(false, "0", false, false)
+        ),
+        true,
+    );
+    view_frame(&mut host, true, false, true).unwrap();
+    assert_eq!(host.camera_hurt_style(), None);
+    assert!(!host.has_camera_output());
+}
+
+/// Presentation is independent of input ownership, but omission, traps and reload revoke it.
+#[test]
+fn hurt_camera_style_expires_with_the_callback_without_owning_gameplay_input() {
+    let request = hurt_call(true, "2", true, false);
+    let (_dir, mut host) = load(
+        &format!("global.get $count i32.const 2 i32.ne if {request} end"),
+        true,
+    );
+    for expected in [render_api::HurtCameraStyle::new(2.0, true), None] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_hurt_style(), expected);
+    }
+    for (focused, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focused, panel, gameplay).unwrap();
+        assert_eq!(
+            host.camera_hurt_style(),
+            render_api::HurtCameraStyle::new(2.0, true)
+        );
+    }
+    let (_dir, mut host) = load(
+        &format!("{request} global.get $count i32.const 2 i32.eq if unreachable end"),
+        true,
+    );
+    view_frame(&mut host, true, false, true).unwrap();
+    assert!(host.camera_hurt_style().is_some());
+    assert!(view_frame(&mut host, true, false, true).is_err());
+    assert_eq!(host.camera_hurt_style(), None);
+    let (dir, mut host) = load(&request, true);
+    view_frame(&mut host, true, false, true).unwrap();
+    std::fs::write(dir.path().join("camera.wat"), source("")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.camera_hurt_style(), None);
+    let calls = std::iter::repeat_n(request, crate::runtime::MAX_IMPORT_WRITES as usize + 1)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let (_dir, mut host) = load(&calls, true);
+    assert!(view_frame(&mut host, true, false, true).is_err());
+    assert_eq!(host.camera_hurt_style(), None);
+}
+
 #[test]
 fn view_scale_validates_finite_bounds_and_requires_camera_grant() {
     let (_dir, mut denied) = load(&view_call("0.25", "0.25", true), false);
@@ -238,7 +348,12 @@ fn view_scale_trap_reload_and_shared_import_budget_revoke_output() {
 
 #[test]
 fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
-    let frame = format!("{} {}", call(true, false), view_call("0.25", "0.25", false));
+    let frame = format!(
+        "{} {} {}",
+        call(true, false),
+        view_call("0.25", "0.25", false),
+        hurt_call(true, "2", true, false)
+    );
     let (_dir, mut host) = super::load_with_view_closed(
         source(&frame),
         ModGrants {
@@ -250,29 +365,40 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
     view_frame(&mut host, true, false, true).unwrap();
     assert!(host.preserves_teleport_rotation());
     assert_eq!(host.camera_view_scale(), Some([0.25; 2]));
+    assert_eq!(
+        host.camera_hurt_style(),
+        render_api::HurtCameraStyle::new(2.0, true)
+    );
     let budget = super::defer_view_closed(&mut host);
     view_frame(&mut host, false, false, false).unwrap();
     assert!(host.is_active());
     assert!(!host.preserves_teleport_rotation());
     assert!(!host.has_camera_output());
     assert_eq!(host.camera_view_scale(), None);
+    assert_eq!(host.camera_hurt_style(), None);
     budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
     view_frame(&mut host, true, false, true).unwrap();
     assert_eq!(host.camera_view_scale(), Some([0.25; 2]));
+    assert_eq!(
+        host.camera_hurt_style(),
+        render_api::HurtCameraStyle::new(2.0, true)
+    );
     budget.reset(0);
     view_frame(&mut host, true, false, true).unwrap();
     assert!(!host.preserves_teleport_rotation());
     assert!(!host.has_camera_output());
     assert_eq!(host.camera_view_scale(), None);
+    assert_eq!(host.camera_hurt_style(), None);
 }
 
 #[test]
 fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
     for deferred in [false, true] {
         let event = format!(
-            "{} {} i32.const 7 global.set $count",
+            "{} {} {} i32.const 7 global.set $count",
             call(true, false),
-            view_call("0.25", "0.25", false)
+            view_call("0.25", "0.25", false),
+            hurt_call(true, "2", true, false)
         );
         let (_dir, mut host) = super::load_with_view_closed(
             source("global.get $count i32.const 8 i32.ne if unreachable end"),
@@ -296,5 +422,6 @@ fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
         assert!(!host.preserves_teleport_rotation());
         assert_eq!(host.camera_view_scale(), None);
         assert!(!host.has_camera_output());
+        assert_eq!(host.camera_hurt_style(), None);
     }
 }

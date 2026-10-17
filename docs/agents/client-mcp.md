@@ -10,6 +10,9 @@ schemas document every argument. Agents drive the client only through this endpo
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
   The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, and `/tp` for captures.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.
+  To test Retina rendering headlessly, pass `CINNABAR_WINDOW_SCALE_FACTOR=2` in the
+  launch environment. Capture sizes stay in physical pixels; pointer input uses
+  logical window pixels. The default scale factor is 1.
   Hotkey toggles and the camera path's hidden hand stay in memory and are never saved.
   `pointer: {x, y}` moves in logical window pixels; combine it with `press: ["MouseLeft"]` to click.
   `wheel: {y: -3}` scrolls down three lines; add `unit: "pixel"` for precise scrolling.
