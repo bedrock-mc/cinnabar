@@ -318,14 +318,16 @@ the pointer. The Android workflow builds the APK for Android packaging changes, 
 and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
 persistent signing key and release checksums; Android installs updates through the APK installer.
 APKs compile the shared product icon into their launcher resources. Android 11+ relaunches offer
-copyable diagnostics after an unexpected process exit.
+copyable diagnostics and a report export to Downloads after an unexpected process exit. Native
+reports include Android's retained tombstone on Android 12+ when available.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
 Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
 menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
 and performance have no Android acceptance. No parity gate closes here.
-Reported exits after resource setup on Galaxy S21 remain undiagnosed; device acceptance is open.
+The reported Galaxy S21 native crash occurs after Vulkan device creation and before confirmed
+first presentation; its failing native call remains undiagnosed and device acceptance is open.
 
 ## Runtime terrain bindings
 
