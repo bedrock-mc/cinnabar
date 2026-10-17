@@ -7,7 +7,7 @@ fn custom_emotes_keep_the_owned_identity_and_state_off_bedrock() {
     let mut h = Harness::new();
     let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     h.app.insert_resource(network);
-    let mut movement = gameplay::movement::MovementTicker::default();
+    let mut movement = client_interaction::movement::MovementTicker::default();
     movement.reset(
         1,
         100,
@@ -25,11 +25,12 @@ fn custom_emotes_keep_the_owned_identity_and_state_off_bedrock() {
         let mut movement = h
             .app
             .world_mut()
-            .resource_mut::<gameplay::movement::MovementTicker>();
+            .resource_mut::<client_interaction::movement::MovementTicker>();
         movement
             .enqueue_completed_physics(gameplay::test_support::survival_mining::completed(tick))
             .unwrap();
-        let snapshot = movement.pop_pending().unwrap().snapshot;
+        let snapshot = *movement.pending_snapshots().last().unwrap();
+        assert_eq!(snapshot.tick, tick);
         let packet = protocol::player_auth_input(snapshot).unwrap();
         let decoded = protocol::decode_batch(protocol::encode(&packet).unwrap()).unwrap();
         let trace = protocol::player_auth_input_trace_sample(&decoded[0]).unwrap();
