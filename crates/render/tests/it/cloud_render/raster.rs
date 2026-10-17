@@ -1,4 +1,4 @@
-use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
+use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::math::Vec3;
 use meshing::{
     CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,

@@ -1,5 +1,5 @@
 //! Immutable startup artwork pages. Pixel decoding and hashing never run per frame.
-use assets::actor::RuntimeActorCatalog;
+use assets::RuntimeActorCatalog;
 use sha2::Digest;
 
 use crate::EntityRigId;
@@ -35,7 +35,7 @@ const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
 // downscaled to fit, never dropped.
-pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 2 * assets::actor::MAX_ACTOR_PIXEL_BYTES;
+pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 2 * assets::MAX_ACTOR_PIXEL_BYTES;
 
 /// One equipment raster (item sprite or attachable texture) to place on a generic page.
 #[derive(Clone, Debug)]
@@ -102,11 +102,11 @@ const fn player_page_bytes() -> usize {
 pub struct ActorArtworkLocation {
     pub page: ActorArtworkPageId,
     pub layer: u32,
-    pub pose_mode: assets::actor::ActorPoseMode,
+    pub pose_mode: assets::ActorPoseMode,
     pub multitexture: Option<[u32; 2]>,
 }
 impl ActorArtworkLocation {
-    pub fn pose_mode(self) -> assets::actor::ActorPoseMode {
+    pub fn pose_mode(self) -> assets::ActorPoseMode {
         self.pose_mode
     }
     pub fn page(self) -> ActorArtworkPageId {
@@ -268,7 +268,7 @@ impl ActorArtworkPages {
                         ActorArtworkLocation {
                             page,
                             layer: layer as u32,
-                            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
                             multitexture: None,
                         },
                     );
@@ -431,7 +431,7 @@ impl ActorArtworkPages {
                     locations[*index] = Some(ActorArtworkLocation {
                         page,
                         layer: layer as u32,
-                        pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
                         multitexture: None,
                     });
                     equipment.insert((page, layer as u32));
@@ -450,8 +450,8 @@ impl ActorArtworkPages {
     #[must_use]
     pub fn with_pack_artwork(
         mut self,
-        textures: &[assets::actor::ActorTexture],
-        bindings: &[assets::actor::ActorArtworkBinding],
+        textures: &[assets::ActorTexture],
+        bindings: &[assets::ActorArtworkBinding],
     ) -> Self {
         let mut groups = BTreeMap::<(u16, u16), Vec<usize>>::new();
         for (index, texture) in textures.iter().enumerate() {
@@ -495,7 +495,7 @@ impl ActorArtworkPages {
                         ActorArtworkLocation {
                             page,
                             layer: layer as u32,
-                            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
                             multitexture: None,
                         },
                     );
@@ -659,7 +659,7 @@ mod tests {
             ActorArtworkLocation {
                 page: 1,
                 layer: 0,
-                pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+                pose_mode: assets::ActorPoseMode::CompiledLiteral,
                 multitexture: None,
             },
         );
@@ -672,7 +672,7 @@ mod tests {
     fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
         assert_eq!(MAX_RENDERED_PLAYERS, 128);
         assert!(player_page_bytes() < MAX_ACTOR_GPU_PIXEL_BYTES);
-        assert_eq!(assets::actor::MAX_ACTOR_TEXTURES, 2048);
+        assert_eq!(assets::MAX_ACTOR_TEXTURES, 2048);
         assert!(within_page_budget(
             MAX_ACTOR_TEXTURE_PAGES - 1,
             MAX_ACTOR_GPU_PIXEL_BYTES
@@ -692,7 +692,7 @@ mod tests {
         let route = ActorArtworkLocation {
             page: 1,
             layer: 0,
-            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
             multitexture: None,
         };
         let base = ActorArtworkPages {
@@ -735,7 +735,7 @@ mod tests {
     fn packed_artwork_preserves_layer_pixels_and_equipment_locations() {
         let first: Arc<[u8]> = Arc::from([1, 2, 3, 4]);
         let second: Arc<[u8]> = Arc::from([5, 6, 7, 8]);
-        let textures = [first.clone(), second.clone()].map(|rgba8| assets::actor::ActorTexture {
+        let textures = [first.clone(), second.clone()].map(|rgba8| assets::ActorTexture {
             source: 0,
             width: 1,
             height: 1,
@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn pack_art_of_many_sizes_gets_a_page_per_size() {
         let textures: Vec<_> = (1..=40u16)
-            .map(|side| assets::actor::ActorTexture {
+            .map(|side| assets::ActorTexture {
                 source: u32::from(side),
                 width: side,
                 height: 1,
@@ -831,14 +831,14 @@ mod tests {
 
     #[test]
     fn pack_artwork_routes_bindings_under_pack_rig_ids() {
-        let texture = |side: u16| assets::actor::ActorTexture {
+        let texture = |side: u16| assets::ActorTexture {
             source: 0,
             width: side,
             height: side,
             pixel_sha256: [1; 32],
             rgba8: vec![7; usize::from(side) * usize::from(side) * 4].into(),
         };
-        let binding = |candidate: u32, texture: u32| assets::actor::ActorArtworkBinding {
+        let binding = |candidate: u32, texture: u32| assets::ActorArtworkBinding {
             rig: 0,
             geometry_candidate: candidate,
             entity_symbol: 0,
@@ -846,7 +846,7 @@ mod tests {
             render_controller: 0,
             texture,
             material: "entity".into(),
-            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
         };
         let pages = ActorArtworkPages::default()
             .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
@@ -863,14 +863,14 @@ mod tests {
     // Pack render layers name pack-catalog sources, never vanilla ones.
     #[test]
     fn pack_rig_variants_resolve_in_the_pack_source_space() {
-        let texture = |source: u32, fill: u8| assets::actor::ActorTexture {
+        let texture = |source: u32, fill: u8| assets::ActorTexture {
             source,
             width: 2,
             height: 2,
             pixel_sha256: [fill; 32],
             rgba8: vec![fill; 16].into(),
         };
-        let binding = assets::actor::ActorArtworkBinding {
+        let binding = assets::ActorArtworkBinding {
             rig: 0,
             geometry_candidate: 0,
             entity_symbol: 0,
@@ -878,7 +878,7 @@ mod tests {
             render_controller: 0,
             texture: 0,
             material: "entity".into(),
-            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
         };
         let pages = ActorArtworkPages::default()
             .with_pack_artwork(&[texture(4, 1), texture(9, 2)], &[binding]);

@@ -4,11 +4,11 @@ mod bodies;
 #[cfg(test)]
 mod cape_tests;
 mod commit;
-mod culling;
 mod flames;
 mod geometry;
 mod hand_frame;
 mod hats;
+pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
@@ -42,9 +42,7 @@ use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
 use crate::{
     actor_clock::authoritative_local_actor_eye,
     dropped_items::DroppedItemPublisher,
-    presentation::{
-        actors::select_actor_presentations_for_shadow_view, equipment::EquipmentRuntime,
-    },
+    presentation::{actors::select_actor_presentations, equipment::EquipmentRuntime},
 };
 use bevy::prelude::{Query, Transform, With};
 
@@ -101,16 +99,7 @@ pub struct ActorPresentationState<'w, 's> {
     settings: Res<'w, CameraSettingsAuthority>,
     server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
-    camera: Query<
-        'w,
-        's,
-        (
-            &'static Transform,
-            &'static Projection,
-            Option<&'static render_scene::EnhancedRendering>,
-        ),
-        With<FlyCamera>,
-    >,
+    camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
 /// Optional validated cosmetic tint of already active native actor damage overlays.
@@ -152,6 +141,7 @@ pub struct ActorFramePublication<'w, 's> {
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
+    cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -164,6 +154,9 @@ pub fn prepare_actor_render_frame(
 ) {
     let state = &mut *params.state;
     let Some(input) = state.input.take() else {
+        if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+            placements.0.clear();
+        }
         return;
     };
     let step = state
@@ -194,15 +187,13 @@ pub fn prepare_actor_render_frame(
         .profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ActorPreparation));
-    let actor_views = params.presentation.actor_views();
-    let cull_view = actor_views.map(|views| views.publication);
-    let local_shadows = state.first_person && actor_views.is_some_and(|views| views.casts_shadows);
+    let cull_view = params.presentation.cull_view();
     let mut new_geometries = Vec::new();
     // The hand and body share controller sampling before local placement.
     let mut bodies = bodies::sample(
         stream,
         &input,
-        (pose_view, actor_views),
+        (pose_view, cull_view),
         artwork,
         bodies::BodyCaches {
             poses: &mut state.poses,
@@ -247,33 +238,13 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
-    let local = culling::with_local_shadow_body(
-        local,
-        local_shadows,
-        stream,
-        (
-            &mut state.shadow_poses,
-            &mut state.java_poses,
-            &mut bodies.java_posed,
-        ),
-        (
-            state.java_mode && input.custom_emote.is_none(),
-            &input.local_equipment,
-        ),
-        step.partial_tick,
-    );
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
-    // Remote bodies passed frame-model admission before bounded skin registration; the
-    // shadow view retains bodies outside the main view that still cast into it.
-    let mut batch = select_actor_presentations_for_shadow_view(
+    // Remote bodies passed frame-model admission before bounded skin registration.
+    let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible,
         local,
         bodies.remotes,
-        actor_views.map(|views| views.main),
-        actor_views
-            .filter(|views| views.casts_shadows)
-            .map(|views| views.publication),
     );
     if let Some(stream) = stream {
         state
@@ -300,7 +271,6 @@ pub fn prepare_actor_render_frame(
             native_body_sampled: bodies.native_body_sampled,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
-            local_shadows,
         },
         layers::LayerCaches {
             layer_poses: &mut state.layer_poses,
@@ -322,15 +292,17 @@ pub fn prepare_actor_render_frame(
     state
         .hat_state
         .attach(&mut batch, stream, &input.remote_hats, &mut params.scene);
-    if actor_views.is_some_and(|views| views.casts_shadows) {
-        culling::shadow_only_caster_layers(&mut batch);
-    }
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+        state
+            .hat_state
+            .place_emitters(&batch, step.partial_tick, &mut placements.0);
+    }
     state
         .body_scratch
         .recycle(bodies.java_posed, bodies.remote_skin_layers);
     if let Some(flames) = params.flames.as_deref_mut()
-        && let Ok((camera, _, _)) = params.presentation.camera.single()
+        && let Ok((camera, _)) = params.presentation.camera.single()
     {
         let (yaw, _, _) = camera.rotation.to_euler(bevy::math::EulerRot::YXZ);
         flames.append(

@@ -8,7 +8,7 @@ pub(crate) mod atmosphere;
 mod diagnostics;
 pub(crate) use diagnostics::log_world_lighting;
 mod time_override;
-pub(crate) use time_override::{DebugTimeOverride, VisualTimeOverride};
+pub(crate) use time_override::VisualTimeOverride;
 mod fog;
 pub(crate) use fog::{FogBindings, fog_biome_samples, fog_precipitation_count};
 mod numeric;

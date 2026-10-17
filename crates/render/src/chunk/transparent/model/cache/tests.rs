@@ -27,8 +27,6 @@ fn fixture(count: usize) -> Fixture {
                 draw_range: base + 4..base + 10,
             };
             let instance = ChunkRenderInstance {
-                #[cfg(feature = "enhanced")]
-                light_emitters: Default::default(),
                 key,
                 origin: chunk_origin(key),
                 generation: identity.generation,

@@ -133,13 +133,10 @@ impl Fixture {
         tint[5] = f32::from_bits(0xff_80_40);
         tint[7] = 0.5;
         let tints = gpu.buffer(&tint, storage);
-        // The animation clock leads the biome query tables in one world uniform.
-        let query_tables = gpu.words(
-            &material_shader::world_uniform_words(&[0; material_shader::WORLD_CLOCK_WORDS]),
-            uniform,
-        );
+        let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
         let animations = gpu.words(&[0; 8], storage);
         let frames = gpu.words(&[0; 4], storage);
+        let clock = gpu.words(&[0; 4], uniform);
         let frame = render_scene::AtmosphereFrame::default();
         let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
         let lightmap = gpu.buffer(
@@ -201,6 +198,7 @@ impl Fixture {
                     buffer(8, read),
                     buffer(9, read),
                     buffer(10, read),
+                    buffer(11, wgpu::BufferBindingType::Uniform),
                     buffer(12, read),
                     buffer(13, read),
                     buffer(14, read),
@@ -232,6 +230,7 @@ impl Fixture {
             (8, tints.as_entire_binding()),
             (9, animations.as_entire_binding()),
             (10, frames.as_entire_binding()),
+            (11, clock.as_entire_binding()),
             (12, templates.as_entire_binding()),
             (13, geometry.as_entire_binding()),
             (14, refs.as_entire_binding()),

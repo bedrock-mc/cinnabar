@@ -50,8 +50,6 @@ pub(super) fn ocean_surface(key: SubChunkKey, shore: bool) -> ChunkRenderInstanc
         }
     }
     ChunkRenderInstance {
-        #[cfg(feature = "enhanced")]
-        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         origin: chunk_origin(key),
@@ -177,23 +175,9 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     while app.world().resource::<ChunkGpuArena>().allocations.len() < surfaces.len() {
         app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
     }
-    let (view, retained) = spawn_view(&mut app);
-    Fixture {
-        app,
-        view,
-        retained,
-        surfaces,
-        jobs: 0,
-        sorted_refs: 0,
-    }
-}
-
-/// Spawns an unprojected camera view over Core3d with nothing visible yet.
-pub(super) fn spawn_view(app: &mut App) -> (Entity, RetainedViewEntity) {
-    let world = app.world_mut();
-    let view = world.spawn_empty().id();
+    let view = app.world_mut().spawn_empty().id();
     let retained = RetainedViewEntity::new(view.into(), None, 0);
-    world.entity_mut(view).insert((
+    app.world_mut().entity_mut(view).insert((
         MainEntity::from(view),
         Msaa::Off,
         ExtractedView {
@@ -222,7 +206,14 @@ pub(super) fn spawn_view(app: &mut App) -> (Entity, RetainedViewEntity) {
         },
         RenderVisibleEntities::default(),
     ));
-    (view, retained)
+    Fixture {
+        app,
+        view,
+        retained,
+        surfaces,
+        jobs: 0,
+        sorted_refs: 0,
+    }
 }
 
 /// How one sub-chunk's water reached the phase this frame.

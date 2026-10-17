@@ -1,4 +1,4 @@
-use assets::atmosphere::BiomeVisualProfile;
+use assets::BiomeVisualProfile;
 
 pub(super) fn find_biome_profile<'a>(
     profiles: &'a [BiomeVisualProfile],

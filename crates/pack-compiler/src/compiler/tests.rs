@@ -4,7 +4,7 @@ use ::image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
 use super::CompileRuleResult;
 use super::inspect_animation_inventory;
-use assets::{RegistryRecord, VisualKind, VisualSupport, texture::TILE_SIZE};
+use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/anvil.rs"]
 mod anvil;

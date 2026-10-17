@@ -19,11 +19,10 @@ use crate::{
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_LILY_PAD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TextureRef, VisualKind,
+    NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
-    texture::TILE_SIZE,
 };
 
 // World visuals retain solid/liquid material dispositions, and replicated flipbook tiles hold
@@ -766,10 +765,7 @@ pub(crate) fn compiled_connected_bases(
     Ok(bases)
 }
 
-fn validate_texture(
-    index: usize,
-    texture: &crate::texture::TextureArray,
-) -> Result<(), AssetError> {
+fn validate_texture(index: usize, texture: &crate::TextureArray) -> Result<(), AssetError> {
     let layers = texture.layers as usize;
     if layers == 0 || layers > MAX_TEXTURE_LAYERS {
         return Err(invalid(format!(
@@ -814,7 +810,7 @@ fn optional_id(id: u32, len: usize, context: &str) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn texture_digest(texture: &crate::texture::TextureArray) -> [u8; 32] {
+fn texture_digest(texture: &crate::TextureArray) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for mip in &texture.mips {
         hasher.update(&mip.rgba8);
@@ -822,7 +818,7 @@ fn texture_digest(texture: &crate::texture::TextureArray) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-fn texture_length(texture: &crate::texture::TextureArray) -> Result<usize, AssetError> {
+fn texture_length(texture: &crate::TextureArray) -> Result<usize, AssetError> {
     texture
         .mips
         .iter()

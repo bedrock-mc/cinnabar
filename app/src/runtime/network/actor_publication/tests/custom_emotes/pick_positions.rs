@@ -57,7 +57,7 @@ fn move_actor(runtime_id: u64, position: [f32; 3], yaw: f32) -> WorldEvent {
 /// Actor-only production boundaries use the fallback clock unless a test adds prediction.
 fn production(app: &mut App) -> (bevy::ecs::schedule::Schedule, World) {
     crate::app::configure_client_frame_schedule(app);
-    crate::app::frame_systems::configure_actor_render_systems(app);
+    crate::app::configure_actor_render_systems(app);
     let schedule = app
         .world_mut()
         .resource_mut::<bevy::ecs::schedule::Schedules>()

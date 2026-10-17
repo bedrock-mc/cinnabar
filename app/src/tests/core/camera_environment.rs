@@ -50,25 +50,25 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
         .unwrap();
     complete_world_stream_decodes(&mut stream);
 
-    let base = assets::atmosphere::RuntimeAtmosphereAssets::decode(
+    let base = assets::RuntimeAtmosphereAssets::decode(
         &assets::carriers::startup::test_carriers::synthetic_atmosphere_blob(),
     )
     .unwrap();
     let atmosphere = Arc::new(
         base.with_resource_pack_overrides(
             &[],
-            &[assets::atmosphere::BiomeVisualProfile {
+            &[assets::BiomeVisualProfile {
                 biome_identifier: "test:camera".into(),
                 fog_identifier: "test:fog".into(),
                 atmosphere_identifier: "test:atmosphere".into(),
                 lighting_identifier: "test:lighting".into(),
                 sky_rgb8: Some(0x0c2238),
             }],
-            &[assets::atmosphere::FogProfile {
+            &[assets::FogProfile {
                 identifier: "test:fog".into(),
-                distances: Box::new([assets::atmosphere::FogDistance {
-                    medium: assets::atmosphere::FogMedium::Air,
-                    mode: assets::atmosphere::FogDistanceMode::RenderRelative,
+                distances: Box::new([assets::FogDistance {
+                    medium: assets::FogMedium::Air,
+                    mode: assets::FogDistanceMode::RenderRelative,
                     start_bits: 0.0_f32.to_bits(),
                     end_bits: 1.0_f32.to_bits(),
                     rgb8: 0,

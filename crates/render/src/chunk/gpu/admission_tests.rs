@@ -6,8 +6,6 @@ use render_scene::{ChunkRenderInstance, ChunkUploadAcknowledgements, ChunkUpload
 fn instance() -> ChunkRenderInstance {
     let mesh = solid_test_mesh();
     ChunkRenderInstance {
-        #[cfg(feature = "enhanced")]
-        light_emitters: Default::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         cube_quads: mesh.quads().into(),
         cube_lighting: mesh.cube_lighting().into(),

@@ -1,2 +1,0 @@
-#define CURVE_KNEE 0.6
-#define EXPOSURE_SCALE 1.25

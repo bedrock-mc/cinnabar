@@ -6,7 +6,7 @@ use super::{
     EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
     bind_session_generation, replace_session, visual_world_time,
 };
-use assets::atmosphere::{BiomeVisualProfile, FogDistance, FogDistanceMode, FogMedium, FogProfile};
+use assets::{BiomeVisualProfile, FogDistance, FogDistanceMode, FogMedium, FogProfile};
 use client_world::CommittedControlEvent;
 use protocol::{
     ChangeDimensionEvent, DaylightCycleUpdateEvent, SetTimeEvent, WeatherChannel,
@@ -687,54 +687,6 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
     );
     assert_eq!(frame.fog_start(), 58.88);
     assert_eq!(frame.fog_end(), 179.2);
-}
-
-#[test]
-fn powder_snow_selects_its_profile_and_blocks_physical_sky() {
-    let context = EnvironmentContext {
-        camera_biome_identifier: Some("minecraft:plains".into()),
-        render_distance_blocks: Some(64.0),
-        ..Default::default()
-    };
-    let mut fogs = fog_profiles();
-    let profile = fogs
-        .iter_mut()
-        .find(|fog| fog.identifier.as_ref() == "minecraft:fog_plains")
-        .unwrap();
-    let mut distances = profile.distances.to_vec();
-    distances.push(fog_distance(
-        FogMedium::PowderSnow,
-        FogDistanceMode::Fixed,
-        0.5,
-        3.0,
-        0x80_40_20,
-    ));
-    profile.distances = distances.into_boxed_slice();
-    let (frame, _) = derive_profiled_atmosphere_frame(
-        WorldClock::default(),
-        WeatherState::default(),
-        0.0,
-        meshing::CameraMedium::PowderSnow,
-        &context,
-        &profiles(),
-        &fogs,
-        Default::default(),
-        None,
-        0.0,
-    );
-    assert_eq!(frame.camera_medium(), meshing::CameraMedium::PowderSnow);
-    assert_eq!(frame.fog_start(), 0.5);
-    assert_eq!(frame.fog_end(), 3.0);
-    assert!(!frame.physical_atmosphere_allowed());
-    let expected = render_scene::AtmosphereFrame::default().with_environment_profile(
-        None,
-        Some(assets::atmosphere::ResolvedFog {
-            start: 0.5,
-            end: 3.0,
-            rgb: [128.0 / 255.0, 64.0 / 255.0, 32.0 / 255.0],
-        }),
-    );
-    assert_eq!(frame.fog_color(), expected.fog_color());
 }
 
 pub(super) fn profiles() -> Vec<BiomeVisualProfile> {

@@ -173,7 +173,9 @@ impl UiRuntime {
     pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
         if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
             != super::presentation::inventory_pointer::InventoryScreen::Creative
-            && !(ui_screens::furnace_book::active(player) && self.screen_state().furnace_book_open)
+            && !(self
+                .furnace_options(player)
+                .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook))
         {
             self.screen_state_mut().search_focused = false;
         }
@@ -691,13 +693,20 @@ impl UiRuntime {
             Widget::CrafterSlot(slot) => self.set_crafter_slot(player_runtime, slot, false),
             Widget::InventoryLayout(layout) => {
                 if ui_screens::furnace_book::active(player_runtime) {
-                    let state = self.screen_state_mut();
-                    state.furnace_book_open = layout == 2;
-                    if !state.furnace_book_open {
-                        state.search_focused = false;
+                    let layout = protocol::FurnaceLayout::from_index(i32::from(layout));
+                    if !matches!(
+                        layout,
+                        protocol::FurnaceLayout::InventoryOnly
+                            | protocol::FurnaceLayout::RecipeBook
+                    ) {
+                        return Err(InventoryGestureError::InvalidRequest);
                     }
-                    state.container_scroll.clear();
-                    return Ok(0);
+                    let result = self
+                        .change_furnace_options(player_runtime, |options| options.layout = layout);
+                    if result.is_ok() && layout != protocol::FurnaceLayout::RecipeBook {
+                        self.screen_state_mut().search_focused = false;
+                    }
+                    return result;
                 }
                 let creative = player_runtime.facts.player_game_mode()
                     == Some(protocol::PlayerGameMode::Creative);
@@ -709,17 +718,30 @@ impl UiRuntime {
                 Ok(0)
             }
             Widget::RecipeFilter => {
+                if ui_screens::furnace_book::active(player_runtime) {
+                    return self.change_furnace_options(player_runtime, |options| {
+                        options.filtering = !options.filtering
+                    });
+                }
                 let filtering = self.recipe_filtering(player_runtime);
                 self.screen_state_mut().recipe_filtering = Some(!filtering);
                 self.screen_state_mut().container_scroll.clear();
                 Ok(0)
             }
             Widget::FurnaceTab(tab) => {
-                let state = self.screen_state_mut();
-                state.furnace_tab = Some(tab);
-                state.search_focused = tab == 4;
-                state.container_scroll.clear();
-                Ok(0)
+                let tab = protocol::FurnaceTab::from_index(i32::from(tab));
+                if matches!(
+                    tab,
+                    protocol::FurnaceTab::None | protocol::FurnaceTab::Unknown(_)
+                ) {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+                let result =
+                    self.change_furnace_options(player_runtime, |options| options.left_tab = tab);
+                if result.is_ok() {
+                    self.screen_state_mut().search_focused = tab == protocol::FurnaceTab::Search;
+                }
+                result
             }
             Widget::BookPage { next } => {
                 let page = self.screen_state().book_page;

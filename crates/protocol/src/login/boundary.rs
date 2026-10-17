@@ -5,7 +5,7 @@ use crate::raw_packet::RawPacket;
 use crate::session_transport::{Inbound, Terminal};
 use crate::{Packet, ProtocolError, ServerDisconnectEvent, ServerTransferEvent};
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Retains a decoded disconnect and reports whether it ended the session.
     fn retain_server_disconnect(&mut self, packet: &Packet) -> bool {
         if let Some(event) = ServerDisconnectEvent::from_packet_data(&packet.data) {

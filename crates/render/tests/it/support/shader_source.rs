@@ -4,38 +4,10 @@
     reason = "shared helpers serve different shader test targets"
 )]
 use crate::material_shader;
-use std::collections::BTreeSet;
 
 pub(crate) const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_from_world: mat4x4<f32>, view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4x4<f32>, view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
 const FULLSCREEN: &str = "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, }";
 const FULLSCREEN_VERTEX: &str = "@vertex fn fullscreen(@builtin(vertex_index) index: u32) -> FullscreenVertexOutput { var out: FullscreenVertexOutput; out.uv = vec2(f32((index << 1u) & 2u), f32(index & 2u)); out.position = vec4(out.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0); return out; }";
-
-/// Finds resources used by the selected entry points, including their called functions.
-pub fn bindings_used_by_entry_points(source: &str, entries: &[&str], group: u32) -> BTreeSet<u32> {
-    let module = naga::front::wgsl::parse_str(source).expect("fixture shader parses");
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    )
-    .validate(&module)
-    .expect("fixture shader validates");
-    module
-        .global_variables
-        .iter()
-        .filter_map(|(handle, variable)| {
-            let binding = variable.binding.as_ref()?;
-            let used = module
-                .entry_points
-                .iter()
-                .enumerate()
-                .any(|(index, entry)| {
-                    entries.contains(&entry.name.as_str())
-                        && !info.get_entry_point(index)[handle].is_empty()
-                });
-            (used && binding.group == group).then_some(binding.binding)
-        })
-        .collect()
-}
 
 /// Reads the alpha cutoff guarding a fragment discard, including named WGSL constants.
 pub fn alpha_discard_threshold(source: &str, function: &str) -> Option<f32> {
@@ -79,12 +51,6 @@ fn discard_threshold(
                 .or_else(|| discard_threshold(module, function, reject))
         }
         naga::Statement::Block(inner) => discard_threshold(module, function, inner),
-        naga::Statement::Call {
-            function: called, ..
-        } => {
-            let called = &module.functions[*called];
-            discard_threshold(module, called, &called.body)
-        }
         _ => None,
     })
 }
@@ -177,43 +143,20 @@ pub fn standalone_prepared(source: &str, definitions: &[&str]) -> String {
 
 /// Uses Bevy's WESL composition and pruning options before validating the resulting WGSL.
 pub fn composed(source: &str, definitions: &[&str]) -> String {
-    let source = composed_source(source, definitions);
-    validated(&source);
-    source
-}
-
-/// Retains the composed IR used by Bevy's native shader compilation path.
-pub fn composed_module(source: &str, definitions: &[&str]) -> naga::Module {
-    validated(&composed_source(source, definitions))
-}
-
-/// Root module that instantiates Bevy's fullscreen vertex stage.
-pub fn fullscreen_vertex_source() -> String {
-    format!(
-        "import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;\n{FULLSCREEN_VERTEX}"
-    )
-}
-
-/// Composes with pruning, appending Bevy's fullscreen vertex stage when the root imports it.
-fn composed_source(source: &str, definitions: &[&str]) -> String {
     let source = if source.contains("import bevy_core_pipeline::fullscreen_vertex_shader") {
         format!("{source}\n{FULLSCREEN_VERTEX}")
     } else {
         source.to_owned()
     };
-    compile(&source, definitions, true)
-}
-
-/// Parses and validates composed WGSL, panicking with the failing module.
-fn validated(source: &str) -> naga::Module {
-    let module = naga::front::wgsl::parse_str(source).expect("composed WGSL parses");
+    let source = compile(&source, definitions, true);
+    let module = naga::front::wgsl::parse_str(&source).expect("composed WGSL parses");
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
     )
     .validate(&module)
     .expect("composed module validates");
-    module
+    source
 }
 
 /// Enables precisely the requested pipeline flags; unspecified flags stay disabled.
@@ -234,30 +177,7 @@ fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
 /// Resolves imports while preserving the already prepared root module verbatim.
 fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
     let mut resolver = wesl::resolver::VirtualResolver::new();
-    for (path, source) in composable_sources() {
-        resolver.add_module(path.parse().expect("module path"), source.into());
-    }
-    let root: wesl::syntax::ModulePath = "fixture::shader".parse().expect("root module path");
-    resolver.add_module(root.clone(), source.to_owned().into());
-    let options = wesl::CompileOptions {
-        visibility: false,
-        features: features(definitions),
-        strip: prune,
-        mangler: if prune {
-            wesl::ManglerKind::Escape
-        } else {
-            wesl::ManglerKind::None
-        },
-        ..Default::default()
-    };
-    wesl::compile(&root, &options, &FixtureResolver(resolver))
-        .unwrap_or_else(|error| panic!("{}", error.diagnostic().render_plain()))
-        .to_string()
-}
-
-/// Production WESL modules by import path, with generated constants already resolved.
-pub fn composable_sources() -> Vec<(&'static str, String)> {
-    vec![
+    for (path, source) in [
         ("bevy_render::view", VIEW.to_owned()),
         (
             "bevy_render::globals",
@@ -298,62 +218,6 @@ pub fn composable_sources() -> Vec<(&'static str, String)> {
             include_str!("../../../src/enhanced/common.wesl").to_owned(),
         ),
         (
-            "render::enhanced::environment",
-            include_str!("../../../src/enhanced/environment.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::temporal",
-            include_str!("../../../src/enhanced/temporal.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::local_lights",
-            include_str!("../../../src/enhanced/local_lights.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::actor_motion",
-            include_str!("../../../src/enhanced/actor_motion.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::atmosphere",
-            include_str!("../../../src/enhanced/atmosphere.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::clouds",
-            include_str!("../../../src/enhanced/clouds.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::ao",
-            include_str!("../../../src/enhanced/ao.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::shadow",
-            include_str!("../../../src/enhanced/shadow.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::sun_shadow_temporal",
-            include_str!("../../../src/enhanced/sun_shadow_temporal.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::radiance",
-            include_str!("../../../src/enhanced/radiance.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::water",
-            include_str!("../../../src/enhanced/water.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::indirect_trace",
-            include_str!("../../../src/enhanced/indirect_trace.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::indirect",
-            include_str!("../../../src/enhanced/indirect.wesl").to_owned(),
-        ),
-        (
-            "render::enhanced::pbr",
-            material_shader::source(include_str!("../../../src/enhanced/pbr.wesl")),
-        ),
-        (
             "render::enhanced::view",
             include_str!("../../../src/enhanced/view.wesl").to_owned(),
         ),
@@ -369,7 +233,25 @@ pub fn composable_sources() -> Vec<(&'static str, String)> {
             "render::model",
             material_shader::source(include_str!("../../../src/model.wesl")),
         ),
-    ]
+    ] {
+        resolver.add_module(path.parse().expect("module path"), source.into());
+    }
+    let root: wesl::syntax::ModulePath = "fixture::shader".parse().expect("root module path");
+    resolver.add_module(root.clone(), source.to_owned().into());
+    let options = wesl::CompileOptions {
+        visibility: false,
+        features: features(definitions),
+        strip: prune,
+        mangler: if prune {
+            wesl::ManglerKind::Escape
+        } else {
+            wesl::ManglerKind::None
+        },
+        ..Default::default()
+    };
+    wesl::compile(&root, &options, &FixtureResolver(resolver))
+        .unwrap_or_else(|error| panic!("{}", error.diagnostic().render_plain()))
+        .to_string()
 }
 
 /// Resolves dependency packages with the same crate names used by Bevy's shader cache.

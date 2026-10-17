@@ -3,7 +3,7 @@
 use super::*;
 use crate::presentation::equipment::ActorEquipmentInput;
 use crate::presentation::{
-    actors::{ActorRigPresentation, transform::rig_world_from_actor},
+    actors::{ActorRigPresentation, rig_world_from_actor},
     equipment::{FirstPersonArms, FirstPersonHand, FirstPersonItem},
 };
 use bevy::math::Mat4;

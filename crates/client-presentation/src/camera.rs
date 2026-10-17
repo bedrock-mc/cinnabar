@@ -55,7 +55,7 @@ pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
 pub use hurt::{CameraHurtState, LocalHurtEvent};
 pub use overlay::{
     HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
-    VisionEffects, compute_overlays, probe_head_medium,
+    VisionEffects, compute_overlays,
 };
 pub use portal_projection::{first_person_hand_fov, set_camera_projection_fov, update_camera_fov};
 pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};

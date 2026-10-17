@@ -232,62 +232,6 @@ impl PackedModelRef {
             self.visible_quad_mask,
         ]
     }
-
-    /// Places one template vertex in sub-chunk space in the model shader's order: bamboo column
-    /// and leaf offsets, quarter turns, then the random-offset prefix ahead of this reference's
-    /// lighting. `None` when that prefix is missing from `lighting`.
-    #[must_use]
-    pub fn place_vertex(
-        self,
-        template_flags: u32,
-        quad_index: u32,
-        vertex: [f32; 3],
-        chunk_origin: [i32; 3],
-        lighting: &[PackedQuadLighting],
-    ) -> Option<[f32; 3]> {
-        let transform = self.packed_transform;
-        let block = [transform & 15, (transform >> 4) & 15, (transform >> 8) & 15];
-        let has_offset = transform & MODEL_REF_FLAG_RANDOM_OFFSET != 0;
-        let mut turns = transform >> 12;
-        let mut position = vertex;
-        if template_flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-            if !has_offset {
-                let column = block_transform::bamboo::offset_from_transform(turns);
-                position[0] += column[0];
-                position[2] += column[2];
-            }
-            if quad_index == assets::bamboo::POSITIVE_X_LEAF_QUAD {
-                position[2] += assets::bamboo::LEAF_PLANE_INSET;
-            }
-            if quad_index == assets::bamboo::POSITIVE_Z_LEAF_QUAD {
-                position[0] += assets::bamboo::LEAF_PLANE_INSET;
-            }
-            turns = 0;
-        }
-        if template_flags & assets::MODEL_TEMPLATE_FLAG_LILY_PAD != 0 {
-            turns =
-                block_transform::rotation::lily_pad_quarter_turns(std::array::from_fn(|axis| {
-                    chunk_origin[axis].wrapping_add(block[axis] as i32)
-                }));
-        }
-        let [x, y, z] = [position[0] - 0.5, position[1], position[2] - 0.5];
-        let [x, z] = match turns & 3 {
-            1 => [-z, x],
-            2 => [-x, -z],
-            3 => [z, -x],
-            _ => [x, z],
-        };
-        let mut position = [x + 0.5, y, z + 0.5];
-        if has_offset {
-            let base = self.lighting_base_index as usize;
-            let prefix = lighting.get(base.checked_sub(2)?..base)?;
-            let offset = PackedQuadLighting::offset_from_prefix([prefix[0], prefix[1]]);
-            position = std::array::from_fn(|axis| position[axis] + offset[axis]);
-        }
-        Some(std::array::from_fn(|axis| {
-            block[axis] as f32 + position[axis]
-        }))
-    }
 }
 
 /// One exact visible-quad draw indirection into the packed model-ref stream.
@@ -739,8 +683,6 @@ impl<'a> Neighbourhood<'a> {
 /// Packed greedy geometry plus visibility metadata for one sub-chunk.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkMesh {
-    #[cfg(feature = "enhanced")]
-    pub(crate) light_emitters: Box<[crate::BlockLightEmitter]>,
     pub(crate) cube_streams: Box<CubeStreams>,
     pub(crate) model_refs: Box<[PackedModelRef]>,
     pub(crate) model_lighting: Box<[PackedQuadLighting]>,
@@ -843,8 +785,6 @@ impl ChunkMesh {
             });
         }
         Ok(Self {
-            #[cfg(feature = "enhanced")]
-            light_emitters: Box::new([]),
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
