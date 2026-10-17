@@ -3,6 +3,47 @@ use crate::facts::{
     UiItemIcon, dimension_fallback_biome, dimension_id, presentation_generated::ambient_block,
 };
 
+#[test]
+fn poplar_falling_leaf_effects_follow_species_and_only_admitted_leaf_states() {
+    use crate::facts::{BlockFacts, ParticleEffect};
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let facts = BlockFacts::new(&records).unwrap();
+    for (name, expected) in [
+        (
+            "minecraft:red_poplar_leaves",
+            ParticleEffect::RedPoplarLeavesParticle,
+        ),
+        (
+            "minecraft:orange_poplar_leaves",
+            ParticleEffect::OrangePoplarLeavesParticle,
+        ),
+        (
+            "minecraft:yellow_poplar_leaves",
+            ParticleEffect::YellowPoplarLeavesParticle,
+        ),
+    ] {
+        let states = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .collect::<Vec<_>>();
+        assert!(!states.is_empty(), "missing {name}");
+        for record in states {
+            assert_eq!(
+                facts.get(record.sequential_id).leaf_particle,
+                Some(expected)
+            );
+        }
+    }
+    assert_eq!(leaf_particle("minecraft:oak_leaves"), None);
+    assert_eq!(leaf_particle("minecraft:red_shrub"), None);
+    assert_eq!(leaf_particle("fixture:red_poplar_leaves"), None);
+    assert_eq!(facts.get(u32::MAX).leaf_particle, None);
+}
+
 /// Retains the previous sign texture grammar as a migration oracle.
 fn previous_sign_texture(name: &str) -> (String, bool) {
     let name = name.strip_prefix("minecraft:").unwrap_or(name);

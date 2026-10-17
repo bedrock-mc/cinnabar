@@ -14,26 +14,26 @@
   "projection": {
     "states": 22091,
     "legacy_exact_states": 15963,
+    "authored_states": 8,
     "legacy_reduced_states": 3440,
     "twin_states": 2026,
     "twin_names": 119,
     "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
     "unresolved_retail": [
-      "minecraft:shelf_mushroom",
       "minecraft:straw_bed"
     ],
-    "denied_count": 498,
-    "denied_fingerprint": "aeeccfe0e227087889ad3d2f8bba5492c40335d76331d04ece290acb6399e1a0",
+    "denied_count": 490,
+    "denied_fingerprint": "40ea99af25c7d74a39ff7133af07436a0e20a21fe3875c98106e8a6d173fb874",
     "education_states": 164
   },
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c"
+    "sha256": "653e8344e2ff987957fc835ea0f570cbaa025a58797cd22ae260d1e961f683a3"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f"
+    "sha256": "3e23620a651bb86830a679566493d3fe93b8b2d6842e1117b8eec02914379e67"
   }
 }

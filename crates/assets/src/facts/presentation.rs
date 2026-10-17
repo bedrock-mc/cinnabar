@@ -11,6 +11,13 @@ pub enum AmbientBlock {
     Portal,
 }
 
+/// Resolves a leaf species' authored effect through the pinned particle vocabulary.
+/// Unrelated blocks and leaf species without a dedicated effect remain unresolved.
+pub fn leaf_particle(identifier: &str) -> Option<super::ParticleEffect> {
+    identifier.strip_suffix("_leaves")?;
+    super::ParticleEffect::from_name(&format!("{identifier}_particle"))
+}
+
 /// Resolves sign editor artwork using the compiled texture naming contract.
 pub fn sign_texture(identifier: Option<&str>) -> (String, bool) {
     let name = identifier.unwrap_or_default();
