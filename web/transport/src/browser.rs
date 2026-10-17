@@ -71,14 +71,16 @@ impl RelayTransport for BrowserTransport {
     ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static + use<> {
         let transport = self.0.clone();
         let mut acceptance = PackAcceptance {
-            channel: pack_channel(&transport),
-            accepted: false,
+            channel: Some(pack_channel(&transport)),
         };
         async move {
-            let handle = JsFuture::from(accept_packs(&transport, &acceptance.channel))
-                .await
-                .map_err(|_| CloseReason::Transport)?;
-            acceptance.accepted = true;
+            let handle = JsFuture::from(accept_packs(
+                &transport,
+                acceptance.channel.as_ref().expect("pending pack channel"),
+            ))
+            .await
+            .map_err(|_| CloseReason::Transport)?;
+            let _ = acceptance.channel.take();
             Ok((!handle.is_null()).then(|| BrowserStream::new(handle)))
         }
     }
@@ -129,13 +131,14 @@ impl Drop for BrowserTransport {
 
 /// Cancels a pending archive wait even when its Rust future is dropped before first poll.
 struct PackAcceptance {
-    channel: JsValue,
-    accepted: bool,
+    channel: Option<JsValue>,
 }
 impl Drop for PackAcceptance {
     fn drop(&mut self) {
-        if !self.accepted && !self.channel.is_null() {
-            close_channel(&self.channel);
+        if let Some(channel) = &self.channel
+            && !channel.is_null()
+        {
+            close_channel(channel);
         }
     }
 }
