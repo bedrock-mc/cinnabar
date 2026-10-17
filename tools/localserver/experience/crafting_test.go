@@ -2,6 +2,7 @@ package experience
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestServerRecipesAnswerTheGuestsGrid(t *testing.T) {
 // A scheduled update commits, and when it is due the guest runs on its block: the probe counts
 // the update in the block's data.
 func TestScheduledUpdateRunsOnItsBlock(t *testing.T) {
-	log, _ := testLog(t)
+	log, logs := testLog(t)
 	sup, _ := startProbe(t, log)
 	f := newHostFixture(t, log, map[string]*Supervisor{"probe": sup})
 	pos := probePos(probeSchedule)
@@ -51,16 +52,12 @@ func TestScheduledUpdateRunsOnItsBlock(t *testing.T) {
 		viewer.Move(tx, mgl64.Vec3{float64(pos.X), float64(pos.Y), float64(pos.Z)})
 		viewer.Load(tx, 9)
 	})
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if got, ok := f.store.Data("probe", overworldKey(pos)); ok && slices.Equal(got, counter(1)) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the scheduled update did not run on its block")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// The probe logs the count it wrote once the update's result committed.
+	waitForRecord(t, logs, func(r map[string]any) bool {
+		line, _ := r["line"].(string)
+		return strings.Contains(line, "scheduled count 1")
+	})
+	f.waitData("probe", pos, counter(1))
 }
 
 // Every crafting-table recipe the server has fits the protocol's bounds, and the load request that

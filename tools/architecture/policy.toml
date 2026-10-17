@@ -1591,24 +1591,49 @@ literal = "minecraft:air"
 reason = "Experience protocol sentinel for an empty block or inventory cell."
 
 [[identifier_literal_exceptions]]
-path = "crates/experience-runtime/src/protocol.rs"
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
 literal = "minecraft:stone"
 reason = "Protocol conformance fixture requires concrete registered block and item identities."
 
 [[identifier_literal_exceptions]]
-path = "crates/experience-runtime/src/protocol.rs"
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
 literal = "minecraft:iron_ingot"
 reason = "Protocol conformance fixture requires concrete registered block and item identities."
 
 [[identifier_literal_exceptions]]
-path = "crates/experience-runtime/src/protocol.rs"
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
 literal = "minecraft:ender_pearl"
 reason = "Protocol conformance fixture requires concrete registered block and item identities."
 
 [[identifier_literal_exceptions]]
-path = "crates/experience-runtime/src/protocol.rs"
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
 literal = "minecraft:air"
 reason = "Protocol conformance fixture requires concrete registered block and item identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
+literal = "minecraft:oak_planks"
+reason = "Protocol conformance fixture needs concrete crafting recipe inputs and outputs."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
+literal = "minecraft:spruce_planks"
+reason = "Protocol conformance fixture needs concrete crafting recipe inputs and outputs."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
+literal = "minecraft:stick"
+reason = "Protocol conformance fixture needs concrete crafting recipe inputs and outputs."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/fixtures.rs"
+literal = "minecraft:red_dye"
+reason = "Protocol conformance fixture needs concrete crafting recipe inputs and outputs."
+
+[[identifier_literal_exceptions]]
+path = "examples/experiences/probe/src/contract.rs"
+literal = "minecraft:oak_planks"
+reason = "The probe asks the server's recipes for a concrete vanilla grid."
 
 [[identifier_literal_exceptions]]
 path = "crates/experience-runtime/src/protocol/visuals.rs"
