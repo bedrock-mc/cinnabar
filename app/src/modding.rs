@@ -32,6 +32,7 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
+mod anchors;
 mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
@@ -341,6 +342,13 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
+    app.add_systems(
+        Update,
+        anchors::publish
+            .after(ClientFrameSet::ActorPublication)
+            .after(drive_mod)
+            .before(ClientFrameSet::UiPublication),
+    );
     block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
@@ -378,6 +386,7 @@ fn begin_mod_frame(
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        anchors::reconcile(&mut extension.hosts, &gameplay);
         drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
         extension.hosts.begin_frame();
     }
@@ -522,6 +531,7 @@ fn drive_mod(
         gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     }
     drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
         .single()

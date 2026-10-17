@@ -56,15 +56,16 @@ impl ModGrants {
 impl ModHost {
     /// Binds authority before callbacks. A changed fence stops the guest because previously
     /// disclosed observations cannot be removed from its memory. Reload creates a fresh guest.
-    pub fn bind_drawing_session(&mut self, session: DrawingSession) {
+    pub fn bind_drawing_session(&mut self, session: DrawingSession) -> bool {
         if self.drawing_session == Some(session) {
-            return;
+            return false;
         }
         self.drawing_restart = self.is_active() || self.is_revoked();
         self.revoke();
         self.drawing_session = Some(session);
         self.instance
             .bind_drawing_policy(self.grants.for_drawing_session(session), session);
+        true
     }
 
     /// Whether a session fence needs a fresh guest, independently of registration changes.

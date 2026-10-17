@@ -8,7 +8,8 @@ pub(super) fn bind(
     hosts: &mut ModHosts,
     gameplay: &super::gameplay::GameplayContext<'_>,
     ui: &client_ui::ui_runtime::UiRuntime,
-) {
+) -> bool {
+    let mut changed = false;
     let fence = gameplay
         .world
         .as_ref()
@@ -36,13 +37,14 @@ pub(super) fn bind(
                 client_ui::experience_session::unix_seconds(),
             )
         };
-        host.bind_drawing_session(DrawingSession {
+        changed |= host.bind_drawing_session(DrawingSession {
             connection,
             dimension,
             local,
             permissions,
         });
     }
+    changed
 }
 
 /// Publishes availability for only the block anchors in the current retained output.

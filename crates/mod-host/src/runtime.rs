@@ -311,6 +311,32 @@ impl Instance {
             .bind_session(session.connection, session.dimension);
     }
 
+    /// Reads the last committed actor references for native liveness reconciliation.
+    pub(super) fn drawing_entity_keys(
+        &self,
+    ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
+        self.store
+            .data()
+            .render
+            .retained
+            .snapshot()
+            .entities
+            .values()
+            .copied()
+    }
+
+    /// Reconciles native actor lifetime changes outside guest callback transactions.
+    pub(super) fn update_drawing_entities(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        despawned: &[mod_render::retained::EntityKey],
+    ) -> Result<(), mod_render::retained::DrawError> {
+        self.store
+            .data_mut()
+            .render
+            .update_entities(candidates, despawned)
+    }
+
     /// Returns current effective grants rather than the retained loader consent.
     pub(super) fn grants(&self) -> &ModGrants {
         &self.store.data().grants

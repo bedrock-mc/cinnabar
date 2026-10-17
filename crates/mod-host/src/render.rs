@@ -61,14 +61,7 @@ impl RenderState {
 
     pub fn commit(&mut self) {
         self.retained.commit();
-        let snapshot = self.retained.snapshot();
-        let retained = if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
-            Vec::new()
-        } else {
-            vec![Arc::clone(snapshot)]
-        };
-        let retained_changed = self.committed.retained != retained;
-        self.committed.retained = retained;
+        let retained_changed = self.publish_retained();
         let primitives = std::mem::take(&mut self.staged_primitives);
         let mut changed = retained_changed;
         if let Some(mut passes) = self.staged_passes.take() {
@@ -84,6 +77,32 @@ impl RenderState {
         if changed {
             self.generation = next_revision();
         }
+    }
+
+    /// Publishes confirmed target removals before another callback can render stale anchors.
+    pub(super) fn update_entities(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        despawned: &[mod_render::retained::EntityKey],
+    ) -> Result<(), mod_render::retained::DrawError> {
+        self.retained.reconcile_entities(candidates, despawned)?;
+        if self.publish_retained() {
+            self.generation = next_revision();
+        }
+        Ok(())
+    }
+
+    /// Copies only the immutable snapshot identity into renderer output.
+    fn publish_retained(&mut self) -> bool {
+        let snapshot = self.retained.snapshot();
+        let retained = if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+            Vec::new()
+        } else {
+            vec![Arc::clone(snapshot)]
+        };
+        let changed = self.committed.retained != retained;
+        self.committed.retained = retained;
+        changed
     }
 
     pub fn revoke(&mut self) {

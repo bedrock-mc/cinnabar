@@ -31,6 +31,9 @@ interface drawing {
     }
     /// Readiness and limits are host authority; shader materials are not part of this version.
     capabilities: func() -> permissions;
+    record observed-entity { entity: handle, runtime-id: u64 }
+    /// Returns bounded host-selected actor references; retained references need explicit release.
+    observe-entities: func() -> result<list<observed-entity>, draw-error>;
     create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
     create: func(spec: instance) -> result<handle, draw-error>;
     update: func(id: handle, spec: instance) -> result<_, draw-error>;

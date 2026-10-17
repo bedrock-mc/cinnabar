@@ -576,5 +576,5 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; the generic unlit renderer is connected. Native output captures, hardware budgets
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; the generic unlit renderer is connected. Actor root attachment uses the renderer publication and exact spawn references.
+Native output captures, hardware budgets and bone attachment remain incomplete and do not close any completion requirement.
