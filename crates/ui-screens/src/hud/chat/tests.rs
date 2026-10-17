@@ -384,3 +384,33 @@ fn hud_factory_keeps_the_server_caption_across_refreshes() {
         );
     }
 }
+
+#[test]
+fn retained_rows_keep_named_caption_templates_without_duplicate_placements() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "caption@hud.chat_label":{"text":"Server caption"},
+            "chat_grid_item":{"controls":[{"text@hud.caption":{}}]},
+            "root_panel":{"controls":[{"duplicate@hud.chat_panel":{}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let row = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let caption = row
+        .find(&|control: &ResolvedControl| control.name == "text")
+        .expect("referenced caption template remains available");
+    assert_eq!(caption.properties["text"], "Server caption");
+    let root = json_ui::resolve(&pack, "hud.root_panel", &context)
+        .control
+        .unwrap();
+    assert!(
+        root.find(&|control: &ResolvedControl| control.name == "duplicate")
+            .is_none()
+    );
+}

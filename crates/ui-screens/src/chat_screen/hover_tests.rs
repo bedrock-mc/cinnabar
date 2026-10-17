@@ -3,7 +3,7 @@
 use super::*;
 use assets::{RuntimeUiAssets, UiAtlasPage, encode_ui_catalog};
 use json_ui::{Catalog, Context, Draw};
-use ui::{DpiScale, SafeArea, TextLayoutCache};
+use ui::{DpiScale, SafeArea, TextLayoutCache, UiVisual};
 use ui_engine::{
     sources::{ImageWork, RemoteImage, RemoteSource},
     test_support::fixture_font,
@@ -56,6 +56,26 @@ fn engine() -> FormEngine {
         ImageWork::inline(),
     );
     engine.set_server_pack(&[crate::test_support::hover_chat::files()]);
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([20, 10, 30, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let background = ui_engine::engine::tooltip::BACKGROUND_TEXTURE;
+    engine.set_server_atlas(
+        ui_engine::atlas::ServerAtlas::new(
+            &[
+                (format!("{background}.png"), png),
+                (
+                    format!("{background}.json"),
+                    br#"{"nineslice_size":4,"base_size":[16,16]}"#.to_vec(),
+                ),
+            ],
+            None,
+            1,
+        )
+        .with_image_work(ImageWork::inline()),
+        1,
+    );
     engine
 }
 
@@ -73,7 +93,9 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
     }]
     .into();
     let editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES).unwrap();
-    for dpi in [1.0, 1.5, 2.0] {
+    for (dpi, safe_area) in [1.0, 1.5, 2.0].into_iter().flat_map(|dpi| {
+        [SafeArea::ZERO, SafeArea::new(24.0, 18.0, 0.0, 0.0).unwrap()].map(|area| (dpi, area))
+    }) {
         let mut screen = ChatScreen::default();
         let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
         let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
@@ -81,6 +103,7 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
         let mut next = 1;
         let mut point = None;
         for hovered in [false, true, true, false] {
+            nodes.clear();
             screen
                 .set_pointer(hovered.then(|| point.expect("the first frame measured the caption")));
             let mut frame = PaintFrame {
@@ -88,7 +111,7 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
                 font: &font,
                 metrics,
                 solid_page: 0,
-                safe_area: SafeArea::ZERO,
+                safe_area,
                 content: [1280.0 / dpi, 720.0 / dpi],
                 translate: &|_| None,
                 language: [0; 3],
@@ -131,9 +154,30 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
                     crate::test_support::hover_chat::TOOLTIP
                 );
             }
+            if hovered {
+                let pointer: UiPoint = point.unwrap();
+                let min = nodes
+                    .iter()
+                    .filter(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+                    .map(|node| node.bounds().min())
+                    .fold([f32::INFINITY; 2], |min, point| {
+                        [min[0].min(point.x()), min[1].min(point.y())]
+                    });
+                let offset = ui_engine::engine::tooltip::MOUSE_OFFSET;
+                let expected = [
+                    pointer.x() - safe_area.left() + offset[0] * screen.scale,
+                    pointer.y() - safe_area.top() + offset[1] * screen.scale,
+                ];
+                for axis in 0..2 {
+                    assert!(
+                        (min[axis] - expected[axis]).abs() <= 1.0,
+                        "tooltip position {min:?}, expected {expected:?}, dpi={dpi}, safe={safe_area:?}"
+                    );
+                }
+            }
             let caption_point = UiPoint::new(
-                (caption.dest.x as f32 + 4.0) * screen.scale,
-                (caption.dest.y as f32 + 4.0) * screen.scale,
+                safe_area.left() + (caption.dest.x as f32 + 4.0) * screen.scale,
+                safe_area.top() + (caption.dest.y as f32 + 4.0) * screen.scale,
             )
             .unwrap();
             assert_eq!(

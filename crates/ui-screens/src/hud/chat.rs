@@ -22,6 +22,13 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     };
     let overlay_ref = ControlRef::parse(reference, "hud");
     let message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
+    let dependencies = content_dependencies(
+        catalog,
+        message_row
+            .as_ref()
+            .into_iter()
+            .chain(authored_content(catalog, builtin, "chat", "messages_text").as_ref()),
+    );
     let empty = screen
         .props
         .get("$cinnabar_additional_content|default")
@@ -89,7 +96,11 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     if let Some(row) = message_row {
         catalog.insert(row);
     }
-    let filtered = restore_chat_screen(catalog, builtin, &mut global_names);
+    let mut filtered = restore_chat_screen(catalog, builtin, &mut global_names);
+    for dependency in dependencies {
+        catalog.insert(dependency.clone());
+        filtered.push(dependency);
+    }
     let globals = global_names
         .into_iter()
         .filter_map(|name| Some((format!("${name}"), builtin.global(&name)?.clone())))
@@ -133,6 +144,65 @@ fn authored_content(
     let base = builtin.lookup(namespace, name)?;
     (content.children != base.children || content.has_controls != base.has_controls)
         .then(|| content.clone())
+}
+
+/// Saves named templates reachable from retained content before placement suppression.
+fn content_dependencies<'a>(
+    catalog: &Catalog,
+    content: impl Iterator<Item = &'a RawControl>,
+) -> Vec<RawControl> {
+    /// Queues the bases and factory templates used by one content subtree.
+    fn visit(control: &RawControl, pending: &mut Vec<ControlRef>) {
+        if let Some(base) = &control.base {
+            pending.push(ControlRef::parse(base, &control.owner_ns));
+        }
+        /// Queues literal templates declared by a factory.
+        fn factory(value: &Value, namespace: &str, pending: &mut Vec<ControlRef>) {
+            if let Some(name) = value.get("control_name").and_then(Value::as_str) {
+                pending.push(ControlRef::parse(name, namespace));
+            }
+            if let Some(ids) = value.get("control_ids").and_then(Value::as_object) {
+                pending.extend(
+                    ids.values()
+                        .filter_map(Value::as_str)
+                        .map(|name| ControlRef::parse(name, namespace)),
+                );
+            }
+        }
+        if let Some(value) = control.props.get("factory") {
+            factory(value, &control.owner_ns, pending);
+        }
+        if control.props.get("type").and_then(Value::as_str) == Some("factory") {
+            factory(
+                &Value::Object(control.props.clone()),
+                &control.owner_ns,
+                pending,
+            );
+        }
+        for child in &control.children {
+            visit(child, pending);
+        }
+    }
+    let mut pending = Vec::new();
+    for control in content {
+        visit(control, &mut pending);
+    }
+    let mut seen = BTreeSet::new();
+    let mut dependencies = Vec::new();
+    while let Some(reference) = pending.pop() {
+        if !seen.insert(reference.clone())
+            || (reference.namespace == "hud"
+                && ROOTS.contains(&reference.name.as_str())
+                && reference.name != "chat_label")
+        {
+            continue;
+        }
+        if let Some(control) = catalog.lookup(&reference.namespace, &reference.name) {
+            visit(control, &mut pending);
+            dependencies.push(control.clone());
+        }
+    }
+    dependencies
 }
 
 /// Finds named templates inheriting the ordinary HUD chat label.

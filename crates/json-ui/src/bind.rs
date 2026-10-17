@@ -427,18 +427,10 @@ impl<'a> Binder<'a> {
             own
         } else {
             let mut own = std::mem::take(&mut memory.bag);
-            for (name, value) in scope.values.iter() {
-                // Creation values seed the bag; a registered view owns the target it wrote.
-                let written = bindings.iter().enumerate().any(|(index, binding)| {
-                    matches!(&binding.kind, spec::Kind::View { target, .. } if target == name)
-                        && memory.views.get(&index).is_some_and(Option::is_some)
-                });
-                if !written {
-                    own.insert(name.clone(), value.clone());
-                }
-            }
+            memory.refresh_creation_values(&mut own, &scope.values, &bindings);
             own
         };
+        memory.creation_inputs = Arc::clone(&scope.values);
         if let Some(values) = self.data.controls.get(src.name()) {
             own.extend(
                 values

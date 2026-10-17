@@ -150,7 +150,12 @@ impl ChatScreen {
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
         let art = ScreenArt {
-            pointer: self.pointer.map(|point| [point.x() / px, point.y() / px]),
+            pointer: self.pointer.map(|point| {
+                [
+                    (point.x() - frame.safe_area.left()) / px,
+                    (point.y() - frame.safe_area.top()) / px,
+                ]
+            }),
             clocks: Some(input.clocks),
             view: Some(&view),
             edit: Some(ui_engine::engine::host_edit::Feedback::from_chat(

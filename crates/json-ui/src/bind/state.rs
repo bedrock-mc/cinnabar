@@ -103,6 +103,8 @@ pub(super) struct Retained {
     pub(super) incarnation: Option<u64>,
     pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
+    /// Inherited creation inputs before view bindings transformed the bag.
+    pub(super) creation_inputs: Arc<super::bag::Bag>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
     /// `once` bindings already applied, by index.
@@ -119,6 +121,47 @@ pub(super) struct Retained {
     pub(super) generation: u64,
     /// Whether its subtree waited hidden then.
     pub(super) deferred: bool,
+}
+
+impl Retained {
+    /// Refreshes inputs without overwriting standing view outputs; changed inputs
+    /// read and written by the same view must notify that view again.
+    pub(super) fn refresh_creation_values(
+        &mut self,
+        own: &mut super::bag::Bag,
+        inputs: &super::bag::Bag,
+        bindings: &[super::spec::Binding],
+    ) {
+        use super::spec::{Kind, ViewScope};
+        for (name, value) in inputs {
+            let changed = self.creation_inputs.get(name) != Some(value);
+            let mut written = false;
+            let mut own_input_changed = false;
+            for (index, binding) in bindings.iter().enumerate() {
+                if let Kind::View {
+                    target,
+                    source,
+                    scope,
+                    ..
+                } = &binding.kind
+                    && target == name
+                    && self.views.get(&index).is_some_and(Option::is_some)
+                {
+                    written = true;
+                    if changed
+                        && *scope == ViewScope::Own
+                        && source.properties().any(|property| property == name)
+                    {
+                        own_input_changed = true;
+                        self.views.remove(&index);
+                    }
+                }
+            }
+            if !written || own_input_changed {
+                own.insert(name.clone(), value.clone());
+            }
+        }
+    }
 }
 
 impl BindState {

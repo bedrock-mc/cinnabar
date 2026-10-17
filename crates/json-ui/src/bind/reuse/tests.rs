@@ -86,6 +86,74 @@ fn creation_text_does_not_replace_a_view_bound_caption_on_refresh() {
 }
 
 #[test]
+fn own_scope_views_receive_changed_creation_inputs() {
+    for expression in ["#text", "(#text - 'encoded:')"] {
+        let root = Arc::new(control(
+            "caption",
+            "label",
+            json!({"text":"#text","bindings":[{
+                "binding_type":"view","source_property_name":expression,"target_property_name":"#text"
+            }]}),
+            vec![],
+        ));
+        for incremental in [false, true] {
+            let mut state = BindState::new();
+            for input in ["first", "first", "encoded:first", "encoded:next", "next"] {
+                let mut data = DataSource::new();
+                data.set_creation_value("#text", Scalar::Text(input.into()));
+                let data = Arc::new(data);
+                let bound = if incremental {
+                    crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state)
+                } else {
+                    crate::bind_stateful(&root, &data, &EmptyLibrary, &mut state).0
+                };
+                let expected = if expression == "#text" {
+                    input
+                } else {
+                    input.trim_start_matches("encoded:")
+                };
+                assert_eq!(
+                    bound.properties["text"], expected,
+                    "{expression}, incremental={incremental}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn retained_factory_views_receive_changed_item_values() {
+    let mut catalog = crate::Catalog::default();
+    catalog.overlay_text("ui/fixture.json", &json!({"namespace":"fixture",
+        "root":{"type":"panel","factory":{"name":"rows","control_ids":{"row":"fixture.caption"}}},
+        "caption":{"type":"label","text":"#text","bindings":[{
+            "binding_type":"view","source_property_name":"(#text - 'encoded:')",
+            "target_property_name":"#text"}]}
+    }).to_string());
+    let context = crate::Context::empty();
+    let root = crate::resolve(&catalog, "fixture.root", &context)
+        .control
+        .unwrap();
+    let mut state = BindState::new();
+    for input in ["first", "encoded:first", "encoded:next", "next"] {
+        let mut data = DataSource::new();
+        data.set_factory(
+            "rows",
+            vec![
+                crate::FactoryItem::new("row", 0.0)
+                    .identified(1)
+                    .value("#text", Scalar::Text(input.into())),
+            ],
+        );
+        let bound = crate::bind_screen(&root, &catalog, &context, &data, &mut state);
+        assert_eq!(
+            bound.children[0].properties["text"],
+            input.trim_start_matches("encoded:")
+        );
+    }
+}
+
+#[test]
 fn an_unread_change_leaves_a_subtree_reading_many_keys_standing() {
     // Enough distinct reads that a fixed-size summary of them would claim every key.
     const READERS: usize = 2_000;
