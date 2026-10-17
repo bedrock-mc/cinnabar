@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -426,7 +427,7 @@ func (err *sessionRefusedError) Unwrap() error { return err.err }
 
 // refuseSessionConnect answers a refused Connect with a Disconnect naming why, before the caller closes.
 func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause error) error {
-	key := "disconnectionScreen.cantConnect"
+	key := bridgecontract.DisconnectKeyCantConnect
 	var refused *sessionRefusedError
 	if errors.As(cause, &refused) {
 		key = refused.key
@@ -457,14 +458,14 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 	if request.Protocol != pinned.ID() || clientData.GameVersion != bridgecontract.GameVersion {
 		// A newer client protocol finds this core outdated; any other mismatch is the client's, as
 		// gophertunnel's listener answers it.
-		key := "disconnectionScreen.outdatedClient"
+		key := bridgecontract.DisconnectKeyOutdatedClient
 		if request.Protocol > pinned.ID() {
-			key = "disconnectionScreen.outdatedServer"
+			key = bridgecontract.DisconnectKeyOutdatedServer
 		}
 		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), bridgecontract.GameVersion)}
 	}
 	if err := clientData.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
+		return nil, &sessionRefusedError{key: clientDataRefusalKey(clientData), err: fmt.Errorf("%w: client data: %v", errMalformedSession, err)}
 	}
 	if claimed != nil {
 		if clientData.DeviceID == "" {
@@ -478,4 +479,25 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		clientData:  clientData,
 		clientCache: request.ClientCache,
 	}, nil
+}
+
+// clientDataRefusalKey names the screen for client data that failed validation: an invalid skin
+// or name when replacing only that part makes the data valid, otherwise vanilla's cantConnect.
+func clientDataRefusalKey(data login.ClientData) string {
+	skinless := data
+	skinless.SkinID = "Standard_Custom"
+	skinless.SkinData = base64.StdEncoding.EncodeToString(make([]byte, 64*64*4))
+	skinless.SkinImageWidth, skinless.SkinImageHeight = 64, 64
+	skinless.CapeData, skinless.CapeImageWidth, skinless.CapeImageHeight = "", 0, 0
+	skinless.AnimatedImageData = nil
+	skinless.SkinGeometry, skinless.SkinResourcePatch = "", ""
+	if skinless.Validate() == nil {
+		return bridgecontract.DisconnectKeyInvalidSkin
+	}
+	renamed := data
+	renamed.ThirdPartyName = "Steve"
+	if renamed.Validate() == nil {
+		return bridgecontract.DisconnectKeyInvalidName
+	}
+	return bridgecontract.DisconnectKeyCantConnect
 }

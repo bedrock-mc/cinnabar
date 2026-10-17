@@ -1,4 +1,4 @@
-//! Interaction payloads carried inside one protocol-2168 `PlayerAuthInput`.
+//! Interaction payloads carried inside one current `PlayerAuthInput`.
 //!
 //! The current client no longer sends block destruction through
 //! `PlayerAction` packets: the start, abort, continue, and local prediction of
