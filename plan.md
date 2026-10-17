@@ -10011,6 +10011,7 @@ written but unrun; this does not close a renderer parity or frame-budget gate.
 
 ### Cancel held item use after a selected count change
 
-An authoritative count change in the selected slot now ends the old use without
-sending a release for the replacement stack. An unchanged count still releases.
-Full item identity, unavailable-selection and use-phase parity remain incomplete.
+A selected count change before release now ends the old use without sending a
+release for the replacement stack. An unchanged count still releases, and an
+already-observed release retains its existing retry policy. Full item identity,
+unavailable-selection, deferred-release and use-phase parity remain incomplete.
