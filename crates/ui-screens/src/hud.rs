@@ -24,6 +24,8 @@ use crate::hud_renderers::{HudPaint, HudRenderer, HungerAnimation};
 
 mod chat;
 #[cfg(test)]
+mod color_tests;
+#[cfg(test)]
 mod crisp_tests;
 #[cfg(test)]
 mod image_tests;
