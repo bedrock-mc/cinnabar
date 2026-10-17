@@ -33,6 +33,8 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec2<f32> {
     let adjacent = vec2(depth_at(pixel - vec2(1, 0)), depth_at(pixel - vec2(0, 1)));
     let threshold = 0.01 * max(vec2(depth), adjacent);
     let delta = abs(vec2(depth) - adjacent);
+    // Slope rejection can only raise the threshold, so these pixels cannot become edges.
+    if all(delta <= max(threshold, vec2(0.000001))) { discard; }
     let forward = vec2(depth_at(pixel + vec2(1, 0)), depth_at(pixel + vec2(0, 1)));
     let farther = vec2(depth_at(pixel - vec2(2, 0)), depth_at(pixel - vec2(0, 2)));
     var continuation = min(abs(vec2(depth) - forward), abs(adjacent - farther));
