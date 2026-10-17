@@ -11,8 +11,6 @@ const ENCHANT_COLOR: [u8; 4] = [170, 170, 170, 255];
 const LORE_COLOR: [u8; 4] = [170, 0, 170, 255];
 const BENEFICIAL_EFFECT_COLOR: [u8; 4] = [85, 85, 255, 255];
 const HARMFUL_EFFECT_COLOR: [u8; 4] = [255, 85, 85, 255];
-/// Tipped arrows are arrows whose aux names the potion they carry.
-const TIPPED_ARROW: &str = "minecraft:arrow";
 
 /// The potion form of a vanilla potion item identifier.
 fn potion_form(identifier: &str) -> Option<PotionForm> {
@@ -26,9 +24,9 @@ fn potion_form(identifier: &str) -> Option<PotionForm> {
 fn potion(
     identifier: Option<&str>,
     metadata: u32,
-) -> Option<(&'static assets::PotionDescriptor, PotionForm)> {
+) -> Option<(&'static assets::potion::PotionDescriptor, PotionForm)> {
     let form = potion_form(identifier?)?;
-    let descriptor = assets::potion_descriptor(i16::try_from(metadata).ok()?)?;
+    let descriptor = assets::potion::potion_descriptor(i16::try_from(metadata).ok()?)?;
     Some((descriptor, form))
 }
 
@@ -42,7 +40,7 @@ fn duration_text(ticks: u32) -> String {
 /// beneficial and red for harmful effects (`Speed II (1:30)`).
 fn potion_effect_lines(
     runtime: &UiRuntime,
-    descriptor: &assets::PotionDescriptor,
+    descriptor: &assets::potion::PotionDescriptor,
     form: &PotionForm,
 ) -> impl Iterator<Item = TooltipLine> {
     descriptor.effects.iter().map(move |effect| {
@@ -101,9 +99,9 @@ pub(crate) fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32)
     {
         return runtime.localized_item_name(identifier);
     }
-    if identifier == TIPPED_ARROW
-        && let Some(name) =
-            assets::tipped_arrow_name_key(metadata).and_then(|key| runtime.translation(&key))
+    if identifier == assets::facts::ARROW_IDENTIFIER
+        && let Some(name) = assets::potion::tipped_arrow_name_key(metadata)
+            .and_then(|key| runtime.translation(&key))
     {
         return name.to_string();
     }
