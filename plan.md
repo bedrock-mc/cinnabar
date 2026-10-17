@@ -231,6 +231,14 @@ page closes. Native catalogs keep their existing file persistence and worker thr
 Incomplete: the playable browser host must connect the synchronous import gesture ticket
 and optional starter/cosmetic carriers. Durable browser imports and in-game browser captures
 remain pending; these changes do not close the browser release gate.
+
+The browser account adapter projects checking, device-code prompts, refusals and identity
+into the shared menu. External menu services expose account intents and preference changes
+without native helper launches. Browser preference documents bound saved addressed servers
+and GUI scale; storage failures are reported. The sign-in gesture bridge validates links,
+resolves the current input action and removes its listeners on teardown.
+Incomplete: these menu, gesture and persistence handoffs still need the playable browser host
+and rendered browser acceptance. The current page remains the entry preview.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
