@@ -321,10 +321,14 @@ impl Source {
 }
 
 impl DecodeCache {
+    /// Prepares each admitted rig on the artwork worker, even when its texture is already cached.
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
         sources(set)
             .into_iter()
             .filter(|source| {
+                if let Source::Item(item, _) = source {
+                    render_model::hats::thumbnail::prepare_frame(*item);
+                }
                 let key = source.key();
                 !self.decoded.contains_key(&key) && !self.failed.contains(&key)
             })

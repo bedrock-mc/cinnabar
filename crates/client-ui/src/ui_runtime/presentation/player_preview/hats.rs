@@ -8,7 +8,6 @@ pub(in crate::ui_runtime::presentation) fn decode(
     thumbnail: bool,
 ) -> Option<(Vec<u8>, u32, u32)> {
     let model = render_model::hats::rig(hat);
-    render_model::hats::thumbnail::prepare_frame(hat);
     if !thumbnail {
         return Some((
             model.texture.rgba8.to_vec(),
