@@ -14,6 +14,10 @@
 //! implements [`Experience::register`] instead. Its callbacks add [`Callback::block_states`],
 //! [`Callback::set_block_state`], [`Callback::network`], [`Callback::inventory`],
 //! [`Callback::set_slot`] and [`Callback::drop_item`].
+//!
+//! Server WIT 0.6 adds the server's crafting recipes, [`Callback::crafting_result`], and
+//! scheduled updates: [`Callback::schedule_update`] stages one, and
+//! [`Experience::on_scheduled_update`] runs when it is due.
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -31,8 +35,8 @@ pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
         BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
-        ChangeCause, Condition, Face, Flipbook, GuestError, Inventory, ItemDef, ItemStack,
-        LogLevel, Material, Mining, Network, NewStack, Permutation, Pixel, PixelBox,
+        ChangeCause, Condition, Crafted, Face, Flipbook, GuestError, Inventory, ItemDef, ItemKey,
+        ItemStack, LogLevel, Material, Mining, Network, NewStack, Permutation, Pixel, PixelBox,
         PlacementStates, PlayerId, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
         StateTest, StateValue, StateValues, TextureBinding, ValueNode, Visual, WorldError,
     },
@@ -126,6 +130,13 @@ pub trait Experience {
     fn epoch(_ctx: &Callback, _player: PlayerId) -> Result<(), GuestError> {
         Ok(())
     }
+
+    /// Handles `on-scheduled-update`: an update [`Callback::schedule_update`] staged for this
+    /// Experience's block at `pos` is due. `ctx` has the snapshot an interaction with the block
+    /// would have.
+    fn on_scheduled_update(_ctx: &Callback, _pos: BlockPos) -> Result<(), GuestError> {
+        Ok(())
+    }
 }
 
 /// Implements the generated [`bindings::Guest`] for `$ty` by delegating to its
@@ -193,6 +204,13 @@ macro_rules! export_experience {
                 player: $crate::server::PlayerId,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::epoch(ctx, player)
+            }
+
+            fn on_scheduled_update(
+                ctx: &$crate::server::Callback,
+                pos: $crate::server::BlockPos,
+            ) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_scheduled_update(ctx, pos)
             }
         }
 
