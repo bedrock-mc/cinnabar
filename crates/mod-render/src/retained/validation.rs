@@ -84,7 +84,16 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
                 && !resources.geometry.values().any(|live| Arc::ptr_eq(g, live))
         }))
         .collect();
+    let vertex_work = resources
+        .instances
+        .values()
+        .try_fold(0usize, |sum, instance| {
+            let geometry = resources.geometry.get(&instance.geometry)?;
+            sum.checked_add(mesh::expanded_vertices(geometry))
+        })
+        .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
     for (amount, limit, label) in [
+        (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
         (
             geometries.iter().map(|g| mesh::expanded_vertices(g)).sum(),
             MAX_DRAW_EXPANDED_VERTICES,

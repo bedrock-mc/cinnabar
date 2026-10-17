@@ -381,3 +381,34 @@ fn entity_reference_capacity_errors_preserve_the_previous_selection() {
     store.rollback();
     assert!(Arc::ptr_eq(&previous, store.snapshot()));
 }
+
+#[test]
+fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
+    let mut store = Store::default();
+    let GeometrySpec::Triangles { vertices, .. } = mesh() else {
+        unreachable!()
+    };
+    let indices = [0, 1, 2]
+        .into_iter()
+        .cycle()
+        .take(mod_api::MAX_DRAW_INDICES)
+        .collect();
+    let geometry = store
+        .create_geometry(GeometrySpec::Triangles { vertices, indices })
+        .unwrap();
+    let allowed = mod_api::MAX_DRAW_VERTEX_WORK / mod_api::MAX_DRAW_INDICES;
+    for _ in 0..allowed {
+        store
+            .create(drawing(geometry), DrawingPermissions::ALL)
+            .unwrap();
+    }
+    assert_eq!(
+        store
+            .create(drawing(geometry), DrawingPermissions::ALL)
+            .unwrap_err()
+            .detail,
+        "vertex work"
+    );
+    store.commit();
+    assert_eq!(store.snapshot().instances.len(), allowed);
+}
