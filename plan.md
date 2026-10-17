@@ -9918,3 +9918,14 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass. An additional above-capability join case is queued. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
