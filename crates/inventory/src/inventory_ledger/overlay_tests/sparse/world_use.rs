@@ -246,3 +246,40 @@ fn admitted_consumption_does_not_shrink_a_drop_of_a_swapped_identical_stack() {
     let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
     assert_eq!((backing.count, backing.stack_network_id), (3, 91));
 }
+
+/// A fresh server write cancels earlier local consumption before an older response arrives.
+#[test]
+fn authoritative_restatement_retires_consumption_offsets() {
+    for mining in [false, true] {
+        let original = stack(6, 10, 4);
+        let mut ledger = open_ledger(&[(0, original.clone())]);
+        let request = if mining {
+            ledger.begin_mining_request(0, 0).unwrap()
+        } else {
+            let request = ledger
+                .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+                .unwrap();
+            send_all(&mut ledger);
+            request
+        };
+        consume_backing(&mut ledger, 0);
+        ledger.apply(&slot_push(0, original));
+        let count = if mining { 4 } else { 3 };
+        respond(
+            &mut ledger,
+            request,
+            StackResponseStatus::Accepted,
+            vec![correction(
+                CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                count,
+                91,
+            )],
+        );
+        let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+        assert_eq!(
+            (backing.count, backing.stack_network_id),
+            (u16::from(count), 91)
+        );
+    }
+}

@@ -327,16 +327,23 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Invalidates rollback sources older than this write, retiring completed local history.
+    /// Invalidates older rollback sources and use offsets, retiring completed local history.
     pub(super) fn invalidate_request_sources(&mut self, cell: Cell, newer: i32) {
-        for prediction in self
+        for request in self
             .queue
             .iter_mut()
             .filter(|request| request.request_id > newer)
-            .flat_map(|request| &mut request.predicted)
-            .filter(|prediction| prediction.cell == cell)
         {
-            prediction.current = false;
+            request
+                .consumed_after
+                .retain(|consumed| consumed.cell != cell);
+            for prediction in request
+                .predicted
+                .iter_mut()
+                .filter(|prediction| prediction.cell == cell)
+            {
+                prediction.current = false;
+            }
         }
         self.queue.retain(|request| {
             request.request_id <= newer || !request.locally_committed() || !request.touches(cell)
