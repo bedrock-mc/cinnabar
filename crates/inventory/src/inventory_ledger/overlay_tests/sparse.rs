@@ -345,3 +345,6 @@ fn malformed_count_id_pair_is_a_counted_skip_not_an_invented_stack() {
 
 #[path = "sparse/response_scopes.rs"]
 mod response_scopes;
+
+#[path = "sparse/world_use.rs"]
+mod world_use;

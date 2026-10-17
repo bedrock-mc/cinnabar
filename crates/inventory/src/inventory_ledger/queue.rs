@@ -74,7 +74,7 @@ pub(super) struct CellPrediction {
 pub(super) struct MiningPrediction {
     pub(super) slot: u8,
     pub(super) damage: i32,
-    /// The selected item snapshot owned by this request's HUD scope.
+    /// The backing item used by the mine-block action in this request's HUD scope.
     pub(super) source: Option<Held>,
 }
 
@@ -847,7 +847,7 @@ impl PlayerInventoryLedger {
                 mining: Some(MiningPrediction {
                     slot,
                     damage,
-                    source: self.view().get(Cell::Inventory(slot)).cloned(),
+                    source: self.confirmed.get(Cell::Inventory(slot)).cloned(),
                 }),
                 world_drop: None,
             },

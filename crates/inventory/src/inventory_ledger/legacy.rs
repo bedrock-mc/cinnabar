@@ -198,10 +198,6 @@ impl PlayerInventoryLedger {
         let cell = Cell::Inventory(slot);
         if self.authoritative_slot_revision(slot) != Some(revision)
             || !protocol::is_legacy_request_id(change.legacy_request_id)
-            || self
-                .queue
-                .iter()
-                .any(|request| request.world_drop.is_none() && request.touches(cell))
             || change.to != change.from.less_one(change.legacy_request_id)
         {
             return false;
