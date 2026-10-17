@@ -10,6 +10,9 @@ use serde::Deserialize;
 
 use super::*;
 
+#[path = "quick_move_role_tests/station_counts.rs"]
+mod station_counts;
+
 const SOURCE_SLOT: u8 = 20;
 
 /// Starts a server-backed player inventory with one registered item and known UI cells.
