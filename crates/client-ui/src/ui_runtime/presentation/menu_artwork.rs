@@ -37,6 +37,8 @@ mod cape_previews;
 mod packing;
 mod request_cache;
 #[cfg(test)]
+mod scheduling_tests;
+#[cfg(test)]
 mod source_sync_tests;
 use cape_previews::CapeArtwork;
 pub(crate) use cape_previews::cape_texture_key;
@@ -131,6 +133,7 @@ pub(super) struct Packed {
 /// stalls a frame; until an atlas arrives the previous one keeps drawing.
 pub(super) struct ArtworkLoader {
     requests: Sender<Request>,
+    #[cfg(target_arch = "wasm32")]
     pending_requests: Receiver<Request>,
     results: Receiver<Packed>,
     requested: u64,
@@ -142,12 +145,16 @@ pub(super) struct ArtworkLoader {
 
 impl Default for ArtworkLoader {
     fn default() -> Self {
-        let (requests, jobs, results) = start();
+        #[cfg(target_arch = "wasm32")]
+        let (requests, pending_requests, results) = start();
+        #[cfg(not(target_arch = "wasm32"))]
+        let (requests, results) = start();
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
         Self {
             requests,
-            pending_requests: jobs,
+            #[cfg(target_arch = "wasm32")]
+            pending_requests,
             results,
             requested: 0,
             relative: HashMap::new(),
@@ -172,11 +179,14 @@ impl ArtworkLoader {
             id: self.requested,
             set,
         };
+        #[cfg(target_arch = "wasm32")]
         if let Err(crossbeam_channel::TrySendError::Full(request)) = self.requests.try_send(request)
         {
             let _ = self.pending_requests.try_recv();
             let _ = self.requests.try_send(request);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = self.requests.try_send(request);
     }
 
     /// Whether an atlas for the latest request (or a partial one) is ready to install.
@@ -260,8 +270,7 @@ struct DecodeCache {
 
 const MAX_DECODED: usize = 160;
 const MAX_FAILED: usize = 256;
-/// Art decoded before the first partial atlas goes out, so visible rows fill early.
-#[cfg(not(target_arch = "wasm32"))]
+/// Initial world previews and native decode batches, so visible rows fill early.
 const FIRST_BATCH: usize = 8;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -331,25 +340,31 @@ impl Source {
 }
 
 impl DecodeCache {
-    /// Prepares each admitted rig on the artwork worker, even when its texture is already cached.
+    /// Lists pending decoding and rig preparation without doing work outside a decode slice.
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
         sources(set)
             .into_iter()
             .filter(|source| {
-                if let Source::Item(item, _) = source {
-                    render_model::hats::thumbnail::prepare_frame(*item);
-                }
                 let key = source.key();
-                !self.decoded.contains_key(&key) && !self.failed.contains(&key)
+                let needs_frame = matches!(source, Source::Item(item, _)
+                    if render_model::hats::thumbnail::prepared_frame(*item).is_none());
+                needs_frame || (!self.decoded.contains_key(&key) && !self.failed.contains(&key))
             })
             .collect()
     }
 
-    /// Keep large image scratch allocations on the existing artwork worker.
+    /// Prepares only this slice's rigs and decodes uncached images within the same slice.
     fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
         let results: Vec<_> = batch
             .iter()
-            .map(|source| {
+            .filter_map(|source| {
+                if let Source::Item(item, _) = source {
+                    render_model::hats::thumbnail::prepare_frame(*item);
+                }
+                let key = source.key();
+                if self.decoded.contains_key(&key) || self.failed.contains(&key) {
+                    return None;
+                }
                 let art = match source {
                     Source::Item(hat, thumbnail) => {
                         super::player_preview::hats::decode(*hat, *thumbnail)
@@ -359,7 +374,7 @@ impl DecodeCache {
                     Source::File(path, side) => decode(Path::new(path), *side),
                     Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_ART_PAGE),
                 };
-                (source.key(), art)
+                Some((key, art))
             })
             .collect();
         for (key, art) in results {
