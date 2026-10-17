@@ -19,6 +19,7 @@ fn resolve(
         .route(DeviceFrame {
             desktop_events: Some(ordered),
             keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
                 mouse_buttons: held,
                 ..Default::default()
             }),
@@ -125,7 +126,10 @@ fn ordered_desktop_uses_event_time_modifiers_and_the_shared_binding_evaluator() 
     router
         .route(DeviceFrame {
             desktop_events: Some(events),
-            keyboard_mouse: Some(KeyboardMouseFrame::default()),
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                ..Default::default()
+            }),
             ..Default::default()
         })
         .unwrap();
