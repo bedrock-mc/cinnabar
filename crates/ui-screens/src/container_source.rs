@@ -67,7 +67,7 @@ pub struct ScreenView<'a> {
     /// The crafter block's `triggered_bit`.
     pub crafter_powered: Option<bool>,
     pub furnace_book_open: bool,
-    pub furnace_tab: Option<u8>,
+    pub furnace_tab: Option<i32>,
     pub creative_tab: u8,
     /// Creative's wide list stands in for its recipe book layout.
     pub creative_wide: bool,

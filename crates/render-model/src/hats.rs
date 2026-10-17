@@ -26,6 +26,8 @@ pub struct HatRig {
     wind: Option<cosmetics_animation::Wind>,
     playback: Option<cosmetics_animation::Playback>,
     pub rest_vertices: Arc<[ActorVertex]>,
+    preview_part: u32,
+    preview_frame: std::sync::OnceLock<thumbnail::Frame>,
     pub texture: CapeImage,
     pub pixels: SkinRgba8,
     world_pixels: Option<SkinRgba8>,
@@ -277,6 +279,7 @@ pub mod fixture;
 #[cfg(test)]
 mod flight_tests;
 mod model;
+mod preview;
 #[cfg(test)]
 mod tests;
 pub mod thumbnail;

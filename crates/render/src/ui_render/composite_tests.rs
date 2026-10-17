@@ -43,6 +43,7 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
     HeldLayer {
         content: UiLayerContent {
             revision: input.revision,
+            texture_generation: 0,
             segment: 0..input.batches.len(),
             inverted: None,
             skip: None,
@@ -174,6 +175,7 @@ fn independent_segment_rasters_reuse_and_invalidate_separately() {
     frame.segments.push(frame_layer(&layers[0], false));
     let content = UiLayerContent {
         revision: 1,
+        texture_generation: 0,
         skip: None,
         viewport: None,
         model_depth: false,
@@ -292,6 +294,7 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
         let layers = vec![retained_layer(device, size), retained_layer(device, size)];
         let content = UiLayerContent {
             revision: 1,
+            texture_generation: 0,
             skip: None,
             viewport: None,
             model_depth: false,
