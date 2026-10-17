@@ -12,6 +12,7 @@ mod status;
 mod tests;
 mod worker;
 
+use super::admission::SettingsSeed;
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
@@ -19,7 +20,7 @@ use candidate::Candidate;
 use client_extensions::modding::multi::ModHosts;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
-use mod_host::ModHost;
+use mod_host::{ModHost, SettingsSnapshot};
 use schema::{Entry, Registration, VERSION};
 use std::{
     collections::BTreeMap,
@@ -69,6 +70,41 @@ struct SourceSnapshot {
     drawing: Option<super::admission::DrawingContext>,
     font: Option<Vec<u8>>,
     ui: Option<Vec<u8>>,
+    settings: SettingsSeed,
+}
+
+impl SourceSnapshot {
+    /// Resolves this snapshot's digest against its captured drawing authority.
+    fn drawing_policy(&self) -> Option<mod_api::drawing::DrawingSession> {
+        use sha2::{Digest, Sha256};
+        self.drawing
+            .as_ref()
+            .map(|drawing| drawing.policy(Sha256::digest(&self.component).into()))
+    }
+
+    /// Selects source edits and recoverable fence changes without reviving a stopped identity.
+    fn needs_admission(&self, admitted: Option<&Admitted>) -> bool {
+        let Some(admitted) = admitted else {
+            return true;
+        };
+        if admitted.source != self.identity {
+            return true;
+        }
+        match &self.drawing {
+            Some(drawing) if !drawing.restartable() => false,
+            Some(drawing) if drawing.needs_restart() => true,
+            _ => admitted.drawing != self.drawing_policy(),
+        }
+    }
+
+    /// Prefers committed preferences to captured disk input, within the requested consent.
+    fn settings_seed(&self, current: Option<&SettingsSnapshot>) -> SettingsSeed {
+        match (&self.settings, current) {
+            (Ok(None), _) => Ok(None),
+            (_, Some(current)) => Ok(Some(current.clone())),
+            _ => self.settings.clone(),
+        }
+    }
 }
 struct Change {
     entry: Entry,
@@ -129,12 +165,6 @@ struct Desired {
     generation: u64,
     registration: Option<Registration>,
 }
-#[derive(Clone, PartialEq, Eq)]
-struct SettingsSnapshot {
-    path: PathBuf,
-    json: String,
-}
-
 /// Source and fence accepted by the frame for one registration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Admitted {
@@ -252,14 +282,15 @@ impl Watcher {
     /// Captures each mod's latest in-memory preferences before preparing replacements.
     pub(super) fn remember_settings(
         &self,
-        runtime: &ModRuntime,
+        runtime: Option<&ModRuntime>,
         ui: Option<&client_ui::ui_runtime::UiRuntime>,
     ) {
-        self.remember_companions(Some(runtime));
+        self.remember_companions(runtime);
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
         drawing.clear();
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
+        let Some(runtime) = runtime else { return };
         for (index, metadata) in runtime.metadata.iter().enumerate() {
             let Some(registered) = &metadata.registration else {
                 continue;
@@ -268,14 +299,8 @@ impl Watcher {
             if let Some(context) = super::admission::DrawingContext::capture(host, ui) {
                 drawing.insert(registered.entry.component.clone(), context);
             }
-            if let Some((path, json)) = host.settings_path().zip(host.settings_snapshot()) {
-                current.insert(
-                    registered.entry.component.clone(),
-                    SettingsSnapshot {
-                        path: path.into(),
-                        json: json.into(),
-                    },
-                );
+            if let Some(snapshot) = SettingsSnapshot::capture(host) {
+                current.insert(registered.entry.component.clone(), snapshot);
             }
         }
     }

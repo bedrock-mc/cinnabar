@@ -24,6 +24,7 @@ pub(super) fn run(
     let (fences, receive_fences) = crossbeam_channel::unbounded();
     let generation = latest.clone();
     let root = directory.clone();
+    let current_settings = settings.clone();
     let loader=thread::Builder::new().name("local-mod-loader".into()).spawn(move || {
         let mut admissions = candidate::Admissions::default();
         loop {
@@ -67,6 +68,7 @@ pub(super) fn run(
             let mut digest = Sha256::new();
             digest.update(observed.fingerprint);
             let mut sources = Vec::new();
+            let mut settings_inputs = BTreeMap::new();
             let fences = drawing.lock().expect("mod drawing fences").clone();
             for entry in registration.mods.iter().filter(|entry| entry.enabled) {
                 let snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
@@ -78,25 +80,25 @@ pub(super) fn run(
                     Err(error) => digest.update(error.as_bytes()),
                 }
                 if snapshot.as_ref().map_or(true, |snapshot| {
-                    let policy = snapshot
-                        .drawing
-                        .as_ref()
-                        .map(|drawing| drawing.policy(Sha256::digest(&snapshot.component).into()));
-                    installed
-                        .get(&entry.component)
-                        .is_none_or(|admitted: &Admitted| {
-                            admitted.source != snapshot.identity
-                                || (admitted.drawing != policy
-                                    && snapshot
-                                        .drawing
-                                        .as_ref()
-                                        .is_none_or(|drawing| drawing.restartable))
-                        })
+                    snapshot.needs_admission(installed.get(&entry.component))
                 }) {
+                    if let Ok(snapshot) = &snapshot
+                        && entry.grants.settings
+                    {
+                        let current = current_settings
+                            .lock()
+                            .expect("mod settings snapshots")
+                            .get(&entry.component)
+                            .cloned();
+                        settings_inputs.insert(
+                            entry.component.clone(),
+                            snapshot.settings_seed(current.as_ref()),
+                        );
+                    }
                     sources.push((entry.clone(), snapshot));
                 }
             }
-            let current = (<[u8; 32]>::from(digest.finalize()), fences);
+            let current = (<[u8; 32]>::from(digest.finalize()), fences, settings_inputs);
             if fingerprint.as_ref() != Some(&current) {
                 fingerprint = Some(current);
                 let mut selection = desired.lock().expect("mod desired list");

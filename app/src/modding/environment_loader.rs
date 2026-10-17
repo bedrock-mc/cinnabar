@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use client_extensions::modding::font;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
-use mod_host::{ModGrants, ModHost};
+use mod_host::{ModGrants, ModHost, SettingsSnapshot};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf, thread::JoinHandle, time::Instant};
 
@@ -36,9 +36,8 @@ impl Source {
 struct Request {
     source: Source,
     previous: [u8; 32],
-    settings: Option<(PathBuf, String)>,
+    settings: Option<SettingsSnapshot>,
     drawing: Option<admission::DrawingContext>,
-    restart: bool,
 }
 struct Update {
     drawing: Option<admission::DrawingContext>,
@@ -129,10 +128,15 @@ impl Drop for Loader {
     }
 }
 
-type Attempts = BTreeMap<
-    (mod_ui::PanelUiOwner, mod_host::Source),
-    ([u8; 32], Option<admission::DrawingContext>),
->;
+/// The complete immutable inputs retained only when an admission is rejected.
+#[derive(PartialEq, Eq)]
+struct AttemptIdentity {
+    source: [u8; 32],
+    drawing: Option<admission::DrawingContext>,
+    settings: admission::SettingsSeed,
+}
+
+type Attempts = BTreeMap<(mod_ui::PanelUiOwner, mod_host::Source), AttemptIdentity>;
 
 /// Captures one changed component and all explicit overrides before initializing its candidate.
 fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
@@ -152,21 +156,30 @@ fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
                 (Vec::new(), package.digest, Some(package))
             }
         };
-        if hash == request.previous && !request.restart {
+        if hash == request.previous
+            && !request
+                .drawing
+                .as_ref()
+                .is_some_and(admission::DrawingContext::needs_restart)
+        {
             return Ok(None);
         }
         let inputs = inputs::Inputs::read(&request);
-        let fingerprint = (inputs.fingerprint(&request, hash)?, request.drawing.clone());
+        let fingerprint = AttemptIdentity {
+            source: inputs.fingerprint(&request, hash)?,
+            drawing: request.drawing.clone(),
+            settings: inputs.settings.clone(),
+        };
         if attempted.get(&key) == Some(&fingerprint) {
             return Ok(None);
         }
         candidate_identity = Some(fingerprint);
         let font = inputs.font?;
         let ui = inputs.ui?;
-        let settings = request
-            .settings
+        let settings = inputs.settings?;
+        let settings = settings
             .as_ref()
-            .map(|(path, json)| (path.as_path(), json.as_str()));
+            .map(|seed| (seed.path.as_path(), seed.json.as_str()));
         let prepared = match &request.source.location {
             mod_host::Source::Component(path) => admission::prepare(
                 path,
@@ -325,13 +338,9 @@ pub(super) fn poll(world: &mut World) {
                             host,
                             world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
                         ),
-                        restart: host.needs_drawing_restart(),
                         source: source.clone(),
                         previous: host.source_digest(),
-                        settings: host
-                            .settings_path()
-                            .zip(host.settings_snapshot())
-                            .map(|(path, json)| (path.to_owned(), json.to_owned())),
+                        settings: SettingsSnapshot::capture(host),
                     })
                 })
                 .collect();

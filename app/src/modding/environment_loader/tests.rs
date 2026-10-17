@@ -128,7 +128,6 @@ fn request(path: &std::path::Path, previous: [u8; 32]) -> Request {
         previous,
         settings: None,
         drawing: None,
-        restart: false,
     }
 }
 
@@ -320,7 +319,10 @@ fn changed_committed_settings_retry_a_rejected_component() {
     let candidate = |settings: String| {
         let mut next = request(&path, digest);
         next.source.grants = granted.clone();
-        next.settings = Some((destination.clone(), settings));
+        next.settings = Some(SettingsSnapshot {
+            path: destination.clone(),
+            json: settings,
+        });
         next
     };
     let invalid = "x".repeat(mod_api::MAX_SETTINGS_BYTES + 1);
@@ -452,7 +454,10 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     let mut attempted = BTreeMap::new();
     current.previous = digest;
     // The worker received these preferences before a newer value was committed.
-    current.settings = Some((settings_path.clone(), "{\"value\":0}".into()));
+    current.settings = Some(SettingsSnapshot {
+        path: settings_path.clone(),
+        json: "{\"value\":0}".into(),
+    });
     let update = prepare(current, &mut attempted).unwrap();
     let rejected = apply(&mut world, update).unwrap();
     assert_eq!(rejected.panel().unwrap().title, "Second");
@@ -461,7 +466,10 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     assert_eq!(old.settings_snapshot(), Some("{\"value\":1}"));
     let mut retry = request(&path, digest);
     retry.source.grants.settings = true;
-    retry.settings = Some((settings_path, old.settings_snapshot().unwrap().into()));
+    retry.settings = Some(SettingsSnapshot {
+        path: settings_path,
+        json: old.settings_snapshot().unwrap().into(),
+    });
     let update = prepare(retry, &mut attempted).expect("valid source retries after stale settings");
     drop(apply(&mut world, update).unwrap());
     drop(rejected);
@@ -549,7 +557,6 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old, None);
-    restart.restart = old.needs_drawing_restart();
     std::fs::write(&path, component("Second", None)).unwrap();
     let update = prepare(restart, &mut BTreeMap::new()).unwrap();
     let prepared = update.result.as_ref().unwrap();
@@ -591,19 +598,16 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
         });
         let mut restart = request(&path, host.source_digest());
         restart.drawing = admission::DrawingContext::capture(host, None);
-        restart.restart = true;
         restart.source.font = Some(directory.path().join("missing-font"));
         assert!(prepare(restart, &mut attempted).unwrap().result.is_err());
         let mut retry = request(&path, host.source_digest());
         retry.drawing = admission::DrawingContext::capture(host, None);
-        retry.restart = true;
         retry.source.font = Some(directory.path().join("missing-font"));
         assert!(prepare(retry, &mut attempted).is_none());
     }
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old, None);
-    restart.restart = true;
     let update = prepare(restart, &mut attempted).unwrap();
     assert!(update.result.is_ok());
     {
@@ -654,7 +658,6 @@ fn worker_sources_retain_loader_consent_before_a_component_requests_drawing() {
             previous: previous.host.source_digest(),
             settings: None,
             drawing: None,
-            restart: false,
         },
         &mut BTreeMap::new(),
     )

@@ -11,8 +11,16 @@ use std::{path::Path, sync::Arc};
 pub(super) struct DrawingContext {
     source: [u8; 32],
     session: mod_api::drawing::DrawingSession,
-    pub(super) restartable: bool,
+    readiness: GuestReadiness,
     remote: client_extensions::modding::drawing_policy::DrawingGrant,
+}
+
+/// Distinguishes a fresh admission request from a running or permanently stopped guest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuestReadiness {
+    Active,
+    Restarting,
+    Stopped,
 }
 
 impl DrawingContext {
@@ -28,12 +36,28 @@ impl DrawingContext {
         host.drawing_session().map(|session| Self {
             source: host.source_digest(),
             session,
-            restartable: host.is_active() || host.needs_drawing_restart(),
+            readiness: if host.needs_drawing_restart() {
+                GuestReadiness::Restarting
+            } else if host.is_active() {
+                GuestReadiness::Active
+            } else {
+                GuestReadiness::Stopped
+            },
             remote: client_extensions::modding::drawing_policy::DrawingGrant::capture(
                 grant,
                 client_ui::experience_session::unix_seconds(),
             ),
         })
+    }
+
+    /// Allows automatic fence recovery only for running or fence-revoked guests.
+    pub(super) fn restartable(&self) -> bool {
+        self.readiness != GuestReadiness::Stopped
+    }
+
+    /// Forces admission after revocation even when the final fence equals the admitted one.
+    pub(super) fn needs_restart(&self) -> bool {
+        self.readiness == GuestReadiness::Restarting
     }
 
     /// Authorizes replacement bytes independently against the trusted remote grant.
@@ -52,6 +76,24 @@ pub(super) struct PreparedMod {
     pub(super) panel_ui: Option<Arc<mod_ui::PreparedPanelUi>>,
     pub(super) branding:
         Option<Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>>,
+}
+
+/// A captured preference seed or read failure; absence means settings consent is disabled.
+pub(super) type SettingsSeed = Result<Option<mod_host::SettingsSnapshot>, String>;
+
+/// Captures one settings input off-frame, preferring committed preferences to the disk companion.
+pub(super) fn settings_seed(
+    granted: bool,
+    current: Option<&mod_host::SettingsSnapshot>,
+    anchor: &Path,
+) -> SettingsSeed {
+    if !granted {
+        Ok(None)
+    } else {
+        mod_host::SettingsSnapshot::read(anchor, current)
+            .map(Some)
+            .map_err(|error| format!("{error:#}"))
+    }
 }
 
 /// Prepares one immutable source snapshot; explicit sidecars override optional embedded data.
@@ -154,7 +196,7 @@ mod tests {
                 permissions: DrawingPermissions::ALL,
                 ..Default::default()
             },
-            restartable: true,
+            readiness: GuestReadiness::Active,
             remote: Default::default(),
         };
         assert_eq!(context.policy([1; 32]), context.session);

@@ -2,6 +2,9 @@ use super::*;
 use candidate::build_candidate;
 use std::fs;
 
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     fixture_with_capture(enabled, frame, text, false)
 }
@@ -520,7 +523,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
-    watcher.remember_settings(world.resource::<ModRuntime>(), None);
+    watcher.remember_settings(Some(world.resource::<ModRuntime>()), None);
     let permit = removal::Permit::new(
         watcher.latest.load(Ordering::Acquire),
         watcher.latest.clone(),

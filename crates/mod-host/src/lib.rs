@@ -24,7 +24,7 @@ mod screens;
 pub mod server;
 mod settings;
 mod terrain;
-pub use settings::settings_companion;
+pub use settings::{SettingsSnapshot, settings_companion};
 
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 

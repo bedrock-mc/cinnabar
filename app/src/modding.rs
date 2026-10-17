@@ -571,7 +571,7 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(&extension, Some(&ui));
+        watcher.remember_settings(Some(&extension), Some(&ui));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);

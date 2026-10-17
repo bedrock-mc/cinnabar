@@ -8,12 +8,6 @@ pub(super) fn sync_authority(world: &mut World) {
     let Some(watcher) = world.get_resource::<Watcher>() else {
         return;
     };
-    if let Some(runtime) = world.get_resource::<ModRuntime>() {
-        watcher.remember_settings(
-            runtime,
-            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-        );
-    }
     let desired = watcher.desired.lock().expect("mod desired list");
     let enabled: Vec<_> = if watcher.alive.load(Ordering::Acquire) {
         desired
@@ -42,6 +36,10 @@ pub(super) fn sync_authority(world: &mut World) {
             }
         }
     }
+    world.resource::<Watcher>().remember_settings(
+        world.get_resource::<ModRuntime>(),
+        world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+    );
     refresh_presentation(world);
 }
 
@@ -79,8 +77,27 @@ fn index(world: &World, component: &std::path::Path) -> Option<usize> {
         })
 }
 
+/// Treats reordered or delayed results as idempotent once the same source and fence are running.
+fn already_admitted(world: &World, candidate: &Candidate) -> bool {
+    let Some(index) = index(world, &candidate.registration.component) else {
+        return false;
+    };
+    let runtime = world.resource::<ModRuntime>();
+    let host = runtime.hosts.host(index);
+    host.is_active()
+        && host.drawing_session() == candidate.host.drawing_session()
+        && runtime.metadata[index]
+            .registration
+            .as_ref()
+            .is_some_and(|registered| registered.identity == candidate.identity)
+}
+
 /// Installs a prepared candidate without changing the other instances or their preferences.
 fn publish(world: &mut World, mut candidate: Candidate) -> Result<(), Box<Candidate>> {
+    if already_admitted(world, &candidate) {
+        world.resource::<Watcher>().retire(candidate.host);
+        return Ok(());
+    }
     let previous = index(world, &candidate.registration.component);
     if previous.is_none()
         && world
@@ -247,6 +264,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
         .changes
         .iter()
         .filter_map(|change| change.result.as_ref().ok())
+        .filter(|candidate| !already_admitted(world, candidate))
         .any(|candidate| {
             index(world, &candidate.registration.component).is_some_and(|index| {
                 let old = world.resource::<ModRuntime>().hosts.host(index);
@@ -256,12 +274,10 @@ pub(super) fn apply(world: &mut World, update: Update) {
             })
         });
     if stale_settings {
-        if let Some(runtime) = world.get_resource::<ModRuntime>() {
-            watcher.remember_settings(
-                runtime,
-                world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-            );
-        }
+        watcher.remember_settings(
+            world.get_resource::<ModRuntime>(),
+            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+        );
         for change in update.changes {
             if let Ok(candidate) = change.result {
                 watcher.retire(candidate.host);

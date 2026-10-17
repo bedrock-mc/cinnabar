@@ -24,6 +24,7 @@ pub(super) fn build_candidate_with_settings(
     snapshot: SourceSnapshot,
     settings: Option<&SettingsSnapshot>,
 ) -> Result<Candidate, String> {
+    let settings = snapshot.settings_seed(settings)?;
     let SourceSnapshot {
         registration,
         identity,
@@ -31,6 +32,7 @@ pub(super) fn build_candidate_with_settings(
         drawing,
         font: font_bytes,
         ui,
+        settings: _,
     } = snapshot;
     let prepared = crate::modding::admission::prepare(
         &registration.component,
@@ -38,7 +40,9 @@ pub(super) fn build_candidate_with_settings(
         registration.grants.clone(),
         font_bytes.as_deref(),
         ui.as_deref(),
-        settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
+        settings
+            .as_ref()
+            .map(|settings| (settings.path.as_path(), settings.json.as_str())),
         drawing.clone(),
     )?;
     Ok(Candidate {
@@ -56,7 +60,7 @@ pub(super) fn build_candidate_with_settings(
 struct FailedAdmission {
     source: [u8; 32],
     drawing: Option<mod_api::drawing::DrawingSession>,
-    settings: Option<SettingsSnapshot>,
+    settings: SettingsSeed,
     error: String,
 }
 
@@ -77,27 +81,32 @@ impl Admissions {
         });
     }
 
-    /// Prepares a changed source, fence or settings seed once, retaining a refusal for retries.
+    /// Captures preferences after retirement, then caches only failures of those exact inputs.
     pub(super) fn prepare(
         &mut self,
-        snapshot: SourceSnapshot,
+        mut snapshot: SourceSnapshot,
         settings: Option<&SettingsSnapshot>,
     ) -> Result<Candidate, String> {
-        use sha2::{Digest, Sha256};
         let source = snapshot.identity;
         let path = snapshot.registration.component.clone();
-        let drawing = snapshot
-            .drawing
-            .as_ref()
-            .map(|drawing| drawing.policy(Sha256::digest(&snapshot.component).into()));
+        let drawing = snapshot.drawing_policy();
+        snapshot.settings = crate::modding::admission::settings_seed(
+            snapshot.registration.grants.settings,
+            settings,
+            &snapshot.registration.component,
+        );
+        let settings = snapshot.settings.clone();
         if let Some(failed) = self.failed.get(&path)
             && failed.source == source
             && failed.drawing == drawing
-            && failed.settings.as_ref() == settings
+            && failed.settings == settings
         {
             return Err(failed.error.clone());
         }
-        let result = build_candidate_with_settings(snapshot, settings);
+        let result = match &settings {
+            Ok(seed) => build_candidate_with_settings(snapshot, seed.as_ref()),
+            Err(error) => Err(error.clone()),
+        };
         match &result {
             Ok(_) => {
                 self.failed.remove(&path);
@@ -108,7 +117,7 @@ impl Admissions {
                     FailedAdmission {
                         source,
                         drawing,
-                        settings: settings.cloned(),
+                        settings,
                         error: error.clone(),
                     },
                 );
