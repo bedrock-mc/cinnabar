@@ -467,6 +467,7 @@ impl GameplayHudState {
             | InventoryEvent::Response(_)
             | InventoryEvent::Open(_)
             | InventoryEvent::Close(_)
+            | InventoryEvent::RegistryCleanup(_)
             | InventoryEvent::Data(_)
             | InventoryEvent::EnchantOptions(_)
             | InventoryEvent::Recipes(_)

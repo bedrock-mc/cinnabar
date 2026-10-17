@@ -580,7 +580,11 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         )?;
     }
     content.heading("options.cinnabar.advanced", "")?;
-    options(content, SettingPanel::GeneralAdvanced)
+    options(content, SettingPanel::GeneralAdvanced)?;
+    content.heading(
+        "Technical information",
+        &format!("Bedrock protocol {}", protocol::PROTOCOL_VERSION),
+    )
 }
 
 fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {

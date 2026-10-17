@@ -369,8 +369,9 @@ Windows runtime executables carry `asInvoker` manifests and refuse elevated game
 crash-monitor startup or relaunch. Setup does not launch the game, and MSI Restart Manager
 relaunch is disabled. The machine-wide install identity and custom install folders remain supported.
 
-One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
-update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
+One client per install owns update checks, Beta/Nightly/Stable channel selection, a compact corner
+card with an explicit Restart and update or Download update button, and a separate default-off
+install-on-quit preference. Signed manifests
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
@@ -1026,8 +1027,11 @@ screen-effect parity remain incomplete.
   bindings keep their physical codes. Provisional: keys not yet observed use physical names;
   startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
-  panels and controls. Home keeps the shipped title above Play and character cards, with compact
-  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+  panels and controls. Home keeps the shipped title above translucent, top-aligned Play and character
+  cards. Account access stays in the footer, Realms keeps its original text link, and the utility
+  buttons retain their original widths, account icon and red Quit action. Compact menus use a centred column whose
+  width stays proportional to its controls. The footer states Bedrock compatibility;
+  General's Advanced section retains the protocol number. Versions use their canonical sources.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
@@ -7325,6 +7329,12 @@ Full bucket prediction and component-defined liquid picking remain incomplete.
 Source-water, source-lava, and powder-snow collection were observed against a
 local Bedrock server. Waterlogged-source acceptance remains unverified; this does
 not close the interaction parity gate.
+
+Dynamic container registry cleanup retires only matching retained bundle contents
+through the session inventory FIFO. Other containers and item stacks stay intact,
+and cleanup frees capacity for subsequent dynamic containers. Focused wire and
+ledger tests cover cleanup, ID reuse, retention pressure and session reset;
+exact stable-client gameplay validation and full inventory parity remain incomplete.
 
 Middle-click picking includes mobs and paintings, and asks the server for the
 nearest eligible actor's item using its persistent ID. Mob spawn eggs remain
