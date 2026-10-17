@@ -66,6 +66,13 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-dragon-wings",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: dragon_wings,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "craft-overlap-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -593,6 +600,19 @@ fn devil_horns() -> Fixture {
     let mut fixture = wardrobe();
     if let Fixture::Menu(view) = &mut fixture {
         let item = render_model::hats::fixture::devil_horns();
+        Arc::make_mut(&mut view.dressing_room)
+            .selected_cosmetics
+            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
+    }
+    fixture
+}
+
+/// Shows independent head and back selections together in the compact catalog gallery.
+#[cfg(feature = "test-support")]
+fn dragon_wings() -> Fixture {
+    let mut fixture = devil_horns();
+    if let Fixture::Menu(view) = &mut fixture {
+        let item = render_model::hats::fixture::dragon_wings();
         Arc::make_mut(&mut view.dressing_room)
             .selected_cosmetics
             .insert(item.descriptor().slot.clone(), Some(item.id().into()));

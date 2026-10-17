@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Default)]
 struct Attachment {
     wind: hats::EarWind,
-    bend: f32,
+    motion: hats::Motion,
     poses: [HatPoseCache; 2],
     seen: u64,
 }
@@ -34,18 +34,19 @@ impl HatState {
             .retain(|item, _| items.contains(item));
         for &item in items {
             let attachment = self.local_attachments.entry(item).or_default();
-            attachment.bend = attachment.wind.advance(item, speed, seconds);
+            attachment.motion.bend = attachment.wind.advance(item, speed, seconds);
+            attachment.motion.advance(item, seconds);
         }
     }
 
     /// Shares local motion with the HUD even while the world body is hidden.
-    pub(super) fn local_bends(&self) -> Vec<(Item, f32)> {
+    pub(super) fn local_motion(&self) -> Vec<(Item, hats::Motion)> {
         self.local
             .iter()
             .filter_map(|item| {
                 self.local_attachments
                     .get(item)
-                    .map(|attachment| (*item, attachment.bend))
+                    .map(|attachment| (*item, attachment.motion))
             })
             .collect()
     }
@@ -113,7 +114,8 @@ impl HatState {
                     } else {
                         0.0
                     };
-                    attachment.bend = attachment.wind.advance(item, speed, self.seconds);
+                    attachment.motion.bend = attachment.wind.advance(item, speed, self.seconds);
+                    attachment.motion.advance(item, self.seconds);
                     attachment.seen = self.frame;
                     attachment
                 };
@@ -138,11 +140,11 @@ impl HatState {
                     + cosmetics::slot_index(&item.descriptor().slot).unwrap_or(0) as u8;
                 submission.input.rig = model.geometry.id;
                 submission.input.current_bones =
-                    attachment.poses[1].pose(item, *current, attachment.bend);
+                    attachment.poses[1].pose(item, *current, attachment.motion);
                 submission.input.previous_bones = if previous == current {
                     Arc::clone(&submission.input.current_bones)
                 } else {
-                    attachment.poses[0].pose(item, *previous, attachment.bend)
+                    attachment.poses[0].pose(item, *previous, attachment.motion)
                 };
                 submission.texture_layer = texture_layer;
                 submission.tint = 0;
@@ -161,12 +163,22 @@ mod tests {
     fn local_motion_advances_without_a_visible_body_and_unequip_retires_it() {
         let item = render_model::hats::fixture::bunny();
         let rigid = render_model::hats::fixture::rigid();
+        let wings = render_model::hats::fixture::dragon_wings();
         let mut state = HatState::default();
-        state.advance(&[item, rigid], 6.0, 1.0);
-        let bends = state.local_bends();
-        assert!(bends.iter().any(|(key, bend)| *key == item && *bend > 0.5));
-        assert!(bends.contains(&(rigid, 0.0)));
+        state.advance(&[item, rigid, wings], 6.0, 1.0);
+        let bends = state.local_motion();
+        assert!(
+            bends
+                .iter()
+                .any(|(key, bend)| *key == item && bend.bend > 0.5)
+        );
+        assert!(bends.contains(&(rigid, hats::Motion::default())));
+        assert!(
+            bends
+                .iter()
+                .any(|(key, motion)| *key == wings && motion.seconds == 1.0)
+        );
         state.advance(&[], 0.0, 1.0);
-        assert!(state.local_bends().is_empty());
+        assert!(state.local_motion().is_empty());
     }
 }

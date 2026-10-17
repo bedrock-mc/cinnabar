@@ -48,9 +48,9 @@ pub struct ActorFrameState {
 }
 
 impl ActorFrameState {
-    /// Wind angle shared by the world attachment and the HUD paperdoll for this frame.
-    pub fn cosmetic_bends(&self) -> Vec<(cosmetics::Item, f32)> {
-        self.hat_state.local_bends()
+    /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
+    pub fn cosmetic_motion(&self) -> Vec<(cosmetics::Item, render_model::hats::Motion)> {
+        self.hat_state.local_motion()
     }
 
     /// Shares the exact accepted artwork snapshot with client-owned actor publishers.

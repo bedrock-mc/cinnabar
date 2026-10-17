@@ -558,7 +558,7 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     spawn_remotes(&mut stream);
     let items = [
         render_model::hats::fixture::bunny(),
-        render_model::hats::fixture::rigid(),
+        render_model::hats::fixture::dragon_wings(),
     ];
     let selections: Vec<_> = items
         .into_iter()
@@ -574,12 +574,8 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     let before = batch.submissions.len();
     let mut state = super::super::hats::HatState::default();
     state.advance(&[], 0.0, 0.0);
-    state.attach(
-        &mut batch,
-        Some(&stream),
-        &selections,
-        &mut render_scene::ActorRenderScene::default(),
-    );
+    let mut scene = render_scene::ActorRenderScene::default();
+    state.attach(&mut batch, Some(&stream), &selections, &mut scene);
     assert_eq!(batch.submissions.len(), before + items.len());
     let layers: std::collections::HashSet<_> = batch.submissions[before..]
         .iter()
@@ -592,5 +588,33 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
                 .iter()
                 .any(|draw| draw.input.rig == render_model::hats::rig(item).geometry.id)
         );
+    }
+    let initial: std::collections::HashMap<_, _> = batch.submissions[before..]
+        .iter()
+        .map(|draw| (draw.input.rig, draw.input.current_bones.clone()))
+        .collect();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut next =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let bodies = next.submissions.len();
+    state.advance(&[], 0.0, 0.7);
+    state.attach(&mut next, Some(&stream), &selections, &mut scene);
+    for item in items {
+        let model = render_model::hats::rig(item);
+        let draw = next.submissions[bodies..]
+            .iter()
+            .find(|draw| draw.input.rig == model.geometry.id)
+            .unwrap();
+        if item.descriptor().slot == "back" {
+            assert_ne!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "a stationary remote player's wings still flap"
+            );
+        } else {
+            assert_eq!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "flapping wings cannot move the hat"
+            );
+        }
     }
 }

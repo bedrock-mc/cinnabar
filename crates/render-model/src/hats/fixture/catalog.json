@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "items": [
     {
       "id": "cinnabar:bunny_ears",
@@ -105,6 +105,44 @@
       },
       "geometry_id": "geometry.cinnabar.devil_horns",
       "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:dragon_wings",
+      "slot": "back",
+      "display_name": "Dragon wings",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/84ab59a9098af9e8e3e7173c029dad3a87b025ed4b8af86a7faa32ea962d1f22",
+          "sha256": "84ab59a9098af9e8e3e7173c029dad3a87b025ed4b8af86a7faa32ea962d1f22",
+          "bytes": 281503
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "sha256": "e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "bytes": 172
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/1ce640d1f3c5849f73364f9efaf2a730b46d497923f7d59d8b85d61bc87347bc",
+          "sha256": "1ce640d1f3c5849f73364f9efaf2a730b46d497923f7d59d8b85d61bc87347bc",
+          "bytes": 3469
+        }
+      },
+      "geometry_id": "geometry.cinnabar.dragon_wings",
+      "attachment_bone": "body",
       "offset": [
         0,
         0,
