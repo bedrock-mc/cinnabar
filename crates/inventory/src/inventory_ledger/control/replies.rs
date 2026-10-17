@@ -11,14 +11,34 @@ impl PlayerInventoryLedger {
         &mut self,
         open: ContainerOpenEvent,
     ) -> Option<bool> {
-        let ControlRequest::Open { target, .. } = self.controls.personal.sent?.request else {
-            return None;
-        };
-        if target.actor_unique_id != Some(open.runtime_entity_id) {
-            return None;
+        let (generation, target) = self.controls.actor_opens.remove(&open.runtime_entity_id)?;
+        if self.controls.personal.sent.is_some_and(|sent| {
+            matches!(sent.request, ControlRequest::Open { generation: sent_generation, .. }
+                if sent_generation == generation)
+        }) {
+            self.controls.personal.sent = None;
         }
-        self.controls.personal.sent = None;
-        Some(self.controls.personal.desired_open)
+        if self
+            .controls
+            .personal
+            .confirmed
+            .is_some_and(|window| window.generation == generation)
+        {
+            self.controls.personal.confirmed = None;
+            self.controls.personal.reset_required = false;
+        }
+        let matches_target = self.controls.personal_target == Some(target);
+        let desired_open = self.controls.personal.desired_open && matches_target;
+        if matches_target {
+            self.controls.personal.desired_open = false;
+        }
+        if self
+            .personal
+            .is_some_and(|personal| personal.generation() == generation)
+        {
+            self.discard_pending_personal_open();
+        }
+        Some(desired_open)
     }
 
     /// Accepts the sole outstanding open, including one whose screen was superseded.

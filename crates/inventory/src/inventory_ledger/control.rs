@@ -85,6 +85,8 @@ pub(super) struct WindowControls {
     pub personal: WindowControl,
     pub storage: WindowControl,
     pub personal_target: Option<OpenTarget>,
+    /// Actor opens retain their generation and target until their replies, even after timeouts.
+    pub actor_opens: std::collections::BTreeMap<i64, (u64, OpenTarget)>,
 }
 
 impl WindowControls {
@@ -123,7 +125,12 @@ impl WindowControls {
                     None
                 }
             }
-            ControlRequest::Open { .. } => None,
+            ControlRequest::Open { generation, target } => {
+                if let Some(actor) = target.actor_unique_id {
+                    self.actor_opens.insert(actor, (generation, target));
+                }
+                None
+            }
         };
         self.state_mut(request.kind()).sent = Some(SentControl {
             request,

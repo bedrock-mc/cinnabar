@@ -103,9 +103,8 @@ impl PlayerInventoryLedger {
         self.reconcile_personal();
     }
 
-    /// Records a closed desire when storage supersedes an opening screen, retaining its wire request.
-    pub(super) fn supersede_pending_personal_open(&mut self) {
-        self.controls.personal.desired_open = false;
+    /// Drops an opening screen's gestures without changing its retained intent or wire request.
+    pub(super) fn discard_pending_personal_open(&mut self) {
         let Some(PersonalWindow::Opening { generation, .. }) = self.personal else {
             return;
         };

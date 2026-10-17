@@ -433,9 +433,12 @@ impl PlayerInventoryLedger {
             self.confirmed.clear_storage();
             return;
         };
-        let desired_open = self.answer_actor_open(open).unwrap_or(true);
-        // Unsolicited storage opens supersede the personal screen; actor replies retain its intent.
-        self.supersede_pending_personal_open();
+        let desired_open = self.answer_actor_open(open).unwrap_or_else(|| {
+            // Unsolicited storage opens supersede the personal screen and its intent.
+            self.controls.personal.desired_open = false;
+            self.discard_pending_personal_open();
+            true
+        });
         self.enchant_options = None;
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
