@@ -305,11 +305,10 @@ pub(crate) fn prepare(
             if let Some(group) = groups
                 .iter()
                 .find(|group| compatible(mask, group) && group.handle != mask.handle)
+                && let Some(target) = masks.targets.get(&(entity, group.handle)).cloned()
             {
-                if let Some(target) = masks.targets.get(&(entity, group.handle)).cloned() {
-                    masks.targets.insert(key, target);
-                    continue;
-                }
+                masks.targets.insert(key, target);
+                continue;
             }
             if masks
                 .targets

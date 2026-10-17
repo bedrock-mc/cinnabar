@@ -254,10 +254,9 @@ fn prepare(
             if mask
                 .style
                 .is_some_and(|style| style.glow[3] > 0.0 && style.glow_radius > 0.0)
+                && let Some(source) = masks.planned(entity, mask.handle)
             {
-                if let Some(source) = masks.planned(entity, mask.handle) {
-                    sources.insert(source.id(), (source, view));
-                }
+                sources.insert(source.id(), (source, view));
             }
         }
     }
@@ -301,7 +300,7 @@ fn prepare(
             continue;
         }
         let format = target.main_texture_format();
-        if !gpu.composite.contains_key(&format) {
+        if let std::collections::hash_map::Entry::Vacant(entry) = gpu.composite.entry(format) {
             let source = mod_render::shader::compose_masked(COMPOSITE, false, 2)
                 .expect("host selection shader");
             if let Some(pipeline) = passes::create_pipeline(
@@ -310,7 +309,7 @@ fn prepare(
                 &source,
                 format,
             ) {
-                gpu.composite.insert(format, pipeline);
+                entry.insert(pipeline);
             }
         }
         for mask in scene.masks.iter() {
@@ -407,11 +406,11 @@ fn draw(
             continue;
         };
         let pyramid = gpu.pyramids.get(&coverage.id());
-        if let (Some(pyramid), Some(blur)) = (pyramid, &gpu.blur) {
-            if blurred.insert(coverage.id()) {
-                for level in &pyramid.levels {
-                    fullscreen(&mut context, &level.view, blur, &level.binding);
-                }
+        if let (Some(pyramid), Some(blur)) = (pyramid, &gpu.blur)
+            && blurred.insert(coverage.id())
+        {
+            for level in &pyramid.levels {
+                fullscreen(&mut context, &level.view, blur, &level.binding);
             }
         }
         if style.glow_radius == 0.0 {
