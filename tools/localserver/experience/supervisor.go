@@ -440,7 +440,7 @@ func forwardStderr(stderr *os.File, log *atomic.Pointer[slog.Logger]) {
 // load sends the load request and waits loadDeadline for loaded, which must speak
 // protocolVersion.
 func (h *helper) load(dir string) (Loaded, error) {
-	body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: serverItems()}})
+	body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: serverItems(), Recipes: serverRecipes()}})
 	if err != nil {
 		return Loaded{}, err
 	}

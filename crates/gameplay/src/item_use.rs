@@ -592,6 +592,7 @@ impl ActiveUse {
 
 fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItemRequest {
     HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: selection.slot,
         selected_item: selection.item.clone(),
         player_position: frame.position,

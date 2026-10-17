@@ -163,6 +163,11 @@ impl ModHost {
         self.instance.take_commands()
     }
 
+    /// Consumes the committed vanilla inventory requests once.
+    pub fn take_inventory_requests(&mut self) -> Vec<crate::InventoryRequest> {
+        self.instance.take_inventory_requests()
+    }
+
     /// Cues the next callback can poll, typically last frame's from every loaded mod.
     pub fn deliver_cues(&mut self, cues: Vec<ModCue>) {
         self.instance.deliver_cues(cues);

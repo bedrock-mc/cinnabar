@@ -286,6 +286,7 @@ impl UiRuntime {
             };
             let Ok(packet) = protocol::click_air_packet(
                 protocol::HeldItemRequest {
+                    hand: protocol::ItemUseHand::Mainhand,
                     selected_slot: slot,
                     selected_item: from,
                     player_position: position,

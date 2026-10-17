@@ -72,4 +72,6 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     runtime.begin_session(2);
     assert!(!runtime.player_list_held());
     assert!(runtime.known_player_names().is_empty());
+    frame(&mut presentation, &player, &runtime);
+    assert!(presentation.screens.player_list.is_none());
 }

@@ -9,6 +9,7 @@ mod rig;
 pub use locator::{ActorEmitterTransform, sampled_locator_transform};
 mod skin;
 mod skin_poly_mesh;
+pub mod skin_portrait;
 mod surface;
 mod texel_fit;
 mod texture_mesh;

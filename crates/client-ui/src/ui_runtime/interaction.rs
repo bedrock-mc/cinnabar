@@ -211,6 +211,22 @@ pub fn dispatch_inventory_hotbar(
     )
 }
 
+/// Applies a resolved hotbar binding over a player cell of a client part's modal, which shows
+/// the player's cells with no inventory window open.
+pub fn dispatch_modal_hotbar(
+    player_runtime: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    hit: InventoryCellHit,
+    slot: u8,
+) -> Option<Result<i32, InventoryGestureError>> {
+    let target = super::inventory_actions::gesture_target(hit)?;
+    Some(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .begin_windowless_hotbar_swap(target, slot),
+    )
+}
+
 /// Routes one resolved pointer gesture; the output cell crafts once.
 #[cfg(any(test, feature = "test-support"))]
 pub fn dispatch_inventory_click(

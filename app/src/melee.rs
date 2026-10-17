@@ -14,6 +14,7 @@ use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 
 mod crosshair;
+mod hover;
 use crosshair::resolve_crosshair;
 
 use crate::modding::interaction::ModInteraction;
@@ -31,9 +32,12 @@ use {
 
 use gameplay::melee::{PressContext, press_admission, swing_duration};
 
-/// This frame's resolved press awaiting admission before its movement input.
+/// Retained frame picks shared by immediate attacks and tick-time hover reports.
 #[derive(Resource, Default)]
-pub(crate) struct MeleeTarget(Option<crosshair::ResolvedTarget>);
+pub(crate) struct MeleeTarget {
+    attack: Option<crosshair::ResolvedTarget>,
+    pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
+}
 
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
@@ -64,8 +68,28 @@ pub(crate) fn prepare_melee(
     mut target: ResMut<MeleeTarget>,
     mut frames: Local<crosshair::FrameInputs>,
 ) {
-    target.0 = None;
+    target.attack = None;
+    target.hover = None;
     frames.publish(&context, movement.interaction_authority_identity().1);
+    let picked = resolve_crosshair(
+        &player_runtime,
+        &context,
+        &frames,
+        movement.interaction_authority_identity().1,
+    );
+    if let Some(picked) = picked {
+        // Earlier queued movement must drain before this frame's first local tick.
+        let first_tick = movement
+            .completed_tick()
+            .saturating_sub((context.effects.recent_tick_count() as u64).saturating_sub(1));
+        target.hover = Some((
+            first_tick,
+            gameplay::entity_hover::HoverSnapshot {
+                actor: picked.hover,
+                held_item: hover::held_item_key(&player_runtime, &context.client_world),
+            },
+        ));
+    }
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -107,12 +131,7 @@ pub(crate) fn prepare_melee(
         runtime.cancel();
         return;
     }
-    let Some(mut picked) = resolve_crosshair(
-        &player_runtime,
-        &context,
-        &frames,
-        movement.interaction_authority_identity().1,
-    ) else {
+    let Some(mut picked) = picked else {
         drop("no_interaction_ray");
         runtime.defer(now_millis);
         return;
@@ -121,7 +140,7 @@ pub(crate) fn prepare_melee(
         picked.crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),
     );
-    target.0 = Some(picked);
+    target.attack = Some(picked);
 }
 
 /// Admits attack presses and their mining carriers through one ordered queue.
@@ -141,7 +160,7 @@ pub(crate) fn produce_attacks(
     let (mut runtime, mut mining, mut swings) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let attack = (|| {
-        let picked = target.0?;
+        let picked = target.attack?;
         let input = context.input.snapshot()?;
         let stream = context.client_world.stream.as_ref()?;
         if movement.has_held_release() {
@@ -264,7 +283,7 @@ pub(crate) fn produce_attacks(
         });
     }
     if let Some(tick) = admitted.rotation_tick
-        && let Some(rotation) = target.0.and_then(|picked| picked.action_rotation)
+        && let Some(rotation) = target.attack.and_then(|picked| picked.action_rotation)
     {
         client_interaction::camera::aim_assist::apply_action_rotation(
             rotation,

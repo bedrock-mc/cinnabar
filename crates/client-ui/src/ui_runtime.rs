@@ -28,6 +28,7 @@ mod food;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+mod mod_inventory;
 pub mod platform_clipboard;
 pub mod player_roster;
 pub mod presentation;

@@ -625,6 +625,7 @@ fn player_auth_input_builder_embeds_destroy_without_placement_fields() {
         block_actions: protocol::BlockActions::new(),
         block_interaction: Some(protocol::BlockItemInteraction::Destroy(
             protocol::BlockUseRequest {
+                hand: protocol::ItemUseHand::Mainhand,
                 block_position: [24, 68, -41],
                 face: 3,
                 selected_slot: 5,
@@ -717,6 +718,7 @@ fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
 
 fn fixture_break_block_request() -> protocol::BlockUseRequest {
     protocol::BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [24, 68, -41],
         face: 3,
         selected_slot: 5,

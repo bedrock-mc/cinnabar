@@ -64,6 +64,7 @@ pub enum RecipeCategory {
     Furnace,
     BlastFurnace,
     Smoker,
+    Brewing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
