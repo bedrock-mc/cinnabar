@@ -273,7 +273,7 @@ fn pack_rules_preserve_actor_egg_renames_and_item_precedence() {
         let expected = match identifier {
             "minecraft:air" => Some(ItemVisualKind::EmptyHand),
             "minecraft:banner" => Some(ItemVisualKind::BlockModel),
-            "minecraft:bed" => Some(ItemVisualKind::Sprite),
+            "minecraft:bed" | "minecraft:nether_wart" => Some(ItemVisualKind::Sprite),
             _ => None,
         };
         assert_eq!(rules().item_visual(identifier), expected, "{identifier}");

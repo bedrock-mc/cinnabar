@@ -14,10 +14,14 @@ allowing installation from that download source when Android asks. Release APKs 
 signing key so later APKs can update the installed app. The desktop updater does not install APKs.
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
+On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
+device, exit reason and the end of the client log. Include those details when reporting a crash.
+
 ## Build and install
 
-Install a JDK, Go, the Rust toolchain from `rust-toolchain.toml` with the
-`aarch64-linux-android` target, the `cargo-ndk` version in `packaging/android/runtime.json`, and
+Install a JDK, Go, librsvg or ImageMagick for the launcher icon, the Rust toolchain from
+`rust-toolchain.toml` with the `aarch64-linux-android` target, the `cargo-ndk` version in
+`packaging/android/runtime.json`, and
 the Android SDK platform, build-tools and NDK versions pinned there. Then run:
 
 ```sh

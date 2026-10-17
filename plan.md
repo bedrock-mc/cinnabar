@@ -319,12 +319,15 @@ screen whose painted rectangles capture fingers; inventory and server forms take
 the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
 and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
 persistent signing key and release checksums; Android installs updates through the APK installer.
+APKs compile the shared product icon into their launcher resources. Android 11+ relaunches offer
+copyable diagnostics after an unexpected process exit.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
 Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
 menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
 and performance have no Android acceptance. No parity gate closes here.
+Reported exits after resource setup on Galaxy S21 remain undiagnosed; device acceptance is open.
 
 ## Runtime terrain bindings
 
