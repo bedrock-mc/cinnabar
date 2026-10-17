@@ -7,7 +7,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use bridge::{BridgeError, FrameRead, tasks::Timers};
+use bridge::{
+    BridgeError, FrameRead,
+    tasks::{Timer, Timers},
+};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use tokio::io::AsyncRead;
@@ -18,13 +21,11 @@ use super::{
 };
 use crate::{
     GameData, ProtocolError, ResourcePackHandoff,
+    session_transport::MAX_READ_AHEAD_FRAMES,
     session_wire::{
         CoreMessage, HandoffPackReceiver, SessionHandoff, batch_frame_body, decode_core_message,
     },
 };
-
-/// Bounds tiny gameplay frames retained while a bulk archive stream is pending.
-const MAX_READ_AHEAD_FRAMES: usize = 16;
 
 impl LoginSequence {
     /// Joins injected web play I/O after verifying its archives. The host drives the writer,
@@ -59,7 +60,8 @@ impl LoginSequence {
     /// the independent stream, or returns None for WebSocket. Play remains readable for terminal
     /// messages while bulk data arrives. The returned reader preserves bounded intervening batches
     /// and feeds the existing login transport; dropping this future drops its archive stream.
-    /// The host's timer bounds the terminal-message drain after an archive failure.
+    /// A full queue still accepts terminal messages and rejects further gameplay frames. The
+    /// host's timer bounds the wait for a terminal message after an archive failure.
     pub async fn receive_web_handoff<S, P>(
         reader: S,
         join: u64,
@@ -111,23 +113,48 @@ where
         };
         tokio::pin!(receiving);
         let mut bytes = 0;
+        let mut archive_error = None;
+        let mut expires: Timer = Box::pin(futures::future::pending());
         loop {
             tokio::select! {
                 biased;
-                frame = reader.next(), if pending.len() < MAX_READ_AHEAD_FRAMES && bytes < crate::session_transport::MAX_READ_AHEAD_BYTES => {
-                    let frame = frame.ok_or_else(|| invalid("play closed during pack delivery"))?.map_err(bridge_error)?;
+                () = &mut expires => return Err(archive_error.expect("archive failure started the deadline")),
+                frame = reader.next() => {
+                    let frame = match frame {
+                        Some(Ok(frame)) => frame,
+                        Some(Err(error)) => return Err(archive_error.unwrap_or_else(|| bridge_error(error))),
+                        None => return Err(archive_error.unwrap_or_else(|| invalid("play closed during pack delivery"))),
+                    };
+                    let full = pending.len() >= MAX_READ_AHEAD_FRAMES
+                        || bytes >= crate::session_transport::MAX_READ_AHEAD_BYTES;
                     if batch_frame_body(&frame).is_some() {
+                        if full {
+                            return Err(ProtocolError::HandoffReadAheadOverflow);
+                        }
                         bytes += frame.len();
                         pending.push_back(frame);
                     } else {
-                        return Err(join_ended(decode_core_message(frame).map_err(bridge_error)?));
+                        let message = match decode_core_message(frame) {
+                            Ok(message) => message,
+                            Err(error) => return Err(archive_error.unwrap_or_else(|| bridge_error(error))),
+                        };
+                        if matches!(message, CoreMessage::Disconnect(_) | CoreMessage::Transfer(_)) {
+                            return Err(join_ended(message));
+                        }
+                        if full {
+                            return Err(ProtocolError::HandoffReadAheadOverflow);
+                        }
+                        return Err(archive_error.unwrap_or_else(|| join_ended(message)));
                     }
                 }
-                result = &mut receiving => {
-                    if let Err(error) = result {
-                        return Err(pack_failure(&mut reader, error, timers).await);
+                result = &mut receiving, if archive_error.is_none() => {
+                    match result {
+                        Ok(()) => break,
+                        Err(error) => {
+                            archive_error = Some(error);
+                            expires = timers.sleep(super::WRITE_FAILURE_DRAIN);
+                        }
                     }
-                    break;
                 }
             }
         }
@@ -146,35 +173,6 @@ where
     }
     let archives = receiver.into_archives().map_err(bridge_error)?;
     Ok((handoff, archives, WebSessionReader { reader, pending }))
-}
-
-/// Drains play after an archive failure so a delayed disconnect or transfer keeps its meaning.
-/// Discarded batches need no buffering; closure, malformed play or expiry keeps the archive error.
-async fn pack_failure<S>(reader: &mut S, error: ProtocolError, timers: Timers) -> ProtocolError
-where
-    S: Stream<Item = Result<Bytes, BridgeError>> + Unpin,
-{
-    let expires = timers.sleep(super::WRITE_FAILURE_DRAIN);
-    tokio::pin!(expires);
-    loop {
-        let frame = tokio::select! {
-            biased;
-            () = &mut expires => return error,
-            frame = reader.next() => match frame {
-                Some(Ok(frame)) => frame,
-                _ => return error,
-            },
-        };
-        if batch_frame_body(&frame).is_some() {
-            continue;
-        }
-        return match decode_core_message(frame) {
-            Ok(message @ (CoreMessage::Disconnect(_) | CoreMessage::Transfer(_))) => {
-                join_ended(message)
-            }
-            _ => error,
-        };
-    }
 }
 
 /// Replays bounded play read-ahead without losing the injected reader's trace identity.

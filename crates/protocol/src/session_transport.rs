@@ -21,6 +21,8 @@ use futures::StreamExt;
 pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
 /// Bounds frames read while packs prepare or the world consumer is full; past it the core waits.
 pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
+/// Bounds tiny play frames retained while a web archive stream is pending.
+pub(crate) const MAX_READ_AHEAD_FRAMES: usize = 16;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.

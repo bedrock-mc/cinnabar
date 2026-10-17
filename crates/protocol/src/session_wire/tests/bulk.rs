@@ -121,11 +121,12 @@ fn web_handoff_preserves_play_batches_and_inline_fallback() {
 }
 
 #[test]
-fn bulk_handoff_backpressures_a_full_play_queue() {
+fn bulk_handoff_replays_a_bounded_play_queue() {
     futures::executor::block_on(async {
         let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
         let batch = encode_batch([b"\x09\x00"]).unwrap();
-        let frames = std::iter::once(Ok(handoff)).chain((0..40).map(|_| Ok(batch.clone())));
+        let count = crate::session_transport::MAX_READ_AHEAD_FRAMES;
+        let frames = std::iter::once(Ok(handoff)).chain((0..count).map(|_| Ok(batch.clone())));
         let reader = futures::stream::iter(frames).chain(futures::stream::pending());
         let wire = pack_stream(9, b"abc");
         let (_, archives, mut reader) = LoginSequence::receive_web_handoff(
@@ -137,7 +138,7 @@ fn bulk_handoff_backpressures_a_full_play_queue() {
         .await
         .unwrap();
         assert_eq!(archives, [b"abc".to_vec()]);
-        for _ in 0..40 {
+        for _ in 0..count {
             assert_eq!(reader.next().await.unwrap().unwrap(), batch);
         }
     });
@@ -167,12 +168,158 @@ fn terminal_play_message_cancels_pending_bulk_open() {
     });
 }
 
+/// Fills a play read-ahead budget and retains an archive peer to observe reader cancellation.
+fn full_bulk_queue(
+    pending_open: bool,
+    byte_budget: bool,
+) -> (
+    futures::channel::mpsc::UnboundedSender<Result<Bytes, BridgeError>>,
+    impl std::future::Future<Output = crate::ProtocolError>,
+    tokio::io::DuplexStream,
+) {
+    let (send, reader) = futures::channel::mpsc::unbounded();
+    let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
+    send.unbounded_send(Ok(handoff)).unwrap();
+    let (batch, count) = if byte_budget {
+        (
+            encode_batch([vec![9; crate::session_transport::MAX_READ_AHEAD_BYTES]]).unwrap(),
+            1,
+        )
+    } else {
+        (
+            encode_batch([b"\x09\x00"]).unwrap(),
+            crate::session_transport::MAX_READ_AHEAD_FRAMES,
+        )
+    };
+    for _ in 0..count {
+        send.unbounded_send(Ok(batch.clone())).unwrap();
+    }
+    let (read, write) = tokio::io::duplex(1);
+    let receiving = async move {
+        LoginSequence::receive_web_handoff(
+            reader,
+            9,
+            async move {
+                if pending_open {
+                    futures::future::pending::<()>().await;
+                }
+                Ok(Some(read))
+            },
+            pending_timers(),
+        )
+        .await
+        .err()
+        .expect("a terminal or overflow must end the join")
+    };
+    (send, receiving, write)
+}
+
 #[test]
-fn bulk_handoff_backpressures_batches_crossing_the_byte_budget() {
+fn bulk_handoff_full_queue_preserves_terminal_messages() {
+    for byte_budget in [false, true] {
+        for pending_open in [false, true] {
+            for terminal in [
+                CoreMessage::Disconnect(SessionDisconnect {
+                    reason: 0,
+                    message: "closed during pack delivery".into(),
+                    filtered_message: "filtered disconnect text".into(),
+                    hide_screen: false,
+                }),
+                CoreMessage::Transfer(SessionTransfer {
+                    address: "next.example.test".into(),
+                    port: 19133,
+                    reload_world: true,
+                }),
+            ] {
+                let (send, receiving, mut archive) = full_bulk_queue(pending_open, byte_budget);
+                tokio::pin!(receiving);
+                assert!(receiving.as_mut().now_or_never().is_none());
+                send.unbounded_send(Ok(encode_core_message(&terminal).unwrap()))
+                    .unwrap();
+                let error = receiving
+                    .now_or_never()
+                    .expect("a full play queue must not hide terminal messages");
+                match terminal {
+                    CoreMessage::Disconnect(expected) => {
+                        let actual = error.server_disconnect().expect("retain the server reason");
+                        assert_eq!(actual.message.as_deref(), Some(expected.message.as_str()));
+                        assert_eq!(
+                            actual.filtered_message.as_deref(),
+                            Some(expected.filtered_message.as_str())
+                        );
+                    }
+                    CoreMessage::Transfer(expected) => {
+                        let actual = error.server_transfer().expect("retain the transfer target");
+                        assert_eq!(actual.host, expected.address);
+                        assert_eq!(actual.port, expected.port);
+                        assert_eq!(actual.reload_world, expected.reload_world);
+                    }
+                    _ => unreachable!(),
+                }
+                assert!(
+                    archive.write_all(b"x").now_or_never().unwrap().is_err(),
+                    "release the pending archive lane"
+                );
+                assert!(send.is_closed(), "release the play lane");
+            }
+        }
+    }
+}
+
+#[test]
+fn bulk_handoff_full_queue_rejects_nonterminal_overflow() {
+    for byte_budget in [false, true] {
+        for message in [
+            encode_batch([b"\x09\x00"]).unwrap(),
+            encode_core_message(&CoreMessage::PackData {
+                index: 0,
+                data: Bytes::from_static(b"abc"),
+            })
+            .unwrap(),
+        ] {
+            let (send, receiving, mut archive) = full_bulk_queue(true, byte_budget);
+            tokio::pin!(receiving);
+            assert!(receiving.as_mut().now_or_never().is_none());
+            send.unbounded_send(Ok(message)).unwrap();
+            let error = receiving
+                .now_or_never()
+                .expect("overflow must fail without waiting for the archive");
+            assert!(matches!(
+                error,
+                crate::ProtocolError::HandoffReadAheadOverflow
+            ));
+            assert!(archive.write_all(b"x").now_or_never().unwrap().is_err());
+            assert!(send.is_closed());
+        }
+    }
+}
+
+#[test]
+fn bulk_handoff_full_queue_observes_relay_cancellation_before_archive_publication() {
+    for byte_budget in [false, true] {
+        let (send, receiving, mut archive) = full_bulk_queue(true, byte_budget);
+        tokio::pin!(receiving);
+        assert!(receiving.as_mut().now_or_never().is_none());
+        // Cancelling the relay's archive open closes play without ever publishing an archive.
+        drop(send);
+        let error = receiving
+            .now_or_never()
+            .expect("relay closure must end an unpublished archive wait");
+        assert!(
+            error
+                .to_string()
+                .contains("play closed during pack delivery")
+        );
+        assert!(archive.write_all(b"x").now_or_never().unwrap().is_err());
+    }
+}
+
+#[test]
+fn bulk_handoff_replays_batches_crossing_the_byte_budget() {
     futures::executor::block_on(async {
         let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
         let budget = crate::session_transport::MAX_READ_AHEAD_BYTES;
-        let batches: Vec<_> = [budget * 5 / 8, budget * 15 / 32, 2]
+        let batches: Vec<_> = [budget * 5 / 8, budget * 15 / 32]
             .into_iter()
             .map(|size| encode_batch([vec![9; size]]).unwrap())
             .collect();
@@ -194,7 +341,11 @@ fn bulk_handoff_backpressures_batches_crossing_the_byte_budget() {
         );
         tokio::pin!(receiving);
         assert!(receiving.as_mut().now_or_never().is_none());
-        assert_eq!(polls.get(), 3, "pause after retaining the crossing batch");
+        assert_eq!(
+            polls.get(),
+            3,
+            "retain both batches while archives remain pending"
+        );
         ready.send(()).unwrap();
         let (_, archives, mut reader) = receiving.await.unwrap();
         assert_eq!(archives, [b"abc".to_vec()]);
@@ -233,7 +384,9 @@ async fn terminal_after_bulk_failure(
     if let Some(result) = receiving.as_mut().now_or_never() {
         return result.err().expect("archive failure ends the join");
     }
-    send.unbounded_send(Ok(batch)).unwrap();
+    if queued_batches < crate::session_transport::MAX_READ_AHEAD_FRAMES {
+        send.unbounded_send(Ok(batch)).unwrap();
+    }
     send.unbounded_send(Ok(encode_core_message(&terminal).unwrap()))
         .unwrap();
     receiving
@@ -245,7 +398,7 @@ async fn terminal_after_bulk_failure(
 #[test]
 fn bulk_failure_preserves_later_disconnect() {
     futures::executor::block_on(async {
-        for queued_batches in [0, 40] {
+        for queued_batches in [0, crate::session_transport::MAX_READ_AHEAD_FRAMES] {
             for fail_open in [false, true] {
                 let terminal = CoreMessage::Disconnect(SessionDisconnect {
                     reason: 0,
@@ -271,7 +424,7 @@ fn bulk_failure_preserves_later_disconnect() {
 #[test]
 fn bulk_failure_preserves_later_transfer() {
     futures::executor::block_on(async {
-        for queued_batches in [0, 40] {
+        for queued_batches in [0, crate::session_transport::MAX_READ_AHEAD_FRAMES] {
             for fail_open in [false, true] {
                 let terminal = CoreMessage::Transfer(SessionTransfer {
                     address: "next.example.test".into(),
@@ -309,17 +462,21 @@ fn bulk_failure_keeps_original_error_when_play_closes_or_fails() {
             .unwrap())),
         ] {
             let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
-            let batch = encode_batch([b"\x09\x00"]).unwrap();
-            let reader = futures::stream::iter(
-                std::iter::once(Ok(handoff))
-                    .chain((0..40).map(|_| Ok(batch.clone())))
-                    .chain(last),
-            );
-            let error =
-                LoginSequence::receive_web_handoff(reader, 9, failed_pack_open(), pending_timers())
-                    .await
-                    .err()
-                    .expect("failed play must end the drain");
+            let (send, reader) = futures::channel::mpsc::unbounded();
+            send.unbounded_send(Ok(handoff)).unwrap();
+            let receiving =
+                LoginSequence::receive_web_handoff(reader, 9, failed_pack_open(), pending_timers());
+            tokio::pin!(receiving);
+            assert!(receiving.as_mut().now_or_never().is_none());
+            if let Some(last) = last {
+                send.unbounded_send(last).unwrap();
+            }
+            drop(send);
+            let error = receiving
+                .now_or_never()
+                .expect("failed play must end the wait")
+                .err()
+                .expect("the archive failure remains fatal");
             assert_eq!(
                 error.to_string(),
                 "bridge connection failed: bridge I/O error: archive open failed"
@@ -334,9 +491,10 @@ fn bulk_failure_uses_host_deadline_even_with_ready_play_batches() {
         for ready_play in [false, true] {
             let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
             let batch = encode_batch([b"\x09\x00"]).unwrap();
+            let failed = std::cell::Cell::new(false);
             let reader =
                 futures::stream::iter([Ok(handoff)]).chain(futures::stream::poll_fn(|_| {
-                    if ready_play {
+                    if ready_play && failed.get() {
                         std::task::Poll::Ready(Some(Ok(batch.clone())))
                     } else {
                         std::task::Poll::Pending
@@ -346,11 +504,19 @@ fn bulk_failure_uses_host_deadline_even_with_ready_play_batches() {
                 assert_eq!(duration, crate::WRITE_FAILURE_DRAIN);
                 Box::pin(futures::future::ready(()))
             });
-            let error = LoginSequence::receive_web_handoff(reader, 9, failed_pack_open(), timers)
-                .now_or_never()
-                .expect("an expired host deadline must stop the drain")
-                .err()
-                .expect("the archive failure remains fatal");
+            let error = LoginSequence::receive_web_handoff(
+                reader,
+                9,
+                async {
+                    failed.set(true);
+                    failed_pack_open().await
+                },
+                timers,
+            )
+            .now_or_never()
+            .expect("an expired host deadline must stop the drain")
+            .err()
+            .expect("the archive failure remains fatal");
             assert_eq!(
                 error.to_string(),
                 "bridge connection failed: bridge I/O error: archive open failed"
@@ -360,7 +526,7 @@ fn bulk_failure_uses_host_deadline_even_with_ready_play_batches() {
 }
 
 #[test]
-fn bulk_failure_drain_releases_play_on_cancellation() {
+fn bulk_failure_wait_releases_play_on_cancellation() {
     let (send, reader) = futures::channel::mpsc::unbounded();
     let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
     send.unbounded_send(Ok(handoff)).unwrap();
@@ -377,11 +543,17 @@ fn bulk_failure_drain_releases_play_on_cancellation() {
 }
 
 #[test]
-fn bulk_failure_drain_does_not_renew_the_deadline_for_each_batch() {
+fn bulk_failure_wait_does_not_renew_the_deadline_for_each_batch() {
     let handoff = encode_core_message(&CoreMessage::Handoff(web_handoff(b"abc"))).unwrap();
     let batch = encode_batch([b"\x09\x00"]).unwrap();
-    let reader = futures::stream::iter([Ok(handoff)])
-        .chain(futures::stream::repeat_with(|| Ok(batch.clone())));
+    let failed = std::cell::Cell::new(false);
+    let reader = futures::stream::iter([Ok(handoff)]).chain(futures::stream::poll_fn(|_| {
+        if failed.get() {
+            std::task::Poll::Ready(Some(Ok(batch.clone())))
+        } else {
+            std::task::Poll::Pending
+        }
+    }));
     let timers = bridge::tasks::Timers(|duration| {
         assert_eq!(duration, crate::WRITE_FAILURE_DRAIN);
         let mut expires = false;
@@ -393,11 +565,19 @@ fn bulk_failure_drain_does_not_renew_the_deadline_for_each_batch() {
             }
         }))
     });
-    let error = LoginSequence::receive_web_handoff(reader, 9, failed_pack_open(), timers)
-        .now_or_never()
-        .expect("ready gameplay cannot extend the host deadline")
-        .err()
-        .expect("the archive failure remains fatal");
+    let error = LoginSequence::receive_web_handoff(
+        reader,
+        9,
+        async {
+            failed.set(true);
+            failed_pack_open().await
+        },
+        timers,
+    )
+    .now_or_never()
+    .expect("ready gameplay cannot extend the host deadline")
+    .err()
+    .expect("the archive failure remains fatal");
     assert_eq!(
         error.to_string(),
         "bridge connection failed: bridge I/O error: archive open failed"
