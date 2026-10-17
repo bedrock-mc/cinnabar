@@ -1,4 +1,4 @@
-//! Native offscreen frames exercise depth edges, stock SMAA lookup tables and scene restoration.
+//! Native offscreen frames exercise depth edges, stock SMAA lookup tables and scene samples.
 
 use super::super::*;
 use bevy::{
@@ -18,6 +18,8 @@ use bevy::{
 };
 use std::time::{Duration, Instant};
 
+#[path = "blend_tests.rs"]
+mod blend_tests;
 #[path = "composed_tests.rs"]
 mod composed_tests;
 
@@ -103,6 +105,16 @@ pub(crate) fn fixture_pipeline(
     samples: u32,
     entry: &str,
 ) -> wgpu::RenderPipeline {
+    fixture_pipeline_format(device, samples, render_scene::SCENE_COLOR_FORMAT, entry)
+}
+
+/// Uses the requested scene format to exercise both encoded colour and HDR filtering.
+pub(crate) fn fixture_pipeline_format(
+    device: &RenderDevice,
+    samples: u32,
+    format: TextureFormat,
+    entry: &str,
+) -> wgpu::RenderPipeline {
     let shader = device
         .wgpu_device()
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -128,6 +140,14 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
     let front = position.x + position.y * 0.6 < 49.0;
     return Fragment(vec4(vec3(select(0.0, 1.0, front)), 1.0), select(0.2, 0.7, front));
 }
+@fragment fn covered_colour(
+    @builtin(position) position: vec4<f32>,
+    @builtin(sample_index) sample: u32,
+) -> Fragment {
+    let front = position.x + position.y * 0.6 + f32(sample) * 0.3 < 49.0;
+    let colour = vec3(position.x / 63.0, position.y / 63.0, f32(sample) * 0.13 + 0.05);
+    return Fragment(vec4(select(colour, colour.brg * 2.0, front), 0.37), select(0.2, 0.7, front));
+}
 "#
                 .into(),
             ),
@@ -148,7 +168,7 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
                 entry_point: Some(entry),
                 compilation_options: default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: render_scene::SCENE_COLOR_FORMAT,
+                    format,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -262,7 +282,7 @@ pub(crate) fn ready(app: &mut App) {
             .map(|(view, _)| view.ids);
         if let Some(ids) = prepared {
             let cache = world.resource::<PipelineCache>();
-            if [ids.edge, ids.weights, ids.blend, ids.restore]
+            if [ids.edge, ids.weights, ids.blend]
                 .into_iter()
                 .all(|id| cache.get_render_pipeline(id).is_some())
             {
@@ -329,7 +349,7 @@ pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
 }
 
 /// Saves optional native fixture evidence outside the checkout when capture is requested.
-fn capture(name: &str, samples: u32, pixels: &[u8]) {
+pub(crate) fn capture(name: &str, samples: u32, pixels: &[u8]) {
     if std::env::var_os("CINNABAR_SMAA_RASTER_CAPTURE").as_deref()
         != Some(std::ffi::OsStr::new("1"))
     {

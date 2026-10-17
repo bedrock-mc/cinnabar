@@ -190,6 +190,9 @@ pub(super) fn queue_ui_overlay(
     mut model_depths: ResMut<super::model_depth::UiModelDepths>,
     coverage: Option<Res<UiHandCoverage>>,
 ) {
+    #[cfg(test)]
+    gpu.world_passes
+        .store(0, std::sync::atomic::Ordering::Relaxed);
     // Always clear the previous render-frame coverage, including empty UI and
     // unchanged accepted revisions, before any preparation/queue early return.
     if let Some(coverage) = coverage {
@@ -201,7 +204,7 @@ pub(super) fn queue_ui_overlay(
     gpu.composite_pipelines
         .retain(|view, _| views.contains(*view));
     gpu.world_view_pipelines
-        .retain(|(view, _, _), _| views.contains(*view));
+        .retain(|(view, _, _, _), _| views.contains(*view));
     gpu.model_view_pipelines
         .retain(|(view, _, _), _| views.contains(*view));
     model_depths.synchronize_device(&render_device);
@@ -230,6 +233,7 @@ pub(super) fn queue_ui_overlay(
                 depth_test: false,
                 depth_write: false,
                 isolated_depth: false,
+                attached_depth: false,
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
@@ -274,6 +278,7 @@ pub(super) fn queue_ui_overlay(
                     depth_test,
                     depth_write,
                     isolated_depth: true,
+                    attached_depth: false,
                 };
                 let pair = pipeline
                     .variants
@@ -306,7 +311,7 @@ pub(super) fn queue_ui_overlay(
         }
         if !gpu.batches.iter().any(|batch| batch.world_projection != 0) {
             gpu.world_view_pipelines
-                .retain(|(owner, _, _), _| *owner != view_entity);
+                .retain(|(owner, _, _, _), _| *owner != view_entity);
             continue;
         }
         for (depth_test, depth_write) in
@@ -321,38 +326,48 @@ pub(super) fn queue_ui_overlay(
             {
                 continue;
             }
-            let key = UiPipelineKey {
-                msaa: *msaa,
-                hdr: camera.hdr,
-                invert_blend: false,
-                layer: false,
-                depth_test,
-                depth_write,
-                isolated_depth: false,
-            };
-            let pair = pipeline
-                .variants
-                .specialize(&pipeline_cache, key)
-                .and_then(|alpha| {
-                    pipeline
-                        .variants
-                        .specialize(
-                            &pipeline_cache,
-                            UiPipelineKey {
-                                invert_blend: true,
-                                ..key
-                            },
-                        )
-                        .map(|invert| (alpha, invert))
-                });
-            match pair {
-                Ok(pair) => {
-                    gpu.world_view_pipelines
-                        .insert((view_entity, depth_test, depth_write), pair);
+            for attached_depth in [false, true] {
+                if attached_depth && (depth_test || depth_write || depth.is_none()) {
+                    continue;
                 }
-                Err(_) => {
-                    gpu.world_view_pipelines
-                        .remove(&(view_entity, depth_test, depth_write));
+                let key = UiPipelineKey {
+                    msaa: *msaa,
+                    hdr: camera.hdr,
+                    invert_blend: false,
+                    layer: false,
+                    depth_test,
+                    depth_write,
+                    isolated_depth: false,
+                    attached_depth,
+                };
+                let pair = pipeline
+                    .variants
+                    .specialize(&pipeline_cache, key)
+                    .and_then(|alpha| {
+                        pipeline
+                            .variants
+                            .specialize(
+                                &pipeline_cache,
+                                UiPipelineKey {
+                                    invert_blend: true,
+                                    ..key
+                                },
+                            )
+                            .map(|invert| (alpha, invert))
+                    });
+                match pair {
+                    Ok(pair) => {
+                        gpu.world_view_pipelines
+                            .insert((view_entity, depth_test, depth_write, attached_depth), pair);
+                    }
+                    Err(_) => {
+                        gpu.world_view_pipelines.remove(&(
+                            view_entity,
+                            depth_test,
+                            depth_write,
+                            attached_depth,
+                        ));
+                    }
                 }
             }
         }
@@ -713,6 +728,7 @@ pub(super) fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
         depth_test: false,
         depth_write: false,
         isolated_depth: false,
+        attached_depth: false,
     }
 }
 

@@ -49,6 +49,8 @@ pub(super) fn init_ui_gpu(
         viewport_uploads: viewport::ViewportUploads::default(),
         #[cfg(test)]
         geometry_writes: [0; 2],
+        #[cfg(test)]
+        world_passes: default(),
         viewport_size: [1, 1],
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
