@@ -200,6 +200,10 @@ resumption retains account intent and bearer expiry; play reconnects never repla
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+Browser CI checks the web crates on wasm and runs the JavaScript edge suites. Shared
+Go/Rust control fixtures cover Hello, Welcome, account, progress and error events.
+The devtool static bundle command matches the locked wasm-bindgen version and includes
+the canonical delivery index; TLS renewal reloads without dropping relay accounts.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a

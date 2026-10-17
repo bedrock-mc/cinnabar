@@ -3489,6 +3489,7 @@ dependencies = [
  "test-assembler",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "wait-timeout",
  "wholesym",
  "workspace-declarations",
