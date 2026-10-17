@@ -624,7 +624,7 @@ pub(crate) fn bake_portal_template<I: LightingInputs + ?Sized>(
                         if normal[axis] < 0 {
                             position[axis] <= 0
                         } else {
-                            position[axis] == 256
+                            position[axis] >= 256
                         }
                     });
                     if boundary {
