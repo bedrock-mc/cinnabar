@@ -76,7 +76,7 @@ fn personal_inventory(
             .inventory_ledger_mut(player_runtime)
             .apply(&player_content(slots));
     }
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     runtime
 }
 
@@ -403,7 +403,7 @@ fn offhand_count_does_not_depend_on_item_icon() {
                 handedness: Some(ActorHandedness::Left),
             },
         );
-        runtime.toggle_inventory(player_runtime);
+        runtime.toggle_inventory(player_runtime, None);
         runtime
     };
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();

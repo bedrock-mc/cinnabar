@@ -9902,3 +9902,10 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+## Inventory opening while mounted
+
+Inventory input resolves a retained mount through live actor authority and sends its runtime
+ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
+request. The chosen target survives transport delay. Full mount container, vehicle input
+and platform-specific inventory-opening guards remain incomplete.
