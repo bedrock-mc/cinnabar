@@ -9692,23 +9692,23 @@ Fully hidden valid cubes still return invisible, even if another cube was
 rejected. Regressions cover all three cases in hashed and palette sessions,
 including visual support, gap counts, and session application.
 
-## Custom fence connections need mesh-time neighbor evaluation
+## Custom fence connection states
 
-Custom fences gate permutation arms on neighbor queries such as
-`q.block_state('minecraft:connection_north')`. Those names are never block
-state axes, so no static state can satisfy them: every evaluation stays
-unevaluated and counted, and every state keeps the base (unconnected) post.
-Vanilla fences instead connect at mesh time through fence template flags
-and neighbor facts, which custom visuals cannot carry today.
+Custom fences use the `minecraft:connection` trait
+(`minecraft:cardinal_connections`): four neighbor-derived booleans
+(`minecraft:connection_north/east/south/west`) that read as ordinary block
+states in permutations and bone visibility. The trait parser expands them to
+four boolean palette axes (sixteen states), so each state hides only its
+disconnected rail bones and collision permutations resolve per state.
+Connection queries without the trait stay unevaluated and keep the base
+visual, locked by the connection permutation regression.
 
-A parity fix must compile each connection combination, record a
-mask-to-visual mapping the mesher can read, and select it per placed block
-using a documented neighbor-connection rule. Native behavior for these
-packs is unverified: unknown `block_state` names may render unconnected
-natively too. Until that comparison exists, the counted fallback to the
-base visual is the intended semantic, locked by the connection permutation
-regression. Incomplete: mask compilation, neighbor rule, meshing selection,
-and the native comparison.
+Incomplete: the axis order (north, east, south, west) and their placement
+after placement traits are provisional with no wire capture yet; hashed
+sessions hash sorted names and are unaffected, but sequential palettes need
+the server order confirmed. Rendered native comparison (isolated post
+against connected arms) and cross-block behavior (`connection_rule`,
+vanilla fences connecting to tagged custom fences) remain unverified.
 
 
 ## Import player data from Minecraft

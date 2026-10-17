@@ -523,19 +523,11 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     let enabled = root
         .list("traits")
         .iter()
-        .flat_map(|trait_| {
-            trait_
-                .field("enabled_states")
-                .map(enabled_flags)
-                .unwrap_or_default()
-        })
+        .flat_map(enabled_flags)
         .collect::<Vec<_>>();
     // Trait states come first, in vanilla's fixed order, whatever order the traits are listed in.
     for (name, values) in TRAIT_STATES {
-        if enabled
-            .iter()
-            .any(|state| state.strip_prefix("minecraft:").unwrap_or(state) == name)
-        {
+        if enabled.iter().any(|state| trait_key(state) == name) {
             states = states.checked_mul(values.len() as u64)?;
             state_axes.push(CustomStateAxis {
                 name: format!("minecraft:{name}").into(),
@@ -546,10 +538,33 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             });
         }
     }
+    // The connection trait enables cardinal fence connections: four
+    // neighbor-derived booleans the server keeps updated as neighbours
+    // change. They read as ordinary block states, so permutations and bone
+    // visibility resolve per palette state with the existing machinery.
+    // Accept the `cardinal_connections` group or the individual directions;
+    // axes run north, east, south, west, matching Dragonfly's bit layout.
+    // The order is provisional: no wire capture confirms the server palette
+    // order yet, and hashed sessions hash sorted names, so only sequential
+    // palettes could observe a mismatch.
+    let cardinal = enabled
+        .iter()
+        .any(|state| trait_key(state) == CARDINAL_CONNECTIONS);
+    for direction in CONNECTION_DIRECTIONS
+        .into_iter()
+        .filter(|direction| cardinal || enabled.iter().any(|state| trait_key(state) == *direction))
+    {
+        states = states.checked_mul(2)?;
+        state_axes.push(CustomStateAxis {
+            name: format!("minecraft:{direction}").into(),
+            values: [CustomStateValue::Bool(false), CustomStateValue::Bool(true)].into(),
+        });
+    }
     state_identity_incomplete |= enabled.iter().any(|state| {
-        !TRAIT_STATES
-            .iter()
-            .any(|(name, _)| *name == state.strip_prefix("minecraft:").unwrap_or(state))
+        let key = trait_key(state);
+        !TRAIT_STATES.iter().any(|(name, _)| *name == key)
+            && key != CARDINAL_CONNECTIONS
+            && !CONNECTION_DIRECTIONS.contains(&key)
     });
     for property in root.list("properties") {
         let values = property.list("enum");
@@ -761,6 +776,21 @@ const TRAIT_STATES: [(&str, &[&str]); 4] = [
     ),
 ];
 
+/// Group state enabling the four cardinal fence connections at once.
+const CARDINAL_CONNECTIONS: &str = "cardinal_connections";
+/// Cardinal fence connections in palette order: north varies fastest.
+const CONNECTION_DIRECTIONS: [&str; 4] = [
+    "connection_north",
+    "connection_east",
+    "connection_south",
+    "connection_west",
+];
+
+/// Treats namespaced and unnamespaced trait state spellings as the same key.
+fn trait_key(name: &str) -> &str {
+    name.strip_prefix("minecraft:").unwrap_or(name)
+}
+
 fn state_value(value: &Nbt) -> Option<CustomStateValue> {
     match value {
         Nbt::String(value) => Some(CustomStateValue::String(value.as_str().into())),
@@ -770,9 +800,22 @@ fn state_value(value: &Nbt) -> Option<CustomStateValue> {
     }
 }
 
-fn enabled_flags(value: &Nbt) -> Vec<String> {
-    match value {
-        Nbt::Compound(fields) => fields
+/// Retains named flags and reads the connection trait's serialized cardinal bit.
+fn enabled_flags(trait_: &Nbt) -> Vec<String> {
+    match trait_.field("enabled_states") {
+        Some(Nbt::Int(flags))
+            if trait_
+                .field("name")
+                .and_then(Nbt::as_str)
+                .is_some_and(|name| trait_key(name) == "connection") =>
+        {
+            if flags & 1 != 0 {
+                vec![CARDINAL_CONNECTIONS.to_owned()]
+            } else {
+                Vec::new()
+            }
+        }
+        Some(Nbt::Compound(fields)) => fields
             .iter()
             .filter(|(_, value)| value.number().is_some_and(|flag| flag != 0.0))
             .map(|(key, _)| key.clone())
