@@ -494,6 +494,9 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
+/// Selects a label's optional default formatting color after binding and localization.
+pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
 #[derive(Clone, Copy, Default)]
@@ -508,7 +511,7 @@ pub struct ScreenArt<'a> {
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
     /// Default formatting color chosen per label after binding and localization.
-    pub text_color: Option<&'a dyn Fn(&DrawNode) -> Option<char>>,
+    pub text_color: Option<TextColor<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
