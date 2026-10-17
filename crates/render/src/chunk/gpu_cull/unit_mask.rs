@@ -130,7 +130,15 @@ impl UnitMasks {
         visibility: bool,
         count: u32,
     ) {
-        let (pipeline, group, count) = if visibility {
+        let count = if visibility {
+            count
+        } else {
+            IndexedUnitPage::capacity_for(bindings.page.size()) as u32
+        };
+        if count == 0 {
+            return;
+        }
+        let (pipeline, group) = if visibility {
             (
                 &self.pipeline,
                 &bindings
@@ -138,18 +146,10 @@ impl UnitMasks {
                     .as_ref()
                     .expect("prepared occlusion bindings")
                     .1,
-                count,
             )
         } else {
-            (
-                &self.clear_pipeline,
-                &bindings.clear,
-                IndexedUnitPage::capacity_for(bindings.page.size()) as u32,
-            )
+            (&self.clear_pipeline, &bindings.clear)
         };
-        if count == 0 {
-            return;
-        }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("ordinary terrain visibility"),
             timestamp_writes: None,
@@ -270,6 +270,9 @@ mod tests {
         let page = buffer();
         let bits = buffer();
         let mut bindings = None;
+        masks.prepare(&device, &page, None, &mut bindings);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        masks.encode(&device, &mut encoder, bindings.as_ref().unwrap(), true, 0);
         masks.prepare(&device, &page, Some(&bits), &mut bindings);
         let first = bindings.as_ref().unwrap();
         let clear = first.clear.clone();
