@@ -394,8 +394,6 @@ impl UiPresentationRuntime {
         if !self.gui_models.enabled {
             return;
         }
-        self.apply_cosmetic_gallery_models(nodes);
-        let preview = self.player_preview_icon.map(icon_key);
         let mut modulated_meshes = self
             .gui_models
             .modulated
@@ -416,6 +414,19 @@ impl UiPresentationRuntime {
         );
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
+        self.apply_gui_player_model_in(nodes, viewport, safe_area, effects);
+        self.apply_cosmetic_gallery_models(nodes);
+    }
+
+    /// Admits the equipped character before optional gallery meshes consume the remaining budget.
+    fn apply_gui_player_model_in(
+        &self,
+        nodes: &mut [UiNode],
+        viewport: UiRect,
+        safe_area: SafeArea,
+        effects: TextEffects<'_>,
+    ) {
+        let preview = self.player_preview_icon.map(icon_key);
         let is_preview = |visual: &UiVisual| match visual {
             UiVisual::Sprite {
                 texture_page, uv, ..

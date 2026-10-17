@@ -157,3 +157,76 @@ fn gallery_replacement_preserves_bounds_parent_clip_and_selection() {
     assert_eq!(nodes[0], tile.with_visual(UiVisual::Mesh(Arc::clone(mesh))));
     assert_eq!(nodes[1], badge);
 }
+
+#[test]
+fn cosmetic_gallery_pressure_preserves_the_equipped_character_mesh() {
+    use ui::UiNodeId;
+    let item = hats::fixture::dragon_wings();
+    prepare(item);
+    let mut runtime = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    runtime.gui_models.enabled = true;
+    runtime.gui_models.skin =
+        Some(render_model::UiTexturePage::owned([64, 64], vec![255; 64 * 64 * 4].into()).unwrap());
+    let character = IconRef {
+        page: 3,
+        uv: [0, 0, 96, 112],
+        glint: false,
+    };
+    let thumbnail = IconRef {
+        page: 4,
+        ..character
+    };
+    let texture = IconRef {
+        page: 5,
+        uv: [0, 0, 64, 64],
+        glint: false,
+    };
+    runtime.player_preview_icon = Some(character);
+    runtime
+        .menu_artwork
+        .refs
+        .insert(item.thumbnail_key(), thumbnail);
+    runtime
+        .menu_artwork
+        .refs
+        .insert(item.texture_key(), texture);
+    runtime.set_preview_cosmetics(&[item]);
+    runtime.sync_cosmetic_previews(true);
+    let expected = runtime.gui_player_mesh().unwrap();
+    assert!(expected.vertices().len() >= hats::rig(item).rest_vertices.len());
+    runtime
+        .gui_models
+        .cosmetics
+        .items
+        .get_mut(&item)
+        .unwrap()
+        .gallery = Some((texture, Arc::clone(&expected)));
+    let bounds = super::super::super::rect(0.0, 0.0, 96.0, 112.0).unwrap();
+    let mut nodes: Vec<_> = (0..100)
+        .map(|index| {
+            let icon = if index == 0 { character } else { thumbnail };
+            UiNode::new(UiNodeId::new(index + 1), None, bounds).with_visual(UiVisual::Sprite {
+                texture_page: icon.page,
+                uv: icon.uv,
+                color: [255; 4],
+            })
+        })
+        .collect();
+    runtime.apply_gui_models(&mut nodes);
+    assert!(ui::UiTree::check_visual_budget(nodes.iter().map(UiNode::visual)).is_ok());
+    let UiVisual::Mesh(actual) = nodes[0].visual() else {
+        panic!("gallery displaced the equipped character")
+    };
+    assert_eq!(actual.as_ref(), expected.as_ref());
+    assert!(
+        nodes[1..]
+            .iter()
+            .any(|node| matches!(node.visual(), UiVisual::Mesh(_)))
+    );
+    assert!(
+        nodes[1..]
+            .iter()
+            .any(|node| matches!(node.visual(), UiVisual::Sprite { .. })),
+        "optional tiles retain thumbnails at the frame budget"
+    );
+}

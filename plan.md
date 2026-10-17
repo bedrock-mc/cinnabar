@@ -31,6 +31,7 @@ for arbitrary downloaded clips, live player-preview visual acceptance and hardwa
 qualification remain incomplete.
 Visible thumbnail carriers take priority over optional gallery animation textures, and
 cosmetic atlas borders retain their original point-sampled edge texels.
+Equipped character geometry is admitted before optional tile meshes consume the frame budget.
 
 The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
 slot, through a filter icon beside
