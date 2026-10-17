@@ -10013,3 +10013,11 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+### Retain an active loading screen across dimension replacements
+
+Overlapping dimension requests from the same player reuse the active loading
+screen. Only a present replacement ID updates that screen; pending replacements
+coalesce before the update. A new player or session starts a separate lifetime.
+The final report retains the active ID through transport retries. Full loading
+screen, respawn, startup and presentation timing parity remain incomplete.
