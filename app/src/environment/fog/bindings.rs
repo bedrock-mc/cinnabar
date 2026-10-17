@@ -2,10 +2,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{
-    ResolvedBiomeTints,
-    atmosphere::{BiomeVisualProfile, FogProfile, RuntimeAtmosphereAssets},
-};
+use assets::{BiomeVisualProfile, FogProfile, ResolvedBiomeTints, RuntimeAtmosphereAssets};
 
 #[cfg(test)]
 use assets::BiomeRule;

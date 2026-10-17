@@ -428,9 +428,9 @@ fn face_tile(
     let level = source_side
         .ilog2()
         .saturating_sub(TILE.ilog2())
-        .min(assets::texture::VANILLA_TERRAIN_MIP_COUNT - 1);
+        .min(assets::VANILLA_TERRAIN_MIP_COUNT - 1);
     let mip = texture.mips.get(level as usize)?;
-    if mip.size == 0 || mip.size > assets::texture::MAX_TILE_SIZE {
+    if mip.size == 0 || mip.size > assets::MAX_TILE_SIZE {
         return None;
     }
     let side = mip.size as usize;

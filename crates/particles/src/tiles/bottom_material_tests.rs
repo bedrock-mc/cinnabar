@@ -1,4 +1,3 @@
-use assets::texture::{TextureArray, TextureMip};
 use assets::*;
 
 use super::terrain_material;

@@ -9,8 +9,7 @@ use assets::gui_item::{
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, VisualKind,
-    texture::TextureArray,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage, VisualKind,
 };
 
 use super::cube::Reject;

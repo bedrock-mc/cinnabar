@@ -1,40 +1,5 @@
 use super::*;
 
-#[cfg(feature = "enhanced")]
-#[test]
-fn enhanced_liquid_retains_surface_depth_for_underwater_transport_and_history() {
-    let (mut app, _) = crate::queue_review_support::app();
-    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
-    let mut pipelines = ChunkPipeline::from_world(&mut World::new());
-    let id = pipelines
-        .transparent_variants
-        .specialize(
-            &cache,
-            ChunkPipelineKey {
-                msaa: Msaa::Off,
-                hdr: true,
-                enhanced: true,
-            },
-        )
-        .unwrap();
-    let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
-    let depth = descriptor.depth_stencil.as_ref().unwrap();
-    assert_eq!(
-        depth.depth_write_enabled,
-        Some(true),
-        "history and underwater extinction need the visible water surface"
-    );
-    assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
-    let fragment = descriptor.fragment.as_ref().unwrap();
-    assert!(fragment.shader_defs.contains(&"ENHANCED".into()));
-    assert!(!fragment.shader_defs.contains(&"NATIVE_GAMMA_BLEND".into()));
-    assert_eq!(fragment.targets.len(), 2);
-    assert_eq!(
-        fragment.targets[1],
-        Some(crate::scene_target::water_coverage::target())
-    );
-}
-
 #[test]
 fn cutout_cube_offset_does_not_move_adjacent_opaque_models_or_liquids() {
     let (mut app, _) = crate::queue_review_support::app();

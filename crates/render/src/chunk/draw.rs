@@ -592,8 +592,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
         &views
     {
-        let capture = enhanced.is_some_and(|settings| settings.reflection_capture);
-        if runtime.view_entity != Some(view_entity) && !capture {
+        if runtime.view_entity != Some(view_entity) {
             continue;
         }
         let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
@@ -650,19 +649,6 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         models.reverse();
         models.sort_by_key(|model| model.key);
         models.dedup_by_key(|model| model.key);
-        // Captures sort their own water so the gameplay view's retained order is untouched.
-        if capture {
-            queue_capture_transparent(
-                phase,
-                &rangefinder,
-                pipeline_id,
-                [record_draw, transparent_model_draw],
-                models,
-                water,
-                &arena.transparent_liquids,
-            );
-            continue;
-        }
         // Equal phase distances keep insertion order, so water enters in key order.
         let water = water_order.update(water.drain(..));
         // Displaced water can overlap itself even when flat, so such views sort all of it.
@@ -813,50 +799,6 @@ pub(in crate::chunk) struct TransparentQueueScratch {
     /// Sorted by key with one entry per key once a view's visible set is gathered.
     models: Vec<QueuedTransparentModel>,
     water: Vec<VisibleWater>,
-}
-
-/// Queues a reflection capture's transparent terrain without the gameplay view's retained sort:
-/// each sub-chunk draws its own records, and the phase orders sub-chunks back to front.
-fn queue_capture_transparent(
-    phase: &mut bevy::render::render_phase::SortedRenderPhase<Transparent3d>,
-    rangefinder: &ViewRangefinder3d,
-    pipeline: bevy::render::render_resource::CachedRenderPipelineId,
-    [water_draw, model_draw]: [bevy::render::render_phase::DrawFunctionId; 2],
-    models: &[QueuedTransparentModel],
-    water: &mut [VisibleWater],
-    residents: &TransparentLiquidResidents,
-) {
-    // Equal phase distances keep insertion order, so water enters in key order before models.
-    water.sort_unstable_by_key(|water| (water.key, water.entity));
-    let water = each_visible_key(water, residents).map(|water| {
-        (
-            (water.entity, water.main),
-            water_draw,
-            transparent_liquid_phase_distance(rangefinder, water.key),
-        )
-    });
-    let models = models.iter().map(|model| {
-        (
-            (model.entity, model.main),
-            model_draw,
-            transparent_model_phase_distance(rangefinder, model.key),
-        )
-    });
-    for (entity, draw_function, distance) in water.chain(models) {
-        crate::transparent_phase::add(
-            phase,
-            Transparent3d {
-                sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
-                entity,
-                pipeline,
-                draw_function,
-                distance,
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: true,
-            },
-        );
-    }
 }
 
 const UNSORTED_WATER_LOG_INTERVAL: Duration = Duration::from_secs(5);

@@ -1,6 +1,6 @@
 //! Prepares sun, moon, cloud, fog and numbered sky resources on the reload worker.
 
-use assets::atmosphere::AtmosphereTexture;
+use assets::AtmosphereTexture;
 use sha2::{Digest, Sha256};
 
 use super::*;
@@ -80,7 +80,7 @@ pub(super) fn prepare_atmosphere(
         hash_field(&mut digest, &bytes);
         if path.starts_with("fogs/") {
             if let Some(profile) = fog_profile(&root)
-                && (fogs.len() < assets::atmosphere::MAX_ENVIRONMENT_PROFILES
+                && (fogs.len() < assets::MAX_ENVIRONMENT_PROFILES
                     || fogs.contains_key(&profile.identifier))
             {
                 fogs.insert(profile.identifier.clone(), profile);
@@ -129,10 +129,10 @@ fn hash_field(digest: &mut Sha256, bytes: &[u8]) {
 
 /// Optional packs must not publish cloud masks the fixed-size mesher cannot consume.
 pub(super) fn supports_texture_dimensions(
-    role: assets::atmosphere::AtmosphereRole,
+    role: assets::AtmosphereRole,
     width: u32,
     height: u32,
 ) -> bool {
-    role != assets::atmosphere::AtmosphereRole::Clouds
+    role != assets::AtmosphereRole::Clouds
         || (width == meshing::CLOUD_MASK_SIZE && height == meshing::CLOUD_MASK_SIZE)
 }

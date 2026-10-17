@@ -58,7 +58,6 @@ members = [
     "crates/test-alloc",
     "crates/test-time",
     "crates/render-model",
-    "crates/shaderpack",
     "crates/render-scene",
     "crates/inventory",
     "crates/launcher",
@@ -132,10 +131,6 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 # The noop backend only runs when an instance explicitly enables it (render tests).
 # `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
 wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
-# Every crate that names naga uses this one feature set, so `-p cinnabar` and `--workspace`
-# builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
-# Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
-naga = { version = "30.0.1", features = ["glsl-in", "wgsl-in"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
@@ -159,16 +154,15 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
-# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1,
-# plus naga GLSL frontend fixes for Java shader packs (glsl-in builtins, overloads, barriers).
+# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
 
-wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5" }
+wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
 
 [profile.dev]
 opt-level = 1

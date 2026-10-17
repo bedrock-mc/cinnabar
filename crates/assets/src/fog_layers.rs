@@ -1,4 +1,4 @@
-use crate::atmosphere::{FogMedium, FogProfile, ResolvedFog};
+use crate::{FogMedium, FogProfile, ResolvedFog};
 
 /// Resolves highest-priority layers first, retaining missing entries' weight for lower layers.
 /// Fog layers are supplied in ascending priority.
@@ -76,7 +76,7 @@ fn accumulate<const N: usize>(total: &mut [f32; N], values: [f32; N], weight: f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atmosphere::{FogDistance, FogDistanceMode};
+    use crate::{FogDistance, FogDistanceMode};
 
     /// Builds one optional water setting for the layer arithmetic fixtures.
     fn profile(end: Option<f32>) -> FogProfile {

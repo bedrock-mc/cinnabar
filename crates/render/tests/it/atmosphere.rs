@@ -1,7 +1,7 @@
 use crate::shader_source;
 use bevy::render::render_resource::ShaderType;
 
-use assets::atmosphere::ResolvedFog;
+use assets::ResolvedFog;
 
 use bevy::{
     math::{Mat3, Mat4, Vec3, Vec4},

@@ -83,7 +83,6 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;
-    super::enhanced::draw(content)?;
     options(content, SettingPanel::VideoPerformance)?;
     let graphics = if content.view.settings_options.value(SettingId::GraphicsMode) == 0 {
         "options.graphicsModeOptions.simple"

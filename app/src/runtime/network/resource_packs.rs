@@ -799,12 +799,7 @@ pub(super) fn install_chunk_textures(
     static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     if !Arc::ptr_eq(textures.assets(), assets) {
         let revision = REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let enhanced = textures.enhanced().cloned();
-        *textures = render_scene::ChunkTextureAssets::with_optional_enhanced(
-            Arc::clone(assets),
-            enhanced,
-            revision,
-        );
+        *textures = render_scene::ChunkTextureAssets::with_revision(Arc::clone(assets), revision);
     }
 }
 

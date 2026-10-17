@@ -9,7 +9,6 @@ publish = false
 # Counts allocation requests and labelled GPU writes for diagnostic runs.
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats"]
 publication-test-support = []
-enhanced = ["meshing/enhanced"]
 enhanced-diagnostics = ["render-model/enhanced-diagnostics"]
 tracy = ["dep:tracy-client"]
 

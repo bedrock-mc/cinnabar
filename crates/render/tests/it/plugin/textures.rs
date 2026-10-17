@@ -243,42 +243,30 @@ fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
 }
 
 #[test]
-fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
-    let identity = texture_identity(0x1000, 7);
-    let mut current = None;
-    let mut immutable_uploads = 0;
-    let mut clock_bytes = 0;
-    for frame in 0..120_u32 {
-        if texture_asset_needs_rebuild(current, identity) {
-            immutable_uploads += 1;
-            current = Some(identity);
-        }
-        let clock = ChunkAnimationClock::from_elapsed_seconds(f64::from(frame) / 60.0);
-        assert!(clock.partial_tick() >= 0.0 && clock.partial_tick() < 1.0);
-        clock_bytes += size_of::<ChunkAnimationClock>();
-    }
-    assert_eq!(immutable_uploads, 1);
-    assert_eq!(clock_bytes, 120 * 16);
-}
+fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
+    let plugin = CHUNK_RENDERER_SOURCE;
+    let start = plugin
+        .find("fn prepare_chunk_texture_assets(")
+        .expect("texture preparation system");
+    let end = plugin[start..]
+        .find("\npub(in crate::chunk) fn storage_table_fits(")
+        .map(|offset| start + offset)
+        .expect("end of texture preparation system");
+    let prepare = &plugin[start..end];
 
-#[test]
-fn authored_texture_replacement_retains_carrier_identity_and_detaches_without_new_revision() {
-    let runtime = Arc::new(RuntimeAssets::diagnostic());
-    let textures = ChunkTextureAssets::with_revision(runtime.clone(), 7);
-    let page = runtime.texture_array().clone();
-    let authored = Arc::new(
-        render_scene::EnhancedTextureAssets::new(
-            [page.clone(), page.clone()],
-            [page.clone(), page.clone()],
-            [page.clone(), page],
-            vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS]
-                .into_boxed_slice(),
-        )
-        .unwrap(),
+    assert!(
+        !prepare.contains("gpu_assets.prepared = None"),
+        "a rejected new revision must retain the previous complete GPU asset set"
     );
-    let replacement = textures.with_updated_enhanced(Some(authored));
-    assert!(Arc::ptr_eq(replacement.assets(), &runtime));
-    assert_ne!(replacement.identity(), textures.identity());
-    let restored = replacement.with_updated_enhanced(None);
-    assert_eq!(restored.identity(), textures.identity());
+    let uploads = prepare
+        .find("for (index, (texture, plans)) in terrain_pages.iter().zip(upload_plans)")
+        .expect("every page uploads before publication");
+    let publish = prepare
+        .find("_textures: textures.try_into()")
+        .expect("complete revision publication");
+    assert!(uploads < publish);
+    assert!(prepare.contains(".animations()"));
+    assert!(prepare.contains(".animation_frames()"));
+    assert!(prepare.contains("views: views"));
+    assert!(prepare.contains(".try_into().expect(\"every physical page uploads\")"));
 }

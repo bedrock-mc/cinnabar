@@ -217,7 +217,7 @@ fn terrain_unorm_views_filter_both_pages_layers_and_frame_mix() {
                     resource: wgpu::BindingResource::Sampler(&native_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 40,
+                    binding: 27,
                     resource: data.as_entire_binding(),
                 },
             ],
@@ -255,8 +255,8 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
             base[(y * 4 + x) * 4..(y * 4 + x + 1) * 4].copy_from_slice(&[140, 140, 140, 255]);
         }
     }
-    let native = assets::texture::build_legacy_terrain_mip_chain(&base, 4).unwrap();
-    let carried = assets::texture::build_texture_mip_chain(base.into_boxed_slice(), 4).unwrap();
+    let native = assets::build_legacy_terrain_mip_chain(&base, 4).unwrap();
+    let carried = assets::build_texture_mip_chain(base.into_boxed_slice(), 4).unwrap();
     assert_eq!(native[0], carried[0]);
     assert_eq!(native[1].rgba8[3], 255);
     assert_eq!(carried[1].rgba8[3], 128);
@@ -373,15 +373,14 @@ const MIP_FIXTURE: &str = r#"
     let layer = select(0u, 1u, position.x >= 128.0);
     // A 4x4 base and .5 gradients choose mip1. Native point filtering selects
     // its opaque texel; the carried chain retains its authored alpha strength.
-    var input: VertexOutput;
-    let sampled = sample_material_texture_ref(input, layer, vec2(.35,.25), vec2(.5,0.0), vec2(0.0,.5), NATIVE_LEAF_COLOUR);
+    let sampled = sample_material_texture_ref(layer, vec2(.35,.25), vec2(.5,0.0), vec2(0.0,.5), NATIVE_LEAF_COLOUR);
     return vec4(sampled.aaa, 1.0);
 }
 "#;
 
 const FIXTURE: &str = r#"
 struct FilterCase { refs_flags: vec4<u32>, uv_grad_blend: vec4<f32>, }
-@group(0) @binding(40) var<storage, read> filter_cases: array<FilterCase>;
+@group(0) @binding(27) var<storage, read> filter_cases: array<FilterCase>;
 @vertex fn filter_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let p = array(vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
     return vec4(p[index], 0.5, 1.0);
@@ -391,9 +390,8 @@ struct FilterCase { refs_flags: vec4<u32>, uv_grad_blend: vec4<f32>, }
     let witness = filter_cases[index];
     let dx = vec2(witness.uv_grad_blend.z, 0.0);
     let dy = vec2(0.0, witness.uv_grad_blend.z);
-    var input: VertexOutput;
-    let current = sample_material_texture_ref(input, witness.refs_flags.x, witness.uv_grad_blend.xy, dx, dy, witness.refs_flags.z);
-    let next = sample_material_texture_ref(input, witness.refs_flags.y, witness.uv_grad_blend.xy, dx, dy, witness.refs_flags.z);
+    let current = sample_material_texture_ref(witness.refs_flags.x, witness.uv_grad_blend.xy, dx, dy, witness.refs_flags.z);
+    let next = sample_material_texture_ref(witness.refs_flags.y, witness.uv_grad_blend.xy, dx, dy, witness.refs_flags.z);
     let sampled = mix(current, next, witness.uv_grad_blend.w);
     if (material_uses_native_leaf_colour(witness.refs_flags.z)) {
         return vec4(native_leaf_colour(sampled.rgb, vec3(1.0), 1.0, vec3(1.0), vec3(0.0), 0.0), 1.0);

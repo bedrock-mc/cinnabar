@@ -139,10 +139,7 @@ fn write_strip(root: &Path, name: &str, colours: impl AsRef<[[u8; 4]]>) {
     let pixels = colours
         .iter()
         .flat_map(|colour| {
-            std::iter::repeat_n(
-                *colour,
-                (assets::texture::TILE_SIZE * assets::texture::TILE_SIZE) as usize,
-            )
+            std::iter::repeat_n(*colour, (assets::TILE_SIZE * assets::TILE_SIZE) as usize)
         })
         .flatten()
         .collect::<Vec<_>>();
@@ -150,8 +147,8 @@ fn write_strip(root: &Path, name: &str, colours: impl AsRef<[[u8; 4]]>) {
     PngEncoder::new(&mut png)
         .write_image(
             &pixels,
-            assets::texture::TILE_SIZE,
-            assets::texture::TILE_SIZE * colours.len() as u32,
+            assets::TILE_SIZE,
+            assets::TILE_SIZE * colours.len() as u32,
             ExtendedColorType::Rgba8,
         )
         .unwrap();

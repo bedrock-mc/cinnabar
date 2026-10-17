@@ -92,9 +92,7 @@ fn leaf_mip_raster(gpu: &Gpu, samples: u32) -> Vec<u8> {
     let dx = vec2(gradient, 0.0);
     let dy = vec2(0.0, gradient);
     let flags = {flags}u;
-    // Vanilla sampling ignores the Enhanced authored-reference varyings.
-    var surface: VertexOutput;
-    let sampled = sample_material_texture_ref(surface, reference, uv, dx, dy, flags);
+    let sampled = sample_material_texture_ref(reference, uv, dx, dy, flags);
     let cutout = cube_alpha_footprint(reference, uv, dx, dy, sampled, flags);
     if ({single} && sampled.a < TERRAIN_ALPHA_THRESHOLD) {{ discard; }}
     let alpha = select(cutout.coverage, 1.0, {single});

@@ -1,4 +1,4 @@
-use crate::{AssetError, TEXTURE_LAYER_MASK, texture::TextureArray};
+use crate::{AssetError, TEXTURE_LAYER_MASK, TextureArray};
 
 pub const MAX_TEXTURE_PAGES: usize = 5;
 pub const MAX_MODEL_TEMPLATES: usize = 65_536;

@@ -74,14 +74,13 @@ fn compile_current_frames() -> (CompiledAssets, Vec<RegistryRecord>) {
     .enumerate()
     {
         let pixel = [40 + index as u8 * 40, 180, 100, 255];
-        let pixels =
-            pixel.repeat((assets::texture::TILE_SIZE * assets::texture::TILE_SIZE) as usize);
+        let pixels = pixel.repeat((assets::TILE_SIZE * assets::TILE_SIZE) as usize);
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
             .write_image(
                 &pixels,
-                assets::texture::TILE_SIZE,
-                assets::texture::TILE_SIZE,
+                assets::TILE_SIZE,
+                assets::TILE_SIZE,
                 ExtendedColorType::Rgba8,
             )
             .unwrap();
@@ -151,8 +150,8 @@ fn current_end_portal_frame_states_compile_eye_geometry_and_carried_art() {
                 .texture
                 .mips[0]
                 .rgba8;
-            let offset = texture_ref.layer() as usize
-                * (assets::texture::TILE_SIZE * assets::texture::TILE_SIZE * 4) as usize;
+            let offset =
+                texture_ref.layer() as usize * (assets::TILE_SIZE * assets::TILE_SIZE * 4) as usize;
             assert_eq!(&tile[offset..offset + 4], &[160, 180, 100, 255]);
         }
     }

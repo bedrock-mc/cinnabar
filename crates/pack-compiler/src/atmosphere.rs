@@ -11,12 +11,9 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use assets::{
-    AssetError,
-    atmosphere::{
-        AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CompiledAtmosphereAssets,
-        FogDistance, FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_PROFILES,
-        MAX_FOG_DISTANCES,
-    },
+    AssetError, AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CompiledAtmosphereAssets,
+    FogDistance, FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_PROFILES,
+    MAX_FOG_DISTANCES,
 };
 
 mod environment_source;
@@ -738,7 +735,7 @@ mod environment_profile_tests {
     use std::fs;
 
     use super::compile_environment_profiles;
-    use assets::atmosphere::{FogDistanceMode, FogMedium};
+    use assets::{FogDistanceMode, FogMedium};
 
     #[test]
     fn pinned_shape_profiles_compile_exact_default_nether_and_end_metadata() {

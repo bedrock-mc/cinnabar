@@ -1,7 +1,7 @@
 //! Immutable server-pack actor artwork shared by compilation and presentation.
 use crate::{
-    AssetError, RuntimeEntityAssets, RuntimeEquipmentCatalog,
-    actor::{ActorArtworkBinding, ActorPoseMode, ActorTexture},
+    ActorArtworkBinding, ActorPoseMode, ActorTexture, AssetError, RuntimeEntityAssets,
+    RuntimeEquipmentCatalog,
 };
 use std::sync::Arc;
 /// The pack's entity catalog with the artwork of its eligible rigs.
@@ -129,7 +129,7 @@ fn decode_artwork(bytes: &[u8]) -> Option<(Vec<ActorTexture>, Vec<ActorArtworkBi
     let u32_of = |bytes: &[u8]| u32::from_le_bytes(bytes.try_into().unwrap());
     let u16_of = |bytes: &[u8]| u16::from_le_bytes(bytes.try_into().unwrap());
     let texture_count = u32_of(take(4)?) as usize;
-    let mut textures = Vec::with_capacity(texture_count.min(crate::actor::MAX_ACTOR_TEXTURES));
+    let mut textures = Vec::with_capacity(texture_count.min(crate::MAX_ACTOR_TEXTURES));
     for _ in 0..texture_count {
         let source = u32_of(take(4)?);
         let width = u16_of(take(2)?);
@@ -148,7 +148,7 @@ fn decode_artwork(bytes: &[u8]) -> Option<(Vec<ActorTexture>, Vec<ActorArtworkBi
         });
     }
     let binding_count = u32_of(take(4)?) as usize;
-    let mut bindings = Vec::with_capacity(binding_count.min(crate::actor::MAX_ACTOR_BINDINGS));
+    let mut bindings = Vec::with_capacity(binding_count.min(crate::MAX_ACTOR_BINDINGS));
     for _ in 0..binding_count {
         let mut field = || Some(u32_of(take(4)?));
         let [

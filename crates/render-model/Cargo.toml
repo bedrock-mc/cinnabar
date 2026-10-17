@@ -14,7 +14,6 @@ reads = [
 [features]
 test-support = []
 enhanced-diagnostics = []
-enhanced = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

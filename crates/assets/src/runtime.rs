@@ -18,9 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::{
     Animation, BlockFace, BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, LightProperties, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TexturePage, TextureRef, VisualKind, VisualSupport,
-    provenance::BlobProvenance,
-    texture::{TextureArray, TextureMip},
+    NO_MODEL_TEMPLATE, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    VisualSupport, provenance::BlobProvenance,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -262,7 +261,7 @@ impl RuntimeAssets {
             .texture_pages
             .get(reference.page() as usize)
             .and_then(|page| page.texture.mips.first())
-            .map_or(crate::texture::TILE_SIZE, |mip| mip.size);
+            .map_or(crate::TILE_SIZE, |mip| mip.size);
         [size; 2]
     }
 
@@ -307,7 +306,7 @@ impl RuntimeAssets {
         if page != 0 && !self.overlay_texture_source_sizes.is_empty() {
             return Ok(std::borrow::Cow::Borrowed(texture));
         }
-        crate::texture::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
+        crate::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
     }
 
     /// Number of materials in the carrier's table.

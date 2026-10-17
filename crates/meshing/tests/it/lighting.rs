@@ -3,8 +3,8 @@ use std::mem::size_of;
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    NetworkIdMode, RuntimeAssets, TexturePage, TextureRef, VisualKind, encode_blob,
-    texture::{TextureArray, TextureMip},
+    NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    encode_blob,
 };
 use meshing::{
     BlockClassifier, FULL_BRIGHT_BLOCK_LIGHT, FULL_BRIGHT_SKY_LIGHT, Face, MeshLightSample,

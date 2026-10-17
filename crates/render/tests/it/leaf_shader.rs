@@ -10,15 +10,21 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     )));
     assert!(material.contains("return front || (flags & TWO_SIDED) != 0u;"));
     let chunk = include_str!("../../src/chunk.wesl");
+    assert_eq!(
+        chunk.matches("@builtin(front_facing) front: bool").count(),
+        2
+    );
+    assert_eq!(
+        chunk
+            .matches("if (!material_face_is_visible(in.material_flags, front)) { discard; }")
+            .count(),
+        2
+    );
     // Installed native RenderChunk AlphaTest passes (1.26.51.01 Metal) test
     // alpha at .5. SeasonsOn writes opaque alpha; SeasonsOff preserves the
     // sampled alpha. This test does not claim native MSAA/A2C coverage parity.
     // Deep leaves have no cutout flag.
-    for definitions in [
-        &[][..],
-        &["ENHANCED_SHADOW"][..],
-        &["ENHANCED_SHADOW", "ENHANCED_MOTION"][..],
-    ] {
+    for definitions in [&[][..], &["ENHANCED_SHADOW"][..]] {
         let source = shader_source::standalone(chunk, definitions);
         assert_eq!(
             shader_source::alpha_discard_threshold(&source, "fragment"),
@@ -37,20 +43,6 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
         )
         .validate(&module)
         .unwrap();
-        for entry in &module.entry_points {
-            if matches!(
-                entry.name.as_str(),
-                "fragment" | "fragment_shadow" | "fragment_motion"
-            ) {
-                assert!(
-                    entry.function.arguments.iter().any(|argument| {
-                        argument.binding == Some(naga::Binding::BuiltIn(naga::BuiltIn::FrontFacing))
-                    }),
-                    "{} must receive the face orientation",
-                    entry.name
-                );
-            }
-        }
     }
     let pipeline = include_str!("../../src/chunk/pipeline/layouts.rs");
     let cube = pipeline.split("let mut model_descriptor").next().unwrap();
@@ -74,7 +66,7 @@ fn native_leaf_colour_is_world_material_gated_and_enhanced_keeps_its_existing_pa
     assert!(ordinary.contains("if (tint_kind != 0u)"));
     assert!(!enhanced.contains("let native_colour = native_cube_colour("));
     assert!(!enhanced.contains("out.native_light_levels ="));
-    shader_source::composed(chunk, &["ENHANCED"]);
+    assert!(enhanced.contains("let shaded = shade_surface("));
     assert!(ordinary.contains("textureSampleGrad(native_leaf_textures_page_0"));
     assert!(ordinary.contains("textureSampleGrad(native_leaf_textures_page_1"));
     assert!(!enhanced.contains("textureSampleGrad(native_leaf_textures_page_"));
@@ -91,7 +83,7 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     assert!(!material_shader::chunk_atlas_views_fit(&limits));
     limits.max_sampled_textures_per_shader_stage = required;
     assert!(material_shader::chunk_atlas_views_fit(&limits));
-    limits.max_bindings_per_bind_group = material_shader::ACTIVE_LAST_CHUNK_BINDING;
+    limits.max_bindings_per_bind_group = material_shader::BIOME_QUERY_TABLES_BINDING;
     assert!(!material_shader::chunk_atlas_views_fit(&limits));
     limits.max_bindings_per_bind_group += 1;
     assert!(material_shader::chunk_atlas_views_fit(&limits));
@@ -104,4 +96,14 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     assert_eq!(sampler.address_mode_u, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_v, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_w, wgpu::AddressMode::ClampToEdge);
+    let uploader = include_str!("../../src/chunk/gpu/bind_groups.rs");
+    assert!(uploader.contains("view_formats: &[TextureFormat::Rgba8Unorm]"));
+    assert!(uploader.contains("format: TextureFormat::Rgba8UnormSrgb"));
+    assert!(uploader.contains("native world leaf atlas view"));
+    assert!(
+        uploader
+            .contains("for (index, (texture, plans)) in terrain_pages.iter().zip(upload_plans)")
+    );
+    assert_eq!(uploader.matches("render_device.create_texture(").count(), 1);
+    assert!(uploader.contains("crate::material_shader::native_leaf_sampler_descriptor()"));
 }

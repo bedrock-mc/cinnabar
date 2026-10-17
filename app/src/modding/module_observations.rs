@@ -138,7 +138,7 @@ fn look_origin(
         head.translation_scale[1] / 16.0 * rig.axis_scale[1],
         head.translation_scale[2] / 16.0 * rig.axis_scale[2],
     ];
-    let transform = client_presentation::presentation::actors::transform::rig_world_from_actor(
+    let transform = client_presentation::presentation::actors::rig_world_from_actor(
         position,
         rig.body_yaw,
         actor.render_scale() * rig.scale,

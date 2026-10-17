@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use assets::{RuntimeAssets, RuntimeEntityAssets, actor::RuntimeActorCatalog};
+use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets};
 use bevy::math::{EulerRot, Quat, Vec3};
 use client_world::WorldAuthority;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};

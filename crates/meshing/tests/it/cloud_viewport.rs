@@ -1,4 +1,4 @@
-use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
+use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{
     CLOUD_MASK_SIZE, CloudFace, MAX_CLOUD_QUADS,
     cloud_viewport::{
