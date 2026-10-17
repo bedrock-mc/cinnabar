@@ -112,22 +112,31 @@ pub fn extract(skin: &StandardSkin) -> Option<UiTexturePage> {
     let mut rgba = sample(pixels, dimensions, texture, base, size)?;
     if let Some(hat) = hat {
         let overlay = sample(pixels, dimensions, texture, hat, size)?;
-        for (base, hat) in rgba.chunks_exact_mut(4).zip(overlay.chunks_exact(4)) {
+        for (base, hat) in rgba
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(overlay.as_chunks::<4>().0)
+        {
             let a = u32::from(hat[3]);
             let remaining = u32::from(base[3]) * (255 - a);
             let alpha = a * 255 + remaining;
-            if alpha != 0 {
-                for channel in 0..3 {
-                    base[channel] = ((u32::from(hat[channel]) * a * 255
-                        + u32::from(base[channel]) * remaining
-                        + alpha / 2)
-                        / alpha) as u8;
+            for channel in 0..3 {
+                let numerator = u32::from(hat[channel]) * a * 255
+                    + u32::from(base[channel]) * remaining
+                    + alpha / 2;
+                if let Some(colour) = numerator.checked_div(alpha) {
+                    base[channel] = colour as u8;
                 }
             }
             base[3] = ((alpha + 127) / 255) as u8;
         }
     }
-    rgba.chunks_exact(4).any(|p| p[3] != 0).then_some(())?;
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .any(|p| p[3] != 0)
+        .then_some(())?;
     UiTexturePage::owned([size; 2], rgba.into()).ok()
 }
 
@@ -184,7 +193,7 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
     }
     if let Some(mesh) = &model.poly_meshes[index] {
         // The skin parser triangulates each quad into six corners.
-        for vertices in mesh.vertices.chunks_exact(6) {
+        for vertices in mesh.vertices.as_chunks::<6>().0 {
             if vertices.iter().any(|v| v.normal != [0.0, 0.0, -1.0]) {
                 continue;
             }
