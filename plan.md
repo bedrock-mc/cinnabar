@@ -2432,8 +2432,11 @@ The original Breakdance clip adds top rock, a scissoring windmill, an inverted
 freeze and a looping return. Fresh wheels equip it on the right; saved wheels
 can add it through Change Emotes. It uses the existing playback, cancellation
 and sharing paths. Windmills turn on the upper back with raised, orbiting hips
-and a tucked head. Classic biped floor contact is authored locally; unusual
-custom proportions and native/Marketplace emote parity remain incomplete.
+and a tucked head. Classic cuboid skins now add elbows, wrists, knees, ankles
+and a waist joint with cropped skin UVs and attached clothing. Jointed footwork
+leads into the shoulder spin and a two-palm freeze; contact uses prepared mesh
+bounds, with fixed-length arms and head clearance. Floor contact is authored
+locally; unusual custom proportions and native/Marketplace emote parity remain incomplete.
 The native four-slot JSON-UI wheel and remappable emote control select an original,
 owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the

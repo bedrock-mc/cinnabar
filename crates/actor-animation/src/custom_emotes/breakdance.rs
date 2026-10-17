@@ -1,10 +1,13 @@
 //! Original top rock, windmill and inverted freeze, authored for the named biped rig.
 use super::*;
+mod joints;
 
 const WINDMILL_START: f32 = 0.32;
 const WINDMILL_END: f32 = 0.70;
 const FLOOR_ENTRY: f32 = 0.24;
 const FLOOR_EXIT: f32 = 0.78;
+const FREEZE_END: f32 = 0.85;
+const RECOVERY_END: f32 = 0.94;
 const SPIN_DEGREES: f32 = 3.0 * 360.0;
 
 #[derive(Clone, Copy)]
@@ -13,73 +16,96 @@ struct Frame {
     turn: [f32; 3],
     arms: [[f32; 3]; 2],
     legs: [[f32; 3]; 2],
+    bends: [f32; 5],
 }
 
 /// Stores the authored channels once; phase is a fraction of the catalog period.
-const fn frame(phase: f32, turn: [f32; 3], arms: [[f32; 3]; 2], legs: [[f32; 3]; 2]) -> Frame {
+const fn frame(
+    phase: f32,
+    turn: [f32; 3],
+    arms: [[f32; 3]; 2],
+    legs: [[f32; 3]; 2],
+    bends: [f32; 5],
+) -> Frame {
     Frame {
         phase,
         turn,
         arms,
         legs,
+        bends,
     }
 }
 
 const FRAMES: &[Frame] = &[
-    frame(0.0, [0.0, 0.0, 0.0], [[0.0; 3]; 2], [[0.0; 3]; 2]),
+    frame(
+        0.0,
+        [0.0, 0.0, 0.0],
+        [[0.0; 3]; 2],
+        [[0.0; 3]; 2],
+        [8.0, 8.0, 6.0, 6.0, 0.0],
+    ),
     frame(
         0.08,
         [0.0, -18.0, -8.0],
         [[-45.0, 0.0, -35.0], [30.0, 0.0, 40.0]],
         [[-25.0, 0.0, -18.0], [15.0, 0.0, 8.0]],
+        [55.0, 85.0, 40.0, 10.0, 8.0],
     ),
     frame(
         0.16,
         [0.0, 18.0, 8.0],
         [[30.0, 0.0, -40.0], [-45.0, 0.0, 35.0]],
         [[15.0, 0.0, -8.0], [-25.0, 0.0, 18.0]],
+        [85.0, 55.0, 10.0, 40.0, -8.0],
     ),
     frame(
         FLOOR_ENTRY,
         [45.0, 0.0, -25.0],
         [[-85.0, 0.0, -20.0], [-50.0, 0.0, 30.0]],
         [[65.0, 0.0, -25.0], [-55.0, 0.0, 35.0]],
+        [90.0, 60.0, 95.0, 45.0, 22.0],
     ),
     frame(
         WINDMILL_START,
         [125.0, 0.0, 0.0],
         [[0.0, 0.0, -75.0], [0.0, 0.0, 75.0]],
         [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
+        [20.0, 55.0, 20.0, 45.0, -10.0],
     ),
     frame(
         WINDMILL_END,
         [125.0, SPIN_DEGREES, 0.0],
         [[0.0, 0.0, -75.0], [0.0, 0.0, 75.0]],
         [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
+        [20.0, 55.0, 20.0, 45.0, -10.0],
     ),
     frame(
         FLOOR_EXIT,
         [180.0, SPIN_DEGREES, -12.0],
         [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
         [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
+        [60.0, 95.0, 20.0, 100.0, -12.0],
     ),
     frame(
-        0.85,
+        FREEZE_END,
         [180.0, SPIN_DEGREES, -12.0],
         [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
         [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
+        [60.0, 95.0, 20.0, 100.0, -12.0],
     ),
     frame(
-        0.94,
+        RECOVERY_END,
         [330.0, SPIN_DEGREES, 0.0],
         [[-65.0, 0.0, -20.0], [-65.0, 0.0, 20.0]],
         [[35.0, 0.0, -15.0], [35.0, 0.0, 15.0]],
+        [60.0, 60.0, 80.0, 80.0, 20.0],
     ),
     frame(
         1.0,
         [360.0, SPIN_DEGREES, 0.0],
         [[0.0; 3]; 2],
         [[0.0; 3]; 2],
+        [8.0, 8.0, 6.0, 6.0, 0.0],
     ),
 ];
 
@@ -108,11 +134,14 @@ fn sample(seconds: f64) -> Frame {
         blend(a.turn, b.turn),
         std::array::from_fn(|side| blend(a.arms[side], b.arms[side])),
         std::array::from_fn(|side| blend(a.legs[side], b.legs[side])),
+        std::array::from_fn(|index| a.bends[index] + (b.bends[index] - a.bends[index]) * amount),
     );
     if (WINDMILL_START..WINDMILL_END).contains(&phase) {
         let scissor = (result.turn[1].to_radians() * 2.0).sin() * 22.0;
         result.legs[0][0] += scissor;
         result.legs[1][0] -= scissor;
+        result.bends[2] += scissor * 0.5;
+        result.bends[3] -= scissor * 0.5;
     }
     result
 }
@@ -132,9 +161,21 @@ pub(super) fn targets(
     rest: &[BoneTransform],
     seconds: f64,
     height: f32,
+    bounds: Option<&[Option<articulated::BoneBounds>]>,
 ) -> Vec<Option<BoneTransform>> {
-    let frame = sample(seconds);
+    let mut frame = sample(seconds);
+    if bounds.is_some() {
+        // Settle both shoulders level as the hands take the weight.
+        frame.turn[2] *= 1.0 - joints::freeze_weight(frame.phase);
+    }
     let support = shoulder_support(frame.phase);
+    if bounds.is_some() {
+        frame.turn[0] += 10.0 * support;
+        for arm in &mut frame.arms {
+            arm[0] += 35.0 * support;
+            arm[2] *= 1.0 - support;
+        }
+    }
     let shoulders = names
         .iter()
         .position(|name| name.as_ref() == "body")
@@ -177,28 +218,47 @@ pub(super) fn targets(
             Some(target)
         })
         .collect();
-    // Rest the standard cuboid silhouette on the floor throughout rotations. This
-    // affects presentation only; the actor position and collision box never move.
+    joints::apply(names, rest, &mut targets, frame, height, bounds);
+    targets
+}
+
+/// Places the composed silhouette on the floor, including every articulated segment.
+pub(super) fn ground_pose(
+    names: &[Box<str>],
+    pose: &mut [BoneTransform],
+    height: f32,
+    bounds: Option<&[Option<articulated::BoneBounds>]>,
+) {
     let lowest = names
         .iter()
-        .zip(&targets)
-        .filter_map(|(name, target)| {
-            let target = target.as_ref()?;
-            let (width, bottom, top, depth) = match name.as_ref() {
-                "head" => (4.0, 0.0, 8.0, 4.0),
-                "body" => (4.0, -12.0, 0.0, 2.0),
-                "leftarm" | "rightarm" | "leftleg" | "rightleg" => (2.0, -12.0, 0.0, 2.0),
-                _ => return None,
+        .zip(pose.iter())
+        .enumerate()
+        .filter_map(|(index, (name, target))| {
+            let bounds = if let Some(bounds) = bounds {
+                bounds.get(index).copied().flatten()?
+            } else {
+                let (width, bottom, top, depth) = match name.as_ref() {
+                    "head" => (4.0, 0.0, 8.0, 4.0),
+                    "body" => (4.0, -12.0, 0.0, 2.0),
+                    "leftarm" | "rightarm" | "leftleg" | "rightleg" => (2.0, -12.0, 0.0, 2.0),
+                    _ => return None,
+                };
+                let scale = height / 12.0;
+                articulated::BoneBounds {
+                    min: [-width * scale, bottom * scale, -depth * scale],
+                    max: [width * scale, top * scale, depth * scale],
+                }
             };
-            let scale = height / 12.0;
             let mut minimum = f32::INFINITY;
-            for x in [-width, width] {
-                for y in [bottom, top] {
-                    for z in [-depth, depth] {
+            for x in [bounds.min[0], bounds.max[0]] {
+                for y in [bounds.min[1], bounds.max[1]] {
+                    for z in [bounds.min[2], bounds.max[2]] {
                         minimum = minimum.min(
                             target.translation_scale[1]
-                                + rotate_vector(target.rotation, [x * scale, y * scale, z * scale])
-                                    [1],
+                                + rotate_vector(
+                                    target.rotation,
+                                    [x, y, z].map(|v| v * target.translation_scale[3]),
+                                )[1],
                         );
                     }
                 }
@@ -207,9 +267,8 @@ pub(super) fn targets(
         })
         .fold(f32::INFINITY, f32::min);
     if lowest.is_finite() {
-        for target in targets.iter_mut().flatten() {
+        for target in pose {
             target.translation_scale[1] -= lowest;
         }
     }
-    targets
 }

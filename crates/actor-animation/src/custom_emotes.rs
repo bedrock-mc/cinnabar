@@ -69,6 +69,7 @@ pub(super) struct CustomEmoteRig {
     pub mesh: render_model::ActorRigGeometry,
     pub names: Arc<[Box<str>]>,
     pub rest: Arc<[BoneTransform]>,
+    bounds: Arc<[Option<articulated::BoneBounds>]>,
 }
 
 impl CustomEmotePose {
@@ -123,8 +124,7 @@ pub fn sample_custom_emote(
         bones[names.iter().position(|name| name.as_ref() == "leftleg")?].pivot[1].abs();
     let articulated_model = rig
         .skin_geometry
-        .filter(|_| emote == CustomEmote::Twerk)
-        .and_then(articulated::model);
+        .and_then(|skin| articulated::model(skin, emote));
     let (bones, names) = if let Some(model) = &articulated_model {
         geometry::skeleton(&model.geometry.bones)?
     } else {
@@ -134,6 +134,7 @@ pub fn sample_custom_emote(
         Some(CustomEmoteRig {
             geometry: model.geometry,
             mesh: model.mesh,
+            bounds: model.bounds,
             names: names.clone().into(),
             rest: compose_pose(&bones, &[])?.into(),
         })
@@ -147,6 +148,7 @@ pub fn sample_custom_emote(
         previous_seconds,
         current_seconds,
         leg_height,
+        articulated.as_ref().map(|rig| rig.bounds.as_ref()),
     )?;
     let mut render = rig.render.to_vec();
     for layer in &mut render {
@@ -160,6 +162,7 @@ pub fn sample_custom_emote(
                 previous_seconds,
                 current_seconds,
                 leg_height,
+                None,
             )?;
             layer.previous_pose = previous;
             layer.pose = current;
@@ -167,12 +170,13 @@ pub fn sample_custom_emote(
     }
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
-        if emote == CustomEmote::Twerk
-            && let Some(model) = articulated::model(&layer.geometry)
-        {
+        let bounds = if let Some(model) = articulated::model(&layer.geometry, emote) {
             layer.geometry = model.geometry;
             layer.mesh = Some(model.mesh);
-        }
+            Some(model.bounds)
+        } else {
+            None
+        };
         let (bones, names) = geometry::skeleton(&layer.geometry.bones)?;
         let (previous, current) = pair(
             &bones,
@@ -181,6 +185,7 @@ pub fn sample_custom_emote(
             previous_seconds,
             current_seconds,
             leg_height,
+            bounds.as_deref(),
         )?;
         layer.rest = compose_pose(&bones, &[])?.into();
         layer.previous = previous;
@@ -202,26 +207,24 @@ fn pair(
     previous: f64,
     current: f64,
     leg_height: f32,
+    bounds: Option<&[Option<articulated::BoneBounds>]>,
 ) -> Option<PosePair> {
     let rest = compose_pose(bones, &[])?;
-    let previous_time = previous;
-    let previous: Arc<[BoneTransform]> = compose_pose_with_targets(
-        bones,
-        &[],
-        &targets(bones, names, &rest, emote, previous, leg_height),
-    )?
-    .into();
-    let current = if previous_time == current {
-        Arc::clone(&previous)
-    } else {
-        compose_pose_with_targets(
-            bones,
-            &[],
-            &targets(bones, names, &rest, emote, current, leg_height),
-        )?
-        .into()
+    let sample = |seconds| {
+        let targets = targets(bones, names, &rest, emote, seconds, leg_height, bounds);
+        let mut pose = compose_pose_with_targets(bones, &[], &targets)?;
+        if emote == CustomEmote::Breakdance {
+            breakdance::ground_pose(names, &mut pose, leg_height, bounds);
+        }
+        Some(Arc::<[BoneTransform]>::from(pose))
     };
-    Some((previous, current))
+    let previous_pose = sample(previous)?;
+    let current_pose = if previous == current {
+        Arc::clone(&previous_pose)
+    } else {
+        sample(current)?
+    };
+    Some((previous_pose, current_pose))
 }
 
 fn targets(
@@ -231,6 +234,7 @@ fn targets(
     emote: CustomEmote,
     seconds: f64,
     leg_height: f32,
+    bounds: Option<&[Option<articulated::BoneBounds>]>,
 ) -> Vec<Option<BoneTransform>> {
     if emote == CustomEmote::Twerk
         && let Some(joints) = ArticulatedJoints::resolve(names)
@@ -239,7 +243,9 @@ fn targets(
     }
     match emote {
         CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
-        CustomEmote::Breakdance => breakdance::targets(bones, names, rest, seconds, leg_height),
+        CustomEmote::Breakdance => {
+            breakdance::targets(bones, names, rest, seconds, leg_height, bounds)
+        }
     }
 }
 

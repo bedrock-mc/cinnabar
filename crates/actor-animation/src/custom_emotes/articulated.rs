@@ -1,4 +1,5 @@
-//! Render-only knees for classic cuboid skins; unusual authored models stay intact.
+//! Render-only joints for classic cuboid skins; unusual authored models stay intact.
+use super::CustomEmote;
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
     EntityGeometryScalar as Scalar, EntityGeometryUv, SkinGeometry,
@@ -11,9 +12,38 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub(super) struct Model {
     pub geometry: Arc<SkinGeometry>,
     pub mesh: render_model::ActorRigGeometry,
+    pub bounds: Arc<[Option<BoneBounds>]>,
 }
 
-type Entry = ([u8; 32], Option<Model>);
+/// Local bounds derived from the prepared vertices, including skin-layer inflation.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BoneBounds {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+/// Retains contact bounds once per prepared mesh rather than scanning vertices each frame.
+fn contact_bounds(mesh: &render_model::ActorRigGeometry) -> Arc<[Option<BoneBounds>]> {
+    let mut bounds: Vec<Option<BoneBounds>> = vec![None; mesh.bone_pivots.len()];
+    for vertex in mesh.vertices.iter() {
+        let index = vertex.bone_index as usize;
+        let point = std::array::from_fn(|axis| {
+            (vertex.position[axis] - mesh.bone_pivots[index][axis]) * 16.0
+        });
+        let bounds = bounds[index].get_or_insert(BoneBounds {
+            min: point,
+            max: point,
+        });
+        for (axis, value) in point.iter().enumerate() {
+            bounds.min[axis] = bounds.min[axis].min(*value);
+            bounds.max[axis] = bounds.max[axis].max(*value);
+        }
+    }
+    bounds.into()
+}
+
+type Entry = ([u8; 32], CustomEmote, Option<Model>);
+mod full_body;
 /// Covers every selected player and persona layer without an eight-skin cache thrashing during shared playback.
 const MAX_MODELS: usize =
     render_model::MAX_RENDERED_PLAYERS * (1 + render_api::MAX_SKIN_ANIMATION_LAYERS) + 1;
@@ -23,19 +53,24 @@ fn mesh_bytes(model: &Option<Model>) -> usize {
     model.as_ref().map_or(0, |model| {
         std::mem::size_of_val(model.mesh.vertices.as_ref())
             + std::mem::size_of_val(model.mesh.bone_pivots.as_ref())
+            + std::mem::size_of_val(model.bounds.as_ref())
     })
 }
 
 /// Reuses the exact mesh for each articulated geometry across playback samples.
-pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
+pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Model> {
     static CACHE: OnceLock<Mutex<Vec<Entry>>> = OnceLock::new();
     let mut cache = CACHE.get_or_init(Mutex::default).lock().ok()?;
-    if let Some((_, model)) = cache.iter().find(|(digest, _)| *digest == source.digest) {
+    if let Some((_, _, model)) = cache
+        .iter()
+        .find(|(digest, clip, _)| *digest == source.digest && *clip == emote)
+    {
         return model.clone();
     }
-    let model = build(source).and_then(|geometry| {
+    let model = build(source, emote).and_then(|geometry| {
         let mesh = render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok()?;
         Some(Model {
+            bounds: contact_bounds(&mesh),
             geometry: Arc::new(geometry),
             mesh,
         })
@@ -44,17 +79,17 @@ pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
     if bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES {
         return None;
     }
-    let mut retained: usize = cache.iter().map(|(_, model)| mesh_bytes(model)).sum();
+    let mut retained: usize = cache.iter().map(|(_, _, model)| mesh_bytes(model)).sum();
     while cache.len() >= MAX_MODELS
         || retained + bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
     {
-        retained -= mesh_bytes(&cache.remove(0).1);
+        retained -= mesh_bytes(&cache.remove(0).2);
     }
-    cache.push((source.digest, model.clone()));
+    cache.push((source.digest, emote, model.clone()));
     model
 }
 
-fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
+fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
     // Only classic skins with unrotated cuboid limbs can be split without
     // changing authored bind rotations, polygon meshes or arbitrary proportions.
     if source.poly_meshes.iter().any(Option::is_some) {
@@ -100,7 +135,13 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
             if cube.rotation.iter().any(|v| v.get() != 0.0) {
                 return None;
             }
-            let (top, bottom) = split(cube, height * 0.5)?;
+            let overlap = if emote == CustomEmote::Breakdance {
+                height / 12.0
+            } else {
+                0.0
+            };
+            let (top, _) = split(cube, height * 0.5 - overlap)?;
+            let (_, bottom) = split(cube, height * 0.5 + overlap)?;
             // Put the ankle inside the foot volume, rather than on its exposed
             // top face. A rotated shin otherwise opens a wedge between the two
             // rigid cuboids even though their joint centers remain connected.
@@ -145,9 +186,15 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
     }
     model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
+    if emote == CustomEmote::Breakdance {
+        full_body::extend(source, &mut model)?;
+    }
     let mut digest = Sha256::new();
     digest.update(source.digest);
     digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
+    if emote == CustomEmote::Breakdance {
+        digest.update(b"cinnabar:elbows-wrists-spine:v1");
+    }
     model.digest = digest.finalize().into();
     Some(model)
 }
