@@ -174,6 +174,15 @@ impl<'a> Model<'a> {
         template: Option<u32>,
     ) -> Result<Self, Reject> {
         let mut tiles = std::collections::BTreeMap::new();
+        if kind == VisualKind::Cube {
+            // A cube remains eligible only when all faces resolve, including those
+            // hidden by the inventory camera, just as on the opaque thumbnail path.
+            for material in materials {
+                if let std::collections::btree_map::Entry::Vacant(entry) = tiles.entry(material) {
+                    entry.insert(tile(parts, material)?);
+                }
+            }
+        }
         let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
