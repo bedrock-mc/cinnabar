@@ -74,7 +74,7 @@ pub use self::events::{
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{
-    daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
+    crafting_rules, daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
 };
 pub(crate) use self::level_chunk::normalize_level_chunk_payload;
 pub use self::requests::request_sub_chunk_column;
@@ -578,7 +578,12 @@ world_packets! {
         let weather_cycle = weather_cycle_rule_update(rules);
         let hud = hud_rules(rules);
         let death = death_rules(rules);
-        if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() && death.is_empty()
+        let crafting = crafting_rules(rules);
+        if daylight_cycle.is_none()
+            && weather_cycle.is_none()
+            && hud.is_empty()
+            && death.is_empty()
+            && crafting.is_empty()
         {
             return Ok(None);
         }
@@ -587,6 +592,7 @@ world_packets! {
             weather_cycle,
             hud,
             death,
+            crafting,
         })
     },
     LevelEventGeneric(packet) => {

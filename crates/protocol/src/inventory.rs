@@ -23,7 +23,9 @@ pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
+mod crafting_rules;
 mod furnace_options;
+pub use crafting_rules::CraftingRules;
 pub(crate) use furnace_options::normalize_furnace_options;
 pub use furnace_options::{
     FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
