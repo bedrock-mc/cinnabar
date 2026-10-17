@@ -21,7 +21,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-    _portrait: Option<IconRef>,
+    portrait: Option<IconRef>,
     translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, PaintError> {
     let layout = layout::Layout::new(
@@ -32,7 +32,7 @@ pub(super) fn draw(
         view.updates.ready.is_some(),
     );
     let preview = canvas.with_scale(layout.scale, |canvas| {
-        draw_layout(canvas, view, size, translate, layout)
+        draw_layout(canvas, view, size, portrait, translate, layout)
     })?;
     super::updates::notice(canvas, view, size)?;
     Ok(preview)
@@ -43,6 +43,7 @@ fn draw_layout(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
+    portrait: Option<IconRef>,
     translate: Translate<'_>,
     layout: layout::Layout,
 ) -> Result<Option<CharacterPreview>, PaintError> {
@@ -119,6 +120,8 @@ fn draw_layout(
             left + width,
             bottom + gap + footer_height,
         ],
+        compact_footer,
+        portrait,
     )?;
     let version_bounds = [
         left,
@@ -267,8 +270,6 @@ fn action_panel(
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
         )?;
-        y += canvas.r(5.6);
-        account_button(canvas, view, [x, y, right, y + canvas.r(4.8)])?;
     }
     canvas.end_clip(clip);
     canvas.end_focus_region(content);
@@ -286,29 +287,7 @@ fn panel(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
     canvas.frame(bounds, EDGE, border)
 }
 
-/// Keeps account access beside the character, with a direct signed-out sign-in action.
-fn account_button(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    bounds: Bounds,
-) -> Result<(), PaintError> {
-    use launcher::menu::auth::AuthState;
-    let (label, action) = match view.auth_state {
-        AuthState::SignedOut | AuthState::Failed(_) => ("Sign in", MenuAction::StartSignIn),
-        AuthState::Checking => ("Signing in...", MenuAction::OpenAccounts),
-        _ => ("Account", MenuAction::OpenAccounts),
-    };
-    widgets::button(
-        canvas,
-        view,
-        bounds,
-        Variant::Secondary,
-        label,
-        Some(action),
-    )
-}
-
-/// Keeps the character and account actions together without requiring authentication to render a skin.
+/// Draws the player name, skin preview and full-width Dressing Room action.
 fn character_panel(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -320,50 +299,25 @@ fn character_panel(
     let x = b[0] + pad;
     let right = b[2] - pad;
     let top = b[1] + pad;
-    let signed_out = matches!(
-        view.auth_state,
-        launcher::menu::auth::AuthState::SignedOut | launcher::menu::auth::AuthState::Failed(_)
-    );
     canvas.text_line("YOUR CHARACTER", [x, top], right - x, HEADER5, TEXT)?;
     canvas.text_line(
-        if signed_out {
-            "Local skin"
-        } else {
-            launcher::menu::profile::current_name(view)
-        },
+        launcher::menu::profile::current_name(view),
         [x, top + canvas.r(HEADER5.line + 0.8)],
         right - x,
         CAPTION,
         TEXT_DIMMER,
     )?;
     let footer = b[3] - pad - canvas.r(4.8);
-    let middle = (x + right) * 0.5;
-    let gap = canvas.r(0.8);
-    account_button(
-        canvas,
-        view,
-        [x, footer, middle - gap * 0.5, footer + canvas.r(4.8)],
-    )?;
     widgets::button(
         canvas,
         view,
-        [middle + gap * 0.5, footer, right, footer + canvas.r(4.8)],
+        [x, footer, right, footer + canvas.r(4.8)],
         Variant::Secondary,
         "Dressing Room",
         Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
     )?;
-    let hint = [x, footer - canvas.r(4.4), right, footer - canvas.r(0.8)];
-    canvas.text_centred(
-        if signed_out {
-            "Sign in for your profile and friends."
-        } else {
-            "Drag to rotate"
-        },
-        hint,
-        CAPTION,
-        TEXT_DIMMER,
-        false,
-    )?;
+    let hint = [x, footer - canvas.r(3.6), right, footer - canvas.r(1.2)];
+    canvas.text_centred("Drag to rotate", hint, CAPTION, TEXT_DIMMER, false)?;
     let preview = [x, top + canvas.r(6.4), right, hint[1] - canvas.r(0.8)];
     canvas.end_focus_region(region);
     Ok(CharacterPreview {
@@ -372,6 +326,7 @@ fn character_panel(
     })
 }
 
+/// Draws a text link with interaction feedback and no idle Realms backing.
 fn link(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -384,7 +339,11 @@ fn link(
     let down = canvas.r(0.2) * motion.press;
     let face = [bounds[0], bounds[1] + down, bounds[2], bounds[3]];
     let role = canvas.role(NEUTRAL80);
-    canvas.fill(face, motion.color(role.fill, role.hovered, role.pressed))?;
+    let mut fill = role.fill;
+    if action == MenuAction::Navigate(MenuScreen::Social) {
+        fill[3] = 0;
+    }
+    canvas.fill(face, motion.color(fill, role.hovered, role.pressed))?;
     if motion.focus > 0.0 {
         canvas.frame(face, EDGE, opacity(OUTLINE, motion.focus))?;
     }

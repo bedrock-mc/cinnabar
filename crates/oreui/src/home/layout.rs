@@ -21,9 +21,9 @@ pub(super) struct Layout {
     pub compact_footer: bool,
 }
 
-/// The action group's height in rem, including account and wardrobe controls on compact layouts.
+/// The action group's height in rem, including wardrobe controls on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 34.8 } else { 23.6 }
+    if compact { 29.2 } else { 23.6 }
 }
 
 /// The panel inset in logical pixels, limited by its width.
@@ -51,7 +51,7 @@ impl Layout {
         };
         let width = (rem * column_width).min(available_width);
         let compact_footer = width < rem * 60.0;
-        let footer = 4.8;
+        let footer = if compact_footer { 10.8 } else { 4.8 };
         let version = if compact_footer { 4.0 } else { 2.8 };
         let ratio = title.map(|icon| {
             f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))

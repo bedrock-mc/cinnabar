@@ -30,12 +30,7 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
         .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
         .unwrap()
         .1;
-    let account = hits
-        .iter()
-        .find(|(action, _)| *action == MenuAction::OpenAccounts)
-        .unwrap()
-        .1;
-    assert!(preview.control[0] >= account.min().x());
+    assert!(preview.control[0] >= wardrobe.min().x());
     assert!(preview.control[2] <= wardrobe.max().x());
     assert!(preview.control[3] < wardrobe.min().y());
     assert!(preview.control[3] - preview.control[1] > 100.0);
@@ -178,9 +173,8 @@ fn signed_out_home_has_a_direct_sign_in_action() {
         .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Friends))
         .unwrap()
         .1;
-    assert_eq!(signin.min().y(), wardrobe.min().y());
-    assert!(signin.max().x() < wardrobe.min().x());
-    assert!(signin.max().y() < friends.min().y());
+    assert!(signin.min().y() > wardrobe.max().y());
+    assert_eq!(signin.min().y(), friends.min().y());
     assert!(
         hits.iter()
             .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Play))

@@ -213,7 +213,7 @@ fn update_notice_and_live_event_fit_without_clipping_or_scrolling() {
 }
 
 #[test]
-fn desktop_home_aligns_panel_headings_and_uses_equal_neutral_utility_actions() {
+fn desktop_home_aligns_panel_headings_and_keeps_account_in_footer() {
     let size = [1920.0, 1080.0];
     let artwork = title(400, 80);
     let layout = layout::Layout::new(10.0, size, Some(artwork), false, false);
@@ -224,17 +224,13 @@ fn desktop_home_aligns_panel_headings_and_uses_equal_neutral_utility_actions() {
         draw(canvas, &view(), size, None, &|_| None).unwrap();
     });
     let bounds = |action| hits.iter().find(|(found, _)| *found == action).unwrap().1;
-    let utility = [
-        MenuAction::Navigate(MenuScreen::Friends),
-        MenuAction::Navigate(MenuScreen::Inbox),
-        MenuAction::OpenExitDialog,
-    ]
-    .map(bounds);
-    for button in utility {
-        assert!((button.width() - utility[0].width()).abs() < 0.001);
-        assert_eq!(button.min().y(), utility[0].min().y());
-    }
-    assert!(!nodes.iter().any(|node| matches!(node.visual(), UiVisual::Solid { color, .. } if *color == crate::theme::DESTRUCTIVE.fill)));
+    let account = bounds(MenuAction::OpenAccounts);
+    let friends = bounds(MenuAction::Navigate(MenuScreen::Friends));
+    let quit = bounds(MenuAction::OpenExitDialog);
+    assert_eq!(account.min().y(), friends.min().y());
+    assert_eq!(friends.min().y(), quit.min().y());
+    assert!(account.width() > friends.width() && friends.width() > quit.width());
+    assert!(nodes.iter().any(|node| matches!(node.visual(), UiVisual::Solid { color, .. } if *color == crate::theme::DESTRUCTIVE.fill)));
     let heading_y = |value: &str| {
         let node = nodes.iter().find(|node| matches!(node.visual(), UiVisual::Text { layout, .. }
             if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().replace(' ', "") == value)).unwrap();
