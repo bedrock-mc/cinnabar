@@ -121,7 +121,7 @@ impl SegmentedVertexBuffer {
                 return false;
             }
             let capacity = vertex_buffer_capacity(vertices.len(), binding / stride);
-            let Some(buffer) = super::allocation::buffer(
+            let Some(buffer) = crate::gpu_allocation::buffer(
                 device,
                 &BufferDescriptor {
                     label: Some(label),
@@ -140,7 +140,7 @@ impl SegmentedVertexBuffer {
             .as_ref()
             .or(self.buffer.as_ref())
             .expect("nonempty pages allocate a buffer");
-        let uploaded = super::allocation::checked(
+        let uploaded = crate::gpu_allocation::checked(
             device,
             "actor rig transfer",
             (vertices.len() * stride) as u64,
@@ -227,7 +227,7 @@ mod tests {
         let mut mirror = SegmentedVertexBuffer::default();
         mirror.sync(&device, &queue, "test actor rig", &old);
         let previous = mirror.buffer().unwrap().id();
-        let _failure = super::super::allocation::inject(|label, _| label == "test actor rig");
+        let _failure = crate::gpu_allocation::inject(|label, _| label == "test actor rig");
         assert!(!mirror.sync(
             &device,
             &queue,

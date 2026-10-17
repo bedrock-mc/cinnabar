@@ -446,3 +446,42 @@ fn wide_short_hd_icons_grow_the_page_for_their_width() {
     assert!(packed.page.dimensions()[0] >= 512 + GUTTER * 2);
     assert!(packed.refs.contains_key("test:wide"));
 }
+
+#[test]
+fn carried_sheets_keep_exact_variants_and_only_fall_back_to_zero() {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let sheet = |metadata, color| SessionIcon {
+        identifier: "test:cube".into(),
+        metadata,
+        width,
+        height,
+        rgba8: [color, 50, 80, 255]
+            .repeat((width * height) as usize)
+            .into(),
+    };
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    for variants in [vec![sheet(0, 90), sheet(7, 160)], vec![sheet(7, 160)]] {
+        let has_default = variants.len() == 2;
+        install_landed(
+            &mut presentation,
+            &Arc::new(SessionIcons {
+                block_sheets: variants,
+                ..Default::default()
+            }),
+        );
+        for metadata in [0, 7, 29] {
+            let resolved = presentation.session_block_sheet("test:cube", metadata);
+            if metadata != 7 && !has_default {
+                assert!(resolved.is_none());
+                continue;
+            }
+            let cube = presentation.block_sheet_cube(resolved.unwrap()).unwrap();
+            let color = if metadata == 7 { 160 } else { 90 };
+            assert!(cube.faces.iter().all(|face| {
+                face.chunks_exact(4)
+                    .all(|pixel| pixel == [color, 50, 80, 255])
+            }));
+        }
+    }
+}
