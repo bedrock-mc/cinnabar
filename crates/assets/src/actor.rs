@@ -369,7 +369,7 @@ fn validate(
         if previous.is_some_and(|previous| previous >= key)
             || binding.entity_symbol != rig.entity_symbol
             || !candidates.contains(&binding.geometry_candidate)
-            || binding.render_controller != rig.render_controller
+            || Some(binding.render_controller) != rig.render_controller
             || binding.geometry != geometry_binding.geometry
             || !valid_material_name(&binding.material)
             || !neutral_actor_geometry_uvs_are_supported(

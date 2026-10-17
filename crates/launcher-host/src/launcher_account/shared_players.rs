@@ -2,6 +2,8 @@
 use super::*;
 use bridge::contract::{CinnabarPlayerState, CinnabarPlayerUpdates};
 
+const STALE_EXCHANGE_MS: u64 = 5_000;
+
 #[derive(Default)]
 pub(super) struct Exchange {
     session: Option<u64>,
@@ -26,7 +28,7 @@ impl LauncherAccount {
         });
     }
 
-    /// Returns only unexpired playback and hats, including when the account core stops answering.
+    /// Returns current session loadouts and unexpired playback, including when the account core stops answering.
     pub fn shared_player_updates(&self) -> CinnabarPlayerUpdates {
         self.with(|snapshot| {
             let age = snapshot.shared_players.received.map_or(u64::MAX, |time| {
@@ -45,16 +47,11 @@ impl LauncherAccount {
                         value
                     })
                     .collect(),
-                hats: remote
-                    .hats
-                    .iter()
-                    .filter(|value| age < value.valid_for_ms)
-                    .map(|value| {
-                        let mut value = value.clone();
-                        value.valid_for_ms -= age;
-                        value
-                    })
-                    .collect(),
+                loadouts: if age < STALE_EXCHANGE_MS {
+                    remote.loadouts.clone()
+                } else {
+                    Vec::new()
+                },
             }
         })
     }
@@ -81,13 +78,11 @@ pub(super) fn start(
                     snapshot.auth_generation,
                     snapshot.shared_players.session,
                     snapshot.shared_players.local.clone().map(|mut local| {
-                        if snapshot
-                            .shared_players
-                            .updated
-                            .is_none_or(|updated| updated.elapsed() > Duration::from_secs(5))
-                        {
+                        if snapshot.shared_players.updated.is_none_or(|updated| {
+                            updated.elapsed() > Duration::from_millis(STALE_EXCHANGE_MS)
+                        }) {
                             local.emote_id.clear();
-                            local.hat_id.clear();
+                            local.slots.clear();
                             local.xuids.clear();
                             local.uuids.clear();
                         }
@@ -157,7 +152,7 @@ mod tests {
         assert_eq!(request["method"], bridge::contract::METHOD_CINNABAR_PLAYERS);
         let response = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0", "id":request["id"],
             "result":{"schema_version":1,"emotes":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff",
-            "emote_id":"cinnabar:twerk","elapsed_ms":42,"valid_for_ms":15000}],"hats":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff","hat_id":"crown","valid_for_ms":15000}]}})).unwrap();
+            "emote_id":"cinnabar:twerk","elapsed_ms":42,"valid_for_ms":15000}],"loadouts":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff","revision":1,"slots":[{"slot":"head","item_id":"cinnabar:bunny_ears"}]}]}})).unwrap();
         connection
             .write_all(&(response.len() as u32).to_be_bytes())
             .unwrap();
@@ -165,7 +160,7 @@ mod tests {
         test_time::eventually("published shared emote", || {
             let snapshot = shared.lock().unwrap();
             snapshot.shared_players.remote.emotes.len() == 1
-                && snapshot.shared_players.remote.hats.len() == 1
+                && snapshot.shared_players.remote.loadouts.len() == 1
         });
         drop(alive);
         worker.join().unwrap();

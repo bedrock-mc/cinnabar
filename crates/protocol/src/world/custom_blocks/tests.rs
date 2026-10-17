@@ -12,6 +12,7 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
         state_physics: Default::default(),
+        player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
         state_count: 6,
@@ -48,6 +49,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
         state_physics: Default::default(),
+        player_interact: false,
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
     };
@@ -196,6 +198,7 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
         state_physics: Default::default(),
+        player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,
         state_count: definition.state_count,
@@ -727,4 +730,24 @@ fn large_server_stacks_admit_every_state() {
             .all(|block| !block.visual.materialization_disabled)
     );
     assert_eq!(admitted.total_states(), 70_000);
+}
+
+/// Only a `minecraft:custom_components` that sets `hasPlayerInteract` declares the handler.
+#[test]
+fn custom_components_declare_a_player_interact_handler() {
+    let root = |components: Vec<(&str, Nbt)>| compound(vec![("components", compound(components))]);
+    let flag = |value: i8| {
+        vec![(
+            "minecraft:custom_components",
+            compound(vec![("hasPlayerInteract", Nbt::Byte(value))]),
+        )]
+    };
+    let parsed = |root: Nbt| super::parse_definition(&root).unwrap().player_interact;
+    assert!(parsed(root(flag(1))));
+    assert!(!parsed(root(flag(0))));
+    assert!(!parsed(root(Vec::new())));
+    assert!(!parsed(root(vec![(
+        "minecraft:custom_components",
+        compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
+    )])));
 }

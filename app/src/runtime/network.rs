@@ -162,6 +162,8 @@ mod item_icons;
 mod server_animation;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
+mod join_first_frame_tests;
+#[cfg(test)]
 mod local_pack;
 mod pack_reload;
 #[cfg(test)]

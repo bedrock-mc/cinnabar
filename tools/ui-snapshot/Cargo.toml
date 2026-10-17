@@ -6,9 +6,10 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["protocol/test-support"]
+test-support = ["protocol/test-support", "render-model/test-support"]
 
 [dependencies]
+cosmetics = { path = "../../crates/cosmetics" }
 assets = { path = "../../crates/assets" }
 image.workspace = true
 inventory = { path = "../../crates/inventory" }
@@ -18,6 +19,7 @@ launcher = { path = "../../crates/launcher" }
 oreui = { path = "../../crates/oreui" }
 player-state = { path = "../../crates/player-state" }
 protocol = { path = "../../crates/protocol" }
+render-api = { path = "../../crates/render-api" }
 render-model = { path = "../../crates/render-model" }
 serde_json = "1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

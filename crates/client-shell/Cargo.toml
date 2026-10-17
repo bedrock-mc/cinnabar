@@ -13,6 +13,7 @@ developer-control = ["dep:developer-control"]
 test-support = ["launcher/test-support", "launcher-host/test-support"]
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 bevy.workspace = true
 image.workspace = true
 sha2.workspace = true
@@ -51,6 +52,7 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "M
 ash = "0.38"
 
 [dev-dependencies]
+render-model = { path = "../render-model", features = ["test-support"] }
 launcher = { path = "../launcher", features = ["test-support"] }
 launcher-host = { path = "../launcher-host", features = ["test-support"] }
 client-ui = { path = "../client-ui", features = ["test-support"] }

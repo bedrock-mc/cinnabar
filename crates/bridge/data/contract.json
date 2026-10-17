@@ -81,7 +81,13 @@
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
     {"rust_name": "METHOD_CINNABAR_PLAYERS", "go_name": "MethodCinnabarPlayers", "value": "cinnabar_players.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emotes and cosmetics."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
-    {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.cinnabar-api.workers.dev", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
+    {
+      "rust_name": "CINNABAR_API_BASE_URL",
+      "go_name": "CinnabarAPIBaseURL",
+      "value": "https://cinnabar-api.cinnabar-api.workers.dev",
+      "rust_type": "str",
+      "doc": "Cinnabar API origin; the package workflow reads it from this manifest."
+    },
     {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
     {"rust_name": "CINNABAR_API_CACHE_TTL_MS", "go_name": "CinnabarAPICacheTTLMS", "value": 120000, "rust_type": "u32", "doc": "Fallback lifetime of a Cinnabar lookup answer."},
     {"rust_name": "", "go_name": "CinnabarAPILookupBucketCapacity", "value": 1024, "rust_type": "u32", "doc": "Fallback lookup budget in XUIDs."},
@@ -252,6 +258,34 @@
   ],
   "structs": [
     {
+      "rust_name": "CinnabarCosmeticSlot",
+      "go_name": "CinnabarCosmeticSlot",
+      "doc": "One namespaced cosmetic item in a supported slot.",
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "fields": [
+        {
+          "name": "slot",
+          "go_name": "Slot",
+          "type": "string",
+          "doc": "Catalog slot name."
+        },
+        {
+          "name": "item_id",
+          "go_name": "ItemID",
+          "type": "string",
+          "doc": "Namespaced item identifier."
+        }
+      ]
+    },
+    {
       "rust_name": "CinnabarRelease",
       "go_name": "CinnabarRelease",
       "doc": "A release the Cinnabar API announced on the client's channel.",
@@ -266,7 +300,7 @@
     {
       "rust_name": "CinnabarPlayerState",
       "go_name": "CinnabarPlayerState",
-      "doc": "Nearby subscriptions, custom emote and equipped hat, cleared when the game session ends.",
+      "doc": "Nearby subscriptions, local playback and the selected slot loadout.",
       "derive": [
         "Clone",
         "Debug",
@@ -308,10 +342,10 @@
           "doc": "Local start identity, including same-clip restarts."
         },
         {
-          "name": "hat_id",
-          "go_name": "HatID",
-          "type": "string",
-          "doc": "Owned hat identifier; empty unequips it."
+          "name": "slots",
+          "go_name": "Slots",
+          "type": "list:CinnabarCosmeticSlot",
+          "doc": "Persistent selected items by slot; empty clears the loadout."
         }
       ]
     },
@@ -371,9 +405,9 @@
         "PartialEq",
         "Serialize"
       ],
-      "rust_name": "CinnabarRemoteHat",
-      "go_name": "CinnabarRemoteHat",
-      "doc": "An authenticated nearby hat selection with a remaining lease.",
+      "rust_name": "CinnabarRemoteLoadout",
+      "go_name": "CinnabarRemoteLoadout",
+      "doc": "An authenticated nearby session loadout without an emote lease.",
       "fields": [
         {
           "name": "xuid",
@@ -388,16 +422,16 @@
           "doc": "Account UUID derived by the API."
         },
         {
-          "name": "hat_id",
-          "go_name": "HatID",
-          "type": "string",
-          "doc": "Owned hat identifier."
+          "name": "revision",
+          "go_name": "Revision",
+          "type": "u64",
+          "doc": "Newest accepted account revision."
         },
         {
-          "name": "valid_for_ms",
-          "go_name": "ValidForMS",
-          "type": "u64",
-          "doc": "Remaining selection lease."
+          "name": "slots",
+          "go_name": "Slots",
+          "type": "list:CinnabarCosmeticSlot",
+          "doc": "Equipped items; empty withdraws the loadout."
         }
       ]
     },
@@ -413,7 +447,7 @@
       ],
       "rust_name": "CinnabarPlayerUpdates",
       "go_name": "CinnabarPlayerUpdates",
-      "doc": "Current authenticated nearby playback and cosmetic leases.",
+      "doc": "Current authenticated nearby playback and session loadouts.",
       "fields": [
         {
           "name": "emotes",
@@ -422,10 +456,10 @@
           "doc": "Nearby custom emotes."
         },
         {
-          "name": "hats",
-          "go_name": "Hats",
-          "type": "list:CinnabarRemoteHat",
-          "doc": "Nearby equipped hats."
+          "name": "loadouts",
+          "go_name": "Loadouts",
+          "type": "list:CinnabarRemoteLoadout",
+          "doc": "Nearby authenticated loadouts."
         }
       ]
     }

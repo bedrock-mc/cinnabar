@@ -1,5 +1,5 @@
 use super::*;
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 
 use crate::gpu_snapshot::{Draw, DrawPipeline, Gpu, RasterState, SNAPSHOT_SIDE};
 
@@ -79,8 +79,10 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                 let stone_first = render(false);
                 let leaf_first = render(true);
                 let different_pixels = stone_first
-                    .chunks_exact(4)
-                    .zip(leaf_first.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(leaf_first.as_chunks::<4>().0.iter())
                     .filter(|(a, b)| a != b)
                     .count();
                 assert_eq!(
@@ -91,7 +93,7 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                 let mut leaf_pixels = 0;
                 let mut hole_pixels = 0;
                 let world_from_clip = clip.inverse();
-                for (index, pixel) in stone_first.chunks_exact(4).enumerate() {
+                for (index, pixel) in stone_first.as_chunks::<4>().0.iter().enumerate() {
                     let x = index % SNAPSHOT_SIDE as usize;
                     let y = index / SNAPSHOT_SIDE as usize;
                     let ndc = Vec3::new(
@@ -106,9 +108,13 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                         continue;
                     }
                     if on_face.y < 0.0 {
-                        assert_eq!(pixel, [255, 0, 0, 255], "cutout overwrites the opaque half");
+                        assert_eq!(
+                            *pixel,
+                            [255, 0, 0, 255],
+                            "cutout overwrites the opaque half"
+                        );
                         stone_pixels += 1;
-                    } else if pixel == [0, 255, 0, 255] {
+                    } else if *pixel == [0, 255, 0, 255] {
                         leaf_pixels += 1;
                     } else if pixel[0] > 0 && pixel[1] > 0 && pixel[2] > 0 {
                         hole_pixels += 1;

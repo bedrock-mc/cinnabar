@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::*;
 use actor_animation::{
     ActorAnimationStore, ActorTickContext, MAX_MOLANG_OPS_PER_RENDER_FRAME,
-    test_support::total_scale,
+    test_support::{quat_from_euler, total_scale},
 };
 
 #[test]
@@ -16,6 +16,7 @@ fn installed_powered_creeper_samples_pack_swelling_and_motion_between_ticks() {
     assert_installed_creeper_samples(true);
 }
 
+/// Checks fractional swelling and head motion on every installed creeper layer.
 fn assert_installed_creeper_samples(powered: bool) {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
@@ -127,31 +128,32 @@ fn assert_installed_creeper_samples(powered: bool) {
         .position(|name| name.as_ref() == "head")
         .unwrap();
     assert_ne!(rig.previous[head].rotation, rig.current[head].rotation);
-    let expected = [rig.previous[head].rotation, rig.current[head].rotation];
-    for alpha in [0.25, 0.75] {
+    let actor = store.get(1).unwrap();
+    let previous_pitch = actor.previous_pose.pitch;
+    let pitch = actor.pitch;
+    for alpha in [0.0, 0.25, 0.75, 1.0] {
+        let expected = quat_from_euler([
+            -(previous_pitch + (pitch - previous_pitch) * alpha),
+            0.0,
+            0.0,
+        ]);
         let layers = store.render_frame(alpha).layers(1).unwrap();
         if powered {
             assert!(layers.len() > 1);
-            assert_eq!(
-                [
-                    layers[1].previous_pose[head].rotation,
-                    layers[1].pose[head].rotation
-                ],
-                expected,
-                "powered layer must preserve motion"
-            );
         }
-        assert_eq!(
-            [
-                layers[0].previous_pose[head].rotation,
-                layers[0].pose[head].rotation
-            ],
-            expected,
-            "swelling must retain tick interpolation for head motion"
-        );
+        for layer in layers.iter() {
+            for pose in [&layer.previous_pose[head], &layer.pose[head]] {
+                for (actual, expected) in pose.rotation.into_iter().zip(expected) {
+                    assert!(
+                        (actual - expected).abs() < 1e-6,
+                        "swelling must preserve head motion at fraction {alpha}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
     }
     let mut actor = store.get(1).unwrap().clone();
-    let mut animation = ActorAnimationStore::with_assets(assets);
+    let mut animation = ActorAnimationStore::with_assets(Arc::clone(&assets));
     animation.insert(1, 0, &actor);
     animation.advance_tick(
         &HashMap::from([(1, actor.clone())]),
@@ -282,9 +284,30 @@ fn assert_installed_creeper_samples(powered: bool) {
         }
     }
     store.advance_interpolation_ticks(1);
-    let completed = store.actor_rig(1).unwrap().render;
+    // A fresh stationary rig has no decaying walk speed that still needs frame sampling.
+    let actor = store.get(1).unwrap().clone();
+    let mut resting = ActorAnimationStore::with_assets(assets);
+    resting.insert(1, 0, &actor);
+    let actors = HashMap::from([(1, actor)]);
+    for _ in 0..2 {
+        resting.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let completed = resting.get(1).unwrap().render;
     for alpha in [0.25, 0.75] {
-        let layers = store.render_frame(alpha).layers(1).unwrap();
+        let mut remaining = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = resting
+            .render_layers(
+                &actors[&1],
+                alpha,
+                [0.0; 2],
+                [0.0; 3],
+                &mut remaining,
+                false,
+            )
+            .unwrap()
+            .render;
         if powered {
             assert!(Arc::ptr_eq(&completed[1].pose, &layers[1].pose));
             assert!(Arc::ptr_eq(

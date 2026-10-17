@@ -803,3 +803,6 @@ fn submit_actor_presented_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "publication-test-support")]
+pub(crate) mod equipment_test_support;

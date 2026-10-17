@@ -48,6 +48,7 @@ pub(super) fn resolve_binding(
     let first = rig.first_geometry as usize;
     let end = first.checked_add(rig.geometry_count as usize)?;
     let candidates = assets.rig_geometries().get(first..end)?;
+    candidates.first()?;
     let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
     let mut budget = EvalBudget {
         actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,

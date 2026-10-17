@@ -19,6 +19,7 @@ impl PlayerRoster {
     pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>) {
         if self.entries != entries {
             self.entries = entries;
+            self.rows.clear();
             self.revision = self.revision.wrapping_add(1);
             tracing::debug!(
                 players = self.entries.len(),
@@ -76,6 +77,13 @@ impl PlayerRoster {
         &self.rows
     }
 
+    /// Refreshes skins by UUID, including listed players outside actor render distance.
+    pub fn set_skins(&mut self, skin: impl Fn(&[u8; 16]) -> Option<render_api::StandardSkin>) {
+        for ((_, _, uuid), row) in self.entries.iter().zip(&mut self.rows) {
+            row.skin = skin(uuid);
+        }
+    }
+
     /// Controls both tab-list and name-tag badges without changing API visibility or answers.
     pub fn set_show_badges(&mut self, show: bool) {
         let hide = !show;
@@ -101,9 +109,11 @@ impl PlayerRoster {
         self.rows = self
             .entries
             .iter()
-            .map(|(name, xuid, uuid)| RosterRow {
+            .enumerate()
+            .map(|(index, (name, xuid, uuid))| RosterRow {
                 name: Arc::clone(name),
                 badged: self.has_badge(xuid, uuid),
+                skin: self.rows.get(index).and_then(|row| row.skin.clone()),
             })
             .collect();
     }
@@ -204,5 +214,31 @@ mod tests {
         roster.set_cinnabar(Arc::new(HashSet::from([uuid.to_string()])));
         assert_eq!(badges(&roster), [("Alex", false), ("Steve", true)]);
         assert!(roster.has_badge("", uuid.as_bytes()));
+    }
+
+    #[test]
+    fn skins_follow_uuids_and_survive_badge_changes() {
+        let mut roster = PlayerRoster::default();
+        roster.set_entries(vec![
+            ("Alex".into(), "11".into(), [1; 16]),
+            ("Alex".into(), "22".into(), [2; 16]),
+        ]);
+        let skin = render_api::StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![255; 64 * 64 * 4].into(),
+            cape: None,
+            geometry: None,
+        };
+        let revision = roster.revision();
+        roster.set_skins(|uuid| (*uuid == [1; 16]).then(|| skin.clone()));
+        assert_eq!(roster.rows()[0].skin, Some(skin.clone()));
+        assert!(roster.rows()[1].skin.is_none());
+        roster.set_cinnabar(Arc::new(HashSet::from(["11".into()])));
+        roster.set_show_badges(false);
+        assert_eq!(roster.rows()[0].skin, Some(skin));
+        assert_eq!(roster.revision(), revision);
+        roster.set_entries(vec![("Alex".into(), "22".into(), [2; 16])]);
+        assert!(roster.rows()[0].skin.is_none());
     }
 }

@@ -26,23 +26,22 @@ BDS frames reproduce the missing tops and verify the corrected surfaces against
 the official Android client. Broader liquid parity and hardware performance gates
 remain open.
 
-## Original wardrobe hats
+## Catalog cosmetics
 
-Local headwear has an independent persisted selection, a wardrobe gallery and shared
-head attachment geometry for world and HUD presentation. Bunny ears use bounded,
-elapsed-time wind motion distributed across continuous upper-half surface rings.
-Stepped pixel surfaces attach directly to the head, with compact square gallery previews.
-Shared-edge regression coverage prevents joint gaps. This adds no Bedrock parity claim;
-Linux wardrobe and in-world standing and forward-motion rendering were inspected
-with software Vulkan. Hardware performance qualification remains incomplete.
+A domain catalog replaces the fixed hat list. Independent slot selections persist locally;
+ETag catalog caching and SHA-256 asset admission precede geometry or texture decoding.
+Original bunny ears use bounded authored joint motion. Every slot follows its declared
+attachment bone and offset, and the HUD shares local motion with world presentation.
+Saved hats migrate into the head slot without overriding current choices. Visible thumbnails
+and equipped textures share the artwork budget; stable gallery frames and cosmetic motion
+retain their catalog and raster caches. Cosmetic layers are separate from skins, flames and
+render-controller layers, with boundaries derived from the supported slot count.
 
-The original jeweled crown rests on the head with a shorter stepped silhouette.
-Its band and jewels stay within the standard head width and depth. Its rigid
-pose, editable export and original texture are covered by model tests; Linux Vulkan
-in-world fit was inspected. Authenticated nearby hat exchange extends the existing emote
-connection, with actor-lifetime checks, bounded leases and shared cosmetic textures.
-API and client implementation are local. API deployment and live authenticated
-multi-account acceptance remain incomplete; no broader parity or performance gate advances.
+Session loadouts use authenticated mutual nearby subscriptions with account revision
+ordering and server-side ownership validation. Loadouts have no emote lease. The current
+catalog is free for every account. API and client implementation require API-first rollout;
+live authenticated multi-account acceptance, payments, moderation and hardware qualification
+remain incomplete. No broader parity or performance gate advances.
 
 Settings mod cards now show permission summaries, explicit requested-grant consent
 and a compact customization grid. Capability metadata supplies gameplay warnings;

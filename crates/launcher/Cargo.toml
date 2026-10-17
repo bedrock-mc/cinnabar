@@ -19,6 +19,7 @@ reads = [
 test-support = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 bridge = { path = "../bridge" }
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }

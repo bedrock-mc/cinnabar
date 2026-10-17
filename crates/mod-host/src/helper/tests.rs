@@ -72,6 +72,7 @@ fn delayed_start_keeps_frame_polling_responsive_and_reports_launch_failure() {
                 event: Event::Epoch,
                 epoch: 1,
                 gui: None,
+                items: None,
             })
             .is_err()
     );
@@ -141,6 +142,7 @@ fn maximum_typed_message_round_trips_through_dispatch_ipc() {
         },
         epoch: u64::MAX,
         gui: None,
+        items: None,
     };
     request.event.check().unwrap();
     assert!(serde_json::to_vec(&request).unwrap().len() > MAX_HOST_OUTPUT);

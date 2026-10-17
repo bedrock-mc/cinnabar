@@ -151,6 +151,12 @@ impl MenuRuntime {
             ));
             return;
         }
+        if self.screen == MenuScreen::DressingRoom && self.dressing_room.cosmetic_filter_open {
+            self.activate(MenuAction::DressingRoom(
+                launcher::dressing_room::Action::ToggleCosmeticFilter,
+            ));
+            return;
+        }
         if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
             self.global_resource_actions
                 .push(launcher::global_resources::Action::CloseSettings);

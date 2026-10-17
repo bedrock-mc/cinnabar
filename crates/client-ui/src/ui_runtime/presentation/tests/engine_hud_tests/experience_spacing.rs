@@ -57,11 +57,25 @@ fn level_gap(
 fn experience_level_glyphs_leave_a_gap_above_the_bar() {
     let mut player = player_state::PlayerState::new(1);
     let snapshots = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_some();
-    let font = if snapshots {
-        super::super::super::forms::pack_harness::font()
-    } else {
-        ui_engine::test_support::fixture_font()
+    let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(assets::carriers::COMPILED_DIR)
+        .join(assets::carriers::FONT.output);
+    let font_bytes = match std::fs::read(&font_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping experience_level_glyphs_leave_a_gap_above_the_bar: missing font fixture {}; run make assets",
+                font_path.display()
+            );
+            return;
+        }
+        Err(error) => panic!("read {}: {error}", font_path.display()),
     };
+    let manifest = assets::canonical_source_manifest_sha256(
+        assets::carriers::FONT.font_face.unwrap().manifest,
+    );
+    let font = Arc::new(assets::RuntimeFontCatalog::decode(&font_bytes, manifest).unwrap());
     let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping experience_level_glyphs_leave_a_gap_above_the_bar: missing UI carrier; make assets"

@@ -58,7 +58,7 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
         },
     );
     compiled.symbols = symbols.into_boxed_slice();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.animation_clips[0].symbol += 1;
     let mut marker = compiled.rig_bindings[0];
     marker.entity_symbol = 1;

@@ -314,6 +314,7 @@ mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
+mod remote_equipment_path;
 
 mod actor_presentation;
 mod crafting_authority_schedule;

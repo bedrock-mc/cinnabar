@@ -31,6 +31,7 @@ fn java_sprite_tools_use_the_admitted_upright_grip() {
                 charged_projectile: None,
                 dye_rgb: None,
                 enchanted: false,
+                glint: Default::default(),
             }),
             java: Some(JavaGrip::default()),
             ..Default::default()

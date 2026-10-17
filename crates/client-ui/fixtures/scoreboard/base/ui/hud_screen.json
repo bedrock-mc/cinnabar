@@ -1,0 +1,18 @@
+{
+  "namespace": "hud",
+  "hud_screen": {
+    "type": "screen",
+    "controls": [
+      {"sidebar@scoreboard.scoreboard_sidebar": {}},
+      {"title": {
+        "type": "label",
+        "size": [200, 20],
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [170, 8],
+        "text": "#hud_title_text_string",
+        "bindings": [{"binding_name": "#hud_title_text_string"}]
+      }}
+    ]
+  }
+}

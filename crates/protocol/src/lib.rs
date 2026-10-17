@@ -102,19 +102,20 @@ pub use codec::{
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet,
-    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
-    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
+    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
+    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
+    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+};
+pub use inventory::recipes::{
+    BrewingItem, BrewingRecipe, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
+    ScreenRecipes,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
     RecipeHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput, RecipeUpdate,
     decode_recipe_update, empty_recipe_extra, recipe_binding_supported, vanilla_tag_contains,
-};
-pub use inventory::recipes::{
-    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,

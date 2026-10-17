@@ -1,4 +1,8 @@
+#[cfg(test)]
+mod armour_tests;
 mod bodies;
+#[cfg(test)]
+mod cape_tests;
 mod commit;
 mod flames;
 mod geometry;
@@ -54,7 +58,7 @@ pub struct ActorWorld<'a> {
 
 /// Gameplay and screen observations captured at the actor preparation boundary.
 pub struct ActorFrameInput {
-    pub hat: Option<render_api::Hat>,
+    pub cosmetics: Vec<cosmetics::Item>,
     /// Authenticated nearby hats bound to current actor lifetimes.
     pub remote_hats: Vec<RemoteHat>,
     pub local_feed: Option<LocalPlayerFeed>,
@@ -83,7 +87,7 @@ pub struct RemoteEmote {
 pub struct RemoteHat {
     pub runtime_id: u64,
     pub spawn_revision: u64,
-    pub hat: render_api::Hat,
+    pub hat: cosmetics::Item,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.

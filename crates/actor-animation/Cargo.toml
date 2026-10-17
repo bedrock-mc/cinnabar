@@ -21,5 +21,8 @@ sha2.workspace = true
 tracing.workspace = true
 world = { path = "../world" }
 
+[dev-dependencies]
+assets = { path = "../assets", features = ["test-support"] }
+
 [lints]
 workspace = true

@@ -366,7 +366,7 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         };
-        let Ok(mut layers) =
+        let Ok(Some(mut layers)) =
             render::evaluate_render(&evaluator, &mut variables, render_rig, &mut budget)
         else {
             return Some(fallback());
@@ -379,14 +379,15 @@ impl ActorAnimationStore {
         {
             // Authored writes retain each geometry endpoint's ordinary inputs.
             for endpoint in [previous, current] {
-                if render::evaluate_render(
-                    &endpoint.evaluator,
-                    &mut endpoint.variables,
-                    render_rig,
-                    &mut budget,
-                )
-                .is_err()
-                {
+                if !matches!(
+                    render::evaluate_render(
+                        &endpoint.evaluator,
+                        &mut endpoint.variables,
+                        render_rig,
+                        &mut budget,
+                    ),
+                    Ok(Some(_))
+                ) {
                     return Some(fallback());
                 }
             }

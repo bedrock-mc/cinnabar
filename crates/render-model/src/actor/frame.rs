@@ -35,6 +35,11 @@ pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
+/// First player skin-animation layer, following the equipment range.
+pub const ACTOR_LAYER_SKIN_BASE: u8 = 26;
+/// World flames follow every supported animated skin layer.
+pub const ACTOR_LAYER_FLAME: u8 =
+    ACTOR_LAYER_SKIN_BASE + render_api::MAX_SKIN_ANIMATION_LAYERS as u8;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActorRenderIdentity {

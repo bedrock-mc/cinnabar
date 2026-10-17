@@ -23,7 +23,7 @@ bundle without `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Without that switch, its hel
 advertises an empty capability set and it never sends `ready`.
 
 With the switch, the developer app advertises `ui`, `modal_ui`, `input`,
-`messaging`, `scene` and `media`. The UI adapter renders bounded labels in a
+`messaging`, `scene`, `media` and `items`. The UI adapter renders bounded labels in a
 separate JSON-UI area and draws a bundle's signed JSON-UI templates as a modal over
 gameplay (see "Modal screens"). Scene objects are validated, but only quads whose
 texture names one of the bundle's playing media descriptors are drawn; see
@@ -388,8 +388,9 @@ by semver) and receives only the callbacks it exports: one built against 1.0.0 e
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
 `text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`. 1.1's two callbacks and
-1.2's three are each exported all or none. SP5's planned `items.lookup(id)` (item icons and
-names) is to join as an import of its own, which leaves components built against 1.3 linking.
+1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
+from [`session.wit`](../crates/experience-sdk/wit/session/session.wit), the package player mods
+read, under the `items` permission; a component built without that import still links.
 
 | Permission | Host contract | App adapter today |
 | --- | --- | --- |
@@ -399,6 +400,7 @@ names) is to join as an import of its own, which leaves components built against
 | `messaging` | Send a signed typed channel record | Connected to the existing packet send FIFO |
 | `scene` | Put/remove a declarative quad, mesh or particle object | Media-textured quads drawn as emissive screens; other objects ignored |
 | `media` | Control an indexed media descriptor | Developer decoder process, see below |
+| `items` | Read the session's items (`cinnabar:session/items`) | The client's item data, sent to the helper with a dispatch whenever its revision changed |
 
 ### Modal screens
 

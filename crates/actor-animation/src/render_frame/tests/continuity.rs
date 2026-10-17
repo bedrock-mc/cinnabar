@@ -198,7 +198,7 @@ fn walk_catalog(camera_walk: bool) -> Arc<RuntimeEntityAssets> {
         },
     );
     compiled.symbols = symbols.into();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.molang_symbols = [
         (MolangSymbolKind::Name, "wield"),
         (MolangSymbolKind::Query, "query.modified_distance_moved"),

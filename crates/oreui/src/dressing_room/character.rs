@@ -30,7 +30,7 @@ pub(super) fn draw(
     canvas.fill(badge, theme::PRIMARY_ROLE.shadow)?;
     canvas.text_centred("EQUIPPED", badge, CAPTION, TEXT, false)?;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
-    let hat_tab = view.dressing_room.section == DressingRoomSection::Hats;
+    let hat_tab = view.dressing_room.section == DressingRoomSection::Cosmetics;
     let custom = if hat_tab {
         false
     } else if cape_tab {
@@ -77,17 +77,15 @@ pub(super) fn draw(
         theme::BEVEL_LIGHT,
     )?;
     let (name, caption) = if hat_tab {
-        view.dressing_room
-            .selected_hat
-            .map_or(("No hat", "Your original look"), |hat| {
-                (
-                    hat.name(),
-                    match hat {
-                        render_api::Hat::BunnyEars => "Flexible ears. Made to move.",
-                        render_api::Hat::Crown => "Gold crown. Pixel jewels.",
-                    },
-                )
-            })
+        let selected = view
+            .dressing_room
+            .selected_cosmetics
+            .values()
+            .filter_map(|id| cosmetics::Item::from_id(id.as_deref()?))
+            .next();
+        selected.map_or(("No cosmetics", "Your original look"), |item| {
+            (item.name(), "Select again to remove")
+        })
     } else if cape_tab {
         view.dressing_room
             .selected_cape()
@@ -190,6 +188,8 @@ pub(super) fn draw(
         ],
         visible_skins: Vec::new(),
         visible_capes: Vec::new(),
+        visible_cosmetics: Vec::new(),
+        filter_anchor: None,
     })
 }
 

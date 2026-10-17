@@ -90,5 +90,11 @@ else
     printf 'the shipped compiler cannot plan from the %s prep kit:\n%s\n' "$platform" "$plan" >&2
     status=1
 fi
+if [[ "$platform" == windows && "$host" == windows ]]; then
+    while IFS= read -r name; do
+        pwsh -NoProfile -File "$(native "$here/windows/execution-level.ps1")" -Executable "$(native "$root/$prefix$name.exe")" || status=1
+    done < <(runtime_binaries)
+    pwsh -NoProfile -File "$(native "$here/windows/execution-level.ps1")" -Executable "$(native "$assetc")" || status=1
+fi
 rm -rf "$scratch"
 exit $status

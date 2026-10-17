@@ -47,6 +47,7 @@ if ($LASTEXITCODE -ne 0) { throw "logo rendering failed" }
 & (Join-Path $PSScriptRoot "set-executable-icon.ps1") -Executable (Join-Path $payload "cinnabar.exe") -Icon $icon
 
 $signPaths = @($runtimeNames | ForEach-Object { Join-Path $payload $_ }) + @(Join-Path $kit "bin/assetc.exe")
+& (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $signPaths -Embed
 & (Join-Path $PSScriptRoot "sign.ps1") -Path $signPaths
 $msi = Join-Path $outPath "Cinnabar-$version-x64.msi"
 wix build -arch x64 -d Version=$version -d Payload=$payload -d Icon=$icon -o $msi (Join-Path $PSScriptRoot "cinnabar.wxs")
@@ -55,11 +56,13 @@ if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
 $setup = Join-Path $outPath "Cinnabar-$version-x64-setup.exe"
 wix build -arch x64 -ext WixToolset.BootstrapperApplications.wixext -d Version=$version -d Msi=$msi -d Icon=$icon -d Logo=$logo -o $setup (Join-Path $PSScriptRoot "setup.wxs")
 if ($LASTEXITCODE -ne 0) { throw "setup bundle build failed" }
+& (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $setup
+$engine = Join-Path $outPath "setup-engine.exe"
+wix burn detach $setup -engine $engine
+if ($LASTEXITCODE -ne 0) { throw "setup engine detach failed" }
+& (Join-Path $PSScriptRoot "execution-level.ps1") -Executable $engine
 if ($env:WINDOWS_CERT_PFX_BASE64) {
     # Burn caches its detached engine; sign that executable as well as the whole bundle.
-    $engine = Join-Path $outPath "setup-engine.exe"
-    wix burn detach $setup -engine $engine
-    if ($LASTEXITCODE -ne 0) { throw "setup engine detach failed" }
     & (Join-Path $PSScriptRoot "sign.ps1") -Path $engine
     $signed = Join-Path $outPath "setup-signed.exe"
     wix burn reattach $setup -engine $engine -o $signed

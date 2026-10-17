@@ -30,6 +30,9 @@ mod pipeline_material_gpu_tests;
 #[path = "frame_order_tests.rs"]
 mod frame_order_tests;
 
+#[path = "allocation_fault_tests.rs"]
+pub(crate) mod allocation_fault_tests;
+
 /// A residency holding one standard-raster skin in class 0, layer 0.
 fn one_resident_skin() -> Arc<render_model::ActorSkinResidency> {
     let skin = render_api::SkinRgba8::from(vec![255; render_model::STANDARD_SKIN_BYTES]);

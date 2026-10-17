@@ -270,9 +270,10 @@ const (
 	PermissionMessaging
 	PermissionScene
 	PermissionMedia
+	PermissionItems
 )
 
-var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media"}
+var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items"}
 
 // String returns the schema name, or a diagnostic for an invalid enum.
 func (v Permission) String() string {

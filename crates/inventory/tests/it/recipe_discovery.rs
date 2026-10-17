@@ -99,6 +99,7 @@ fn discovery_ingredients_still_obey_nested_decode_bounds() {
     let update = CraftingDataFixture {
         recipes: vec![recipe],
         clear_recipes: false,
+        ..Default::default()
     }
     .update();
     assert!(update.is_unavailable());

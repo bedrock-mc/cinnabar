@@ -50,6 +50,9 @@ mod attack_frame_tests;
 #[path = "published_tests/attack_progress.rs"]
 mod attack_progress_tests;
 
+#[path = "published_tests/entity_hover.rs"]
+mod entity_hover_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 

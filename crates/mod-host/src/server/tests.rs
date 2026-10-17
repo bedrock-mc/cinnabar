@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 /// Creates the host import state with worst-case serialized identity and epoch fields.
 fn state() -> State {
     let mut state = State {
+        session: Arc::default(),
         limits: StoreLimitsBuilder::new().build(),
         owner: Principal {
             session: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
@@ -93,6 +94,48 @@ fn staged_output_at_the_transaction_boundary_round_trips_through_ipc() {
         commands: state.commands,
     };
     assert_eq!(serde_json::to_vec(&transaction).unwrap().len(), state.bytes);
+}
+
+/// `items` reads the session the client last sent, and only under the `items` permission.
+#[test]
+fn items_read_the_sent_session_only_when_granted() {
+    use items::Host as _;
+    use server_experience::session_data::{Item, SessionItems};
+    let stone = Item {
+        key: ItemKey {
+            identifier: "minecraft:stone".into(),
+            aux: 0,
+        },
+        icon: SessionData::icon_key(1, 0),
+        name: "Stone".into(),
+        group: None,
+        category: None,
+        max_stack: 64,
+        tags: Vec::new(),
+    };
+    let mut state = state();
+    state.session = Arc::new(
+        SessionItems {
+            revision: 3,
+            items: vec![stone],
+            tags: Default::default(),
+        }
+        .into(),
+    );
+    let key = || items::ItemKey {
+        identifier: "minecraft:stone".into(),
+        aux: 0,
+    };
+    assert!(state.revision().unwrap().is_err());
+    assert!(state.lookup(key()).unwrap().is_err());
+    state
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::Items);
+    assert_eq!(state.revision().unwrap(), Ok(3));
+    let found = state.lookup(key()).unwrap().unwrap().unwrap();
+    assert_eq!(found.icon, SessionData::icon_key(1, 0));
 }
 
 /// The 1.1 test guest, as a component built against 1.1.0 imports it: from the package the host

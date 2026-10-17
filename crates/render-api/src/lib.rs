@@ -4,8 +4,6 @@
 //! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
-mod hats;
-pub use hats::Hat;
 pub mod far_terrain;
 mod frame_rate_limit;
 mod legacy_combat;

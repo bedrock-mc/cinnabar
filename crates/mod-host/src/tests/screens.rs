@@ -478,6 +478,32 @@ fn a_package_in_a_set_needs_both_the_manifest_ask_and_the_loader_grant() {
 }
 
 #[test]
+fn settings_follow_the_manifest_and_inventory_also_needs_the_opt_in() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("bei-0.1.0");
+    write_probe(&dir, |manifest| {
+        manifest.replace(
+            "permissions = [\"screen\", \"items\", \"recipes\", \"keys\"]",
+            "permissions = [\"screen\", \"items\", \"recipes\", \"keys\", \"settings\", \"inventory\"]",
+        )
+    });
+    let host = ModHost::load_package(&dir, ModGrants::default()).unwrap();
+    assert!(host.grants().settings);
+    assert!(!host.grants().inventory);
+    let opted_in = ModGrants {
+        inventory: true,
+        ..ModGrants::default()
+    };
+    let host = ModHost::load_package(&dir, opted_in.clone()).unwrap();
+    assert!(host.grants().inventory);
+
+    let unasked = root.path().join("unasked");
+    write_probe(&unasked, str::to_owned);
+    let host = ModHost::load_package(&unasked, opted_in).unwrap();
+    assert!(!host.grants().inventory && !host.grants().settings);
+}
+
+#[test]
 fn a_package_keeps_its_settings_beside_its_directory() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("bei-0.1.0");

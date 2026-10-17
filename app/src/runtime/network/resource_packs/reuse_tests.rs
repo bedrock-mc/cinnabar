@@ -233,6 +233,7 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
         blocks: protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
                 state_physics: Default::default(),
+                player_interact: false,
                 name: "reuse:block".into(),
                 tags: Default::default(),
                 state_count: 1,

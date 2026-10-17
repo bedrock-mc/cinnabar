@@ -665,18 +665,11 @@ impl PlayerInventoryLedger {
             // predictions; further close gestures stay blocked.
             return;
         }
-        let (window_type, generation) = (storage.window_type, storage.generation);
-        let returning = if window_type == WORKBENCH_WINDOW_TYPE
-            || self.authority == Some(InventoryAuthority::Client)
-        {
-            // Vanilla always closes; inputs it cannot return wait for the server's restatement.
-            self.return_crafting_on_close().unwrap_or_else(|error| {
-                self.note_close_return_failure(error);
-                true
-            })
-        } else {
-            false
-        };
+        let generation = storage.generation;
+        let returning = self.return_crafting_on_close().unwrap_or_else(|error| {
+            self.note_close_return_failure(error);
+            true
+        });
         self.controls.storage.desired_open = false;
         if !returning {
             self.abandon_requests(|pending| {

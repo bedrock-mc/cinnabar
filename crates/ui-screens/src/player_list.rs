@@ -1,6 +1,6 @@
 //! Momentary Java-style roster, rendered independently of server HUD replacements.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, fmt::Write, sync::Arc};
 
 use json_ui::{Catalog, CollectionItem, Context, DataSource, Scalar, ViewState};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
@@ -23,12 +23,16 @@ pub const CINNABAR_BADGE_PNG: &[u8] =
     include_bytes!("../../../assets/java-hud/textures/ui/cinnabar_badge.png");
 /// Width a badged cell reserves beside its name.
 const BADGE_WIDTH: f64 = 9.0;
+/// Eight GUI pixels of face plus the gap before the name.
+const HEAD_WIDTH: f64 = 9.0;
 
 /// One roster entry as the tab list draws it; the badge belongs to this entry, not its name.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RosterRow {
     pub name: Arc<str>,
     pub badged: bool,
+    /// The admitted skin for this UUID; absent or unusable skins display Steve.
+    pub skin: Option<render_api::StandardSkin>,
 }
 
 /// The roster screen over its own bundled catalog, rebound only when the rows change.
@@ -41,6 +45,8 @@ pub struct PlayerList {
     dimensions: [usize; 2],
     geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
     context: Context,
+    portraits: BTreeMap<String, render_model::UiTexturePage>,
+    heads: Vec<String>,
 }
 
 impl PlayerList {
@@ -67,6 +73,8 @@ impl PlayerList {
             dimensions: [0, 0],
             geometry: None,
             context: Context::default(),
+            portraits: BTreeMap::new(),
+            heads: Vec::new(),
         }
     }
 
@@ -75,6 +83,30 @@ impl PlayerList {
         let columns = shown.len().div_ceil(rows).max(1);
         let rows = shown.len().div_ceil(columns).max(1);
         if self.rows != shown || self.total != players.len() || self.dimensions != [columns, rows] {
+            let mut portraits = BTreeMap::new();
+            self.heads = shown
+                .iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    let previous = self
+                        .rows
+                        .get(index)
+                        .filter(|old| old.skin == row.skin)
+                        .and_then(|_| self.heads.get(index))
+                        .and_then(|key| self.portraits.get(key))
+                        .cloned();
+                    let image = previous.unwrap_or_else(|| {
+                        row.skin
+                            .as_ref()
+                            .and_then(render_model::actor::skin_portrait::extract)
+                            .unwrap_or_else(steve_portrait)
+                    });
+                    let key = portrait_key(&image);
+                    portraits.entry(key.clone()).or_insert(image);
+                    key
+                })
+                .collect();
+            self.portraits = portraits;
             // Grids consume row-major collections; Java presents names down each column.
             let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
             let entries = cells
@@ -86,6 +118,10 @@ impl PlayerList {
                             Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
                         )
                         .with("#row_visible", Scalar::Bool(row.is_some()))
+                        .with(
+                            "#player_head",
+                            Scalar::Text(self.heads.get(index).cloned().unwrap_or_default()),
+                        )
                         .with(
                             "#cinnabar_badge",
                             Scalar::Bool(row.is_some_and(|row| row.badged)),
@@ -111,6 +147,16 @@ impl PlayerList {
     }
 }
 
+/// Equal portraits share one atlas allocation, including every Steve fallback row.
+fn portrait_key(image: &render_model::UiTexturePage) -> String {
+    let [width, height] = image.dimensions();
+    let mut key = format!("client-raster:tab-head/{width}x{height}/");
+    for byte in image.identity() {
+        write!(key, "{byte:02x}").expect("writing into a String");
+    }
+    key
+}
+
 impl Default for PlayerList {
     fn default() -> Self {
         Self::new()
@@ -127,11 +173,12 @@ impl PlayerList {
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
+        let max_rows = ((f64::from(frame.content[1] / px) - 40.0) / ROW_HEIGHT)
+            .floor()
+            .clamp(1.0, MAX_ROWS as f64) as usize;
+        let [columns, rows] = self.refresh(players, max_rows);
+        engine.textures.lock().set_client_rasters(&self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
-            let max_rows = ((root[1] - 40.0) / ROW_HEIGHT)
-                .floor()
-                .clamp(1.0, MAX_ROWS as f64) as usize;
-            let [columns, rows] = self.refresh(players, max_rows);
             let badge = self.rows.iter().any(|row| row.badged);
             let geometry = (root, px, language, badge);
             if self.geometry != Some(geometry) {
@@ -141,8 +188,8 @@ impl PlayerList {
                     .map(|row| env.text.extent(&row.name)[0])
                     .fold(60.0, f64::max);
                 let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
-                let width =
-                    (widest + 8.0 + badge_width).min((root[0] - 8.0).max(1.0) / columns as f64);
+                let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
+                    .min((root[0] - 8.0).max(1.0) / columns as f64);
                 let title = format!("Online players: {}", self.total);
                 let panel_width = (width * columns as f64 + 4.0)
                     .max(env.text.extent(&title)[0] + 4.0)
@@ -152,6 +199,12 @@ impl PlayerList {
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
                     .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
                     .with_var("cell_width", serde_json::json!(width))
+                    .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
+                    .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
+                    .with_var(
+                        "name_width",
+                        serde_json::json!(format!("100% - {}px", 8.0 + HEAD_WIDTH + badge_width)),
+                    )
                     .with_var("cinnabar_badge_texture", serde_json::json!(CINNABAR_BADGE))
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
@@ -177,6 +230,26 @@ impl PlayerList {
     pub fn passes(&self) -> usize {
         self.screen.passes
     }
+}
+
+/// Uses the runtime-installed Steve texture, with the existing diagnostic skin if absent.
+fn steve_portrait() -> render_model::UiTexturePage {
+    static PORTRAIT: std::sync::OnceLock<render_model::UiTexturePage> = std::sync::OnceLock::new();
+    PORTRAIT
+        .get_or_init(|| {
+            let pixels = render_model::default_actor_skin_rgba8();
+            let side =
+                render_model::actor_skin_side(&pixels).expect("default skin dimensions") as u32;
+            render_model::actor::skin_portrait::extract(&render_api::StandardSkin {
+                width: side,
+                height: side,
+                rgba8: pixels,
+                cape: None,
+                geometry: None,
+            })
+            .expect("default skin has a visible face")
+        })
+        .clone()
 }
 
 #[cfg(test)]

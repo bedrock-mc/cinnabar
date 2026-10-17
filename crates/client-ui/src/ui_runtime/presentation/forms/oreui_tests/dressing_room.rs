@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use super::super::super::UiPresentationRuntime;
 use launcher::dressing_room::{
-    Action, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode, SkinEditorTarget, SkinModel,
+    Action, CosmeticCategory, DressingRoomSection, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode,
+    SkinEditorTarget, SkinModel,
 };
 use launcher::menu::{MenuAction, MenuView};
 use oreui::test_support::{add_capes, dressing_room_view as view};
@@ -59,6 +60,43 @@ fn keyboard_focus_reveals_an_offscreen_skin_without_losing_the_library() {
                 .contains(&command(Action::Select(0)))
         );
     }
+}
+
+#[test]
+fn cosmetic_filter_owns_focus_pointer_and_character_input() {
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    Arc::make_mut(&mut view.dressing_room).section = DressingRoomSection::Cosmetics;
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    presentation.set_player_preview_skin(None, Default::default());
+    presentation.menu_preview.begin_frame(Some(view.screen));
+    append(&mut presentation, &view, [1280.0, 720.0]);
+    assert!(presentation.menu_player_preview_bounds().is_some());
+    Arc::make_mut(&mut view.dressing_room).cosmetic_filter_open = true;
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    let choices =
+        CosmeticCategory::ALL.map(|category| command(Action::SetCosmeticCategory(category)));
+    for action in choices {
+        assert!(hits.iter().any(|(hit, _)| *hit == action));
+        assert!(presentation.projections.menu_focus.contains(&action));
+    }
+    assert!(
+        hits.iter().all(|(action, _)| choices.contains(action)
+            || *action == command(Action::ToggleCosmeticFilter))
+    );
+    assert!(
+        presentation
+            .projections
+            .menu_focus
+            .iter()
+            .all(|action| choices.contains(action)
+                || *action == command(Action::ToggleCosmeticFilter))
+    );
+    assert!(presentation.menu_player_preview_bounds().is_none());
+    assert!(
+        !presentation
+            .menu_scrolls
+            .wheel(ui::UiPoint::new(640.0, 360.0).unwrap(), -1.0, false)
+    );
 }
 
 #[test]

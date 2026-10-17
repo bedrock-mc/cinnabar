@@ -8,6 +8,7 @@ fn binding(identifier: &str) -> EquipmentBinding {
     };
     EquipmentBinding {
         identifier: identifier.into(),
+        attachable: None,
         category: EquipmentCategory::Held,
         geometry: reference("geometry.a"),
         texture: reference("textures/entity/a"),
@@ -41,6 +42,27 @@ fn from_parts_sorts_dedupes_and_requires_an_identity() {
     assert!(
         RuntimeEquipmentCatalog::from_parts([0; 32], vec![binding("a:item")], Vec::new()).is_err()
     );
+}
+
+#[test]
+fn owner_specific_definitions_survive_catalog_round_trips() {
+    let mut player = binding("test:armour");
+    player.attachable = Some("test:armour.player".into());
+    let mut stand = player.clone();
+    stand.attachable = Some("test:armour.stand".into());
+    let catalog =
+        RuntimeEquipmentCatalog::from_parts([1; 32], vec![stand, player], Vec::new()).unwrap();
+    let bytes = encode_equipment_catalog_with_textures(
+        catalog.source_manifest_sha256(),
+        catalog.entity_blob_sha256(),
+        catalog.bindings(),
+        catalog.textures(),
+    )
+    .unwrap();
+    let restored = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+    assert_eq!(restored.bindings_for("test:armour").len(), 2);
+    assert_eq!(restored.bindings(), catalog.bindings());
+    assert!(restored.bindings_for("test:missing").is_empty());
 }
 
 #[test]

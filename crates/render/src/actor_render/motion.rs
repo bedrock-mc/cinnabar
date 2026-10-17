@@ -271,6 +271,8 @@ pub(crate) fn prepare(
 }
 
 #[cfg(test)]
+mod fault_matrix_tests;
+#[cfg(test)]
 mod raster_tests;
 #[cfg(test)]
 mod recovery_tests;

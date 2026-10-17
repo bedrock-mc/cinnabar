@@ -274,6 +274,7 @@ fn worn_wings_suppress_the_hud_cape_until_the_chest_slot_is_cleared() {
     };
     let binding = assets::EquipmentBinding {
         identifier: "fixture:wings".into(),
+        attachable: None,
         category: assets::EquipmentCategory::Elytra,
         geometry: reference("geometry.fixture.wings"),
         texture: reference("textures/fixture/wings"),
@@ -287,7 +288,17 @@ fn worn_wings_suppress_the_hud_cape_until_the_chest_slot_is_cleared() {
         poses: Box::new([]),
     };
     presentation.set_equipment_catalog(Some(Arc::new(
-        assets::RuntimeEquipmentCatalog::from_parts([1; 32], vec![binding], vec![]).unwrap(),
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [1; 32],
+            vec![binding],
+            vec![assets::EquipmentTexture {
+                identifier: "textures/fixture/wings".into(),
+                width: 64,
+                height: 32,
+                rgba8: [255; 4].repeat(64 * 32).into(),
+            }],
+        )
+        .unwrap(),
     )));
     presentation.set_player_preview_gear([None, Some(("fixture:wings", None)), None, None], None);
     let mesh = presentation.gui_player_mesh().unwrap();

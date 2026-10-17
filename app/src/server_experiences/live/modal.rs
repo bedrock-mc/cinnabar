@@ -2,7 +2,7 @@
 
 use super::{Instance, Live, Worker};
 use anyhow::Result;
-use mod_host::helper::{Dispatch, Event};
+use mod_host::helper::Event;
 use mod_ui::experience_modal::ExperienceModal;
 use server_experience::{
     runtime::{Command, Transaction},
@@ -217,16 +217,13 @@ impl<H: Worker> Live<H> {
             {
                 continue;
             }
-            let Some(helper) = &mut instance.helper else {
+            if instance.helper.is_none() {
                 continue;
-            };
+            }
             let event = instance.events.pop_front().expect("events checked");
             self.budget.dispatch(&instance.owner)?;
-            instance.callback = event.callback();
             let gui = size_for(&self.gui, &instance.owner.bundle);
-            helper.dispatch(Dispatch { event, epoch, gui })?;
-            instance.busy = true;
-            instance.epoch = epoch;
+            instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
         }
         Ok(())
     }

@@ -249,7 +249,7 @@ fn all_tampered_stages_are_refused_before_start_or_swap() {
             )
             .unwrap(),
             "truncated" => fs::write(directory.join(stage::ARTIFACT_FILE), &PAYLOAD[..2]).unwrap(),
-            "channel" => policy.channel = "nightly",
+            "channel" => policy.channel = update_manifest::channel::Channel::Stable.name(),
             "expired" => clock += time::Duration::days(2),
             "platform" => policy.platform = "windows-x86_64",
             _ => unreachable!(),
@@ -264,7 +264,7 @@ fn all_tampered_stages_are_refused_before_start_or_swap() {
                     now: clock
                 },
                 crate::lease::Lease::acquire(root.path()).unwrap(),
-                |_| panic!("unverified release executed")
+                |_| panic!("unverified release executed for {case}")
             )
             .is_err()
         );
