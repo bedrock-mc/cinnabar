@@ -848,6 +848,10 @@ screen-effect parity remain incomplete.
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+- Frame waits read the current focus policy after frame work, so focus restoration
+  removes the background limit before that frame waits. Background and occlusion
+  limits stay unchanged. Deterministic regression coverage exercises both rendering
+  paths; native focus-transition latency and the reported resize lag remain unverified.
 
 ## Graphics API startup recovery
 
