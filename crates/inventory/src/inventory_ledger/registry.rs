@@ -75,22 +75,23 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                pending
-                    .predicted
-                    .iter()
-                    .filter_map(|prediction| prediction.held.as_ref())
-                    .map(|held| held.stack.network_id)
-                    .any(|network_id| {
-                        registry_identity_changed(previous, &next, network_id)
-                            || (pending.predicted.iter().any(|prediction| {
-                                matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
-                            }) && (equipment_admission(&self.item_facts, network_id)
-                                != equipment_admission(&facts, network_id)
-                                || previous.get(&network_id).and_then(entry_capacity)
-                                    != next.get(&network_id).and_then(entry_capacity)))
-                            || (pending.registry_bound_merge
-                                && registry_merge_rule_changed(previous, &next, network_id))
-                    })
+                self.placement_admission_changes(pending, &facts)
+                    || pending
+                        .predicted
+                        .iter()
+                        .filter_map(|prediction| prediction.held.as_ref())
+                        .map(|held| held.stack.network_id)
+                        .any(|network_id| {
+                            registry_identity_changed(previous, &next, network_id)
+                                || (pending.predicted.iter().any(|prediction| {
+                                    matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
+                                }) && (equipment_admission(&self.item_facts, network_id)
+                                    != equipment_admission(&facts, network_id)
+                                    || previous.get(&network_id).and_then(entry_capacity)
+                                        != next.get(&network_id).and_then(entry_capacity)))
+                                || (pending.registry_bound_merge
+                                    && registry_merge_rule_changed(previous, &next, network_id))
+                        })
             })
             .map(|pending| pending.request_id)
             .collect();

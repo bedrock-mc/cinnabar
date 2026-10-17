@@ -13,13 +13,14 @@ use super::registry::{OccupiedStackRelation, entry_capacity};
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 /// A quick-move input decision and the item facts it was made from.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct QuickMoveRoute {
     window: WindowKind,
-    network_id: i32,
-    metadata: u32,
-    /// The chosen input cells; `None` used the window's fallback destinations.
+    stack: NetworkItemStack,
+    /// Role-selected inputs; other windows use their fixed cells or player fallback.
     input: Option<QuickMoveInput>,
+    /// At least one confirmed window destination admits the original stack.
+    admitted: bool,
 }
 
 /// Input destinations selected from the current item and recipe facts.
@@ -235,17 +236,34 @@ impl PlayerInventoryLedger {
         let Cell::Inventory(_) = source else {
             return None;
         };
-        self.quick_move_input_route(self.quick_move_window()?, stack.network_id, stack.metadata)
+        Some(self.quick_move_route_for_window(self.quick_move_window()?, stack))
     }
 
-    /// Resolves an input route, including fallback, or no route for other window kinds.
+    /// Retains both routing preferences and stack-aware admission for later fact refreshes.
+    fn quick_move_route_for_window(
+        &self,
+        window: WindowKind,
+        stack: &NetworkItemStack,
+    ) -> QuickMoveRoute {
+        QuickMoveRoute {
+            window,
+            stack: stack.clone(),
+            input: self.quick_move_input_route(window, stack.network_id, stack.metadata),
+            admitted: self
+                .window_destinations(window, stack.network_id, stack.metadata)
+                .iter()
+                .any(|cell| self.placement_capacity(*cell, stack) != Some(0)),
+        }
+    }
+
+    /// Resolves role-selected inputs, leaving fixed layouts and player fallback to the caller.
     fn quick_move_input_route(
         &self,
         window: WindowKind,
         network_id: i32,
         metadata: u32,
-    ) -> Option<QuickMoveRoute> {
-        let input = if crate::furnace_recipes::kind(window).is_some() {
+    ) -> Option<QuickMoveInput> {
+        if crate::furnace_recipes::kind(window).is_some() {
             self.furnace_slot(window, network_id, metadata)
                 .map(Cell::Storage)
                 .map(QuickMoveInput::Single)
@@ -255,9 +273,11 @@ impl PlayerInventoryLedger {
                 WindowKind::Horse => item_roles::horse_slot(fact)
                     .map(Cell::Storage)
                     .map(QuickMoveInput::Single),
-                WindowKind::Loom => item_roles::loom_slot(fact)
-                    .map(Cell::Craft)
-                    .map(QuickMoveInput::Single),
+                WindowKind::Loom => {
+                    item_roles::loom_slot(fact, self.item_facts.is_banner(network_id))
+                        .map(Cell::Craft)
+                        .map(QuickMoveInput::Single)
+                }
                 WindowKind::Smithing => item_roles::smithing_slot(fact)
                     .map(Cell::Craft)
                     .map(QuickMoveInput::Single),
@@ -275,15 +295,9 @@ impl PlayerInventoryLedger {
                     .roles
                     .contains(ContainerRoles::BEACON_PAYMENT)
                     .then_some(QuickMoveInput::Single(Cell::Craft(27))),
-                _ => return None,
+                _ => None,
             }
-        };
-        Some(QuickMoveRoute {
-            window,
-            network_id,
-            metadata,
-            input,
-        })
+        }
     }
 
     /// The furnace slot a player stack quick-moves into; `None` keeps it in the inventory.
@@ -301,9 +315,8 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                pending.quick_move_route.is_some_and(|route| {
-                    self.quick_move_input_route(route.window, route.network_id, route.metadata)
-                        != Some(route)
+                pending.quick_move_route.as_ref().is_some_and(|route| {
+                    self.quick_move_route_for_window(route.window, &route.stack) != *route
                 })
             })
             .map(|pending| pending.request_id)
@@ -345,7 +358,10 @@ impl PlayerInventoryLedger {
             Some(kind) => self.window_destinations(kind, stack.network_id, stack.metadata),
             None => self.equipment_destinations(from),
         };
-        cells.retain(|cell| !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot)));
+        cells.retain(|cell| {
+            !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot))
+                && self.placement_capacity(*cell, stack) != Some(0)
+        });
         if !cells.is_empty() {
             return cells;
         }
@@ -389,9 +405,7 @@ impl PlayerInventoryLedger {
 
     /// The window cells a negotiated stack shift-clicks into.
     fn window_destinations(&self, kind: WindowKind, network_id: i32, metadata: u32) -> Vec<Cell> {
-        let input = self
-            .quick_move_input_route(kind, network_id, metadata)
-            .and_then(|route| route.input);
+        let input = self.quick_move_input_route(kind, network_id, metadata);
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .map(Cell::Storage)
