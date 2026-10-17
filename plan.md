@@ -10020,3 +10020,11 @@ Drawing permissions and connection fences cover legacy post effects, block highl
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained indexed meshes, polylines, shared instances and callback groups are admitted
 transactionally with per-owner quotas. Renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
+
+The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
+polylines, distance-based color gradients, grids and chunk borders directly in the
+generated WIT records. Entity boxes use caller-supplied authorized bounds. Instance
+defaults preserve depth testing. Legacy fixed primitives keep their existing
+paths because the unlit contract does not preserve their procedural coverage and
+placement. Their retained compatibility presets and a generated TypeScript author
+package remain incomplete.

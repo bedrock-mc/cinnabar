@@ -578,3 +578,8 @@ status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
 Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
 and actor attachment remain incomplete and do not close any completion requirement.
+
+The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
+instance defaults. Legacy compatibility paths remain in place until retained
+presets preserve their coverage and placement. TypeScript packaging, renderer
+acceptance and hardware performance gates remain incomplete.

@@ -170,5 +170,5 @@ pub(super) fn instance(
 fn color(color: [f32; 4]) -> bool {
     color
         .iter()
-        .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+        .all(|v| v.is_finite() && (0. ..=MAX_DRAW_COLOR_COMPONENT).contains(v))
 }

@@ -204,3 +204,5 @@ pub const MAX_DRAW_INDICES: usize = 196_608;
 pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
 pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
+/// Largest linear RGBA component admitted by retained unlit drawing.
+pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;
