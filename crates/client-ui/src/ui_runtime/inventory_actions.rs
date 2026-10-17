@@ -321,7 +321,7 @@ impl UiRuntime {
                 self.creative_click(player_runtime, index, false, None)
             }
             InventoryCellHit::RecipeBook(index) => {
-                self.recipe_book_click(player_runtime, index, false)
+                self.recipe_book_click(player_runtime, index, false, None)
             }
             InventoryCellHit::CraftOutput => self.output_click(player_runtime, false),
             InventoryCellHit::Storage(slot) if self.crafter_slot_disables(player_runtime, slot) => {
@@ -393,6 +393,11 @@ impl UiRuntime {
                 return Err(InventoryGestureError::InvalidRequest);
             }
             return self.creative_click(player_runtime, index, false, Some(1));
+        }
+        if let InventoryCellHit::RecipeBook(index) = hit
+            && player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
+        {
+            return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -500,7 +505,7 @@ impl UiRuntime {
                 self.creative_click(player_runtime, index, true, None)
             }
             InventoryCellHit::RecipeBook(index) => {
-                self.recipe_book_click(player_runtime, index, true)
+                self.recipe_book_click(player_runtime, index, true, None)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -774,6 +779,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         index: u16,
         into_inventory: bool,
+        requested: Option<u8>,
     ) -> Outcome {
         if ui_screens::furnace_book::active(player_runtime) {
             let recipe = super::presentation::forms::furnace_book::entries(player_runtime, self)
@@ -794,13 +800,15 @@ impl UiRuntime {
                 BookEntry::Furnace(recipe) => Clicked::Furnace(recipe.clone()),
             });
         match entry {
-            Some(Clicked::Item(id)) => self.creative_take(player_runtime, id, into_inventory, None),
+            Some(Clicked::Item(id)) => {
+                self.creative_take(player_runtime, id, into_inventory, requested)
+            }
             // A head folds or unfolds its group; a held stack still deletes.
             Some(Clicked::Group(_))
                 if player_runtime.inventory.ledger().cursor_stack().is_some() =>
             {
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_destroy_cursor(None)
+                    .begin_destroy_cursor(requested)
             }
             Some(Clicked::Group(index)) => {
                 let expanded = &mut self.screen_state_mut().creative_expanded;
@@ -817,7 +825,7 @@ impl UiRuntime {
                 .begin_furnace_recipe(&recipe),
             None if player_runtime.inventory.ledger().cursor_stack().is_some() => self
                 .inventory_ledger_mut(player_runtime)
-                .begin_destroy_cursor(None),
+                .begin_destroy_cursor(requested),
             None => Err(InventoryGestureError::EmptyGesture),
         }
     }

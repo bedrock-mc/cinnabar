@@ -186,3 +186,18 @@ fn creative_secondary_destroys_one_from_any_ordinary_cursor_selection() {
         );
     }
 }
+
+#[test]
+fn creative_json_ui_secondary_catalog_click_takes_or_destroys_one() {
+    for held in [None, Some((9000, 8)), Some((9001, 8))] {
+        let Some((mut runtime, mut player)) = creative_selection(held) else {
+            return;
+        };
+        runtime
+            .secondary_click_hit(&mut player, InventoryCellHit::RecipeBook(0))
+            .unwrap();
+        let expected = held.map_or((9000, 1), |(id, count)| (id, count - 1));
+        let shown = player.inventory.ledger().cursor_stack().unwrap();
+        assert_eq!((shown.network_id, shown.count), expected);
+    }
+}
