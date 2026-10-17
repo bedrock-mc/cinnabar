@@ -60,9 +60,7 @@ pub(super) fn apply(view: &mut DressingRoomView, job: Job) -> Result<(), String>
             let mut skins = view.skins.to_vec();
             skins.remove(index);
             view.selected = match view.selected {
-                Some(selected) if selected == index => {
-                    Some(crate::player_skin::catalog::deletion_fallback(&skins)?)
-                }
+                Some(selected) if selected == index => Some(catalog::deletion_fallback(&skins)?),
                 selected => shifted(selected, index),
             };
             view.skins = skins.into();
@@ -97,6 +95,35 @@ fn shifted(selected: Option<usize>, removed: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleting_equipped_import_restores_session_skin_without_starter_assets() {
+        let fallback = crate::player_skin::LocalPlayerSkin::generated_default("delete fixture");
+        let mut view = catalog::load(&fallback);
+        let retained = view.selected_skin().unwrap().clone();
+        let mut imported = retained.clone();
+        imported.imported = true;
+        imported.id = "imported fixture".into();
+        imported.path = "fixture.png".into();
+        imported.skin.rgba8 = vec![0; imported.skin.rgba8.len()].into();
+        // Keep another import ahead of the retained entry so fallback must use its identity.
+        view.skins = vec![imported.clone(), retained.clone(), imported].into();
+        view.selected = Some(2);
+        assert_ne!(view.active_skin(), Some(fallback.standard_skin()));
+
+        apply(&mut view, Job::Delete(2)).unwrap();
+
+        assert_eq!(view.skins.len(), 2);
+        assert_eq!(view.selected_skin(), Some(&retained));
+        assert_eq!(view.active_skin(), Some(fallback.standard_skin()));
+        assert_eq!(
+            crate::player_skin::selected_skin_id(view.selected_skin().unwrap()),
+            fallback.skin_id
+        );
+        let before = view.clone();
+        assert!(apply(&mut view, Job::Delete(1)).is_err());
+        assert_eq!(view, before, "the retained session skin cannot be deleted");
+    }
 
     #[test]
     fn native_import_identity_uses_the_image_key_even_with_a_session_prefix() {

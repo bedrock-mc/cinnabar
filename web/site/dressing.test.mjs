@@ -112,3 +112,80 @@ test("gesture bridge uses current intent, bounds concurrent pickers and owns tea
   assert.equal(completions, 1);
   assert.equal(requests, 1);
 });
+
+for (const [name, pointerType, events] of [
+  ["mouse pointer", "mouse", ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]],
+  ["legacy mouse", undefined, ["mousedown", "mouseup", "click"]],
+  ["touch pointer", "touch", ["pointerdown", "touchstart", "pointerup", "touchend", "click"]],
+  ["legacy touch", undefined, ["touchstart", "touchend", "click"]],
+  ["pen pointer", "pen", ["pointerdown", "pointerup", "click"]],
+]) {
+  test(`${name} reserves import before ordinary input can activate it`, async () => {
+    const { input, doc, opened } = fixture();
+    const target = new EventTarget();
+    let ordinaryPress = false, requests = 0, propagated = 0, finish;
+    const completed = new Promise((resolve) => { finish = resolve; });
+    const stop = dressingPickerEdges(target, () => {
+      if (ordinaryPress) return null;
+      requests++;
+      return { cape: false, maximumCount: 2, admit() {}, complete: finish };
+    }, doc);
+    for (const type of events) target.addEventListener(type, () => {
+      propagated++;
+      if (type.endsWith("down") || type === "touchstart") ordinaryPress = true;
+    });
+    try {
+      for (const type of events) {
+        const event = Object.assign(new Event(type, { cancelable: true }), { pointerType, button: 0 });
+        target.dispatchEvent(event);
+        assert.ok(event.defaultPrevented, `${type} belongs to the reserved import`);
+        // A frame can drain ordinary input between the press and its click.
+        await Promise.resolve();
+        assert.equal(ordinaryPress, false);
+      }
+      assert.ok(opened());
+      assert.equal(requests, 1);
+      assert.equal(propagated, 0);
+      input.dispatchEvent(new Event("cancel"));
+      assert.deepEqual(await completed, []);
+    } finally { stop(); }
+  });
+}
+
+test("touch cancellation and teardown release reserved tickets without opening a picker", () => {
+  for (const end of ["pointercancel", "touchcancel", "teardown"]) {
+    const { doc, opened } = fixture();
+    const target = new EventTarget();
+    let completions = 0;
+    const stop = dressingPickerEdges(target, () => ({
+      cape: false, maximumCount: 2, admit() {},
+      complete(files, error) { assert.deepEqual(files, []); assert.equal(error, null); completions++; },
+    }), doc);
+    target.dispatchEvent(Object.assign(new Event("pointerdown", { cancelable: true }), { pointerType: "touch", button: 0 }));
+    assert.equal(opened(), false, "touch pickers wait for the release activation");
+    if (end !== "teardown") target.dispatchEvent(new Event(end, { cancelable: true }));
+    stop();
+    assert.equal(completions, 1);
+    target.dispatchEvent(new Event("touchend"));
+    assert.equal(opened(), false);
+  }
+});
+
+test("non-import presses and secondary pointers keep ordinary input", () => {
+  const target = new EventTarget();
+  let requests = 0, propagated = 0;
+  const stop = dressingPickerEdges(target, () => { requests++; return null; }, fixture().doc);
+  const events = [
+    Object.assign(new Event("pointerdown", { cancelable: true }), { button: 0, isPrimary: true }),
+    Object.assign(new Event("pointerdown", { cancelable: true }), { button: 2, isPrimary: true }),
+    Object.assign(new Event("pointerdown", { cancelable: true }), { button: 0, isPrimary: false }),
+  ];
+  target.addEventListener("pointerdown", () => { propagated++; });
+  for (const event of events) {
+    target.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
+  }
+  stop();
+  assert.equal(requests, 1);
+  assert.equal(propagated, events.length);
+});

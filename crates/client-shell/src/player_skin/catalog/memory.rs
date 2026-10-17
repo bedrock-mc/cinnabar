@@ -40,6 +40,16 @@ pub(crate) fn load(fallback: &LocalPlayerSkin) -> DressingRoomView {
     }
 }
 
+/// Uses the retained session skin when optional starter skins are not loaded.
+pub(crate) fn deletion_fallback(skins: &[DressingRoomSkin]) -> Result<usize, String> {
+    super::deletion_fallback(skins).or_else(|error| {
+        skins
+            .iter()
+            .position(|entry| !entry.imported && entry.id.starts_with(SESSION_SKIN_ID_PREFIX))
+            .ok_or(error)
+    })
+}
+
 /// Keeps a partially decoded archive private until every entry has passed validation.
 pub(crate) struct Import {
     next: DressingRoomView,

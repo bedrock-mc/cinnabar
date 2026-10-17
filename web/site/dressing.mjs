@@ -65,25 +65,68 @@ export function pickSkinFiles(cape, admit, maximumCount, signal, doc = document)
 /** Owns the gesture bridge; the host hit-tests this event against its current menu state. */
 export function dressingPickerEdges(target, intent, doc = document) {
   const controller = new AbortController();
-  const listenerOptions = { capture: true };
+  const listenerOptions = { capture: true, passive: false };
   let active = false;
-  /** Reserves a catalog ticket and opens its picker before returning from the user gesture. */
-  const gesture = (event) => {
-    if (active || (event.type === "keydown" && !["Enter", " "].includes(event.key))) return;
-    const request = intent(event);
-    if (!request) return;
+  let pointer = null;
+  /** Keeps every edge of a reserved activation out of ordinary menu input. */
+  const consume = (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
+  };
+  /** Opens a reserved ticket while this event still has browser user activation. */
+  const open = (request) => {
     active = true;
     pickSkinFiles(request.cape, (metadata) => request.admit(metadata), request.maximumCount, controller.signal, doc)
       .then((files) => request.complete(files, null), (error) => request.complete([], String(error.message || error)))
       .finally(() => { active = false; });
   };
-  target.addEventListener("click", gesture, listenerOptions);
-  target.addEventListener("keydown", gesture, listenerOptions);
+  /** Reserves before a frame can process the press; touch and pen activate on release. */
+  const press = (event) => {
+    if (event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+    if (active || pointer?.down) { if (pointer) consume(event); return; }
+    pointer = null;
+    const request = intent(event);
+    if (!request) return;
+    consume(event);
+    const onRelease = event.type === "touchstart" || ["touch", "pen"].includes(event.pointerType);
+    pointer = { down: true, request: onRelease ? request : null };
+    if (!onRelease) open(request);
+  };
+  /** Consumes compatibility releases and opens a deferred touch or pen picker once. */
+  const release = (event) => {
+    if (!pointer || event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+    consume(event);
+    pointer.down = false;
+    const request = pointer.request;
+    pointer.request = null;
+    if (request) open(request);
+  };
+  /** Cancels a touch reservation that never reached its release activation. */
+  const cancel = (event) => {
+    if (event?.isPrimary === false) return;
+    if (pointer && event) consume(event);
+    const request = pointer?.request;
+    pointer = null;
+    request?.complete([], null);
+  };
+  /** Handles keyboard and standalone clicks without repeating a pointer reservation. */
+  const gesture = (event) => {
+    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+    if (event.type === "click" && pointer) { consume(event); pointer = null; return; }
+    if (active || pointer) return;
+    const request = intent(event);
+    if (request) { consume(event); open(request); }
+  };
+  const listeners = [
+    ["pointerdown", press], ["mousedown", press], ["touchstart", press],
+    ["pointerup", release], ["mouseup", release], ["touchend", release],
+    ["pointercancel", cancel], ["touchcancel", cancel],
+    ["click", gesture], ["keydown", gesture],
+  ];
+  for (const [name, listener] of listeners) target.addEventListener(name, listener, listenerOptions);
   return () => {
-    target.removeEventListener("click", gesture, listenerOptions);
-    target.removeEventListener("keydown", gesture, listenerOptions);
+    for (const [name, listener] of listeners) target.removeEventListener(name, listener, listenerOptions);
+    cancel();
     controller.abort();
   };
 }
