@@ -1,13 +1,19 @@
 //! The page's single relay driver. Host observations own clocks, timers and presentation.
+use crate::launcher::RelayAccount;
 use futures::{
     FutureExt, StreamExt,
     channel::{mpsc, oneshot},
 };
-use std::{cell::Cell, future::Future, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    future::Future,
+    rc::Rc,
+    time::Duration,
+};
 use web_transport::{
     CloseReason, RelayTransport,
-    control::refusal_message,
-    session::{AccountOperation, ControlEvent, Session, State},
+    control::connection_refusal_message,
+    session::{AccountOperation, ControlEvent, RequestRefusal, Session, State},
 };
 
 /// Bounds control opening and account writes with the same host-owned deadline.
@@ -24,6 +30,43 @@ pub(crate) enum Refresh {
     Fresh,
 }
 
+/// Tags account intent at issuance, before the driver can observe a lifecycle change.
+#[derive(Default)]
+pub(crate) struct Intent {
+    refresh: Cell<Refresh>,
+    generation: Cell<u64>,
+}
+
+impl Intent {
+    /// Invalidates old commands immediately when the page requests a fresh session.
+    pub(crate) fn request(&self, refresh: Refresh) {
+        if matches!(refresh, Refresh::Fresh) {
+            self.generation.set(
+                self.generation
+                    .get()
+                    .checked_add(1)
+                    .expect("session generation exhausted"),
+            );
+        }
+        self.refresh.set(refresh);
+    }
+
+    /// Associates one account command with the session selected by the page.
+    pub(crate) fn account(&self, operation: AccountOperation) -> AccountCommand {
+        AccountCommand {
+            generation: self.generation.get(),
+            operation,
+        }
+    }
+}
+
+/// Account commands stay bound to their issuing session through every queue.
+#[derive(Debug)]
+pub(crate) struct AccountCommand {
+    generation: u64,
+    operation: AccountOperation,
+}
+
 /// Browser services supplied only at composition, keeping the driver testable without JS.
 pub(crate) trait Host {
     type Transport: RelayTransport<Stream: 'static> + 'static;
@@ -35,24 +78,20 @@ pub(crate) trait Host {
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()>;
     /// Creates candidates without performing a second account or gameplay implementation.
     fn transports(&self) -> Result<(Option<Self::Transport>, Self::Transport), CloseReason>;
-    /// Reconciles menu presentation after a fresh or resumed account handshake.
-    fn connected(&self, _resumed: bool, _pending: Option<AccountOperation>) {}
-    /// Mirrors the admitted coalesced account operation into menu presentation.
-    fn account_operation(&self, _operation: AccountOperation) {}
-    /// Supplies the menu's account owner with the same validated control observation.
-    fn control(&self, _event: &ControlEvent) {}
     /// Emits only typed, sanitized page observations.
     fn observe(&self, event: serde_json::Value);
+    /// Shares the menu's account presentation with the retained session driver.
+    fn account(&self) -> &RefCell<RelayAccount>;
 }
 
 /// Runs selection, backoff and account control on one retained session until disposal.
 pub(crate) async fn run<H: Host>(
     host: H,
-    mut pending: mpsc::Receiver<AccountOperation>,
+    mut pending: mpsc::Receiver<AccountCommand>,
     mut joins: mpsc::Receiver<play::Request<<H::Transport as RelayTransport>::Stream>>,
     mut changed: mpsc::Receiver<()>,
     paused: Rc<Cell<bool>>,
-    refresh: Rc<Cell<Refresh>>,
+    intent: Rc<Intent>,
     cancelled: oneshot::Receiver<()>,
 ) {
     let mut session = Session::new();
@@ -61,6 +100,7 @@ pub(crate) async fn run<H: Host>(
     let mut requested: Option<play::Request<<H::Transport as RelayTransport>::Stream>> = None;
     let mut playing: Option<play::Active> = None;
     let sign_out_deadline = Cell::new(None::<Duration>);
+    let mut generation = 0;
     loop {
         let ready = matches!(session.state(), State::Ready(_) | State::Playing(_));
         let writing = ready && session.has_account_intent();
@@ -71,7 +111,7 @@ pub(crate) async fn run<H: Host>(
         enum Action<S> {
             Dispose,
             Lifecycle,
-            Account(Option<AccountOperation>),
+            Account(Option<AccountCommand>),
             Join(Option<play::Request<S>>),
             PlayEnded,
             Step(Result<(), CloseReason>),
@@ -135,7 +175,7 @@ pub(crate) async fn run<H: Host>(
                     } else {
                         event.await?
                     };
-                    host.control(&event);
+                    host.account().borrow_mut().observe(&event);
                     match event {
                         ControlEvent::Account(account) => {
                             if matches!(
@@ -152,9 +192,17 @@ pub(crate) async fn run<H: Host>(
                         ControlEvent::Connect(connect) => {
                             host.observe(serde_json::json!({"connect": connect}))
                         }
-                        ControlEvent::Error(code) => host.observe(
-                            serde_json::json!({"code": code, "error": refusal_message(code)}),
-                        ),
+                        ControlEvent::RequestRefused(refusal) => {
+                            let code = match refusal {
+                                RequestRefusal::RetrySignIn => {
+                                    bridge::contract::RefusalCode::AdmissionRefused
+                                }
+                                RequestRefusal::Refused(code) => code,
+                            };
+                            host.observe(
+                                serde_json::json!({"code": code, "error": refusal.message()}),
+                            );
+                        }
                         ControlEvent::Keepalive => {}
                     }
                 } else {
@@ -176,7 +224,13 @@ pub(crate) async fn run<H: Host>(
                         || host.jitter(),
                     )
                     .await?;
-                    host.connected(session.resumed_account(), session.pending_account());
+                    if !session.resumed_account() {
+                        let mut account = host.account().borrow_mut();
+                        account.fresh_session();
+                        if let Some(operation) = session.pending_account() {
+                            account.restore_operation(operation);
+                        }
+                    }
                     host.observe(serde_json::json!({"state": "connected"}));
                 }
                 Ok(())
@@ -202,6 +256,7 @@ pub(crate) async fn run<H: Host>(
                     result = step.as_mut().fuse() => Action::Step(result),
                 };
                 match action {
+                    Action::Account(Some(command)) if command.generation != generation => {}
                     // Keep the Hello/Welcome future alive until its bearer has been stored.
                     Action::Account(Some(operation)) if !ready && !parked => {
                         queued_account = Some(operation);
@@ -211,11 +266,12 @@ pub(crate) async fn run<H: Host>(
                     }
                     Action::Lifecycle
                         if !paused.get()
-                            && matches!(refresh.get(), Refresh::Reconnect)
+                            && matches!(intent.refresh.get(), Refresh::Reconnect)
+                            && intent.generation.get() == generation
                             && (ready || handshaking.get()) =>
                     {
                         while changed.try_recv().is_ok() {}
-                        refresh.set(Refresh::None);
+                        intent.refresh.set(Refresh::None);
                         halted = false;
                     }
                     _ => break action,
@@ -244,17 +300,21 @@ pub(crate) async fn run<H: Host>(
                 session.close(CloseReason::Transport);
                 playing = None;
                 sign_out_deadline.set(None);
-                match refresh.replace(Refresh::None) {
-                    Refresh::Fresh => {
-                        session.fresh_session();
-                        queued_account = None;
-                        halted = false;
+                let refresh = intent.refresh.replace(Refresh::None);
+                if generation != intent.generation.get() {
+                    generation = intent.generation.get();
+                    session.fresh_session();
+                    host.account().borrow_mut().fresh_session();
+                    halted = false;
+                } else {
+                    host.account().borrow_mut().disconnected();
+                    match refresh {
+                        Refresh::Reconnect => {
+                            session.restart_retries();
+                            halted = false;
+                        }
+                        Refresh::None | Refresh::Fresh => {}
                     }
-                    Refresh::Reconnect => {
-                        session.restart_retries();
-                        halted = false;
-                    }
-                    Refresh::None => {}
                 }
             }
             Action::Account(Some(operation)) => queued_account = Some(operation),
@@ -264,8 +324,9 @@ pub(crate) async fn run<H: Host>(
                 session.close(reason);
                 playing = None;
                 sign_out_deadline.set(None);
+                host.account().borrow_mut().disconnected();
                 if let Some(code) = session.refusal() {
-                    host.observe(serde_json::json!({"state": "refused", "code": code, "error": refusal_message(code)}));
+                    host.observe(serde_json::json!({"state": "refused", "code": code, "error": connection_refusal_message(code)}));
                 } else if session.next_retry() == Err(CloseReason::RetryExhausted) {
                     host.observe(serde_json::json!({"state": "retry_exhausted", "error": "Reconnect attempts exhausted. Connect relay to retry."}));
                 } else {
@@ -273,20 +334,26 @@ pub(crate) async fn run<H: Host>(
                 }
             }
         }
-        if let Some(mut operation) = queued_account {
-            while let Ok(next) = pending.try_recv() {
-                operation = next;
+        if let Some(command) = queued_account {
+            let latest = std::iter::once(command)
+                .chain(std::iter::from_fn(|| pending.try_recv().ok()))
+                .filter(|command| command.generation == generation)
+                .last();
+            if let Some(command) = latest {
+                halted = command.operation == AccountOperation::SignOut;
+                sign_out_deadline.set(halted.then(|| host.now().saturating_add(CONTROL_DEADLINE)));
+                if halted && let Some(active) = playing.as_mut() {
+                    active.cancel.take();
+                }
+                session.desire_account(command.operation);
+                host.account()
+                    .borrow_mut()
+                    .restore_operation(command.operation);
             }
-            halted = operation == AccountOperation::SignOut;
-            sign_out_deadline.set(halted.then(|| host.now().saturating_add(CONTROL_DEADLINE)));
-            if halted && let Some(active) = playing.as_mut() {
-                active.cancel.take();
-            }
-            host.account_operation(operation);
-            session.desire_account(operation);
         }
     }
     session.close(CloseReason::Cancelled);
+    host.account().borrow_mut().disconnected();
 }
 
 #[cfg(test)]

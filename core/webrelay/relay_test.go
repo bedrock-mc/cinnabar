@@ -39,33 +39,41 @@ func testRelay(t *testing.T) *Relay {
 	return relay
 }
 
+// testWelcome requires a capability response from the current controller.
+func testWelcome(t *testing.T, relay *Relay, controller *sessionController, refresh bool, now time.Time) controlEvent {
+	t.Helper()
+	event, err := relay.welcome(controller, refresh, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event
+}
+
 func TestResumeRotatesAcrossNetworksAndExpires(t *testing.T) {
 	relay := testRelay(t)
 	now := time.Now()
 	first := netip.MustParseAddr("192.0.2.1")
 	second := netip.MustParseAddr("198.51.100.1")
-	session, detach, err := relay.openControl(first, "", now)
+	controller, detach, err := relay.openControl(first, "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := session.token
-	generation := session.generation
-	if _, _, err := relay.openControl(second, token, now); !errors.Is(err, errResume) {
-		t.Fatal("second controller accepted", err)
-	}
-	detach(now)
+	token := controller.session.token
+	generation := controller.generation
+	oldDetach := detach
 	resumed, detach, err := relay.openControl(second, token, now.Add(time.Second))
-	if err != nil || resumed != session || resumed.token == token || resumed.generation <= generation || relay.perIP[first] != 0 {
+	if err != nil || resumed.session != controller.session || resumed.session.token == token || resumed.generation <= generation || relay.perIP[first] != 0 {
 		t.Fatal("resume did not rotate and migrate", err)
 	}
-	if _, _, err := relay.playSession(nil, hello{Resume: resumed.token, Generation: generation}, now); !errors.Is(err, errResume) {
+	oldDetach(now)
+	if _, _, err := relay.playSession(nil, hello{Resume: resumed.session.token, Generation: generation}, now); !errors.Is(err, errResume) {
 		t.Fatal("stale play generation admitted")
 	}
-	_, playCtx, err := relay.playSession(nil, hello{Resume: resumed.token, Generation: resumed.generation}, now)
+	_, playCtx, err := relay.playSession(nil, hello{Resume: resumed.session.token, Generation: resumed.generation}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token = resumed.token
+	token = resumed.session.token
 	detach(now)
 	if playCtx.Err() == nil {
 		t.Fatal("closing control did not cancel play")
@@ -123,32 +131,32 @@ func TestAccountChangesRejectStaleSignInAndSecondPlay(t *testing.T) {
 	}, Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 		return nil, errors.New("cancelled")
 	}}
-	session, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	controller, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = session.SignIn(); err != nil {
+	if err = controller.session.SignIn(); err != nil {
 		t.Fatal(err)
 	}
 	<-started
-	if err = session.SignOut(); err != nil {
+	if err = controller.session.SignOut(); err != nil {
 		t.Fatal(err)
 	}
 	close(release)
-	session.signIns.Wait()
-	if state, _ := session.Auth(); state.State != control.AuthSignedOut {
+	controller.session.signIns.Wait()
+	if state, _ := controller.session.Auth(); state.State != control.AuthSignedOut {
 		t.Fatal("stale sign-in published after sign-out")
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); err != nil {
+	if _, err = controller.session.beginPlay(t.Context(), controller.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); !errors.Is(err, errSessionBusy) {
+	if _, err = controller.session.beginPlay(t.Context(), controller.ctx); !errors.Is(err, errSessionBusy) {
 		t.Fatal("second play admitted")
 	}
-	if err = session.SignOut(); !errors.Is(err, errSessionBusy) {
+	if err = controller.session.SignOut(); !errors.Is(err, errSessionBusy) {
 		t.Fatal("active handler replaced")
 	}
-	session.endPlay()
+	controller.session.endPlay()
 }
 
 // bufferConn presents fragmented reads with in-memory writes and no deadline side effects.

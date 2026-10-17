@@ -84,8 +84,8 @@ pub(crate) fn parse(frame: &[u8]) -> Result<Event, CloseReason> {
     serde_json::from_slice(frame).map_err(|_| CloseReason::Protocol)
 }
 
-/// Gives the player a useful outcome without exposing a provider or transport error string.
-pub fn refusal_message(code: RefusalCode) -> &'static str {
+/// Explains a failed control handshake without exposing provider or transport error strings.
+pub fn connection_refusal_message(code: RefusalCode) -> &'static str {
     match code {
         RefusalCode::ResumeRefused => {
             "Session expired or refused. Start a new session to sign in again."

@@ -1,5 +1,5 @@
 //! Browser-local control driver and verified asset download admission.
-use crate::relay::{self, Host, Refresh};
+use crate::relay::{self, AccountCommand, Host, Intent, Refresh};
 use assets::carriers::startup::delivery::{DeliveryManifest, MemoryCarriers};
 use futures::channel::{mpsc, oneshot};
 use js_sys::Function;
@@ -47,31 +47,18 @@ impl Host for BrowserHost {
             BrowserTransport::new(&self.origin, false)?,
         ))
     }
-    fn connected(&self, resumed: bool, pending: Option<AccountOperation>) {
-        if !resumed {
-            let mut account = self.account.borrow_mut();
-            account.fresh_session();
-            if let Some(operation) = pending {
-                account.restore_operation(operation);
-            }
-        }
-    }
-    fn account_operation(&self, operation: AccountOperation) {
-        self.account.borrow_mut().restore_operation(operation);
-    }
-    fn control(&self, event: &web_transport::session::ControlEvent) {
-        let _ = self.account.borrow_mut().observe(event);
-    }
     fn observe(&self, value: serde_json::Value) {
         if let Some(state) = value.get("state").and_then(serde_json::Value::as_str) {
             if state == "connected" {
                 self.ready.set(true);
             } else if matches!(state, "disconnected" | "refused" | "retry_exhausted") {
                 self.ready.set(false);
-                self.account.borrow_mut().disconnected();
             }
         }
         emit(&self.observe, value);
+    }
+    fn account(&self) -> &RefCell<crate::launcher::RelayAccount> {
+        &self.account
     }
 }
 
@@ -81,11 +68,11 @@ pub struct Page {
     ready: Rc<Cell<bool>>,
     account: Rc<RefCell<crate::launcher::RelayAccount>>,
     observe: Function,
-    commands: mpsc::Sender<AccountOperation>,
+    commands: mpsc::Sender<AccountCommand>,
     joins: mpsc::Sender<crate::play::Request<web_transport::browser::BrowserStream>>,
     lifecycle: mpsc::Sender<()>,
     suspended: Rc<Cell<bool>>,
-    refresh: Rc<Cell<Refresh>>,
+    intent: Rc<Intent>,
     _cancel: oneshot::Sender<()>,
 }
 
@@ -100,7 +87,7 @@ impl Page {
         let (joins, requests) = mpsc::channel(1);
         let (lifecycle, changed) = mpsc::channel(1);
         let suspended = Rc::new(Cell::new(false));
-        let refresh = Rc::new(Cell::new(Refresh::None));
+        let intent = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
         spawn_local(relay::run(
             BrowserHost {
@@ -113,7 +100,7 @@ impl Page {
             requests,
             changed,
             Rc::clone(&suspended),
-            Rc::clone(&refresh),
+            Rc::clone(&intent),
             cancelled,
         ));
         Ok(Page {
@@ -124,18 +111,19 @@ impl Page {
             joins,
             lifecycle,
             suspended,
-            refresh,
+            intent,
             _cancel: cancel,
         })
     }
     /// Retries control with this page's retained account capability.
     pub fn reconnect(&mut self) {
-        self.refresh.set(Refresh::Reconnect);
+        self.intent.request(Refresh::Reconnect);
         let _ = self.lifecycle.try_send(());
     }
     /// Starts an explicitly fresh account session after resume was refused or expired.
     pub fn fresh_session(&mut self) {
-        self.refresh.set(Refresh::Fresh);
+        self.account.borrow_mut().fresh_session();
+        self.intent.request(Refresh::Fresh);
         let _ = self.lifecycle.try_send(());
     }
     /// Coalesces sign-in intent in the shared controller after bounded command admission.
@@ -208,7 +196,7 @@ impl Page {
     /// Refuses additional UI actions while the controller's command slot is full.
     fn command(&mut self, operation: AccountOperation) -> Result<(), JsError> {
         self.commands
-            .try_send(operation)
+            .try_send(self.intent.account(operation))
             .map_err(|_| JsError::new("relay busy or disconnected"))
     }
 

@@ -13,17 +13,19 @@ use web_transport::Channel;
 
 #[derive(Default)]
 struct Observations {
+    account: RefCell<RelayAccount>,
     now: Cell<Duration>,
     opens: Cell<usize>,
     closes: Cell<usize>,
     refused: Cell<bool>,
     live: Cell<bool>,
     hold_welcome: Cell<bool>,
+    hold_writes: Cell<bool>,
     failed: Cell<bool>,
     cancelled_timers: Cell<usize>,
     output: RefCell<Vec<u8>>,
+    incoming: RefCell<VecDeque<u8>>,
     events: RefCell<Vec<Value>>,
-    control_input: RefCell<VecDeque<u8>>,
 }
 struct FakeHost(Rc<Observations>);
 struct Transport(Rc<Observations>);
@@ -39,12 +41,12 @@ impl AsyncRead for Stream {
         _: &mut Context<'_>,
         output: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if self.control && self.input.is_empty() {
-            let host = Rc::clone(&self.host);
-            self.input.extend(host.control_input.borrow_mut().drain(..));
-        }
         if !self.input.is_empty() && self.host.hold_welcome.get() {
             return Poll::Pending;
+        }
+        if self.control && self.input.is_empty() {
+            let incoming: VecDeque<_> = self.host.incoming.borrow_mut().drain(..).collect();
+            self.input.extend(incoming);
         }
         if self.input.is_empty() && self.host.live.get() {
             return Poll::Pending;
@@ -64,6 +66,9 @@ impl AsyncWrite for Stream {
         _: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.host.hold_writes.get() {
+            return Poll::Pending;
+        }
         self.host.output.borrow_mut().extend_from_slice(data);
         Poll::Ready(Ok(data.len()))
     }
@@ -156,6 +161,9 @@ impl Host for FakeHost {
     fn observe(&self, event: Value) {
         self.0.events.borrow_mut().push(event);
     }
+    fn account(&self) -> &RefCell<RelayAccount> {
+        &self.0.account
+    }
 }
 
 /// Reads complete client Hello frames so reconnect assertions cover the real wire output.
@@ -171,15 +179,168 @@ fn requests(host: &Observations) -> Vec<Value> {
     requests
 }
 
+/// Delivers one relay event through the production framing and typed decoder.
+fn deliver(host: &Observations, event: Value) {
+    let frame = serde_json::to_vec(&event).unwrap();
+    host.incoming
+        .borrow_mut()
+        .extend((frame.len() as u32).to_be_bytes());
+    host.incoming.borrow_mut().extend(frame);
+}
+
+#[test]
+fn menu_tracks_typed_events_across_suspend_and_resume() {
+    use ::launcher::menu::auth::AuthState;
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    host.hold_welcome.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let (mut lifecycle, changed) = mpsc::channel(1);
+    let refresh = Rc::new(Intent::default());
+    let paused = Rc::new(Cell::new(false));
+    let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::clone(&paused),
+        Rc::clone(&refresh),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    host.hold_welcome.set(false);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(host.account.borrow().state(), AuthState::Checking);
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"awaiting_code", "verification_uri":"https://example.invalid/device", "user_code":"TEST-CODE"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(matches!(
+        host.account.borrow().state(),
+        AuthState::AwaitingCode { .. }
+    ));
+    deliver(&host, json!({"type":"error", "error":"admission_refused"}));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        host.account
+            .borrow()
+            .operation_error()
+            .unwrap()
+            .contains("Use Sign in to retry")
+    );
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(host.account.borrow().operation_error().is_none());
+    deliver(
+        &host,
+        json!({"type":"connect", "connect":{"stage":"packs", "packs_done":1, "packs_total":2}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(host.account.borrow().join_stage().is_some());
+    deliver(&host, json!({"type":"connect", "connect":{"stage":""}}));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(host.account.borrow().join_stage().is_none());
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"signed_in", "gamertag":"Fixture"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(host.account.borrow().state(), AuthState::Authenticated);
+    paused.set(true);
+    lifecycle.try_send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(host.account.borrow().profile().gamertag.is_empty());
+    host.now.set(Duration::from_secs(2));
+    paused.set(false);
+    lifecycle.try_send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(requests(&host).last().unwrap()["resume"], "retained");
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"signed_in", "gamertag":"Fixture"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(host.account.borrow().state(), AuthState::Authenticated);
+    cancel.send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_ready());
+    assert!(host.account.borrow().profile().gamertag.is_empty());
+}
+
+#[test]
+fn menu_fresh_session_restores_only_the_current_generation_command() {
+    use ::launcher::menu::auth::AuthState;
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let (mut lifecycle, changed) = mpsc::channel(1);
+    let refresh = Rc::new(Intent::default());
+    let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&refresh),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    host.hold_writes.set(true);
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
+    refresh.request(Refresh::Fresh);
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    lifecycle.try_send(()).unwrap();
+    host.hold_writes.set(false);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let written = requests(&host);
+    assert_eq!(written.len(), 4);
+    assert!(written[2].get("resume").is_none());
+    assert_eq!(written[3]["op"], "sign_in");
+    assert_eq!(host.account.borrow().state(), AuthState::Checking);
+    host.account
+        .borrow_mut()
+        .request(::launcher::menu::auth::AccountIntent::Cancel);
+    assert_eq!(
+        host.account.borrow_mut().take_operation(),
+        Some(AccountOperation::SignOut)
+    );
+    cancel.send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_ready());
+}
+
 #[test]
 fn driver_reconnects_with_the_same_bearer_and_cancels_backoff_on_navigation() {
     let host = Rc::new(Observations::default());
     let (_commands, pending) = mpsc::channel(4);
     let (mut lifecycle, changed) = mpsc::channel(1);
     let paused = Rc::new(Cell::new(false));
-    let refresh = Rc::new(Cell::new(Refresh::None));
-    let (_joins, join_requests) = mpsc::channel(1);
+    let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
@@ -224,9 +385,9 @@ fn refusal_requires_an_explicit_fresh_session() {
     host.refused.set(true);
     let (_commands, pending) = mpsc::channel(4);
     let (mut lifecycle, changed) = mpsc::channel(1);
-    let refresh = Rc::new(Cell::new(Refresh::None));
-    let (_joins, join_requests) = mpsc::channel(1);
+    let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
@@ -246,12 +407,12 @@ fn refusal_requires_an_explicit_fresh_session() {
             .iter()
             .any(|event| event["code"] == "resume_refused")
     );
-    refresh.set(Refresh::Reconnect);
+    refresh.request(Refresh::Reconnect);
     lifecycle.try_send(()).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
     assert_eq!(host.opens.get(), 1);
     host.refused.set(false);
-    refresh.set(Refresh::Fresh);
+    refresh.request(Refresh::Fresh);
     lifecycle.try_send(()).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
     assert_eq!(host.opens.get(), 2);
@@ -265,24 +426,29 @@ fn account_writes_leave_the_command_lane_available_and_sign_out_stops_retries() 
     let host = Rc::new(Observations::default());
     host.live.set(true);
     let (mut commands, pending) = mpsc::channel(4);
+    let refresh = Rc::new(Intent::default());
     let (_lifecycle, changed) = mpsc::channel(1);
-    let (_joins, join_requests) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
         join_requests,
         changed,
         Rc::new(Cell::new(false)),
-        Rc::new(Cell::new(Refresh::None)),
+        Rc::clone(&refresh),
         cancelled,
     );
     let mut task = Box::pin(task);
     let mut cx = Context::from_waker(std::task::Waker::noop());
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    commands.try_send(AccountOperation::SignIn).unwrap();
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    commands.try_send(AccountOperation::SignOut).unwrap();
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
     let written = requests(&host);
     assert_eq!(written[1]["op"], "sign_in");
@@ -304,6 +470,7 @@ fn account_commands_during_setup_preserve_the_handshake_and_coalesce() {
             host.live.set(true);
             host.hold_welcome.set(!restored);
             let (mut commands, pending) = mpsc::channel(4);
+            let refresh = Rc::new(Intent::default());
             let (mut lifecycle, changed) = mpsc::channel(1);
             let paused = Rc::new(Cell::new(false));
             let (cancel, cancelled) = oneshot::channel();
@@ -314,7 +481,7 @@ fn account_commands_during_setup_preserve_the_handshake_and_coalesce() {
                 join_requests,
                 changed,
                 Rc::clone(&paused),
-                Rc::new(Cell::new(Refresh::None)),
+                Rc::clone(&refresh),
                 cancelled,
             ));
             let mut cx = Context::from_waker(std::task::Waker::noop());
@@ -337,7 +504,7 @@ fn account_commands_during_setup_preserve_the_handshake_and_coalesce() {
                 AccountOperation::SignOut,
                 operation,
             ] {
-                commands.try_send(next).unwrap();
+                commands.try_send(refresh.account(next)).unwrap();
                 assert!(task.as_mut().poll(&mut cx).is_pending());
                 assert_eq!(host.opens.get(), opens);
                 assert_eq!(host.closes.get(), closes);
@@ -378,7 +545,7 @@ fn explicit_reconnect_retains_the_current_controller() {
         host.hold_welcome.set(handshaking);
         let (mut commands, pending) = mpsc::channel(4);
         let (mut lifecycle, changed) = mpsc::channel(1);
-        let refresh = Rc::new(Cell::new(Refresh::None));
+        let refresh = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
         let (_joins, join_requests) = mpsc::channel(1);
         let mut task = Box::pin(run(
@@ -393,7 +560,7 @@ fn explicit_reconnect_retains_the_current_controller() {
         let mut cx = Context::from_waker(std::task::Waker::noop());
         assert!(task.as_mut().poll(&mut cx).is_pending());
         for _ in 0..3 {
-            refresh.set(Refresh::Reconnect);
+            refresh.request(Refresh::Reconnect);
             lifecycle.try_send(()).unwrap();
             lifecycle.try_send(()).unwrap();
             assert!(task.as_mut().poll(&mut cx).is_pending());
@@ -401,7 +568,9 @@ fn explicit_reconnect_retains_the_current_controller() {
             assert_eq!(host.closes.get(), 0);
         }
         host.hold_welcome.set(false);
-        commands.try_send(AccountOperation::SignIn).unwrap();
+        commands
+            .try_send(refresh.account(AccountOperation::SignIn))
+            .unwrap();
         assert!(task.as_mut().poll(&mut cx).is_pending());
         assert_eq!(requests(&host)[1]["op"], "sign_in");
         cancel.send(()).unwrap();
@@ -417,7 +586,7 @@ fn fresh_session_discards_account_intent_queued_during_setup() {
     host.hold_welcome.set(true);
     let (mut commands, pending) = mpsc::channel(4);
     let (mut lifecycle, changed) = mpsc::channel(1);
-    let refresh = Rc::new(Cell::new(Refresh::None));
+    let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
     let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
@@ -431,9 +600,11 @@ fn fresh_session_discards_account_intent_queued_during_setup() {
     ));
     let mut cx = Context::from_waker(std::task::Waker::noop());
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    commands.try_send(AccountOperation::SignOut).unwrap();
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    refresh.set(Refresh::Fresh);
+    refresh.request(Refresh::Fresh);
     lifecycle.try_send(()).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
     assert_eq!(host.opens.get(), 2);
@@ -452,10 +623,111 @@ fn fresh_session_discards_account_intent_queued_during_setup() {
 }
 
 #[test]
-fn sign_out_queued_before_opening_is_sent_before_retries_stop() {
+fn fresh_session_discards_account_commands_pending_behind_a_blocked_write() {
+    for operation in [AccountOperation::SignIn, AccountOperation::SignOut] {
+        let host = Rc::new(Observations::default());
+        host.live.set(true);
+        let (mut commands, pending) = mpsc::channel(4);
+        let (mut lifecycle, changed) = mpsc::channel(1);
+        let refresh = Rc::new(Intent::default());
+        let (cancel, cancelled) = oneshot::channel();
+        let (_joins, join_requests) = mpsc::channel(1);
+        let mut task = Box::pin(run(
+            FakeHost(Rc::clone(&host)),
+            pending,
+            join_requests,
+            changed,
+            Rc::new(Cell::new(false)),
+            Rc::clone(&refresh),
+            cancelled,
+        ));
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        host.hold_writes.set(true);
+        commands
+            .try_send(refresh.account(AccountOperation::SignIn))
+            .unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        commands.try_send(refresh.account(operation)).unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        refresh.request(Refresh::Fresh);
+        lifecycle.try_send(()).unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        host.hold_writes.set(false);
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        let written = requests(&host);
+        assert_eq!(written.len(), 2, "only the old and fresh Hello may be sent");
+        assert!(
+            written
+                .iter()
+                .all(|request| request.get("resume").is_none())
+        );
+        commands
+            .try_send(refresh.account(AccountOperation::SignIn))
+            .unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(requests(&host).last().unwrap()["op"], "sign_in");
+        cancel.send(()).unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_ready());
+    }
+}
+
+#[test]
+fn fresh_session_preserves_only_intent_issued_after_the_latest_reset() {
     let host = Rc::new(Observations::default());
+    host.live.set(true);
+    host.hold_welcome.set(true);
     let (mut commands, pending) = mpsc::channel(4);
-    commands.try_send(AccountOperation::SignOut).unwrap();
+    let (mut lifecycle, changed) = mpsc::channel(1);
+    let refresh = Rc::new(Intent::default());
+    let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&refresh),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    refresh.request(Refresh::Fresh);
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    refresh.request(Refresh::Fresh);
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
+    refresh.request(Refresh::Reconnect);
+    lifecycle.try_send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    host.hold_welcome.set(false);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let written = requests(&host);
+    assert_eq!(written.len(), 3);
+    assert!(
+        written[..2]
+            .iter()
+            .all(|request| request.get("resume").is_none())
+    );
+    assert_eq!(written[2]["op"], "sign_out");
+    cancel.send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_ready());
+}
+
+#[test]
+fn sign_in_admission_refusal_directs_a_working_request_retry() {
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let refresh = Rc::new(Intent::default());
     let (_lifecycle, changed) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
     let (_joins, join_requests) = mpsc::channel(1);
@@ -465,7 +737,67 @@ fn sign_out_queued_before_opening_is_sent_before_retries_stop() {
         join_requests,
         changed,
         Rc::new(Cell::new(false)),
-        Rc::new(Cell::new(Refresh::None)),
+        Rc::clone(&refresh),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let error = serde_json::to_vec(&json!({"type":"error", "error":"admission_refused"})).unwrap();
+    host.incoming
+        .borrow_mut()
+        .extend((error.len() as u32).to_be_bytes());
+    host.incoming.borrow_mut().extend(error);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let event = host.events.borrow().last().unwrap().clone();
+    assert_eq!(event["code"], "admission_refused");
+    assert!(
+        event["error"]
+            .as_str()
+            .unwrap()
+            .contains("Use Sign in to retry")
+    );
+    commands
+        .try_send(refresh.account(AccountOperation::SignIn))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(
+        host.opens.get(),
+        1,
+        "request retry keeps the ready controller"
+    );
+    assert_eq!(
+        requests(&host)
+            .iter()
+            .filter(|request| request["op"] == "sign_in")
+            .count(),
+        2
+    );
+    cancel.send(()).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_ready());
+}
+
+#[test]
+fn sign_out_queued_before_opening_is_sent_before_retries_stop() {
+    let host = Rc::new(Observations::default());
+    let (mut commands, pending) = mpsc::channel(4);
+    let refresh = Rc::new(Intent::default());
+    commands
+        .try_send(refresh.account(AccountOperation::SignOut))
+        .unwrap();
+    let (_lifecycle, changed) = mpsc::channel(1);
+    let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&refresh),
         cancelled,
     ));
     let mut cx = Context::from_waker(std::task::Waker::noop());
@@ -487,15 +819,15 @@ fn repeated_transport_loss_stops_at_the_shared_retry_ceiling() {
     host.failed.set(true);
     let (_commands, pending) = mpsc::channel(4);
     let (_lifecycle, changed) = mpsc::channel(1);
-    let (_joins, join_requests) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
         join_requests,
         changed,
         Rc::new(Cell::new(false)),
-        Rc::new(Cell::new(Refresh::None)),
+        Rc::new(Intent::default()),
         cancelled,
     );
     let mut task = Box::pin(task);
@@ -515,133 +847,4 @@ fn repeated_transport_loss_stops_at_the_shared_retry_ceiling() {
     assert!(task.as_mut().poll(&mut cx).is_ready());
 }
 
-#[test]
-fn play_lease_uses_the_account_session_and_retires_before_the_next_join() {
-    let host = Rc::new(Observations::default());
-    host.live.set(true);
-    let (_commands, pending) = mpsc::channel(4);
-    let (mut joins, join_requests) = mpsc::channel(1);
-    let (_lifecycle, changed) = mpsc::channel(1);
-    let (_cancel, cancelled) = oneshot::channel();
-    let mut task = Box::pin(run(
-        FakeHost(Rc::clone(&host)),
-        pending,
-        join_requests,
-        changed,
-        Rc::new(Cell::new(false)),
-        Rc::new(Cell::new(Refresh::None)),
-        cancelled,
-    ));
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let (reply, response) = oneshot::channel();
-    joins.try_send(play::Request { reply }).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let lease = response.now_or_never().unwrap().unwrap().unwrap();
-    assert_eq!(host.opens.get(), 2);
-    let hello = requests(&host);
-    assert_eq!(hello[1]["channel"], bridge::contract::RELAY_CHANNEL_PLAY);
-    assert_eq!(hello[1]["resume"], "retained");
-    assert_eq!(hello[1]["generation"], 1);
-    let (reply, response) = oneshot::channel();
-    joins.try_send(play::Request { reply }).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert!(matches!(
-        response.now_or_never(),
-        Some(Ok(Err(CloseReason::Protocol)))
-    ));
-    assert_eq!(host.opens.get(), 2);
-    drop(lease);
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    host.now.set(Duration::from_millis(1250));
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(host.opens.get(), 3);
-    let hello = requests(&host);
-    assert_eq!(hello[2]["resume"], "retained");
-}
-
-#[test]
-fn navigation_cancels_the_game_task_without_waiting_for_play_io() {
-    let host = Rc::new(Observations::default());
-    host.live.set(true);
-    let (_commands, pending) = mpsc::channel(4);
-    let (mut joins, join_requests) = mpsc::channel(1);
-    let (mut lifecycle, changed) = mpsc::channel(1);
-    let paused = Rc::new(Cell::new(false));
-    let (_cancel, cancelled) = oneshot::channel();
-    let mut task = Box::pin(run(
-        FakeHost(Rc::clone(&host)),
-        pending,
-        join_requests,
-        changed,
-        Rc::clone(&paused),
-        Rc::new(Cell::new(Refresh::None)),
-        cancelled,
-    ));
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let (reply, response) = oneshot::channel();
-    joins.try_send(play::Request { reply }).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let (_, mut guard) = response
-        .now_or_never()
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .into_parts();
-    assert!(guard.cancelled().now_or_never().is_none());
-    paused.set(true);
-    lifecycle.try_send(()).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert!(guard.cancelled().now_or_never().is_some());
-    assert_eq!(host.opens.get(), 2);
-}
-
-#[test]
-fn sign_out_keeps_control_until_confirmation_after_the_game_releases_play() {
-    let host = Rc::new(Observations::default());
-    host.live.set(true);
-    let (mut commands, pending) = mpsc::channel(4);
-    let (mut joins, join_requests) = mpsc::channel(1);
-    let (_lifecycle, changed) = mpsc::channel(1);
-    let (_cancel, cancelled) = oneshot::channel();
-    let mut task = Box::pin(run(
-        FakeHost(Rc::clone(&host)),
-        pending,
-        join_requests,
-        changed,
-        Rc::new(Cell::new(false)),
-        Rc::new(Cell::new(Refresh::None)),
-        cancelled,
-    ));
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let (reply, response) = oneshot::channel();
-    joins.try_send(play::Request { reply }).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    let (_, mut guard) = response
-        .now_or_never()
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .into_parts();
-    commands.try_send(AccountOperation::SignOut).unwrap();
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert!(guard.cancelled().now_or_never().is_some());
-    drop(guard);
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(
-        host.closes.get(),
-        0,
-        "play retirement must retain the sign-out exchange"
-    );
-    let event =
-        serde_json::to_vec(&json!({"type":"account", "account":{"state":"signed_out"}})).unwrap();
-    host.control_input
-        .borrow_mut()
-        .extend((event.len() as u32).to_be_bytes());
-    host.control_input.borrow_mut().extend(event);
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(host.closes.get(), 1);
-    assert_eq!(host.opens.get(), 2, "sign-out must not retry control");
-}
+mod leases;

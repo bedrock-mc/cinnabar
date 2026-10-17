@@ -1,4 +1,4 @@
-use super::session::{AccountOperation, ControlEvent};
+use super::session::{AccountOperation, ControlEvent, RequestRefusal};
 use super::*;
 use bridge::{BridgeCodec, contract::*};
 use bytes::{Bytes, BytesMut};
@@ -303,17 +303,21 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
     session.close(CloseReason::Transport);
     let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "d", 20)), false);
     let output = transport.written.clone();
-    select(
-        &mut session,
-        None,
-        || transport,
-        || Duration::from_secs(100),
-        std::future::pending,
-    )
-    .await
-    .unwrap();
+    assert_eq!(
+        select(
+            &mut session,
+            None,
+            || transport,
+            || Duration::from_secs(100),
+            std::future::pending,
+            || Duration::ZERO,
+        )
+        .await,
+        Err(CloseReason::Refused)
+    );
+    assert!(sent(&output).is_empty());
+    session.fresh_session();
     assert!(!session.resumed_account());
-    assert_eq!(sent(&output)[0]["resume"], "");
 }
 
 #[tokio::test]
@@ -611,4 +615,47 @@ async fn admission_refusal_keeps_the_account_for_an_explicit_retry() {
     .await
     .unwrap();
     assert_eq!(sent(&output)[0]["resume"], "account");
+}
+
+#[tokio::test]
+async fn request_refusals_keep_control_ready_and_identify_the_retry_action() {
+    for (code, expected) in [
+        (RefusalCode::AdmissionRefused, RequestRefusal::RetrySignIn),
+        (
+            RefusalCode::Refused,
+            RequestRefusal::Refused(RefusalCode::Refused),
+        ),
+    ] {
+        let mut input = wire(capability(RELAY_EVENT_WELCOME, "account", 120));
+        input.extend(wire(json!({"type":"error", "error":code})));
+        let transport = fake(input, false);
+        let output = transport.written.clone();
+        let mut session = Session::new();
+        select(
+            &mut session,
+            None,
+            || transport,
+            || Duration::ZERO,
+            std::future::pending,
+            || Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        session.desire_account(AccountOperation::SignIn);
+        session.flush_account().await.unwrap();
+        assert_eq!(
+            session.next_event(|| Duration::ZERO).await.unwrap(),
+            ControlEvent::RequestRefused(expected)
+        );
+        assert!(matches!(session.state(), State::Ready(_)));
+        assert!(!session.has_account_intent());
+        assert_eq!(session.refusal(), None);
+        assert_eq!(session.resume(Duration::ZERO), "account");
+        session.desire_account(AccountOperation::SignIn);
+        session.flush_account().await.unwrap();
+        let written = sent(&output);
+        assert_eq!(written.len(), 3);
+        assert_eq!(written[1]["op"], RELAY_OP_SIGN_IN);
+        assert_eq!(written[2]["op"], RELAY_OP_SIGN_IN);
+    }
 }
