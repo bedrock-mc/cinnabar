@@ -74,13 +74,16 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::Loading(stage) => stage.is_world_entry(),
         Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. } => false,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     #[cfg(feature = "test-support")]
-    let craft_icons = matches!(&fixture, Fixture::CraftOverlap { .. })
-        .then(|| crafting::icons(&mut carriers.pages))
-        .transpose()?;
+    let craft_icons = matches!(
+        &fixture,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability
+    )
+    .then(|| crafting::icons(&mut carriers.pages))
+    .transpose()?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
         state.size,
@@ -106,6 +109,12 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
+        #[cfg(feature = "test-support")]
+        Fixture::CursorDurability => {
+            let mut engine = json_engine(&carriers)?;
+            crafting::paint_cursor(&engine, &carriers.lang, &craft_icons.unwrap(), &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { selected } => {
             let mut engine = json_engine(&carriers)?;
