@@ -1,4 +1,5 @@
-//! Recoverable allocations owned by actor rendering. Other GPU errors remain fatal.
+//! Recoverable render allocations: out-of-memory skips the owner's work instead of
+//! quitting. Other GPU errors remain fatal.
 
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
@@ -29,7 +30,7 @@ pub(crate) fn checked<T>(
     }
 }
 
-/// Logs the first failure of each actor allocation owner without repeating every frame.
+/// Logs the first failure of each allocation owner without repeating every frame.
 fn warn_once(label: &str, bytes: u64) {
     static WARNED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
         std::sync::OnceLock::new();
@@ -42,7 +43,7 @@ fn warn_once(label: &str, bytes: u64) {
         bevy::log::warn!(
             label,
             bytes,
-            "actor GPU allocation failed; retaining resources or skipping this publication"
+            "GPU allocation failed; retaining resources or skipping this publication"
         );
     }
 }
@@ -51,7 +52,7 @@ fn warn_once(label: &str, bytes: u64) {
 pub(crate) fn buffer(device: &RenderDevice, descriptor: &BufferDescriptor<'_>) -> Option<Buffer> {
     checked(
         device,
-        descriptor.label.unwrap_or("actor buffer"),
+        descriptor.label.unwrap_or("unlabeled buffer"),
         descriptor.size,
         || device.create_buffer(descriptor),
     )
