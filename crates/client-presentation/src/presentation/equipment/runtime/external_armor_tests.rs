@@ -251,17 +251,17 @@ fn custom_content_external_armor_keeps_startup_draw_when_family_rejects_owner() 
         frame_alpha: 1.0,
         delta_seconds: 0.05,
     });
-    let with_pack = runtime.layers_for(&body, &input, animation);
+    let with_pack: Vec<_> = runtime
+        .layers_for(&body, &input, animation)
+        .iter()
+        .map(|layer| (layer.submission.input.rig, layer.submission.texture_layer))
+        .collect();
     runtime.set_pack_layer(None);
-    let startup = runtime.layers_for(&body, &input, animation);
+    let startup: Vec<_> = runtime
+        .layers_for(&body, &input, animation)
+        .iter()
+        .map(|layer| (layer.submission.input.rig, layer.submission.texture_layer))
+        .collect();
     assert_eq!(startup.len(), 1);
-    assert_eq!(with_pack.len(), 1);
-    assert_eq!(
-        with_pack[0].submission.input.rig,
-        startup[0].submission.input.rig
-    );
-    assert_eq!(
-        with_pack[0].submission.texture_layer,
-        startup[0].submission.texture_layer
-    );
+    assert_eq!(with_pack, startup);
 }
