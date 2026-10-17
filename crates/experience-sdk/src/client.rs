@@ -62,6 +62,9 @@ pub trait ClientPart {
     /// content changed length. Changes are coalesced, so this is the latest range. A client part
     /// can bind only the rows a scroll view shows, and lay a fixed grid over it.
     fn scroll_changed(_view: String, _range: ui::ScrollRange) {}
+
+    /// Handles `shift-changed`: Shift is now `held`, or not, while the modal has focus.
+    fn shift_changed(_held: bool) {}
 }
 
 /// Sends `record` on the to-server `channel`. The host checks it against the channel's
@@ -124,6 +127,10 @@ macro_rules! export_client_part {
 
             fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
                 <$ty as $crate::client::ClientPart>::scroll_changed(view, range)
+            }
+
+            fn shift_changed(held: bool) {
+                <$ty as $crate::client::ClientPart>::shift_changed(held)
             }
         }
 

@@ -262,7 +262,7 @@ impl items::Host for State {
 
 /// The guest's callbacks. A component built against 1.0 exports only `init` and `dispatch`;
 /// 1.1 adds `action` and `epoch`, both or neither; 1.2 its three editing callbacks, all or none;
-/// 1.3 `scroll-changed`.
+/// 1.3 `scroll-changed`; then `shift-changed`.
 struct Exports {
     dispatch: Func,
     events: Option<(Func, Func)>,
@@ -270,6 +270,7 @@ struct Exports {
     editing: Option<(Func, Func, Func)>,
     /// 1.3's `scroll-changed`.
     scrolled: Option<Func>,
+    shift: Option<Func>,
 }
 
 impl Exports {
@@ -288,6 +289,7 @@ impl Exports {
             find("secondary-action"),
         );
         let scrolled = find("scroll-changed");
+        let shift = find("shift-changed");
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
         };
@@ -317,6 +319,9 @@ impl Exports {
         if let Some(scrolled) = &scrolled {
             scrolled.typed::<(&str, ScrollRange), ()>(&*store)?;
         }
+        if let Some(shift) = &shift {
+            shift.typed::<(bool,), ()>(&*store)?;
+        }
         Ok((
             init,
             Self {
@@ -324,6 +329,7 @@ impl Exports {
                 events,
                 editing,
                 scrolled,
+                shift,
             },
         ))
     }
@@ -458,6 +464,9 @@ impl BundleHost {
         {
             ensure!(state.capabilities.may_deliver(id), "action not granted");
         }
+        if let Event::Shift { .. } = event {
+            ensure!(state.capabilities.may_read_input(), "input not granted");
+        }
         if let Event::Resized { size } = event {
             state.gui = Some(*size);
         }
@@ -578,6 +587,14 @@ impl BundleHost {
                     };
                     scrolled.call(&mut *store, (view, range))?;
                     scrolled.post_return(store)
+                }
+                None => Ok(()),
+            },
+            (Event::Shift { held }, _) => match &self.exports.shift {
+                Some(shift) => {
+                    let shift = shift.typed::<(bool,), ()>(&*store)?;
+                    shift.call(&mut *store, (*held,))?;
+                    shift.post_return(store)
                 }
                 None => Ok(()),
             },

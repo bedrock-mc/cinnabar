@@ -169,6 +169,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     stopped: None,
                     callback: "init",
                     items_sent: None,
+                    shift: false,
                 },
             )
         })
@@ -865,8 +866,107 @@ fn scroll_ranges_coalesce_for_declared_views_only() {
     assert!(!live.scroll_changed("bundle0.pick", range(54.0)));
 }
 
-/// A secondary press (a right click) reaches the open bundle as its own event, only for a
-/// declared action, as primary presses do.
+/// Shift reaches the open bundle only when it changes, a change still waiting being replaced, so
+/// a quick tap queues its release alone.
+#[test]
+fn shift_reaches_the_open_bundle_when_it_changes() {
+    let mut live = opened();
+    assert!(!live.shift_changed(false));
+    assert!(live.shift_changed(true));
+    assert!(!live.shift_changed(true));
+    assert!(live.shift_changed(false));
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Shift { held: false }]
+    );
+    live.close_modal();
+    assert!(!live.shift_changed(true));
+}
+
+/// Closing while held queues release, so reopening can deliver a fresh press.
+#[test]
+fn closing_a_held_modal_releases_shift_before_reopening() {
+    let mut live = opened();
+    assert!(live.shift_changed(true));
+    live.close_modal();
+    assert!(!live.instances["bundle0"].shift);
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Shift { held: false }]
+    );
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .contributions
+        .modal
+        .open(Some(SCREEN.into()));
+    assert!(
+        live.shift_changed(true),
+        "reopening while held needs a fresh transition"
+    );
+}
+
+/// Moving modal focus retires the previous bundle's held modifier state.
+#[test]
+fn replacing_a_held_modal_releases_the_previous_bundle() {
+    let mut live = fixture(2);
+    live.ready = true;
+    for (order, bundle) in ["bundle0", "bundle1"].into_iter().enumerate() {
+        let instance = live.instances.get_mut(bundle).unwrap();
+        instance.contributions.modal.open(Some(SCREEN.into()));
+        instance.opened = order as u64 + 1;
+    }
+    assert!(live.shift_changed(true));
+    assert!(live.instances["bundle1"].shift);
+    live.instances.get_mut("bundle0").unwrap().opened = 3;
+    assert!(live.shift_changed(true));
+    assert!(live.instances["bundle0"].shift);
+    assert!(!live.instances["bundle1"].shift);
+    assert_eq!(
+        live.instances["bundle1"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Shift { held: false }]
+    );
+}
+
+/// A closed bundle retries its pending release after other events free queue capacity.
+#[test]
+fn a_full_queue_retries_shift_release_after_modal_close() {
+    let mut live = opened();
+    assert!(live.shift_changed(true));
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.events.clear();
+    while live.press("bundle0.pick", None) {}
+    live.close_modal();
+    assert!(
+        live.instances["bundle0"].shift,
+        "the full queue still owes release"
+    );
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .events
+        .pop_front();
+    assert!(live.shift_changed(false));
+    assert!(!live.instances["bundle0"].shift);
+    assert!(matches!(
+        live.instances["bundle0"].events.back(),
+        Some(Event::Shift { held: false })
+    ));
+}
+
+/// A secondary press reaches only declared actions.
 #[test]
 fn secondary_presses_reach_only_declared_actions() {
     let mut live = opened();

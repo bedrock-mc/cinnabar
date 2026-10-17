@@ -141,7 +141,12 @@ impl Capabilities {
     /// Whether a modal control may deliver `action` to this guest: declared in the manifest and
     /// granted `input`.
     pub fn may_deliver(&self, action: &str) -> bool {
-        self.scope.permissions.contains(&Permission::Input) && self.actions.contains(action)
+        self.may_read_input() && self.actions.contains(action)
+    }
+
+    /// Whether the guest is granted `input`, which modal input edges such as Shift need.
+    pub fn may_read_input(&self) -> bool {
+        self.scope.permissions.contains(&Permission::Input)
     }
 
     /// Validates a staged operation on both sides of the helper boundary.
