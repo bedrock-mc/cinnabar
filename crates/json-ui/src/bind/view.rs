@@ -15,7 +15,7 @@ use crate::predicate::{self, Scalar};
 
 /// Changed-value notifications followed in one refresh, as the client's bag
 /// setter bounds its nesting.
-const VIEW_PASSES: usize = 20;
+pub(super) const VIEW_PASSES: usize = 20;
 /// Rounds of settling views then building the subtrees they revealed.
 const EXPANSION_ROUNDS: usize = 8;
 
@@ -177,6 +177,7 @@ impl Binder<'_> {
                 source.ok()
             })
             .collect();
+        self.notify_creation_inputs(root, &list, &sources);
         // Without a fixed point last bind, every view runs as if new.
         let unchanged = self.state.views_settled;
         for _ in 0..VIEW_PASSES {
@@ -192,6 +193,66 @@ impl Binder<'_> {
             }
         }
         (missed, false)
+    }
+
+    /// Delivers changed creation inputs to their readers before ordinary settling,
+    /// including chains whose declaration order runs opposite their data flow.
+    fn notify_creation_inputs(
+        &mut self,
+        root: &mut Node,
+        list: &[(Path, usize)],
+        sources: &[Option<Path>],
+    ) {
+        let mut queued = HashSet::new();
+        let mut pending = VecDeque::new();
+        for (path, _) in list {
+            let node = node_at_mut(root, path);
+            for name in std::mem::take(&mut node.memory.creation_writes) {
+                let input = (node.key, name);
+                if queued.insert(input.clone()) {
+                    pending.push_back(input);
+                }
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
+        let mut readers = HashMap::<_, Vec<usize>>::new();
+        for (slot, ((path, index), source)) in list.iter().zip(sources).enumerate() {
+            let Some(source) = source else { continue };
+            let Kind::View {
+                source: expression, ..
+            } = &node_at(root, path).bindings[*index].kind
+            else {
+                continue;
+            };
+            for name in expression.properties() {
+                readers
+                    .entry((node_at(root, source).key, name.to_owned()))
+                    .or_default()
+                    .push(slot);
+            }
+        }
+        let mut remaining = VIEW_PASSES.saturating_mul(list.len());
+        while let Some(input) = pending.pop_front() {
+            queued.remove(&input);
+            for &slot in readers.get(&input).into_iter().flatten() {
+                if remaining == 0 {
+                    return;
+                }
+                remaining -= 1;
+                let (path, index) = &list[slot];
+                if self.notify(root, path, *index, sources[slot].as_deref()) {
+                    let node = node_at(root, path);
+                    if let Kind::View { target, .. } = &node.bindings[*index].kind {
+                        let output = (node.key, target.clone());
+                        if queued.insert(output.clone()) {
+                            pending.push_back(output);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Skips a settled view only when its control, source identity and controller reads stand.
@@ -292,7 +353,9 @@ impl Binder<'_> {
         let mut wrote = false;
         node.track.touched |= first;
         if source.is_some() {
-            let fire = observed.is_some() && node.memory.views.get(&index) != Some(&observed);
+            let refreshed = observed.is_some() && node.memory.creation_views.remove(&index);
+            let fire = observed.is_some()
+                && (refreshed || node.memory.views.get(&index) != Some(&observed));
             if !registered || node.memory.views.get(&index) != Some(&observed) {
                 node.memory.views.insert(index, observed.clone());
                 node.track.touched = true;

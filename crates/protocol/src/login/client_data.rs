@@ -179,6 +179,7 @@ pub(crate) fn login_client_data(
         "PersonaSkin": false,
         "PieceTintColors": [],
         "PremiumSkin": false,
+        "ProfileHash": "",
         "SkinAnimationData": "",
         "SkinColor": "#b37b62",
         "SkinData": skin_data,
@@ -449,6 +450,19 @@ mod tests {
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
+    }
+
+    /// Classic skins still need an explicit empty profile hash for PocketMine login validation.
+    #[test]
+    fn classic_skin_logins_include_an_empty_profile_hash() {
+        let claims = login_client_data(
+            "Fixture",
+            ClientRandomId::new(1).unwrap(),
+            None,
+            &LoginSettings::default(),
+        );
+        assert_eq!(claims["PersonaSkin"], false);
+        assert_eq!(claims["ProfileHash"].as_str(), Some(""));
     }
 
     /// Login validation requires a supported memory tier and explicit gameplay editor claims.

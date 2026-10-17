@@ -79,6 +79,8 @@ impl CustomBox {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomBlockVisuals {
     pub base: CustomVisualComponents,
+    /// Authored inventory geometry and materials, independent of placed-state transforms.
+    pub item_visual: Option<CustomVisualComponents>,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
     /// Block states in palette order: placement trait states, then properties in list order.
@@ -520,9 +522,13 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     let mut states = 1_u64;
     let mut state_axes = Vec::new();
     let mut state_identity_incomplete = false;
-    let enabled = root
-        .list("traits")
-        .iter()
+    let traits = match root.field("traits") {
+        Some(Nbt::List(traits)) => traits.iter().collect::<Vec<_>>(),
+        Some(Nbt::Compound(traits)) => traits.iter().map(|(_, value)| value).collect(),
+        _ => Vec::new(),
+    };
+    let enabled = traits
+        .into_iter()
         .flat_map(|trait_| {
             trait_
                 .field("enabled_states")
@@ -618,6 +624,16 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         player_interact: player_interact(components),
         visual: CustomBlockVisuals {
             base: visual_components(components),
+            item_visual: components
+                .and_then(|components| components.field("minecraft:item_visual"))
+                .filter(|item| matches!(item, Nbt::Compound(_)))
+                .map(|item| {
+                    visual_descriptions(
+                        None,
+                        item.field("geometryDescription"),
+                        item.field("materialInstancesDescription"),
+                    )
+                }),
             permutations,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
@@ -640,7 +656,19 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     let Some(components) = components else {
         return CustomVisualComponents::default();
     };
-    let geometry_component = components.field("minecraft:geometry");
+    visual_descriptions(
+        Some(components),
+        components.field("minecraft:geometry"),
+        components.field("minecraft:material_instances"),
+    )
+}
+
+/// Reads geometry and material descriptions shared by placed and inventory visuals.
+fn visual_descriptions(
+    components: Option<&Nbt>,
+    geometry_component: Option<&Nbt>,
+    material_component: Option<&Nbt>,
+) -> CustomVisualComponents {
     let geometry = match geometry_component {
         Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
         Some(compound) => match compound.field("identifier") {
@@ -670,8 +698,7 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                 .collect(),
             _ => Box::default(),
         };
-    let materials = components
-        .field("minecraft:material_instances")
+    let materials = material_component
         .and_then(|instances| match instances.field("materials") {
             Some(Nbt::Compound(fields)) => Some(fields),
             _ => None,
@@ -718,10 +745,10 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                 })
                 .collect()
         });
-    let transformation = transformation_component(Some(components));
+    let transformation = transformation_component(components);
     let nibble = |key: &str, field: &str| {
         components
-            .field(key)
+            .and_then(|components| components.field(key))
             // Native descriptions serialize a compound with a named byte field.
             // Keep scalar definitions supported for servers using the JSON shape.
             .and_then(|component| component.field(field).unwrap_or(component).number())
@@ -730,7 +757,7 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     };
     CustomVisualComponents {
         random_offset: components
-            .field("minecraft:random_offset")
+            .and_then(|components| components.field("minecraft:random_offset"))
             .and_then(random_offset_component),
         geometry,
         geometry_use_block_type_light_absorption: matches!(
@@ -772,6 +799,11 @@ fn state_value(value: &Nbt) -> Option<CustomStateValue> {
 
 fn enabled_flags(value: &Nbt) -> Vec<String> {
     match value {
+        Nbt::List(states) => states
+            .iter()
+            .filter_map(Nbt::as_str)
+            .map(str::to_owned)
+            .collect(),
         Nbt::Compound(fields) => fields
             .iter()
             .filter(|(_, value)| value.number().is_some_and(|flag| flag != 0.0))

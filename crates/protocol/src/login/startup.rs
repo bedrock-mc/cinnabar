@@ -64,8 +64,8 @@ impl DeferredPackets {
 /// first item registry, the radius reply and PlayerSpawn have all arrived, leaving every deferred
 /// packet ahead of unread ones. `on_startup` receives the first StartGame and item registry as soon
 /// as both have arrived, while the sequence keeps reading. Dropping the future cancels it.
-pub(super) async fn await_spawn(
-    transport: &mut SessionTransport,
+pub(super) async fn await_spawn<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
     view_distance_chunks: u8,
     on_startup: impl FnOnce(StartGame, ItemRegistry),
 ) -> Result<Spawned, ProtocolError> {
@@ -209,7 +209,9 @@ pub(super) fn loading_finished(runtime_id: u64) -> Vec<Packet> {
 
 /// Returns the next startup packet. A usable transfer, from the core or in a batch, ends the join;
 /// an unusable one is skipped. The core's terminal Disconnect ends it with the server's texts.
-async fn recv_startup(transport: &mut SessionTransport) -> Result<RawPacket, ProtocolError> {
+async fn recv_startup<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
+) -> Result<RawPacket, ProtocolError> {
     let mut skipped = 0_u64;
     loop {
         let target = match transport.recv().await? {
@@ -249,14 +251,15 @@ async fn recv_startup(transport: &mut SessionTransport) -> Result<RawPacket, Pro
 
 /// Drains briefly after a failed startup write, reporting a transfer or disconnect that arrived
 /// instead of the write error.
-pub(super) async fn startup_write_failure(
-    transport: &mut SessionTransport,
+pub(super) async fn startup_write_failure<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
     write_error: ProtocolError,
     remaining: Duration,
 ) -> ProtocolError {
-    let deadline = tokio::time::Instant::now() + remaining;
+    let expires = transport.sleep(remaining);
+    tokio::pin!(expires);
     loop {
-        match tokio::time::timeout_at(deadline, recv_startup(transport)).await {
+        match bridge::tasks::until(recv_startup(transport), &mut expires).await {
             Ok(Err(
                 error @ ProtocolError::Session(SessionError(
                     SessionFailure::ServerTransfer(_) | SessionFailure::ServerDisconnect { .. },

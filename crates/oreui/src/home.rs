@@ -135,7 +135,11 @@ fn draw_layout(
         ..CAPTION
     };
     let app = format!("{} {}", launcher::PRODUCT_NAME, launcher::PRODUCT_VERSION);
-    let game = format!("Compatible with Bedrock {}", protocol::GAME_VERSION);
+    let game = format!(
+        "Minecraft {} / Protocol {}",
+        protocol::GAME_VERSION,
+        protocol::PROTOCOL_VERSION
+    );
     if compact_footer {
         let middle = (version_bounds[1] + version_bounds[3]) * 0.5;
         canvas.text_centred(

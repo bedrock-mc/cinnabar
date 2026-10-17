@@ -30,11 +30,15 @@ pub enum Fixture {
         suggestions: Vec<Arc<str>>,
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
+        server_hover: Option<bool>,
     },
     /// The held tab roster's rows.
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// A damaged stack picked up from the survival inventory.
+    #[cfg(feature = "test-support")]
+    CursorDurability,
     /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
     #[cfg(feature = "test-support")]
     CraftOverlap {
@@ -51,6 +55,27 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "inventory-cursor-durability",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CursorDurability,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "chat-server-content-idle",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_server_content(false),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "chat-server-content-hover",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_server_content(true),
+    },
     State {
         name: "home-update-compact",
         size: [480, 640],
@@ -511,6 +536,7 @@ pub const STATES: &[State] = &[
 /// Exercises the native chat collection with an unfinished mention.
 fn chat_mentions() -> Fixture {
     Fixture::Chat {
+        server_hover: None,
         draft: "@",
         suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
         messages: Default::default(),
@@ -521,6 +547,7 @@ fn chat_mentions() -> Fixture {
 /// Exercises the native command completion collection with target candidates.
 fn chat_command_targets() -> Fixture {
     Fixture::Chat {
+        server_hover: None,
         draft: "/give @",
         suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
         messages: Default::default(),
@@ -549,6 +576,7 @@ fn chat_background(percent: i32) -> Fixture {
     })
     .collect();
     Fixture::Chat {
+        server_hover: None,
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
@@ -584,10 +612,31 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     let mut options = SettingsOptions::default();
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {
+        server_hover: None,
         draft,
         suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
         messages: Default::default(),
         options: Arc::new(options),
+    }
+}
+
+/// Keeps encoded message metadata out of history and reveals it through a hover renderer.
+#[cfg(feature = "test-support")]
+fn chat_server_content(hover: bool) -> Fixture {
+    Fixture::Chat {
+        draft: "",
+        suggestions: Vec::new(),
+        messages: [ui::ChatMessage {
+            fifo_sequence: 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: ui_screens::test_support::hover_chat::message().into(),
+            parameters: Arc::from([]),
+        }]
+        .into(),
+        options: Default::default(),
+        server_hover: Some(hover),
     }
 }
 

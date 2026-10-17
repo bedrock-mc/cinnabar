@@ -32,7 +32,12 @@ fn project([x, y, z]: [f32; 3]) -> [f32; 3] {
 pub(super) fn paint(bounds: [f32; 4], page: u16, frame: &mut PaintFrame<'_>) -> Result<(), Error> {
     let mut source = render_model::standard_biped_vertices();
     source.extend(render_model::standard_biped_overlay_vertices());
-    let mut triangles: Vec<_> = source.chunks_exact(3).collect();
+    let mut triangles: Vec<&[render_model::ActorVertex]> = source
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|triangle| triangle.as_slice())
+        .collect();
     triangles.sort_by(|a, b| {
         let depth = |triangle: &[render_model::ActorVertex]| {
             triangle
