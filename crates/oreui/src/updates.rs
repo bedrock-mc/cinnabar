@@ -1,17 +1,17 @@
 //! A corner update pill opens a compact panel without occupying the Play menu.
 use super::{
     paint::{Bounds, Canvas},
-    theme::{CAPTION, EDGE, HEADER5, NEUTRAL80, PRIMARY_ROLE, TEXT, TEXT_DIMMER},
+    theme::{CAPTION, EDGE, NEUTRAL80, PRIMARY_ROLE, TEXT_DIMMER},
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuView, dialogs::Popup};
 use ui_engine::engine::screen::PaintError;
 
 const MARGIN: f32 = 1.6;
-const PILL_WIDTH: f32 = 20.0;
-const PILL_HEIGHT: f32 = 4.4;
-const PANEL_WIDTH: f32 = 36.0;
-const PANEL_HEIGHT: f32 = 14.4;
+const PILL_WIDTH: f32 = 18.0;
+const PILL_HEIGHT: f32 = 3.6;
+const PANEL_WIDTH: f32 = 28.0;
+const PANEL_HEIGHT: f32 = 9.6;
 const GAP: f32 = 0.8;
 
 /// Fits the corner controls inside both the viewport width and height.
@@ -105,22 +105,15 @@ pub(super) fn popover(
             [bounds[0], top, bounds[0] + canvas.r(0.4), bounds[3]],
             PRIMARY_ROLE.fill,
         )?;
-        let pad = canvas.r(1.6);
+        let pad = canvas.r(1.2);
         let x = bounds[0] + pad;
         let right = right - pad;
-        canvas.text_line(&popup.title, [x, top + pad], right - x, HEADER5, TEXT)?;
-        canvas.text_line(
-            &popup.body,
-            [x, top + pad + canvas.r(HEADER5.line + 0.4)],
-            right - x,
-            CAPTION,
-            TEXT_DIMMER,
-        )?;
+        canvas.text_line(&popup.body, [x, top + pad], right - x, CAPTION, TEXT_DIMMER)?;
         let bottom = bounds[3] - pad;
         widgets::button(
             canvas,
             view,
-            [x, bottom - canvas.r(4.8), right, bottom],
+            [x, bottom - canvas.r(4.4), right, bottom],
             Variant::Secondary,
             &popup.button1,
             Some(popup.confirm),
@@ -172,9 +165,25 @@ mod tests {
                     protocol_required: true,
                 });
                 let popup = launcher::menu::updates::popup(view.updates.ready.as_ref());
-                let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
                     popover(canvas, &view, &popup, size).unwrap();
                 });
+                let text: String = nodes
+                    .iter()
+                    .filter_map(|node| match node.visual() {
+                        ui::UiVisual::Text { layout, .. } => Some(
+                            layout
+                                .glyphs()
+                                .iter()
+                                .map(|glyph| glyph.codepoint)
+                                .collect::<String>(),
+                        ),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(text.replace(' ', "").contains("Version2.0.0"));
+                assert!(!text.contains(popup.title.as_str()));
+                assert!(!text.contains("Later"));
                 let actions: Vec<_> = hits
                     .iter()
                     .filter_map(|(action, bounds)| {
