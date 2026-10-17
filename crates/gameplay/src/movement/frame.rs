@@ -244,10 +244,11 @@ impl LocomotionState {
                     analogue_move_vector: analogue_movement,
                     mode_intent: ModeIntent {
                         spectator: facts.spectator,
+                        no_clip: facts.no_clip,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,
-                        server_flying: facts.server_flying,
+                        flight: facts.flight,
                         ability_sequence: facts.ability_sequence,
                         fly_speed: facts.fly_speed,
                         vertical_fly_speed: facts.vertical_fly_speed,

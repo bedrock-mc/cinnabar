@@ -548,6 +548,7 @@ impl LocalPhysicsController {
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
         input.creative_flight = context.mode_intent.creative_flight;
         input.spectator = context.mode_intent.spectator;
+        input.no_clip = context.mode_intent.no_clip;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
