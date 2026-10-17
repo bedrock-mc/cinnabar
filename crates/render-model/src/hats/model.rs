@@ -185,7 +185,10 @@ pub(super) fn build(
             translation_scale: [root[0], root[1], root[2], 1.0],
             axis_scale: crate::UNIT_AXIS_SCALE,
         },
-        Motion::default(),
+        Motion {
+            seconds: rig.playback.as_ref().map_or(0.0, |clip| clip.rest_time()),
+            ..Default::default()
+        },
     );
     let part = crate::STANDARD_BIPED_BONES
         .iter()

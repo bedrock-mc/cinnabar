@@ -12,6 +12,7 @@ use {super::*, launcher::menu::MenuAction};
 fn cosmetic_categories_filter_tiles_and_keep_original_thumbnail_indices() {
     let head = render_model::hats::fixture::bunny();
     let back = render_model::hats::fixture::dragon_wings();
+    let pet = render_model::hats::fixture::shoulder_parrot();
     for category in CosmeticCategory::ALL {
         let mut view = view(STARTER_SKIN_NAMES.len());
         let wardrobe = Arc::make_mut(&mut view.dressing_room);
@@ -24,8 +25,18 @@ fn cosmetic_categories_filter_tiles_and_keep_original_thumbnail_indices() {
                 .visible_cosmetics;
         });
         for (item, included) in [
-            (head, category != CosmeticCategory::Back),
-            (back, category != CosmeticCategory::Head),
+            (
+                head,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Head),
+            ),
+            (
+                back,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Back),
+            ),
+            (
+                pet,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Pet),
+            ),
         ] {
             assert_eq!(
                 hits.iter()

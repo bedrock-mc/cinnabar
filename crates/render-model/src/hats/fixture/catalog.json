@@ -174,9 +174,9 @@
           "bytes": 186
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-          "bytes": 3
+          "url": "/v1/cosmetics/assets/a20796403587346b1032e979e0e5e5d6358aab1e3bff921fe30e537687720392",
+          "sha256": "a20796403587346b1032e979e0e5e5d6358aab1e3bff921fe30e537687720392",
+          "bytes": 40749
         }
       },
       "geometry_id": "geometry.cinnabar.shoulder_parrot",

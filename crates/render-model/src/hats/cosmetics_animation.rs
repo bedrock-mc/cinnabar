@@ -1,4 +1,4 @@
-//! Bounded cosmetic-only rotation clips and continuous span flex in authored mesh coordinates.
+//! Cosmetic transform playback and continuous span flex in authored mesh coordinates.
 use super::*;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -9,7 +9,8 @@ const MAX_FLEX_JOINTS: usize = 512;
 pub(super) struct Animation {
     pub wind: Option<Wind>,
     #[serde(default)]
-    pub animations: BTreeMap<String, Clip>,
+    pub animations: BTreeMap<String, clip_playback::Definition>,
+    pub playback: Option<clip_playback::Sequence>,
     pub tip_flex: Option<TipFlex>,
 }
 #[derive(Deserialize)]
@@ -23,18 +24,6 @@ pub(super) struct Wind {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Clip {
-    pub r#loop: bool,
-    pub animation_length: f32,
-    pub bones: BTreeMap<String, Rotation>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Rotation {
-    pub rotation: BTreeMap<String, [f32; 3]>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct TipFlex {
     start: f32,
     span: f32,
@@ -45,7 +34,7 @@ pub(super) struct TipFlex {
 }
 pub(super) struct Playback {
     pub length: f32,
-    tracks: Vec<Option<Vec<(f32, Vec3)>>>,
+    clips: clip_playback::Clips,
     flex: Option<TipFlex>,
     spans: Vec<Option<Span>>,
 }
@@ -63,48 +52,18 @@ impl Playback {
         parents: &mut Vec<Option<usize>>,
     ) -> Option<Option<Self>> {
         if definition.animations.is_empty() {
-            return definition.tip_flex.is_none().then_some(None);
+            return (definition.tip_flex.is_none() && definition.playback.is_none())
+                .then_some(None);
         }
-        if definition.animations.len() != 1 {
+        if definition.tip_flex.is_some() && definition.playback.is_some() {
             return None;
         }
-        let clip = definition.animations.pop_first()?.1;
-        let length = clip.animation_length;
-        if !clip.r#loop
-            || !length.is_finite()
-            || !(0.1..=60.0).contains(&length)
-            || clip.bones.is_empty()
-            || clip.bones.len() > 32
-        {
-            return None;
-        }
-        let mut tracks = Vec::new();
-        for (name, rotation) in clip.bones {
-            let index = names.iter().position(|n| *n == name)?;
-            if !(2..=256).contains(&rotation.rotation.len()) {
-                return None;
-            }
-            let mut keys = Vec::new();
-            for (time, angles) in rotation.rotation {
-                let time: f32 = time.parse().ok()?;
-                if !time.is_finite()
-                    || !(0.0..=length).contains(&time)
-                    || angles.iter().any(|v| !v.is_finite() || v.abs() > 180.0)
-                {
-                    return None;
-                }
-                keys.push((time, Vec3::from_array(angles.map(f32::to_radians))));
-            }
-            keys.sort_by(|a, b| a.0.total_cmp(&b.0));
-            if keys.first()?.0 != 0.0
-                || keys.last()?.0 != length
-                || keys.first()?.1 != keys.last()?.1
-                || keys.windows(2).any(|k| k[0].0 >= k[1].0)
-            {
-                return None;
-            }
-            tracks.push((index, keys));
-        }
+        let clips = clip_playback::Clips::build(
+            std::mem::take(&mut definition.animations),
+            definition.playback.take(),
+            names,
+        )?;
+        let length = clips.length();
         let mut pivots = geometry.bone_pivots.to_vec();
         let mut vertices = geometry.vertices.to_vec();
         let mut spans = Vec::new();
@@ -131,7 +90,7 @@ impl Playback {
             for (name, sign) in &flex.joints {
                 let parent = names.iter().position(|n| *n == name)?;
                 if ![-1, 1].contains(sign)
-                    || !tracks.iter().any(|(i, _)| *i == parent)
+                    || !clips.has_track(parent)
                     || parents.contains(&Some(parent))
                 {
                     return None;
@@ -179,10 +138,6 @@ impl Playback {
             }
         }
         *geometry = ActorRigGeometry::new(geometry.id, vertices, pivots).ok()?;
-        let mut indexed_tracks = vec![None; parents.len()];
-        for (index, keys) in tracks {
-            indexed_tracks[index] = Some(keys);
-        }
         let mut indexed_spans: Vec<Option<Span>> = (0..parents.len()).map(|_| None).collect();
         for span in spans {
             let index = span.bone;
@@ -190,7 +145,7 @@ impl Playback {
         }
         Some(Some(Self {
             length,
-            tracks: indexed_tracks,
+            clips,
             flex: definition.tip_flex.take(),
             spans: indexed_spans,
         }))
@@ -198,20 +153,25 @@ impl Playback {
 
     /// Samples mirrored authored rotations, reflecting mesh X into the render frame.
     pub fn rotation(&self, bone: usize, seconds: f32) -> Quat {
-        let Some(keys) = self.tracks.get(bone).and_then(Option::as_ref) else {
-            return Quat::IDENTITY;
-        };
-        let time = seconds.rem_euclid(self.length);
-        let upper = keys
-            .partition_point(|key| key.0 <= time)
-            .min(keys.len() - 1);
-        let (a, b) = (keys[upper.saturating_sub(1)], keys[upper]);
-        let angles = if a.0 == b.0 {
-            a.1
-        } else {
-            a.1.lerp(b.1, (time - a.0) / (b.0 - a.0))
-        };
+        let (angles, _) = self.clips.sample(bone, seconds);
+        let angles = angles * (std::f32::consts::PI / 180.0);
         Quat::from_euler(glam::EulerRot::ZYX, -angles.z, -angles.y, angles.x)
+    }
+
+    /// Reflects authored translation pixels into the same local frame as geometry pivots.
+    pub fn translation(&self, bone: usize, seconds: f32) -> Vec3 {
+        let (_, p) = self.clips.sample(bone, seconds);
+        Vec3::new(-p.x, p.y, p.z) / 16.0
+    }
+
+    /// Bounds caller-owned elapsed time without replaying a completed introduction.
+    pub fn normalize(&self, seconds: f64) -> f32 {
+        self.clips.normalize(seconds)
+    }
+
+    /// Chooses a perched initial pose for static gallery artwork.
+    pub fn rest_time(&self) -> f32 {
+        self.clips.rest_time()
     }
 
     /// Evaluates the shared curvature once per pose, in radians per block.

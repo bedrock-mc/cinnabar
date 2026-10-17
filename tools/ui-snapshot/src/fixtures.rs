@@ -775,6 +775,7 @@ fn parrot() -> Fixture {
         let item = render_model::hats::fixture::shoulder_parrot();
         let wardrobe = Arc::make_mut(&mut view.dressing_room);
         wardrobe.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
+        wardrobe.cosmetic_category = launcher::dressing_room::CosmeticCategory::Pet;
         wardrobe
             .selected_cosmetics
             .insert(item.descriptor().slot.clone(), Some(item.id().into()));

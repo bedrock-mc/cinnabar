@@ -89,7 +89,7 @@ macro_rules! wardrobe_tabs {
 }
 
 wardrobe_tabs! { DressingRoomSection { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics" } }
-wardrobe_tabs! { CosmeticCategory { All => "All", Head => "Head", Back => "Back" } }
+wardrobe_tabs! { CosmeticCategory { All => "All", Head => "Head", Back => "Back", Pet => "Pet" } }
 
 impl CosmeticCategory {
     /// Includes every slot in All and the matching equipment slot in each named category.

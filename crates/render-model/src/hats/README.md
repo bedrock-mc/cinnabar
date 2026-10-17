@@ -39,4 +39,11 @@ Open `shoulder_parrot.bbmodel` for the original pet-slot shoulder parrot. Its
 original atlas is embedded and available in `shoulder_parrot.png`. Export with
 `python3 crates/render-model/src/hats/export.py shoulder_parrot`. The body-root
 attachment sits on the shoulder independently of headwear and back cosmetics.
-The head, wings and tail remain separate editable groups; this item is rigid.
+The head, wings and tail remain separate editable groups. Three one-shot timelines
+in the project match `shoulder_parrot.animation.json`: a nearby arrival and flights
+to either shoulder. Its `playback` profile plays the intro once, then repeats a
+cycle of named clips with a delay before each flight. Delays hold the next clip's
+first pose. All clip transitions must have matching joint transforms. Positions
+are authored model pixels; rotations are degrees. Static gallery artwork uses the
+first cycle pose, while world and character previews share caller-owned time.
+Exporting this project also updates its animation channels, preserving the playback profile.

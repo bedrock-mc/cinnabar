@@ -181,4 +181,34 @@ mod tests {
         state.advance(&[], 0.0, 1.0);
         assert!(state.local_motion().is_empty());
     }
+    #[test]
+    fn pet_arrival_restarts_only_after_unequipping() {
+        let pet = render_model::hats::fixture::shoulder_parrot();
+        let hat = render_model::hats::fixture::bunny();
+        let mut state = HatState::default();
+        state.advance(&[pet], 0.0, 0.5);
+        state.advance(&[pet, hat], 0.0, 0.5);
+        assert_eq!(
+            state
+                .local_motion()
+                .into_iter()
+                .find(|(item, _)| *item == pet)
+                .unwrap()
+                .1
+                .seconds,
+            1.0
+        );
+        state.advance(&[hat], 0.0, 0.5);
+        state.advance(&[pet, hat], 0.0, 0.1);
+        assert_eq!(
+            state
+                .local_motion()
+                .into_iter()
+                .find(|(item, _)| *item == pet)
+                .unwrap()
+                .1
+                .seconds,
+            0.1
+        );
+    }
 }

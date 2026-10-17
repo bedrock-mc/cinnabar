@@ -5,13 +5,14 @@ head, back, face, body, pet and aura slots. Geometry, textures and optional join
 are loaded from bounded, SHA-256-checked assets. The catalog includes original bunny
 ears, the crown, rigid red devil horns, animated back-slot dragon wings and a pet-slot
 shoulder parrot; editable artwork and export conformance tests remain available.
-Pets have their own wardrobe tab. Category removal keeps choices in the other tab.
+The parrot stays in Cosmetics, with its existing pet slot exposed by the category filter.
 Each attachment follows its declared bone and offset. World and HUD share local motion.
-Bounded rotation clips and continuous span flex animate wings alongside independent hats,
-using shared immutable geometry and caller-owned looping time.
+Bounded transform clips and continuous span flex animate wings alongside independent hats.
+An optional intro and delayed repeating clip sequence animate the parrot flying in once
+and changing shoulders, using shared immutable geometry and caller-owned time.
 Unknown, unsupported and unowned items render nothing.
 
-The Cosmetics gallery offers All, Head and Back choices through a filter icon beside
+The Cosmetics gallery offers All, Head, Back and Pet choices through a filter icon beside
 Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
 items, retains separate scroll positions and limits thumbnails and keyboard navigation
 to the selected category.

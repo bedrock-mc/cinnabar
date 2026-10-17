@@ -606,15 +606,15 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
             .iter()
             .find(|draw| draw.input.rig == model.geometry.id)
             .unwrap();
-        if item.descriptor().slot == "back" {
+        if ["back", "pet"].contains(&item.descriptor().slot.as_str()) {
             assert_ne!(
                 initial[&model.geometry.id], draw.input.current_bones,
-                "a stationary remote player's wings still flap"
+                "a stationary remote player's cosmetic animations keep advancing"
             );
         } else {
             assert_eq!(
                 initial[&model.geometry.id], draw.input.current_bones,
-                "flapping wings cannot move rigid headwear or pets"
+                "animated cosmetics cannot move rigid headwear"
             );
         }
     }

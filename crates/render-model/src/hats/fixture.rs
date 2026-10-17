@@ -128,7 +128,7 @@ pub fn shoulder_parrot() -> Item {
                 .unwrap(),
             include_bytes!("shoulder_parrot.geo.json"),
             include_bytes!("shoulder_parrot.png"),
-            b"{}\n",
+            include_bytes!("shoulder_parrot.animation.json"),
         )
         .unwrap()
     })

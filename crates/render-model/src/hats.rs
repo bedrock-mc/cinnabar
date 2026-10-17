@@ -106,6 +106,12 @@ impl HatRig {
         for index in 0..self.parents.len() {
             let mut pose = attachment;
             if index == self.head {
+                let delta = self
+                    .playback
+                    .as_ref()
+                    .map_or(Vec3::ZERO, |clip| clip.translation(index, motion.seconds));
+                let position = position + rotation * (delta * scale);
+                pose.translation_scale[..3].copy_from_slice(&position.to_array());
                 pose.rotation = (rotation
                     * self.rest_rotations[index]
                     * self
@@ -126,7 +132,13 @@ impl HatRig {
                         clip.span(index, curvature)
                     });
                 let position = Vec3::from_slice(&parent_pose.translation_scale[..3])
-                    + Quat::from_array(parent_pose.rotation) * ((offset + delta) * scale);
+                    + Quat::from_array(parent_pose.rotation)
+                        * ((offset
+                            + delta
+                            + self.playback.as_ref().map_or(Vec3::ZERO, |clip| {
+                                clip.translation(index, motion.seconds)
+                            }))
+                            * scale);
                 pose.translation_scale[..3].copy_from_slice(&position.to_array());
                 let axis = self
                     .wind
@@ -202,11 +214,11 @@ pub struct Motion {
     pub seconds: f32,
 }
 impl Motion {
-    /// Advances caller-owned looping time; invalid frame deltas leave the phase unchanged.
+    /// Advances caller-owned playback time; invalid frame deltas leave the phase unchanged.
     pub fn advance(&mut self, item: Item, seconds: f32) {
         self.seconds = match &rig(item).playback {
             Some(clip) if seconds.is_finite() && seconds > 0.0 => {
-                (self.seconds + seconds.rem_euclid(clip.length)).rem_euclid(clip.length)
+                clip.normalize(f64::from(self.seconds) + f64::from(seconds))
             }
             Some(_) => self.seconds,
             None => 0.0,
@@ -235,7 +247,7 @@ impl HatPoseCache {
             .playback
             .as_ref()
             .filter(|_| motion.seconds.is_finite())
-            .map_or(0.0, |clip| motion.seconds.rem_euclid(clip.length));
+            .map_or(0.0, |clip| clip.normalize(f64::from(motion.seconds)));
         let key = (item, head, motion);
         if self.key != Some(key) {
             self.pose = model.pose(head, motion);
@@ -247,9 +259,12 @@ impl HatPoseCache {
 
 #[cfg(test)]
 mod animation_tests;
+mod clip_playback;
 mod cosmetics_animation;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture;
+#[cfg(test)]
+mod flight_tests;
 mod model;
 #[cfg(test)]
 mod tests;

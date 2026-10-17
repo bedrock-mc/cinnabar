@@ -580,3 +580,25 @@ fn cosmetic_filter_closes_on_selection_and_back_and_restores_button_focus() {
     )));
     assert!(!menu.dressing_room.cosmetic_filter_open);
 }
+
+#[test]
+fn pet_filter_lists_the_parrot_without_changing_equipped_cosmetics() {
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
+    let pet = render_model::hats::fixture::shoulder_parrot();
+    let hat = render_model::hats::fixture::bunny();
+    let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
+    menu.screen = MenuScreen::DressingRoom;
+    let wardrobe = Arc::make_mut(&mut menu.dressing_room);
+    wardrobe.section = DressingRoomSection::Cosmetics;
+    wardrobe
+        .selected_cosmetics
+        .insert(hat.descriptor().slot.clone(), Some(hat.id().into()));
+    let equipped = wardrobe.selected_cosmetics.clone();
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Pet,
+    )));
+    let focus = menu.dressing_room_focus();
+    assert!(focus.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(pet)))));
+    assert!(!focus.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(hat)))));
+    assert_eq!(menu.dressing_room.selected_cosmetics, equipped);
+}
