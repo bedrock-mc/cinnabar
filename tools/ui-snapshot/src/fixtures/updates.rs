@@ -10,17 +10,5 @@ pub(super) fn home(writable: bool, protocol_required: bool) -> Fixture {
         writable,
         protocol_required,
     });
-    if protocol_required || !writable {
-        view.dialog = Some(launcher::menu::MenuDialog::UpdateNotice);
-    }
     Fixture::Menu(Box::new(view))
-}
-
-/// Shows the writable release after the player opens its corner pill.
-pub(super) fn expanded() -> Fixture {
-    let Fixture::Menu(mut view) = home(true, false) else {
-        unreachable!()
-    };
-    view.dialog = Some(launcher::menu::MenuDialog::UpdateNotice);
-    Fixture::Menu(view)
 }

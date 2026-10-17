@@ -39,12 +39,6 @@ impl Layout {
     ) -> Self {
         let margin = (rem * 3.2).min(size[0] * 0.04).min(size[1] * 0.035);
         let available_width = size[0] - margin * 2.0;
-        let header_height = if update_ready {
-            super::super::updates::header_height(rem, size)
-        } else {
-            0.0
-        };
-        let available_height = size[1] - margin * 2.0 - header_height;
         let width = (rem * 86.0).min(available_width);
         let compact = width < rem * 68.0 || size[1] < rem * 44.0;
         let compact_footer = width < rem * 60.0;
@@ -54,6 +48,12 @@ impl Layout {
             f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))
         });
         let logo_width = (rem * 56.0).min(width * 0.78);
+        let header_height = if update_ready {
+            super::super::updates::header_height(rem, size, logo_width)
+        } else {
+            0.0
+        };
+        let available_height = size[1] - margin * 2.0 - header_height;
         let logo_height = ratio.map_or(rem * 6.4, |ratio| logo_width / ratio);
         let outside = logo_height + rem * (3.2 + footer + version);
         let action_width = width * if compact { 1.0 } else { 0.59 };

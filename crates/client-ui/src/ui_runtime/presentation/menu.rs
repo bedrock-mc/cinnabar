@@ -646,16 +646,6 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
-        MenuDialog::UpdateNotice => view.updates.ready.as_ref().map_or(
-            ("Updates", "", MenuAction::DismissDialog),
-            |ready| {
-                (
-                    ready.title(),
-                    ready.version.as_str(),
-                    MenuAction::Update(ready.action()),
-                )
-            },
-        ),
         MenuDialog::MinecraftImport => (
             view.minecraft_import.title(),
             view.minecraft_import.body(),

@@ -52,18 +52,6 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
     State {
-        name: "home-update-open",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: updates::expanded,
-    },
-    State {
-        name: "home-update-open-small",
-        size: SMALL_SIZE,
-        gui_scale: 1,
-        fixture: updates::expanded,
-    },
-    State {
         name: "home-update-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,

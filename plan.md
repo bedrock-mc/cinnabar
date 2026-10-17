@@ -369,10 +369,9 @@ Windows runtime executables carry `asInvoker` manifests and refuse elevated game
 crash-monitor startup or relaunch. Setup does not launch the game, and MSI Restart Manager
 relaunch is disabled. The machine-wide install identity and custom install folders remain supported.
 
-One client per install owns update checks, Beta/Nightly/Stable channel selection, a corner update
-pill with an explicit Restart and update or Download update action, and a separate default-off
-install-on-quit preference. The release panel closes with an outside click or Back, and a required
-release opens once on the home screen. Signed manifests
+One client per install owns update checks, Beta/Nightly/Stable channel selection, a compact corner
+card with an explicit Restart and update or Download update button, and a separate default-off
+install-on-quit preference. Signed manifests
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.

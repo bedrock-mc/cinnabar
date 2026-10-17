@@ -76,7 +76,6 @@ pub enum MenuServerTab {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuDialog {
-    UpdateNotice,
     MinecraftImport,
     Accounts,
     Exit,
@@ -107,7 +106,6 @@ pub enum MenuField {
 pub enum MenuAction {
     MinecraftImport(crate::minecraft_import::Action),
     Update(updates::Action),
-    OpenUpdateNotice,
     OpenAccounts,
     AddAccount,
     SwitchAccount(usize),

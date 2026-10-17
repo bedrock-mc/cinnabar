@@ -327,14 +327,6 @@ impl MenuRuntime {
         }
         if let Some(dialog) = self.dialog {
             return match dialog {
-                MenuDialog::UpdateNotice => vec![
-                    launcher_host::lifecycle::update::view()
-                        .ready
-                        .as_ref()
-                        .map_or(MenuAction::DismissDialog, |ready| {
-                            MenuAction::Update(ready.action())
-                        }),
-                ],
                 MenuDialog::MinecraftImport => self
                     .minecraft_import
                     .actions()

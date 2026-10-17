@@ -92,8 +92,8 @@ fn assert_fits(
     );
     if update_ready {
         assert!(
-            hits.iter()
-                .any(|(action, _)| *action == MenuAction::OpenUpdateNotice)
+            hits.iter().any(|(action, _)| *action
+                == MenuAction::Update(launcher::menu::updates::Action::Restart))
         );
     }
     for (action, bounds) in targets {

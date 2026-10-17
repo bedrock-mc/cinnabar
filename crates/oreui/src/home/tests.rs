@@ -199,11 +199,12 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
     assert!(text.contains("Updateavailable"));
     assert!(
         hits.iter()
-            .any(|(action, _)| *action == MenuAction::OpenUpdateNotice)
+            .any(|(action, _)| *action
+                == MenuAction::Update(launcher::menu::updates::Action::Restart))
     );
     assert!(
-        !hits
-            .iter()
-            .any(|(action, _)| matches!(action, MenuAction::Update(_)))
+        !hits.iter().any(
+            |(action, _)| *action == MenuAction::Update(launcher::menu::updates::Action::Later)
+        )
     );
 }

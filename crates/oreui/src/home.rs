@@ -34,7 +34,7 @@ pub(super) fn draw(
     let preview = canvas.with_scale(layout.scale, |canvas| {
         draw_layout(canvas, view, size, portrait, translate, layout)
     })?;
-    super::updates::pill(canvas, view, size)?;
+    super::updates::notice(canvas, view, size)?;
     Ok(preview)
 }
 
