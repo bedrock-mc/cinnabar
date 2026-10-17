@@ -48,6 +48,7 @@ fn builder<'a>(
     let policy = assets::texture::policy::device_policy();
     Builder {
         fallback: None,
+        base_keys: None,
         catalog: TextureCatalog::new(view, Some(keys)),
         base_assets: Some(base),
         vanilla_carried: Vec::new(),

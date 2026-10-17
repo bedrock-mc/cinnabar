@@ -270,16 +270,38 @@ fn compile(
 /// A 3D inventory thumbnail of state `visual` of a session block overlay; `None` when it has no
 /// drawable geometry or needs a biome tint.
 #[must_use]
-pub fn overlay_block_icon(overlay: &assets::BlockOverlay, visual: usize) -> Option<IconSprite> {
-    model::Model::overlay(overlay, visual)
+pub fn overlay_block_icon(
+    overlay: &assets::BlockOverlay,
+    visual: usize,
+    base: Option<&assets::RuntimeAssets>,
+) -> Option<IconSprite> {
+    model::Model::overlay(overlay, visual, base, None)
         .ok()
         .map(|model| model.raster())
 }
 
 /// Draws a carried cube from six overlay-local materials without changing its world binding.
 #[must_use]
-pub fn overlay_cube_icon(overlay: &assets::BlockOverlay, faces: [u32; 6]) -> Option<IconSprite> {
-    model::Model::overlay_cube(overlay, faces)
+pub fn overlay_cube_icon(
+    overlay: &assets::BlockOverlay,
+    faces: [u32; 6],
+    base: Option<&assets::RuntimeAssets>,
+) -> Option<IconSprite> {
+    model::Model::overlay_cube(overlay, faces, base)
+        .ok()
+        .map(|model| model.raster())
+}
+
+/// Draws a block thumbnail with explicit carried colours for its biome-tinted materials.
+/// Unresolved tints and unsupported material operations still reject the thumbnail.
+#[must_use]
+pub fn overlay_block_icon_with_tint(
+    overlay: &assets::BlockOverlay,
+    visual: usize,
+    base: Option<&assets::RuntimeAssets>,
+    tint: &dyn Fn(u32) -> Option<[u8; 3]>,
+) -> Option<IconSprite> {
+    model::Model::overlay(overlay, visual, base, Some(tint))
         .ok()
         .map(|model| model.raster())
 }

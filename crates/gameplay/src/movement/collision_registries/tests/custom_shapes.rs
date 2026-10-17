@@ -554,6 +554,7 @@ fn face_facing() -> protocol::CustomBlocks {
             player_interact: false,
             visual: Arc::new(protocol::CustomBlockVisuals {
                 base: protocol::CustomVisualComponents::default(),
+                item_visual: None,
                 permutations: Box::default(),
                 state_axes: Box::new([CustomStateAxis {
                     name: Arc::from("minecraft:block_face"),

@@ -1,3 +1,21 @@
+## Custom block and item texture inheritance
+
+Custom terrain aliases resolve their selected filenames against server packs and the
+installed carrier, retaining destination tint and UV sampling. Inventory thumbnails and
+cube sheets can read borrowed base-page materials. Standalone custom item icons can inherit
+base sprite files without creating replacements for ordinary vanilla items.
+Isolated item texels admit ambient-occlusion and face-dimming flags; baked thumbnails
+honor disabled face dimming. Grass-tinted thumbnails use the winning carried-grass
+overlay colour from the installed pack and server stack; other unresolved tint operations
+remain rejected.
+Block inventory geometry and materials use `minecraft:item_visual` descriptions when
+present, independently of placed-state transforms and world palette offsets. Compound
+placement traits with enabled-state lists retain complete state identities.
+
+Incomplete: full native comparison, additional carried tint families, non-cube custom items held as authored
+three-dimensional models, and hardware performance qualification. These rendering fixes
+do not close a parity gate.
+
 ## Catalog cosmetics
 
 The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and independent

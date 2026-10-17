@@ -22,6 +22,7 @@ struct Face<'a> {
     tile: Cow<'a, [u8]>,
     size: [usize; 2],
     blend: bool,
+    face_dimming: bool,
 }
 
 /// Where a visual's material tiles live.
@@ -30,7 +31,7 @@ enum Textures<'a> {
     /// World carrier pages, indexed by each material's page.
     World(&'a [TexturePage]),
     /// A session overlay's shards, addressed from page one.
-    Overlay(&'a [TextureArray], &'a [u8]),
+    Overlay(&'a [TextureArray], &'a [u8], Option<&'a RuntimeAssets>),
 }
 
 /// Selects the overlay shard a material's reference page addresses.
@@ -45,6 +46,7 @@ struct Parts<'a> {
     templates: &'a [ModelTemplate],
     quads: &'a [ModelQuad],
     textures: Textures<'a>,
+    tint: Option<&'a dyn Fn(u32) -> Option<[u8; 3]>>,
 }
 
 pub(super) struct Model<'a> {
@@ -69,6 +71,7 @@ impl<'a> Model<'a> {
                 tile: Cow::Borrowed(&sprite.rgba8),
                 size: [usize::from(sprite.width), usize::from(sprite.height)],
                 blend: false,
+                face_dimming: true,
             })
             .collect();
         Self {
@@ -98,34 +101,43 @@ impl<'a> Model<'a> {
             templates: world.model_templates(),
             quads: world.model_quads(),
             textures: Textures::World(world.texture_pages()),
+            tint: None,
         };
         let faces = BlockFace::ALL.map(|face| block.face(face).material_id());
         Self::build(parts, block.kind(), faces, block.model_template())
     }
 
     /// State `visual` of a session block overlay.
-    pub(super) fn overlay(overlay: &'a BlockOverlay, visual: usize) -> Result<Self, Reject> {
+    pub(super) fn overlay(
+        overlay: &'a BlockOverlay,
+        visual: usize,
+        base: Option<&'a RuntimeAssets>,
+        tint: Option<&'a dyn Fn(u32) -> Option<[u8; 3]>>,
+    ) -> Result<Self, Reject> {
         let block = overlay.visuals.get(visual).ok_or(Reject::Geometry)?;
-        if overlay.textures.is_empty() {
-            return Err(Reject::Texture);
-        }
         let parts = Parts {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids),
+            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            tint,
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
         Self::build(parts, block.kind, block.faces, template)
     }
 
     /// Draws carried cube faces from overlay pixels without cloning the texture page.
-    pub(super) fn overlay_cube(overlay: &'a BlockOverlay, faces: [u32; 6]) -> Result<Self, Reject> {
+    pub(super) fn overlay_cube(
+        overlay: &'a BlockOverlay,
+        faces: [u32; 6],
+        base: Option<&'a RuntimeAssets>,
+    ) -> Result<Self, Reject> {
         let parts = Parts {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids),
+            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            tint: None,
         };
         Self::build(parts, VisualKind::Cube, faces, None)
     }
@@ -144,9 +156,12 @@ impl<'a> Model<'a> {
                 Ok(Face {
                     corners: quad.corners,
                     uvs: quad.uvs.map(|uv| uv.map(|component| component * uv_scale)),
-                    tile: Cow::Borrowed(tile),
+                    tile,
                     size: [side; 2],
                     blend,
+                    face_dimming: parts.materials[quad.material as usize].flags
+                        & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
+                        == 0,
                 })
             })
             .collect::<Result<Vec<_>, Reject>>()?;
@@ -176,6 +191,7 @@ impl<'a> Model<'a> {
                     tile: Cow::Owned(tile.into_vec()),
                     size: [usize::from(assets::BLOCK_ITEM_FACE_SIDE); 2],
                     blend: blending[face as usize],
+                    face_dimming: true,
                 }
             })
             .collect();
@@ -192,7 +208,7 @@ impl<'a> Model<'a> {
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
-            let brightness = if self.face_lighting {
+            let brightness = if self.face_lighting && face.face_dimming {
                 face_brightness(face.corners)
             } else {
                 1.0
@@ -224,16 +240,52 @@ impl<'a> Model<'a> {
 }
 
 /// Reads a material tile and preserves a session overlay's source texture scale.
-fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool, f32), Reject> {
-    let (tile, side, blend) = material_tile(parts.materials, id, |page| match parts.textures {
-        Textures::World(pages) => pages.get(page as usize).map(|page| &page.texture),
-        Textures::Overlay(shards, _) => overlayshard(shards, page),
-    })
-    .map_err(reject)?;
-    let material = &parts.materials[id as usize];
+fn tile(parts: Parts<'_>, id: u32) -> Result<(Cow<'_, [u8]>, usize, bool, f32), Reject> {
+    if id == assets::DIAGNOSTIC_MATERIAL {
+        return Err(Reject::Material);
+    }
+    let material = parts.materials.get(id as usize).ok_or(Reject::Material)?;
+    let tint = if material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
+        Some(
+            parts
+                .tint
+                .and_then(|resolve| resolve(material.flags))
+                .ok_or(Reject::Material)?,
+        )
+    } else {
+        None
+    };
+    let mut sampled = *material;
+    if tint.is_some() {
+        sampled.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
+    }
+    let (tile, side, blend) =
+        material_tile(&[Material::unvaried(), sampled], 1, |page| {
+            match parts.textures {
+                Textures::World(pages) => pages.get(page as usize).map(|page| &page.texture),
+                Textures::Overlay(shards, _, base) => {
+                    if page == 0 {
+                        base.and_then(|base| base.texture_pages().first())
+                            .map(|page| &page.texture)
+                    } else {
+                        overlayshard(shards, page)
+                    }
+                }
+            }
+        })
+        .map_err(reject)?;
+    let tile = match tint {
+        Some(tint) => {
+            let mut pixels = tile.to_vec();
+            pack_compile_input::apply_atlas_tint(&mut pixels, tint);
+            Cow::Owned(pixels)
+        }
+        None => Cow::Borrowed(tile),
+    };
     let grid = match parts.textures {
         Textures::World(_) => 0,
-        Textures::Overlay(shards, grids) => {
+        Textures::Overlay(_, _, _) if material.texture.page() == 0 => 0,
+        Textures::Overlay(shards, grids, _) => {
             // Source grids are flat across the concatenated shards.
             let shard = material.texture.page().saturating_sub(1) as usize;
             let flat = shards[..shard.min(shards.len())]
@@ -388,6 +440,7 @@ mod review_tests {
                 tile: Cow::Owned(vec![0, 0, 255, 255]),
                 size: [1; 2],
                 blend: false,
+                face_dimming: true,
             };
             let front = Face {
                 corners: [[0.0; 3]; 4],
@@ -395,6 +448,7 @@ mod review_tests {
                 tile: Cow::Owned(vec![255, 0, 0, 128]),
                 size: [1; 2],
                 blend: true,
+                face_dimming: true,
             };
             let mut layers = [(&rear, 2.0), (&front, 1.0)];
             if reverse {
