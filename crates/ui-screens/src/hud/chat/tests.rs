@@ -250,3 +250,137 @@ fn filter_dependencies_keep_full_property_names() {
         serde_json::Map::from_iter([("#custom:message".to_owned(), json!("x"))])
     );
 }
+
+#[test]
+fn server_message_content_keeps_its_parser_and_hover_controls() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud","chat_grid_item":{
+        "controls":[
+            {"data":{"type":"panel","property_bag":{"#raw":"hidden|shown"},
+                "bindings":[{"binding_type":"view","source_property_name":"(#raw - 'hidden|')",
+                    "target_property_name":"#display"}]}},
+            {"caption@hud.chat_label":{"bindings":[{"binding_type":"view",
+                "source_control_name":"data","resolve_sibling_scope":true,
+                "source_property_name":"#display","target_property_name":"#text"}]}}
+        ]}}),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat",
+        "messages_text":{"controls":[{"message@hover.row":{}}]}})
+        .to_string(),
+    );
+    pack.overlay_text(
+        "ui/hover_chat.json",
+        &json!({"namespace":"hover",
+        "row":{"type":"button","size":[60,10],"default_control":"idle","hover_control":"tooltip",
+            "controls":[{"idle":{"type":"label","text":"shown"}},
+                {"tooltip":{"type":"custom","renderer":"hover_text_renderer",
+                    "property_bag":{"#hover_text":"detail"}}}]}})
+        .to_string(),
+    );
+    let selected = prefer_builtin(&mut pack, &builtin);
+    let row = json_ui::resolve(&pack, "hud.chat_grid_item", &json_ui::Context::empty())
+        .control
+        .unwrap();
+    let bound = json_ui::bind(&row, &json_ui::DataSource::new(), &json_ui::EmptyLibrary);
+    let caption = bound
+        .find(&|control: &ResolvedControl| control.name == "caption")
+        .expect("server caption survives built-in placement");
+    assert_eq!(caption.properties["text"], "shown");
+    let mut screen_catalog = pack;
+    for control in builtin.controls() {
+        screen_catalog.insert(control.clone());
+    }
+    for control in selected {
+        screen_catalog.insert(control);
+    }
+    let screen = json_ui::resolve(
+        &screen_catalog,
+        "chat.chat_screen",
+        &json_ui::Context::empty(),
+    )
+    .control
+    .unwrap();
+    assert!(
+        screen
+            .find(&|control: &ResolvedControl| control
+                .properties
+                .get("renderer")
+                .is_some_and(|renderer| renderer == "hover_text_renderer"))
+            .is_some()
+    );
+}
+
+#[test]
+fn encoded_message_fixture_binds_only_its_caption() {
+    let files = crate::test_support::hover_chat::files();
+    let catalog = Catalog::from_files(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    )
+    .unwrap();
+    let root = json_ui::resolve(&catalog, "hover.row", &json_ui::Context::empty())
+        .control
+        .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_control_values(
+        "data",
+        BTreeMap::from([(
+            "#text".into(),
+            json_ui::Scalar::Text(crate::test_support::hover_chat::message()),
+        )]),
+    );
+    let bound = json_ui::bind(&root, &data, &json_ui::EmptyLibrary);
+    assert_eq!(
+        bound
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .unwrap()
+            .properties["text"],
+        crate::test_support::hover_chat::CAPTION
+    );
+}
+
+#[test]
+fn hud_factory_keeps_the_server_caption_across_refreshes() {
+    let builtin = builtin();
+    let mut pack = builtin.clone();
+    let files = crate::test_support::hover_chat::files();
+    pack.apply_pack(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.java_chat", &context)
+        .control
+        .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_collection(
+        "chat_text_grid",
+        vec![json_ui::CollectionItem::default().with(
+            "#chat_text",
+            json_ui::Scalar::Text(crate::test_support::hover_chat::message()),
+        )],
+    );
+    data.set_factory(
+        "chat_item_factory",
+        vec![json_ui::FactoryItem::new("chat_item", 0.0).at("chat_text_grid", 0)],
+    );
+    let mut state = json_ui::BindState::new();
+    for _ in 0..2 {
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        let caption = bound
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .unwrap();
+        assert_eq!(
+            caption.properties["text"],
+            crate::test_support::hover_chat::CAPTION
+        );
+    }
+}

@@ -1,4 +1,4 @@
-//! Chat layout is application-owned; other HUD controls retain pack priority.
+//! Chat placement is application-owned; server packs may author message content.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,7 +9,7 @@ const ROOTS: [&str; 4] = ["java_chat", "chat_panel", "chat_grid_item", "chat_lab
 /// Bounds factory templates followed from the HUD, as the runtime binder bounds its expansions.
 const MAX_FACTORY_EXPANSIONS: usize = 64;
 
-/// Restores built-in chat in `catalog`; returns the chat-screen controls that gained pack filters.
+/// Restores chat placement while retaining authored message content and filters.
 pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<RawControl> {
     let Some(screen) = builtin.lookup("hud", "hud_screen") else {
         return Vec::new();
@@ -21,6 +21,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         return Vec::new();
     };
     let overlay_ref = ControlRef::parse(reference, "hud");
+    let message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
     let empty = screen
         .props
         .get("$cinnabar_additional_content|default")
@@ -57,13 +58,15 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         })
         .collect::<BTreeMap<_, _>>();
     let labels = derived_labels(&derived);
-    collect_active_labels(
-        catalog,
-        &labels,
-        visibility
-            .entry(ControlRef::new("hud", "chat_label"))
-            .or_default(),
-    );
+    if message_row.is_none() {
+        collect_active_labels(
+            catalog,
+            &labels,
+            visibility
+                .entry(ControlRef::new("hud", "chat_label"))
+                .or_default(),
+        );
+    }
     for control in catalog.controls_mut() {
         suppress_chat(control, &chat);
     }
@@ -82,6 +85,9 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
             collect_globals(&control, &mut global_names);
             catalog.insert(control);
         }
+    }
+    if let Some(row) = message_row {
+        catalog.insert(row);
     }
     let filtered = restore_chat_screen(catalog, builtin, &mut global_names);
     let globals = global_names
@@ -114,6 +120,19 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
             .insert("$additional_screen_content".to_owned(), overlay.clone());
     }
     filtered
+}
+
+/// A pack's replacement message subtree, kept before restoration removes its controls.
+fn authored_content(
+    catalog: &Catalog,
+    builtin: &Catalog,
+    namespace: &str,
+    name: &str,
+) -> Option<RawControl> {
+    let content = catalog.lookup(namespace, name)?;
+    let base = builtin.lookup(namespace, name)?;
+    (content.children != base.children || content.has_controls != base.has_controls)
+        .then(|| content.clone())
 }
 
 /// Finds named templates inheriting the ordinary HUD chat label.
@@ -241,6 +260,13 @@ fn restore_chat_screen(
         .collect::<Vec<_>>();
     let mut filtered = Vec::new();
     for (mut control, resolved) in controls {
+        if control.name == "messages_text"
+            && let Some(content) = authored_content(catalog, builtin, "chat", &control.name)
+        {
+            filtered.push(content.clone());
+            catalog.insert(content);
+            continue;
+        }
         if resolved.is_some_and(|resolved| retain_visibility(&mut control, &resolved)) {
             filtered.push(control.clone());
         }

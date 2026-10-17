@@ -1,3 +1,14 @@
+## Server-authored chat content
+
+Server message subtrees retain their parser bindings, custom definitions and hover controls
+inside the built-in chat placement. View-bound text survives retained factory refreshes.
+Open chat supplies hover feedback through non-consuming input panels and positions native
+tooltips at the pointer; zero-sized tooltip controls paint outside their layout rectangles.
+Regression fixtures cover refreshes, changed captions, hover entry/exit and display scaling.
+The reported pack was exercised offline with anonymous message text. Native version-matched
+input and command-edit acceptance and broader JSON-UI parity remain incomplete; no parity
+or performance gate closes here.
+
 ## Catalog cosmetics
 
 The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and independent

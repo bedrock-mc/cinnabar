@@ -40,6 +40,52 @@ fn reader(control_name: &str, name: &str) -> ResolvedControl {
 }
 
 #[test]
+fn creation_text_does_not_replace_a_view_bound_caption_on_refresh() {
+    let root = Arc::new(control(
+        "row",
+        "panel",
+        json!({}),
+        vec![
+            control(
+                "source",
+                "panel",
+                json!({"bindings":[{
+                    "binding_type":"view","source_property_name":"(#text - 'private:')",
+                    "target_property_name":"#caption"
+                }]}),
+                vec![],
+            ),
+            control(
+                "caption",
+                "label",
+                json!({"text":"#text","bindings":[{
+                    "binding_type":"view","source_control_name":"source","resolve_sibling_scope":true,
+                    "source_property_name":"#caption","target_property_name":"#text"
+                }]}),
+                vec![],
+            ),
+        ],
+    ));
+    for incremental in [false, true] {
+        let mut state = BindState::new();
+        for caption in ["shown", "shown", "next", "next"] {
+            let mut data = DataSource::new();
+            data.set_creation_value("#text", Scalar::Text(format!("private:{caption}")));
+            let data = Arc::new(data);
+            let bound = if incremental {
+                crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state)
+            } else {
+                crate::bind_stateful(&root, &data, &EmptyLibrary, &mut state).0
+            };
+            assert_eq!(
+                bound.children[1].properties["text"], caption,
+                "creation text leaked during refresh (incremental={incremental})"
+            );
+        }
+    }
+}
+
+#[test]
 fn an_unread_change_leaves_a_subtree_reading_many_keys_standing() {
     // Enough distinct reads that a fixed-size summary of them would claim every key.
     const READERS: usize = 2_000;

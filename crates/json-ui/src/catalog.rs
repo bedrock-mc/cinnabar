@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 use crate::json5;
 
 /// A control exactly as authored, with its `@base` recorded from the key.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RawControl {
     /// Namespace of the file this control was authored in; qualifies bare refs.
     pub owner_ns: String,

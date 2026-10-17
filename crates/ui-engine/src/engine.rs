@@ -767,7 +767,13 @@ impl Canvas<'_> {
             self.art.clocks,
             Some(&self.textures),
         );
-        let clip = self.logical(&drawn.clip);
+        let floats =
+            matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
+        let clip = if floats {
+            self.screen
+        } else {
+            self.logical(&drawn.clip)
+        };
         let dest = if let Draw::Text { options, .. } = &node.draw {
             text_paint::label_positioned(
                 [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
@@ -798,8 +804,7 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || dest[2] <= dest[0]
-            || dest[3] <= dest[1]
+            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
@@ -807,11 +812,6 @@ impl Canvas<'_> {
         let alpha = |color: [u8; 4]| {
             let a = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
-        };
-        // Tooltips ignore the hovered control's clip.
-        let clip = match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
-            _ => clip,
         };
         if let Draw::Text {
             text,
