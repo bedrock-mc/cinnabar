@@ -440,3 +440,48 @@ fn open_chat_keeps_inline_captions_inheriting_hud_labels() {
         assert_eq!(caption.properties["text"], "Server caption");
     }
 }
+
+#[test]
+fn open_chat_grids_keep_caption_template_dependencies() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "caption@hud.chat_label":{"text":"Grid caption"}
+        }),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat",
+            "messages_text":{"controls":[{"grid":{"type":"grid", "grid_dimensions":[1,1],
+                "grid_item_template":"hud.caption"}}]}
+        })
+        .to_string(),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let mut chat = builtin;
+    for control in retained {
+        chat.insert(control);
+    }
+    for catalog in [&pack, &chat] {
+        let context = json_ui::Context::empty();
+        let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
+            .control
+            .unwrap();
+        let bound = json_ui::bind_screen(
+            &messages,
+            catalog,
+            &context,
+            &json_ui::DataSource::new(),
+            &mut json_ui::BindState::new(),
+        );
+        assert!(
+            bound
+                .find(&|control: &ResolvedControl| control.properties.get("text")
+                    == Some(&json!("Grid caption")))
+                .is_some(),
+            "grid caption survives placement suppression"
+        );
+    }
+}

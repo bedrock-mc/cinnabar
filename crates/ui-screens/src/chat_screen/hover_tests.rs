@@ -191,3 +191,32 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
         assert!(screen.hover_hits.is_empty());
     }
 }
+
+#[test]
+fn keyboard_completion_feedback_survives_pointer_over_the_editor() {
+    let bounds = UiRect::new(
+        UiPoint::new(0.0, 0.0).unwrap(),
+        UiPoint::new(100.0, 20.0).unwrap(),
+    )
+    .unwrap();
+    let suggestion = UiRect::new(
+        UiPoint::new(0.0, 30.0).unwrap(),
+        UiPoint::new(100.0, 50.0).unwrap(),
+    )
+    .unwrap();
+    let screen = ChatScreen {
+        pointer: Some(UiPoint::new(10.0, 10.0).unwrap()),
+        hover_hits: vec![(bounds, "chat/text_edit_box".into())],
+        hits: vec![(
+            ChatHit::Suggestion(1),
+            suggestion,
+            "chat/suggestion[1]".into(),
+        )],
+        edit_box: Some("chat/text_edit_box".into()),
+        ..ChatScreen::default()
+    };
+    let view = screen.view_state(Some(1));
+    assert!(view.is_hovered("chat/suggestion[1]"));
+    assert!(view.is_focused("chat/text_edit_box"));
+    assert!(screen.view_state(None).is_hovered("chat/text_edit_box"));
+}

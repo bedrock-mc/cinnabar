@@ -153,7 +153,7 @@ fn content_dependencies<'a>(
     catalog: &Catalog,
     content: impl Iterator<Item = &'a RawControl>,
 ) -> Vec<RawControl> {
-    /// Queues the bases and factory templates used by one content subtree.
+    /// Queues the bases, grids and factory templates used by one content subtree.
     fn visit(control: &RawControl, pending: &mut Vec<ControlRef>) {
         if let Some(base) = &control.base {
             pending.push(ControlRef::parse(base, &control.owner_ns));
@@ -170,6 +170,13 @@ fn content_dependencies<'a>(
                         .map(|name| ControlRef::parse(name, namespace)),
                 );
             }
+        }
+        if let Some(template) = control
+            .props
+            .get("grid_item_template")
+            .and_then(Value::as_str)
+        {
+            pending.push(ControlRef::parse(template, &control.owner_ns));
         }
         if let Some(value) = control.props.get("factory") {
             factory(value, &control.owner_ns, pending);

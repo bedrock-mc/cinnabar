@@ -430,33 +430,34 @@ impl ChatScreen {
     }
 
     fn view_state(&self, selected: Option<usize>) -> ViewState {
-        let hovered = (!self.settings.open && self.pending_link.is_none())
-            .then(|| {
-                self.pointer.and_then(|point| {
-                    self.hover_hits
-                        .iter()
-                        .rev()
-                        .find(|(bounds, _)| bounds.contains(point))
-                        .map(|(_, key)| key.clone())
-                })
+        let hovered = self
+            .pointer
+            .and_then(|point| {
+                self.hits
+                    .iter()
+                    .rev()
+                    .find(|(_, bounds, _)| bounds.contains(point))
             })
-            .flatten()
             .or_else(|| {
-                self.pointer
-                    .and_then(|point| {
-                        self.hits
-                            .iter()
-                            .rev()
-                            .find(|(_, bounds, _)| bounds.contains(point))
+                // The keyboard-selected suggestion keeps its focus border over the editor.
+                let selected = selected?;
+                self.hits
+                    .iter()
+                    .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
+            })
+            .map(|(_, _, key)| key.clone())
+            .or_else(|| {
+                (!self.settings.open && self.pending_link.is_none())
+                    .then(|| {
+                        self.pointer.and_then(|point| {
+                            self.hover_hits
+                                .iter()
+                                .rev()
+                                .find(|(bounds, _)| bounds.contains(point))
+                                .map(|(_, key)| key.clone())
+                        })
                     })
-                    .or_else(|| {
-                        // The keyboard-selected suggestion shows its focus border.
-                        let selected = selected?;
-                        self.hits
-                            .iter()
-                            .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
-                    })
-                    .map(|(_, _, key)| key.clone())
+                    .flatten()
             });
         let mut view = ViewState {
             hovered,
