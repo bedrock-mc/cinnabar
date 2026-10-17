@@ -16,6 +16,7 @@ pub(super) fn attach(
     mut style_of: impl FnMut(
         &render_model::ActorRigSubmission,
         bool,
+        Option<&mut actor_animation::ActorRenderFrame<'_>>,
     ) -> Option<crate::presentation::entity_layers::ControllerStyle>,
 ) -> std::collections::BTreeSet<u64> {
     let (partial_tick, delta_seconds, glint_settings) = frame;
@@ -48,7 +49,8 @@ pub(super) fn attach(
                 }),
             );
             let mut styled_body = body.clone();
-            if let Some(style) = runtime_skin.and_then(|runtime_skin| style_of(body, runtime_skin))
+            if let Some(style) = runtime_skin
+                .and_then(|runtime_skin| style_of(body, runtime_skin, render_frame.as_deref_mut()))
             {
                 styled_body.overlay_rgba8 = style.overlay_rgba8;
                 styled_body.light = style.light;
