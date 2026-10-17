@@ -76,10 +76,10 @@ test("gesture bridge uses current intent, bounds concurrent pickers and owns tea
   const finished = new Promise((resolve) => { complete = resolve; });
   const stop = dressingPickerEdges(target, () => {
     requests++;
-    return { cape: false, complete(files, error) {
+    return { cape: false, admit() {}, maximumCount: 2, complete(files, error) {
       assert.deepEqual(files, []); assert.equal(error, null); completions++; complete();
     } };
-  }, () => {}, 2, doc);
+  }, doc);
   target.dispatchEvent(new Event("click", { cancelable: true }));
   assert.ok(opened());
   target.dispatchEvent(new Event("click"));

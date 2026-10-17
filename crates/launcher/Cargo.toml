@@ -24,7 +24,7 @@ bridge = { path = "../bridge" }
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
-resource-pack = { path = "../resource-pack", default-features = false }
+resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
 serde = { version = "1", features = ["derive"] }

@@ -2,8 +2,6 @@
 
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
-#[cfg(target_arch = "wasm32")]
-pub mod dressing;
 
 use semantic_input::{KEYBOARD_USAGES, KeyboardKey, KeyboardMouseFrame, MAX_MOUSE_BUTTONS};
 #[cfg(target_arch = "wasm32")]

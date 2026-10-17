@@ -6,6 +6,9 @@ use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuActi
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
+/// Command admission shared by the native and browser catalog executors.
+const MAX_SKIN_COMMANDS: usize = 4;
+
 mod editor;
 #[cfg(any(target_arch = "wasm32", test))]
 mod memory;
@@ -124,7 +127,7 @@ impl Worker {
         fallback: crate::player_skin::LocalPlayerSkin,
         refresh: impl FnOnce(&InstallLayout) + Send + 'static,
     ) -> Result<Self, String> {
-        let (commands, incoming) = crossbeam_channel::bounded(4);
+        let (commands, incoming) = crossbeam_channel::bounded(MAX_SKIN_COMMANDS);
         let (outgoing, results) = crossbeam_channel::unbounded();
         std::thread::Builder::new()
             .name("skin-selection".to_owned())
@@ -355,7 +358,7 @@ impl MenuRuntime {
         #[cfg(not(any(test, feature = "test-support")))]
         self.ensure_dressing_room();
         if let Some(worker) = self.dressing_room_worker.as_mut() {
-            for _ in 0..6 {
+            for _ in 0..MAX_SKIN_COMMANDS + 2 {
                 let Ok(mut result) = worker.results.try_recv() else {
                     break;
                 };

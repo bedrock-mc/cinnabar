@@ -259,6 +259,7 @@ struct DecodeCache {
 const MAX_DECODED: usize = 160;
 const MAX_FAILED: usize = 256;
 /// Art decoded before the first partial atlas goes out, so visible rows fill early.
+#[cfg(not(target_arch = "wasm32"))]
 const FIRST_BATCH: usize = 8;
 
 #[cfg(not(target_arch = "wasm32"))]

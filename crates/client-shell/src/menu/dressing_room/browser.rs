@@ -23,6 +23,29 @@ pub struct DressingRoomImport {
 }
 
 impl DressingRoomImport {
+    /// Returns the canonical count before the page enumerates any selected file metadata.
+    pub fn file_limit(&self) -> usize {
+        launcher::skin_import::picked::MAX_PICKED_FILES
+    }
+
+    /// Admits metadata synchronously before the page reads or copies any binary bytes.
+    pub fn admit_files(&self, metadata: &str) -> Result<(), JsError> {
+        use launcher::skin_import::picked;
+        if metadata.len() > picked::MAX_PICKED_METADATA_BYTES {
+            return Err(JsError::new("The selected file metadata is too large."));
+        }
+        let files: Vec<(String, u64)> = serde_json::from_str(metadata)
+            .map_err(|_| JsError::new("The selected file metadata is invalid."))?;
+        picked::admit(
+            &files
+                .iter()
+                .map(|(name, size)| (name.as_str(), *size))
+                .collect::<Vec<_>>(),
+            self.cape,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Sends validated picker bytes, an empty cancelled selection, or a read failure once.
     pub fn complete(self, files: Result<Vec<PickedFile>, String>) {
         let _ = self.sender.try_send(files);
@@ -123,7 +146,7 @@ impl Worker {
         _layout: InstallLayout,
         fallback: crate::player_skin::LocalPlayerSkin,
     ) -> Result<Self, String> {
-        let (commands, incoming) = crossbeam_channel::bounded(4);
+        let (commands, incoming) = crossbeam_channel::bounded(MAX_SKIN_COMMANDS);
         let (outgoing, results) = crossbeam_channel::bounded(1);
         let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let running = alive.clone();

@@ -4,6 +4,9 @@ export const nextDressingFrame = () => new Promise((resolve) => requestAnimation
 /** Opens the page picker immediately; metadata admission precedes every file read. */
 export function pickSkinFiles(cape, admit, maximumCount, signal, doc = document) {
   return new Promise((resolve, reject) => {
+    if (!Number.isSafeInteger(maximumCount) || maximumCount < 1) {
+      reject(new Error("The import file limit is unavailable.")); return;
+    }
     const input = doc.createElement("input");
     input.type = "file";
     input.accept = cape ? ".png" : ".png,.json,.mcpack";
@@ -60,7 +63,7 @@ export function pickSkinFiles(cape, admit, maximumCount, signal, doc = document)
 }
 
 /** Owns the gesture bridge; the host hit-tests this event against its current menu state. */
-export function dressingPickerEdges(target, intent, admit, maximumCount, doc = document) {
+export function dressingPickerEdges(target, intent, doc = document) {
   const controller = new AbortController();
   let active = false;
   /** Reserves a catalog ticket and opens its picker before returning from the user gesture. */
@@ -70,7 +73,7 @@ export function dressingPickerEdges(target, intent, admit, maximumCount, doc = d
     if (!request) return;
     event.preventDefault();
     active = true;
-    pickSkinFiles(request.cape, admit, maximumCount, controller.signal, doc)
+    pickSkinFiles(request.cape, request.admit, request.maximumCount, controller.signal, doc)
       .then((files) => request.complete(files, null), (error) => request.complete([], String(error.message || error)))
       .finally(() => { active = false; });
   };

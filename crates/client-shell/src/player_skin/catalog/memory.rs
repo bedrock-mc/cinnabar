@@ -267,7 +267,13 @@ mod tests {
                 br#"{"modules":[{"type":"skin_pack"}]}"#.to_vec(),
             ),
             ("skins.json", metadata.into_bytes()),
-            ("first.png", png(64, 64)),
+            (
+                "first.png",
+                png(
+                    render_api::CLASSIC_SKIN_SIDE as u32,
+                    render_api::CLASSIC_SKIN_SIDE as u32,
+                ),
+            ),
             ("broken.png", vec![1]),
         ] {
             archive
@@ -309,11 +315,12 @@ mod tests {
         drop(import);
         assert_eq!(view, before);
         let mut caped = view.clone();
+        let (cape_width, cape_height) = render_api::CAPE_DIMENSIONS[0];
         import_cape(
             &mut caped,
             vec![PickedFile {
                 name: "Cape.png".into(),
-                bytes: png(64, 32),
+                bytes: png(cape_width, cape_height),
             }],
         )
         .unwrap();
