@@ -147,6 +147,7 @@ pub(crate) fn produce_attacks(
         if movement.has_held_release() {
             return None;
         }
+        let selection = hand_interaction_selection(&player)?;
         let sample = runtime.between_ticks_press(&movement).or_else(|| {
             runtime.press_sample(
                 picked.crosshair,
@@ -163,7 +164,7 @@ pub(crate) fn produce_attacks(
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),
                 local_runtime_id: stream.local_player_runtime_id(),
-                selection: hand_interaction_selection(&player),
+                selection: Some(selection),
                 swing_duration: item
                     .and_then(|timing| timing.swing_duration_ticks)
                     .map(|ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1))
