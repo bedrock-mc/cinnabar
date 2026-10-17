@@ -72,3 +72,14 @@ test("preferences bound UTF-8 bytes before schema validation", () => {
   assert.equal(owner.save("ééé"), false);
   assert.equal(validations, 0);
 });
+
+test("browser opener exceptions are reported by the gesture owner", () => {
+  const target = canvas(), reports = [];
+  const stop = signInGestures(target, () => "open_sign_in_link", () => null,
+    () => "https://example.invalid/device", message => reports.push(message),
+    { open() { throw new Error("Browser denied opening"); } });
+  target.emit("pointerdown");
+  assert.equal(reports.length, 1);
+  assert.match(reports[0], /could not be opened/);
+  stop();
+});
