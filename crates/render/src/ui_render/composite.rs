@@ -204,7 +204,10 @@ impl CompositeBindings {
         device: &RenderDevice,
         layout: &BindGroupLayout,
         sources: [&TextureView; 2],
+        live_scenes: [TextureViewId; 2],
     ) -> BindGroup {
+        self.entries
+            .retain(|(views, _, _)| live_scenes.contains(&views[1]));
         let key = sources.map(TextureView::id);
         if let Some((_, _, group)) = self
             .entries
@@ -579,8 +582,11 @@ pub(crate) fn composite(
     encode_composite(
         context,
         world,
-        layer,
-        write.source,
+        CompositeSources {
+            layer,
+            scene: write.source,
+            target,
+        },
         destination,
         None,
         pipeline,
@@ -588,11 +594,18 @@ pub(crate) fn composite(
     );
 }
 
+/// UI and scene views, together with the view that owns the live scene pair.
+struct CompositeSources<'a> {
+    layer: &'a UiLayerTexture,
+    scene: &'a TextureView,
+    target: &'a ViewTarget,
+}
+
+/// Blends a raster over its current scene and releases bindings for retired scene targets.
 fn encode_composite(
     context: &mut RenderContext,
     world: &World,
-    layer: &UiLayerTexture,
-    scene: &TextureView,
+    sources: CompositeSources<'_>,
     destination: RenderPassColorAttachment,
     scissor: Option<(UVec2, UVec2)>,
     pipeline: &RenderPipeline,
@@ -608,11 +621,24 @@ fn encode_composite(
         },
         None => None,
     };
+    let CompositeSources {
+        layer,
+        scene,
+        target,
+    } = sources;
     let bind_group = layer
         .bindings
         .lock()
         .expect("UI composite bindings lock")
-        .get(context.render_device(), layout, [&layer.view, scene]);
+        .get(
+            context.render_device(),
+            layout,
+            [&layer.view, scene],
+            [
+                target.main_texture_view().id(),
+                target.main_texture_other_view().id(),
+            ],
+        );
     if let Some(profile) = world.get_resource::<super::profile::UiProfile>() {
         profile.record_pass(render_scene::RuntimeStage::GpuUiComposite);
         profile.record_draw(render_scene::RuntimeStage::GpuUiComposite, 0);
@@ -691,8 +717,11 @@ pub(crate) fn ui_present(
         encode_composite(
             &mut context,
             world,
-            layer,
-            target.main_texture_view(),
+            CompositeSources {
+                layer,
+                scene: target.main_texture_view(),
+                target,
+            },
             attachment,
             scissor,
             pipeline,

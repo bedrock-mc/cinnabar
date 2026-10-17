@@ -16,17 +16,19 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
     let layer = retained_layer(device, size);
     let scenes = [retained_layer(device, size), retained_layer(device, size)];
     let frame = frame_layer(&layer, false);
-    let first = frame
-        .bindings
-        .lock()
-        .unwrap()
-        .get(device, &layout, [&frame.view, &scenes[0].view]);
-    let second =
-        frame
-            .bindings
-            .lock()
-            .unwrap()
-            .get(device, &layout, [&frame.view, &scenes[1].view]);
+    let live_scenes = scenes.each_ref().map(|scene| scene.view.id());
+    let first = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &scenes[0].view],
+        live_scenes,
+    );
+    let second = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &scenes[1].view],
+        live_scenes,
+    );
     let allocated = test_alloc::thread_allocations();
     for index in 0..8 {
         let next = frame_layer(&layer, false);
@@ -34,6 +36,7 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
             device,
             &layout,
             [&next.view, &scenes[index % 2].view],
+            live_scenes,
         );
         assert_eq!(
             group,
@@ -46,15 +49,30 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
     }
     assert_eq!(test_alloc::thread_allocations(), allocated);
     let replacement = retained_layer(device, size);
-    let changed =
-        frame
-            .bindings
-            .lock()
-            .unwrap()
-            .get(device, &layout, [&frame.view, &replacement.view]);
+    let changed = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &replacement.view],
+        [replacement.view.id(), scenes[1].view.id()],
+    );
     assert_ne!(changed, first);
     assert_ne!(changed, second);
     assert_eq!(frame.bindings.lock().unwrap().entries.len(), 2);
+    let next_pair = [retained_layer(device, size), retained_layer(device, size)];
+    frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &next_pair[0].view],
+        next_pair.each_ref().map(|scene| scene.view.id()),
+    );
+    let bindings = frame.bindings.lock().unwrap();
+    assert_eq!(
+        bindings.entries.len(),
+        1,
+        "retired targets must leave even if only one orientation is used"
+    );
+    assert_eq!(bindings.entries[0].0[1], next_pair[0].view.id());
+    drop(bindings);
     let new_raster = frame_layer(&replacement, false);
     assert!(new_raster.bindings.lock().unwrap().entries.is_empty());
 }
