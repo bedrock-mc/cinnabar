@@ -17,6 +17,8 @@ mod multitexture;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
+#[path = "artwork/pixel_cache.rs"]
+mod pixel_cache;
 #[cfg(test)]
 #[path = "artwork/raster_page_tests.rs"]
 mod raster_page_tests;
@@ -398,6 +400,7 @@ impl ActorArtworkPages {
             }
         }
         let mut pages = self.pages.to_vec();
+        let mut shared = Vec::new();
         let mut gpu_bytes = pages
             .iter()
             .fold(player_page_bytes(), |total, page| total + page.rgba8.len());
@@ -407,26 +410,35 @@ impl ActorArtworkPages {
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels =
-                    concatenate_layers(indices.iter().map(|index| rasters[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update((indices.len() as u32).to_le_bytes());
-                hasher.update((pixels.len() as u64).to_le_bytes());
+                let bytes: usize = indices
+                    .iter()
+                    .map(|index| rasters[*index].rgba8.len())
+                    .sum();
+                hasher.update((bytes as u64).to_le_bytes());
                 hasher.update([u8::from(color_mask)]);
                 hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
-                raster_pages::hash_pixels(&mut hasher, &pixels);
+                let (key, pixels) = pixel_cache::pack(
+                    indices.iter().map(|index| rasters[*index].rgba8.as_ref()),
+                    &mut hasher,
+                );
                 let page = ActorTexturePage {
                     width,
                     height,
                     layers: indices.len() as u32,
-                    rgba8: pixels.into(),
+                    rgba8: Arc::clone(&pixels),
                     color_mask,
                     multitexture: false,
                 };
                 let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
                     continue;
                 };
+                let index = usize::from(page) - 1;
+                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
+                    shared.push((key, index));
+                }
                 for (layer, index) in indices.iter().enumerate() {
                     locations[*index] = Some(ActorArtworkLocation {
                         page,
@@ -441,6 +453,7 @@ impl ActorArtworkPages {
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
             self.pages = pages.into();
+            pixel_cache::remember(&self.pages, &shared);
             self.equipment = Arc::new(equipment);
         }
         (self, locations)
@@ -461,6 +474,7 @@ impl ActorArtworkPages {
                 .push(index);
         }
         let mut pages = self.pages.to_vec();
+        let mut shared = Vec::new();
         let mut gpu_bytes = pages
             .iter()
             .fold(player_page_bytes(), |total, page| total + page.rgba8.len());
@@ -469,26 +483,35 @@ impl ActorArtworkPages {
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels =
-                    concatenate_layers(indices.iter().map(|index| textures[*index].rgba8.as_ref()));
                 hasher.update(width.to_le_bytes());
                 hasher.update(height.to_le_bytes());
                 hasher.update((indices.len() as u32).to_le_bytes());
-                hasher.update((pixels.len() as u64).to_le_bytes());
+                let bytes: usize = indices
+                    .iter()
+                    .map(|index| textures[*index].rgba8.len())
+                    .sum();
+                hasher.update((bytes as u64).to_le_bytes());
                 hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
                 hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
-                hasher.update(&pixels);
+                let (key, pixels) = pixel_cache::pack(
+                    indices.iter().map(|index| textures[*index].rgba8.as_ref()),
+                    &mut hasher,
+                );
                 let page = ActorTexturePage {
                     width,
                     height,
                     layers: indices.len() as u32,
-                    rgba8: pixels.into(),
+                    rgba8: Arc::clone(&pixels),
                     color_mask: false,
                     multitexture: false,
                 };
                 let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
                     continue;
                 };
+                let index = usize::from(page) - 1;
+                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
+                    shared.push((key, index));
+                }
                 for (layer, index) in indices.iter().enumerate() {
                     locations.insert(
                         *index as u32,
@@ -530,6 +553,7 @@ impl ActorArtworkPages {
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
             self.pages = pages.into();
+            pixel_cache::remember(&self.pages, &shared);
         }
         self.routes = Arc::new(routes);
         self

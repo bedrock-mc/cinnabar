@@ -1,6 +1,73 @@
 use super::*;
 
 #[test]
+fn recompiled_actor_pages_share_pixels_and_release_them_after_the_last_owner() {
+    let texture = assets::ActorTexture {
+        source: 0,
+        width: 2,
+        height: 2,
+        pixel_sha256: Sha256::digest([73; 16]).into(),
+        rgba8: Arc::from([73; 16]),
+    };
+    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let mut base = ActorArtworkPages::default();
+    base.identity = [19; 32];
+    let second = base.with_pack_artwork(&[texture], &[]);
+    let pixels = Arc::downgrade(&first.pages()[0].rgba8);
+    assert!(Arc::ptr_eq(
+        &first.pages()[0].rgba8,
+        &second.pages()[0].rgba8
+    ));
+    drop(first);
+    assert!(pixels.upgrade().is_some());
+    drop(second);
+    assert!(
+        pixels.upgrade().is_none(),
+        "the page cache must not retain pixels"
+    );
+}
+
+#[test]
+fn a_pack_texture_change_or_layer_reorder_keeps_its_own_pixels() {
+    let textures = [83, 149].map(|value| assets::ActorTexture {
+        source: u32::from(value),
+        width: 1,
+        height: 1,
+        pixel_sha256: Sha256::digest([value; 4]).into(),
+        rgba8: Arc::from([value; 4]),
+    });
+    let first = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    let rasters = textures
+        .iter()
+        .map(|texture| EquipmentRaster {
+            width: texture.width,
+            height: texture.height,
+            rgba8: Arc::clone(&texture.rgba8),
+        })
+        .collect::<Vec<_>>();
+    let (equipment, _) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
+    assert!(Arc::ptr_eq(
+        &first.pages()[0].rgba8,
+        &equipment.pages()[0].rgba8
+    ));
+    let mut reversed = textures;
+    reversed.reverse();
+    let changed = ActorArtworkPages::default().with_pack_artwork(&reversed, &[]);
+    assert_eq!(
+        first.pages()[0].pixels(),
+        &[83, 83, 83, 83, 149, 149, 149, 149]
+    );
+    assert_eq!(
+        changed.pages()[0].pixels(),
+        &[149, 149, 149, 149, 83, 83, 83, 83]
+    );
+    assert!(!Arc::ptr_eq(
+        &first.pages()[0].rgba8,
+        &changed.pages()[0].rgba8
+    ));
+}
+
+#[test]
 fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
     let textures = (0..usize::from(u8::MAX) + 8)
         .map(|index| {
