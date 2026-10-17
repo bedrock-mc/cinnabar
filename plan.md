@@ -8259,6 +8259,11 @@ attributes and exits remain open. The 49-scenario, 1,112-tick Go differential ch
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
 
+Alternate locomotion now uses the same ground-contact rule as ordinary movement: a vertical
+collision grounds only a downward request; without that collision, prior ground survives only
+an exact zero vertical request. Tiny positive or negative requests clear it. Complete locomotion
+and packet-timing parity remain incomplete.
+
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
 Ready ledger requests now share one ItemStackRequest packet, retaining each request's
