@@ -134,6 +134,7 @@ pub struct ModHost {
     layout: Option<ScreenLayout>,
     session: Arc<SessionData>,
     drawing_session: Option<mod_api::drawing::DrawingSession>,
+    drawing_restart: bool,
 }
 
 /// Builds an empty, unfocused control snapshot for a frame with no routed input.

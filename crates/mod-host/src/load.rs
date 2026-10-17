@@ -178,6 +178,7 @@ impl ModHost {
             layout: None,
             session: Arc::default(),
             drawing_session: None,
+            drawing_restart: false,
         })
     }
 
@@ -255,6 +256,7 @@ impl ModHost {
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
         self.admitted_digest = digest;
+        self.drawing_restart = false;
         self.embedded_font = assets.font;
         self.embedded_logo = assets.logo;
         self.embedded_title = assets.title;

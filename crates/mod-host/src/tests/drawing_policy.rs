@@ -11,6 +11,8 @@ fn session_transfer_clears_output_and_rebuilds_without_a_source_edit() {
         ..Default::default()
     };
     host.bind_drawing_session(session);
+    assert!(host.needs_drawing_restart());
+    assert!(host.reload_if_changed().unwrap());
     assert!(host.is_active());
     host.bind_drawing_session(DrawingSession {
         connection: 2,
