@@ -177,8 +177,8 @@ fn bulk_handoff_backpressures_batches_crossing_the_byte_budget() {
         ready.send(()).unwrap();
         let (_, archives, mut reader) = receiving.await.unwrap();
         assert_eq!(archives, [b"abc".to_vec()]);
-        for batch in batches {
-            assert_eq!(reader.next().await.unwrap().unwrap(), batch);
+        for batch in &batches {
+            assert_eq!(&reader.next().await.unwrap().unwrap(), batch);
         }
     });
 }
