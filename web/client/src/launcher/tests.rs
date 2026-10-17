@@ -151,6 +151,18 @@ fn launcher_fresh_session_retires_old_flow_and_restores_only_unsent_intent() {
 }
 
 #[test]
+fn launcher_coalesced_cancel_and_retry_keeps_the_unretired_prompt() {
+    let mut adapter = RelayAccount::default();
+    account(&mut adapter, "awaiting_code");
+    let prompt = adapter.state();
+    adapter.request(AccountIntent::Cancel);
+    assert_eq!(adapter.state(), AuthState::SignedOut);
+    adapter.request(AccountIntent::SignIn);
+    assert_eq!(adapter.take_operation(), Some(AccountOperation::SignIn));
+    assert_eq!(adapter.state(), prompt);
+}
+
+#[test]
 fn launcher_rejects_unsafe_or_incomplete_prompts() {
     let mut adapter = RelayAccount::default();
     for uri in [

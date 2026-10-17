@@ -30,15 +30,11 @@ impl RelayAccount {
         self.refusal = None;
         match intent {
             AccountIntent::SignIn => {
-                let retain = self
+                if self
                     .account
                     .as_ref()
-                    .is_some_and(|account| match account.state {
-                        bridge::contract::AuthState::Failed => false,
-                        bridge::contract::AuthState::AwaitingCode => !self.dismissed,
-                        _ => true,
-                    });
-                if !retain {
+                    .is_some_and(|account| account.state == bridge::contract::AuthState::Failed)
+                {
                     self.account = None;
                 }
                 self.cancel_needed = !self
