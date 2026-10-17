@@ -187,9 +187,10 @@ pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
-    LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
-    PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
+    JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
+    PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
+    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier,
+    network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -217,6 +218,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
@@ -280,3 +282,6 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 extern crate self as protocol;
 #[cfg(test)]
 mod tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use login::NativeJoinPreparation;

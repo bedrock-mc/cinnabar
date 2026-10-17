@@ -13,7 +13,7 @@ pub struct PlayOutbound {
     tap: Option<Arc<dyn PacketTap>>,
 }
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Detaches the write half; batches it sends share the session's own send FIFO and tap.
     pub fn outbound(&mut self) -> Result<PlayOutbound, ProtocolError> {
         Ok(PlayOutbound {
