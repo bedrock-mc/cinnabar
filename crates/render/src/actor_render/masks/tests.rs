@@ -159,3 +159,43 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
         &pixels[middle..middle + 4]
     );
 }
+
+#[test]
+fn mask_attachments_reject_stale_resolution_and_sample_counts() {
+    use bevy::render::texture::CachedTexture;
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let depth = |side, samples| {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("mask resize witness"),
+            size: Extent3d {
+                width: side,
+                height: side,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: TextureDimension::D2,
+            format: CORE_3D_DEPTH_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        ViewDepthStencilTexture::new(
+            CachedTexture {
+                default_view: texture.create_view(&default()),
+                texture,
+            },
+            Some(0.0),
+            None,
+        )
+    };
+    let original = depth(64, 1);
+    let mask = MaskTarget::new(&device, &original).unwrap();
+    assert!(mask.matches(&original));
+    assert!(!mask.matches(&depth(127, 1)));
+    assert!(!mask.matches(&depth(64, 4)));
+    let multisampled = MaskTarget::new(&device, &depth(127, 4)).unwrap();
+    assert!(multisampled.matches(&depth(127, 4)));
+    assert_eq!(multisampled.view.texture().sample_count(), 1);
+    assert_eq!(multisampled.render_view.texture().sample_count(), 4);
+}
