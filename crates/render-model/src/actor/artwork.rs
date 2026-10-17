@@ -190,6 +190,12 @@ pub struct ActorArtworkPages {
     rejected_bindings: usize,
 }
 impl ActorArtworkPages {
+    /// Preserves reusable pixels when appending or replacing a collection's page records.
+    fn replace_pages(&mut self, pages: Vec<ActorTexturePage>, keys: &[([u8; 32], usize)]) {
+        let previous = std::mem::replace(&mut self.pages, pages.into());
+        pixel_cache::remember(&previous, &self.pages, keys);
+    }
+
     /// Installs the shared actor glint image once, independently of skin and armor pages.
     #[must_use]
     pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
@@ -452,8 +458,7 @@ impl ActorArtworkPages {
         }
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
-            self.pages = pages.into();
-            pixel_cache::remember(&self.pages, &shared);
+            self.replace_pages(pages, &shared);
             self.equipment = Arc::new(equipment);
         }
         (self, locations)
@@ -552,8 +557,7 @@ impl ActorArtworkPages {
         self.rejected_bindings += bindings.len() - accepted;
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
-            self.pages = pages.into();
-            pixel_cache::remember(&self.pages, &shared);
+            self.replace_pages(pages, &shared);
         }
         self.routes = Arc::new(routes);
         self

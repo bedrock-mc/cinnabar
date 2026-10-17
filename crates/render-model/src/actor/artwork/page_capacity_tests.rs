@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn equipment_appends_and_page_updates_keep_actor_pixels_reusable() {
+    let texture = assets::ActorTexture {
+        source: 0,
+        width: 2,
+        height: 2,
+        pixel_sha256: Sha256::digest([79; 16]).into(),
+        rgba8: Arc::from([79; 16]),
+    };
+    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let raster = EquipmentRaster {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([101; 4]),
+    };
+    let (first, _) = first.with_equipment_rasters(&[raster]);
+    let replacement = EquipmentRaster {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([103; 4]),
+    };
+    let (first, locations) = first.with_equipment_raster_page_updates(&[(1, replacement)]);
+    assert!(locations[0].is_some());
+    let second = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
+    assert!(Arc::ptr_eq(
+        &first.pages()[0].rgba8,
+        &second.pages()[0].rgba8
+    ));
+}
+
+#[test]
+fn retiring_the_newest_collection_keeps_older_live_pixels_reusable() {
+    let texture = assets::ActorTexture {
+        source: 0,
+        width: 2,
+        height: 2,
+        pixel_sha256: Sha256::digest([89; 16]).into(),
+        rgba8: Arc::from([89; 16]),
+    };
+    let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    let newer = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
+    drop(newer);
+    let last = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
+    assert!(Arc::ptr_eq(&first.pages()[0].rgba8, &last.pages()[0].rgba8));
+}
+
+#[test]
 fn recompiled_actor_pages_share_pixels_and_release_them_after_the_last_owner() {
     let texture = assets::ActorTexture {
         source: 0,
