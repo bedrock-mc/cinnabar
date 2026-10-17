@@ -90,6 +90,36 @@ mod tests {
         );
     }
 
+    /// Consecutive replies share the frame with packets on either side, in admission order.
+    #[test]
+    fn latency_replies_share_the_ordinary_outbound_frame() {
+        let (handle, mut captured) = NetworkHandle::stub_capturing_packets();
+        let expected = [
+            protocol::modal_form_cancel_response(1),
+            protocol::network_stack_latency_reply(7),
+            protocol::network_stack_latency_reply(8),
+            protocol::modal_form_cancel_response(2),
+        ];
+        handle.send_packet(expected[0].clone()).unwrap();
+        handle.send_latency_reply(7).unwrap();
+        handle.send_latency_reply(8).unwrap();
+        handle.send_packet(expected[3].clone()).unwrap();
+        assert!(
+            captured.take_flushed_frame().is_none(),
+            "latency reply split the frame"
+        );
+        handle.flush_frame();
+        let sent = captured.take_flushed_frame().expect("frame was flushed");
+        let encode = |packets: &[protocol::Packet]| {
+            packets
+                .iter()
+                .map(|packet| protocol::encode(packet).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(encode(&sent), encode(&expected));
+        assert!(captured.take_flushed_frame().is_none());
+    }
+
     #[test]
     fn latency_reply_submits_preceding_packets_without_waiting_for_frame_end() {
         let (handle, mut captured) = NetworkHandle::stub_capturing_packets();
