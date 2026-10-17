@@ -5,7 +5,8 @@ use std::path::Path;
 use bridge::{
     BridgeError,
     contract::{
-        MAX_PACK_ARCHIVE_BYTES, MAX_SELECTED_PACK_BYTES, MAX_SELECTED_PACKS, PACK_CHUNK_BYTES,
+        KIND_PACK_DATA, MAX_PACK_ARCHIVE_BYTES, MAX_SELECTED_PACK_BYTES, MAX_SELECTED_PACKS,
+        PACK_CHUNK_BYTES,
     },
 };
 use sha2::{Digest, Sha256};
@@ -131,6 +132,9 @@ impl HandoffPackReceiver {
             limited.read_to_end(&mut frame).await?;
             if frame.len() != length {
                 return Err(invalid("truncated pack stream frame"));
+            }
+            if frame.first() != Some(&KIND_PACK_DATA) {
+                return Err(invalid("non-pack frame on pack stream"));
             }
             match decode_core_message(frame.into())? {
                 CoreMessage::PackData { index, data } => self.accept(index, &data)?,

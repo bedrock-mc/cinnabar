@@ -44,7 +44,7 @@ pub trait RelayTransport {
     /// Waits for this play's independent receive stream; fallback returns inline delivery.
     fn accept_packs(
         &self,
-    ) -> impl Future<Output = Result<Option<Self::Stream>, CloseReason>> + 'static {
+    ) -> impl Future<Output = Result<Option<Self::Stream>, CloseReason>> + 'static + use<Self> {
         async { Ok(None) }
     }
     /// Resets the completed play and any outstanding archive reader, retaining control.

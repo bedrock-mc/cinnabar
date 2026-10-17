@@ -68,7 +68,7 @@ impl RelayTransport for BrowserTransport {
     }
     fn accept_packs(
         &self,
-    ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static {
+    ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static + use<> {
         let transport = self.0.clone();
         let mut acceptance = PackAcceptance {
             channel: pack_channel(&transport),
