@@ -9,8 +9,10 @@ use acceptance::publication_evidence::{
 };
 use client_runtime::network::NetworkHandle;
 mod attribution;
+mod held_equipment;
 use attribution::DiagnosticAttributionLogState;
 pub(crate) use attribution::refresh_diagnostic_attribution;
+use held_equipment::HeldEquipmentSchedule;
 
 #[cfg(feature = "acceptance")]
 use bevy::prelude::{Transform, With};
@@ -257,6 +259,7 @@ pub(crate) fn send_player_auth_inputs(
     mut movement: ResMut<MovementTicker>,
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
     effects: Res<client_interaction::movement::LocalMovementEffectTimeline>,
+    mut held_equipment: Local<HeldEquipmentSchedule>,
     target: Option<Res<crate::melee::MeleeTarget>>,
     mut hover: bevy::prelude::Local<gameplay::entity_hover::EntityHover>,
     client_world: Res<ClientWorld>,
@@ -306,10 +309,6 @@ pub(crate) fn send_player_auth_inputs(
     }
     let session = movement.interaction_authority_identity().0;
     let hover_snapshot = target.as_ref().and_then(|target| target.hover);
-    let first_equipment_tick = movement
-        .completed_tick()
-        .saturating_add(1)
-        .saturating_sub(effects.recent_tick_count() as u64);
     let game_mode = player_runtime.facts.player_game_mode();
     let mut equipment = match player_runtime
         .inventory
@@ -334,6 +333,12 @@ pub(crate) fn send_player_auth_inputs(
             return;
         }
     };
+    held_equipment.observe(
+        &movement,
+        effects.recent_tick_count(),
+        equipment.is_some(),
+        offhand.is_some(),
+    );
     let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
@@ -346,7 +351,7 @@ pub(crate) fn send_player_auth_inputs(
                     network.send_inventory_packet(packet)
                 })?;
             }
-            if identity.tick.get() >= first_equipment_tick
+            if held_equipment.mainhand_due(identity.tick.get())
                 && let Some((slot, packet)) = equipment.as_ref()
             {
                 network.send_hotbar_packet(packet.clone())?;
@@ -354,13 +359,15 @@ pub(crate) fn send_player_auth_inputs(
                     .inventory
                     .clear_pending_hotbar_selection(*slot);
                 equipment = None;
+                held_equipment.mainhand_admitted();
             }
-            if identity.tick.get() >= first_equipment_tick
+            if held_equipment.offhand_due(identity.tick.get())
                 && let Some(packet) = offhand.as_ref()
             {
                 network.send_hotbar_packet(packet.clone())?;
                 player_runtime.inventory.acknowledge_offhand_equipment();
                 offhand = None;
+                held_equipment.offhand_admitted();
             }
             match trace {
                 Some(trace) => {
