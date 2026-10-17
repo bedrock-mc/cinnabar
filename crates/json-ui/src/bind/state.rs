@@ -103,6 +103,12 @@ pub(super) struct Retained {
     pub(super) incarnation: Option<u64>,
     pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
+    /// Inherited creation inputs before view bindings transformed the bag.
+    pub(super) creation_inputs: Arc<super::bag::Bag>,
+    /// Changed creation inputs that view observers must consume before normal settling.
+    pub(super) creation_writes: BTreeSet<String>,
+    /// Each view writer invalidated by a changed creation target.
+    pub(super) creation_views: BTreeSet<usize>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
     /// `once` bindings already applied, by index.
@@ -119,6 +125,38 @@ pub(super) struct Retained {
     pub(super) generation: u64,
     /// Whether its subtree waited hidden then.
     pub(super) deferred: bool,
+}
+
+impl Retained {
+    /// Refreshes changed inputs while preserving standing view outputs. Changed
+    /// targets notify their readers before ordinary view settling can overwrite them.
+    pub(super) fn refresh_creation_values(
+        &mut self,
+        own: &mut super::bag::Bag,
+        inputs: &super::bag::Bag,
+        bindings: &[super::spec::Binding],
+    ) {
+        for (name, value) in inputs {
+            let changed = self.creation_inputs.get(name) != Some(value);
+            let mut written = false;
+            for (index, binding) in bindings.iter().enumerate() {
+                if matches!(&binding.kind, super::spec::Kind::View { target, .. } if target == name)
+                    && self.views.get(&index).is_some_and(Option::is_some)
+                {
+                    written = true;
+                    if changed {
+                        self.creation_views.insert(index);
+                    }
+                }
+            }
+            if written && changed {
+                self.creation_writes.insert(name.clone());
+            }
+            if !written || changed {
+                own.insert(name.clone(), value.clone());
+            }
+        }
+    }
 }
 
 impl BindState {

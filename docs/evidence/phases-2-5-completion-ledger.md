@@ -366,6 +366,11 @@ Plain chat offers `@here` and player-list names; command targets include `@n`.
 Education selectors, selector-expansion permission and cheat gating, selector
 argument completion, and live visual acceptance remain incomplete.
 
+Server-authored message content keeps its parser bindings and hover controls inside
+the client-owned chat placement. Regressions cover retained captions, HUD collection
+rows, pointer entry/exit through pass-through panels, display scaling and zero-sized
+tooltip controls. Native command-edit acceptance and broader JSON-UI parity remain open.
+
 ## P5.4-SCOREBOARD
 
 | Field | Evidence |
