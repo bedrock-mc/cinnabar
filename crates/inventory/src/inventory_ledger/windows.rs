@@ -66,9 +66,8 @@ impl PlayerInventoryLedger {
         for slot in 0..self.confirmed.storage_len().max(slots.len()) {
             self.prepare_authoritative_cell(Cell::Storage(slot as u8));
         }
-        let identity = self.storage_request_identity();
+        self.bind_storage_request_identity();
         let storage = self.storage.as_mut().expect("ordinary window observed");
-        storage.identity = identity;
         storage.resync_required = false;
         self.confirmed.replace_storage(slots);
         self.surface_refreshed(CellSurface::Storage);

@@ -587,7 +587,7 @@ fn taking_a_book_merge_without_renaming_sends_the_take() {
 }
 
 #[test]
-fn ui_result_slot_packets_preserve_the_anvil_prediction() {
+fn ui_result_slot_packets_publish_the_retained_server_preview() {
     for (predictable, repair_cost) in [(false, 0), (true, 0), (true, 63)] {
         let (mut runtime, mut player) = anvil();
         edit_input(
@@ -603,34 +603,31 @@ fn ui_result_slot_packets_preserve_the_anvil_prediction() {
         runtime.sync_anvil_name(&player);
         runtime.screen_state_mut().hover =
             Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
-        let output = runtime.anvil_output(&player);
-        let hovered = crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime);
         let pending = runtime.inventory_ledger(&player).pending_request_count();
+        let result = NetworkItemStack {
+            network_id: DIAMOND,
+            count: 2,
+            stack_network_id: 70,
+            ..NetworkItemStack::empty()
+        };
         place(
             &mut runtime,
             &mut player,
             u16::from(protocol::CREATED_OUTPUT_SLOT),
-            NetworkItemStack {
-                network_id: DIAMOND,
-                count: 2,
-                stack_network_id: 70,
-                ..NetworkItemStack::empty()
-            },
+            result.clone(),
         );
-        assert_eq!(runtime.anvil_output(&player), output);
+        assert_eq!(runtime.anvil_output(&player), Some(result.clone()));
         assert_eq!(
             crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime),
-            hovered
+            Some((result.clone(), None))
         );
         assert_eq!(
             runtime.inventory_ledger(&player).pending_request_count(),
             pending
         );
-        assert!(
-            runtime
-                .inventory_ledger(&player)
-                .created_output_stack()
-                .is_none()
+        assert_eq!(
+            runtime.inventory_ledger(&player).created_output_stack(),
+            Some(&result)
         );
     }
 }

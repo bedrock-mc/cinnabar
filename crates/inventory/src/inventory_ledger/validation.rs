@@ -121,7 +121,7 @@ impl PlayerInventoryLedger {
                     return Err(InventoryGestureError::SlotLocked);
                 }
             }
-            DeltaGroup::Set { .. } | DeltaGroup::Retain { .. } => {}
+            DeltaGroup::Set { .. } => {}
         }
         Ok(())
     }

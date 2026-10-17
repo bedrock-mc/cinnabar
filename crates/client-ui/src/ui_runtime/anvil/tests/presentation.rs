@@ -830,8 +830,11 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
         u16::from(protocol::CREATED_OUTPUT_SLOT),
         authoritative.clone(),
     );
-    assert!(runtime.anvil_output(&player).is_none());
-    assert!(hovered_stack(&player, &runtime).is_none());
+    assert_eq!(runtime.anvil_output(&player), Some(authoritative.clone()));
+    assert_eq!(
+        hovered_stack(&player, &runtime),
+        Some((authoritative, None))
+    );
 }
 
 /// Opens an anvil with a registered component weapon and a sharpness book.

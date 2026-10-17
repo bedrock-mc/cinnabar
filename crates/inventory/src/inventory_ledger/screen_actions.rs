@@ -117,8 +117,7 @@ const fn consume_amount(slot: u8, count: u16) -> u16 {
 }
 
 impl PlayerInventoryLedger {
-    /// Selects an offered enchanting option and retains its input snapshots.
-    /// The server supplies item changes; responses may only correct these inputs.
+    /// Selects an offered enchanting option without predicting its item mutation.
     pub fn begin_enchant(&mut self, option_network_id: u32) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         if self.window_kind() != Some(WindowKind::Enchanting) {
@@ -142,19 +141,7 @@ impl PlayerInventoryLedger {
                     crafts: 1,
                 },
             ],
-            groups: [ENCHANT_INPUT_SLOT, ENCHANT_INPUT_SLOT + 1]
-                .into_iter()
-                .map(|slot| {
-                    let cell = Cell::Craft(slot);
-                    DeltaGroup::Retain {
-                        cell,
-                        stack_id: self
-                            .view()
-                            .get(cell)
-                            .map_or(0, |held| held.stack.stack_network_id),
-                    }
-                })
-                .collect(),
+            groups: Vec::new(),
             personal_generation,
             requires_distinct_stack_ids: false,
             registry_bound_merge: false,

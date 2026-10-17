@@ -3,6 +3,14 @@ use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
+    /// Binds admitted storage contents to the retained model's canonical request address.
+    pub(super) fn bind_storage_request_identity(&mut self) {
+        let identity = self.storage_request_identity();
+        if let Some(storage) = &mut self.storage {
+            storage.identity = identity;
+        }
+    }
+
     /// Uses the screen model's outbound address, independently of ignored packet descriptors.
     pub(super) fn storage_request_identity(&self) -> Option<ContainerIdentity> {
         let storage = self.storage.as_ref()?;
