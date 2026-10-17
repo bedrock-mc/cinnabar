@@ -1034,8 +1034,8 @@ screen-effect parity remain incomplete.
   panels and controls. Home keeps the shipped title above translucent, top-aligned Play and character
   cards. Account access stays in the footer, Realms keeps its original text link, and the utility
   buttons retain their original widths, account icon and red Quit action. Compact menus use a centred column whose
-  width stays proportional to its controls. The footer states Bedrock compatibility;
-  General's Advanced section retains the protocol number. Versions use their canonical sources.
+  width stays proportional to its controls. The footer retains the original Minecraft version and
+  protocol wording. Versions use their canonical sources.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
