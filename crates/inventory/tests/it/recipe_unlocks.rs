@@ -116,3 +116,110 @@ fn authority_waits_for_the_committed_frontier_and_bypass_retires_only_current_co
     next.begin_session(2);
     assert!(!next.recipe_unlocks().contains("test:A"));
 }
+
+#[test]
+fn lost_frontiers_retire_unlocks_before_pending_removals_are_discarded() {
+    for (session_id, identity) in [
+        (1, None),
+        (1, Some((1, 0, None))),
+        (2, Some((1, 0, Some(3)))),
+        (1, Some((0, 0, Some(3)))),
+        (1, Some((1, 4, Some(3)))),
+        (1, Some((2, 0, Some(3)))),
+        (1, Some((1, 0, Some(3)))),
+        (1, Some((1, 1, Some(1)))),
+    ] {
+        let mut session = InventorySession::new(1);
+        catalog(&mut session, 1, vec![recipe("test:A", 1)], true);
+        unlock(&mut session, 2, 2, &["test:A"]);
+        commit(&mut session, 2);
+        session.synchronize_crafting_frontier(1, Some((1, 1, Some(2))));
+        session.begin_session(1);
+        assert!(session.recipe_unlocks().contains("test:A"));
+        let snapshot = session.clone();
+        unlock(&mut session, 3, 3, &["test:A"]);
+        session.synchronize_crafting_frontier(session_id, identity);
+        session.drain_pending_inventory();
+        assert!(
+            !session.recipe_unlocks().contains("test:A"),
+            "lost frontier {identity:?} for session {session_id} skipped a removal"
+        );
+        assert!(!session.recipe_unlocks().is_newly_unlocked("test:A"));
+        assert!(snapshot.recipe_unlocks().contains("test:A"));
+        assert!(snapshot.recipe_unlocks().is_newly_unlocked("test:A"));
+    }
+}
+
+#[test]
+fn cell_queue_loss_retires_unstaged_removals_but_preserves_unaffected_membership() {
+    for pending_removal in [false, true] {
+        let mut session = InventorySession::new(1);
+        catalog(&mut session, 1, vec![recipe("test:A", 1)], true);
+        unlock(&mut session, 2, 2, &["test:A"]);
+        commit(&mut session, 2);
+        let snapshot = session.clone();
+        let slot = InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ::protocol::ContainerIdentity {
+                    window_id: Some(::protocol::UI_INVENTORY_WINDOW_ID),
+                    slot_type: Some(0),
+                    dynamic_id: None,
+                },
+                slot: 28,
+            },
+            stack: ::protocol::NetworkItemStack::empty(),
+            storage_item: None,
+        });
+        for sequence in 3..=67 {
+            session
+                .enqueue_inventory_event(1, sequence, slot.clone())
+                .unwrap();
+        }
+        if pending_removal {
+            unlock(&mut session, 68, 3, &["test:A"]);
+        }
+        commit(&mut session, if pending_removal { 68 } else { 67 });
+        assert_eq!(
+            session.recipe_unlocks().contains("test:A"),
+            !pending_removal
+        );
+        assert_eq!(
+            session.recipe_unlocks().is_newly_unlocked("test:A"),
+            !pending_removal
+        );
+        assert!(snapshot.recipe_unlocks().contains("test:A"));
+    }
+}
+
+#[test]
+fn rejected_ingress_preserves_membership_and_a_capacity_retry_still_applies() {
+    let mut session = InventorySession::new(1);
+    catalog(&mut session, 1, vec![recipe("test:A", 1)], true);
+    unlock(&mut session, 2, 2, &["test:A"]);
+    commit(&mut session, 2);
+    for (session_id, sequence) in [(2, 3), (1, 2)] {
+        assert!(
+            session
+                .enqueue_inventory_event(session_id, sequence, recipe_unlock_event(3, &["test:A"]))
+                .is_err()
+        );
+        assert!(session.recipe_unlocks().contains("test:A"));
+    }
+    let end = 2 + inventory::MAX_PENDING_INVENTORY_EVENTS as u64;
+    for sequence in 3..=end {
+        session
+            .enqueue_inventory_event(1, sequence, InventoryEvent::Options(Default::default()))
+            .unwrap();
+    }
+    assert!(
+        session
+            .enqueue_inventory_event(1, end + 1, recipe_unlock_event(3, &["test:A"]))
+            .is_err()
+    );
+    assert!(session.recipe_unlocks().contains("test:A"));
+    commit(&mut session, end);
+    assert!(session.recipe_unlocks().contains("test:A"));
+    unlock(&mut session, end + 1, 3, &["test:A"]);
+    commit(&mut session, end + 1);
+    assert!(!session.recipe_unlocks().contains("test:A"));
+}

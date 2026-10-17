@@ -1,15 +1,36 @@
 use std::{mem::size_of, sync::Arc};
 
 use super::super::{
-    RecipeCatalog, RecipeIdentity, RecipeIdentityHandle, RecipeUnlockingContext,
+    RecipeCatalog, RecipeIdentity, RecipeUnlockingContext,
     budget::{Credits, MAX_RECORDS, Permit},
 };
 use super::{RecipeUnlockOperation, RecipeUnlockUpdate};
 
 #[derive(Clone, Debug)]
 struct Entry {
-    identity: RecipeIdentityHandle,
+    name: Arc<NameOwner>,
     newly: bool,
+}
+
+#[derive(Debug)]
+struct NameOwner {
+    value: String,
+    _permit: Permit,
+}
+
+impl NameOwner {
+    /// Retains just the exact name, with credit independent of its source recipe batch.
+    fn new(name: &str, credits: &Arc<Credits>) -> Option<Arc<Self>> {
+        let bytes = size_of::<Self>().checked_add(name.len())?.checked_add(64)?;
+        let permit = credits.reserve(bytes)?;
+        let mut value = String::new();
+        value.try_reserve_exact(name.len()).ok()?;
+        value.push_str(name);
+        Some(Arc::new(Self {
+            value,
+            _permit: permit,
+        }))
+    }
 }
 
 #[derive(Debug)]
@@ -28,18 +49,18 @@ impl RecipeUnlockState {
     /// Whether this exact name has received a resolvable explicit unlock.
     pub fn contains(&self, name: &str) -> bool {
         self.entries()
-            .binary_search_by(|entry| entry.identity.identity().identifier().cmp(name))
+            .binary_search_by(|entry| entry.name.value.as_str().cmp(name))
             .is_ok()
     }
 
     /// Whether a New update marked this exact name since its last removal or clear.
     pub fn is_newly_unlocked(&self, name: &str) -> bool {
         self.entries()
-            .binary_search_by(|entry| entry.identity.identity().identifier().cmp(name))
+            .binary_search_by(|entry| entry.name.value.as_str().cmp(name))
             .is_ok_and(|index| self.entries()[index].newly)
     }
 
-    /// Applies the recipe predicate without choosing whether a game rule requires it.
+    /// Tests context and names only; callers own rule and authority-availability gates.
     pub fn is_unlocked(&self, recipe: &RecipeIdentity) -> bool {
         recipe.unlocking_context() == RecipeUnlockingContext::AlwaysUnlocked
             || self.contains(recipe.identifier())
@@ -62,7 +83,7 @@ impl RecipeUnlockState {
             .map_or(&[], |membership| &membership.entries)
     }
 
-    /// Reserves copy-on-write structural storage before retaining any identity owners.
+    /// Reserves copy-on-write structural storage before retaining independently credited names.
     pub(super) fn apply_with_credits(
         &mut self,
         catalog: &RecipeCatalog,
@@ -104,9 +125,7 @@ impl RecipeUnlockState {
             entries.retain(|entry| {
                 names
                     .values
-                    .binary_search_by(|name| {
-                        name.as_str().cmp(entry.identity.identity().identifier())
-                    })
+                    .binary_search_by(|name| name.as_str().cmp(&entry.name.value))
                     .is_err()
             });
         } else {
@@ -116,18 +135,19 @@ impl RecipeUnlockState {
                     continue;
                 };
                 let newly = update.operation == RecipeUnlockOperation::New;
-                match old.binary_search_by(|entry| entry.identity.identity().identifier().cmp(name))
-                {
+                match old.binary_search_by(|entry| entry.name.value.cmp(name)) {
                     Ok(index) => entries[index].newly |= newly,
-                    Err(_) => entries.push(Entry { identity, newly }),
+                    Err(_) => {
+                        let Some(name) = NameOwner::new(identity.identity().identifier(), credits)
+                        else {
+                            self.refuse();
+                            return;
+                        };
+                        entries.push(Entry { name, newly });
+                    }
                 }
             }
-            entries.sort_unstable_by(|a, b| {
-                a.identity
-                    .identity()
-                    .identifier()
-                    .cmp(b.identity.identity().identifier())
-            });
+            entries.sort_unstable_by(|a, b| a.name.value.cmp(&b.name.value));
         }
         if skipped != 0 {
             tracing::warn!(target: "cinnabar::inventory_requests", skipped,

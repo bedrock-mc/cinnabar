@@ -3,7 +3,10 @@ mod budget;
 mod observation;
 mod projection;
 
-use projection::{Observation, Queue, Record, RegistryOwner, StackOwner, transaction_cell_index};
+use projection::{
+    ALL_DOMAINS, AUTHORITY_DOMAIN, CATALOG_DOMAIN, Observation, Queue, REGISTRY_DOMAIN, Record,
+    RegistryOwner, StackOwner, UNLOCKS_DOMAIN, event_domain, transaction_cell_index,
+};
 use protocol::{InventoryAuthority, InventoryEvent, RecipeCatalog, VerifiedNetworkItemStack};
 use std::{num::NonZeroU64, sync::Arc};
 
@@ -40,6 +43,8 @@ pub(super) struct CraftingAuthority {
     epoch: u64,
     barrier: u64,
     observed: u64,
+    /// Latest accepted sequence per domain, including events in the outer FIFO.
+    pending_domains: [u64; u8::BITS as usize],
     consumed: u64,
     authority_loss: u64,
     generation: u64,
@@ -74,6 +79,7 @@ impl CraftingAuthority {
             epoch: 0,
             barrier: 0,
             observed: 0,
+            pending_domains: [0; u8::BITS as usize],
             consumed: 0,
             authority_loss: 0,
             generation: 0,
@@ -105,7 +111,11 @@ impl CraftingAuthority {
         self.cache_key = None;
         match self.revision.checked_add(1) {
             Some(next) => self.revision = next,
-            None => self.exhausted = true,
+            None => {
+                self.exhausted = true;
+                self.queue = None;
+                self.retire_domains(ALL_DOMAINS, self.observed);
+            }
         }
     }
 
@@ -121,33 +131,50 @@ impl CraftingAuthority {
         if let Some(queue) = self.queue.take() {
             for record in &queue.records {
                 barrier = barrier.max(record.sequence);
-                domains |= record.observation.domain();
+                domains |= record.domain;
             }
         }
         self.barrier = barrier;
+        for (bit, sequence) in self.pending_domains.iter().enumerate() {
+            if *sequence > self.consumed && *sequence <= barrier {
+                domains |= 1 << bit;
+            }
+        }
         self.clear_cells();
-        if domains & 1 != 0 {
+        self.retire_domains(if self.exhausted { ALL_DOMAINS } else { domains }, barrier);
+    }
+
+    /// Retires selected facts without advancing the cell revision or changing snapshots.
+    fn retire_domains(&mut self, domains: u8, barrier: u64) {
+        if domains & REGISTRY_DOMAIN != 0 {
             self.registry = None;
         }
-        if domains & 2 != 0 {
+        if domains & CATALOG_DOMAIN != 0 {
             Arc::make_mut(&mut self.catalog).begin_session(self.session);
             self.catalog_lost = true;
         }
-        if domains & 8 != 0 {
+        if domains & UNLOCKS_DOMAIN != 0 {
             self.unlocks.clear();
         }
-        if domains & 4 != 0 {
+        if domains & AUTHORITY_DOMAIN != 0 {
             self.authority = None;
             self.authority_loss = self.authority_loss.max(barrier);
         }
     }
 
     pub(super) fn bypass(&mut self, sequence: u64) {
-        self.lose(sequence, 15);
+        self.lose(sequence, ALL_DOMAINS);
     }
 
+    /// Tracks admitted facts before observation, so loss also covers unstaged events.
     pub(super) fn note_ingress(&mut self, sequence: u64, event: &InventoryAuthorityEvent) {
         self.observed = self.observed.max(sequence);
+        let domain = event_domain(event);
+        for (bit, latest) in self.pending_domains.iter_mut().enumerate() {
+            if domain & (1 << bit) != 0 {
+                *latest = (*latest).max(sequence);
+            }
+        }
         if matches!(
             event,
             InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(
@@ -193,18 +220,18 @@ impl CraftingAuthority {
         observation::synchronize(self.session, identity);
         let Some((stream, epoch, Some(through))) = identity else {
             self.through = None;
-            self.lose(self.observed, 7);
+            self.lose(self.observed, ALL_DOMAINS);
             return;
         };
         if stream == 0 || epoch > through || self.stream.is_some_and(|old| old != stream) {
-            self.lose(through, 7);
+            self.lose(through, ALL_DOMAINS);
         }
         if stream == 0
             || epoch > through
             || (self.stream == Some(stream) && (epoch < self.epoch || through < self.consumed))
         {
             self.through = None;
-            self.lose(through, 7);
+            self.lose(through, ALL_DOMAINS);
             return;
         }
         self.stream = Some(stream);
@@ -291,7 +318,7 @@ impl CraftingAuthority {
         let observation = match event {
             InventoryAuthorityEvent::Registry(registry) => {
                 let Some(owner) = self.registry_owner(registry) else {
-                    self.lose(sequence, 1);
+                    self.lose(sequence, REGISTRY_DOMAIN);
                     return;
                 };
                 Observation::Registry(Some(owner))
@@ -380,7 +407,7 @@ impl CraftingAuthority {
             }
             _ => return,
         };
-        let domain = observation.domain();
+        let domain = event_domain(event);
         let old = self
             .queue
             .as_ref()
@@ -392,6 +419,7 @@ impl CraftingAuthority {
         let replacement = Queue::replace(
             old.iter().cloned().chain(std::iter::once(Record {
                 sequence,
+                domain,
                 observation,
             })),
             count,
@@ -407,6 +435,9 @@ impl CraftingAuthority {
     }
 
     pub(super) fn advance(&mut self) {
+        if self.exhausted {
+            return;
+        }
         let Some(through) = self.through else {
             return;
         };
@@ -495,6 +526,10 @@ impl CraftingAuthority {
                 | Observation::Cells(_) => {}
             }
             observation::discard(record.sequence);
+            if self.exhausted {
+                self.lose(self.observed, ALL_DOMAINS);
+                return;
+            }
         }
         if split < queue.records.len() {
             self.queue = Queue::replace(
@@ -505,9 +540,7 @@ impl CraftingAuthority {
             if self.queue.is_none() {
                 self.lose(
                     self.observed,
-                    queue.records[split..]
-                        .iter()
-                        .fold(0, |d, r| d | r.observation.domain()),
+                    queue.records[split..].iter().fold(0, |d, r| d | r.domain),
                 );
             }
         }

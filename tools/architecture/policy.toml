@@ -1752,6 +1752,11 @@ reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary an
 
 [[identifier_literal_exceptions]]
 path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "stonecutter"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
 literal = "campfire"
 reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
 
