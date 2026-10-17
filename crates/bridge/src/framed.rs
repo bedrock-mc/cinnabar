@@ -16,6 +16,7 @@ use tokio_util::codec::Framed;
 use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use crate::BridgeError;
+use crate::contract::QUEUED_FRAMES;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::endpoint::{PlatformReadHalf, PlatformStream};
 #[cfg(target_arch = "wasm32")]
@@ -157,7 +158,7 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     trace_conn: Option<Arc<AtomicU64>>,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
     assert!(budget.is_none_or(|bytes| bytes > 0 && bytes <= u32::MAX as usize));
-    let (frames, queued) = mpsc::channel(crate::contract::QUEUED_FRAMES);
+    let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
     let failure = Arc::new(OnceLock::new());
     let writer = write_queued_frames(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
