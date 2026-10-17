@@ -10,19 +10,21 @@ use std::{
 };
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
-const JS_TESTS: [&str; 2] = [
-    "web/transport/src/adapters.test.mjs",
-    "web/site/edges.test.mjs",
-];
+/// Root searched for `*.test.mjs` suites, so a new suite cannot be skipped silently.
+const JS_TEST_ROOT: &str = "web";
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-/// Checks the actual browser target and both JavaScript edge suites.
+/// Checks the actual browser target and every browser JavaScript suite.
 pub(crate) fn check(args: &[String]) -> std::result::Result<(), DevtoolError> {
     let checks = || -> Result<()> {
         if !args.is_empty() {
             return Err("check-web takes no arguments".into());
         }
-        execute(Command::new("node").arg("--test").args(JS_TESTS))?;
+        execute(
+            Command::new("node")
+                .arg("--test")
+                .args(js_tests(Path::new(JS_TEST_ROOT))?),
+        )?;
         execute(Command::new("cargo").args([
             "check",
             "--locked",
@@ -211,6 +213,30 @@ fn bindgen_cli(target: &Path, version: &str) -> Result<PathBuf> {
     Ok(binary)
 }
 
+/// Returns every `*.test.mjs` file below `root` in path order, skipping installed packages.
+fn js_tests(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_type()?.is_dir() {
+                if entry.file_name() != "node_modules" {
+                    pending.push(path);
+                }
+            } else if path.to_string_lossy().ends_with(".test.mjs") {
+                found.push(path);
+            }
+        }
+    }
+    if found.is_empty() {
+        return Err(format!("no *.test.mjs suites under {}", root.display()).into());
+    }
+    found.sort();
+    Ok(found)
+}
+
 /// Copies production site files recursively, excluding tests and earlier generated bindings.
 fn copy_site(source: &Path, destination: &Path) -> Result<()> {
     fs::create_dir_all(destination)?;
@@ -257,6 +283,34 @@ fn capture(command: &mut Command) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn javascript_suites_are_discovered_recursively() {
+        let root = tempfile::tempdir().unwrap();
+        for file in [
+            "site/a.test.mjs",
+            "transport/src/b.test.mjs",
+            "site/app.mjs",
+            "node_modules/x/c.test.mjs",
+        ] {
+            let path = root.path().join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "").unwrap();
+        }
+        let found = js_tests(root.path()).unwrap();
+        let names: Vec<_> = found
+            .iter()
+            .map(|path| path.strip_prefix(root.path()).unwrap().to_path_buf())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                PathBuf::from("site/a.test.mjs"),
+                PathBuf::from("transport/src/b.test.mjs")
+            ]
+        );
+        assert!(js_tests(&root.path().join("site/missing")).is_err());
+    }
 
     #[test]
     fn binding_version_requires_one_locked_package() {
