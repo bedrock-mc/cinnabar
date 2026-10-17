@@ -306,9 +306,23 @@ impl EquipmentRuntime {
             .map_or(binding.geometry.identifier.as_ref(), |selected| {
                 selected.geometry.as_ref()
             });
-        let geometry = self
-            .armor_geometry_for(geometry_identifier, from_pack)
+        let direct = self.armor_geometry_for(geometry_identifier, from_pack);
+        let external = if direct.is_none()
+            && binding.geometry.resolution == EntityDependencyResolution::External
+        {
+            animation.and_then(|animation| {
+                self.external_armor_geometry(geometry_identifier, equipment, animation, slot)
+            })
+        } else {
+            None
+        };
+        let geometry = direct
             .map(|geometry| (geometry_identifier, geometry))
+            .or_else(|| {
+                external
+                    .as_ref()
+                    .map(|(identifier, geometry)| (identifier.as_ref(), Arc::clone(geometry)))
+            })
             .or_else(|| {
                 if from_pack
                     || selected.is_some()

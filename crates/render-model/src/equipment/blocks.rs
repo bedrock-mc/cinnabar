@@ -1,7 +1,7 @@
 //! Block items held in hand and drawn in slots: full cubes with six independently authored
 //! faces, and other shapes as their template geometry.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, BlockOverlay,
@@ -246,8 +246,15 @@ fn template_model(
         world.model_quads(),
     )
     .ok()?;
+    template_quads(&quads)
+}
+
+/// Maps bounded template geometry into the same material sheet used by held cubes.
+fn template_quads(
+    quads: &[assets::gui_item::GuiBlockQuad],
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let mut materials: Vec<u32> = Vec::with_capacity(BlockFace::ALL.len());
-    for quad in &quads {
+    for quad in quads {
         let outside = quad
             .uvs
             .iter()
@@ -266,7 +273,7 @@ fn template_model(
     let slots: [u32; 6] = std::array::from_fn(|slot| *materials.get(slot).unwrap_or(&materials[0]));
     let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
     let mut vertices = Vec::with_capacity(quads.len() * 6);
-    for quad in &quads {
+    for quad in quads {
         let rect = rects[materials.iter().position(|id| *id == quad.material)?];
         let [a, b, c, _] = quad.corners.map(glam::Vec3::from);
         let normal = (b - a).cross(c - a).normalize_or_zero().to_array();
@@ -342,6 +349,16 @@ pub fn overlay_sheet(
     visual: usize,
     base: Option<&RuntimeAssets>,
 ) -> Option<IconSprite> {
+    overlay_cube_sheet(overlay, visual, base, &|_| None)
+}
+
+/// Resolves a cube's carried faces with the caller's admitted inventory tint.
+fn overlay_cube_sheet(
+    overlay: &BlockOverlay,
+    visual: usize,
+    base: Option<&RuntimeAssets>,
+    tint: &dyn Fn(u32) -> Option<[u8; 3]>,
+) -> Option<IconSprite> {
     let block = overlay.visuals.get(visual)?;
     let cube = match block.kind {
         VisualKind::Cube => block.flags.contains(BlockFlags::CUBE_GEOMETRY),
@@ -368,7 +385,96 @@ pub fn overlay_sheet(
     if block.animation != NO_ANIMATION {
         return None;
     }
-    overlay_face_sheet(overlay, faces, base)
+    overlay_face_sheet_tinted(overlay, faces, base, tint)
+}
+
+/// Composes a session block model and its material sheet in centred block coordinates.
+/// Unsupported material counts and wrapped UVs keep the caller's sprite fallback.
+pub fn overlay_item(
+    overlay: &BlockOverlay,
+    visual: usize,
+    base: Option<&RuntimeAssets>,
+    tint: &dyn Fn(u32) -> Option<[u8; 3]>,
+) -> Option<(IconSprite, Option<Vec<crate::ActorRigVertex>>)> {
+    if let Some(sheet) = overlay_cube_sheet(overlay, visual, base, tint) {
+        return Some((sheet, None));
+    }
+    let block = overlay.visuals.get(visual)?;
+    if block.kind != VisualKind::Model
+        || !matches!(
+            block.support,
+            VisualSupport::Exact | VisualSupport::VanillaFallback
+        )
+        || block.animation != NO_ANIMATION
+    {
+        return None;
+    }
+    let quads = assets::gui_item::block_item_quads(
+        block.kind,
+        block.faces,
+        Some(block.model_template),
+        &overlay.model_templates,
+        &overlay.model_quads,
+    )
+    .ok()?;
+    let (materials, vertices) = template_quads(&quads)?;
+    Some((
+        overlay_face_sheet_tinted(overlay, materials, base, tint)?,
+        Some(vertices),
+    ))
+}
+
+/// Reuses a held block's sheet and quad geometry for native dropped-item instances.
+/// Vertices must contain complete quads in the held model's triangle order.
+pub fn dropped_model(
+    sheet: crate::DroppedItemSprite,
+    vertices: &[crate::ActorRigVertex],
+) -> Option<crate::DroppedItemBlock> {
+    if vertices.is_empty() || !vertices.len().is_multiple_of(6) {
+        return None;
+    }
+    let mut quads = Vec::with_capacity(vertices.len() / 6);
+    for vertices in vertices.as_chunks::<6>().0 {
+        let order = if vertices[4] == vertices[2] {
+            [0, 1, 2, 5]
+        } else {
+            [0, 4, 1, 2]
+        };
+        let corners = order.map(|index| vertices[index]);
+        if corners.iter().any(|vertex| {
+            vertex
+                .position
+                .iter()
+                .chain(&vertex.uv)
+                .any(|value| !value.is_finite())
+                || vertex.position.iter().any(|value| {
+                    let fixed = (value + 0.5) * 256.0;
+                    fixed < f32::from(i16::MIN) || fixed > f32::from(i16::MAX)
+                })
+                || vertex.uv.iter().any(|value| !(0.0..=1.0).contains(value))
+        }) {
+            return None;
+        }
+        quads.push(assets::ModelQuad {
+            positions: corners.map(|vertex| {
+                vertex
+                    .position
+                    .map(|value| ((value + 0.5) * 256.0).round() as i16)
+            }),
+            uvs: corners.map(|vertex| {
+                vertex
+                    .uv
+                    .map(|value| (value * f32::from(assets::MODEL_UV_SCALE)).round() as u16)
+            }),
+            material: 0,
+            flags: 0,
+        });
+    }
+    Some(crate::DroppedItemBlock {
+        materials: Arc::from([(sheet, crate::OPAQUE_WHITE)]),
+        quads: quads.into(),
+        rotation: 0,
+    })
 }
 
 /// Composes carried cube faces from overlay-local materials for inventory and held rendering.
@@ -377,13 +483,38 @@ pub fn overlay_face_sheet(
     faces: [u32; 6],
     base: Option<&RuntimeAssets>,
 ) -> Option<IconSprite> {
+    overlay_face_sheet_tinted(overlay, faces, base, &|_| None)
+}
+
+/// Bakes resolved per-material tints into shared held faces; unknown tint routes stay absent.
+fn overlay_face_sheet_tinted(
+    overlay: &BlockOverlay,
+    faces: [u32; 6],
+    base: Option<&RuntimeAssets>,
+    tint: &dyn Fn(u32) -> Option<[u8; 3]>,
+) -> Option<IconSprite> {
     let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
     for id in faces {
         let material = overlay
             .materials
             .get(id as usize)
             .filter(|_| id != DIAGNOSTIC_MATERIAL)?;
-        tiles.push(overlay_face_tile(overlay, material, base)?);
+        let mut material = *material;
+        let color = if material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
+            Some(tint(material.flags)?)
+        } else {
+            None
+        };
+        material.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
+        let mut tile = overlay_face_tile(overlay, &material, base)?;
+        if let Some(color) = color {
+            for pixel in Arc::make_mut(&mut tile.rgba8).as_chunks_mut::<4>().0 {
+                for axis in 0..3 {
+                    pixel[axis] = (u16::from(pixel[axis]) * u16::from(color[axis]) / 255) as u8;
+                }
+            }
+        }
+        tiles.push(tile);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
 }

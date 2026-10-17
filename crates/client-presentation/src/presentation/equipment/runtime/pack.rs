@@ -183,6 +183,8 @@ impl EquipmentRuntime {
                             .assets
                             .geometry_candidates(&binding.geometry.identifier)
                             .is_empty()
+                        || (binding.geometry.resolution == EntityDependencyResolution::External
+                            && self.external_armor.contains(&binding.geometry.identifier))
                 },
             )?;
             Some((Arc::clone(catalog), index))

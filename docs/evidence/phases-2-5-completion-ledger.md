@@ -302,6 +302,10 @@ execution of this move are unverified, and it adds no parity evidence.
 
 ## P4.5-ITEM-ACTIONS
 
+Session custom-item regressions cover scalar legacy facts and stack limits,
+shared held/preview/dropped block geometry, carried tint and owner-selected
+external armor models. Broader item-action and custom-content parity stays open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
