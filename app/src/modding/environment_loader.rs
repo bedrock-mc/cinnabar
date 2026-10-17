@@ -3,7 +3,7 @@
 use super::{ModRuntime, RELOAD_INTERVAL, admission, hud_editor};
 use bevy::prelude::*;
 use client_extensions::modding::font;
-use client_shell::ui_resources::UiPresentationResource;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
 use mod_host::{ModGrants, ModHost};
 use sha2::{Digest, Sha256};
@@ -14,7 +14,7 @@ mod inputs;
 #[derive(Clone)]
 pub(super) struct Source {
     pub(super) owner: mod_ui::PanelUiOwner,
-    pub(super) component: PathBuf,
+    pub(super) location: mod_host::Source,
     pub(super) grants: ModGrants,
     pub(super) font: Option<PathBuf>,
     pub(super) ui: Option<PathBuf>,
@@ -22,14 +22,14 @@ pub(super) struct Source {
 
 impl Source {
     /// Retains loader consent so later component requests can restore authorized capabilities.
-    pub(super) fn from_host(owner: mod_ui::PanelUiOwner, host: &ModHost) -> Option<Self> {
-        Some(Self {
+    pub(super) fn from_host(owner: mod_ui::PanelUiOwner, host: &ModHost) -> Self {
+        Self {
             owner,
-            component: host.component_source()?.to_owned(),
+            location: host.source().clone(),
             grants: host.authorized_grants().clone(),
             font: None,
             ui: None,
-        })
+        }
     }
 }
 
@@ -129,43 +129,64 @@ impl Drop for Loader {
     }
 }
 
-type Attempts =
-    BTreeMap<(mod_ui::PanelUiOwner, PathBuf), ([u8; 32], Option<admission::DrawingContext>)>;
+type Attempts = BTreeMap<
+    (mod_ui::PanelUiOwner, mod_host::Source),
+    ([u8; 32], Option<admission::DrawingContext>),
+>;
 
 /// Captures one changed component and all explicit overrides before initializing its candidate.
 fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
-    let key = (request.source.owner, request.source.component.clone());
+    let key = (request.source.owner, request.source.location.clone());
     let mut candidate_identity = None;
     let result = (|| {
-        let bytes = mod_host::local_files::read(
-            &request.source.component,
-            mod_host::MAX_COMPONENT_SOURCE_BYTES,
-        )
-        .map_err(|error| error.to_string())?;
-        let hash: [u8; 32] = Sha256::digest(&bytes).into();
+        let (bytes, hash, package) = match &request.source.location {
+            mod_host::Source::Component(path) => {
+                let bytes = mod_host::local_files::read(path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+                    .map_err(|error| error.to_string())?;
+                let hash: [u8; 32] = Sha256::digest(&bytes).into();
+                (bytes, hash, None)
+            }
+            mod_host::Source::Package(path) => {
+                let package =
+                    mod_host::package::Package::read(path).map_err(|error| format!("{error:#}"))?;
+                (Vec::new(), package.digest, Some(package))
+            }
+        };
         if hash == request.previous && !request.restart {
             return Ok(None);
         }
         let inputs = inputs::Inputs::read(&request);
-        let fingerprint = (inputs.fingerprint(&request, hash)?, request.drawing);
+        let fingerprint = (inputs.fingerprint(&request, hash)?, request.drawing.clone());
         if attempted.get(&key) == Some(&fingerprint) {
             return Ok(None);
         }
         candidate_identity = Some(fingerprint);
         let font = inputs.font?;
         let ui = inputs.ui?;
-        let prepared = admission::prepare(
-            &request.source.component,
-            &bytes,
-            request.source.grants.clone(),
-            font.as_deref(),
-            ui.as_deref(),
-            request
-                .settings
-                .as_ref()
-                .map(|(path, json)| (path.as_path(), json.as_str())),
-            request.drawing,
-        )?;
+        let settings = request
+            .settings
+            .as_ref()
+            .map(|(path, json)| (path.as_path(), json.as_str()));
+        let prepared = match &request.source.location {
+            mod_host::Source::Component(path) => admission::prepare(
+                path,
+                &bytes,
+                request.source.grants.clone(),
+                font.as_deref(),
+                ui.as_deref(),
+                settings,
+                request.drawing.clone(),
+            ),
+            mod_host::Source::Package(path) => admission::prepare_package(
+                path,
+                package.expect("verified package snapshot"),
+                request.source.grants.clone(),
+                font.as_deref(),
+                ui.as_deref(),
+                settings,
+                request.drawing.clone(),
+            ),
+        }?;
         Ok(Some(prepared))
     })();
     match result {
@@ -201,9 +222,12 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
                 let host = runtime.hosts.host(index);
                 (metadata.owner == update.source.owner
                     && metadata.registration.is_none()
-                    && host.component_source() == Some(update.source.component.as_path())
+                    && host.source() == &update.source.location
                     && host.source_digest() == update.previous
-                    && admission::DrawingContext::capture(host) == update.drawing
+                    && admission::DrawingContext::capture(
+                        host,
+                        world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+                    ) == update.drawing
                     && (!host.is_revoked() || host.needs_drawing_restart()))
                 .then_some(index)
             })
@@ -234,6 +258,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
     };
     let retired = {
         let mut runtime = world.resource_mut::<ModRuntime>();
+        runtime.screens.replace_host(index);
         if runtime
             .hud_editor_owner
             .is_some_and(|owner| owner.host == index)
@@ -293,10 +318,13 @@ pub(super) fn poll(world: &mut World) {
                         metadata.owner == source.owner && metadata.registration.is_none()
                     })?;
                     let host = runtime.hosts.host(index);
-                    (host.component_source() == Some(source.component.as_path())
+                    (host.source() == &source.location
                         && (!host.is_revoked() || host.needs_drawing_restart()))
                     .then(|| Request {
-                        drawing: admission::DrawingContext::capture(host),
+                        drawing: admission::DrawingContext::capture(
+                            host,
+                            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+                        ),
                         restart: host.needs_drawing_restart(),
                         source: source.clone(),
                         previous: host.source_digest(),

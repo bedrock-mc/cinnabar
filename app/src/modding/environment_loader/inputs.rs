@@ -60,7 +60,7 @@ impl Inputs {
                 field(&mut digest, json.as_bytes());
             } else {
                 digest.update([2]);
-                let path = mod_host::settings_companion(&request.source.component);
+                let path = mod_host::settings_companion(&request.source.location.settings_anchor());
                 field(&mut digest, path.as_os_str().as_encoded_bytes());
                 outcome(&mut digest, &read(Some(&path), mod_api::MAX_SETTINGS_BYTES));
             }

@@ -7,29 +7,40 @@ use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Arc};
 
 /// The predecessor fence captured before an off-frame admission request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DrawingContext {
     source: [u8; 32],
     session: mod_api::drawing::DrawingSession,
     pub(super) restartable: bool,
+    remote: client_extensions::modding::drawing_policy::DrawingGrant,
 }
 
 impl DrawingContext {
     /// Captures only admitted identity and trusted drawing authority.
-    pub(super) fn capture(host: &ModHost) -> Option<Self> {
+    pub(super) fn capture(
+        host: &ModHost,
+        ui: Option<&client_ui::ui_runtime::UiRuntime>,
+    ) -> Option<Self> {
+        let grant = ui.and_then(|ui| match &ui.experiences.session.state {
+            server_experience::session::State::Granted(grant) => Some(grant),
+            _ => None,
+        });
         host.drawing_session().map(|session| Self {
             source: host.source_digest(),
             session,
             restartable: host.is_active() || host.needs_drawing_restart(),
+            remote: client_extensions::modding::drawing_policy::DrawingGrant::capture(
+                grant,
+                client_ui::experience_session::unix_seconds(),
+            ),
         })
     }
 
-    /// A remote bundle's permission never authorizes different component bytes.
-    pub(super) fn policy(self, source: [u8; 32]) -> mod_api::drawing::DrawingSession {
+    /// Authorizes replacement bytes independently against the trusted remote grant.
+    pub(super) fn policy(&self, source: [u8; 32]) -> mod_api::drawing::DrawingSession {
         let mut session = self.session;
-        if !session.local && self.source != source {
-            session.permissions =
-                client_extensions::modding::drawing_policy::remote_permissions(None, &source, 0);
+        if session.connection != 0 && !session.local && self.source != source {
+            session.permissions = self.remote.permissions(&source);
         }
         session
     }
@@ -54,10 +65,35 @@ pub(super) fn prepare(
     settings: Option<(&Path, &str)>,
     drawing: Option<DrawingContext>,
 ) -> Result<PreparedMod, String> {
-    let controls = grants.controls;
     let session = drawing.map(|drawing| drawing.policy(Sha256::digest(component).into()));
-    let mut host = ModHost::prepare_snapshot_in_session(path, component, grants, settings, session)
+    let host = ModHost::prepare_snapshot_in_session(path, component, grants, settings, session)
         .map_err(|error| format!("{error:#}"))?;
+    prepare_presentation(host, font_bytes, ui)
+}
+
+/// Admits a verified package snapshot and its presentation together off the frame thread.
+pub(super) fn prepare_package(
+    path: &Path,
+    package: mod_host::package::Package,
+    grants: ModGrants,
+    font_bytes: Option<&[u8]>,
+    ui: Option<&[u8]>,
+    settings: Option<(&Path, &str)>,
+    drawing: Option<DrawingContext>,
+) -> Result<PreparedMod, String> {
+    let session = drawing.map(|drawing| drawing.policy(package.digest));
+    let host = ModHost::prepare_package_in_session(path, package, grants, settings, session)
+        .map_err(|error| format!("{error:#}"))?;
+    prepare_presentation(host, font_bytes, ui)
+}
+
+/// Prepares static resources only after the guest's effective grants have been installed.
+fn prepare_presentation(
+    mut host: ModHost,
+    font_bytes: Option<&[u8]>,
+    ui: Option<&[u8]>,
+) -> Result<PreparedMod, String> {
+    let controls = host.grants().controls;
     let font = if controls {
         font_bytes
             .or_else(|| host.panel_font_source())
@@ -119,6 +155,7 @@ mod tests {
                 ..Default::default()
             },
             restartable: true,
+            remote: Default::default(),
         };
         assert_eq!(context.policy([1; 32]), context.session);
         let changed = context.policy([2; 32]);

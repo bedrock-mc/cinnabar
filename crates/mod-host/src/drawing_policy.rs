@@ -61,6 +61,10 @@ impl ModHost {
             return;
         }
         self.drawing_restart |= self.is_active();
+        // Every revocation needs a fresh attempt, even if the fence returns before polling.
+        if self.drawing_restart {
+            self.attempted = None;
+        }
         self.pending_events.clear();
         self.instance.revoke();
         self.drawing_session = Some(session);

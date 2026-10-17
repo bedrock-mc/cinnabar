@@ -1,6 +1,59 @@
 use super::*;
 use mod_api::drawing::{DrawingPermissions, DrawingSession};
 
+/// Loads the same guest through either source kind to exercise shared restart bookkeeping.
+fn drawing_fixture(package: bool) -> (tempfile::TempDir, ModHost) {
+    if !package {
+        return load_fixture("");
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let bytes = wat::parse_str(fixture("", "Hello")).unwrap();
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    std::fs::write(
+        directory
+            .path()
+            .join(experience_sdk::mod_manifest::COMPONENT),
+        bytes,
+    )
+    .unwrap();
+    std::fs::write(directory.path().join(crate::package::MANIFEST), format!(
+        "id = \"drawing_test\"\nversion = \"1.0.0\"\napi = \"{}\"\npermissions = []\n[files]\n\"{}\" = \"{hash}\"\n",
+        experience_sdk::mod_manifest::API, experience_sdk::mod_manifest::COMPONENT,
+    )).unwrap();
+    let host = ModHost::load_package(directory.path(), ModGrants::default()).unwrap();
+    (directory, host)
+}
+
+#[test]
+fn returning_to_an_admitted_fence_still_restarts_the_revoked_guest() {
+    for package in [false, true] {
+        let (_directory, mut host) = drawing_fixture(package);
+        let original = DrawingSession {
+            connection: 1,
+            local: true,
+            permissions: DrawingPermissions::ALL,
+            ..Default::default()
+        };
+        host.bind_drawing_session(original);
+        assert!(host.reload_if_changed().unwrap());
+        let digest = host.source_digest();
+        host.bind_drawing_session(DrawingSession {
+            dimension: 1,
+            ..original
+        });
+        host.bind_drawing_session(original);
+        assert!(host.is_revoked());
+        assert!(host.reload_if_changed().unwrap());
+        assert!(host.is_active());
+        assert!(!host.needs_drawing_restart());
+        assert_eq!(host.source_digest(), digest);
+    }
+}
+
 #[test]
 fn session_transfer_clears_output_and_rebuilds_without_a_source_edit() {
     let (_directory, mut host) = load_fixture("");

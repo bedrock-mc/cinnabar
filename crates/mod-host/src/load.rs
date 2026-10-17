@@ -70,6 +70,19 @@ impl ModHost {
 
     /// Loads a verified package under the loader's original authorization policy.
     fn load_read_package(dir: &Path, package: Package, grants: ModGrants) -> Result<Self> {
+        let mut host = Self::prepare_package_in_session(dir, package, grants, None, None)?;
+        host.activate_settings(None);
+        Ok(host)
+    }
+
+    /// Prepares one verified package under its drawing fence without activating settings writes.
+    pub fn prepare_package_in_session(
+        dir: &Path,
+        package: Package,
+        grants: ModGrants,
+        current_settings: Option<(&Path, &str)>,
+        session: Option<mod_api::drawing::DrawingSession>,
+    ) -> Result<Self> {
         let source = Source::Package(dir.to_owned());
         let authorized_grants = grants;
         let grants = authorized_grants.with_manifest(&package.manifest);
@@ -78,14 +91,13 @@ impl ModHost {
             source,
             &package.component,
             grants,
-            None,
+            current_settings,
             declared,
             package.digest,
-            None,
+            session,
         )?;
         host.package = Some(loaded(package));
         host.authorized_grants = authorized_grants;
-        host.activate_settings(None);
         Ok(host)
     }
 
@@ -184,8 +196,7 @@ impl ModHost {
             embedded_notices: assets.notices,
             panel_bundle_override: None,
             source,
-            attempted: digest,
-            attempted_session: session,
+            attempted: Some(digest),
             admitted_digest: digest,
             authorized_grants,
             grants,
@@ -233,15 +244,13 @@ impl ModHost {
                 (Vec::new(), package.digest, Some(package))
             }
         };
-        let changed_fence = self.drawing_restart && self.attempted_session != self.drawing_session;
-        if self.attempted == digest && !changed_fence {
+        if self.attempted == Some(digest) {
             return Ok(false);
         }
         if !self.instance.can_reload() {
             return Ok(false);
         }
-        self.attempted = digest;
-        self.attempted_session = self.drawing_session;
+        self.attempted = Some(digest);
         let (bytes, declared) = match &package {
             Some(package) => (&package.component, declared(package)),
             None => (&bytes, Declared::default()),
@@ -347,12 +356,9 @@ impl ModHost {
         self.embedded_notices.as_deref()
     }
 
-    /// Identifies a bare local component for its caller's off-frame reload worker.
-    pub fn component_source(&self) -> Option<&Path> {
-        match &self.source {
-            Source::Component(path) => Some(path),
-            Source::Package(_) => None,
-        }
+    /// Identifies either source kind for off-frame snapshot admission.
+    pub fn source(&self) -> &Source {
+        &self.source
     }
 
     /// The admitted source identity, including embedded static presentation data.
@@ -364,7 +370,7 @@ impl ModHost {
 impl Source {
     /// The path whose `.settings.json` companion holds the mod's settings: a component's own
     /// path, or for a package one beside its directory, never inside the hashed package.
-    fn settings_anchor(&self) -> std::path::PathBuf {
+    pub fn settings_anchor(&self) -> std::path::PathBuf {
         match self {
             Self::Component(path) => path.clone(),
             Self::Package(dir) => package::settings_anchor(dir),

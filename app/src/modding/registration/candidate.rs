@@ -39,7 +39,7 @@ pub(super) fn build_candidate_with_settings(
         font_bytes.as_deref(),
         ui.as_deref(),
         settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
-        drawing,
+        drawing.clone(),
     )?;
     Ok(Candidate {
         host: prepared.host,
@@ -88,6 +88,7 @@ impl Admissions {
         let path = snapshot.registration.component.clone();
         let drawing = snapshot
             .drawing
+            .as_ref()
             .map(|drawing| drawing.policy(Sha256::digest(&snapshot.component).into()));
         if let Some(failed) = self.failed.get(&path)
             && failed.source == source

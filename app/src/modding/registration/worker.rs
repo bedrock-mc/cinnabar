@@ -70,7 +70,7 @@ pub(super) fn run(
             let fences = drawing.lock().expect("mod drawing fences").clone();
             for entry in registration.mods.iter().filter(|entry| entry.enabled) {
                 let snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
-                    snapshot.drawing = fences.get(&entry.component).copied();
+                    snapshot.drawing = fences.get(&entry.component).cloned();
                     snapshot
                 });
                 match &snapshot {
@@ -80,13 +80,17 @@ pub(super) fn run(
                 if snapshot.as_ref().map_or(true, |snapshot| {
                     let policy = snapshot
                         .drawing
+                        .as_ref()
                         .map(|drawing| drawing.policy(Sha256::digest(&snapshot.component).into()));
                     installed
                         .get(&entry.component)
                         .is_none_or(|admitted: &Admitted| {
                             admitted.source != snapshot.identity
                                 || (admitted.drawing != policy
-                                    && snapshot.drawing.is_none_or(|drawing| drawing.restartable))
+                                    && snapshot
+                                        .drawing
+                                        .as_ref()
+                                        .is_none_or(|drawing| drawing.restartable))
                         })
                 }) {
                     sources.push((entry.clone(), snapshot));

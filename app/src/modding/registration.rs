@@ -17,7 +17,7 @@ use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
 use candidate::Candidate;
 use client_extensions::modding::multi::ModHosts;
-use client_shell::ui_resources::UiPresentationResource;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::ModHost;
 use schema::{Entry, Registration, VERSION};
@@ -250,7 +250,11 @@ impl Watcher {
             .collect();
     }
     /// Captures each mod's latest in-memory preferences before preparing replacements.
-    pub(super) fn remember_settings(&self, runtime: &ModRuntime) {
+    pub(super) fn remember_settings(
+        &self,
+        runtime: &ModRuntime,
+        ui: Option<&client_ui::ui_runtime::UiRuntime>,
+    ) {
         self.remember_companions(Some(runtime));
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
         drawing.clear();
@@ -261,7 +265,7 @@ impl Watcher {
                 continue;
             };
             let host = runtime.hosts.host(index);
-            if let Some(context) = super::admission::DrawingContext::capture(host) {
+            if let Some(context) = super::admission::DrawingContext::capture(host, ui) {
                 drawing.insert(registered.entry.component.clone(), context);
             }
             if let Some((path, json)) = host.settings_path().zip(host.settings_snapshot()) {

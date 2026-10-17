@@ -9,7 +9,10 @@ pub(super) fn sync_authority(world: &mut World) {
         return;
     };
     if let Some(runtime) = world.get_resource::<ModRuntime>() {
-        watcher.remember_settings(runtime);
+        watcher.remember_settings(
+            runtime,
+            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+        );
     }
     let desired = watcher.desired.lock().expect("mod desired list");
     let enabled: Vec<_> = if watcher.alive.load(Ordering::Acquire) {
@@ -92,6 +95,7 @@ fn publish(world: &mut World, mut candidate: Candidate) -> Result<(), Box<Candid
     if previous.is_some_and(|index| {
         super::super::admission::DrawingContext::capture(
             world.resource::<ModRuntime>().hosts.host(index),
+            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
         ) != candidate.drawing
     }) {
         return Err(Box::new(candidate));
@@ -129,7 +133,6 @@ fn publish(world: &mut World, mut candidate: Candidate) -> Result<(), Box<Candid
             metadata: vec![metadata],
             render_sources: Vec::new(),
             render_merge: Default::default(),
-            last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
             suspended: false,
             hud_editor_owner: None,
@@ -254,7 +257,10 @@ pub(super) fn apply(world: &mut World, update: Update) {
         });
     if stale_settings {
         if let Some(runtime) = world.get_resource::<ModRuntime>() {
-            watcher.remember_settings(runtime);
+            watcher.remember_settings(
+                runtime,
+                world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
+            );
         }
         for change in update.changes {
             if let Ok(candidate) = change.result {
