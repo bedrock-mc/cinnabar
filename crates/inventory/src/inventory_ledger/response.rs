@@ -100,6 +100,12 @@ impl PlayerInventoryLedger {
         false
     }
 
+    /// The overlay travelling with the cursor's presented stack during prediction.
+    #[must_use]
+    pub fn presented_cursor_overlay(&self) -> Option<&StackResponseOverlay> {
+        self.view().get(Cell::Cursor)?.overlay.as_ref()
+    }
+
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {

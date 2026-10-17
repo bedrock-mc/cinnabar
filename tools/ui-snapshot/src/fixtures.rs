@@ -35,6 +35,9 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// A damaged stack picked up from the survival inventory.
+    #[cfg(feature = "test-support")]
+    CursorDurability,
     /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
     #[cfg(feature = "test-support")]
     CraftOverlap {
@@ -51,6 +54,13 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "inventory-cursor-durability",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CursorDurability,
+    },
     State {
         name: "home-update-compact",
         size: [480, 640],
