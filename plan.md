@@ -3,10 +3,19 @@
 The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and independent
 head, back, face, body, pet and aura slots. Geometry, textures and optional joint motion
 are loaded from bounded, SHA-256-checked assets. The catalog includes original bunny
-ears, the crown and rigid red devil horns; editable artwork and export conformance
-tests remain available.
+ears, the crown, rigid red devil horns, animated back-slot dragon wings and a pet-slot
+shoulder parrot; editable artwork and export conformance tests remain available.
+The parrot stays in Cosmetics, with its existing pet slot exposed by the category filter.
 Each attachment follows its declared bone and offset. World and HUD share local motion.
+Bounded transform clips and continuous span flex animate wings alongside independent hats.
+An optional intro and delayed repeating clip sequence animate the parrot flying in once
+and changing shoulders, using shared immutable geometry and caller-owned time.
 Unknown, unsupported and unowned items render nothing.
+
+The Cosmetics gallery offers All, Head, Back and Pet choices through a filter icon beside
+Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
+items, retains separate scroll positions and limits thumbnails and keyboard navigation
+to the selected category.
 
 Saved hat choices migrate into the head slot. Gallery requests include visible thumbnails
 and prioritize equipped textures. Cosmetic motion retains the hand rasters, and unchanged
@@ -308,13 +317,17 @@ consent and runs headless first-run preparation; the NativeActivity then runs th
 the install layout under the app's private files. Gameplay touch controls are a built-in JSON-UI
 screen whose painted rectangles capture fingers; inventory and server forms take one finger as
 the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
-and on demand.
+and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
+persistent signing key and release checksums; Android installs updates through the APK installer.
+APKs compile the shared product icon into their launcher resources. Android 11+ relaunches offer
+copyable diagnostics after an unexpected process exit.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
 Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
 menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
 and performance have no Android acceptance. No parity gate closes here.
+Reported exits after resource setup on Galaxy S21 remain undiagnosed; device acceptance is open.
 
 ## Runtime terrain bindings
 
@@ -444,6 +457,12 @@ use/place/mine/melee/pick, block selection, world-dependent camera publication a
 cursor focus remain in `app`. They still combine world, transport, menu and
 extension state at the app boundary. Existing tests remain with their owning code;
 compilation, test execution and the behavior/performance acceptance gates remain unverified.
+
+Entity-hover reports use the retained primary actor pick shared with attacks. Local
+ticks report a changed actor or held item before movement, and leaving the actor
+sends a positionless clear. Unchanged targets do not generate repeated reports.
+Remote actor motion shares completed local ticks and fractional progress during prediction;
+otherwise it uses the client frame elapsed cap.
 
 ## Client runtime ownership
 
@@ -829,6 +848,10 @@ screen-effect parity remain incomplete.
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+- Frame waits read the current focus policy after frame work, so focus restoration
+  removes the background limit before that frame waits. Background and occlusion
+  limits stay unchanged. Deterministic regression coverage exercises both rendering
+  paths; native focus-transition latency and the reported resize lag remain unverified.
 
 ## Graphics API startup recovery
 
@@ -2234,6 +2257,11 @@ keeps its own binding.
   online roster.
 - Compact centered columns, bounded to 80 players with an explicit overflow count.
 - Roster changes refresh cached JSON-UI; binding release, focus loss and menus hide it.
+- Each name has its skin's front face and hat layer, with the runtime Steve skin for
+  missing or unsupported portraits. UUID-based skin updates refresh cached portraits;
+  stock, legacy, HD, custom cube UVs and static first-frame face animations are supported.
+  Rotated or otherwise unsupported head geometry uses the fallback. This is a
+  user-requested extension; native Bedrock parity and performance acceptance remain incomplete.
 - Input, rendered collection, focus/release, roster refresh and cache tests passed.
 - Incomplete live Windows acceptance: installed-client Tab capture pending.
 
@@ -4128,6 +4156,14 @@ range bypass and playback offset, camera preset starting rotation, dimension
 default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
 incomplete. The account/auth cache is keyed on the game version, so the first
 join re-authenticates.
+
+Item-use request builders now carry an explicit logical hand through standalone
+transactions and embedded PlayerAuthInput block interactions. Offhand requests
+use transaction slot zero and retain the caller-supplied authoritative stack.
+Independent byte tests cover both hands, stack identity and the following fields.
+This is a request/builder foundation: gameplay still selects the main hotbar hand.
+Offhand gameplay selection, predicted inventory changes, item release and exact
+stable-target gameplay acceptance remain incomplete. Full inventory parity is open.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.

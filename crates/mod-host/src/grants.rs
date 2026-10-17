@@ -130,6 +130,9 @@ grants! {
     /// Allows delivering a package's declared keys.
     #[permission("Keys", true)]
     pub keys: bool,
+    /// Allows a package's vanilla inventory requests: creative takes and recipe fills.
+    #[permission("Inventory requests", true)]
+    pub inventory: bool,
     /// Allows retained full-block highlights of matching loaded blocks.
     #[permission("Block highlights", false)]
     pub block_highlights: bool,
@@ -164,6 +167,7 @@ mod tests {
             "movement",
             "commands",
             "keys",
+            "inventory",
         ] {
             assert!(
                 ModGrants::CAPABILITIES

@@ -171,7 +171,7 @@ fn a_custom_potion_base_keeps_its_auxiliary_appearance() {
     let expected = variant(&actor, 0);
     assert_eq!(
         expected,
-        f32::from(assets::vanilla_potion_variant(21).unwrap())
+        f32::from(assets::potion::vanilla_potion_variant(21).unwrap())
     );
     actor.entity_fact_override = Some(assets::facts::entity::EntityFacts::pinned().get(base));
     actor.kind = ActorKind::Entity {

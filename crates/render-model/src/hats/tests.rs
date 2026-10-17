@@ -78,8 +78,14 @@ fn forward_wind_folds_only_the_upper_half_behind_the_head_at_every_orientation()
         Quat::from_rotation_y(1.3),
         Quat::from_rotation_x(-0.4),
     ] {
-        let rest = model.pose(head(rotation), 0.0);
-        let folded = model.pose(head(rotation), 1.0);
+        let rest = model.pose(head(rotation), Motion::default());
+        let folded = model.pose(
+            head(rotation),
+            Motion {
+                bend: 1.0,
+                ..Default::default()
+            },
+        );
         for (index, weight) in model.flex.iter().enumerate() {
             if *weight == 0.0 {
                 assert_eq!(rest[index], folded[index]);
@@ -132,13 +138,20 @@ fn settled_headwear_reuses_its_pose_and_retains_head_scale() {
     let mut cache = HatPoseCache::default();
     let mut head = head(Quat::IDENTITY);
     head.translation_scale[3] = 0.5;
-    let first = cache.pose(fixture::bunny(), head, 0.0);
-    let second = cache.pose(fixture::bunny(), head, 0.0);
+    let first = cache.pose(fixture::bunny(), head, Motion::default());
+    let second = cache.pose(fixture::bunny(), head, Motion::default());
     assert!(Arc::ptr_eq(&first, &second));
     for bone in &*first {
         assert_eq!(bone.translation_scale[3], 0.5);
     }
-    let changed = cache.pose(fixture::bunny(), head, 0.5);
+    let changed = cache.pose(
+        fixture::bunny(),
+        head,
+        Motion {
+            bend: 0.5,
+            ..Default::default()
+        },
+    );
     assert!(!Arc::ptr_eq(&first, &changed));
 }
 
@@ -146,7 +159,13 @@ fn settled_headwear_reuses_its_pose_and_retains_head_scale() {
 fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
     let model = rig(fixture::bunny());
     for bend in [0.0, 0.5, 1.0] {
-        let pose = model.pose(head(Quat::IDENTITY), bend);
+        let pose = model.pose(
+            head(Quat::IDENTITY),
+            Motion {
+                bend,
+                ..Default::default()
+            },
+        );
         let mut shared = std::collections::HashMap::<[u32; 3], Vec3>::new();
         let mut duplicate_corners = 0;
         for vertex in &*model.geometry.vertices {
@@ -181,6 +200,14 @@ fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
 #[test]
 fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots() {
     for (project, geometry) in [
+        (
+            include_str!("shoulder_parrot.bbmodel"),
+            include_str!("shoulder_parrot.geo.json"),
+        ),
+        (
+            include_str!("dragon_wings.bbmodel"),
+            include_str!("dragon_wings.geo.json"),
+        ),
         (
             include_str!("bunny_ears.bbmodel"),
             include_str!("bunny_ears.geo.json"),
@@ -252,7 +279,7 @@ fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots
                 })
                 .expect("runtime surface matches the editable Blockbench mesh");
             let positions = surface["positions"].as_array().unwrap();
-            assert!(positions.len() > 100);
+            assert!(!positions.is_empty());
             assert_eq!(
                 surface["polys"].as_array().unwrap().len(),
                 mesh["faces"].as_object().unwrap().len()
@@ -298,7 +325,7 @@ fn admits_new_identifiers_slots_offsets_and_render_flags_without_code_changes() 
         rig(item).geometry.vertices.len(),
         rig(first).geometry.vertices.len() * 2
     );
-    let posed = rig(item).pose(head(Quat::IDENTITY), 0.0);
+    let posed = rig(item).pose(head(Quat::IDENTITY), Motion::default());
     assert!((posed[0].translation_scale[0] - 0.25).abs() < 1e-5);
     assert_eq!(Item::from_id(item.id()), Some(item));
 }
@@ -359,7 +386,7 @@ fn catalog_geometry_keeps_authored_rotations_at_a_different_attachment_bone() {
         include_bytes!("fixture/animation.json"),
     )
     .unwrap();
-    let pose = rig(item).pose(head(Quat::IDENTITY), 0.0);
+    let pose = rig(item).pose(head(Quat::IDENTITY), Motion::default());
     assert!(
         rig(item)
             .rest_vertices
@@ -410,8 +437,54 @@ fn catalog_devil_horns_attach_directly_to_the_head_and_stay_rigid() {
         "no band joins the two horns"
     );
     let attachment = head(Quat::from_rotation_y(0.8));
-    assert_eq!(*model.pose(attachment, 0.0), *model.pose(attachment, 1.0));
+    assert_eq!(
+        *model.pose(attachment, Motion::default()),
+        *model.pose(
+            attachment,
+            Motion {
+                bend: 1.0,
+                ..Default::default()
+            }
+        )
+    );
     let preview = thumbnail::render(item, 128, 128).unwrap();
+    assert!(
+        preview
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] > 0)
+    );
+}
+
+#[test]
+fn shoulder_parrot_sits_on_the_shoulder_and_coexists_with_head_and_back_slots() {
+    let pet = fixture::shoulder_parrot();
+    let model = rig(pet);
+    assert_eq!(pet.descriptor().slot, "pet");
+    assert_eq!(pet.descriptor().attachment_bone, "body");
+    assert!(pet.descriptor().free);
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .all(|v| v.position[0] > 0.25 && v.position[1] < 2.0)
+    );
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .any(|v| (v.position[1] - 1.5).abs() < 1e-6),
+        "feet touch the standard shoulder plane"
+    );
+    let slots = [fixture::devil_horns(), fixture::dragon_wings(), pet]
+        .map(|item| (item.descriptor().slot.clone(), Some(item.id().into())))
+        .into();
+    let resolved = cosmetics::resolve(&slots, |_| false);
+    assert_eq!(resolved.len(), 3);
+    assert!(resolved.contains(&pet));
+    let preview = thumbnail::render(pet, 128, 128).unwrap();
     assert!(
         preview
             .rgba8

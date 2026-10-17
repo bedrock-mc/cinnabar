@@ -17,6 +17,7 @@ fn row(name: &str, badged: bool) -> RosterRow {
     RosterRow {
         name: Arc::from(name),
         badged,
+        skin: None,
     }
 }
 
@@ -33,6 +34,9 @@ fn render(list: &mut PlayerList) -> Vec<json_ui::DrawNode> {
         .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
         .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
         .with_var("cell_width", serde_json::json!(80))
+        .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
+        .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
+        .with_var("name_width", serde_json::json!("100% - 26px"))
         .with_var("panel_width", serde_json::json!(164))
         .with_var("panel_height", serde_json::json!(122))
         .with_var("cinnabar_badge_texture", serde_json::json!(CINNABAR_BADGE));
@@ -123,4 +127,58 @@ fn badges(nodes: &[json_ui::DrawNode]) -> usize {
             |node| matches!(&node.draw, Draw::Sprite { texture, .. } if texture == CINNABAR_BADGE),
         )
         .count()
+}
+
+#[test]
+fn heads_precede_names_and_padding_has_no_head() {
+    let mut list = PlayerList::new();
+    list.refresh(&names(23), MAX_ROWS);
+    let nodes = render(&mut list);
+    let heads: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } if texture.starts_with("client-raster:tab-head/") => {
+                Some(node.dest)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heads.len(), 23);
+    for node in &nodes {
+        if let Draw::Text { text, .. } = &node.draw
+            && text.starts_with("Player")
+        {
+            assert!(
+                heads
+                    .iter()
+                    .any(|head| head.y == node.dest.y && head.x + head.w <= node.dest.x)
+            );
+        }
+    }
+}
+
+#[test]
+fn skin_changes_refresh_only_their_portrait_and_invalid_skins_use_default() {
+    let mut list = PlayerList::new();
+    let mut rows = vec![row("Alex", false), row("Alex", true)];
+    list.refresh(&rows, MAX_ROWS);
+    let fallback = list.portraits[&list.heads[0]].identity();
+    assert_eq!(list.portraits.len(), 1);
+    let skin = render_api::StandardSkin {
+        width: 64,
+        height: 64,
+        rgba8: [40, 100, 200, 255].repeat(64 * 64).into(),
+        cape: None,
+        geometry: None,
+    };
+    rows[0].skin = Some(skin);
+    list.refresh(&rows, MAX_ROWS);
+    assert_ne!(list.portraits[&list.heads[0]].identity(), fallback);
+    assert_eq!(list.portraits[&list.heads[1]].identity(), fallback);
+    let before = Arc::clone(&list.data);
+    list.refresh(&rows, MAX_ROWS);
+    assert!(Arc::ptr_eq(&before, &list.data));
+    rows[0].skin.as_mut().unwrap().width = 1;
+    list.refresh(&rows, MAX_ROWS);
+    assert_eq!(list.portraits[&list.heads[0]].identity(), fallback);
 }

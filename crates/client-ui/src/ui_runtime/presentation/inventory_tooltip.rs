@@ -24,9 +24,9 @@ fn potion_form(identifier: &str) -> Option<PotionForm> {
 fn potion(
     identifier: Option<&str>,
     metadata: u32,
-) -> Option<(&'static assets::PotionDescriptor, PotionForm)> {
+) -> Option<(&'static assets::potion::PotionDescriptor, PotionForm)> {
     let form = potion_form(identifier?)?;
-    let descriptor = assets::potion_descriptor(i16::try_from(metadata).ok()?)?;
+    let descriptor = assets::potion::potion_descriptor(i16::try_from(metadata).ok()?)?;
     Some((descriptor, form))
 }
 
@@ -40,7 +40,7 @@ fn duration_text(ticks: u32) -> String {
 /// beneficial and red for harmful effects (`Speed II (1:30)`).
 fn potion_effect_lines(
     runtime: &UiRuntime,
-    descriptor: &assets::PotionDescriptor,
+    descriptor: &assets::potion::PotionDescriptor,
     form: &PotionForm,
 ) -> impl Iterator<Item = TooltipLine> {
     descriptor.effects.iter().map(move |effect| {
@@ -98,6 +98,12 @@ pub(crate) fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32)
         .is_some_and(|components| components.display_name.is_some())
     {
         return runtime.localized_item_name(identifier);
+    }
+    if identifier == assets::facts::ARROW_IDENTIFIER
+        && let Some(name) = assets::potion::tipped_arrow_name_key(metadata)
+            .and_then(|key| runtime.translation(&key))
+    {
+        return name.to_string();
     }
     potion(Some(identifier), metadata)
         .and_then(|(descriptor, form)| {

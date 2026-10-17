@@ -156,13 +156,13 @@ wit-component = "=0.247.0"
 
 # Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
 
-wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
+wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "96a61b51731356308db5498db49a077b53072822" }
 
 [profile.dev]
 opt-level = 1
