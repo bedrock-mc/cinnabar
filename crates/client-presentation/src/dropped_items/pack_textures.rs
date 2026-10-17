@@ -144,8 +144,10 @@ fn dropped_pack_cubes_replace_all_faces_and_restore_base_after_removal() {
                 for (face, pixels) in cube.faces.iter().enumerate() {
                     assert!(
                         pixels
-                            .chunks_exact(4)
-                            .all(|pixel| pixel == [color, face as u8, 80, 255])
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .all(|pixel| *pixel == [color, face as u8, 80, 255])
                     );
                     assert_eq!(cube.tints[face], render_model::OPAQUE_WHITE);
                 }
