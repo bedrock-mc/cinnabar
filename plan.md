@@ -9891,6 +9891,18 @@ Explicit default collision and selection components retain their bounds before s
 
 Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.
 
+## UI texture allocation recovery
+
+UI texture resizes keep unchanged dimension buckets. If replacement storage fails,
+superseded buckets are released before another attempt. Successfully allocated
+and uploaded pages remain drawable; unavailable pages are absent. An unchanged
+failed plan retries after 250 ms using time from the caller, while plan changes
+retry immediately. Residency changes invalidate retained UI pixels even when the
+publication revision stays the same.
+
+Hardware memory-pressure captures remain outstanding. This recovery does not
+close the texture streaming or hardware frame budget acceptance gates.
+
 ## Actor GPU allocation recovery
 
 Actor page and buffer allocations now check out-of-memory errors before publishing
