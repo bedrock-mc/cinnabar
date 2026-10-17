@@ -21,13 +21,15 @@ use super::UiPresentationRuntime;
 use ui::IconRef;
 use ui_engine::pages::WHOLE_ART_PAGE;
 
-mod skin_previews;
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "menu_artwork/native.rs"]
-mod worker;
 #[cfg(target_arch = "wasm32")]
-#[path = "menu_artwork/browser.rs"]
-mod worker;
+mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+mod skin_previews;
+#[cfg(target_arch = "wasm32")]
+use browser::start;
+#[cfg(not(target_arch = "wasm32"))]
+use native::start;
 use skin_previews::SkinArtwork;
 pub(super) mod cosmetic_requests;
 use cosmetic_requests::CosmeticArtwork;
@@ -140,7 +142,7 @@ pub(super) struct ArtworkLoader {
 
 impl Default for ArtworkLoader {
     fn default() -> Self {
-        let (requests, jobs, results) = worker::start();
+        let (requests, jobs, results) = start();
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
         Self {

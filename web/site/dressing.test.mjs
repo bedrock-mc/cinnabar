@@ -68,6 +68,25 @@ test("teardown during a file read cancels publication", async () => {
   finish(new ArrayBuffer(1));
 });
 
+test("gesture bridge keeps the ticket receiver during metadata admission", async () => {
+  const { input, doc } = fixture();
+  const target = new EventTarget();
+  let finish;
+  const completed = new Promise((resolve) => { finish = resolve; });
+  const stop = dressingPickerEdges(target, () => ({
+    cape: false, maximumCount: 2,
+    admit() { assert.equal(this.maximumCount, 2); },
+    complete(files, error) { finish({ files, error }); },
+  }), doc);
+  target.dispatchEvent(new Event("click"));
+  input.files = [file("skin.png", 1)];
+  input.dispatchEvent(new Event("change"));
+  const result = await completed;
+  stop();
+  assert.equal(result.error, null);
+  assert.equal(result.files.length, 1);
+});
+
 test("gesture bridge uses current intent, bounds concurrent pickers and owns teardown", async () => {
   const { input, doc, opened } = fixture();
   const target = new EventTarget();
@@ -80,8 +99,11 @@ test("gesture bridge uses current intent, bounds concurrent pickers and owns tea
       assert.deepEqual(files, []); assert.equal(error, null); completions++; complete();
     } };
   }, doc);
+  let propagated = 0;
+  target.addEventListener("click", () => { propagated++; });
   target.dispatchEvent(new Event("click", { cancelable: true }));
   assert.ok(opened());
+  assert.equal(propagated, 0, "a reserved import consumes the game gesture");
   target.dispatchEvent(new Event("click"));
   assert.equal(requests, 1);
   stop();

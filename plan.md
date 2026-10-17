@@ -211,7 +211,7 @@ resumption retains account intent and bearer expiry; play reconnects never repla
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
-The Dressing Room has a session-only browser catalog, bounded file-picker admission and
+Browser Dressing Room adapters provide a session-only catalog, bounded file-picker admission and
 frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
 inputs use the native validators and content identities. Browser imports are lost when the
 page closes. Native catalogs keep their existing file persistence and worker threads.

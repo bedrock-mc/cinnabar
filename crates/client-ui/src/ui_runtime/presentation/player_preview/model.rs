@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use render_model::ActorVertex;
 
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "model/native.rs"]
-mod worker;
 #[cfg(target_arch = "wasm32")]
-#[path = "model/browser.rs"]
-mod worker;
+mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(target_arch = "wasm32")]
+use browser::spawn as spawn_model;
+#[cfg(not(target_arch = "wasm32"))]
+use native::spawn as spawn_model;
 
 use super::{PlayerPreviewPose, PreviewEquipment, skin::validated_ui_skin};
 
@@ -90,6 +92,13 @@ impl super::UiPresentationRuntime {
 
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
     pub fn set_menu_preview_skin(&mut self, skin: &render_api::StandardSkin) -> bool {
+        if let Some(pending) = &self.menu_preview_model.pending
+            && !same_source(pending.source.as_ref(), skin.geometry.as_ref())
+        {
+            pending
+                .cancelled
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
         let body_matches = self.menu_preview_model.body_matches(skin);
         let cape_matches = super::cape::same(self.menu_preview_model.cape.as_ref(), cape);
@@ -151,11 +160,6 @@ impl MenuPreviewModel {
             return None;
         }
         if let Some(pending) = &self.pending {
-            if !same_source(pending.source.as_ref(), skin.geometry.as_ref()) {
-                pending
-                    .cancelled
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-            }
             match pending.receiver.try_recv() {
                 Ok(prepared) => {
                     if prepared.is_none()
@@ -184,7 +188,7 @@ impl MenuPreviewModel {
         let skin = skin.clone();
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        if worker::spawn(skin, sender, cancelled.clone()).is_err() {
+        if spawn_model(skin, sender, cancelled.clone()).is_err() {
             self.rejected = source;
             return None;
         }
@@ -371,6 +375,25 @@ mod tests {
             runtime.menu_preview_model.vertices.as_deref(),
             model_vertices(&latest).as_deref()
         );
+    }
+
+    #[test]
+    fn returning_to_the_displayed_skin_cancels_obsolete_preview_work() {
+        let mut runtime =
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+                .unwrap();
+        let displayed = skin(4.0);
+        select(&mut runtime, &displayed);
+        assert!(!runtime.set_menu_preview_skin(&skin(3.0)));
+        let cancelled = runtime
+            .menu_preview_model
+            .pending
+            .as_ref()
+            .unwrap()
+            .cancelled
+            .clone();
+        assert!(runtime.set_menu_preview_skin(&displayed));
+        assert!(cancelled.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     #[test]

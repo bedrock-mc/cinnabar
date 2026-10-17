@@ -99,6 +99,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_import_identity_uses_the_image_key_even_with_a_session_prefix() {
+        let fallback = crate::player_skin::LocalPlayerSkin::generated_default("identity fixture");
+        let view = catalog::load(&fallback);
+        let mut imported = view.selected_skin().unwrap().clone();
+        imported.imported = true;
+        imported.path = "retained.png".into();
+        assert_eq!(
+            crate::player_skin::selected_skin_id(&imported),
+            protocol::custom_skin_id("retained")
+        );
+    }
+
+    #[test]
     fn edits_reject_stale_indices_and_keep_fallback_identity_and_cosmetics() {
         let fallback = crate::player_skin::LocalPlayerSkin::generated_default("edits fixture");
         let mut view = catalog::load(&fallback);

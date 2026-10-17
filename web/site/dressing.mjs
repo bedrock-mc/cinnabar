@@ -65,6 +65,7 @@ export function pickSkinFiles(cape, admit, maximumCount, signal, doc = document)
 /** Owns the gesture bridge; the host hit-tests this event against its current menu state. */
 export function dressingPickerEdges(target, intent, doc = document) {
   const controller = new AbortController();
+  const listenerOptions = { capture: true };
   let active = false;
   /** Reserves a catalog ticket and opens its picker before returning from the user gesture. */
   const gesture = (event) => {
@@ -72,16 +73,17 @@ export function dressingPickerEdges(target, intent, doc = document) {
     const request = intent(event);
     if (!request) return;
     event.preventDefault();
+    event.stopImmediatePropagation();
     active = true;
-    pickSkinFiles(request.cape, request.admit, request.maximumCount, controller.signal, doc)
+    pickSkinFiles(request.cape, (metadata) => request.admit(metadata), request.maximumCount, controller.signal, doc)
       .then((files) => request.complete(files, null), (error) => request.complete([], String(error.message || error)))
       .finally(() => { active = false; });
   };
-  target.addEventListener("click", gesture);
-  target.addEventListener("keydown", gesture);
+  target.addEventListener("click", gesture, listenerOptions);
+  target.addEventListener("keydown", gesture, listenerOptions);
   return () => {
-    target.removeEventListener("click", gesture);
-    target.removeEventListener("keydown", gesture);
+    target.removeEventListener("click", gesture, listenerOptions);
+    target.removeEventListener("keydown", gesture, listenerOptions);
     controller.abort();
   };
 }

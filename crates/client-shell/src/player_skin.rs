@@ -190,7 +190,10 @@ impl LocalPlayerSkin {
 
 /// Maps catalog selection to its pack identity using the persisted image name for imports.
 pub(crate) fn selected_skin_id(selected: &launcher::dressing_room::DressingRoomSkin) -> String {
-    if let Some(id) = selected.id.strip_prefix(SESSION_SKIN_ID_PREFIX) {
+    if !selected.imported
+        && selected.path.is_empty()
+        && let Some(id) = selected.id.strip_prefix(SESSION_SKIN_ID_PREFIX)
+    {
         return id.to_owned();
     }
     if let Some(name) = selected.id.strip_prefix("vanilla:") {
