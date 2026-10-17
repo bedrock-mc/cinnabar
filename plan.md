@@ -10007,3 +10007,10 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+## Submitted server form JSON
+
+Menu, modal and custom form submissions include the final newline inside the response
+JSON string. Cancellation replies retain their absent response value. Encoded packet
+regressions cover scalar answers, arrays and escaped text. Full numeric formatting,
+string escaping and form admission/lifetime parity remain incomplete.
