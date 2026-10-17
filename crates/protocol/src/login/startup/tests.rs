@@ -10,6 +10,54 @@ fn body(packets: &[Packet]) -> Bytes {
     batch_frame(packets).unwrap().slice(1..)
 }
 
+/// A live reader with no incoming frames; only the host can end its drain deadline.
+struct IdleFrames;
+
+impl futures::Stream for IdleFrames {
+    type Item = Result<Bytes, bridge::BridgeError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::task::Poll::Pending
+    }
+}
+
+impl bridge::FrameRead for IdleFrames {
+    fn trace_conn(&self) -> u64 {
+        0
+    }
+    fn set_trace_conn(&self, _: u64) {}
+}
+
+#[test]
+fn startup_write_failure_uses_the_host_deadline_without_a_runtime() {
+    use std::future::Future;
+    let (_, frames, _writer) = bridge::tasks::prepare_connection(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        bridge::MAX_FRAME_LEN,
+    );
+    let timers = bridge::tasks::Timers(|duration| {
+        assert_eq!(duration, super::super::WRITE_FAILURE_DRAIN);
+        Box::pin(std::future::ready(()))
+    });
+    let mut transport = SessionTransport::with_timers(IdleFrames, frames, &[], timers);
+    let mut drain = std::pin::pin!(startup_write_failure(
+        &mut transport,
+        SessionFailure::ConnectionClosed.into(),
+        super::super::WRITE_FAILURE_DRAIN,
+    ));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(matches!(
+        drain.as_mut().poll(&mut context),
+        std::task::Poll::Ready(ProtocolError::Session(SessionError(
+            SessionFailure::ConnectionClosed
+        )))
+    ));
+}
+
 /// A deferred packet no longer shares its batch, and the queue refuses more than its byte bound.
 #[test]
 fn deferred_packets_are_detached_and_bounded() {

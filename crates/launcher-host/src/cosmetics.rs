@@ -229,6 +229,7 @@ mod http_tests {
                 offset: [0.0; 3],
                 render_flags: cosmetics::RenderFlags {
                     double_sided: false,
+                    emissive: false,
                 },
             }],
         };

@@ -73,7 +73,7 @@ fn render(
     let table = render_model::LightmapInputs::default()
         .build()
         .map(|_| [1.0_f32; 4]);
-    let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
     let eye = Vec3::new(2.0, 3.0, -4.0);
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         std::f32::consts::FRAC_PI_3,

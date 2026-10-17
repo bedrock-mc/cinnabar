@@ -102,11 +102,11 @@ pub use codec::{
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet, entity_hover_packet,
-    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
-    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
+    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
+    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
+    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
     BrewingItem, BrewingRecipe, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
@@ -191,9 +191,10 @@ pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
-    LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
-    PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
+    JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
+    PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
+    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier,
+    network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -221,6 +222,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
@@ -284,3 +286,6 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 extern crate self as protocol;
 #[cfg(test)]
 mod tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use login::NativeJoinPreparation;

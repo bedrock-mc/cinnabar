@@ -162,7 +162,7 @@ fn gpu_fault_matrix_motion_first_replacement_resize_and_msaa_recover_draws() {
             let observed = Rc::clone(&hits);
             let mut uploads = 0;
             {
-                let _fault = allocation::inject(move |owner, _| {
+                let _fault = gpu_allocation::inject(move |owner, _| {
                     if owner != label {
                         return false;
                     }

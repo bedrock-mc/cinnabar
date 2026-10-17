@@ -250,8 +250,9 @@ fn held_terrain_reload_matches_fresh_pack_sheets() {
                 }],
                 ..Default::default()
             };
-            let expected = render_model::equipment::blocks::overlay_face_sheet(&overlay, [1; 6])
-                .expect("pack face preparation accepts the exposed source rectangle");
+            let expected =
+                render_model::equipment::blocks::overlay_face_sheet(&overlay, [1; 6], None)
+                    .expect("pack face preparation accepts the exposed source rectangle");
             let replacement = Arc::new(
                 startup
                     .with_block_overlay(startup.visual_count() as u32, &overlay)

@@ -214,12 +214,12 @@ fn end_sky_repeats_the_pack_texture_on_all_six_world_aligned_faces() {
     source.push_str(&format!(
         "\n@vertex fn face_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {{
             let p = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
-            return VertexOutput(vec4(p, 0.0, 1.0), 0.0);
+            return sky_vertex(vec4(p, 0.0, 1.0), 0.0);
         }}
         @fragment fn face_probe_fragment(input: VertexOutput) -> @location(0) vec4<f32> {{
             let column = u32(input.position.x / {}.0 * {}.0);
             if u32(atmosphere.sky_extra.w + 0.5) != 2u {{ return vec4(0.0); }}
-            return sky_output(end_sky(stars[column].xyz));
+            return sky_output(end_sky(stars[column].xyz, input.fog_gamma));
         }}",
         SNAPSHOT_SIDE, count,
     ));

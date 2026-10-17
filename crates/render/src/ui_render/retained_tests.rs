@@ -132,6 +132,8 @@ fn item_glint_rebinds_retained_ui_without_uploading_geometry() {
         [[0, 1, 0], [0, 4, 0]]
     );
     let group = world.resource::<UiGpu>().textures.buckets[0]
+        .as_ref()
+        .unwrap()
         .bind_group
         .as_ref()
         .unwrap()
@@ -144,6 +146,8 @@ fn item_glint_rebinds_retained_ui_without_uploading_geometry() {
     );
     assert_eq!(
         world.resource::<UiGpu>().textures.buckets[0]
+            .as_ref()
+            .unwrap()
             .bind_group
             .as_ref()
             .unwrap()
@@ -156,6 +160,8 @@ fn item_glint_rebinds_retained_ui_without_uploading_geometry() {
     ));
     world.run_system_once(prepare_ui_bind_group).unwrap();
     let changed = world.resource::<UiGpu>().textures.buckets[0]
+        .as_ref()
+        .unwrap()
         .bind_group
         .as_ref()
         .unwrap()
@@ -184,6 +190,8 @@ fn item_glint_rebinds_retained_ui_without_uploading_geometry() {
     );
     assert_ne!(
         world.resource::<UiGpu>().textures.buckets[0]
+            .as_ref()
+            .unwrap()
             .bind_group
             .as_ref()
             .unwrap()

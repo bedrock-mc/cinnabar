@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
@@ -201,7 +201,7 @@ func validateFoundationFields(foundation registryFoundation) error {
 
 func validateFoundationSources(sources foundationSources) error {
 	catalog := sources.Protocolgen
-	if catalog.Module != "github.com/bedrock-mc/protocolgen/generated/data" || catalog.SourceLockSHA256 != shared.SourceLockSHA256 || catalog.CloudburstRef != shared.CloudburstRef {
+	if catalog.Module != shared.ModulePath || catalog.SourceLockSHA256 != shared.SourceLockSHA256 || catalog.CloudburstRef != shared.CloudburstRef {
 		return errors.New("registry foundation shared catalog identity does not match the pinned module")
 	}
 	bds := sources.BDS

@@ -445,6 +445,9 @@ world_packets! {
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
+    ContainerRegistryCleanup(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_container_registry_cleanup(packet)?)
+    },
     ContainerSetData(packet) => WorldEvent::Inventory(normalize_container_data(packet)?),
     SetPlayerFurnaceOptions(packet) => {
         let Some(event) = crate::inventory::normalize_furnace_options(packet) else {

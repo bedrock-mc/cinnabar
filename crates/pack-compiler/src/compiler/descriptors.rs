@@ -44,10 +44,18 @@ pub(super) fn descriptor_for(
     {
         flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
     }
-    if block_render_fact(&record.name).kind.route().priority_cutout {
+    if let Some(model) = pack.blocks.component_model(record) {
+        flags |= model.flags;
+    } else if let Some(material) = pack.blocks.component_cross(&record.name) {
+        flags |= material.flags;
+    } else if block_render_fact(&record.name).kind.route().priority_cutout {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     } else if let Some(fallback_flags) = fallback.material_flags(record) {
         flags |= fallback_flags;
+        // Fallback alpha policy does not replace the compiled model tint.
+        if is_cutout_model_visual(record) {
+            flags |= cutout_model_tint_flags(&record.name);
+        }
     } else if visuals::portal::is_record(record) || is_stained_glass_cube(record) {
         flags |= MATERIAL_FLAG_ALPHA_BLEND;
     } else if is_copper_grate(record) {
