@@ -23,6 +23,18 @@ They follow the posed bone and stop when the item is unequipped, hidden or despa
 Emitters run only in the world, with at most 128 alive at once; HUD and wardrobe previews show
 geometry without particles.
 
+Visible catalog tiles and menu character/paper-doll previews play authored repeating joint
+motion without a joined world. Preview playback starts after an optional world fly-in intro;
+the HUD continues to share the local actor's evaluated motion. Static poses and original
+texture pages stay cached. Tiles center the isolated cosmetic at a stable scale, and
+wardrobe fitting uses a worker-prepared, sampled motion envelope. Exact envelope coverage
+for arbitrary downloaded clips, live player-preview visual acceptance and hardware performance
+qualification remain incomplete.
+Visible thumbnail carriers take priority over optional gallery animation textures, and
+cosmetic atlas borders retain their original point-sampled edge texels.
+Equipped character geometry is admitted before optional tile meshes consume the frame budget.
+Each admitted rig revision prepares its motion bounds on the artwork worker, including texture-cache hits.
+
 The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
 slot, through a filter icon beside
 Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
