@@ -7,6 +7,7 @@ use protocol::{
 };
 
 use super::cells::{Cell, CellSurface, Cells, Held};
+use super::consumption::SubsequentConsumption;
 use super::overlay::DeltaGroup;
 use super::response::apply_response_item_data;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
@@ -55,14 +56,6 @@ pub(super) struct WorldDrop {
     pub(super) legacy_request_id: i32,
 }
 
-/// Later consumption belonging to one retained request cell, independent of its screen scope.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct SubsequentConsumption {
-    cell: Cell,
-    amount: u16,
-    stack_network_id: i32,
-}
-
 /// The native sparse cell and its historic request snapshot. A later local
 /// write replaces ownership, but the earlier snapshot still reconciles its
 /// response into backing truth. Empty predictions also own a request id.
@@ -91,50 +84,6 @@ pub(super) struct MiningPrediction {
 const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PendingRequest {
-    /// Retains a later admitted decrement only when this sent scope keeps the consumed item.
-    pub(super) fn note_consumption(&mut self, cell: Cell, source: &Held, stack_network_id: i32) {
-        if self.state != InventoryPendingState::AwaitingResponse {
-            return;
-        }
-        let same_source = |held: &Held| {
-            held.source_stack_id.is_some()
-                && held.source_stack_id == source.source_stack_id
-                && PlayerInventoryLedger::same_item(&held.stack, &source.stack)
-        };
-        let retained = self.mining.as_ref().is_some_and(|mining| {
-            cell == Cell::Inventory(mining.slot) && mining.source.as_ref().is_some_and(same_source)
-        }) || self.predicted.iter().any(|prediction| {
-            prediction.cell == cell
-                && prediction
-                    .held
-                    .as_ref()
-                    .or(prediction.before.as_ref())
-                    .is_some_and(same_source)
-                && self
-                    .groups
-                    .iter()
-                    .filter(|group| group.touched().any(|touched| touched == cell))
-                    .all(|group| group.retains_item_at(cell))
-        });
-        if !retained {
-            return;
-        }
-        if let Some(consumed) = self
-            .consumed_after
-            .iter_mut()
-            .find(|consumed| consumed.cell == cell)
-        {
-            consumed.amount = consumed.amount.saturating_add(1);
-            consumed.stack_network_id = stack_network_id;
-        } else {
-            self.consumed_after.push(SubsequentConsumption {
-                cell,
-                amount: 1,
-                stack_network_id,
-            });
-        }
-    }
-
     /// An admitted normal transaction is retained history, not unanswered gesture work.
     pub(super) fn locally_committed(&self) -> bool {
         self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
@@ -349,7 +298,7 @@ impl PlayerInventoryLedger {
         });
     }
 
-    /// Publishes a settled cell without overwriting a newer admitted transaction.
+    /// Publishes a settled cell without overwriting a newer backing owner.
     fn publish_request_cell(
         &mut self,
         request: &PendingRequest,
@@ -360,8 +309,12 @@ impl PlayerInventoryLedger {
     ) {
         let newer = self.queue.iter().any(|later| {
             later.request_id < request.request_id
-                && later.locally_committed()
-                && later.touches(cell)
+                && ((later.locally_committed() && later.touches(cell))
+                    || later.predicted.iter().any(|prediction| {
+                        prediction.cell == cell
+                            && prediction.current
+                            && self.request_owns_backing(later, cell, prediction.held.as_ref())
+                    }))
         });
         if !newer && (!rejected || self.request_owns_backing(request, cell, from)) {
             if !rejected {
@@ -399,6 +352,28 @@ impl PlayerInventoryLedger {
                 .iter()
                 .any(|prediction| prediction.cell == cell && prediction.owns_empty_backing))
             && same_name(self.confirmed.get(cell), predicted)
+    }
+
+    /// Whether a later current rollback still names this nonempty result and source item.
+    fn prediction_has_rollback_successor(
+        &self,
+        request_id: i32,
+        prediction: &CellPrediction,
+    ) -> bool {
+        let Some(held) = prediction.held.as_ref() else {
+            return false;
+        };
+        self.queue
+            .iter()
+            .filter(|later| later.request_id < request_id)
+            .flat_map(|later| &later.predicted)
+            .any(|later| {
+                later.cell == prediction.cell
+                    && later.current
+                    && later.before.as_ref().is_some_and(|before| {
+                        same_name(Some(before), Some(held)) && before.same_source_item(held)
+                    })
+            })
     }
 
     /// Rebases all later rollback sources and replays only requests not yet transported.
@@ -587,15 +562,16 @@ impl PlayerInventoryLedger {
         if let Some(prediction) = prediction
             && !prediction.active
             && !(prediction.current
-                && self.request_owns_backing(request, cell, prediction.held.as_ref()))
+                && (self.request_owns_backing(request, cell, prediction.held.as_ref())
+                    || (cell == requested
+                        && self.prediction_has_rollback_successor(request.request_id, prediction))))
             && !self
                 .queue
                 .iter()
                 .flat_map(|pending| &pending.predicted)
                 .any(|prediction| prediction.cell == requested && prediction.active)
         {
-            // Vanilla treats this as a missing prediction, not a historic one,
-            // after a newer owner was removed.
+            // No backing owner or retained rollback can reconcile this historic result.
             self.note_unrouted_container();
             return;
         }

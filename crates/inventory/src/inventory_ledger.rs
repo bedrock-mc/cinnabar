@@ -10,6 +10,7 @@ mod admission;
 mod auto_craft;
 mod bundles;
 mod cells;
+mod consumption;
 mod control;
 mod crafting;
 mod crafting_close;

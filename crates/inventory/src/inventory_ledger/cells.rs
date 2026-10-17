@@ -88,6 +88,13 @@ pub(super) struct Held {
 }
 
 impl Held {
+    /// Whether both values retain the same source and item data across wire renaming.
+    pub(super) fn same_source_item(&self, other: &Self) -> bool {
+        self.source_stack_id.is_some()
+            && self.source_stack_id == other.source_stack_id
+            && super::PlayerInventoryLedger::same_item(&self.stack, &other.stack)
+    }
+
     /// `None` for an empty wire stack; empty cells are never retained as values.
     pub(super) fn new(stack: &NetworkItemStack) -> Option<Self> {
         (!stack.is_empty()).then(|| Self {
