@@ -30,6 +30,17 @@ impl PlayerInventoryLedger {
             Cell::Offhand => (equipment_admission(&self.item_facts, stack.network_id).offhand
                 != Some(true))
             .then_some(0),
+            Cell::Storage(slot) => match self
+                .window_kind()
+                .and_then(|kind| protocol::open_cell_request(kind, slot, None, None))
+            {
+                Some((protocol::StackRequestContainer::OpenWindow { name, .. }, _))
+                    if name == ContainerName::BrewingStandResult.wire_value() =>
+                {
+                    Some(1)
+                }
+                _ => None,
+            },
             Cell::Craft(slot) => {
                 match protocol::ui_slot_container_name(slot).and_then(ContainerName::from_wire) {
                     Some(ContainerName::EnchantingInput) => Some(1),
