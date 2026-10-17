@@ -92,21 +92,17 @@ const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PendingRequest {
     /// Retains a later admitted decrement only when this sent scope keeps the consumed item.
-    pub(super) fn note_consumption(
-        &mut self,
-        cell: Cell,
-        source: &protocol::NetworkItemStack,
-        stack_network_id: i32,
-    ) {
+    pub(super) fn note_consumption(&mut self, cell: Cell, source: &Held, stack_network_id: i32) {
         if self.state != InventoryPendingState::AwaitingResponse {
             return;
         }
+        let same_source = |held: &Held| {
+            held.source_stack_id.is_some()
+                && held.source_stack_id == source.source_stack_id
+                && PlayerInventoryLedger::same_item(&held.stack, &source.stack)
+        };
         let retained = self.mining.as_ref().is_some_and(|mining| {
-            cell == Cell::Inventory(mining.slot)
-                && mining
-                    .source
-                    .as_ref()
-                    .is_some_and(|held| PlayerInventoryLedger::same_item(&held.stack, source))
+            cell == Cell::Inventory(mining.slot) && mining.source.as_ref().is_some_and(same_source)
         }) || self.predicted.iter().any(|prediction| {
             prediction.cell == cell
                 && prediction.current
@@ -114,7 +110,7 @@ impl PendingRequest {
                     .held
                     .as_ref()
                     .or(prediction.before.as_ref())
-                    .is_some_and(|held| PlayerInventoryLedger::same_item(&held.stack, source))
+                    .is_some_and(same_source)
                 && self
                     .groups
                     .iter()

@@ -219,3 +219,30 @@ fn admitted_consumption_survives_an_older_mining_correction() {
     let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
     assert_eq!((backing.count, backing.stack_network_id), (3, latest));
 }
+
+/// A later drop keeps the replacement stack's provenance through an earlier identical-item swap.
+#[test]
+fn admitted_consumption_does_not_shrink_a_drop_of_a_swapped_identical_stack() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (1, stack(6, 11, 4))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(0), 1)
+        .unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    consume_backing(&mut ledger, 0);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            0,
+            3,
+            91,
+        )],
+    );
+    let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+    assert_eq!((backing.count, backing.stack_network_id), (3, 91));
+}

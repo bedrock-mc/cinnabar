@@ -210,7 +210,7 @@ impl PlayerInventoryLedger {
         }
         let after = consumed_stack(Some(&before), 1, Some(change.to.stack_network_id()));
         for request in &mut self.queue {
-            request.note_consumption(cell, &before.stack, change.to.stack_network_id());
+            request.note_consumption(cell, &before, change.to.stack_network_id());
             if !request.locally_committed() || !request.touches(cell) {
                 continue;
             }
