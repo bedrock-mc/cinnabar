@@ -8,10 +8,9 @@ use crate::{
 };
 
 use super::{
-    AxisCollisions, COLLISION_EPSILON, ControlledTickResult, MovementInput, MovementMode,
-    NORMAL_GRAVITY, PlayerState, SimulationError, TickResult, apply_relative_movement,
-    collision::resolve_motion, controls, effects, environment::SampledEnvironment,
-    scaffolding::ScaffoldingView,
+    AxisCollisions, ControlledTickResult, MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState,
+    SimulationError, TickResult, apply_relative_movement, collision::resolve_motion, controls,
+    effects, environment::SampledEnvironment, scaffolding::ScaffoldingView,
 };
 
 // Vanilla glide coefficients, applied in f32 in the order of `glide_velocity`.
@@ -182,11 +181,11 @@ pub(super) fn tick_mode(
     let pre_collision_velocity = next.velocity;
     next.position = motion.position;
     next.retain_collision_box(motion.aabb, height);
-    next.on_ground = motion.stepped
-        || (motion.collisions.y && pre_collision_velocity.y < 0.0)
-        || (grounded_at_start
-            && !motion.collisions.y
-            && pre_collision_velocity.y.abs() <= COLLISION_EPSILON);
+    next.on_ground = if motion.collisions.y {
+        pre_collision_velocity.y < 0.0
+    } else {
+        grounded_at_start && pre_collision_velocity.y == 0.0
+    };
     next.movement = motion.resolved;
     next.velocity = motion.resolved;
     if motion.stepped || motion.collisions.y {
