@@ -269,3 +269,89 @@ fn emissive_raster_lifts_opaque_black_and_clears_translucent_texels() {
         ]
     );
 }
+
+/// A particle entry whose effect samples the cosmetic sprite at `sprites`.
+fn sprite_entry(sprites: Option<serde_json::Value>, texture: &str) -> serde_json::Value {
+    let mut entry = entry("tip", [0.0; 3]);
+    entry["effect"]["particle_effect"]["description"]["basic_render_parameters"]["texture"] =
+        texture.into();
+    if let Some(sprites) = sprites {
+        entry["sprites"] = sprites;
+    }
+    entry
+}
+
+#[test]
+fn sprite_emitters_cut_their_region_from_the_original_texture() {
+    let geometry = geometry([0.0; 3]);
+    let bytes = animation(serde_json::json!([
+        sprite_entry(Some(serde_json::json!([16, 8])), COSMETIC_PARTICLE_TEXTURE),
+        sprite_entry(Some(serde_json::json!([48, 16])), COSMETIC_PARTICLE_TEXTURE),
+        entry("tip", [0.0; 3]),
+    ]));
+    let model = build(&geometry, &bytes).unwrap();
+    let side = COSMETIC_SPRITE_SIDE as usize;
+    let width = model.texture.width as usize;
+    for (emitter, [u, v]) in model.emitters()[..2].iter().zip([[16, 8], [48, 16]]) {
+        let sprite = emitter.sprite.as_ref().unwrap();
+        let expected: Vec<u8> = (v..v + side)
+            .flat_map(|y| {
+                model.texture.rgba8[(y * width + u) * 4..(y * width + u + side) * 4].to_vec()
+            })
+            .collect();
+        assert_eq!(&*sprite.pixels, expected.as_slice());
+    }
+    let keys: Vec<_> = model.emitters()[..2]
+        .iter()
+        .map(|emitter| emitter.sprite.as_ref().unwrap().key)
+        .collect();
+    assert_ne!(keys[0], keys[1], "each region has its own atlas tile");
+    let again = build(&geometry, &bytes).unwrap();
+    assert_eq!(again.emitters()[0].sprite.as_ref().unwrap().key, keys[0]);
+    assert!(model.emitters()[2].sprite.is_none());
+    assert!(
+        build(
+            &geometry,
+            &animation(serde_json::Value::Array(vec![
+                entry("tip", [0.0; 3]);
+                MAX_COSMETIC_EMITTERS
+            ]))
+        )
+        .is_some()
+    );
+}
+
+#[test]
+fn mismatched_or_out_of_bounds_sprites_reject_the_item() {
+    let geometry = geometry([0.0; 3]);
+    for particle in [
+        sprite_entry(Some(serde_json::json!([49, 0])), COSMETIC_PARTICLE_TEXTURE),
+        sprite_entry(Some(serde_json::json!([0, 17])), COSMETIC_PARTICLE_TEXTURE),
+        sprite_entry(Some(serde_json::json!([-1, 0])), COSMETIC_PARTICLE_TEXTURE),
+        sprite_entry(
+            Some(serde_json::json!([u32::MAX, 0])),
+            COSMETIC_PARTICLE_TEXTURE,
+        ),
+        sprite_entry(None, COSMETIC_PARTICLE_TEXTURE),
+        sprite_entry(
+            Some(serde_json::json!([0, 0])),
+            "textures/particle/particles",
+        ),
+    ] {
+        assert!(
+            build(&geometry, &animation(serde_json::json!([particle.clone()]))).is_none(),
+            "{particle}"
+        );
+    }
+    assert!(
+        build(
+            &geometry,
+            &animation(serde_json::json!([sprite_entry(
+                Some(serde_json::json!([48, 16])),
+                COSMETIC_PARTICLE_TEXTURE
+            )]))
+        )
+        .is_some(),
+        "the bottom-right region fits exactly"
+    );
+}

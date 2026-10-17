@@ -25,6 +25,9 @@ pub struct CosmeticEmitterPlacement {
     /// Client-owned effect identifier; register `effect` under it before spawning.
     pub identifier: Arc<str>,
     pub effect: Arc<[u8]>,
+    /// Particle-atlas tile key and `COSMETIC_SPRITE_SIDE`² RGBA8 texels for `atlas.cosmetic`
+    /// effects; `None` when the effect samples a runtime atlas path.
+    pub sprite: Option<(u64, Arc<[u8]>)>,
     pub transform: ActorEmitterTransform,
 }
 
@@ -239,6 +242,10 @@ impl HatState {
                     },
                     identifier: Arc::clone(&definition.identifier),
                     effect: Arc::clone(&definition.effect),
+                    sprite: definition
+                        .sprite
+                        .as_ref()
+                        .map(|sprite| (sprite.key, Arc::clone(&sprite.pixels))),
                     transform,
                 });
             }

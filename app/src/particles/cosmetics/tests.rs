@@ -50,11 +50,56 @@ fn placement(runtime_id: u64, x: f32) -> CosmeticEmitterPlacement {
         },
         identifier: IDENTIFIER.into(),
         effect: EFFECT.as_bytes().into(),
+        sprite: None,
         transform: ActorEmitterTransform {
             position: [x, 1.0, 0.0],
             basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         },
     }
+}
+
+/// Draws every live particle's atlas rectangle from a camera facing the origin.
+fn drawn_uvs(system: &mut ParticleSystem) -> Vec<[f32; 4]> {
+    let view = particles::ParticleView {
+        position: [0.0, 1.0, 4.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, -1.0],
+        half_diagonal: 1.0,
+    };
+    let draws = system.build_draw(&view, &EmptyWorld);
+    draws
+        .opaque
+        .iter()
+        .chain(&draws.blend)
+        .chain(&draws.add)
+        .map(|instance| instance.uv)
+        .collect()
+}
+
+#[test]
+fn sprite_emitters_draw_their_own_cosmetic_tile() {
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    let mut sprite = placement(7, 0.0);
+    sprite.effect = EFFECT
+        .replace(
+            "textures/particle/particles",
+            render_model::hats::COSMETIC_PARTICLE_TEXTURE,
+        )
+        .into_bytes()
+        .into();
+    let side = render_model::hats::COSMETIC_SPRITE_SIDE as usize;
+    sprite.sprite = Some((0x5EED, vec![180; side * side * 4].into()));
+    tracker.sync(&mut system, &[sprite]);
+    system.tick(0.3, &EmptyWorld);
+    let uvs = drawn_uvs(&mut system);
+    assert!(!uvs.is_empty());
+    let fallback = system.atlas().fallback().normalized();
+    assert!(
+        uvs.iter().all(|uv| *uv != fallback),
+        "sprite particles sample their tile, not the white texel"
+    );
 }
 
 /// Ids of the emitters still emitting in `system`.
