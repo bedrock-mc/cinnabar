@@ -1,8 +1,58 @@
 //! A retryable disconnect shows distinct retry and dismiss targets.
 
 use crate::ui_runtime::UiRuntime;
-use launcher::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 use ui::DpiScale;
+
+#[test]
+fn external_notice_is_visible_and_owns_input_on_each_menu_route() {
+    let message = "Browser preferences could not be saved.";
+    for screen in [MenuScreen::Home, MenuScreen::Settings, MenuScreen::Servers] {
+        let mut presentation =
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+                .unwrap();
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = screen;
+        view.dialog = Some(launcher::menu::MenuDialog::Notice);
+        view.message = Some(message.into());
+        presentation.set_menu_view(Some(view));
+        let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+            Some(2),
+        );
+        let mut nodes = Vec::new();
+        let hits = presentation
+            .append_menu(
+                &UiRuntime::new(1),
+                &mut nodes,
+                &mut 1,
+                metrics,
+                1280.0,
+                720.0,
+            )
+            .unwrap();
+        assert!(nodes.iter().any(|node| {
+            match node.visual() {
+                ui::UiVisual::Text { layout, .. } => layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>()
+                    .contains(message),
+                _ => false,
+            }
+        }));
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::DismissDialog)
+        );
+        assert!(
+            hits.iter()
+                .all(|(action, _)| *action == MenuAction::DismissDialog)
+        );
+    }
+}
 
 #[test]
 fn retryable_disconnect_renders_distinct_retry_and_dismiss_targets() {

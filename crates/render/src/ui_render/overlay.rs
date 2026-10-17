@@ -624,7 +624,7 @@ pub(crate) fn ui_overlay(
                     context,
                     world,
                     target,
-                    &raster.view,
+                    raster,
                     composite_pipeline,
                     &composite_layout,
                 );
