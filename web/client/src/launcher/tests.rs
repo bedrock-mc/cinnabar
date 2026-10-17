@@ -73,6 +73,35 @@ fn launcher_disconnect_and_new_join_retire_old_presentation() {
 }
 
 #[test]
+fn launcher_idempotent_sign_in_keeps_the_known_prompt_or_identity() {
+    for state in ["awaiting_code", "signed_in"] {
+        let mut adapter = RelayAccount::default();
+        account(&mut adapter, state);
+        let presented = adapter.state();
+        adapter.request(AccountIntent::SignIn);
+        assert_eq!(adapter.take_operation(), Some(AccountOperation::SignIn));
+        assert_eq!(adapter.state(), presented);
+        adapter.request(AccountIntent::SignIn);
+        assert_eq!(adapter.state(), presented);
+    }
+}
+
+#[test]
+fn launcher_handoff_clears_progress_for_the_menu_generating_stage() {
+    let mut adapter = RelayAccount::default();
+    adapter
+        .observe(&ControlEvent::Connect(
+            json!({"stage":"packs", "packs_done":1, "packs_total":2}),
+        ))
+        .unwrap();
+    assert!(adapter.join_stage().is_some());
+    adapter
+        .observe(&ControlEvent::Connect(json!({"stage":""})))
+        .unwrap();
+    assert!(adapter.join_stage().is_none());
+}
+
+#[test]
 fn launcher_rejects_unsafe_or_incomplete_prompts() {
     let mut adapter = RelayAccount::default();
     for uri in [

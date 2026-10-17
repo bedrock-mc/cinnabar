@@ -29,8 +29,15 @@ impl RelayAccount {
         self.refusal = None;
         match intent {
             AccountIntent::SignIn => {
+                self.checking = self
+                    .account
+                    .as_ref()
+                    .is_none_or(|account| match account.state {
+                        bridge::contract::AuthState::SignedIn => false,
+                        bridge::contract::AuthState::AwaitingCode => self.dismissed,
+                        _ => true,
+                    });
                 self.dismissed = false;
-                self.checking = true;
                 self.pending = Some(AccountOperation::SignIn);
             }
             AccountIntent::SignOut => {
@@ -88,6 +95,10 @@ impl RelayAccount {
                 );
             }
             ControlEvent::Connect(value) => {
+                if value["stage"] == "" {
+                    self.progress = None;
+                    return Ok(());
+                }
                 let progress: bridge::ConnectProgress = serde_json::from_value(value.clone())
                     .map_err(|_| "Invalid relay join progress.")?;
                 self.progress = Some(match progress.stage {

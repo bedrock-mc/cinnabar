@@ -202,6 +202,15 @@ impl MenuRuntime {
 
     /// Whether joins currently use the saved account, are waiting on its check, or go signed out.
     pub fn sign_in_status(&self) -> SignInStatus {
+        if self.external.is_some() {
+            return match self.current_auth().as_ref() {
+                AuthState::Authenticated => SignInStatus::SignedIn,
+                AuthState::Checking
+                | AuthState::AwaitingCode { .. }
+                | AuthState::AwaitingXboxSignup { .. } => SignInStatus::Checking,
+                _ => SignInStatus::SignedOut,
+            };
+        }
         if self.launcher_auth_cache().is_some() {
             SignInStatus::SignedIn
         } else if self.auth_restart_requested
