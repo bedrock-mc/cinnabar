@@ -313,3 +313,54 @@ fn observe_event(
         }
     }
 }
+
+#[cfg(test)]
+mod crafting_rule_tests {
+    use super::route_crafting_rules_ingress;
+    use client_session::SequencedWorldEvent;
+    use client_ui::ui_runtime::UiRuntime;
+    use protocol::WorldEvent;
+
+    #[test]
+    fn crafting_rules_route_to_inventory_at_the_world_commit_position() {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut runtime = UiRuntime::new(1);
+        let event = SequencedWorldEvent {
+            session_generation: simulation_clock::identity::SessionGeneration::new(1),
+            sequence: protocol::identity::FifoSequence::new(5),
+            event: WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: None,
+                weather_cycle: None,
+                hud: Default::default(),
+                death: Default::default(),
+                crafting: protocol::CraftingRules {
+                    recipes_unlock: None,
+                    limited_crafting: Some(true),
+                },
+            }),
+        };
+        route_crafting_rules_ingress(&mut player, &mut runtime, &event).unwrap();
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(4))));
+        player.inventory.drain_pending_inventory();
+        assert!(
+            !player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(5))));
+        player.inventory.finish_drain();
+        assert!(
+            player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
+    }
+}
