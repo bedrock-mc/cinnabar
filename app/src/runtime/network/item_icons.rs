@@ -8,10 +8,14 @@ use std::{
 
 mod catalog;
 mod images;
+mod tints;
 use images::{icon, resolve_key};
+pub(super) use tints::carried_grass_tint;
 mod vanilla;
 pub(super) mod vanilla_blocks;
-pub(crate) use vanilla::{set_vanilla_item_paths, vanilla_item_paths_installed};
+pub(crate) use vanilla::{
+    set_vanilla_item_paths, set_vanilla_item_sprites, vanilla_item_paths_installed,
+};
 
 use resource_pack::LayeredPackView;
 
@@ -94,6 +98,7 @@ pub(super) fn compile_session_icons(
             key,
             MAX_SESSION_ICONS.saturating_sub(icons.len()),
             MAX_SUBSCRIBER_BYTES.saturating_sub(retained_bytes),
+            !identifier.starts_with("minecraft:") || key.as_ref() != short_name(identifier),
         ) {
             Ok(textures) => {
                 for (metadata, texture) in textures {
@@ -158,11 +163,25 @@ use pack_runtime::custom_block_items;
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
 /// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain
 /// cube state also yields the six-face sheet hands draw as that cube.
+#[cfg(test)]
 pub(super) fn custom_block_icons(
     overlay: &assets::BlockOverlay,
     blocks: &protocol::CustomBlocks,
     hashed: bool,
     block_items: &[(Arc<str>, Arc<str>)],
+    base: Option<&assets::RuntimeAssets>,
+) -> BlockIcons {
+    custom_block_icons_with_tint(overlay, blocks, hashed, block_items, base, None)
+}
+
+/// Resolves supported carried tint colours independently of placed biome shading.
+pub(super) fn custom_block_icons_with_tint(
+    overlay: &assets::BlockOverlay,
+    blocks: &protocol::CustomBlocks,
+    hashed: bool,
+    block_items: &[(Arc<str>, Arc<str>)],
+    base: Option<&assets::RuntimeAssets>,
+    grass: Option<[u8; 3]>,
 ) -> BlockIcons {
     let mut first_state = std::collections::HashMap::new();
     let mut offset = 0usize;
@@ -191,7 +210,7 @@ pub(super) fn custom_block_icons(
     for (identifier, block) in block_items.iter().take(MAX_SESSION_ICONS) {
         let visual = first_state.get(block).copied();
         if let Some(visual) = visual
-            && let Some(sheet) = overlay_sheet(overlay, visual)
+            && let Some(sheet) = overlay_sheet(overlay, visual, base)
         {
             let material_flags = overlay.visuals[visual]
                 .faces
@@ -204,7 +223,13 @@ pub(super) fn custom_block_icons(
                 .insert(Arc::clone(identifier), material_flags);
             result.block_sheets.push(session_icon(identifier, sheet));
         }
-        match visual.and_then(|visual| pack_entity_compiler::overlay_block_icon(overlay, visual)) {
+        match visual.and_then(|visual| {
+            pack_entity_compiler::overlay_block_icon_with_tint(overlay, visual, base, &|flags| {
+                (flags & assets::MATERIAL_FLAG_TINT_MASK == assets::MATERIAL_FLAG_GRASS_TINT)
+                    .then_some(grass)
+                    .flatten()
+            })
+        }) {
             Some(sprite) => result.icons.push(session_icon(identifier, sprite)),
             None => result.misses.push((
                 Arc::clone(identifier),

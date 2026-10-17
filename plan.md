@@ -1,3 +1,36 @@
+## Custom block and item texture inheritance
+
+Custom terrain aliases resolve their selected filenames against server packs and the
+installed carrier, retaining destination tint and UV sampling. Inventory thumbnails and
+cube sheets can read borrowed base-page materials. Standalone custom item icons can inherit
+base sprite files without creating replacements for ordinary vanilla items. The icon
+carrier retains raw source-filename bindings independently of processed thumbnails,
+including nonzero atlas variants and original mask alpha; older carriers require `make assets`.
+Isolated item texels admit ambient-occlusion and face-dimming flags; baked thumbnails
+honor disabled face dimming. GUI cubes that cannot retain this flag keep their unshaded
+thumbnail while their carried face sheet remains available. Grass-tinted thumbnails use the winning carried-grass
+overlay colour from the installed pack and server stack; other unresolved tint operations
+remain rejected. Each thumbnail prepares its material texels once and shares processed
+pixels between model faces.
+Block inventory geometry and materials use `minecraft:item_visual` descriptions when
+present, independently of placed-state transforms and world palette offsets. Compound
+placement traits with enabled-state lists retain complete state identities.
+
+Incomplete: full native comparison, additional carried tint families, non-cube custom items held as authored
+three-dimensional models, and hardware performance qualification. These rendering fixes
+do not close a parity gate.
+
+## Server-authored chat content
+
+Server message subtrees retain their parser bindings, custom definitions and hover controls
+inside the built-in chat placement. View-bound text survives retained factory refreshes.
+Open chat supplies hover feedback through non-consuming input panels and positions native
+tooltips at the pointer; zero-sized tooltip controls paint outside their layout rectangles.
+Regression fixtures cover refreshes, changed captions, hover entry/exit and display scaling.
+The reported pack was exercised offline with anonymous message text. Native version-matched
+input and command-edit acceptance and broader JSON-UI parity remain incomplete; no parity
+or performance gate closes here.
+
 ## Catalog cosmetics
 
 The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and independent
@@ -4765,22 +4798,25 @@ project from the reviewed protocol-1001 records in three classes: 15,963 exact
 keys, 3,440 states that differ only by the new `minecraft:connection_*` /
 `minecraft:corner` keys (fences, panes, bars, stairs, trip wire), and 2,026
 states of 119 new retail blocks borrowed from reviewed schema-identical twins
-(poplar family, wool/concrete slabs and stairs, red shrub). 662 states are
+(poplar family, wool/concrete slabs and stairs, red shrub), plus eight shelf
+mushroom states admitted with authored geometry. 654 states are
 reserved. Retail item, biome (adds `dappled_forest`) and item-capacity tables are
 re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
 - The client still derives fence/pane/stair/trip-wire shapes from neighbours and
   ignores the server-sent 1.26.50 connection and corner states.
 - Twinned blocks use their twin's model, collision, light and friction; their
   own collision/light are unverified against the reference client.
-- `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
-  source and stay reserved (invisible, passable).
+- `straw_bed` (retail in 1.26.50) stays reserved (invisible, passable). Shelf
+  mushrooms now retain their source identities and collision, and compile the
+  pack-authored small/large models with all four facing transforms. Their bounce
+  and fall-damage responses remain **incomplete** in the movement census.
 - The pinned pack is bedrock-samples `v1.26.50.4` (release). New blocks draw
   their own pack textures through their twin's model family, and
   `dappled_forest` compiles its own biome rule (absent atmosphere/lighting
   components fall back to the default settings). All thirteen wood shelves now
-  compile recessed models with facing and powered front selection. Still
-  diagnostic: `red_shrub` (data-driven block whose texture lives only
-  in its behaviour-pack `material_instances`). The legacy icon crosswalk is
+  compile recessed models with facing and powered front selection. `red_shrub`
+  now consumes its behavior-pack cross geometry and material binding, including
+  its own texture, single-sided faces and disabled ambient occlusion. The legacy icon crosswalk is
   still the 26.30 client's, so poplar boats, cushions, and the poplar door and
   hanging-sign icons lack their sprite routes.
 
@@ -10023,3 +10059,37 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
+material instances now bind stateless builtin crosses, including red shrubs,
+with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
+select species-authored falling particles through the pinned vocabulary; their
+pack motion and tint remain authoritative. Static particle texture UVs clamp
+within their own atlas rectangle, preserving atlas-relative terrain particles.
+Sugar cane uses narrower full-height cross planes shared by every growth state,
+with no random segment offsets. Its shared tint facts now select the grass biome
+colour, which remains attached when the compiler imports fallback alpha policy.
+
+The optimized client and world carrier were rebuilt. Hidden local-BDS captures
+confirm textured shrub crosses replacing diagnostic cubes, falling poplar leaves,
+and narrower cane geometry. Three focused compiler regressions passed; the added
+leaf-fact and GPU sampling regressions remain unrun. Specialized leaf emission
+probability still requires current-client confirmation; broad foliage parity
+remains INCOMPLETE. The cane tint regression failed before the correction and
+passes afterward for every growth state in both ID modes. The registry compiler
+reproduces the complete facts expansion with unchanged block/light carriers;
+local daylight captures confirm the corrected biome colour.
+
+
+**Short grass and shelf mushrooms (2026-10-17, local changes).** Short grass and
+fern use narrow crossed planes and a deterministic, column-seeded three-axis
+displacement shared by rendering and picking. Extensionless terrain textures
+prefer TGA over PNG in the offline compiler and runtime pack loader; explicit
+filenames retain their selected format. This restores the brighter short-grass
+art supplied alongside the darker PNG. Shelf mushroom states are admitted from
+the source registry, with bounded behavior-pack permutation resolution and
+shared geometry parsing for their growth sizes, facing, face UVs and material
+policy. Selection retains the oriented collision footprint and selects the cap.
+This does not close the general vegetation, lighting or component-model parity
+gates; arbitrary component permutations and mushroom movement responses remain
+incomplete.

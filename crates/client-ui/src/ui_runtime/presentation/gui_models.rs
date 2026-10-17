@@ -254,6 +254,18 @@ impl UiPresentationRuntime {
             if models.contains_key(&key) {
                 continue;
             }
+            // Native cube meshes bake directional lighting; preserve unshaded thumbnails.
+            let block = world.resolve(assets::NetworkIdMode::Sequential, block_visual.0);
+            if assets::BlockFace::ALL.into_iter().any(|face| {
+                world
+                    .materials()
+                    .get(block.face(face).material_id() as usize)
+                    .is_some_and(|material| {
+                        material.flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING != 0
+                    })
+            }) {
+                continue;
+            }
             let mesh = if let Some(mesh) = meshes.get(&block_visual.0) {
                 Arc::clone(mesh)
             } else {
