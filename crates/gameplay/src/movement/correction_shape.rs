@@ -261,9 +261,10 @@ pub fn reconcile_physics_anchor(
     let apply_candidate = |anchor: PhysicsAnchor, mode| {
         let aligned_tick = match mode {
             PhysicsCorrectionMode::ReplayIfRetained => anchor.tick,
+            // A stamp without a representable successor cannot anchor the simulation clock.
             PhysicsCorrectionMode::Snap => ticker
                 .next_tick
-                .max(anchor.tick.saturating_add(1))
+                .max(anchor.tick.checked_add(1).unwrap_or(ticker.next_tick))
                 .saturating_sub(1),
         };
         let mut candidate_physics = physics.clone();

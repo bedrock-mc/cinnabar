@@ -493,3 +493,83 @@ fn unretained_replay_keeps_zero_tick_incoming_anchor() {
 fn unretained_replay_keeps_expired_tick_incoming_anchor() {
     assert_unretained_anchor_replaces_deferred_destination(101);
 }
+
+/// An overflowing MovePlayer stamp must not replace the client's local tick clock.
+fn assert_move_stamp_keeps_local_clock(tick: u64, teleported: bool) {
+    let world = VersionedFloor(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let mut ticker = ticker_with_samples(frame.samples);
+    let local_tick = physics.state().unwrap().tick;
+    let destination = [32.0, 2.620_01, 0.0];
+    if teleported {
+        crate::movement::reconcile_move_player_teleport(
+            &mut ticker,
+            &mut physics,
+            destination,
+            tick,
+            true,
+            &world,
+        )
+        .unwrap();
+    } else {
+        reconcile_committed_correction(
+            &mut ticker,
+            &mut physics,
+            destination,
+            tick,
+            true,
+            None,
+            &world,
+        )
+        .unwrap();
+    }
+    // A later zero-tick reset must also leave the local clock usable.
+    reconcile_committed_correction(
+        &mut ticker,
+        &mut physics,
+        destination,
+        0,
+        true,
+        None,
+        &world,
+    )
+    .unwrap();
+    assert_eq!(physics.network_position(), Some(destination));
+    assert_eq!(physics.state().unwrap().tick, local_tick);
+    physics.advance_with_context(
+        Duration::ZERO,
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let next = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    assert!(next.blocked.is_none(), "{:?}", next.blocked);
+    assert_eq!(physics.state().unwrap().tick, local_tick + 3);
+    for sample in next.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    assert_eq!(ticker.source(), MovementSource::Physics);
+    assert!(ticker.take_authority_fault().is_none());
+}
+
+#[test]
+fn an_overflowing_move_stamp_does_not_poison_the_local_clock() {
+    assert_move_stamp_keeps_local_clock(u64::MAX, false);
+}
+
+#[test]
+fn an_overflowing_teleport_stamp_does_not_poison_the_local_clock() {
+    assert_move_stamp_keeps_local_clock(u64::MAX, true);
+}
