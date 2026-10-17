@@ -326,7 +326,21 @@ impl ParticleSystem {
     /// Whether `id` is a live emitter that has not been stopped or finished emitting.
     #[must_use]
     pub fn is_emitting(&self, id: u64) -> bool {
-        self.emitters.iter().any(|e| e.id == id && !e.done)
+        self.emitter(id).is_some_and(|emitter| !emitter.done)
+    }
+
+    /// Whether `id` still occupies the emitter table, including a stopped emitter whose
+    /// particles are draining.
+    #[must_use]
+    pub fn contains_emitter(&self, id: u64) -> bool {
+        self.emitter(id).is_some()
+    }
+
+    /// Finds an emitter by id. Spawning appends increasing ids and removal keeps order, so the
+    /// table stays sorted by id.
+    fn emitter(&self, id: u64) -> Option<&Emitter> {
+        let index = self.emitters.binary_search_by_key(&id, |e| e.id).ok()?;
+        self.emitters.get(index)
     }
 
     /// Moves an attached emitter; ignored once the emitter is gone.
@@ -475,8 +489,23 @@ mod tests {
         let mut system = system();
         let id = system.spawn(&request("burst", 0.0)).unwrap();
         assert!(system.is_emitting(id));
+        let later = system.spawn(&request("burst", 1.0)).unwrap();
+        system.tick(0.01, &EmptyWorld);
         system.stop(id);
         assert!(!system.is_emitting(id));
+        assert!(
+            system.contains_emitter(id),
+            "stopped emitters drain their particles"
+        );
+        assert!(system.is_emitting(later) || system.contains_emitter(later));
+        for _ in 0..8 {
+            system.tick(0.25, &EmptyWorld);
+        }
+        assert!(
+            !system.contains_emitter(id),
+            "drained emitters leave the table"
+        );
+        assert!(!system.contains_emitter(u64::MAX));
         let rebuilt = self::system();
         assert_ne!(rebuilt.instance(), system.instance());
         assert!(!rebuilt.is_emitting(id));
