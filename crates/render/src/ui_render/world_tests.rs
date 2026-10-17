@@ -1,12 +1,31 @@
 //! Native comparisons between a shared world-UI pass and the former depth-mode boundaries.
 
-use super::*;
-use crate::depth_smaa::tests::raster_tests::{
+use super::raster_tests::{
     FixturePipelines, SIDE, app_with_effects, capture, fixture_pipeline_format, frame, read_pixels,
     renderer,
 };
-use bevy::prelude::IntoScheduleConfigs;
-use render_model::{UiScissor, UiTextureCatalog, UiTexturePage};
+use crate::ui_render::{
+    UiGpu, UiRenderPlugin,
+    overlay::{
+        UiWorldLabel,
+        world::{UiViewQuery, draw_ui_view},
+    },
+};
+use bevy::{
+    core_pipeline::{Core3d, Core3dSystems},
+    prelude::{App, IntoScheduleConfigs, Msaa, Res, ResMut, Resource, World},
+    render::{
+        Render, RenderApp, RenderSystems,
+        render_resource::CachedRenderPipelineId,
+        renderer::{RenderContext, RenderDevice},
+    },
+};
+use render_model::{
+    UI_BLEND_ALPHA, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput, UiRenderVertex, UiScissor,
+    UiTextureCatalog, UiTexturePage,
+};
+use render_scene::{UiRenderSceneResource, UiRenderStatsResource};
+use std::sync::Arc;
 
 #[derive(Resource, Default)]
 struct Segmented {
@@ -149,8 +168,8 @@ fn shared_world_ui_preserves_pixels_across_depth_modes_and_sample_counts() {
         .add_systems(
             Render,
             block_compatible_pipelines
-                .after(queue_ui_overlay)
-                .in_set(RenderSystems::PrepareBindGroups),
+                .after(RenderSystems::PrepareBindGroups)
+                .before(RenderSystems::Render),
         );
     app.sub_app_mut(RenderApp)
         .world_mut()
