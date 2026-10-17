@@ -4,8 +4,9 @@ use assets::{
     Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
     MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, encode_blob,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, TextureRef, VisualKind,
+    encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 use meshing::{
     BlockClassifier, Face, LiquidLevel, MeshLightSample, Neighbourhood, PackedLiquidQuad,

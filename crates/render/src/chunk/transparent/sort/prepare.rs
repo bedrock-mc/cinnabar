@@ -18,6 +18,11 @@ use render_scene::{
 };
 use std::cell::RefCell;
 
+/// Capture views must not replace the retained gameplay water-sort state.
+fn retains_transparent_sort(settings: Option<&render_scene::EnhancedRendering>) -> bool {
+    settings.is_none_or(|settings| !settings.reflection_capture)
+}
+
 /// Whether every allocation `key` sorts is still readable from `resident_allocations`
 /// (containing it) or `retired_allocations` (matching it exactly).
 pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
@@ -128,7 +133,7 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             Entity,
             &ExtractedView,
             &RenderVisibleEntities,
-            Has<render_scene::EnhancedRendering>,
+            Option<&render_scene::EnhancedRendering>,
         ),
         With<ExtractedCamera>,
     >,
@@ -277,7 +282,10 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         });
     }
 
-    let mut visible_views = views.iter().collect::<Vec<_>>();
+    let mut visible_views = views
+        .iter()
+        .filter(|(_, _, _, settings)| retains_transparent_sort(*settings))
+        .collect::<Vec<_>>();
     visible_views.sort_by_key(|(entity, ..)| *entity);
     if visible_views.len() > MAX_TRANSPARENT_VIEWS {
         bevy::log::warn!(
@@ -310,7 +318,7 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     let texture_identity = texture_assets.identity();
     let tint_identity = biome_tints.table_identity();
     // Displaced water can overlap itself even when flat, so such views sort all of it.
-    let sort_order_independent = view_displaces_water(enhanced);
+    let sort_order_independent = view_displaces_water(enhanced.is_some());
     runtime.direct_order_independent = !sort_order_independent;
     let metric = TransparentFaceMetric::new(camera);
     let arena_view: &ChunkGpuArena = &arena;
@@ -557,5 +565,32 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             bytemuck::bytes_of(&command),
         );
         runtime.last_indirect_identity = Some(identity);
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    #[test]
+    fn reflection_capture_cannot_take_gameplay_transparent_sort() {
+        let mut world = World::new();
+        let capture = world
+            .spawn(render_scene::EnhancedRendering {
+                reflection_capture: true,
+                ..Default::default()
+            })
+            .id();
+        let enhanced = world.spawn(render_scene::EnhancedRendering::default()).id();
+        let vanilla = world.spawn_empty().id();
+        let mut query = world.query::<(Entity, Option<&render_scene::EnhancedRendering>)>();
+        let retained: Vec<_> = query
+            .iter(&world)
+            .filter(|(_, settings)| retains_transparent_sort(*settings))
+            .map(|(entity, _)| entity)
+            .collect();
+        assert!(!retained.contains(&capture));
+        assert!(retained.contains(&enhanced));
+        assert!(retained.contains(&vanilla));
     }
 }

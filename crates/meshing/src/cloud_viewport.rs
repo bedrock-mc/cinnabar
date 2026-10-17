@@ -5,7 +5,7 @@
 //! floor(samplePosition)>>4, and the tessellator emits unit caps
 //! and occupied→empty side edges. Alpha bytes greater than one are occupied.
 
-use assets::AtmosphereTexture;
+use assets::atmosphere::AtmosphereTexture;
 
 use crate::{CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CloudFace, CloudMeshError, MAX_CLOUD_QUADS};
 

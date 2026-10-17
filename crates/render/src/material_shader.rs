@@ -7,9 +7,34 @@ pub(crate) const NATIVE_LEAF_TEXTURE_BINDINGS: [u32; assets::MAX_TEXTURE_PAGES] 
     [16, 17, 22, 23, 24];
 pub(crate) const NATIVE_LEAF_SAMPLER_BINDING: u32 = 25;
 pub(crate) const BIOME_QUERY_TABLES_BINDING: u32 = 26;
-pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2;
-pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
-    (assets::MAX_TEXTURE_PAGES + NATIVE_LEAF_TEXTURE_BINDINGS.len()) as u32;
+/// Authored Enhanced arrays, selected by the top bit of an authored reference.
+/// They follow dev's carrier bindings so the vanilla prefix keeps its numbering.
+pub(crate) const ENHANCED_TEXTURE_PAGES: usize = 2;
+pub(crate) const ENHANCED_COLOR_TEXTURE_BINDINGS: [u32; ENHANCED_TEXTURE_PAGES] = [32, 33];
+pub(crate) const ENHANCED_NORMAL_TEXTURE_BINDINGS: [u32; ENHANCED_TEXTURE_PAGES] = [34, 35];
+pub(crate) const ENHANCED_MER_TEXTURE_BINDINGS: [u32; ENHANCED_TEXTURE_PAGES] = [36, 37];
+pub(crate) const ENHANCED_SAMPLER_BINDING: u32 = 38;
+pub(crate) const ENHANCED_TEXTURE_REF_BINDING: u32 = 39;
+pub(crate) const LAST_CHUNK_BINDING: u32 = ENHANCED_TEXTURE_REF_BINDING;
+pub(crate) const ACTIVE_LAST_CHUNK_BINDING: u32 = if cfg!(feature = "enhanced") {
+    LAST_CHUNK_BINDING
+} else {
+    BIOME_QUERY_TABLES_BINDING
+};
+pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2 + if cfg!(feature = "enhanced") { 1 } else { 0 };
+/// Ten carrier views plus the six authored arrays fill the baseline 16 sampled textures.
+pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 = (assets::MAX_TEXTURE_PAGES
+    + NATIVE_LEAF_TEXTURE_BINDINGS.len()
+    + if cfg!(feature = "enhanced") {
+        ENHANCED_COLOR_TEXTURE_BINDINGS.len()
+            + ENHANCED_NORMAL_TEXTURE_BINDINGS.len()
+            + ENHANCED_MER_TEXTURE_BINDINGS.len()
+    } else {
+        0
+    }) as u32;
+pub(crate) const WORLD_CLOCK_WORDS: usize = 4;
+pub(crate) const WORLD_UNIFORM_BYTES: u64 =
+    ((WORLD_CLOCK_WORDS + meshing::biome_lattice::BIOME_QUERY_TABLE_WORDS) * 4) as u64;
 
 // Admitted source sizes are powers of two up to MAX_TILE_SIZE. Four bits store
 // log2(size) + 1; zero means the physical page size. Grid occupies five more bits.
@@ -33,7 +58,7 @@ pub(crate) fn gpu_texture_ref(
         debug_assert!(
             dimensions
                 .iter()
-                .all(|size| size.is_power_of_two() && *size <= assets::MAX_TILE_SIZE)
+                .all(|size| size.is_power_of_two() && *size <= assets::texture::MAX_TILE_SIZE)
         );
         reference.raw()
             | ((dimensions[0].ilog2() + 1) << TEXTURE_WIDTH_SHIFT)
@@ -51,6 +76,15 @@ pub(crate) fn gpu_grid_texture_ref(
     gpu_texture_ref(reference, dimensions, page_size) | (u32::from(grid) << TEXTURE_GRID_SHIFT)
 }
 
+/// Packs the animation clock before the immutable biome lookup tables for one shared uniform.
+pub(crate) fn world_uniform_words(clock: &[u32]) -> Vec<u32> {
+    assert_eq!(clock.len(), WORLD_CLOCK_WORDS);
+    let mut words = Vec::with_capacity(WORLD_UNIFORM_BYTES as usize / 4);
+    words.extend_from_slice(clock);
+    words.extend(meshing::biome_lattice::query_table_words());
+    words
+}
+
 /// Resolves the generated biome tint module's table binding, shared by every chunk shader.
 pub(crate) fn bind_biome_tables(source: &str) -> String {
     source.replace(
@@ -62,7 +96,7 @@ pub(crate) fn bind_biome_tables(source: &str) -> String {
 pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
     limits.max_sampled_textures_per_shader_stage >= CHUNK_SAMPLED_TEXTURE_BINDINGS
         && limits.max_samplers_per_shader_stage >= CHUNK_SAMPLER_COUNT
-        && limits.max_bindings_per_bind_group > BIOME_QUERY_TABLES_BINDING
+        && limits.max_bindings_per_bind_group > ACTIVE_LAST_CHUNK_BINDING
 }
 
 /// Terrain samples nearest texels and interpolates only between mip levels.
@@ -75,7 +109,23 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
         min_filter: wgpu::FilterMode::Nearest,
         mag_filter: wgpu::FilterMode::Nearest,
         mipmap_filter: wgpu::MipmapFilterMode::Linear,
-        lod_max_clamp: (assets::VANILLA_TERRAIN_MIP_COUNT - 1) as f32,
+        lod_max_clamp: (assets::texture::VANILLA_TERRAIN_MIP_COUNT - 1) as f32,
+        ..Default::default()
+    }
+}
+
+/// Filters authored linear maps across texels, mips, and oblique surfaces.
+#[cfg(feature = "enhanced")]
+pub(crate) fn pbr_sampler_descriptor() -> wgpu::SamplerDescriptor<'static> {
+    wgpu::SamplerDescriptor {
+        label: Some("enhanced linear PBR sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        min_filter: wgpu::FilterMode::Linear,
+        mag_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        anisotropy_clamp: 8,
         ..Default::default()
     }
 }
@@ -108,6 +158,7 @@ fn stem_colours_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("// ENHANCED_PBR_LOOKUP", include_str!("enhanced/authored_lookup.wesl"))
         .replace("TERRAIN_UNIT_QUADS", &format!("{}u", render_model::terrain_units::QUADS_PER_UNIT))
         .replace("TERRAIN_UNITS_PER_INSTANCE", &format!("{}u", render_model::terrain_units::UNITS_PER_INSTANCE))
         .replace("FAR_TERRAIN_TILE_CELLS", &format!("{}u", far_terrain::config::TILE_CELLS))
@@ -132,11 +183,17 @@ pub(crate) fn source(source: &str) -> String {
         )
         .replace("GPU_TEXTURE_GRID_SHIFT", &format!("{TEXTURE_GRID_SHIFT}u"))
         .replace("GPU_TEXTURE_SIZE_EXPONENT_MASK", &format!("{TEXTURE_SIZE_EXPONENT_MASK}u"))
-        .replace("TERRAIN_QUAD_SHIFT_MASK", &format!("{}u", assets::TERRAIN_QUAD_SHIFT_MASK))
+        .replace("TERRAIN_QUAD_SHIFT_MASK", &format!("{}u", assets::texture::TERRAIN_QUAD_SHIFT_MASK))
         .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
         .replace("BLOCK_ENTITY_CULL_BACK_FACES", &format!("{}u", render_model::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
+        .replace("// ENHANCED_PBR_SAMPLING", include_str!("enhanced/pbr_sampling.wesl"))
+        .replace("// ENHANCED_PBR_CONSTANTS", &format!(
+            "const AUTHORED_REFERENCE_BASE_WORDS:u32={}u;\nconst AUTHORED_REFERENCE_OVERRIDE_WORDS:u32={}u;\nconst PBR_REF_COLOR:u32={}u;\nconst PBR_REF_NORMAL:u32={}u;\nconst PBR_REF_HEIGHT:u32={}u;\nconst PBR_REF_MATERIAL:u32={}u;\nconst PBR_REF_LABPBR:u32={}u;\nconst PBR_REF_OCCLUSION:u32={}u;\nconst PBR_REF_SUBSURFACE:u32={}u;\nconst PBR_HEIGHT_SCALE:f32={:?};",
+            render_scene::EnhancedTextureAssets::REFERENCE_BASE_WORDS, render_scene::EnhancedTextureAssets::REFERENCE_OVERRIDE_WORDS,
+            assets::texture::PBR_REF_COLOR, assets::texture::PBR_REF_NORMAL, assets::texture::PBR_REF_HEIGHT, assets::texture::PBR_REF_MATERIAL,
+            assets::texture::PBR_REF_LABPBR, assets::texture::PBR_REF_OCCLUSION, assets::texture::PBR_REF_SUBSURFACE, assets::texture::PBR_HEIGHT_SCALE))
         .replace("ACTOR_COLOR_MASK_MATERIAL_FLAG", &format!("{}u", render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG))
         .replace("ACTOR_MATERIAL_LEGACY112_FLAG", &format!("{}u", render_model::LEGACY_COMBAT_MATERIAL_FLAG))
         .replace("// LEGACY_GLINT_CONSTANTS", &legacy_glint_constants())
@@ -245,6 +302,35 @@ pub(crate) fn source(source: &str) -> String {
         .replace(
             "NATIVE_LEAF_SAMPLER_BINDING",
             &NATIVE_LEAF_SAMPLER_BINDING.to_string(),
+        )
+        .replace(
+            "ENHANCED_COLOR_TEXTURE_BINDING_0",
+            &ENHANCED_COLOR_TEXTURE_BINDINGS[0].to_string(),
+        )
+        .replace(
+            "ENHANCED_COLOR_TEXTURE_BINDING_1",
+            &ENHANCED_COLOR_TEXTURE_BINDINGS[1].to_string(),
+        )
+        .replace(
+            "ENHANCED_NORMAL_TEXTURE_BINDING_0",
+            &ENHANCED_NORMAL_TEXTURE_BINDINGS[0].to_string(),
+        )
+        .replace(
+            "ENHANCED_NORMAL_TEXTURE_BINDING_1",
+            &ENHANCED_NORMAL_TEXTURE_BINDINGS[1].to_string(),
+        )
+        .replace(
+            "ENHANCED_MER_TEXTURE_BINDING_0",
+            &ENHANCED_MER_TEXTURE_BINDINGS[0].to_string(),
+        )
+        .replace(
+            "ENHANCED_MER_TEXTURE_BINDING_1",
+            &ENHANCED_MER_TEXTURE_BINDINGS[1].to_string(),
+        )
+        .replace("ENHANCED_SAMPLER_BINDING", &ENHANCED_SAMPLER_BINDING.to_string())
+        .replace(
+            "ENHANCED_TEXTURE_REF_BINDING",
+            &ENHANCED_TEXTURE_REF_BINDING.to_string(),
         )
 }
 

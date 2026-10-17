@@ -678,6 +678,10 @@
           "properties": {
             "double_sided": {
               "type": "boolean"
+            },
+            "emissive": {
+              "type": "boolean",
+              "description": "Draws every opaque texel fullbright in the world."
             }
           }
         }

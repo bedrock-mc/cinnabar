@@ -65,7 +65,7 @@ fn item_and_artwork_refreshes_retain_pack_geometry() {
     let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
-        assets::ActorPoseMode::CompiledLiteral,
+        assets::actor::ActorPoseMode::CompiledLiteral,
     );
     let scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
     let mut world = session_world(session_pack(entities.clone()), artwork, scene);
@@ -241,7 +241,7 @@ fn staged_pack_rigs_become_resident_when_drawn_without_refresh_rebuilds() {
     let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
-        assets::ActorPoseMode::CompiledLiteral,
+        assets::actor::ActorPoseMode::CompiledLiteral,
     );
     let entities = with_equipment_geometry(&entities);
     let mut pack = session_pack(entities.clone());
@@ -375,14 +375,14 @@ fn textured_pack(assets: Arc<assets::RuntimeEntityAssets>, color: u8) -> Arc<Ses
     use sha2::{Digest, Sha256};
     let mut pack = session_pack(assets);
     let data = Arc::get_mut(&mut pack).unwrap();
-    data.textures = Arc::from([assets::ActorTexture {
+    data.textures = Arc::from([assets::actor::ActorTexture {
         source: 0,
         width: 1,
         height: 1,
         pixel_sha256: Sha256::digest([color; 4]).into(),
         rgba8: Arc::from([color; 4]),
     }]);
-    data.bindings = Arc::from([assets::ActorArtworkBinding {
+    data.bindings = Arc::from([assets::actor::ActorArtworkBinding {
         rig: 0,
         geometry_candidate: 0,
         entity_symbol: 0,
@@ -390,7 +390,7 @@ fn textured_pack(assets: Arc<assets::RuntimeEntityAssets>, color: u8) -> Arc<Ses
         render_controller: 0,
         texture: 0,
         material: "entity_alphatest".into(),
-        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
     }]);
     pack
 }
@@ -415,7 +415,7 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
     let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
-        assets::ActorPoseMode::CompiledLiteral,
+        assets::actor::ActorPoseMode::CompiledLiteral,
     );
     let pack = textured_pack(entities.clone(), 19);
     let expected = artwork

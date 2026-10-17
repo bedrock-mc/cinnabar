@@ -30,7 +30,7 @@ pub(super) fn stack(layers: &[&[(&str, &[u8])]]) -> LayeredPackView {
 
 #[test]
 fn high_resolution_optional_clouds_cannot_reach_the_fixed_size_mesher() {
-    use assets::AtmosphereRole;
+    use assets::atmosphere::AtmosphereRole;
     let size = meshing::CLOUD_MASK_SIZE * 4;
     let image = image::RgbaImage::from_pixel(size, size, image::Rgba([255; 4]));
     let mut png = Cursor::new(Vec::new());
@@ -122,10 +122,13 @@ fn reloaded_fog_preserves_initial_fields_and_transition_timeline() {
     }});
     let fog = fog_profile(&json).unwrap();
     let distance = fog.distances[0];
-    assert_eq!(distance.mode, assets::FogDistanceMode::RenderRelative);
+    assert_eq!(
+        distance.mode,
+        assets::atmosphere::FogDistanceMode::RenderRelative
+    );
     assert_eq!(distance.start(), -0.2);
     let transition = distance.transition.unwrap();
-    assert_eq!(transition.mode, assets::FogDistanceMode::Fixed);
+    assert_eq!(transition.mode, assets::atmosphere::FogDistanceMode::Fixed);
     assert_eq!(transition.rgb8, 0x112233);
     let fields = [
         transition.start_bits,
@@ -156,7 +159,10 @@ fn reloaded_fog_preserves_initial_fields_and_transition_timeline() {
         });
         let retained = fog_profile(&invalid).unwrap();
         assert_eq!(retained.distances.len(), 1);
-        assert_eq!(retained.distances[0].medium, assets::FogMedium::Air);
+        assert_eq!(
+            retained.distances[0].medium,
+            assets::atmosphere::FogMedium::Air
+        );
         assert_eq!(retained.distances[0].transition, None);
     }
 }
@@ -165,19 +171,19 @@ fn reloaded_fog_preserves_initial_fields_and_transition_timeline() {
 fn atmosphere_base() -> render_scene::AtmosphereTextureAssets {
     let textures = [
         (
-            assets::AtmosphereRole::Sun,
+            assets::atmosphere::AtmosphereRole::Sun,
             "textures/environment/sun.png",
             32,
             32,
         ),
         (
-            assets::AtmosphereRole::MoonPhases,
+            assets::atmosphere::AtmosphereRole::MoonPhases,
             "textures/environment/moon_phases.png",
             128,
             64,
         ),
         (
-            assets::AtmosphereRole::Clouds,
+            assets::atmosphere::AtmosphereRole::Clouds,
             "textures/environment/clouds.png",
             256,
             256,
@@ -185,7 +191,7 @@ fn atmosphere_base() -> render_scene::AtmosphereTextureAssets {
     ]
     .map(|(role, path, width, height)| {
         let rgba8 = vec![255; (width * height * 4) as usize];
-        assets::AtmosphereTexture {
+        assets::atmosphere::AtmosphereTexture {
             role,
             source_path: path.into(),
             source_bytes: 1,
@@ -196,15 +202,16 @@ fn atmosphere_base() -> render_scene::AtmosphereTextureAssets {
             rgba8: rgba8.into_boxed_slice(),
         }
     });
-    let bytes = assets::encode_atmosphere_blob(&assets::CompiledAtmosphereAssets {
-        source_manifest_sha256: [1; 32],
-        textures: textures.into(),
-        biome_profiles: Box::new([]),
-        fog_profiles: Box::new([]),
-    })
-    .unwrap();
+    let bytes =
+        assets::atmosphere::encode_atmosphere_blob(&assets::atmosphere::CompiledAtmosphereAssets {
+            source_manifest_sha256: [1; 32],
+            textures: textures.into(),
+            biome_profiles: Box::new([]),
+            fog_profiles: Box::new([]),
+        })
+        .unwrap();
     render_scene::AtmosphereTextureAssets::new(
-        Arc::new(assets::RuntimeAtmosphereAssets::decode(&bytes).unwrap()),
+        Arc::new(assets::atmosphere::RuntimeAtmosphereAssets::decode(&bytes).unwrap()),
         [1; 32],
     )
 }
@@ -414,7 +421,7 @@ fn custom_biome_profiles_apply_authored_routes_and_preserve_defaults() {
         &mut profiles,
         &BTreeMap::from([(
             "custom:fog".into(),
-            assets::FogProfile {
+            assets::atmosphere::FogProfile {
                 identifier: "custom:fog".into(),
                 distances: Box::new([]),
             },
@@ -471,7 +478,7 @@ fn unresolved_custom_fog_routes_keep_valid_atmosphere_overrides() {
             &base,
         );
         let runtime = prepared.runtime().unwrap();
-        let sun = runtime.textures().iter().find(|texture| texture.role == assets::AtmosphereRole::Sun).unwrap();
+        let sun = runtime.textures().iter().find(|texture| texture.role == assets::atmosphere::AtmosphereRole::Sun).unwrap();
         assert_eq!(&sun.rgba8[..4], &[12, 34, 56, 255]);
         assert!(runtime.biome_profiles().iter().all(|profile| profile.biome_identifier.as_ref() != "custom:unresolved"));
         let valid = runtime.biome_profiles().iter().find(|profile| profile.biome_identifier.as_ref() == "custom:valid").unwrap();

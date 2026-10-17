@@ -39,6 +39,14 @@ pub struct Assets {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RenderFlags {
     pub double_sided: bool,
+    /// Draws every opaque texel fullbright in the world; previews keep the authored texture.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub emissive: bool,
+}
+
+/// Omits disabled optional flags so catalogs written before they existed round-trip unchanged.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -174,21 +182,23 @@ pub fn known_slot(slot: &str) -> bool {
 
 /// Returns a stable slot index from the pinned schema for attachment layers.
 pub fn slot_index(slot: &str) -> Option<usize> {
+    known_slots().iter().position(|known| known == slot)
+}
+
+/// Lists the pinned schema's slot vocabulary in its stable attachment-layer order.
+pub fn known_slots() -> &'static [String] {
     static SLOTS: OnceLock<Vec<String>> = OnceLock::new();
-    SLOTS
-        .get_or_init(|| {
-            let schema: serde_json::Value =
-                serde_json::from_str(include_str!("../../../core/cinnabarapi/schema/v1.json"))
-                    .expect("pinned API schema");
-            schema["$defs"]["CosmeticSlot"]["x-known-slots"]
-                .as_array()
-                .expect("slot vocabulary")
-                .iter()
-                .map(|slot| slot.as_str().expect("slot name").to_owned())
-                .collect()
-        })
-        .iter()
-        .position(|known| known == slot)
+    SLOTS.get_or_init(|| {
+        let schema: serde_json::Value =
+            serde_json::from_str(include_str!("../../../core/cinnabarapi/schema/v1.json"))
+                .expect("pinned API schema");
+        schema["$defs"]["CosmeticSlot"]["x-known-slots"]
+            .as_array()
+            .expect("slot vocabulary")
+            .iter()
+            .map(|slot| slot.as_str().expect("slot name").to_owned())
+            .collect()
+    })
 }
 
 /// Rejects unsafe metadata while ignoring item kinds this client cannot render.

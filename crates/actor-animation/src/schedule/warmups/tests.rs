@@ -32,11 +32,13 @@ pub(super) fn serial_reference(
             Some(Evaluation {
                 result: Ok(evaluated),
                 used,
+                body_error,
             }) => {
                 *world_left = world_left.saturating_sub(used);
                 job.outcome = Some(Evaluation {
                     result: Ok(evaluated),
                     used,
+                    body_error,
                 });
                 ledger.apply(job);
             }
@@ -87,6 +89,7 @@ fn with_jobs<R>(
         pack: None,
         tick: store.completed_tick + 1,
         exempt: None,
+        local_body_enabled: false,
     };
     let mut jobs: Vec<_> = store
         .rigs

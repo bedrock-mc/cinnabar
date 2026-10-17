@@ -89,7 +89,17 @@ macro_rules! wardrobe_tabs {
 }
 
 wardrobe_tabs! { DressingRoomSection { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics" } }
-wardrobe_tabs! { CosmeticCategory { All => "All", Head => "Head", Back => "Back", Pet => "Pet" } }
+wardrobe_tabs! {
+    CosmeticCategory {
+        All => "All",
+        Head => "Head",
+        Face => "Face",
+        Back => "Back",
+        Body => "Body",
+        Pet => "Pet",
+        Aura => "Aura",
+    }
+}
 
 impl CosmeticCategory {
     /// Includes every slot in All and the matching equipment slot in each named category.
@@ -190,5 +200,18 @@ mod tests {
         assert!(!CosmeticCategory::Head.includes_slot("back"));
         assert!(CosmeticCategory::Back.includes_slot("back"));
         assert!(!CosmeticCategory::Back.includes_slot("head"));
+    }
+
+    #[test]
+    fn every_schema_slot_has_exactly_one_named_category() {
+        for slot in cosmetics::known_slots() {
+            let named = CosmeticCategory::ALL
+                .into_iter()
+                .filter(|category| *category != CosmeticCategory::All)
+                .filter(|category| category.includes_slot(slot))
+                .count();
+            assert_eq!(named, 1, "slot {slot} needs one gallery filter");
+        }
+        assert_eq!(CosmeticCategory::ALL.len(), cosmetics::SLOT_COUNT + 1);
     }
 }

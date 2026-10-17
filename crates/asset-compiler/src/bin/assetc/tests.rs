@@ -1,7 +1,9 @@
 use std::{ffi::OsString, fs};
 
 use assets::{
-    AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    atmosphere::{
+        AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
+    },
     canonical_source_manifest_sha256,
 };
 use clap::Parser;

@@ -1,8 +1,11 @@
-use assets::{MATERIAL_FLAG_ALPHA_BLEND, TextureArray, TextureMip, TextureRef};
+use assets::{
+    MATERIAL_FLAG_ALPHA_BLEND, TextureRef,
+    texture::{TextureArray, TextureMip},
+};
 
 use super::*;
 
-const SIDE: u32 = assets::TILE_SIZE;
+const SIDE: u32 = assets::texture::TILE_SIZE;
 
 /// One stair step: the lower tread's top face and the riser above it, in 1/256 block units.
 fn stair_quads(material: u32) -> Vec<ModelQuad> {

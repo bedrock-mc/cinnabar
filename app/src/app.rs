@@ -8,11 +8,11 @@ use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
-use acceptance::model_witness::poll_model_witness_request;
+use crate::runtime::telemetry::record_metrics;
 use anyhow::{Context, Result, bail};
 use assets::carriers::startup::select_asset_path_from_environment;
 use bevy::{
-    anti_alias::AntiAliasPlugin,
+    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin, taa::TemporalAntiAliasPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
@@ -29,11 +29,6 @@ use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
 use std::io::Write;
 use std::{ffi::OsStr, path::Path, sync::Arc};
-#[cfg(feature = "acceptance")]
-use {
-    crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
-    acceptance::transparent_witness::poll_transparent_witness_request,
-};
 use {
     render::{ActorRenderPlugin, AtmospherePlugin, ChunkRenderPlugin, UiRenderPlugin},
     render_scene::{
@@ -47,11 +42,7 @@ mod startup;
 use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
-use client_presentation::{
-    actor_publication::publish_actor_render_frame,
-    camera::FlyCameraUpdateSet,
-    local_player::{LocalPlayerFrameSet, publish_interaction_origin},
-};
+use client_presentation::local_player::{LocalPlayerFrameSet, publish_interaction_origin};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
@@ -64,35 +55,24 @@ use {
         camera::FlyCameraPlugin,
         environment::{
             self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-            update_atmosphere_frame, update_lightning, update_precipitation_scene,
-            update_seasonal_foliage,
         },
         local_player::{
             publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
         },
         melee::produce_attacks,
         movement::{advance_local_physics, send_movement_prediction_sync},
-        present_mode::{PresentModeRuntime, apply_present_mode},
+        present_mode::PresentModeRuntime,
         runtime::{
             network::{
-                advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
                 receive_network_events,
                 session::{NetworkConfig, spawn_network},
             },
-            shutdown::{
-                TerminalCause, exit_on_fatal_runtime_error, exit_on_window_close_requested,
-            },
-            telemetry::{
-                publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
-                update_visibility_diagnostics,
-            },
-            visibility::{
-                AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
-                refresh_cave_visibility, remove_chunk_visibility,
-            },
+            shutdown::{TerminalCause, exit_on_fatal_runtime_error},
+            telemetry::send_player_auth_inputs,
+            visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
             world::{
                 ClientWorld, WorldStreamFramePoll, drive_world_stream,
-                reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
+                reconcile_world_stream_before_physics, startup_biome_tints,
             },
         },
         semantic_controls::{
@@ -106,8 +86,7 @@ use {
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-            drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
-            flush_server_form_network,
+            drive_world_inventory_keys, flush_inventory_network,
             gameplay_touch::drive_gameplay_touch_targets,
             presentation::{
                 dials::advance_dials, drive_menu_panorama, observe_mount_jump_input,
@@ -131,6 +110,7 @@ use {
     client_shell::menu::MenuRuntime,
 };
 
+pub(crate) mod frame_systems;
 mod render_setup;
 use render_setup::RendererSetup;
 
@@ -144,43 +124,6 @@ mod executor;
 pub(crate) mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
-/// Registers the production actor observation and publication boundaries.
-pub(crate) fn configure_actor_render_systems(app: &mut App) {
-    app.init_resource::<crate::block_entities::SpawnerDisplayPublisher>()
-        .init_resource::<client_presentation::actor_publication::ActorFrameState>()
-        .add_systems(
-            Update,
-            (
-                advance_actor_frame,
-                crate::runtime::network::publish_local_actor_damage,
-            )
-                .chain()
-                .in_set(ClientFrameSet::ActorPreparation),
-        )
-        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
-        .add_systems(
-            Update,
-            crate::runtime::network::advance_actor_motion
-                .after(ClientFrameSet::Camera)
-                .before(ClientFrameSet::Interaction),
-        )
-        .add_systems(
-            Update,
-            (
-                prepare_actor_render_frame,
-                crate::block_entities::prepare_spawner_actors,
-            )
-                .chain()
-                .in_set(ClientFrameSet::ActorFinalization),
-        )
-        .add_systems(
-            Update,
-            (publish_actor_render_frame, publish_entity_shadows)
-                .chain()
-                .in_set(ClientFrameSet::ActorPublication),
-        );
-}
-
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(not(feature = "acceptance"))]
     app.init_resource::<AcceptanceRun>();
@@ -188,7 +131,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<MovementEvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
-    configure_actor_render_systems(app);
+    frame_systems::configure_actor_render_systems(app);
     crate::audio::configure(app);
     interaction::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
@@ -310,59 +253,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             .after(advance_local_physics)
             .in_set(ClientFrameSet::Physics),
     );
-}
-
-pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
-    app.add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
-    crate::runtime::world::configure_world_service(app);
-    app.add_observer(apply_added_chunk_visibility)
-        .add_observer(remove_chunk_visibility)
-        .configure_sets(
-            Update,
-            (
-                LocalPlayerFrameSet::Physics,
-                LocalPlayerFrameSet::Camera,
-                LocalPlayerFrameSet::Interaction,
-            )
-                .chain()
-                .after(FlyCameraUpdateSet),
-        )
-        .configure_sets(
-            Update,
-            client_state::RuntimeFrameSet::PublicationBudget
-                .before(receive_network_events)
-                .before(drive_world_stream),
-        )
-        .add_systems(
-            Update,
-            (
-                exit_on_window_close_requested,
-                flush_chat_network.before(ClientFrameSet::UiPreparation),
-                flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
-                exit_on_fatal_runtime_error,
-                #[cfg(feature = "acceptance")]
-                poll_transparent_witness_request,
-                #[cfg(feature = "acceptance")]
-                poll_model_witness_request,
-                update_camera_medium,
-                update_atmosphere_frame,
-                update_seasonal_foliage,
-                crate::environment::log_world_lighting,
-                update_precipitation_scene,
-                update_lightning,
-                refresh_cave_visibility,
-                update_visibility_diagnostics.after(ChunkRenderApplySet),
-                #[cfg(feature = "acceptance")]
-                emit_world_ready,
-                #[cfg(feature = "acceptance")]
-                drive_model_witness,
-                apply_present_mode,
-                record_metrics,
-                publish_runtime_stage_profile,
-            )
-                .chain()
-                .after(FlyCameraUpdateSet),
-        );
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
@@ -535,6 +425,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
+    let authored_texture_loading =
+        crate::render_mode::authored_textures::AuthoredTextureLoading::new(
+            Arc::clone(&loaded_assets.runtime),
+            loaded_assets.material_keys.clone(),
+        );
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics.into();
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -722,6 +617,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    app.add_plugins(FxaaPlugin);
+    app.add_plugins(TemporalAntiAliasPlugin);
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
@@ -824,6 +721,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(atmosphere_assets)
     .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(authored_texture_loading)
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)
@@ -939,7 +837,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.import_packs,
     );
     configure_client_production_frame_systems(&mut app);
-    configure_client_runtime_frame_systems(&mut app);
+    frame_systems::configure_client_runtime_frame_systems(&mut app);
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }

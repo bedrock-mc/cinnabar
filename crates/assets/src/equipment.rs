@@ -50,7 +50,7 @@ pub const EQUIPMENT_CARRIER_VERSION: u32 = 5;
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
-pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = crate::MAX_ACTOR_TEXTURE_SIDE;
+pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = crate::actor::MAX_ACTOR_TEXTURE_SIDE;
 /// Held and worn item art; entity art has its own, larger budget.
 pub const MAX_EQUIPMENT_PIXEL_BYTES: usize = 256 * 1024 * 1024;
 const MAX_EQUIPMENT_METADATA_BYTES: usize = 8 * 1024 * 1024;

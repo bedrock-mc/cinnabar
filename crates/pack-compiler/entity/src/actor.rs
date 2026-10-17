@@ -6,9 +6,12 @@ use std::{
 };
 
 use assets::{
-    ActorArtworkBinding, ActorTexture, AssetError, CompiledEntityAssets, MAX_ACTOR_PIXEL_BYTES,
-    MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
-    neutral_actor_geometry_uvs_are_supported,
+    AssetError, CompiledEntityAssets,
+    actor::{
+        ActorArtworkBinding, ActorTexture, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
+        MAX_ACTOR_TEXTURES, encode_actor_catalog, neutral_actor_geometry_uvs_are_supported,
+    },
+    encode_entity_blob,
 };
 use image::{ImageFormat, ImageReader, Limits};
 use serde::Serialize;
@@ -93,7 +96,7 @@ pub fn compile_actor_assets_for_assets(
         bindings: bindings.len(),
         rest_pose_bindings: bindings
             .iter()
-            .filter(|binding| binding.pose_mode == assets::ActorPoseMode::RestPose)
+            .filter(|binding| binding.pose_mode == assets::actor::ActorPoseMode::RestPose)
             .count(),
         pixel_bytes,
         texture_evidence: textures
@@ -216,11 +219,11 @@ impl SourceDecoder {
         let asset = &entities.sources[source as usize];
         let binary_alpha = !self.lenient
             && !self.dissolve_masks.contains(&source)
-            && !assets::native_actor_texture_preserves_fractional_alpha(asset);
+            && !assets::actor::native_actor_texture_preserves_fractional_alpha(asset);
         let sampled = |width: u16, height: u16| {
             let mut union = vec![false; usize::from(width) * usize::from(height)];
             for &geometry in self.drawn.get(&source)?.as_ref()? {
-                let texels = assets::neutral_actor_geometry_sampled_texels(
+                let texels = assets::actor::neutral_actor_geometry_sampled_texels(
                     &entities.geometries,
                     geometry as usize,
                     width,
@@ -318,7 +321,7 @@ fn build_artwork(
     let decoder = SourceDecoder {
         lenient,
         crystal_sources: native_crystal_sources(entities),
-        dissolve_masks: assets::actor_dissolve_mask_sources(render),
+        dissolve_masks: assets::actor::actor_dissolve_mask_sources(render),
         drawn: source_geometries(entities),
     };
     let layer_rasters = render
@@ -443,7 +446,7 @@ fn build_artwork(
                     .ok_or_else(|| invalid("drawable rig lacks a render controller"))?,
                 texture: texture as u32,
                 material: "entity".into(),
-                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
             });
         }
         // Controllers may draw another geometry with its own normalised UVs.

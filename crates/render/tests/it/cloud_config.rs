@@ -1,4 +1,4 @@
-use assets::{AtmosphereRole, AtmosphereTexture};
+use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
 use meshing::{CloudFace, PackedCloudQuad};
 use {
     assets::CloudQuality,

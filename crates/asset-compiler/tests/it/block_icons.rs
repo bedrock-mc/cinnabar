@@ -1,3 +1,4 @@
+use assets::texture::{TextureArray, TextureMip};
 use assets::*;
 use pack_entity_compiler::{
     compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks,

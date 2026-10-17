@@ -6,7 +6,7 @@ fn a_native_texture_override_keeps_its_material_without_promoting_equipment() {
     let route = ActorArtworkLocation {
         page: 1,
         layer: 0,
-        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
         multitexture: None,
     };
     let pages = ActorArtworkPages {

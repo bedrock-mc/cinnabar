@@ -13,8 +13,9 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT,
     MODEL_QUAD_FLAG_TWO_SIDED, Material, ModelStateField, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, encode_blob, read_registry,
+    NetworkIdMode, RegistryRecord, RuntimeAssets, TexturePage, TextureRef, VisualKind, encode_blob,
+    read_registry,
+    texture::{TextureArray, TextureMip},
 };
 use pack_compiler::compile_pack as compile_pack_with_lights;
 

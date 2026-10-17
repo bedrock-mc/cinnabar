@@ -211,7 +211,12 @@ fn packed_lattice_tints_are_byte_identical_on_bench_terrains_and_biome_seams() {
             contents: bytemuck::cast_slice(&queries),
             usage: storage_usage,
         });
-    let tables = gpu.words(&query_table_words(), wgpu::BufferUsages::UNIFORM);
+    let tables = gpu.words(
+        &crate::material_shader::world_uniform_words(
+            &[0; crate::material_shader::WORLD_CLOCK_WORDS],
+        ),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let result_bytes = (queries.len() * size_of::<[u32; 4]>()) as u64;
     let output = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,

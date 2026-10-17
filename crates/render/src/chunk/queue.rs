@@ -1,3 +1,5 @@
+#[cfg(feature = "enhanced")]
+use super::resident_coverage::ChunkResidentCoverage;
 use crate::chunk::*;
 use bevy::prelude::DetectChangesMut;
 use render_scene::{
@@ -128,6 +130,8 @@ pub(in crate::chunk) struct RenderQueueRuntime<'w, 's> {
         ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
     >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    #[cfg(feature = "enhanced")]
+    coverage: Option<Res<'w, ChunkResidentCoverage>>,
     priorities: Local<'s, MainUploadPriorities>,
 }
 
@@ -160,6 +164,8 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         acknowledgements,
         mut immediate_terrain,
         profiler,
+        #[cfg(feature = "enhanced")]
+        coverage,
         mut priorities,
     } = runtime;
     let _timer = profiler
@@ -170,6 +176,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         // stop every upload of the new session.
         if let Some(reload) = &reload {
             reload.discard_geometry();
+        }
+        #[cfg(feature = "enhanced")]
+        if let Some(coverage) = &coverage {
+            coverage.clear();
         }
         drop(gpu_removals.take_ready(usize::MAX, |_| true));
         acknowledgements.clear();
@@ -286,6 +296,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     continue;
                 }
             };
+            #[cfg(feature = "enhanced")]
+            if let Some(coverage) = &coverage {
+                coverage.set(key, false);
+            }
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
                     && let Some(slot) = &instance.publication_permit
@@ -351,7 +365,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         {
             continue;
         }
-        let Some(pending) = queue.pending.remove(&key) else {
+        let Some(mut pending) = queue.pending.remove(&key) else {
             continue;
         };
         queue.pending_bytes = queue
@@ -359,6 +373,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             .saturating_sub(pending_upload_byte_len(&pending));
         let render_permit = pending
             .publication_permit
+            .take()
             .map(PublicationPermit::into_render_entity)
             .transpose();
         let render_permit = match render_permit {
@@ -369,6 +384,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             }
         };
         gpu_removals.cancel(key);
+        #[cfg(feature = "enhanced")]
+        if let Some(coverage) = &coverage {
+            coverage.set(key, true);
+        }
         if pending.mesh.is_empty() {
             queue.tracked_generations.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
@@ -404,81 +423,114 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     immediate.0.push((key, token.generation));
                 }
             }
+            #[cfg(feature = "enhanced")]
+            if !pending.mesh.light_emitters().is_empty() {
+                // Retain only CPU data for emitter extraction and resource-pack remeshing.
+                pending.token = None;
+                let instance = render_instance(key, pending, None);
+                retain_render_instance(&mut commands, &mut entities, &existing_instances, instance);
+            }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
         }
 
-        let origin = chunk_origin(key);
-        let cube_layout = pending.mesh.cube_layout();
-        let (
-            cube_quads,
-            cube_lighting,
-            model_refs,
-            model_lighting,
-            model_draw_refs,
-            transparent_model_draw_refs,
-            liquid_quads,
-            liquid_lighting,
-        ) = pending.mesh.into_streams();
-        debug_assert_eq!(cube_quads.len(), cube_lighting.len());
-        let depth_liquid_start = liquid_quads
-            .iter()
-            .position(|quad| quad.is_depth_writing())
-            .and_then(|index| u32::try_from(index).ok());
-        debug_assert!(depth_liquid_start.is_none_or(|start| {
-            liquid_quads[start as usize..]
-                .iter()
-                .all(|quad| quad.is_depth_writing())
-        }));
-        let has_depth_liquid = depth_liquid_start.is_some();
-        let has_transparent_liquid = liquid_quads
-            .first()
-            .is_some_and(|quad| !quad.is_depth_writing());
-        let bounds = super::bounds::aabb(!model_refs.is_empty());
-        let instance = ChunkRenderInstance {
-            key,
-            cube_quads: Arc::from(cube_quads),
-            cube_lighting: Arc::from(cube_lighting),
-            cube_layout,
-            model_refs: Arc::from(model_refs),
-            model_lighting: Arc::from(model_lighting),
-            model_draw_refs: Arc::from(model_draw_refs),
-            transparent_model_draw_refs: Arc::from(transparent_model_draw_refs),
-            liquid_quads: Arc::from(liquid_quads),
-            liquid_lighting: Arc::from(liquid_lighting),
-            has_depth_liquid,
-            has_transparent_liquid,
-            depth_liquid_start,
-            biome: pending.biome,
-            tint_identity: pending.tint_identity,
-            generation: pending.generation,
-            priority: pending.priority,
-            token: pending.token,
-            publication_permit: render_permit.map(PublicationPermitSlot::new),
-            origin,
-        };
-        if let Some(&entity) = entities.0.get(&key) {
-            if let Ok(existing) = existing_instances.get(entity)
-                && let Some(slot) = &existing.publication_permit
-            {
-                drop(slot.take());
-            }
-            commands.entity(entity).insert((instance, bounds));
-        } else {
-            let entity = commands
-                .spawn((
-                    instance,
-                    Visibility::default(),
-                    Transform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
-                    bounds,
-                ))
-                .id();
-            entities.0.insert(key, entity);
-        }
+        let instance = render_instance(key, pending, render_permit);
+        retain_render_instance(&mut commands, &mut entities, &existing_instances, instance);
         if pending_bytes != 0 {
             payload_applications = payload_applications.saturating_add(1);
             total_bytes = total_bytes.saturating_add(pending_bytes);
         }
     }
     queue.ready_scratch = ready;
+}
+
+/// Converts accepted CPU streams into an instance; only geometry owns a publication permit.
+#[allow(unused_mut)]
+fn render_instance(
+    key: SubChunkKey,
+    mut pending: render_scene::chunk::PendingUpload,
+    render_permit: Option<PublicationPermit>,
+) -> ChunkRenderInstance {
+    let origin = chunk_origin(key);
+    let cube_layout = pending.mesh.cube_layout();
+    #[cfg(feature = "enhanced")]
+    let light_emitters = pending.mesh.take_light_emitters();
+    let (
+        cube_quads,
+        cube_lighting,
+        model_refs,
+        model_lighting,
+        model_draw_refs,
+        transparent_model_draw_refs,
+        liquid_quads,
+        liquid_lighting,
+    ) = pending.mesh.into_streams();
+    debug_assert_eq!(cube_quads.len(), cube_lighting.len());
+    let depth_liquid_start = liquid_quads
+        .iter()
+        .position(|quad| quad.is_depth_writing())
+        .and_then(|index| u32::try_from(index).ok());
+    debug_assert!(depth_liquid_start.is_none_or(|start| {
+        liquid_quads[start as usize..]
+            .iter()
+            .all(|quad| quad.is_depth_writing())
+    }));
+    let has_depth_liquid = depth_liquid_start.is_some();
+    let has_transparent_liquid = liquid_quads
+        .first()
+        .is_some_and(|quad| !quad.is_depth_writing());
+    ChunkRenderInstance {
+        #[cfg(feature = "enhanced")]
+        light_emitters: Arc::from(light_emitters),
+        key,
+        cube_quads: Arc::from(cube_quads),
+        cube_lighting: Arc::from(cube_lighting),
+        cube_layout,
+        model_refs: Arc::from(model_refs),
+        model_lighting: Arc::from(model_lighting),
+        model_draw_refs: Arc::from(model_draw_refs),
+        transparent_model_draw_refs: Arc::from(transparent_model_draw_refs),
+        liquid_quads: Arc::from(liquid_quads),
+        liquid_lighting: Arc::from(liquid_lighting),
+        has_depth_liquid,
+        has_transparent_liquid,
+        depth_liquid_start,
+        biome: pending.biome,
+        tint_identity: pending.tint_identity,
+        generation: pending.generation,
+        priority: pending.priority,
+        token: pending.token,
+        publication_permit: render_permit.map(PublicationPermitSlot::new),
+        origin,
+    }
+}
+
+/// Inserts CPU geometry or emitter state while retiring any superseded linear permit.
+fn retain_render_instance(
+    commands: &mut Commands,
+    entities: &mut ChunkEntities,
+    existing_instances: &Query<&ChunkRenderInstance>,
+    instance: ChunkRenderInstance,
+) {
+    let key = instance.key;
+    let origin = instance.origin;
+    let bounds = super::bounds::aabb(!instance.model_refs.is_empty());
+    if let Some(&entity) = entities.0.get(&key) {
+        if let Ok(existing) = existing_instances.get(entity)
+            && let Some(slot) = &existing.publication_permit
+        {
+            drop(slot.take());
+        }
+        commands.entity(entity).insert((instance, bounds));
+    } else {
+        let entity = commands
+            .spawn((
+                instance,
+                Visibility::default(),
+                Transform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
+                bounds,
+            ))
+            .id();
+        entities.0.insert(key, entity);
+    }
 }

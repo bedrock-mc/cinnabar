@@ -199,18 +199,40 @@ struct WorldAtmosphere {
 }
 @group(1) @binding(1) var<uniform> world_atmosphere: WorldAtmosphere;
 
-// Uses the same distance fade as the terrain passes after lighting and overlays.
-fn world_fog_amount(position: vec3<f32>, camera: vec3<f32>) -> f32 {
-    let start = world_atmosphere.fog_color_start.w;
-    let end = world_atmosphere.fog_end_time.x;
-    return clamp((distance(position, camera) - start) / max(end - start, 0.0001), 0.0, 1.0);
+// Computes the configured fade from a camera-relative world distance.
+fn configured_fog_fade(distance_to_camera: f32, start: f32, end: f32) -> f32 {
+    return clamp((distance_to_camera - start) / max(end - start, 0.0001), 0.0, 1.0);
 }
 
+// Computes the configured fade independently of bindings and colour space.
+fn configured_fog_amount(position: vec3<f32>, camera: vec3<f32>, start: f32, end: f32) -> f32 {
+    return configured_fog_fade(distance(position, camera), start, end);
+}
+
+// Applies configured fog to colours supplied in the same transfer space.
+fn configured_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>, fog: vec4<f32>, end: f32) -> vec3<f32> {
+    return mix(colour, fog.rgb, configured_fog_amount(position, camera, fog.w, end));
+}
+
+// Uses the same configured fade for ordinary world surfaces.
+fn world_fog_amount(position: vec3<f32>, camera: vec3<f32>) -> f32 {
+    return configured_fog_amount(position, camera, world_atmosphere.fog_color_start.w, world_atmosphere.fog_end_time.x);
+}
+
+// Applies the world uniform's configured fog in linear space.
 fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
-    return mix(colour, world_atmosphere.fog_color_start.rgb, world_fog_amount(position, camera));
+    return configured_distance_fog(colour, position, camera, world_atmosphere.fog_color_start, world_atmosphere.fog_end_time.x);
 }
 
 fn actor_distance_fog(colour_gamma: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
     let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    return mix(colour_gamma, fog_gamma, world_fog_amount(position, camera));
+    return configured_distance_fog(colour_gamma, position, camera, vec4(fog_gamma, world_atmosphere.fog_color_start.w), world_atmosphere.fog_end_time.x);
+}
+
+// Shadow depth treats alpha as opacity only for blended surfaces, never dye or multitexture masks.
+fn actor_shadow_opacity_visible(alpha: f32, blended: bool, tint: u32, colour_mask: bool, multitexture: bool) -> bool {
+    if (!blended || colour_mask || multitexture) { return true; }
+    var opacity = alpha;
+    if (tint != 0u) { opacity *= unpack4x8unorm(tint).a; }
+    return opacity >= 0.01;
 }

@@ -15,6 +15,8 @@ use render_scene::{ChunkUploadPriority, TransparentSortMetrics};
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
     ChunkRenderInstance {
+        #[cfg(feature = "enhanced")]
+        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         origin: [0; 3],
