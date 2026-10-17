@@ -449,6 +449,46 @@ fn switching_slot_stops_silently_and_consumed_presses_do_nothing() {
     assert!(runtime.step(&frame(130, true)).packets.is_empty());
 }
 
+/// Replacing the selected count ends the old use without releasing the replacement stack.
+#[test]
+fn selected_count_change_cancels_the_old_use_without_release() {
+    for count in [15, 17] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let started = runtime.step(&item_frame(
+            100,
+            true,
+            stack(2, MENU_ITEM, 16),
+            "minecraft:golden_apple",
+        ));
+        assert!(started.started && runtime.is_using());
+        let released = runtime.step(&item_frame(
+            101,
+            false,
+            stack(2, MENU_ITEM, count),
+            "minecraft:golden_apple",
+        ));
+        assert!(released.packets.is_empty());
+        assert!(!runtime.is_using());
+    }
+
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    runtime.step(&item_frame(
+        100,
+        true,
+        stack(2, MENU_ITEM, 16),
+        "minecraft:golden_apple",
+    ));
+    let released = runtime.step(&item_frame(
+        101,
+        false,
+        stack(2, MENU_ITEM, 16),
+        "minecraft:golden_apple",
+    ));
+    assert_eq!(kinds(&released), ["release"]);
+}
+
 /// A briefly unverifiable selection (inventory request in flight) keeps the use and its release.
 #[test]
 fn an_unverified_selection_keeps_the_use_and_still_releases() {

@@ -560,11 +560,12 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
-    /// Unverified inventory preserves a use; a different selected slot or item cancels it.
+    /// Unverified inventory preserves a use; a different selected slot, item or count cancels it.
     fn selection_changed(&self, selection: Option<&FrozenMiningSelection>) -> bool {
         selection.is_some_and(|selection| {
             selection.slot != self.selection.slot
                 || selection.item.network_id() != self.selection.item.network_id()
+                || selection.item.count() != self.selection.item.count()
         })
     }
 
