@@ -15,6 +15,7 @@ image.workspace = true
 inventory = { path = "../../crates/inventory" }
 json-ui = { path = "../../crates/json-ui" }
 jsonui-editor = { path = "../jsonui-editor" }
+bridge = { path = "../../crates/bridge" }
 launcher = { path = "../../crates/launcher" }
 oreui = { path = "../../crates/oreui" }
 player-state = { path = "../../crates/player-state" }

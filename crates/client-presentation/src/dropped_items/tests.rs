@@ -2,6 +2,7 @@ use super::*;
 
 #[path = "culling_tests.rs"]
 mod culling;
+mod pack_textures;
 
 #[test]
 fn potted_models_sample_the_exposed_server_texture_grid() {
