@@ -90,6 +90,20 @@ impl DeltaGroup {
         std::iter::once(first).chain(second)
     }
 
+    /// Cells where a gesture inserts or exchanges an item, excluding generated result writes.
+    pub(super) fn placement_cells(&self) -> impl Iterator<Item = Cell> {
+        let (first, second) = match self {
+            Self::Transfer { destination, .. } => (Some(*destination), None),
+            Self::Swap {
+                source,
+                destination,
+                ..
+            } => (Some(*source), Some(*destination)),
+            Self::Shrink { .. } | Self::Set { .. } => (None, None),
+        };
+        first.into_iter().chain(second)
+    }
+
     /// Whether a touched cell keeps its original item while this operation changes its count.
     pub(super) fn retains_item_at(&self, cell: Cell) -> bool {
         match self {

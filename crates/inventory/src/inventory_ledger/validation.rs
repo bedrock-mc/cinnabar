@@ -22,14 +22,24 @@ pub(super) const fn placement_refused(cell: Cell) -> InventoryGestureError {
 impl PlayerInventoryLedger {
     /// Returns a slot-specific limit, zero for refusal, or no extra item limit.
     pub(super) fn placement_capacity(&self, cell: Cell, stack: &NetworkItemStack) -> Option<u16> {
-        let roles = self.item_facts.get(stack.network_id).roles;
+        self.placement_capacity_with_facts(&self.item_facts, cell, stack)
+    }
+
+    /// Evaluates the same destination contract against a candidate registry admission.
+    fn placement_capacity_with_facts(
+        &self,
+        facts: &crate::SessionItemFacts,
+        cell: Cell,
+        stack: &NetworkItemStack,
+    ) -> Option<u16> {
+        let roles = facts.get(stack.network_id).roles;
         match cell {
             Cell::Armor(slot) => Some(u16::from(
-                equipment_admission(&self.item_facts, stack.network_id).armor == Some(slot),
+                equipment_admission(facts, stack.network_id).armor == Some(slot),
             )),
-            Cell::Offhand => (equipment_admission(&self.item_facts, stack.network_id).offhand
-                != Some(true))
-            .then_some(0),
+            Cell::Offhand => {
+                (equipment_admission(facts, stack.network_id).offhand != Some(true)).then_some(0)
+            }
             Cell::Storage(slot) => match self
                 .window_kind()
                 .and_then(|kind| protocol::open_cell_request(kind, slot, None, None))
@@ -44,7 +54,7 @@ impl PlayerInventoryLedger {
             Cell::Craft(slot) => {
                 match protocol::ui_slot_container_name(slot).and_then(ContainerName::from_wire) {
                     Some(ContainerName::LoomInput)
-                        if !self.item_facts.is_banner(stack.network_id)
+                        if !facts.is_banner(stack.network_id)
                             || protocol::item_banner_type(&stack.extra_data)
                                 .is_some_and(|kind| kind != 0) =>
                     {
@@ -52,12 +62,8 @@ impl PlayerInventoryLedger {
                     }
                     Some(ContainerName::GrindstoneInput | ContainerName::GrindstoneAdditional)
                         if !protocol::item_has_enchantment_list(&stack.extra_data)
-                            && (self
-                                .item_facts
-                                .get(stack.network_id)
-                                .durability
-                                .maximum()
-                                .is_none()
+                            && (facts.get(stack.network_id).durability.damageable()
+                                != Some(true)
                                 || protocol::item_extra_unbreakable(&stack.extra_data)) =>
                     {
                         Some(0)
@@ -76,6 +82,29 @@ impl PlayerInventoryLedger {
             }
             _ => None,
         }
+    }
+
+    /// Detects changed destination permissions without restricting removal-only gestures.
+    pub(super) fn placement_admission_changes(
+        &self,
+        request: &super::PendingRequest,
+        facts: &crate::SessionItemFacts,
+    ) -> bool {
+        request
+            .groups
+            .iter()
+            .flat_map(DeltaGroup::placement_cells)
+            .any(|cell| {
+                request
+                    .predicted
+                    .iter()
+                    .find(|prediction| prediction.cell == cell)
+                    .and_then(|prediction| prediction.held.as_ref())
+                    .is_some_and(|held| {
+                        self.placement_capacity(cell, &held.stack)
+                            != self.placement_capacity_with_facts(facts, cell, &held.stack)
+                    })
+            })
     }
 
     /// Checks permissions against each atomic step before any request is retained.

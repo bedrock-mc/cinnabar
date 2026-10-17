@@ -214,7 +214,7 @@ fn resolve(
     if components.durability_declared {
         fact.durability = components
             .max_durability
-            .filter(|maximum| *maximum > 0)
+            .filter(|maximum| component_item || *maximum > 0)
             .map_or(ItemDurability::Unresolved, |maximum| {
                 ItemDurability::Maximum { maximum }
             });

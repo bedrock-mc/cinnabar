@@ -293,3 +293,170 @@ fn station_inputs_loom_route_refresh_tracks_identity_changes() {
         }
     }
 }
+
+/// Builds a custom entry with an optional typed maximum that fits one network VarInt byte.
+fn durability_entry(maximum: Option<u8>) -> ItemRegistryEntry {
+    let mut bytes = vec![10, 0, 10];
+    nbt_string(&mut bytes, "components");
+    if let Some(maximum) = maximum {
+        bytes.push(10);
+        nbt_string(&mut bytes, "minecraft:durability");
+        bytes.push(3);
+        nbt_string(&mut bytes, "max_durability");
+        let encoded = maximum
+            .checked_mul(2)
+            .filter(|encoded| *encoded < 0x80)
+            .expect("one-byte fixture maximum");
+        bytes.extend([encoded, 0]);
+    }
+    bytes.extend([0, 0]);
+    protocol::test_support::items::component_item_registry_payload("fixture:durable", 10_002, bytes)
+        .entries[0]
+        .clone()
+}
+
+/// A valid zero maximum still admits both grindstone inputs without inventing a durability bar.
+#[test]
+fn station_inputs_zero_maximum_component_is_damageable() {
+    let entry = durability_entry(Some(0));
+    for name in [
+        ContainerName::GrindstoneInput,
+        ContainerName::GrindstoneAdditional,
+    ] {
+        for unbreakable in [false, true] {
+            let data = if unbreakable {
+                extra(&[(1, "Unbreakable", &[1])])
+            } else {
+                Arc::from([])
+            };
+            let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, data);
+            assert_eq!(
+                ledger
+                    .item_facts()
+                    .get(entry.network_id)
+                    .durability
+                    .maximum(),
+                None
+            );
+            ledger.begin_click(SOURCE_SLOT).unwrap();
+            let result = ledger.begin_target_gesture(target(name), CellGesture::Click);
+            assert_eq!(result.is_ok(), !unbreakable);
+            assert_eq!(ledger.target_stack(target(name)).is_some(), !unbreakable);
+        }
+    }
+}
+
+/// Registry permission changes retire every queued placement that used the removed admission.
+#[test]
+fn station_inputs_admission_refresh_retires_grindstone_placements() {
+    let entry = durability_entry(Some(50));
+    let replacement = durability_entry(None);
+    let target = target(ContainerName::GrindstoneInput);
+    for quick_move in [false, true] {
+        for transported in [false, true] {
+            let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, Arc::from([]));
+            if quick_move {
+                ledger
+                    .begin_quick_move(InventoryTarget::Player(SOURCE_SLOT))
+                    .unwrap();
+            } else {
+                ledger.begin_click(SOURCE_SLOT).unwrap();
+                ledger
+                    .begin_target_gesture(target, CellGesture::Click)
+                    .unwrap();
+            }
+            assert!(ledger.target_stack(target).is_some());
+            if transported {
+                send_pending(&mut ledger);
+            }
+            resend(&mut ledger, &replacement);
+            assert!(ledger.target_stack(target).is_none());
+            assert_eq!(ledger.resync_required(), transported);
+        }
+    }
+}
+
+/// Replacing a maximum with another valid maximum keeps the station permission and request.
+#[test]
+fn station_inputs_admission_refresh_keeps_valid_grindstone_placements() {
+    let entry = durability_entry(Some(50));
+    let replacement = durability_entry(Some(60));
+    let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, Arc::from([]));
+    ledger.begin_click(SOURCE_SLOT).unwrap();
+    ledger
+        .begin_target_gesture(target(ContainerName::GrindstoneInput), CellGesture::Click)
+        .unwrap();
+    let queued = ledger.pending_request_count();
+    resend(&mut ledger, &replacement);
+    assert_eq!(ledger.pending_request_count(), queued);
+    assert!(
+        ledger
+            .target_stack(target(ContainerName::GrindstoneInput))
+            .is_some()
+    );
+    assert!(!ledger.resync_required());
+}
+
+/// Admits every currently unsent scope, leaving response correlation outstanding.
+fn send_pending(ledger: &mut PlayerInventoryLedger) {
+    while ledger.pending_batch().unwrap().is_some() {
+        assert!(ledger.mark_transport_enqueued(0));
+    }
+}
+
+/// Losing insertion permission does not cancel a gesture that only removes the station item.
+#[test]
+fn station_inputs_admission_refresh_preserves_grindstone_removal() {
+    let entry = durability_entry(Some(50));
+    let replacement = durability_entry(None);
+    let target = target(ContainerName::GrindstoneInput);
+    let InventoryTarget::Craft(slot) = target else {
+        unreachable!()
+    };
+    let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, Arc::from([]));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: u16::from(slot),
+        },
+        stack: NetworkItemStack {
+            network_id: entry.network_id,
+            stack_network_id: 701,
+            count: 1,
+            ..NetworkItemStack::empty()
+        },
+        storage_item: None,
+    }));
+    ledger
+        .begin_target_gesture(target, CellGesture::Click)
+        .unwrap();
+    resend(&mut ledger, &replacement);
+    assert_eq!(ledger.pending_request_count(), 1);
+    assert!(ledger.cursor_stack().is_some());
+    assert!(ledger.target_stack(target).is_none());
+    assert!(!ledger.resync_required());
+}
+
+/// Gaining station admission retires an earlier fallback move whose route has changed.
+#[test]
+fn station_inputs_admission_refresh_retires_obsolete_grindstone_fallback() {
+    let entry = durability_entry(None);
+    let replacement = durability_entry(Some(50));
+    for transported in [false, true] {
+        let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, Arc::from([]));
+        ledger
+            .begin_quick_move(InventoryTarget::Player(SOURCE_SLOT))
+            .unwrap();
+        assert!(ledger.displayed_stack(0).is_some());
+        if transported {
+            send_pending(&mut ledger);
+        }
+        resend(&mut ledger, &replacement);
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert_eq!(ledger.resync_required(), transported);
+        if !transported {
+            assert!(ledger.displayed_stack(SOURCE_SLOT).is_some());
+            assert!(ledger.displayed_stack(0).is_none());
+        }
+    }
+}
