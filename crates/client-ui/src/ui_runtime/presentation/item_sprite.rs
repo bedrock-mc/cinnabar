@@ -22,9 +22,13 @@ impl UiPresentationRuntime {
         crop_icon(self, icon, max_side)
     }
 
-    /// The admitted six-face sheet for a block item in the active session pack.
-    pub fn session_block_sheet(&self, identifier: &str) -> Option<IconRef> {
-        self.session_icons.sheets.get(identifier).copied()
+    /// The admitted six-face sheet for this pack item variant, falling back to variant zero.
+    pub fn session_block_sheet(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        self.session_icons
+            .sheets
+            .get(identifier)
+            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+            .copied()
     }
 
     /// Copies an admitted block sheet into six untinted faces for world-space item rendering.

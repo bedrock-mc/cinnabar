@@ -66,7 +66,7 @@ pub struct SessionIcons {
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
-    pub(super) sheets: HashMap<Arc<str>, IconRef>,
+    pub(super) sheets: IconRefs,
     /// Only admitted sprites get meshes; replacing the page replaces this lazy cache.
     held_sprites: BTreeMap<IconKey, HeldSprite>,
     held_meshes: Mutex<held::HeldMeshes>,
@@ -378,7 +378,7 @@ fn inline_pack_fits(icons: &SessionIcons) -> bool {
 struct PackedIcons {
     page: UiTexturePage,
     refs: IconRefs,
-    sheets: HashMap<Arc<str>, IconRef>,
+    sheets: IconRefs,
 }
 
 impl PackedIcons {
@@ -388,7 +388,7 @@ impl PackedIcons {
             .refs
             .values_mut()
             .flat_map(BTreeMap::values_mut)
-            .chain(self.sheets.values_mut())
+            .chain(self.sheets.values_mut().flat_map(BTreeMap::values_mut))
         {
             icon.page = page;
         }
@@ -402,7 +402,10 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
     let mut models = BTreeMap::new();
     for sheet in &icons.block_sheets {
         let (Some(placed), Some(thumbnail)) = (
-            packed.sheets.get(&sheet.identifier),
+            packed
+                .sheets
+                .get(&sheet.identifier)
+                .and_then(|variants| variants.get(&sheet.metadata)),
             packed
                 .refs
                 .get(&sheet.identifier)
@@ -454,17 +457,15 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
     let side = page_side(ordered.iter().map(|(icon, _)| *icon), policy)?;
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
     let mut refs: IconRefs = HashMap::new();
-    let mut sheets = HashMap::new();
+    let mut sheets: IconRefs = HashMap::new();
     let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
     for (icon, sheet) in ordered {
         let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
-        let placed = if sheet {
-            sheets.contains_key(&icon.identifier)
-        } else {
-            refs.get(&icon.identifier)
-                .is_some_and(|variants| variants.contains_key(&icon.metadata))
-        };
-        if placed {
+        let placements = if sheet { &mut sheets } else { &mut refs };
+        if placements
+            .get(&icon.identifier)
+            .is_some_and(|variants| variants.contains_key(&icon.metadata))
+        {
             continue;
         }
         if cursor[0] + padded[0] > side {
@@ -494,13 +495,10 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
             ],
             glint: false,
         };
-        if sheet {
-            sheets.insert(Arc::clone(&icon.identifier), placement);
-        } else {
-            refs.entry(Arc::clone(&icon.identifier))
-                .or_default()
-                .insert(icon.metadata, placement);
-        }
+        placements
+            .entry(Arc::clone(&icon.identifier))
+            .or_default()
+            .insert(icon.metadata, placement);
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }

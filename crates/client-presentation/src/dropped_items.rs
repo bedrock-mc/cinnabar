@@ -427,7 +427,7 @@ impl DroppedItemPublisher<'_, '_> {
                 .item
                 .identifier
                 .as_deref()
-                .and_then(|id| icons.session_block_sheet(id))
+                .and_then(|id| icons.session_block_sheet(id, view.item.identity.metadata))
             {
                 cache.request(&ModelKey::session_block(sheet));
             }
@@ -489,20 +489,22 @@ impl DroppedItemPublisher<'_, '_> {
                 camera,
                 frustum: frustum.as_ref(),
             };
-            let session_cube = icons.session_block_sheet(identifier).and_then(|sheet| {
-                preparation.model(
-                    cache,
-                    &ModelKey::session_block(sheet),
-                    DroppedItemShape::Cube,
-                    |cache| {
-                        cache.model(
-                            ModelKey::session_block(sheet),
-                            || Some(BlockFace::ALL.len()),
-                            || icons.block_sheet_cube(sheet).map(DroppedItemModel::Cube),
-                        )
-                    },
-                )
-            });
+            let session_cube = icons
+                .session_block_sheet(identifier, view.item.identity.metadata)
+                .and_then(|sheet| {
+                    preparation.model(
+                        cache,
+                        &ModelKey::session_block(sheet),
+                        DroppedItemShape::Cube,
+                        |cache| {
+                            cache.model(
+                                ModelKey::session_block(sheet),
+                                || Some(BlockFace::ALL.len()),
+                                || icons.block_sheet_cube(sheet).map(DroppedItemModel::Cube),
+                            )
+                        },
+                    )
+                });
             let cube = session_cube.or_else(|| {
                 block_id.zip(assets).and_then(|((mode, id), assets)| {
                     let hashed = mode == NetworkIdMode::Hashed;

@@ -9,7 +9,7 @@ use client_ui::ui_runtime::{
 const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
-fn fixture() -> (UiPresentationRuntime, WorldStream) {
+fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
     let catalog = assets::RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog(
             [5; 32],
@@ -57,6 +57,7 @@ fn fixture() -> (UiPresentationRuntime, WorldStream) {
                 body_yaw: 0.0,
                 held_item: protocol::NetworkItemStack {
                     network_id: id,
+                    metadata,
                     count: 1,
                     ..Default::default()
                 },
@@ -71,13 +72,13 @@ fn fixture() -> (UiPresentationRuntime, WorldStream) {
 }
 
 /// Installs pack artwork through the same UI build boundary used by the client.
-fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool) {
+fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool, metadata: u32) {
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(color.map(|color| {
         let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
         let sheet = SessionIcon {
             identifier: ITEM.into(),
-            metadata: 0,
+            metadata,
             width,
             height,
             rgba8: (0..width * height)
@@ -93,7 +94,7 @@ fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool) {
         Arc::new(SessionIcons {
             icons: vec![SessionIcon {
                 identifier: ITEM.into(),
-                metadata: 0,
+                metadata,
                 width: 1,
                 height: 1,
                 rgba8: Box::new([color, 0, 80, 255]),
@@ -115,13 +116,13 @@ fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool) {
 
 #[test]
 fn dropped_pack_cubes_replace_all_faces_and_restore_base_after_removal() {
-    let (mut icons, stream) = fixture();
+    let (mut icons, stream) = fixture(0);
     let mut world = World::new();
     world.init_resource::<DroppedItemScene>();
     let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
     let mut previous = 0;
     for color in [Some(90), Some(160), None] {
-        install(&mut icons, color, true);
+        install(&mut icons, color, true, 0);
         publisher.get_mut(&mut world).unwrap().publish(
             Some(&icons),
             Some(&stream),
@@ -161,13 +162,13 @@ fn dropped_pack_cubes_replace_all_faces_and_restore_base_after_removal() {
 
 #[test]
 fn dropped_sprites_follow_pack_replacement_at_the_same_atlas_region() {
-    let (mut icons, stream) = fixture();
+    let (mut icons, stream) = fixture(0);
     let mut world = World::new();
     world.init_resource::<DroppedItemScene>();
     let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
     let mut region = None;
     for color in [90, 160] {
-        install(&mut icons, Some(color), false);
+        install(&mut icons, Some(color), false, 0);
         let icon = icons.item_icon(ITEM, 0).unwrap();
         assert_eq!(*region.get_or_insert(icon), icon);
         publisher.get_mut(&mut world).unwrap().publish(
@@ -186,5 +187,38 @@ fn dropped_sprites_follow_pack_replacement_at_the_same_atlas_region() {
             panic!("ordinary pack icons remain sprites");
         };
         assert_eq!(sprite.rgba8.as_ref(), [color, 0, 80, 255]);
+    }
+}
+
+#[test]
+fn dropped_cube_uses_exact_metadata_without_borrowing_another_variant() {
+    for (metadata, sheet_metadata, custom) in [(7, 7, true), (7, 0, true), (3, 7, false)] {
+        let (mut icons, stream) = fixture(metadata);
+        install(&mut icons, Some(160), true, sheet_metadata);
+        let mut world = World::new();
+        world.init_resource::<DroppedItemScene>();
+        let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            0.0,
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        assert_eq!(scene.instances.len(), 1);
+        let model = &scene.models[scene.instances[0].model as usize];
+        if custom {
+            let DroppedItemModel::Cube(cube) = model else {
+                panic!("matching pack sheet must replace the base");
+            };
+            assert_eq!(cube.faces[0][0], 160);
+        } else {
+            let DroppedItemModel::NativeSprite(sprite) = model else {
+                panic!("an unrelated variant must retain base artwork");
+            };
+            assert_eq!(sprite.rgba8.as_ref(), [20, 30, 40, 255]);
+        }
     }
 }
