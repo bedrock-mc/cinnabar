@@ -23,7 +23,9 @@ pub fn phase(elapsed_seconds: f64) -> f32 {
     if !elapsed_seconds.is_finite() {
         return 0.;
     }
-    (elapsed_seconds.max(0.) / mod_api::materials::ANIMATION_WRAP_SECONDS).fract() as f32
+    let phase =
+        (elapsed_seconds.max(0.) / mod_api::materials::ANIMATION_WRAP_SECONDS).fract() as f32;
+    phase.min(f32::from_bits(1.0f32.to_bits() - 1))
 }
 
 /// Composes a validated surface shader, retaining no guest resource declarations.

@@ -52,6 +52,7 @@ pub(super) fn install(app: &mut App) {
                     .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
                 pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
+                materials::retire.in_set(crate::device_poll::FrameSubmissions),
                 gpu::retire.in_set(crate::device_poll::FrameSubmissions),
             ),
         );

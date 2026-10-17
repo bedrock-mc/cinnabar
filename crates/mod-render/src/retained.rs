@@ -371,7 +371,12 @@ impl Store {
             resources.geometry_revision += 1;
             Ok(())
         })?;
-        if let Some(material) = retired_material {
+        if let Some(material) = retired_material
+            && !self
+                .retired_materials
+                .iter()
+                .any(|old| Arc::ptr_eq(old, &material))
+        {
             self.retired_materials.push(material);
         }
         if let Some(geometry) = retired {

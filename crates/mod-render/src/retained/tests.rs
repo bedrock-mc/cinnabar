@@ -308,7 +308,19 @@ fn materials_require_authority_and_share_transaction_and_handle_lifetimes() {
         .create_material(source, DrawingPermissions::ALL)
         .unwrap();
     let geometry = store.create_geometry(mesh()).unwrap();
+    let mut foreign = Store::default();
+    let other = foreign
+        .create_material(source, DrawingPermissions::ALL)
+        .unwrap();
     let mut instance = drawing(geometry);
+    instance.material = Some(other);
+    assert_eq!(
+        store
+            .create(instance.clone(), DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleHandle
+    );
     instance.material = Some(stale);
     assert_eq!(
         store
@@ -392,4 +404,29 @@ fn rejected_compiles_and_retiring_materials_consume_their_budgets() {
     store
         .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
         .unwrap();
+}
+
+#[test]
+fn rolling_back_material_removal_does_not_double_charge_a_live_resource() {
+    let mut store = Store::default();
+    let material = store
+        .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    for _ in 0..3 {
+        store.begin();
+        store.remove(material).unwrap();
+        store.rollback();
+    }
+    for _ in 1..mod_api::MAX_DRAW_MATERIALS {
+        store.begin();
+        store
+            .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+            .unwrap();
+        store.commit();
+    }
+    assert_eq!(
+        store.snapshot().materials.len(),
+        mod_api::MAX_DRAW_MATERIALS
+    );
 }

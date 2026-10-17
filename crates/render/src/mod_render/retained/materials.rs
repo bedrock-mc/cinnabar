@@ -2,7 +2,10 @@
 use super::pipeline::Key;
 use bevy::{
     prelude::*,
-    render::{render_resource::*, renderer::RenderDevice},
+    render::{
+        render_resource::*,
+        renderer::{RenderDevice, RenderQueue},
+    },
     tasks::{AsyncComputeTaskPool, Task},
 };
 use mod_api::drawing::DrawingHandle;
@@ -24,6 +27,7 @@ struct Entry {
 #[derive(Resource, Default)]
 pub(super) struct Materials {
     entries: BTreeMap<DrawingHandle, Entry>,
+    retired: Vec<Entry>,
 }
 
 /// Combines host-owned vertex code with an already admitted fragment module.
@@ -34,8 +38,17 @@ pub(super) fn source(fragment: &str, vertex: &str) -> String {
 impl Materials {
     /// Releases native pipelines and shader references on removal, revocation or session end.
     pub fn retain(&mut self, resources: &[&Arc<Resources>]) {
-        self.entries
-            .retain(|handle, _| resources.iter().any(|r| r.materials.contains_key(handle)));
+        let removed: Vec<_> = self
+            .entries
+            .keys()
+            .copied()
+            .filter(|handle| !resources.iter().any(|r| r.materials.contains_key(handle)))
+            .collect();
+        for handle in removed {
+            if let Some(entry) = self.entries.remove(&handle) {
+                self.retired.push(entry);
+            }
+        }
     }
     /// Starts at most the shared frame compile allowance; failed variants stay failed.
     #[allow(
@@ -56,7 +69,9 @@ impl Materials {
             _material: material.clone(),
             variants: HashMap::new(),
         });
-        if !entry.variants.contains_key(&key) && *left > 0 {
+        if let std::collections::hash_map::Entry::Vacant(slot) = entry.variants.entry(key)
+            && *left > 0
+        {
             *left -= 1;
             let device = device.clone();
             let layout = cache.get_bind_group_layout(layout);
@@ -67,7 +82,7 @@ impl Materials {
             } else {
                 State::Creating(AsyncComputeTaskPool::get().spawn(task))
             };
-            entry.variants.insert(key, state);
+            slot.insert(state);
         }
         if let Some(State::Creating(task)) = entry.variants.get_mut(&key)
             && let Some(result) = bevy::tasks::futures::check_ready(task)
@@ -138,11 +153,52 @@ fn compile(
     }
 }
 
+/// Retains material quota and native pipelines until the last submitted frame completes.
+pub(super) fn retire(mut materials: ResMut<Materials>, queue: Res<RenderQueue>) {
+    if materials.retired.is_empty() {
+        return;
+    }
+    let retired = std::mem::take(&mut materials.retired);
+    crate::device_poll::on_frame_complete(&queue, move || drop(retired));
+}
+
 impl crate::pipeline_warmup::PendingPipelines for Materials {
     /// Includes asynchronous custom compiles in renderer readiness.
     fn pending(&self) -> bool {
         self.entries
             .values()
             .any(|e| e.variants.values().any(|s| matches!(s, State::Creating(_))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn removed_materials_stay_charged_until_frame_retirement() {
+        let material = Arc::new(Material { shader: "".into() });
+        let handle = DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        };
+        let mut materials = Materials::default();
+        materials.entries.insert(
+            handle,
+            Entry {
+                _material: material.clone(),
+                variants: HashMap::new(),
+            },
+        );
+        let mut resources = Resources::default();
+        resources.materials.insert(handle, material.clone());
+        materials.retain(&[&Arc::new(resources)]);
+        assert!(materials.entries.contains_key(&handle));
+        materials.retain(&[]);
+        assert!(materials.entries.is_empty());
+        assert_eq!(Arc::strong_count(&material), 2);
+        assert_eq!(materials.retired.len(), 1);
+        drop(materials);
+        assert_eq!(Arc::strong_count(&material), 1);
     }
 }

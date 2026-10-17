@@ -132,10 +132,10 @@ pub(super) fn instance(
     if matches!(instance.anchor, Anchor::Entity(_)) {
         return Err(error(ErrorCode::Unsupported, "entity anchors"));
     }
-    if let Some(material) = instance.material {
-        if !resources.materials.contains_key(&material) {
-            return Err(error(ErrorCode::StaleHandle, "material"));
-        }
+    if let Some(material) = instance.material
+        && !resources.materials.contains_key(&material)
+    {
+        return Err(error(ErrorCode::StaleHandle, "material"));
     }
     if !instance.params.iter().all(|value| value.is_finite()) {
         return Err(error(ErrorCode::Invalid, "material parameters"));

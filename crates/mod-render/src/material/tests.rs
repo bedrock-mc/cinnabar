@@ -44,5 +44,6 @@ fn explicit_phase_is_bounded_and_continuous_at_wrap() {
     assert_eq!(phase(0.), 0.);
     assert_eq!(phase(wrap * 1.25), 0.25);
     assert_eq!(phase(wrap), 0.);
+    assert!(phase(wrap - 1e-10) < 1.);
     assert_eq!(phase(f64::NAN), 0.);
 }

@@ -121,6 +121,10 @@ pub(super) fn queue(
         }
     }
 
+    if resources.is_empty() {
+        gpu.views.clear();
+        return;
+    }
     for resources in &resources {
         for instance in resources.instances.values() {
             let handle = instance.geometry;

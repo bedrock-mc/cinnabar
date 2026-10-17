@@ -30,7 +30,13 @@ impl Store {
         let retiring = self
             .retired_materials
             .iter()
-            .filter(|m| Arc::strong_count(m) > 1)
+            .filter(|m| {
+                Arc::strong_count(m) > 1
+                    && !candidate
+                        .materials
+                        .values()
+                        .any(|live| Arc::ptr_eq(m, live))
+            })
             .count();
         if candidate.materials.len() + retiring > mod_api::MAX_DRAW_MATERIALS {
             return Err(error(ErrorCode::BudgetExceeded, "materials"));
