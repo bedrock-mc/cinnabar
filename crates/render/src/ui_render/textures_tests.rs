@@ -603,7 +603,7 @@ fn failed_bucket_keeps_other_pages_and_ui_batches_drawable() {
                 catalog(0).pages()[0].clone(),
                 input.textures.pages()[0].clone(),
             ];
-            input.textures = std::sync::Arc::new(UiTextureCatalog::new(pages, 1).unwrap());
+            input.textures = std::sync::Arc::new(UiTextureCatalog::new(pages, 2).unwrap());
             let mut font = input.batches[0];
             font.texture_page = 1;
             font.first_index = input.indices.len() as u32;
