@@ -1,5 +1,6 @@
 //! Transactional render capability: validated passes persist, primitives last one callback.
 
+use super::cinnabar::world_draw::drawing::{DrawError, ErrorCode};
 use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
 use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_PASSES};
@@ -17,6 +18,14 @@ static REVISION: AtomicU64 = AtomicU64::new(1);
 /// Allocates a process-unique identity across reloads and owners.
 fn next_revision() -> u64 {
     REVISION.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Preserves the admission category while legacy callers continue receiving plain detail.
+fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
+    DrawError {
+        code,
+        detail: detail.into(),
+    }
 }
 
 pub(super) struct RenderState {
@@ -174,17 +183,21 @@ impl State {
         &mut self,
         spec: wit::PassSpec,
         masks: Vec<mod_api::drawing::DrawingHandle>,
-    ) -> Result<Result<(), String>> {
+    ) -> Result<Result<(), DrawError>> {
         if let Err(denied) = self.post_allowed()? {
-            return Ok(Err(denied));
+            return Ok(Err(admission(ErrorCode::Denied, denied)));
         }
         if !mod_render::pass_name_valid(&spec.name) {
-            return Ok(Err(
-                "pass names are 1–32 lowercase letters, digits, - or _".into()
-            ));
+            return Ok(Err(admission(
+                ErrorCode::Invalid,
+                "pass names are 1–32 lowercase letters, digits, - or _",
+            )));
         }
         if spec.depth && !self.grants.render_depth {
-            return Ok(Err("render depth capability denied".into()));
+            return Ok(Err(admission(
+                ErrorCode::Denied,
+                "render depth capability denied",
+            )));
         }
         let passes = self.render.staged();
         let existing = passes.iter().position(|pass| pass.name == spec.name);
@@ -197,18 +210,22 @@ impl State {
             return Ok(Ok(()));
         }
         if existing.is_none() && passes.len() >= MAX_RENDER_PASSES {
-            return Ok(Err("render pass budget exhausted".into()));
+            return Ok(Err(admission(
+                ErrorCode::BudgetExceeded,
+                "render pass budget exhausted",
+            )));
         }
         if self.render.compiles_left == 0 {
-            return Ok(Err(
-                "shader compile budget for this callback is spent".into()
-            ));
+            return Ok(Err(admission(
+                ErrorCode::BudgetExceeded,
+                "shader compile budget for this callback is spent",
+            )));
         }
         self.render.compiles_left -= 1;
         let shader = match mod_render::shader::compose_masked(&spec.source, spec.depth, masks.len())
         {
             Ok(shader) => shader,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Ok(Err(admission(ErrorCode::Invalid, error))),
         };
         let mut pass = Pass {
             name: spec.name,
@@ -243,7 +260,9 @@ impl wit::Host for State {
     }
 
     fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
-        self.register_render_pass(spec, Vec::new())
+        Ok(self
+            .register_render_pass(spec, Vec::new())?
+            .map_err(|error| error.detail))
     }
 
     fn remove_pass(&mut self, name: String) -> Result<Result<(), String>> {

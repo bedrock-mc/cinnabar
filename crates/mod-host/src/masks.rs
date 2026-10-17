@@ -159,12 +159,7 @@ impl wit::Host for State {
             order: spec.order,
             depth: false,
         };
-        Ok(self
-            .register_render_pass(spec, masks)?
-            .map_err(|detail| types::DrawError {
-                code: types::ErrorCode::Invalid,
-                detail,
-            }))
+        self.register_render_pass(spec, masks)
     }
 }
 
