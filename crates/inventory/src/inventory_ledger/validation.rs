@@ -90,21 +90,14 @@ impl PlayerInventoryLedger {
         request: &super::PendingRequest,
         facts: &crate::SessionItemFacts,
     ) -> bool {
-        request
-            .groups
-            .iter()
-            .flat_map(DeltaGroup::placement_cells)
-            .any(|cell| {
-                request
-                    .predicted
-                    .iter()
-                    .find(|prediction| prediction.cell == cell)
-                    .and_then(|prediction| prediction.held.as_ref())
-                    .is_some_and(|held| {
-                        self.placement_capacity(cell, &held.stack)
-                            != self.placement_capacity_with_facts(facts, cell, &held.stack)
-                    })
-            })
+        request.placements.iter().any(|placement| {
+            self.placement_capacity(placement.destination, &placement.incoming)
+                != self.placement_capacity_with_facts(
+                    facts,
+                    placement.destination,
+                    &placement.incoming,
+                )
+        })
     }
 
     /// Checks permissions against each atomic step before any request is retained.

@@ -41,6 +41,8 @@ pub(super) struct PendingRequest {
     /// The input routing a quick move chose; retired when its facts route elsewhere.
     pub(super) quick_move_route: Option<super::quick_move::QuickMoveRoute>,
     pub(super) predicted: Vec<CellPrediction>,
+    /// Original incoming items used to revalidate placement permissions after registry changes.
+    pub(super) placements: Vec<super::overlay::PlacementInput>,
     /// A mine-block request riding PlayerAuthInput rather than its own packet.
     pub(super) mining: Option<MiningPrediction>,
     /// A drop key press with no window open, which leaves as a normal transaction.
@@ -153,10 +155,13 @@ impl PlayerInventoryLedger {
             "inventory request predicted");
         let before = self.view().clone();
         let mut predicted = before.clone();
-        let applied = request
-            .groups
-            .iter()
-            .all(|group| group.apply(&mut predicted));
+        request.placements.clear();
+        let applied = request.groups.iter().all(|group| {
+            request
+                .placements
+                .extend(group.placement_inputs(&predicted));
+            group.apply(&mut predicted)
+        });
         debug_assert!(applied, "gestures are built against the current view");
         let mut unique = Vec::new();
         for cell in request.touched() {
@@ -408,14 +413,22 @@ impl PlayerInventoryLedger {
                             .map_or(0, |held| held.stack.stack_network_id);
                     }
                 }
+                let mut placements = Vec::new();
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);
-                    self.validate_group(&cells, group, &request.actions).is_ok()
-                        && group.apply(&mut cells)
+                    if self
+                        .validate_group(&cells, group, &request.actions)
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    placements.extend(group.placement_inputs(&cells));
+                    group.apply(&mut cells)
                 }) {
                     invalid = Some(request.request_id);
                     break;
                 }
+                request.placements = placements;
                 for prediction in &mut request.predicted {
                     let old = prediction.held.take();
                     prediction.held = cells.get(prediction.cell).cloned();
@@ -844,6 +857,7 @@ impl PlayerInventoryLedger {
                 registry_bound_merge: false,
                 quick_move_route: None,
                 predicted: Vec::new(),
+                placements: Vec::new(),
                 mining: Some(MiningPrediction {
                     slot,
                     damage,

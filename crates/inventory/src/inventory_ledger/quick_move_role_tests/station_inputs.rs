@@ -460,3 +460,67 @@ fn station_inputs_admission_refresh_retires_obsolete_grindstone_fallback() {
         }
     }
 }
+
+/// A merge is revalidated against its incoming alias even when the destination retains another ID.
+#[test]
+fn station_inputs_refresh_rechecks_incoming_merge_alias() {
+    let entry = durability_entry(Some(50));
+    let replacement = durability_entry(None);
+    let mut alias = entry.clone();
+    alias.network_id += 1;
+    let target = target(ContainerName::GrindstoneInput);
+    let InventoryTarget::Craft(slot) = target else {
+        unreachable!()
+    };
+    for transported in [false, true] {
+        let mut ledger = source(protocol::WINDOW_TYPE_GRINDSTONE, &entry, Arc::from([]));
+        let mut entries: Vec<_> = ledger
+            .negotiated_item_registry()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        entries.push(alias.clone());
+        ledger.apply_registry(&ItemRegistryEvent {
+            entries: entries.into(),
+        });
+        let mut incoming = ledger.displayed_stack(SOURCE_SLOT).unwrap().clone();
+        incoming.stack_network_id = 201;
+        ledger.apply(&content(
+            ContainerIdentity::window(0),
+            vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT],
+        ));
+        for (slot, stack) in [
+            (0, incoming.clone()),
+            (
+                u16::from(slot),
+                NetworkItemStack {
+                    network_id: alias.network_id,
+                    stack_network_id: 202,
+                    ..incoming
+                },
+            ),
+        ] {
+            ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot,
+                },
+                stack,
+                storage_item: None,
+            }));
+        }
+        ledger
+            .begin_target_gesture(target, CellGesture::Click)
+            .unwrap();
+        let merged = ledger.target_stack(target).unwrap();
+        assert_eq!((merged.network_id, merged.count), (alias.network_id, 2));
+        if transported {
+            send_pending(&mut ledger);
+        }
+        resend(&mut ledger, &replacement);
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert_eq!(ledger.target_stack(target).unwrap().count, 1);
+        assert_eq!(ledger.resync_required(), transported);
+    }
+}

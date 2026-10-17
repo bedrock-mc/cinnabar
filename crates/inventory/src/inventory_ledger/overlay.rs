@@ -2,6 +2,13 @@
 
 use super::cells::{Cell, Cells, Held};
 
+/// The incoming item at one insertion, before a merge retains the destination's alias.
+#[derive(Debug, Clone)]
+pub(super) struct PlacementInput {
+    pub(super) destination: Cell,
+    pub(super) incoming: protocol::NetworkItemStack,
+}
+
 /// One atomic prediction step. A group either applies whole or is skipped.
 ///
 /// Every group names the exact stack network ids its request carried, so a
@@ -90,18 +97,33 @@ impl DeltaGroup {
         std::iter::once(first).chain(second)
     }
 
-    /// Cells where a gesture inserts or exchanges an item, excluding generated result writes.
-    pub(super) fn placement_cells(&self) -> impl Iterator<Item = Cell> {
+    /// Captures operation inputs from its pre-state; generated result writes are separate.
+    pub(super) fn placement_inputs<'a>(
+        &'a self,
+        cells: &'a Cells,
+    ) -> impl Iterator<Item = PlacementInput> + 'a {
         let (first, second) = match self {
-            Self::Transfer { destination, .. } => (Some(*destination), None),
+            Self::Transfer {
+                source,
+                destination,
+                ..
+            } => (Some((*source, *destination)), None),
             Self::Swap {
                 source,
                 destination,
                 ..
-            } => (Some(*source), Some(*destination)),
+            } => (Some((*source, *destination)), Some((*destination, *source))),
             Self::Shrink { .. } | Self::Set { .. } => (None, None),
         };
-        first.into_iter().chain(second)
+        first
+            .into_iter()
+            .chain(second)
+            .filter_map(|(source, destination)| {
+                Some(PlacementInput {
+                    destination,
+                    incoming: cells.get(source)?.stack.clone(),
+                })
+            })
     }
 
     /// Whether a touched cell keeps its original item while this operation changes its count.
