@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Keeps packet ownership across a cancelled background read, then uses normal resolver
     /// classification and recovery. A disk key alone can never produce a found-ID status.
     pub(super) async fn finish_blob_prefetch(&mut self) -> Result<(), ProtocolError> {

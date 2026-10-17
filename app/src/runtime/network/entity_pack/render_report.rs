@@ -67,8 +67,8 @@ pub(super) struct LocalPack {
     pub(super) entities: Arc<RuntimeEntityAssets>,
     pub(super) artwork: ActorArtworkPages,
     pub(super) candidates: Vec<u32>,
-    textures: Vec<assets::actor::ActorTexture>,
-    bindings: Vec<assets::actor::ActorArtworkBinding>,
+    textures: Vec<assets::ActorTexture>,
+    bindings: Vec<assets::ActorArtworkBinding>,
 }
 
 pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
@@ -361,14 +361,14 @@ fn rasterize(image: &mut image::RgbaImage, triangles: &[Triangle], artwork: &Act
 )]
 fn measure_pages(
     dir: &Path,
-    textures: &[assets::actor::ActorTexture],
-    bindings: &[assets::actor::ActorArtworkBinding],
+    textures: &[assets::ActorTexture],
+    bindings: &[assets::ActorArtworkBinding],
 ) {
     let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
     let entity_bytes = read("vanilla-v1.mcbeent");
     let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
     let catalog =
-        assets::actor::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entities).unwrap();
+        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entities).unwrap();
     let equipment = assets::RuntimeEquipmentCatalog::decode(&read("vanilla-v1.mcbeeqp")).ok();
     let icons = assets::RuntimeIconCatalog::decode(&read("vanilla-v1.mcbeico")).unwrap();
     let world = std::fs::read(dir.join("vanilla-v2193.mcbea"))

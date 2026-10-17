@@ -7,9 +7,8 @@ use std::{
 use ::meshing::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, TextureRef, VisualKind,
-    encode_blob,
-    texture::{TextureArray, TextureMip},
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_blob,
 };
 use client_world::{
     COMMITTED_UI_CAPACITY,

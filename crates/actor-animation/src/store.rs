@@ -21,8 +21,6 @@ pub struct ActorAnimationStore {
     pub(super) next_reset_generation: u64,
     pub(super) next_rest_reset_generation: u64,
     pub(super) stats: ActorAnimationStats,
-    /// Whether the local first-person actor also evaluates a third-person world body.
-    pub(super) local_body_enabled: bool,
     /// Frame samples that failed or ran out of budget and drew the completed tick pair instead.
     pub(super) frame_fallbacks: std::sync::atomic::AtomicU64,
     #[cfg(any(test, feature = "test-support"))]
@@ -74,7 +72,6 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
-            local_body_enabled: false,
             frame_fallbacks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             schedule: Default::default(),
@@ -345,7 +342,7 @@ impl ActorAnimationStore {
         self.stats
     }
 
-    pub(super) fn snapshot<'a>(
+    fn snapshot<'a>(
         &'a self,
         actor: ActorLifetimeId,
         state: &'a ActorRigState,

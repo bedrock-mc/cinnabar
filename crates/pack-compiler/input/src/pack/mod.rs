@@ -20,7 +20,7 @@ pub use terrain::TerrainTextureMap;
 
 use block::read_blocks;
 use flipbook::read_flipbooks;
-pub use terrain::read_terrain;
+use terrain::read_terrain;
 
 /// Parsed vanilla pack sources used by the later deterministic compiler.
 #[derive(Debug)]

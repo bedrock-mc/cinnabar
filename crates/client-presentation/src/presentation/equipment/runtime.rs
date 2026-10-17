@@ -379,10 +379,9 @@ impl EquipmentRuntime {
         animation: Option<EquipmentAnimation<'_>>,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
-        // Shadow-only bodies keep their equipment; caster admission converts the layers after.
         if !matches!(
             body.route,
-            ActorRigRoute::Compiled | ActorRigRoute::StaticFallback | ActorRigRoute::ShadowOnly
+            ActorRigRoute::Compiled | ActorRigRoute::StaticFallback
         ) || body.input.identity.layer != ACTOR_LAYER_BODY
         {
             return false;

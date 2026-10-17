@@ -13,13 +13,11 @@ pub mod color;
 mod connectivity;
 mod contributors;
 mod cube_layout;
-mod light_emitters;
 pub mod lighting;
 pub mod liquid;
 mod palette_bits;
 mod publication;
 mod types;
-pub use light_emitters::BlockLightEmitter;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;
 

@@ -138,7 +138,6 @@ the prepared visual data to the GPU.
 | `crates/render-model` | `render-model` | Engine-free render data and CPU geometry for actors, equipment and text; use its frame and geometry types. | `client-presentation` prepares data; `render-scene` carries submissions; `render` owns GPU work. |
 | `crates/render-scene` | `render-scene` | Shared ECS render submission resources and frame acknowledgments; use these at the presentation/backend boundary. | `render-model` defines CPU data; `client-presentation` publishes; `render` consumes it. |
 | `crates/render` | `render` | Bevy/wgpu terrain, actor and UI rendering; install its GPU plugins and submit prepared frames. | `meshing` builds CPU terrain; `client-presentation` prepares actors; `client-ui` prepares UI. |
-| `crates/shaderpack` | `shaderpack` | Java Edition OptiFine/Iris shader packs: folder and zip loading, options and `shaders.properties`, program selection per dimension, translation to validated naga modules and each program's binding reflection; translate a pack and bind its programs through that reflection. | `render` creates pipelines from the modules; `resource-pack` owns Bedrock packs. |
 
 ### Launcher and services
 

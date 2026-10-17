@@ -40,15 +40,6 @@ fn draw_ui_view(
     ) else {
         return Ok(());
     };
-    if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-    {
-        return Ok(());
-    }
     let Some(batches) = resolved_batches(
         gpu.accepted_revision,
         &gpu.batches,
@@ -57,6 +48,11 @@ fn draw_ui_view(
     ) else {
         return Ok(());
     };
+    let batches = batches.filter(|(_, batch, _)| {
+        gpu.textures
+            .page_binding(batch.texture_page as usize)
+            .is_some()
+    });
     // Separate passes keep depth/no-depth and read-only/writable attachment states compatible.
     // Preserve the authored plate/text order across every depth mode.
     let mut batches = batches
@@ -129,9 +125,9 @@ fn draw_ui_view(
         let mut invert_bound = false;
         while let Some((_, batch, location)) = batches.next_if(|(_, batch, _)| matches_depth(batch))
         {
-            let binding = gpu.textures.buckets[location.bucket]
-                .bind_group
-                .as_ref()
+            let binding = gpu
+                .textures
+                .page_binding(batch.texture_page as usize)
                 .unwrap();
             pass.set_bind_group(0, binding, &[]);
             let wants_invert = batch.blend_mode == UI_BLEND_INVERT;

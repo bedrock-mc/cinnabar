@@ -19,13 +19,11 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
-        eprintln!("missing fixture: native GPU adapter for positional material selection");
-        return;
-    };
+    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .expect("this fixture requires a native GPU adapter");
     assert_ne!(
         adapter.get_info().backend,
         wgpu::Backend::Noop,
@@ -48,7 +46,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
         let fixtures = array(vec3(0,0,0), vec3(-1,0,-1), vec3(16,64,-17), vec3(123456,-64,98765));
         position = fixtures[min(u32(p.x)/64u, 3u)];
     }
-    let selected = materials[positional_material_id(0u, position)];
+    let selected = positional_material(0u, position);
     return select(vec4(1.0,0.0,0.0,1.0), vec4(0.0,1.0,0.0,1.0), selected.texture == 2u);
 }
 "#

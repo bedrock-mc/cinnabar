@@ -25,9 +25,13 @@ mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 mod startup;
+#[cfg(not(target_arch = "wasm32"))]
+pub use session_join::NativeJoinPreparation;
+pub use session_join::{JoinPreparation, SessionIo, SessionLogin};
 mod unused_packets;
 mod web_handoff;
 use boundary::boundary_wakeup;
+pub use web_handoff::WebSessionReader;
 
 /// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
 pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
@@ -48,8 +52,8 @@ use packet_trace::{MAX_PACKET_ID_TRACE_ENTRIES, PACKET_ID_TRACE_DURATION};
 pub struct LoginSequence;
 
 /// An authenticated, spawned Bedrock session.
-pub struct PlaySession {
-    transport: SessionTransport,
+pub struct PlaySession<R = bridge::FramedReader> {
+    transport: SessionTransport<R>,
     pending_initialization: Option<u64>, // the runtime ID until loading completes
     terrain_before_spawn: bool,
     decode_errors: u64,
@@ -90,7 +94,7 @@ impl WorldIngress {
     }
 }
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Buffers raw core frames while the world consumer is full. Decoding resumes in wire
     /// order when the caller receives again. Reading stops at the shared byte bound or the
     /// session's terminal message; cancelling this wait retains every complete frame read.
@@ -116,7 +120,7 @@ impl PlaySession {
     }
 
     fn new(
-        transport: SessionTransport,
+        transport: SessionTransport<R>,
         cache: Option<ClientBlobCache>,
         runtime_id: u64,
         terrain_before_spawn: bool,

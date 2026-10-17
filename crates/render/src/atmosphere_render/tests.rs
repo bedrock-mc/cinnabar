@@ -2,7 +2,7 @@ use bevy::ecs::system::RunSystemOnce;
 use sha2::Digest;
 use std::sync::Arc;
 
-use assets::atmosphere::{
+use assets::{
     AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets,
     encode_atmosphere_blob,
 };

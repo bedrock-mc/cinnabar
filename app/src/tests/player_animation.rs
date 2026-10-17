@@ -3,7 +3,7 @@
 use actor_animation::BoneTransform;
 use assets::{EntityRigFallback, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
-use client_presentation::presentation::actors::transform::rig_world_from_actor;
+use client_presentation::presentation::actors::rig_world_from_actor;
 use client_world::LocalPlayerFeed;
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,

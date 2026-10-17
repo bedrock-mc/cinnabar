@@ -6,10 +6,7 @@ use std::{
 
 use ::image::{ImageFormat, ImageReader, Limits};
 
-use assets::{
-    AssetError,
-    texture::{TILE_SIZE, TextureMip, downsample_linear_premultiplied},
-};
+use assets::{AssetError, TILE_SIZE, TextureMip, downsample_linear_premultiplied};
 
 const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;

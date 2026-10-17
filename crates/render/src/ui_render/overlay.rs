@@ -115,13 +115,11 @@ pub(crate) fn retained_batch_ranges(
         [Some(batch.first_index..end), None]
     }
 }
-/// Selects the ordinary or enhanced stage for the current camera; reflection captures draw neither.
+/// Selects the ordinary or enhanced stage for the current camera.
 pub(crate) fn grade_stage<const POST: bool>(
-    view: bevy::render::renderer::ViewQuery<Option<&render_scene::EnhancedRendering>>,
+    view: bevy::render::renderer::ViewQuery<Has<render_scene::EnhancedRendering>>,
 ) -> bool {
-    let enhanced = view.into_inner();
-    !enhanced.is_some_and(|settings| settings.reflection_capture)
-        && (render_model::enhanced_rendering_enabled() && enhanced.is_some()) == POST
+    (render_model::enhanced_rendering_enabled() && view.into_inner()) == POST
 }
 
 /// Orders projected UI before hands and the HUD after all world post-processing.
@@ -208,15 +206,7 @@ pub(super) fn queue_ui_overlay(
         .retain(|(view, _, _), _| views.contains(*view));
     model_depths.synchronize_device(&render_device);
     model_depths.views.retain(|view, _| views.contains(*view));
-    if gpu.batches.is_empty()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-        || gpu.vertex_buffer.is_none()
-        || gpu.index_buffer.is_none()
-    {
+    if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
     }
     let needs_models = gpu
@@ -440,15 +430,6 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
-    if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-    {
-        return Ok(());
-    }
     let Some(batches) = resolved_batches(
         gpu.accepted_revision,
         &gpu.batches,
@@ -457,6 +438,11 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
+    let batches = batches.filter(|(_, batch, _)| {
+        gpu.textures
+            .page_binding(batch.texture_page as usize)
+            .is_some()
+    });
     let (Some(layer_pipeline), Some(composite_pipeline)) = (
         pipeline_cache.get_render_pipeline(*alpha),
         gpu.composite_pipelines
@@ -543,6 +529,7 @@ pub(crate) fn ui_overlay(
             .and(gpu.accepted_revision)
             .map(|revision| super::composite::UiLayerContent {
                 revision,
+                texture_generation: gpu.textures.residency_generation,
                 skip: skip.clone(),
                 viewport: viewport
                     .as_ref()

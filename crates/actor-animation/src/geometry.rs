@@ -37,11 +37,6 @@ mod pig_tests;
 #[path = "geometry/pinned_baby_tests.rs"]
 mod pinned_baby_tests;
 
-/// Seeds an actor lifetime's Molang randomness, shared by every evaluator of that lifetime.
-pub(super) fn animation_seed(actor: &dyn AnimatedActor) -> u64 {
-    actor.runtime_id() ^ actor.spawn_revision().rotate_left(32)
-}
-
 pub(super) fn resolve_binding(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
@@ -100,7 +95,7 @@ pub(super) fn resolve_binding(
         bones: &[],
         bone_names: &[],
     };
-    let random_seed = animation_seed(actor);
+    let random_seed = actor.runtime_id() ^ actor.spawn_revision().rotate_left(32);
     let mut variables = layout.fresh(random_seed);
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
         let selected = evaluator
@@ -151,7 +146,6 @@ pub(super) fn resolve_binding(
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
-        world_body: None,
         view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
@@ -539,7 +533,6 @@ fn reselect_geometry_with_checkpoint(
     state.bones = bones;
     state.bone_names = bone_names;
     state.controllers = controllers;
-    state.world_body = None;
     state.reset_to_skeleton(pose);
     checkpoint
 }

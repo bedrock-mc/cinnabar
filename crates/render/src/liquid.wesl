@@ -2,27 +2,19 @@ import render::chunk_bindings::{
     view, chunk_origins, block_textures_page_0, block_textures_page_1, block_textures_page_2,
     block_textures_page_3, block_textures_page_4, block_sampler, terrain_gamma_page_0,
     terrain_gamma_page_1, terrain_gamma_page_2, terrain_gamma_page_3, terrain_gamma_page_4,
-    animations, animation_frames,
+    animations, animation_frames, clock,
     geometry_streams, atmosphere, transparent_refs,
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
     TRANSPARENT_WATER_RECORD_FLAG,
 };
-@if(ENHANCED)
-import render::enhanced::atmosphere::enhanced_distance_fog;
-@if(ENHANCED)
-import render::chunk_bindings::{enhanced_color_page_0, enhanced_color_page_1, enhanced_sampler, enhanced_texture_refs};
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::biome_tint::{world_animation_clock, blended_biome_tint};
-import render::lighting::{configured_fog_amount, configured_distance_fog, light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::biome_tint::blended_biome_tint;
+import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
 @if(ENHANCED)
 import render::enhanced::common::CLASS_WATER;
 @if(ENHANCED)
-import render::enhanced::radiance::block_illumination;
-@if(ENHANCED)
-import render::enhanced::view::{sky_illumination, material_class, shade_surface, shade_water, water_displacement, enhanced_frame};
-@if(ENHANCED)
-import render::enhanced::pbr::{authored_texture_slot, authored_layer, AUTHORED_REFERENCE_BASE_WORDS, AUTHORED_REFERENCE_OVERRIDE_WORDS};
+import render::enhanced::view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position};
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
 
@@ -53,11 +45,7 @@ const FLOW_FACE: u32 = 3u;
 const SIDE_FACE_MASK: u32 = 51u;
 const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT);
 
-// ENHANCED_PBR_LOOKUP
-
 struct VertexOutput {
-    @if(ENHANCED)
-    @location(15) @interpolate(flat) authored_refs: vec2<u32>,
     @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
@@ -84,7 +72,6 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let clock = world_animation_clock();
     let animation = animations[material.animation];
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
     let current = animation_frames[animation.frame_start + current_index];
@@ -215,8 +202,6 @@ fn vertex_unit(
     let quad = (vertex_index / 4u) % TERRAIN_UNIT_QUADS;
     if (quad >= unit.y || unit.w != 0u) {
         var invisible: VertexOutput;
-        @if(ENHANCED)
-        invisible.authored_refs = vec2(0xffffffffu);
         invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
         return invisible;
     }
@@ -263,8 +248,7 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
         (geometry >> 8u) & 15u,
     );
 
-    let selected_material_id = positional_material_id(packed_material & LIQUID_MATERIAL_MASK, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
-    let material = materials[selected_material_id];
+    let material = positional_material(packed_material & LIQUID_MATERIAL_MASK, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
     let frame = animation_sample(material);
 
     var out: VertexOutput;
@@ -278,8 +262,6 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     );
     out.current_texture = frame.current;
     out.next_texture = frame.next;
-    @if(ENHANCED)
-    out.authored_refs = vec2(authored_material_ref(selected_material_id, out.current_texture), authored_material_ref(selected_material_id, out.next_texture));
     out.frame_blend = frame.blend;
     out.water_tint = blended_biome_tint(
         0x30u,
@@ -294,8 +276,6 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_face_shade = face_shade(face_normal(face), (light_sample & 2048u) != 0u);
     @if(ENHANCED)
-    out.lighting = block_illumination(light_sample);
-    @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
     @if(ENHANCED)
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
@@ -308,30 +288,18 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     out.surface_class = material_class(packed_material & LIQUID_MATERIAL_MASK);
     @if(ENHANCED)
     if ((out.surface_class & CLASS_WATER) != 0u) {
-        let displacement = water_displacement(world_position, out.normal.y > 0.5
+        out.world_position = waved_water_position(world_position, out.normal.y > 0.5
             || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
-        out.world_position = world_position + displacement;
         out.clip_position = camera_offset_clip(
             view.clip_from_world,
             view.world_position,
-            camera_offset + displacement,
+            camera_offset + (out.world_position - world_position),
         );
     }
     return out;
 }
 
-fn sample_texture_ref(in: VertexOutput, texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    @if(ENHANCED)
-    let authored_ref = select(in.authored_refs.x, in.authored_refs.y, texture_ref == in.next_texture);
-    @if(ENHANCED)
-    if (authored_ref != 0xffffffffu) {
-        let authored_page = authored_ref >> 31u;
-        let authored_layer = authored_layer(authored_ref);
-        if (authored_page == 0u) {
-            return textureSampleGrad(enhanced_color_page_0, enhanced_sampler, uv, authored_layer, dx, dy);
-        }
-        return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, dx, dy);
-    }
+fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = texture_layer(texture_ref);
     let page = texture_page(texture_ref);
     @if(ENHANCED)
@@ -384,12 +352,15 @@ fn sample_texture_ref(in: VertexOutput, texture_ref: u32, uv: vec2<f32>, dx: vec
     return textureSampleGrad(terrain_gamma_page_4, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
 }
 
-// Applies fog before blending so depthless surfaces retain their own distance.
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
-    @if(ENHANCED)
-    return enhanced_distance_fog(enhanced_frame, colour, world_position);
-    @if(!ENHANCED)
-    return configured_distance_fog(colour, world_position, view.world_position, atmosphere.fog_color_start, atmosphere.fog_end_time.x);
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = clamp(
+        (distance_to_camera - atmosphere.fog_color_start.w)
+            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
+        0.0,
+        1.0,
+    );
+    return mix(colour, atmosphere.fog_color_start.rgb, fog);
 }
 
 // Native liquid vertex colours are byte-quantized tint * face shade, without AO.
@@ -404,7 +375,8 @@ in: VertexOutput) -> vec3<f32> {
     let face_tint = floor(clamp(tint_gamma * in.native_face_shade, vec3(0.0), vec3(1.0)) * 255.0 + vec3(0.0001)) / 255.0;
     let lit_gamma = sampled_gamma * face_tint * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    let fog = configured_fog_amount(in.world_position, view.world_position, atmosphere.fog_color_start.w, atmosphere.fog_end_time.x);
+    let distance_to_camera = distance(in.world_position, view.world_position);
+    let fog = clamp((distance_to_camera - atmosphere.fog_color_start.w) / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001), 0.0, 1.0);
     return mix(lit_gamma, fog_gamma, fog);
 }
 
@@ -420,19 +392,17 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
     // Vanilla duplicates only faces marked by the liquid tessellator.
     // In particular, the bottom never has a reverse face at the ice surface.
     if (!front_facing && in.two_sided == 0u) { discard; }
-    let current_sample = sample_texture_ref(in, in.current_texture, in.uv, dx, dy);
+    let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_texture_ref(in, in.next_texture, in.uv, dx, dy);
+        let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    @if(ENHANCED)
-    let water_footprint = max(length(dpdx(in.world_position.xz)), length(dpdy(in.world_position.xz)));
     @if(ENHANCED)
     if ((in.surface_class & CLASS_WATER) != 0u) {
         let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
             in.world_position, in.clip_position, in.lighting, in.sky_light,
-            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb, water_footprint);
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
         return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
     }
     @if(ENHANCED)
@@ -445,8 +415,6 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
-        in.normal,
-        vec3(0.0, 0.8, 0.8),
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
@@ -464,10 +432,10 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    let current_sample = sample_texture_ref(in, in.current_texture, in.uv, dx, dy);
+    let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_texture_ref(in, in.next_texture, in.uv, dx, dy);
+        let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     @if(ENHANCED)
@@ -480,8 +448,6 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
-        in.normal,
-        vec3(0.0, 0.8, 0.8),
     );
     @if(ENHANCED)
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);

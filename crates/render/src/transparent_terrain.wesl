@@ -5,14 +5,10 @@
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
 import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
-@if(ENHANCED)
-import render::enhanced::temporal::water_coverage_depth;
 import render::liquid::{VertexOutput as LiquidOutput, liquid_record, vertex_for_record, shade_liquid};
 import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
 struct VertexOutput {
-    @if(ENHANCED)
-    @location(15) @interpolate(flat) authored_refs: vec2<u32>,
     // Invariant like both families' outputs, so shared edges keep identical positions.
     @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) @interpolate(flat) routing: vec4<u32>,
@@ -27,7 +23,7 @@ struct VertexOutput {
     @if(ENHANCED)
     @location(9) sky_ao: vec2<f32>,
     @if(ENHANCED)
-    @location(10) @interpolate(flat) tint_surface: vec4<f32>,
+    @location(10) @interpolate(flat) surface_class: u32,
     @if(!ENHANCED)
     @location(9) native_light_ao: vec3<f32>,
     @if(!ENHANCED)
@@ -43,46 +39,35 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    var out: VertexOutput;
     if ((instance_index & TRANSPARENT_WATER_DRAW_FLAG) != 0u) {
         let record = liquid_record(instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
-        return liquid_vertex_output(vertex_for_record(record, vertex_index));
+        let liquid = vertex_for_record(record, vertex_index);
+        out.clip_position = liquid.clip_position;
+        out.routing.x = 1u;
+        out.textures.x = liquid.current_texture;
+        out.textures.y = liquid.next_texture;
+        out.frame_face.x = liquid.frame_blend;
+        out.routing.y = liquid.two_sided;
+        out.world_position = liquid.world_position;
+        out.lighting = liquid.lighting;
+        @if(ENHANCED)
+        out.normal = liquid.normal;
+        @if(ENHANCED)
+        out.sky_ao.x = liquid.sky_light;
+        @if(ENHANCED)
+        out.sky_ao.y = liquid.ambient_occlusion;
+        @if(ENHANCED)
+        out.surface_class = liquid.surface_class;
+        @if(!ENHANCED)
+        out.native_light_ao = vec3(liquid.native_light_levels, 0.0);
+        out.liquid_uv = liquid.uv;
+        out.water_tint = liquid.water_tint;
+        out.routing.z = liquid.depth_write_route;
+        out.frame_face.y = liquid.native_face_shade;
+        return out;
     }
-    return model_vertex_output(model_vertex(vertex_index, instance_index));
-}
-
-/// Packs the liquid vertex without losing either animation frame's authored reference.
-fn liquid_vertex_output(liquid: LiquidOutput) -> VertexOutput {
-    var out: VertexOutput;
-    out.clip_position = liquid.clip_position;
-    out.routing.x = 1u;
-    out.textures.x = liquid.current_texture;
-    out.textures.y = liquid.next_texture;
-    out.frame_face.x = liquid.frame_blend;
-    out.routing.y = liquid.two_sided;
-    out.world_position = liquid.world_position;
-    out.lighting = liquid.lighting;
-    @if(ENHANCED)
-    out.normal = liquid.normal;
-    @if(ENHANCED)
-    out.sky_ao.x = liquid.sky_light;
-    @if(ENHANCED)
-    out.sky_ao.y = liquid.ambient_occlusion;
-    @if(ENHANCED)
-    out.tint_surface = vec4(1.0, 1.0, 1.0, f32(liquid.surface_class));
-    @if(ENHANCED)
-    out.authored_refs = liquid.authored_refs;
-    @if(!ENHANCED)
-    out.native_light_ao = vec3(liquid.native_light_levels, 0.0);
-    out.liquid_uv = liquid.uv;
-    out.water_tint = liquid.water_tint;
-    out.routing.z = liquid.depth_write_route;
-    out.frame_face.y = liquid.native_face_shade;
-    return out;
-}
-
-/// Packs the model vertex without losing either animation frame's authored reference.
-fn model_vertex_output(model: ModelOutput) -> VertexOutput {
-    var out: VertexOutput;
+    let model = model_vertex(vertex_index, instance_index);
     out.clip_position = model.clip_position;
     out.routing.x = 0u;
     out.textures.x = model.current_texture;
@@ -97,9 +82,7 @@ fn model_vertex_output(model: ModelOutput) -> VertexOutput {
     @if(ENHANCED)
     out.sky_ao.y = model.ambient_occlusion;
     @if(ENHANCED)
-    out.tint_surface = model.tint_surface;
-    @if(ENHANCED)
-    out.authored_refs = model.authored_refs;
+    out.surface_class = model.surface_class;
     @if(!ENHANCED)
     out.native_light_ao = vec3(model.native_light_levels, model.native_ao_face);
     @if(!ENHANCED)
@@ -113,11 +96,8 @@ fn model_vertex_output(model: ModelOutput) -> VertexOutput {
     return out;
 }
 
-/// Restores the liquid inputs used by the original liquid shading function.
 fn liquid_output(in: VertexOutput) -> LiquidOutput {
     var liquid: LiquidOutput;
-    @if(ENHANCED)
-    liquid.authored_refs = in.authored_refs;
     liquid.clip_position = in.clip_position;
     liquid.uv = in.liquid_uv;
     liquid.current_texture = in.textures.x;
@@ -132,7 +112,7 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     @if(ENHANCED)
     liquid.normal = in.normal;
     @if(ENHANCED)
-    liquid.surface_class = u32(in.tint_surface.w);
+    liquid.surface_class = in.surface_class;
     @if(!ENHANCED)
     liquid.native_light_levels = in.native_light_ao.xy;
     liquid.depth_write_route = in.routing.z;
@@ -142,11 +122,8 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     return liquid;
 }
 
-/// Restores the model inputs used by the original blended model shading function.
 fn model_output(in: VertexOutput) -> ModelOutput {
     var model: ModelOutput;
-    @if(ENHANCED)
-    model.authored_refs = in.authored_refs;
     model.clip_position = in.clip_position;
     model.uv = in.model_uv;
     model.current_texture = in.textures.x;
@@ -163,7 +140,7 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     @if(ENHANCED)
     model.ambient_occlusion = in.sky_ao.y;
     @if(ENHANCED)
-    model.tint_surface = in.tint_surface;
+    model.surface_class = in.surface_class;
     @if(!ENHANCED)
     model.native_light_levels = in.native_light_ao.xy;
     @if(!ENHANCED)
@@ -176,27 +153,16 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     return model;
 }
 
-struct FragmentOutput {
-    @location(0) colour: vec4<f32>,
-    @if(ENHANCED)
-    @location(1) water_depth: f32,
-}
-
 @fragment
-fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> FragmentOutput {
+fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     // Derivatives stay in uniform control flow; each family only reads its own.
     let liquid_dx = dpdx(in.liquid_uv);
     let liquid_dy = dpdy(in.liquid_uv);
     let model_dx = dpdx(in.model_uv);
     let model_dy = dpdy(in.model_uv);
-    var out: FragmentOutput;
     if (in.routing.x != 0u) {
         // Packed liquid corners wind clockwise; this pipeline's front face is counter-clockwise.
-        out.colour = shade_liquid(liquid_output(in), !front_facing, liquid_dx, liquid_dy);
-    } else {
-        out.colour = shade_blend(model_output(in), front_facing, model_dx, model_dy);
+        return shade_liquid(liquid_output(in), !front_facing, liquid_dx, liquid_dy);
     }
-    @if(ENHANCED)
-    out.water_depth = water_coverage_depth(in.routing.x != 0u, u32(in.tint_surface.w), in.clip_position.z);
-    return out;
+    return shade_blend(model_output(in), front_facing, model_dx, model_dy);
 }

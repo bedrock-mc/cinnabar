@@ -115,8 +115,7 @@ mod tests {
     fn portal_overlay_uses_active_pack_face_and_both_texture_pages_with_world_timing() {
         use assets::{
             Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
-            ContributorRole, ModelQuad, ModelTemplate, TexturePage,
-            texture::{TextureArray, TextureMip},
+            ContributorRole, ModelQuad, ModelTemplate, TextureArray, TextureMip, TexturePage,
         };
         let reference = |page, layer| TextureRef::new(page, layer).unwrap();
         let pages = [10_u8, 50].map(|base| {

@@ -101,13 +101,9 @@ mod tests {
             ("lamp_off", [80, 40, 20, 255]),
             ("lamp_on", [200, 160, 80, 255]),
         ] {
-            image::RgbaImage::from_pixel(
-                assets::texture::TILE_SIZE,
-                assets::texture::TILE_SIZE,
-                image::Rgba(color),
-            )
-            .save(directory.path().join(format!("textures/blocks/{name}.png")))
-            .unwrap();
+            image::RgbaImage::from_pixel(assets::TILE_SIZE, assets::TILE_SIZE, image::Rgba(color))
+                .save(directory.path().join(format!("textures/blocks/{name}.png")))
+                .unwrap();
         }
         let lights = vec![
             assets::LightProperties::default();

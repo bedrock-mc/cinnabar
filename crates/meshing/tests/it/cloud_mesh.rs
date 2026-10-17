@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use assets::atmosphere::{AtmosphereRole, AtmosphereTexture};
+use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{
     CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,
     CloudFace, CloudMeshError, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad,

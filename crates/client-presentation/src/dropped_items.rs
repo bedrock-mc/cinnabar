@@ -228,7 +228,7 @@ fn template_model(
                     .get(material.texture.page() as usize)?;
                 let mip = page.texture.mips.first()?;
                 let size = mip.size;
-                if size == 0 || size > assets::texture::MAX_TILE_SIZE {
+                if size == 0 || size > assets::MAX_TILE_SIZE {
                     return None;
                 }
                 let bytes = (size * size * 4) as usize;
