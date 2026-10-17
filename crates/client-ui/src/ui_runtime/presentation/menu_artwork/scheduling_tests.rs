@@ -3,24 +3,7 @@ use render_model::hats::thumbnail::prepared_frame;
 
 /// Admits a separately named animated rig so other tests cannot warm its camera cache.
 fn cold_cosmetic(id: &str) -> cosmetics::Item {
-    let mut descriptor = render_model::hats::fixture::bunny().descriptor().clone();
-    descriptor.id = format!("fixture:artwork-slice-{id}");
-    render_model::hats::admit(
-        descriptor,
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../render-model/src/hats/bunny_ears.geo.json"
-        )),
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../render-model/src/hats/bunny_ears.png"
-        )),
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../render-model/src/hats/fixture/animation.json"
-        )),
-    )
-    .unwrap()
+    render_model::hats::fixture::named_bunny(&format!("fixture:artwork-slice-{id}"))
 }
 
 #[test]
