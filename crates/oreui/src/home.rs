@@ -21,7 +21,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-    portrait: Option<IconRef>,
+    _portrait: Option<IconRef>,
     translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, PaintError> {
     let layout = layout::Layout::new(
@@ -32,18 +32,17 @@ pub(super) fn draw(
         view.updates.ready.is_some(),
     );
     let preview = canvas.with_scale(layout.scale, |canvas| {
-        draw_layout(canvas, view, size, portrait, translate, layout)
+        draw_layout(canvas, view, size, translate, layout)
     })?;
     super::updates::notice(canvas, view, size)?;
     Ok(preview)
 }
 
-/// Draws the home group at the fitted scale and preserves its existing breakpoints.
+/// Draws the home group at the fitted scale.
 fn draw_layout(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-    portrait: Option<IconRef>,
     translate: Translate<'_>,
     layout: layout::Layout,
 ) -> Result<Option<CharacterPreview>, PaintError> {
@@ -120,8 +119,6 @@ fn draw_layout(
             left + width,
             bottom + gap + footer_height,
         ],
-        compact_footer,
-        portrait,
     )?;
     let version_bounds = [
         left,
@@ -135,11 +132,7 @@ fn draw_layout(
         ..CAPTION
     };
     let app = format!("{} {}", launcher::PRODUCT_NAME, launcher::PRODUCT_VERSION);
-    let game = format!(
-        "Minecraft {} / Protocol {}",
-        protocol::GAME_VERSION,
-        protocol::PROTOCOL_VERSION
-    );
+    let game = format!("Compatible with Bedrock {}", protocol::GAME_VERSION);
     if compact_footer {
         let middle = (version_bounds[1] + version_bounds[3]) * 0.5;
         canvas.text_centred(
@@ -186,7 +179,7 @@ fn action_panel(
     compact: bool,
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
-    widgets::panel(canvas, bounds)?;
+    panel(canvas, bounds)?;
     let pad = layout::action_padding(canvas.rem, bounds[2] - bounds[0], compact);
     let viewport = [
         bounds[0] + canvas.r(EDGE),
@@ -207,15 +200,9 @@ fn action_panel(
     } else {
         0.0
     };
-    let group_height = canvas.r(layout::action_group_height(compact));
-    let content_height = bounds[3] - bounds[1];
-    let origin = bounds[1];
     let x = bounds[0] + pad;
     let right = bounds[2] - pad;
-    let mut y = origin
-        + pad
-        + canvas.r(event_height)
-        + (content_height - pad * 2.0 - group_height - canvas.r(event_height)).max(0.0) * 0.5;
+    let mut y = bounds[1] + pad + canvas.r(event_height);
     if let Some(event) = &view.feeds.home.live_event {
         let b = [
             x,
@@ -263,14 +250,15 @@ fn action_panel(
         Some(MenuAction::Navigate(MenuScreen::Settings)),
     )?;
     y += canvas.r(5.6);
-    link(
+    widgets::button(
         canvas,
         view,
-        [x, y, right, y + canvas.r(3.6)],
+        [x, y, right, y + canvas.r(4.8)],
+        Variant::Neutral,
         "Realms",
-        MenuAction::Navigate(MenuScreen::Social),
+        Some(MenuAction::Navigate(MenuScreen::Social)),
     )?;
-    y += canvas.r(4.4);
+    y += canvas.r(5.6);
     if compact {
         widgets::button(
             canvas,
@@ -280,42 +268,103 @@ fn action_panel(
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
         )?;
+        y += canvas.r(5.6);
+        account_button(canvas, view, [x, y, right, y + canvas.r(4.8)])?;
     }
     canvas.end_clip(clip);
     canvas.end_focus_region(content);
     Ok(())
 }
 
+/// Draws a lighter home surface while leaving the panorama visible beneath it.
+fn panel(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
+    let role = canvas.role(NEUTRAL80);
+    let mut fill = role.fill;
+    fill[3] = 200;
+    canvas.fill(bounds, fill)?;
+    let mut border = role.border;
+    border[3] = 160;
+    canvas.frame(bounds, EDGE, border)
+}
+
+/// Keeps account access beside the character, with a direct signed-out sign-in action.
+fn account_button(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    bounds: Bounds,
+) -> Result<(), PaintError> {
+    use launcher::menu::auth::AuthState;
+    let (label, action) = match view.auth_state {
+        AuthState::SignedOut | AuthState::Failed(_) => ("Sign in", MenuAction::StartSignIn),
+        AuthState::Checking => ("Signing in...", MenuAction::OpenAccounts),
+        _ => ("Account", MenuAction::OpenAccounts),
+    };
+    widgets::button(
+        canvas,
+        view,
+        bounds,
+        Variant::Secondary,
+        label,
+        Some(action),
+    )
+}
+
+/// Keeps the character and account actions together without requiring authentication to render a skin.
 fn character_panel(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
 ) -> Result<CharacterPreview, PaintError> {
-    widgets::panel(canvas, b)?;
+    panel(canvas, b)?;
     let region = canvas.begin_focus_region(focus::DETAIL, b, None, true)?;
-    let pad = canvas.r(2.4);
+    let pad = canvas.r(layout::PANEL_PADDING);
     let x = b[0] + pad;
     let right = b[2] - pad;
     let top = b[1] + pad;
+    let signed_out = matches!(
+        view.auth_state,
+        launcher::menu::auth::AuthState::SignedOut | launcher::menu::auth::AuthState::Failed(_)
+    );
     canvas.text_line("YOUR CHARACTER", [x, top], right - x, HEADER5, TEXT)?;
     canvas.text_line(
-        launcher::menu::profile::current_name(view),
+        if signed_out {
+            "Local skin"
+        } else {
+            launcher::menu::profile::current_name(view)
+        },
         [x, top + canvas.r(HEADER5.line + 0.8)],
         right - x,
         CAPTION,
         TEXT_DIMMER,
     )?;
     let footer = b[3] - pad - canvas.r(4.8);
+    let middle = (x + right) * 0.5;
+    let gap = canvas.r(0.8);
+    account_button(
+        canvas,
+        view,
+        [x, footer, middle - gap * 0.5, footer + canvas.r(4.8)],
+    )?;
     widgets::button(
         canvas,
         view,
-        [x, footer, right, footer + canvas.r(4.8)],
+        [middle + gap * 0.5, footer, right, footer + canvas.r(4.8)],
         Variant::Secondary,
         "Dressing Room",
         Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
     )?;
-    let hint = [x, footer - canvas.r(3.6), right, footer - canvas.r(1.2)];
-    canvas.text_centred("Drag to rotate", hint, CAPTION, TEXT_DIMMER, false)?;
+    let hint = [x, footer - canvas.r(4.4), right, footer - canvas.r(0.8)];
+    canvas.text_centred(
+        if signed_out {
+            "Sign in for your profile and friends."
+        } else {
+            "Drag to rotate"
+        },
+        hint,
+        CAPTION,
+        TEXT_DIMMER,
+        false,
+    )?;
     let preview = [x, top + canvas.r(6.4), right, hint[1] - canvas.r(0.8)];
     canvas.end_focus_region(region);
     Ok(CharacterPreview {

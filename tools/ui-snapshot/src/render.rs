@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod character;
 #[cfg(feature = "test-support")]
 mod crafting;
 mod edit_selection;
@@ -155,6 +156,9 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             });
             cosmetic_icons(&mut artwork, &mut carriers.pages);
             mod_icons(&view, &mut artwork, &mut carriers.pages)?;
+            let character_page = (view.screen == launcher::menu::MenuScreen::Home)
+                .then(|| character::texture(dir, &mut carriers.pages))
+                .transpose()?;
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
@@ -181,6 +185,9 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 paint
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                if let (Some(preview), Some(page)) = (&paint.character_preview, character_page) {
+                    character::paint(preview.control, page, &mut frame)?;
+                }
                 if view.dressing_room.editor.is_some() || view.dressing_room.cosmetic_filter_open {
                     screen
                         .paint_dressing_overlay(&paint, &view, size, &artwork, &mut frame)

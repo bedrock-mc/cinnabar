@@ -1027,8 +1027,10 @@ screen-effect parity remain incomplete.
   bindings keep their physical codes. Provisional: keys not yet observed use physical names;
   startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
-  panels and controls. Home keeps the shipped title above Play and character cards, with compact
-  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+  panels and controls. Home keeps the shipped title above translucent, top-aligned Play and character
+  cards. Account access sits with the character, Realms uses a full button, and the three utility
+  buttons have equal widths and a neutral Quit action. The footer states Bedrock compatibility;
+  General's Advanced section retains the protocol number. Versions use their canonical sources.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.

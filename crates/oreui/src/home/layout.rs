@@ -1,8 +1,9 @@
-//! Home geometry keeps the existing proportions while fitting all actions vertically.
+//! Home geometry fits the action, character and utility groups inside the viewport.
 
 use ui::IconRef;
 
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
+pub(super) const PANEL_PADDING: f32 = 2.4;
 
 pub(super) struct Layout {
     pub scale: f32,
@@ -18,14 +19,14 @@ pub(super) struct Layout {
     pub compact_footer: bool,
 }
 
-/// The action group's height in rem, including the wardrobe on compact layouts.
+/// The action group's height in rem, including account and wardrobe controls on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 30.0 } else { 24.0 }
+    if compact { 36.0 } else { 24.8 }
 }
 
 /// The panel inset in logical pixels, limited by its width.
 pub(super) fn action_padding(rem: f32, width: f32, compact: bool) -> f32 {
-    (rem * if compact { 2.0 } else { 3.2 }).min(width * 0.08)
+    (rem * if compact { 2.0 } else { PANEL_PADDING }).min(width * 0.08)
 }
 
 impl Layout {
@@ -40,9 +41,9 @@ impl Layout {
         let margin = (rem * 3.2).min(size[0] * 0.04).min(size[1] * 0.035);
         let available_width = size[0] - margin * 2.0;
         let width = (rem * 86.0).min(available_width);
-        let compact = width < rem * 68.0 || size[1] < rem * 44.0;
+        let compact = width < rem * 68.0 || size[1] < rem * 44.0 || size[0] < size[1] * 0.85;
         let compact_footer = width < rem * 60.0;
-        let footer = if compact_footer { 10.8 } else { 4.8 };
+        let footer = 4.8;
         let version = if compact_footer { 4.0 } else { 2.8 };
         let ratio = title.map(|icon| {
             f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1))
@@ -64,7 +65,7 @@ impl Layout {
         let scale = if minimum + outside > available_height {
             // Full-width art and padding bound the content after the width is recalculated.
             let logo = ratio.map_or(6.4, |ratio| 56.0 / ratio);
-            let pad = if compact { 2.0 } else { 3.2 };
+            let pad = if compact { 2.0 } else { PANEL_PADDING };
             let required = logo + 3.2 + footer + version + group_height + event + pad * 2.0;
             (available_height / (rem * required)).min(1.0)
         } else {
@@ -81,7 +82,7 @@ impl Layout {
         Self {
             scale,
             width,
-            height: (rem * 36.8).min(available_height - outside).max(minimum),
+            height: (rem * 34.4).min(available_height - outside).max(minimum),
             outside,
             header_height,
             gap: rem * 1.6,

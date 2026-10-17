@@ -213,30 +213,43 @@ fn update_notice_and_live_event_fit_without_clipping_or_scrolling() {
 }
 
 #[test]
-fn normal_window_keeps_panel_logo_footer_and_action_geometry() {
+fn desktop_home_aligns_panel_headings_and_uses_equal_neutral_utility_actions() {
     let size = [1920.0, 1080.0];
     let artwork = title(400, 80);
     let layout = layout::Layout::new(10.0, size, Some(artwork), false, false);
     assert_eq!(layout.scale, 1.0);
     assert!(!layout.compact && !layout.compact_footer);
-    assert!((layout.width - 860.0).abs() < 0.001);
-    assert!((layout.height - 368.0).abs() < 0.001);
-    assert!((layout.logo_width - 560.0).abs() < 0.001);
-    assert!((layout.logo_height - 112.0).abs() < 0.001);
-    assert!((layout.outside - 220.0).abs() < 0.001);
-    let (_, hits, _) = paint(HashMap::new(), |c| {
-        c.title_artwork = Some(artwork);
-        draw(c, &view(), size, None, &|_| None).unwrap();
+    let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+        canvas.title_artwork = Some(artwork);
+        draw(canvas, &view(), size, None, &|_| None).unwrap();
     });
     let bounds = |action| hits.iter().find(|(found, _)| *found == action).unwrap().1;
-    let play = bounds(MenuAction::Navigate(MenuScreen::Play));
-    assert!((play.min().x() - 562.0).abs() < 0.001);
-    assert!((play.min().y() - 506.0).abs() < 0.001);
-    assert!((play.height() - 64.0).abs() < 0.001);
-    let settings = bounds(MenuAction::Navigate(MenuScreen::Settings));
-    assert!((settings.min().y() - 582.0).abs() < 0.001);
-    assert!((settings.height() - 48.0).abs() < 0.001);
-    let account = bounds(MenuAction::OpenAccounts);
-    assert!((account.min().y() - 758.0).abs() < 0.001);
-    assert!((account.height() - 48.0).abs() < 0.001);
+    let utility = [
+        MenuAction::Navigate(MenuScreen::Friends),
+        MenuAction::Navigate(MenuScreen::Inbox),
+        MenuAction::OpenExitDialog,
+    ]
+    .map(bounds);
+    for button in utility {
+        assert!((button.width() - utility[0].width()).abs() < 0.001);
+        assert_eq!(button.min().y(), utility[0].min().y());
+    }
+    assert!(!nodes.iter().any(|node| matches!(node.visual(), UiVisual::Solid { color, .. } if *color == crate::theme::DESTRUCTIVE.fill)));
+    let heading_y = |value: &str| {
+        let node = nodes.iter().find(|node| matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().replace(' ', "") == value)).unwrap();
+        let mut y = node.bounds().min().y();
+        let mut parent = node.parent();
+        while let Some(id) = parent {
+            let node = nodes.iter().find(|node| node.id() == id).unwrap();
+            y += node.bounds().min().y();
+            parent = node.parent();
+        }
+        y
+    };
+    assert!((heading_y("LET'SPLAY") - heading_y("YOURCHARACTER")).abs() < 0.001);
+    assert!(
+        bounds(MenuAction::Navigate(MenuScreen::Play)).max().y()
+            < bounds(MenuAction::Navigate(MenuScreen::Social)).min().y()
+    );
 }

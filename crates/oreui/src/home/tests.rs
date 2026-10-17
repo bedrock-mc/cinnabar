@@ -30,7 +30,12 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
         .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
         .unwrap()
         .1;
-    assert!(preview.control[0] >= wardrobe.min().x());
+    let account = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::OpenAccounts)
+        .unwrap()
+        .1;
+    assert!(preview.control[0] >= account.min().x());
     assert!(preview.control[2] <= wardrobe.max().x());
     assert!(preview.control[3] < wardrobe.min().y());
     assert!(preview.control[3] - preview.control[1] > 100.0);
@@ -40,7 +45,7 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
 }
 
 #[test]
-fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
+fn brand_sits_above_translucent_panels_and_footer_states_compatibility() {
     let view = view();
     let (_, _, nodes) = paint(HashMap::new(), |c| {
         c.title_artwork = Some(IconRef {
@@ -63,7 +68,7 @@ fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
         })
         .unwrap();
     let panels = nodes.iter().filter(|node| node.parent().is_none()
-        && matches!(node.visual(), UiVisual::Solid { color, .. } if *color == NEUTRAL80.fill))
+        && matches!(node.visual(), UiVisual::Solid { color, .. } if color[..3] == NEUTRAL80.fill[..3] && color[3] < 255))
         .collect::<Vec<_>>();
     assert!(!panels.is_empty());
     for panel in panels {
@@ -89,7 +94,8 @@ fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
         launcher::PRODUCT_VERSION
     )));
     assert!(text.contains(protocol::GAME_VERSION));
-    assert!(text.contains(&format!("Protocol{}", protocol::PROTOCOL_VERSION)));
+    assert!(text.contains("CompatiblewithBedrock"));
+    assert!(!text.contains("Protocol"));
 }
 
 #[test]
@@ -157,6 +163,24 @@ fn signed_out_home_has_a_direct_sign_in_action() {
         hits.iter()
             .any(|(action, _)| *action == MenuAction::StartSignIn)
     );
+    let signin = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::StartSignIn)
+        .unwrap()
+        .1;
+    let wardrobe = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
+        .unwrap()
+        .1;
+    let friends = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Friends))
+        .unwrap()
+        .1;
+    assert_eq!(signin.min().y(), wardrobe.min().y());
+    assert!(signin.max().x() < wardrobe.min().x());
+    assert!(signin.max().y() < friends.min().y());
     assert!(
         hits.iter()
             .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Play))
