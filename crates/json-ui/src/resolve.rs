@@ -593,6 +593,7 @@ fn build_properties(
     }
     if control.definition_scope.is_some()
         && let Some(template) = properties.get("grid_item_template").and_then(Value::as_str)
+        && !template.is_empty()
     {
         let template = control.reference(template).to_string();
         properties.insert("grid_item_template".to_owned(), Value::String(template));

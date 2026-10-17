@@ -150,4 +150,31 @@ mod tests {
         assert_eq!(graph.nodes.len(), 1);
         assert_eq!(graph.nodes[0].next, Some(0));
     }
+
+    #[test]
+    fn empty_scoped_grid_templates_keep_literal_children() {
+        for template in ["", "$template"] {
+            let mut catalog = Catalog::default();
+            catalog.overlay_text(
+                "ui/test.json",
+                &serde_json::json!({"namespace":"test",
+                    "root":{"type":"grid", "$template":"", "grid_item_template":template,
+                        "grid_dimensions":[1,1],
+                        "controls":[{"caption":{"type":"label", "text":"Literal caption"}}]}
+                })
+                .to_string(),
+            );
+            let scope = catalog.scope_definitions();
+            let reference = scope.reference(&ControlRef::new("test", "root"));
+            let context = Context::empty();
+            let root = resolve(&catalog, &reference.to_string(), &context)
+                .control
+                .unwrap();
+            let mut state = crate::BindState::new();
+            let data = crate::DataSource::new();
+            let bound = crate::bind_screen(&root, &catalog, &context, &data, &mut state);
+            let caption = bound.child("caption").expect("literal grid child survives");
+            assert_eq!(caption.properties["text"], "Literal caption");
+        }
+    }
 }
