@@ -148,6 +148,8 @@ pub(super) fn configure(app: &mut App) {
             crate::environment::update_precipitation_scene,
             crate::environment::update_lightning,
             crate::runtime::visibility::refresh_cave_visibility,
+            crate::runtime::telemetry::update_visibility_diagnostics
+                .after(render_scene::ChunkRenderApplySet),
         )
             .chain()
             .after(client_presentation::camera::FlyCameraUpdateSet),
