@@ -28,11 +28,11 @@ impl Ready {
     }
 
     /// Uses stronger wording after an outdated-client refusal without starting installation.
-    pub fn title(&self) -> String {
+    pub fn title(&self) -> &'static str {
         if self.protocol_required {
-            format!("Update required to connect ({})", self.version)
+            "Update required to connect"
         } else {
-            format!("Update ready ({})", self.version)
+            "Update available"
         }
     }
 }
@@ -123,5 +123,28 @@ mod tests {
         assert!(notice.title().contains("required to connect"));
         assert_eq!(notice.action(), Action::Download);
         assert!(!Preferences::default().install_on_quit);
+    }
+}
+
+/// Builds the release panel's wording without authorizing an installation.
+pub fn popup(ready: Option<&Ready>) -> super::dialogs::Popup {
+    let title = ready.map_or("Updates", Ready::title).into();
+    super::dialogs::Popup {
+        title,
+        body: ready.map_or_else(String::new, |ready| format!("Version {}", ready.version)),
+        button1: ready
+            .map_or("Close", |ready| {
+                if ready.writable {
+                    "Restart and update"
+                } else {
+                    "Download update"
+                }
+            })
+            .into(),
+        button2: String::new(),
+        confirm: ready.map_or(super::MenuAction::DismissDialog, |ready| {
+            super::MenuAction::Update(ready.action())
+        }),
+        dismiss: super::MenuAction::DismissDialog,
     }
 }

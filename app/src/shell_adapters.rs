@@ -40,6 +40,7 @@ pub(crate) fn drive_menu_services(
     );
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
+    menu.poll_updates();
     menu.poll_accounts();
     sync_audio_settings(&menu, audio_settings);
     if let Some(support) = antialiasing {

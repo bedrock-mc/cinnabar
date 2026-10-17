@@ -43,31 +43,35 @@ impl OreUiScreen {
         canvas.offsets = scrolls.offsets().clone();
         canvas.seconds = frame.now;
         canvas.transitions = Some(&mut self.transitions);
-        let mut buttons = vec![(
-            popup.button1.as_str().into(),
-            Variant::Primary,
-            Some(popup.confirm),
-        )];
-        if popup.dismiss != popup.confirm {
-            buttons.push((
-                popup.button2.as_str().into(),
-                Variant::Secondary,
-                Some(popup.dismiss),
-            ));
+        if view.dialog == Some(launcher::menu::MenuDialog::UpdateNotice) {
+            super::updates::popover(&mut canvas, view, popup, size)?;
+        } else {
+            let mut buttons = vec![(
+                popup.button1.as_str().into(),
+                Variant::Primary,
+                Some(popup.confirm),
+            )];
+            if popup.dismiss != popup.confirm {
+                buttons.push((
+                    popup.button2.as_str().into(),
+                    Variant::Secondary,
+                    Some(popup.dismiss),
+                ));
+            }
+            modal::draw(
+                &mut canvas,
+                view,
+                size,
+                &Modal {
+                    title: &popup.title,
+                    body: popup.body.as_str().into(),
+                    body_color: theme::TEXT,
+                    items: Vec::new(),
+                    close: None,
+                    buttons,
+                },
+            )?;
         }
-        modal::draw(
-            &mut canvas,
-            view,
-            size,
-            &Modal {
-                title: &popup.title,
-                body: popup.body.as_str().into(),
-                body_color: theme::TEXT,
-                items: Vec::new(),
-                close: None,
-                buttons,
-            },
-        )?;
         let focus = canvas
             .focus_hits
             .iter()

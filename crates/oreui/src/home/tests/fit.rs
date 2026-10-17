@@ -30,7 +30,7 @@ fn assert_fits(
     let action_width = layout.width * if layout.compact { 1.0 } else { 0.59 };
     let content_height = rem
         * layout.scale
-        * (layout::action_group_height(layout.compact, update_ready)
+        * (layout::action_group_height(layout.compact)
             + if event {
                 layout::LIVE_EVENT_HEIGHT
             } else {
@@ -88,18 +88,13 @@ fn assert_fits(
     );
     assert_eq!(
         hits.len(),
-        9 + usize::from(event) + usize::from(update_ready) * 2
+        9 + usize::from(event) + usize::from(update_ready)
     );
     if update_ready {
-        for action in [
-            launcher::menu::updates::Action::Restart,
-            launcher::menu::updates::Action::Later,
-        ] {
-            assert!(
-                hits.iter()
-                    .any(|(found, _)| *found == MenuAction::Update(action))
-            );
-        }
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::OpenUpdateNotice)
+        );
     }
     for (action, bounds) in targets {
         let visible = hits.iter().find(|(found, _)| *found == action).unwrap().1;

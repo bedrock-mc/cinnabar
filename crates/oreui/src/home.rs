@@ -31,9 +31,11 @@ pub(super) fn draw(
         view.feeds.home.live_event.is_some(),
         view.updates.ready.is_some(),
     );
-    canvas.with_scale(layout.scale, |canvas| {
+    let preview = canvas.with_scale(layout.scale, |canvas| {
         draw_layout(canvas, view, size, portrait, translate, layout)
-    })
+    })?;
+    super::updates::pill(canvas, view, size)?;
+    Ok(preview)
 }
 
 /// Draws the home group at the fitted scale and preserves its existing breakpoints.
@@ -50,6 +52,7 @@ fn draw_layout(
         width,
         height,
         outside,
+        header_height,
         gap,
         footer_height,
         logo_width,
@@ -59,7 +62,7 @@ fn draw_layout(
         ..
     } = layout;
     let left = (size[0] - width) * 0.5;
-    let group_top = (size[1] - height - outside) * 0.5;
+    let group_top = (size[1] - header_height - height - outside) * 0.5 + header_height;
     let logo_left = (size[0] - logo_width) * 0.5;
     let logo_bounds = [
         logo_left,
@@ -87,7 +90,12 @@ fn draw_layout(
     };
     let screen = canvas.begin_focus_region(
         focus::SCREEN,
-        [left, group_top, left + width, size[1] - group_top],
+        [
+            left,
+            group_top,
+            left + width,
+            size[1] - group_top + header_height,
+        ],
         None,
         true,
     )?;
@@ -119,7 +127,7 @@ fn draw_layout(
         left,
         bottom + gap + footer_height + canvas.r(0.6),
         left + width,
-        size[1] - group_top,
+        size[1] - group_top + header_height,
     ];
     let style = super::theme::Type {
         size: 1.1,
@@ -199,15 +207,7 @@ fn action_panel(
     } else {
         0.0
     };
-    let update_height = if view.updates.ready.is_some() {
-        layout::UPDATE_NOTICE_HEIGHT
-    } else {
-        0.0
-    };
-    let group_height = canvas.r(layout::action_group_height(
-        compact,
-        view.updates.ready.is_some(),
-    ));
+    let group_height = canvas.r(layout::action_group_height(compact));
     let content_height = bounds[3] - bounds[1];
     let origin = bounds[1];
     let x = bounds[0] + pad;
@@ -279,15 +279,6 @@ fn action_panel(
             Variant::Neutral,
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
-        )?;
-        y += canvas.r(5.6);
-    }
-    if view.updates.ready.is_some() {
-        let top = y + canvas.r(0.8);
-        super::updates::notice(
-            canvas,
-            view,
-            [x, top, right, top + canvas.r(update_height - 1.2)],
         )?;
     }
     canvas.end_clip(clip);

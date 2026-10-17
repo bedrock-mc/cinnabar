@@ -102,6 +102,7 @@ impl MenuRuntime {
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
             dialog: initial.dialog,
+            update_notice_seen: None,
             field: initial.field,
             caret_revision: 0,
             history: {

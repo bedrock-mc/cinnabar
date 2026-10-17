@@ -140,6 +140,19 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
             }));
+            let logo = image::load_from_memory(launcher::branding::TITLE)
+                .map_err(|error| Error::Invalid(format!("embedded title artwork: {error}")))?
+                .into_rgba8();
+            let title_artwork = ui::IconRef {
+                page: carriers.pages.len() as u16,
+                uv: [0, 0, logo.width() as u16, logo.height() as u16],
+                glint: false,
+            };
+            carriers.pages.push(Page {
+                width: logo.width(),
+                height: logo.height(),
+                rgba: logo.into_raw().into(),
+            });
             cosmetic_icons(&mut artwork, &mut carriers.pages);
             mod_icons(&view, &mut artwork, &mut carriers.pages)?;
             let mut screen = oreui_screen(first, images);
@@ -157,7 +170,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                             portrait: None,
                             translate: frame.translate,
                             artwork: &artwork,
-                            title_artwork: None,
+                            title_artwork: Some(title_artwork),
                             scrolls: &mut scrolls,
                             geometry: MenuGeometry::default(),
                         },

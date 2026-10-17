@@ -29,6 +29,7 @@ fn translated(translate: Translate<'_>, key: &str, fallback: &str) -> String {
 /// Builds a launcher's question with its existing answer actions.
 pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> Popup {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::UpdateNotice => return super::updates::popup(view.updates.ready.as_ref()),
         MenuDialog::MinecraftImport => {
             let snapshot = &view.minecraft_import;
             let confirm = snapshot

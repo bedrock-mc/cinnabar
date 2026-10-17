@@ -43,6 +43,7 @@ pub mod settings_support;
 mod settings_values;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
+mod updates;
 pub mod video_settings;
 mod view;
 mod worlds_tab;
@@ -97,6 +98,7 @@ pub struct MenuRuntime {
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
+    update_notice_seen: Option<launcher::menu::updates::Ready>,
     field: Option<MenuField>,
     /// Bumped by every field edit and caret move, restarting the caret blink.
     caret_revision: u64,
@@ -551,11 +553,20 @@ impl MenuRuntime {
                 }
                 self.enter(screen);
             }
+            MenuAction::OpenUpdateNotice => {
+                if !self.over_world() && launcher_host::lifecycle::update::view().ready.is_some() {
+                    self.dialog = Some(MenuDialog::UpdateNotice);
+                    self.focused = 0;
+                }
+            }
             MenuAction::OpenExitDialog => {
                 self.dialog = Some(MenuDialog::Exit);
                 self.focused = 0;
             }
             MenuAction::Update(action) => {
+                if self.dialog == Some(MenuDialog::UpdateNotice) {
+                    self.dialog = None;
+                }
                 if !self.over_world() && launcher_host::lifecycle::update::act(action) {
                     self.intents.exit = true;
                 }
