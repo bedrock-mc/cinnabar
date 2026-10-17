@@ -75,8 +75,8 @@ fn actor() -> Vec<render_model::ActorRigVertex> {
 /// Uses production actor entry points for both the ordinary frame and its coverage witness.
 fn actor_pixels(gpu: &Gpu, coverage: bool, samples: u32) -> Vec<u8> {
     let eye = Vec3::new(3.0, 2.6, 5.0);
-    let clip = Mat4::orthographic_rh(-1.5, 1.5, -1.5, 1.5, 10.0, 0.01)
-        * Mat4::look_at_rh(eye, Vec3::Y, Vec3::Y);
+    let clip = glam::camera::rh::proj::directx::orthographic(-1.5, 1.5, -1.5, 1.5, 10.0, 0.01)
+        * glam::camera::rh::view::look_at_mat4(eye, Vec3::Y, Vec3::Y);
     let texels = vec![[105, 164, 213, 255]; 64 * 64];
     actor_raster::raster_material_in_scene(
         gpu,
