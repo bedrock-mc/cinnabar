@@ -1,5 +1,6 @@
 //! Native sparse prediction and response contracts.
 
+mod lifetimes;
 #[path = "overlay_tests/sparse.rs"]
 mod sparse;
 
