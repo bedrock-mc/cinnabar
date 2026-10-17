@@ -68,9 +68,14 @@ fn creation_text_does_not_replace_a_view_bound_caption_on_refresh() {
     ));
     for incremental in [false, true] {
         let mut state = BindState::new();
-        for caption in ["shown", "shown", "next", "next"] {
+        for (input, caption) in [
+            ("private:shown", "shown"),
+            ("shown", "shown"),
+            ("private:next", "next"),
+            ("private:next", "next"),
+        ] {
             let mut data = DataSource::new();
-            data.set_creation_value("#text", Scalar::Text(format!("private:{caption}")));
+            data.set_creation_value("#text", Scalar::Text(input.into()));
             let data = Arc::new(data);
             let bound = if incremental {
                 crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state)
@@ -115,6 +120,43 @@ fn own_scope_views_receive_changed_creation_inputs() {
                 assert_eq!(
                     bound.properties["text"], expected,
                     "{expression}, incremental={incremental}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn chained_views_receive_changed_creation_inputs() {
+    for reverse in [false, true] {
+        let mut bindings = vec![
+            json!({"binding_type":"view","source_property_name":"#text","target_property_name":"#raw"}),
+            json!({"binding_type":"view","source_property_name":"(#raw - 'encoded:')","target_property_name":"#text"}),
+        ];
+        if reverse {
+            bindings.reverse();
+        }
+        let root = Arc::new(control(
+            "caption",
+            "label",
+            json!({"text":"#text","bindings":bindings}),
+            vec![],
+        ));
+        for incremental in [false, true] {
+            let mut state = BindState::new();
+            for input in ["first", "encoded:first", "encoded:next", "next"] {
+                let mut data = DataSource::new();
+                data.set_creation_value("#text", Scalar::Text(input.into()));
+                let data = Arc::new(data);
+                let bound = if incremental {
+                    crate::bind_incremental(&root, &data, &EmptyLibrary, &mut state)
+                } else {
+                    crate::bind_stateful(&root, &data, &EmptyLibrary, &mut state).0
+                };
+                assert_eq!(
+                    bound.properties["text"],
+                    input.trim_start_matches("encoded:"),
+                    "reverse={reverse}, incremental={incremental}"
                 );
             }
         }

@@ -105,6 +105,8 @@ pub(super) struct Retained {
     pub(super) bag: BTreeMap<String, Scalar>,
     /// Inherited creation inputs before view bindings transformed the bag.
     pub(super) creation_inputs: Arc<super::bag::Bag>,
+    /// Changed creation inputs that view observers must consume before normal settling.
+    pub(super) creation_writes: BTreeSet<String>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
     /// `once` bindings already applied, by index.
@@ -124,40 +126,24 @@ pub(super) struct Retained {
 }
 
 impl Retained {
-    /// Refreshes inputs without overwriting standing view outputs; changed inputs
-    /// read and written by the same view must notify that view again.
+    /// Refreshes changed inputs while preserving standing view outputs. Changed
+    /// targets notify their readers before ordinary view settling can overwrite them.
     pub(super) fn refresh_creation_values(
         &mut self,
         own: &mut super::bag::Bag,
         inputs: &super::bag::Bag,
         bindings: &[super::spec::Binding],
     ) {
-        use super::spec::{Kind, ViewScope};
         for (name, value) in inputs {
             let changed = self.creation_inputs.get(name) != Some(value);
-            let mut written = false;
-            let mut own_input_changed = false;
-            for (index, binding) in bindings.iter().enumerate() {
-                if let Kind::View {
-                    target,
-                    source,
-                    scope,
-                    ..
-                } = &binding.kind
-                    && target == name
+            let written = bindings.iter().enumerate().any(|(index, binding)| {
+                matches!(&binding.kind, super::spec::Kind::View { target, .. } if target == name)
                     && self.views.get(&index).is_some_and(Option::is_some)
-                {
-                    written = true;
-                    if changed
-                        && *scope == ViewScope::Own
-                        && source.properties().any(|property| property == name)
-                    {
-                        own_input_changed = true;
-                        self.views.remove(&index);
-                    }
-                }
+            });
+            if written && changed {
+                self.creation_writes.insert(name.clone());
             }
-            if !written || own_input_changed {
+            if !written || changed {
                 own.insert(name.clone(), value.clone());
             }
         }

@@ -22,12 +22,13 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     };
     let overlay_ref = ControlRef::parse(reference, "hud");
     let message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
+    let message_text = authored_content(catalog, builtin, "chat", "messages_text");
     let dependencies = content_dependencies(
         catalog,
         message_row
             .as_ref()
             .into_iter()
-            .chain(authored_content(catalog, builtin, "chat", "messages_text").as_ref()),
+            .chain(message_text.as_ref()),
     );
     let empty = screen
         .props
@@ -96,7 +97,8 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     if let Some(row) = message_row {
         catalog.insert(row);
     }
-    let mut filtered = restore_chat_screen(catalog, builtin, &mut global_names);
+    let mut filtered =
+        restore_chat_screen(catalog, builtin, &mut global_names, message_text.as_ref());
     for dependency in dependencies {
         catalog.insert(dependency.clone());
         filtered.push(dependency);
@@ -317,6 +319,7 @@ fn restore_chat_screen(
     catalog: &mut Catalog,
     builtin: &Catalog,
     globals: &mut BTreeSet<String>,
+    message_text: Option<&RawControl>,
 ) -> Vec<RawControl> {
     let context = crate::menu_screens::retail_context();
     let controls = builtin
@@ -331,10 +334,10 @@ fn restore_chat_screen(
     let mut filtered = Vec::new();
     for (mut control, resolved) in controls {
         if control.name == "messages_text"
-            && let Some(content) = authored_content(catalog, builtin, "chat", &control.name)
+            && let Some(content) = message_text
         {
             filtered.push(content.clone());
-            catalog.insert(content);
+            catalog.insert(content.clone());
             continue;
         }
         if resolved.is_some_and(|resolved| retain_visibility(&mut control, &resolved)) {

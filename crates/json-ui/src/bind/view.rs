@@ -177,6 +177,7 @@ impl Binder<'_> {
                 source.ok()
             })
             .collect();
+        self.notify_creation_inputs(root, &list, &sources);
         // Without a fixed point last bind, every view runs as if new.
         let unchanged = self.state.views_settled;
         for _ in 0..VIEW_PASSES {
@@ -192,6 +193,61 @@ impl Binder<'_> {
             }
         }
         (missed, false)
+    }
+
+    /// Delivers changed creation inputs to their readers before ordinary settling,
+    /// including chains whose declaration order runs opposite their data flow.
+    fn notify_creation_inputs(
+        &mut self,
+        root: &mut Node,
+        list: &[(Path, usize)],
+        sources: &[Option<Path>],
+    ) {
+        let mut queued = HashSet::new();
+        let mut pending = VecDeque::new();
+        for (path, _) in list {
+            let node = node_at(root, path);
+            for name in &node.memory.creation_writes {
+                let input = (node.key, name.clone());
+                if queued.insert(input.clone()) {
+                    pending.push_back(input);
+                }
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
+        let mut readers = HashMap::<_, Vec<usize>>::new();
+        for (slot, ((path, index), source)) in list.iter().zip(sources).enumerate() {
+            let Some(source) = source else { continue };
+            let Kind::View {
+                source: expression, ..
+            } = &node_at(root, path).bindings[*index].kind
+            else {
+                continue;
+            };
+            for name in expression.properties() {
+                readers
+                    .entry((node_at(root, source).key, name.to_owned()))
+                    .or_default()
+                    .push(slot);
+            }
+        }
+        // Share the ordinary settling bound so cyclic observers cannot grow the queue forever.
+        for _ in 0..VIEW_PASSES.saturating_mul(list.len()) {
+            let Some(input) = pending.pop_front() else {
+                break;
+            };
+            for &slot in readers.get(&input).into_iter().flatten() {
+                let (path, index) = &list[slot];
+                if self.notify(root, path, *index, sources[slot].as_deref()) {
+                    let node = node_at(root, path);
+                    if let Kind::View { target, .. } = &node.bindings[*index].kind {
+                        pending.push_back((node.key, target.clone()));
+                    }
+                }
+            }
+        }
     }
 
     /// Skips a settled view only when its control, source identity and controller reads stand.
@@ -292,7 +348,9 @@ impl Binder<'_> {
         let mut wrote = false;
         node.track.touched |= first;
         if source.is_some() {
-            let fire = observed.is_some() && node.memory.views.get(&index) != Some(&observed);
+            let refreshed = observed.is_some() && node.memory.creation_writes.remove(target);
+            let fire = observed.is_some()
+                && (refreshed || node.memory.views.get(&index) != Some(&observed));
             if !registered || node.memory.views.get(&index) != Some(&observed) {
                 node.memory.views.insert(index, observed.clone());
                 node.track.touched = true;

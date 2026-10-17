@@ -414,3 +414,29 @@ fn retained_rows_keep_named_caption_templates_without_duplicate_placements() {
             .is_none()
     );
 }
+
+#[test]
+fn open_chat_keeps_inline_captions_inheriting_hud_labels() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/chat_screen.json",
+        json!({"namespace":"chat",
+            "messages_text":{"controls":[{"caption@hud.chat_label":{"text":"Server caption"}}]}
+        }),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let mut chat = builtin;
+    for control in retained {
+        chat.insert(control);
+    }
+    for catalog in [&pack, &chat] {
+        let messages = json_ui::resolve(catalog, "chat.messages_text", &json_ui::Context::empty())
+            .control
+            .unwrap();
+        let caption = messages
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .expect("inline caption survives placement suppression");
+        assert_eq!(caption.properties["text"], "Server caption");
+    }
+}
