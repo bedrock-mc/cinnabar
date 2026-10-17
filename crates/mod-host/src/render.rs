@@ -62,7 +62,10 @@ impl RenderState {
     pub fn commit(&mut self) {
         self.retained.commit();
         let snapshot = self.retained.snapshot();
-        let retained = if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+        let retained = if snapshot.geometry.is_empty()
+            && snapshot.instances.is_empty()
+            && snapshot.materials.is_empty()
+        {
             Vec::new()
         } else {
             vec![Arc::clone(snapshot)]

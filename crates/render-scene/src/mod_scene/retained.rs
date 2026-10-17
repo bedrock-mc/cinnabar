@@ -21,6 +21,7 @@ pub struct GpuInstance {
     pub transform: [[f32; 4]; 4],
     pub tint: [f32; 4],
     pub line: [f32; 4],
+    pub params: [f32; mod_api::materials::PARAMS],
 }
 
 /// Resolves admitted world, block and camera anchors from one trusted frame and view.
@@ -60,6 +61,7 @@ pub fn resolve(
     Some(GpuInstance {
         transform: transform.to_cols_array_2d(),
         tint: instance.tint,
+        params: instance.params,
         line: [
             instance.width,
             if instance.width_mode == WidthMode::Pixels {
@@ -122,6 +124,8 @@ mod tests {
                 generation: 1,
                 slot: 1,
             },
+            material: None,
+            params: mod_api::materials::Preset::default().0,
             anchor,
             transform: Transform::default(),
             tint: [1.; 4],

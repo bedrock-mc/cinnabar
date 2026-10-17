@@ -18,6 +18,8 @@ fn mesh() -> GeometrySpec {
 fn drawing(geometry: Handle) -> Instance {
     Instance {
         geometry,
+        material: None,
+        params: mod_api::materials::Preset::default().0,
         anchor: Anchor::World {
             dimension: 0,
             origin: [0.; 3],
@@ -285,4 +287,109 @@ fn triangle_expansion_preserves_indices_and_zero_length_lines_emit_nothing() {
     assert_eq!(expanded.len(), 3);
     assert_eq!(expanded[1].a[..3], [1., 0., 0.]);
     assert!(super::mesh::build(&store.snapshot().geometry[&line]).is_empty());
+}
+
+#[test]
+fn materials_require_authority_and_share_transaction_and_handle_lifetimes() {
+    let mut store = Store::default();
+    let mut denied = DrawingPermissions::ALL;
+    denied.render_material = false;
+    let source = crate::material::BUILTIN;
+    assert_eq!(
+        store.create_material(source, denied).unwrap_err().code,
+        ErrorCode::Denied
+    );
+    let stale = store
+        .create_material(source, DrawingPermissions::ALL)
+        .unwrap();
+    store.rollback();
+    store.begin();
+    let material = store
+        .create_material(source, DrawingPermissions::ALL)
+        .unwrap();
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.material = Some(stale);
+    assert_eq!(
+        store
+            .create(instance.clone(), DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleHandle
+    );
+    instance.material = Some(material);
+    assert_eq!(
+        store.create(instance.clone(), denied).unwrap_err().code,
+        ErrorCode::Denied
+    );
+    let id = store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    assert_eq!(store.remove(material).unwrap_err().code, ErrorCode::InUse);
+    let snapshot = store.snapshot().clone();
+    store.begin();
+    instance.params = mod_api::materials::Preset::rainbow(2.).0;
+    store.update(id, instance, DrawingPermissions::ALL).unwrap();
+    store.commit();
+    assert!(Arc::ptr_eq(
+        &snapshot.geometry[&geometry],
+        &store.snapshot().geometry[&geometry]
+    ));
+    store.remove(id).unwrap();
+    store.remove(material).unwrap();
+    store.commit();
+    assert!(store.snapshot().materials.is_empty());
+    store.revoke();
+    assert_eq!(
+        store.remove(material).unwrap_err().code,
+        ErrorCode::StaleHandle
+    );
+}
+
+#[test]
+fn rejected_compiles_and_retiring_materials_consume_their_budgets() {
+    let mut store = Store::default();
+    assert_eq!(
+        store
+            .create_material("bad source", DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::Invalid
+    );
+    assert_eq!(
+        store
+            .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    let mut handles = Vec::new();
+    for _ in 0..mod_api::MAX_DRAW_MATERIALS {
+        store.begin();
+        handles.push(
+            store
+                .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+                .unwrap(),
+        );
+        store.commit();
+    }
+    let snapshot = store.snapshot().clone();
+    store.begin();
+    store.remove(handles[0]).unwrap();
+    store.commit();
+    store.begin();
+    assert_eq!(
+        store
+            .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    drop(snapshot);
+    store.commit();
+    store.begin();
+    store
+        .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+        .unwrap();
 }

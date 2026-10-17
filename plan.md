@@ -10019,5 +10019,10 @@ written but unrun; this does not close a renderer parity or frame-budget gate.
 Drawing permissions and connection fences cover legacy post effects, block highlights and
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained indexed meshes, polylines, shared instances and callback groups are admitted
 transactionally with per-owner quotas. The shared unlit renderer reuses meshes and updates view-relative instances.
+Procedural materials add fixed per-instance parameters, a wrapped real-time session clock,
+SDK presets and owner-scoped fragment-only WGSL with compile and cost bounds. World
+emission participates in enabled HDR bloom; render-mode-independent halos require the
+separate mask path. Deterministic lifecycle, shader and animation capture tests are written;
+execution and native captures remain pending.
 Entity anchors, native output captures and hardware budgets remain incomplete; no rendering parity or performance
 gate is closed by these contracts.

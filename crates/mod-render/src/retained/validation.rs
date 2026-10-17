@@ -121,7 +121,8 @@ pub(super) fn instance(
     resources: &Resources,
     permissions: DrawingPermissions,
 ) -> Result<(), DrawError> {
-    if !permissions.world_draw
+    if (instance.material.is_some() && !permissions.render_material)
+        || !permissions.world_draw
         || (instance.depth == Depth::Always && !permissions.render_through_walls)
         || (matches!(instance.anchor, Anchor::Entity(_))
             && !(permissions.entity_observe && permissions.entity_highlight))
@@ -130,6 +131,14 @@ pub(super) fn instance(
     }
     if matches!(instance.anchor, Anchor::Entity(_)) {
         return Err(error(ErrorCode::Unsupported, "entity anchors"));
+    }
+    if let Some(material) = instance.material {
+        if !resources.materials.contains_key(&material) {
+            return Err(error(ErrorCode::StaleHandle, "material"));
+        }
+    }
+    if !instance.params.iter().all(|value| value.is_finite()) {
+        return Err(error(ErrorCode::Invalid, "material parameters"));
     }
     let geometry = resources
         .geometry

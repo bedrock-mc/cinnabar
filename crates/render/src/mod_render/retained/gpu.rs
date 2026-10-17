@@ -1,4 +1,4 @@
-use super::pipeline;
+use super::{clock::AnimationClock, materials, pipeline};
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::core_pipeline::core_3d::Transparent3d;
 use bevy::{
@@ -37,18 +37,30 @@ pub(super) struct Batch {
     pub instances: Range<u32>,
     pub depth: Depth,
     pub blend: Blend,
+    pub material: Option<DrawingHandle>,
+    pub key: pipeline::Key,
 }
 pub(super) struct ViewGpu {
     pub buffer: Buffer,
     pub uploaded: Vec<GpuInstance>,
     pub batches: Vec<Batch>,
     pub bindings: BTreeMap<DrawingHandle, BindGroup>,
-    pub view_buffer: Option<BufferId>,
+    pub frame: Buffer,
+    pub frame_uploaded: CameraFrame,
 }
 #[derive(Resource, Default)]
 pub(super) struct Gpu {
     pub meshes: BTreeMap<DrawingHandle, Mesh>,
     pub views: HashMap<Entity, ViewGpu>,
+}
+
+/// Fixed host camera/animation uniform shared by vertex and fragment stages.
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CameraFrame {
+    pub clip: [[f32; 4]; 4],
+    pub viewport: [f32; 4],
+    pub animation: [f32; 4],
 }
 
 /// Allocates a nonempty storage buffer, bounded by the contract's admitted array lengths.
@@ -74,6 +86,8 @@ pub(super) fn queue(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<pipeline::Pipeline>,
     mut gpu: ResMut<Gpu>,
+    mut materials: ResMut<materials::Materials>,
+    clock: Res<AnimationClock>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &ExtractedCamera, &Msaa)>,
@@ -92,6 +106,8 @@ pub(super) fn queue(
                 })
         })
         .collect();
+    materials.retain(&resources);
+    let mut compiles_left = mod_api::MAX_MATERIAL_PIPELINE_COMPILES_PER_FRAME;
     gpu.meshes
         .retain(|handle, _| resources.iter().any(|r| r.geometry.contains_key(handle)));
     for resources in &resources {
@@ -148,6 +164,7 @@ pub(super) fn queue(
                     last.geometry == instance.geometry
                         && last.depth == instance.depth
                         && last.blend == instance.blend
+                        && last.material == instance.material
                 }) {
                     last.instances.end = slot + 1;
                 } else {
@@ -156,6 +173,13 @@ pub(super) fn queue(
                         instances: slot..slot + 1,
                         depth: instance.depth,
                         blend: instance.blend,
+                        material: instance.material,
+                        key: pipeline::Key {
+                            msaa: *msaa,
+                            hdr: extracted_camera.hdr,
+                            always: instance.depth == Depth::Always,
+                            additive: instance.blend == Blend::Additive,
+                        },
                     });
                 }
             }
@@ -165,8 +189,36 @@ pub(super) fn queue(
             uploaded: Vec::new(),
             batches: Vec::new(),
             bindings: BTreeMap::new(),
-            view_buffer: None,
+            frame: device.create_buffer(&BufferDescriptor {
+                label: Some("mod drawing camera"),
+                size: std::mem::size_of::<CameraFrame>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            frame_uploaded: CameraFrame::default(),
         });
+        let view_matrix = camera.to_matrix();
+        let rotation = Mat4::from_cols(
+            view_matrix.x_axis,
+            view_matrix.y_axis,
+            view_matrix.z_axis,
+            Vec4::W,
+        )
+        .inverse();
+        let camera_frame = CameraFrame {
+            clip: (view.clip_from_view * rotation).to_cols_array_2d(),
+            viewport: [
+                view.viewport.z as f32,
+                view.viewport.w as f32,
+                view.clip_from_view.y_axis.y,
+                0.,
+            ],
+            animation: [clock.phase, 0., 0., 0.],
+        };
+        if camera_frame != prepared.frame_uploaded {
+            queue.profiled_write_buffer(&prepared.frame, 0, bytemuck::bytes_of(&camera_frame));
+            prepared.frame_uploaded = camera_frame;
+        }
         let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
         if bytes as u64 > prepared.buffer.size() {
             prepared.buffer = buffer(&device, bytes.next_power_of_two());
@@ -180,12 +232,23 @@ pub(super) fn queue(
         }
         prepared.batches = batches;
         for (index, batch) in prepared.batches.iter().enumerate() {
-            let key = pipeline::Key {
-                msaa: *msaa,
-                hdr: extracted_camera.hdr,
-                always: batch.depth == Depth::Always,
-                additive: batch.blend == Blend::Additive,
-            };
+            let key = batch.key;
+            if let Some(handle) = batch.material {
+                let Some(material) = resources.iter().find_map(|r| r.materials.get(&handle)) else {
+                    continue;
+                };
+                if !materials.ensure(
+                    handle,
+                    material,
+                    key,
+                    &device,
+                    &cache,
+                    &pipeline.layout,
+                    &mut compiles_left,
+                ) {
+                    continue;
+                }
+            }
             let Ok(pipeline) = pipeline.variants.specialize(&cache, key) else {
                 continue;
             };

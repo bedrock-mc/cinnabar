@@ -43,6 +43,22 @@ impl wit::Host for State {
         Ok(result)
     }
 
+    fn create_material(
+        &mut self,
+        source: String,
+    ) -> anyhow::Result<Result<wit::Handle, wit::DrawError>> {
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        Ok(self
+            .render
+            .retained
+            .create_material(&source, permissions)
+            .map(output_handle)
+            .map_err(convert_error))
+    }
+
     fn create_geometry(
         &mut self,
         spec: wit::GeometrySpec,
@@ -76,6 +92,9 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if spec.params.len() > mod_api::materials::PARAMS {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -93,6 +112,9 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if spec.params.len() > mod_api::materials::PARAMS {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -109,6 +131,12 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if draws
+            .iter()
+            .any(|draw| draw.params.len() > mod_api::materials::PARAMS)
+        {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -126,6 +154,14 @@ impl wit::Host for State {
             .remove(handle(id))
             .map_err(convert_error))
     }
+}
+
+/// Reports an oversized fixed material block without truncating caller data.
+fn parameter_error() -> wit::DrawError {
+    convert_error(domain::DrawError {
+        code: domain::ErrorCode::Invalid,
+        detail: "material parameters",
+    })
 }
 
 /// Converts a copied ABI token without trusting its owner or generation.
@@ -157,6 +193,8 @@ fn vertex(v: wit::Vertex) -> domain::Vertex {
 fn instance(spec: wit::Instance) -> domain::Instance {
     domain::Instance {
         geometry: handle(spec.geometry),
+        material: spec.material.map(handle),
+        params: std::array::from_fn(|index| spec.params.get(index).copied().unwrap_or(0.)),
         anchor: match spec.anchor {
             wit::Anchor::World(anchor) => domain::Anchor::World {
                 dimension: anchor.dimension,
@@ -259,6 +297,42 @@ mod tests {
         assert!(state.render.output().retained.is_empty());
         assert_eq!(
             state.remove(geometry).unwrap().unwrap_err().code,
+            wit::ErrorCode::StaleHandle
+        );
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+    use wit::Host as _;
+    #[test]
+    fn material_import_requires_grant_and_publishes_only_on_commit() {
+        let mut state = State::new(
+            crate::ModGrants::default(),
+            String::new(),
+            Default::default(),
+        );
+        state.grants.world_draw = true;
+        assert_eq!(
+            state
+                .create_material(mod_render::material::BUILTIN.into())
+                .unwrap()
+                .unwrap_err()
+                .code,
+            wit::ErrorCode::Denied
+        );
+        state.grants.render_material = true;
+        let handle = state
+            .create_material(mod_render::material::BUILTIN.into())
+            .unwrap()
+            .unwrap();
+        assert!(state.render.output().retained.is_empty());
+        state.render.commit();
+        assert_eq!(state.render.output().retained[0].materials.len(), 1);
+        state.render.revoke();
+        assert_eq!(
+            state.remove(handle).unwrap().unwrap_err().code,
             wit::ErrorCode::StaleHandle
         );
     }
