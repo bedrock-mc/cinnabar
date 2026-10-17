@@ -1963,6 +1963,9 @@ not close a parity or visual acceptance gate.
 - Manual crafting fills compatible destinations through repeated bounded result scopes.
   Each scope declares its per-craft output once. Explicit counts remain atomic when they
   do not fit; craft-all stops at available destination space.
+- Ordinary recipe ingredients match their admitted item identity, aux and tags independently
+  of unrelated item data. Crafting preserves remaining input data and keeps consumption
+  permissions and output merging as separate checks.
 - Secondary creative catalog clicks create one item with an empty cursor and destroy one
   with a held selection. Typed item locks apply to ordinary player removal, storage and
   station placement, drops, destruction and consumption.

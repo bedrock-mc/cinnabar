@@ -279,9 +279,23 @@ fn survival_empty_recipe_book_hit_keeps_the_cursor_selection() {
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     assert_eq!(
-        runtime.recipe_book_click(&mut player, 0, false),
+        runtime.recipe_book_click(&mut player, 0, false, None),
         Err(InventoryGestureError::EmptyGesture)
     );
     assert_eq!(player.inventory.ledger().cursor_stack().unwrap().count, 8);
     assert_eq!(player.inventory.ledger().pending_request_count(), 0);
+}
+#[test]
+fn creative_json_ui_secondary_catalog_click_takes_or_destroys_one() {
+    for held in [None, Some((9000, 8)), Some((9001, 8))] {
+        let Some((mut runtime, mut player)) = creative_selection(held) else {
+            return;
+        };
+        runtime
+            .secondary_click_hit(&mut player, InventoryCellHit::RecipeBook(0))
+            .unwrap();
+        let expected = held.map_or((9000, 1), |(id, count)| (id, count - 1));
+        let shown = player.inventory.ledger().cursor_stack().unwrap();
+        assert_eq!((shown.network_id, shown.count), expected);
+    }
 }
