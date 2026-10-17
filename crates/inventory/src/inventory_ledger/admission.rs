@@ -420,17 +420,9 @@ impl PlayerInventoryLedger {
                 (self.pending_open_warnings + 1).min(super::MAX_PENDING_REQUESTS);
             return;
         }
-        // A closed window still settling keeps its requests; only the replaced one's go.
-        let settling = self.settling_storage_generations();
-        self.abandon_requests(|pending| {
-            pending
-                .storage_generation
-                .is_some_and(|generation| !settling.contains(&generation))
-        });
+        self.retire_replaced_windows(None);
         self.controls.personal.desired_open = false;
         self.controls.personal.confirmed = None;
-        self.discard_pending_personal_open();
-        self.finish_personal_close(false);
         self.enchant_options = None;
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);

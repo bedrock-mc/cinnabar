@@ -1,4 +1,92 @@
 use super::*;
+use crate::inventory_ledger::{
+    PERSONAL_INVENTORY_WINDOW_TYPE, lifecycle_tests::accept_cursor_move,
+};
+
+/// Delivers a replacement at each close acknowledgement boundary, then settles its returns.
+fn assert_replacement_retains_returns(old_storage: bool, new_storage: bool) {
+    for replacement_id in [3, 7] {
+        for close_order in 0..3 {
+            for take_pending in [false, true] {
+                let mut ledger = ledger_with_slot_zero();
+                let original = if old_storage {
+                    storage_open(3)
+                } else {
+                    InventoryEvent::Open(personal_open(3))
+                };
+                ledger.apply(&original);
+                let take = ledger.begin_click(0).unwrap();
+                assert!(ledger.mark_transport_enqueued(10));
+                if !take_pending {
+                    accept_cursor_move(&mut ledger, take, false);
+                }
+                let old_type = if old_storage {
+                    ledger.request_storage_close();
+                    GENERIC_STORAGE_WINDOW_TYPE
+                } else {
+                    ledger.request_personal_close();
+                    PERSONAL_INVENTORY_WINDOW_TYPE
+                };
+                let returning = ledger.newest_request().unwrap().request_id;
+                assert_ne!(returning, take);
+                assert!(ledger.mark_transport_enqueued(20));
+                assert!(ledger.mark_transport_enqueued(21));
+                if close_order == 0 {
+                    acknowledge_close(&mut ledger, 3, old_type);
+                }
+                let replacement = if new_storage {
+                    storage_open(replacement_id)
+                } else {
+                    InventoryEvent::Open(personal_open(replacement_id))
+                };
+                ledger.apply(&replacement);
+                if close_order == 1 {
+                    acknowledge_close(&mut ledger, 3, old_type);
+                }
+                if take_pending {
+                    accept_cursor_move(&mut ledger, take, false);
+                }
+                accept_cursor_move(&mut ledger, returning, true);
+                if close_order == 2 {
+                    acknowledge_close(&mut ledger, 3, old_type);
+                }
+
+                assert_eq!(ledger.pending_request_count(), 0);
+                assert!(!ledger.resync_required());
+                assert!(ledger.cursor_stack().is_none());
+                let returned = ledger.displayed_stack(0).unwrap();
+                assert_eq!((returned.count, returned.stack_network_id), (32, 9));
+                assert_eq!(
+                    ledger.window_kind(),
+                    new_storage.then_some(protocol::WindowKind::Storage)
+                );
+                assert_eq!(ledger.personal_inventory_desired_open(), !new_storage);
+                assert!(ledger.pending_control_packet().unwrap().is_none());
+                assert!(ledger.begin_click(0).is_ok());
+            }
+        }
+    }
+}
+
+#[test]
+fn personal_open_retains_admitted_personal_returns() {
+    assert_replacement_retains_returns(false, false);
+}
+
+#[test]
+fn storage_open_retains_admitted_personal_returns() {
+    assert_replacement_retains_returns(false, true);
+}
+
+#[test]
+fn personal_open_retains_admitted_storage_returns() {
+    assert_replacement_retains_returns(true, false);
+}
+
+#[test]
+fn storage_open_retains_admitted_storage_returns() {
+    assert_replacement_retains_returns(true, true);
+}
 
 #[test]
 fn unsupported_replacement_preserves_storage_and_does_not_send_a_close() {

@@ -105,6 +105,13 @@ impl WindowControls {
         })
     }
 
+    /// Whether this generation already has a close admitted to transport.
+    pub fn close_admitted(&self, kind: ControlKind, generation: u64) -> bool {
+        self.state(kind).sent.is_some_and(|sent| {
+            matches!(sent.request, ControlRequest::Close(window) if window.generation == generation)
+        })
+    }
+
     /// Resolves the admitted generation, accepting an untyped acknowledgement only for its sole ID slot.
     pub fn answer_close(&mut self, close: protocol::ContainerCloseEvent) -> Option<SentControl> {
         let kind = [ControlKind::Personal, ControlKind::Storage]

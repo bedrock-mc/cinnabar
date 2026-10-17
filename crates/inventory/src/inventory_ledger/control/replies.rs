@@ -45,16 +45,7 @@ impl PlayerInventoryLedger {
                 self.next_open_generation = generation.wrapping_add(1).max(1);
                 generation
             });
-        if self
-            .personal
-            .is_some_and(|personal| personal.generation() != generation)
-        {
-            self.discard_pending_personal_open();
-            self.finish_personal_close(false);
-        }
-        if self.storage.is_some() {
-            self.close_storage();
-        }
+        self.retire_replaced_windows(Some(generation));
         self.controls.storage.confirmed = None;
         self.controls.storage.desired_open = false;
         self.controls.personal.confirmed = Some(ControlWindow {
@@ -64,6 +55,28 @@ impl PlayerInventoryLedger {
         });
         self.controls.personal.desired_open = true;
         self.personal = Some(crate::inventory_ledger::PersonalWindow::Open { generation });
+    }
+
+    /// Retires replaced windows, keeping admitted closes' unanswered item requests correlated.
+    pub(in crate::inventory_ledger) fn retire_replaced_windows(
+        &mut self,
+        retained_personal_generation: Option<u64>,
+    ) {
+        if let Some(personal) = self.personal
+            && Some(personal.generation()) != retained_personal_generation
+        {
+            let close_admitted = self
+                .controls
+                .close_admitted(ControlKind::Personal, personal.generation());
+            self.discard_pending_personal_open();
+            self.finish_personal_close(close_admitted);
+        }
+        if let Some(generation) = self.storage_generation() {
+            let close_admitted = self
+                .controls
+                .close_admitted(ControlKind::Storage, generation);
+            self.acknowledge_storage_close(!close_admitted);
+        }
     }
 
     /// Keeps authoritative server commands separate from outstanding client acknowledgements.
