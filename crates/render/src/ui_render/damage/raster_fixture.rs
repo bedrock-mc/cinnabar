@@ -44,6 +44,7 @@ fn pipeline(
                     depth_test: depth.0,
                     depth_write: depth.1,
                     isolated_depth: true,
+                    attached_depth: false,
                 },
                 &mut descriptor,
             )
