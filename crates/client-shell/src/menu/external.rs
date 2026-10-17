@@ -13,6 +13,7 @@ pub(super) struct ExternalServices {
     intent: Option<AccountIntent>,
     pub(super) preferences_dirty: bool,
     gui_scale_offset: i8,
+    identity: Option<String>,
 }
 
 impl MenuRuntime {
@@ -46,10 +47,22 @@ impl MenuRuntime {
         profile: MenuProfile,
         stage: Option<JoinStage>,
     ) {
-        if self.external.is_none() {
+        let Some(external) = self.external.as_mut() else {
             return;
-        }
-        if profile.gamertag != self.feeds.profile.gamertag {
+        };
+        let retired = match state {
+            AuthState::Authenticated => {
+                let retired = external
+                    .identity
+                    .as_ref()
+                    .is_none_or(|old| old != &profile.gamertag);
+                external.identity = Some(profile.gamertag.clone());
+                retired
+            }
+            AuthState::SignedOut => external.identity.take().is_some(),
+            _ => false,
+        };
+        if retired {
             self.clear_retry_target();
         }
         self.feeds.profile = profile;
@@ -239,5 +252,28 @@ mod tests {
             menu.view().message.as_deref(),
             Some("Browser preferences could not be saved.")
         );
+    }
+
+    #[test]
+    fn external_retry_survives_transport_loss_but_not_an_account_change() {
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        menu.use_external_services(vec![], 0);
+        let profile = MenuProfile {
+            gamertag: "Fixture".into(),
+            ..MenuProfile::unavailable()
+        };
+        menu.sync_external_account(AuthState::Authenticated, profile.clone(), None);
+        menu.request_connect("example.invalid".into());
+        assert!(menu.take_join_intent().is_some());
+        menu.sync_external_account(
+            AuthState::Failed("Disconnected".into()),
+            MenuProfile::default(),
+            None,
+        );
+        assert!(menu.retry_target.is_some());
+        menu.sync_external_account(AuthState::Authenticated, profile, None);
+        assert!(menu.retry_target.is_some());
+        menu.sync_external_account(AuthState::SignedOut, MenuProfile::default(), None);
+        assert!(menu.retry_target.is_none());
     }
 }

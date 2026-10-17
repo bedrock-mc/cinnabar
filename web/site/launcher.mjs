@@ -10,7 +10,8 @@ export function signInGestures(canvas, actionAt, focusedAction, link, report, vi
     if (url.protocol !== "https:" || !url.hostname || url.username || url.password) {
       report("The sign-in link is invalid."); return;
     }
-    view.open(url.href, "_blank", "noopener,noreferrer");
+    try { view.open(url.href, "_blank", "noopener,noreferrer"); }
+    catch { report("The sign-in page could not be opened. Use the displayed code to sign in."); }
   };
   /** Uses this event's coordinates rather than a previous frame's hover state. */
   const pointer = (event) => {
@@ -22,12 +23,12 @@ export function signInGestures(canvas, actionAt, focusedAction, link, report, vi
     if (!disposed && event.isTrusted && !event.repeat && ["Enter", " "].includes(event.key) &&
         focusedAction() === "open_sign_in_link") { event.preventDefault(); open(); }
   };
-  canvas.addEventListener("pointerdown", pointer);
-  canvas.addEventListener("keydown", keyboard);
+  canvas.addEventListener("pointerdown", pointer, true);
+  canvas.addEventListener("keydown", keyboard, true);
   return () => {
     disposed = true;
-    canvas.removeEventListener("pointerdown", pointer);
-    canvas.removeEventListener("keydown", keyboard);
+    canvas.removeEventListener("pointerdown", pointer, true);
+    canvas.removeEventListener("keydown", keyboard, true);
   };
 }
 
