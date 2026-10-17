@@ -48,9 +48,7 @@ pub(super) fn remember(pages: &Arc<[ActorTexturePage]>, keys: &[([u8; 32], usize
     let mut live = LIVE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if live.len() >= MAX_ACTOR_TEXTURE_PAGES {
-        live.retain(|_, page| page.owner.strong_count() != 0);
-    }
+    live.retain(|_, page| page.owner.strong_count() != 0);
     for &(key, index) in keys {
         if live.len() < MAX_ACTOR_TEXTURE_PAGES {
             live.insert(
