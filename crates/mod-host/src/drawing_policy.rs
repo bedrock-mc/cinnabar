@@ -114,4 +114,26 @@ mod tests {
             grants
         );
     }
+    #[test]
+    fn drawing_capability_names_agree_across_admission_and_negotiation() {
+        use experience_sdk::mod_manifest::ModManifest;
+        use server_experience::manifest::Permission;
+        for &name in DrawingPermissions::NAMES {
+            let grants: ModGrants =
+                serde_json::from_value(serde_json::json!({(name): true})).unwrap();
+            let descriptor = ModGrants::CAPABILITIES
+                .iter()
+                .find(|capability| capability.name == name)
+                .unwrap();
+            assert!((descriptor.enabled)(&grants));
+            let permission: Permission = serde_json::from_value(name.into()).unwrap();
+            assert_eq!(serde_json::to_value(permission).unwrap(), name);
+            let manifest: ModManifest = serde_json::from_value(serde_json::json!({"id":"drawing", "version":"1", "api":experience_sdk::mod_manifest::API, "permissions":[name]})).unwrap();
+            let request = ModGrants::from_manifest(&manifest).drawing_permissions();
+            for &other in DrawingPermissions::NAMES {
+                assert_eq!(grants.drawing_permissions().enabled(other), other == name);
+                assert_eq!(request.enabled(other), other == name);
+            }
+        }
+    }
 }
