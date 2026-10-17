@@ -55,43 +55,61 @@ impl PlayerInventoryLedger {
     ) -> Result<(), InventoryGestureError> {
         let mut cells = self.view().clone();
         for group in &submission.groups {
-            match group {
-                DeltaGroup::Transfer {
-                    source,
-                    destination,
-                    amount,
-                    ..
-                } => {
-                    self.validate_removal(*source, cells.get(*source))?;
-                    if let Some(from) = cells.get(*source) {
-                        self.validate_placement(&cells, *destination, from, *amount)?;
-                    }
-                }
-                DeltaGroup::Swap {
-                    source,
-                    destination,
-                    ..
-                } => {
-                    self.validate_removal(*source, cells.get(*source))?;
-                    self.validate_removal(*destination, cells.get(*destination))?;
-                    let mut empty = cells.clone();
-                    empty.set(*source, None);
-                    empty.set(*destination, None);
-                    if let Some(from) = cells.get(*source) {
-                        self.validate_placement(&empty, *destination, from, from.stack.count)?;
-                    }
-                    if let Some(from) = cells.get(*destination) {
-                        self.validate_placement(&empty, *source, from, from.stack.count)?;
-                    }
-                }
-                DeltaGroup::Shrink { source, .. } => {
-                    self.validate_removal(*source, cells.get(*source))?
-                }
-                DeltaGroup::Set { .. } | DeltaGroup::Retain { .. } => {}
-            }
+            self.validate_group(&cells, group)?;
             if !group.apply(&mut cells) {
                 return Err(InventoryGestureError::InvalidRequest);
             }
+        }
+        Ok(())
+    }
+
+    /// Rechecks one operation's permissions and item compatibility against its actual inputs.
+    pub(super) fn validate_group(
+        &self,
+        cells: &Cells,
+        group: &DeltaGroup,
+    ) -> Result<(), InventoryGestureError> {
+        match group {
+            DeltaGroup::Transfer {
+                source,
+                destination,
+                amount,
+                ..
+            } => {
+                self.validate_removal(*source, cells.get(*source))?;
+                if let Some(from) = cells.get(*source) {
+                    if let Some(into) = cells.get(*destination)
+                        && !matches!(
+                            self.merge_item_relation(from, into),
+                            super::registry::OccupiedStackRelation::Compatible { .. }
+                        )
+                    {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    }
+                    self.validate_placement(cells, *destination, from, *amount)?;
+                }
+            }
+            DeltaGroup::Swap {
+                source,
+                destination,
+                ..
+            } => {
+                self.validate_removal(*source, cells.get(*source))?;
+                self.validate_removal(*destination, cells.get(*destination))?;
+                let mut empty = cells.clone();
+                empty.set(*source, None);
+                empty.set(*destination, None);
+                if let Some(from) = cells.get(*source) {
+                    self.validate_placement(&empty, *destination, from, from.stack.count)?;
+                }
+                if let Some(from) = cells.get(*destination) {
+                    self.validate_placement(&empty, *source, from, from.stack.count)?;
+                }
+            }
+            DeltaGroup::Shrink { source, .. } => {
+                self.validate_removal(*source, cells.get(*source))?
+            }
+            DeltaGroup::Set { .. } | DeltaGroup::Retain { .. } => {}
         }
         Ok(())
     }

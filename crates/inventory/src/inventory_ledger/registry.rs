@@ -105,7 +105,27 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
+    /// Checks item compatibility and the settled identities needed for a new merge.
     pub(super) fn occupied_stack_relation(
+        &self,
+        source: &Held,
+        destination: &Held,
+    ) -> OccupiedStackRelation {
+        let (source_stack, destination_stack) = (&source.stack, &destination.stack);
+        if self.authority == Some(protocol::InventoryAuthority::Server)
+            && (self.stack_awaiting_identity(source_stack)
+                || self.stack_awaiting_identity(destination_stack)
+                || ((source_stack.stack_network_id > 0
+                    || protocol::is_legacy_request_id(source_stack.stack_network_id))
+                    && source_stack.stack_network_id == destination_stack.stack_network_id))
+        {
+            return OccupiedStackRelation::Unsupported;
+        }
+        self.merge_item_relation(source, destination)
+    }
+
+    /// Compares retained item identity and capacity without requiring transport-ready stack IDs.
+    pub(super) fn merge_item_relation(
         &self,
         source: &Held,
         destination: &Held,
@@ -120,15 +140,6 @@ impl PlayerInventoryLedger {
             || source.block_runtime_id != destination.block_runtime_id
         {
             return OccupiedStackRelation::Incompatible;
-        }
-        if self.authority == Some(protocol::InventoryAuthority::Server)
-            && (self.stack_awaiting_identity(source)
-                || self.stack_awaiting_identity(destination)
-                || ((source.stack_network_id > 0
-                    || protocol::is_legacy_request_id(source.stack_network_id))
-                    && source.stack_network_id == destination.stack_network_id))
-        {
-            return OccupiedStackRelation::Unsupported;
         }
         let Some(registry) = self.item_registry.as_ref() else {
             return if distinct_network_ids {

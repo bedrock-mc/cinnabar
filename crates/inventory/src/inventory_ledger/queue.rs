@@ -408,7 +408,7 @@ impl PlayerInventoryLedger {
                 }
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);
-                    group.apply(&mut cells)
+                    self.validate_group(&cells, group).is_ok() && group.apply(&mut cells)
                 }) {
                     invalid = Some(request.request_id);
                     break;

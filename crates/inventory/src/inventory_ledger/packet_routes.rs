@@ -127,33 +127,52 @@ impl PlayerInventoryLedger {
         if identity.dynamic_id.is_some() {
             return None;
         }
-        let storage = self.storage.as_ref()?;
+        if self.storage.is_none() && self.personal.is_none() {
+            return None;
+        }
         let name = identity.slot_type?;
         let cells: Vec<_> = match ContainerName::from_wire(name)? {
             ContainerName::Cursor => vec![Cell::Cursor],
-            ContainerName::HotBar => (0..self.confirmed.player_len().min(usize::from(protocol::HOTBAR_SLOT_COUNT)))
-                .map(|slot| Cell::Inventory(slot as u8)).collect(),
-            ContainerName::Inventory => (usize::from(protocol::HOTBAR_SLOT_COUNT)..self.confirmed.player_len())
-                .map(|slot| Cell::Inventory(slot as u8)).collect(),
-            ContainerName::CombinedHotBarAndInventory => (0..self.confirmed.player_len())
-                .map(|slot| Cell::Inventory(slot as u8)).collect(),
-            _ if storage.kind.open_cells().is_some() => {
-                (0..self.confirmed.storage_len()).filter_map(|slot| {
-                    let (container, _) = protocol::open_cell_request(
-                        storage.kind, slot as u8, None,
-                        storage.identity.and_then(|identity| identity.slot_type),
-                    )?;
-                    let registered_name = match container {
-                        protocol::StackRequestContainer::LevelEntity { .. } => protocol::CONTAINER_NAME_LEVEL_ENTITY,
-                        protocol::StackRequestContainer::OpenWindow { name, .. } => name,
-                        _ => return None,
-                    };
-                    (registered_name == name).then_some(Cell::Storage(slot as u8))
-                }).collect()
-            }
-            _ => super::crafting_close::screen_input_cells(Some(storage.kind))
-                .filter(|cell| matches!(cell, Cell::Craft(slot) if protocol::ui_slot_container_name(*slot) == Some(name)))
+            ContainerName::HotBar => (0..self
+                .confirmed
+                .player_len()
+                .min(usize::from(protocol::HOTBAR_SLOT_COUNT)))
+                .map(|slot| Cell::Inventory(slot as u8))
                 .collect(),
+            ContainerName::Inventory => (usize::from(protocol::HOTBAR_SLOT_COUNT)
+                ..self.confirmed.player_len())
+                .map(|slot| Cell::Inventory(slot as u8))
+                .collect(),
+            ContainerName::CombinedHotBarAndInventory => (0..self.confirmed.player_len())
+                .map(|slot| Cell::Inventory(slot as u8))
+                .collect(),
+            _ => {
+                let storage = self.storage.as_ref()?;
+                if storage.kind.open_cells().is_some() {
+                    (0..self.confirmed.storage_len())
+                        .filter_map(|slot| {
+                            let (container, _) = protocol::open_cell_request(
+                                storage.kind,
+                                slot as u8,
+                                None,
+                                storage.identity.and_then(|identity| identity.slot_type),
+                            )?;
+                            let registered_name = match container {
+                                protocol::StackRequestContainer::LevelEntity { .. } => {
+                                    protocol::CONTAINER_NAME_LEVEL_ENTITY
+                                }
+                                protocol::StackRequestContainer::OpenWindow { name, .. } => name,
+                                _ => return None,
+                            };
+                            (registered_name == name).then_some(Cell::Storage(slot as u8))
+                        })
+                        .collect()
+                } else {
+                    super::crafting_close::screen_input_cells(Some(storage.kind))
+                        .filter(|cell| matches!(cell, Cell::Craft(slot) if protocol::ui_slot_container_name(*slot) == Some(name)))
+                        .collect()
+                }
+            }
         };
         (!cells.is_empty()).then_some(cells)
     }

@@ -371,3 +371,39 @@ fn registry_full_content_recovers_a_storage_snapshot() {
     assert_eq!(ledger.pending_request_count(), 0);
     assert!(ledger.begin_storage_click(2).is_ok());
 }
+
+/// Personal screens register the fixed player models without an ordinary storage window.
+#[test]
+fn review_regression_personal_registry_models_do_not_require_storage() {
+    let mut ledger = ready(InventoryAuthority::Server);
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.storage_generation().is_none());
+    for (name, relative, combined) in [
+        (protocol::CONTAINER_NAME_HOTBAR, 2, 2),
+        (protocol::CONTAINER_NAME_INVENTORY, 2, 11),
+        (
+            protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            12,
+            12,
+        ),
+    ] {
+        ledger.apply(&InventoryEvent::Slot(update(
+            named(125, name, None),
+            relative,
+            item(200, 3),
+        )));
+        assert_eq!(ledger.displayed_stack(combined), Some(&item(200, 3)));
+    }
+    ledger.apply(&content(
+        named(125, protocol::CONTAINER_NAME_CURSOR, None),
+        vec![item(201, 4)],
+    ));
+    assert_eq!(ledger.cursor_stack(), Some(&item(201, 4)));
+}

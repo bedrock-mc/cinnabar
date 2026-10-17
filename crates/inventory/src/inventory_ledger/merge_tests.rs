@@ -906,3 +906,6 @@ fn parity_requests_pass2_identical_named_nbt_can_merge() {
         Some("Original parity probe")
     );
 }
+
+#[path = "merge_tests/rebase.rs"]
+mod rebase;
