@@ -3,6 +3,9 @@ use glam::Vec3;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Definition {
@@ -103,8 +106,13 @@ fn sample_rotation(keys: &Keys, time: f32) -> Vec3 {
     if a.0 == b.0 {
         return a.1;
     }
-    let turn = (b.1 - a.1).map(|degrees| (degrees + 180.0).rem_euclid(360.0) - 180.0);
+    let turn = rotation_delta(a.1, b.1);
     a.1 + turn * ((time - a.0) / (b.0 - a.0)).clamp(0.0, 1.0)
+}
+
+/// Returns each axis's shortest signed turn in degrees, treating full turns as equivalent.
+fn rotation_delta(from: Vec3, to: Vec3) -> Vec3 {
+    (to - from).map(|degrees| (degrees + 180.0).rem_euclid(360.0) - 180.0)
 }
 
 impl Clip {
@@ -136,8 +144,11 @@ impl Clip {
     fn joins(&self, next: &Self) -> bool {
         self.tracks.iter().zip(&next.tracks).all(|(a, b)| {
             sample(&a.position, self.length).distance(sample(&b.position, 0.0)) < 1e-5
-                && sample_rotation(&a.rotation, self.length)
-                    .distance(sample_rotation(&b.rotation, 0.0))
+                && rotation_delta(
+                    sample_rotation(&a.rotation, self.length),
+                    sample_rotation(&b.rotation, 0.0),
+                )
+                .length()
                     < 1e-5
         })
     }
