@@ -75,7 +75,7 @@ impl HudLayout<'_> {
                 WORKBENCH_OUTPUT,
             )?;
             self.player_cells(player_runtime, runtime, frame, origin)?;
-            self.recipe_book(runtime, frame, screen, origin)?;
+            self.recipe_book(player_runtime, runtime, frame, screen, origin)?;
             return self.carried_item(player_runtime, runtime, frame);
         }
 
@@ -135,7 +135,7 @@ impl HudLayout<'_> {
             [152.0, 28.0],
         )?;
         self.player_cells(player_runtime, runtime, frame, origin)?;
-        self.recipe_book(runtime, frame, screen, origin)?;
+        self.recipe_book(player_runtime, runtime, frame, screen, origin)?;
         self.carried_item(player_runtime, runtime, frame)
     }
 
