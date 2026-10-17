@@ -529,3 +529,44 @@ fn chat_translation_and_duration_refresh_without_rebuilding_hotbar() {
     fixture.check(&mut cache);
     assert_eq!(cache.model.chat.len(), MAX_CHAT_LINES);
 }
+
+#[test]
+fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
+    let mut fixture = Fixture::default();
+    fixture.frame.now_millis = 1000;
+    fixture.settings.set(SettingId::ChatColor.index(), 1);
+    let message = ui_screens::test_support::hover_chat::message();
+    fixture.chat(&message, 1);
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.chat[0].text, message);
+    assert_eq!(
+        cache.model.chat_color,
+        Some(fixture.settings.chat_color_code())
+    );
+    let catalog = json_ui::Catalog::from_files(
+        ui_screens::test_support::hover_chat::files()
+            .iter()
+            .map(|(path, data)| (path.as_str(), data.as_slice())),
+    )
+    .unwrap();
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&catalog, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let data = json_ui::hud_data_source(&cache.model);
+    let bound = json_ui::bind_screen(
+        &root,
+        &catalog,
+        &context,
+        &data,
+        &mut json_ui::BindState::new(),
+    );
+    let caption = bound
+        .find(&|control: &json_ui::ResolvedControl| control.name == "caption")
+        .unwrap();
+    assert_eq!(
+        caption.properties["text"],
+        ui_screens::test_support::hover_chat::CAPTION
+    );
+}
