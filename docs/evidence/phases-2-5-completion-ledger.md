@@ -366,6 +366,11 @@ Plain chat offers `@here` and player-list names; command targets include `@n`.
 Education selectors, selector-expansion permission and cheat gating, selector
 argument completion, and live visual acceptance remain incomplete.
 
+Server-authored message content keeps its parser bindings and hover controls inside
+the client-owned chat placement. Regressions cover retained captions, HUD collection
+rows, pointer entry/exit through pass-through panels, display scaling and zero-sized
+tooltip controls. Native command-edit acceptance and broader JSON-UI parity remain open.
+
 ## P5.4-SCOREBOARD
 
 | Field | Evidence |
@@ -427,6 +432,17 @@ hardware frame-time and capture acceptance remain open.
 | Live/native witness | Fresh Vanilla and bounded Enhanced bamboo gallery, selection and timed breaking captures; screenshots accompany the change |
 | Performance/resource witness | No displayed-frame performance acceptance from hidden debug captures; ordinary Enhanced remains disabled |
 | Final status | Open |
+
+Video quality now reaches terrain meshing, including generation changes for running jobs and
+resource-pack rebuilds. Renderer work is reduced through uploaded native lightmap bytes,
+bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
+SMAA blending into the shared scene samples. Early depth rejection and shared passes across
+deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
+also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
+Opt-in Metal visibility admission uses fresh current-frame masks.
+Target-device frame-rate and full settings parity acceptance remain open; bounded fixtures
+and deterministic work budgets do not close these gates.
 
 ## P5.8-SETTINGS
 

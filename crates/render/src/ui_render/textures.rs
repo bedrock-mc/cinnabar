@@ -1,4 +1,4 @@
-//! Retained dimension buckets and transactional dirty-page write planning.
+//! Retained dimension buckets and per-bucket dirty-page write planning.
 
 use crate::{gpu_allocation, queue_writes::ProfiledQueue as _};
 use bevy::render::{
@@ -9,6 +9,7 @@ use bevy::render::{
     },
     renderer::{RenderDevice, RenderQueue},
 };
+use std::time::Duration;
 
 use bevy::prelude::{Res, ResMut};
 use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCache};
@@ -18,6 +19,9 @@ use super::{UiGpu, pipeline::UiPipeline};
 use render_model::{
     UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
+
+/// Delay between failed attempts for an unchanged texture plan.
+const TEXTURE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
 pub(crate) struct DeviceObservation {
@@ -52,6 +56,8 @@ pub(super) struct GpuBucket {
     /// `x` is 1 for a coverage bucket, which the shader samples as white with that alpha.
     pub(super) format_uniform: bevy::render::render_resource::Buffer,
     pub(super) bind_group: Option<BindGroup>,
+    #[cfg(test)]
+    allocation_lifetime: std::sync::Arc<()>,
 }
 
 #[derive(Default)]
@@ -60,7 +66,7 @@ pub(super) struct TextureUploadState {
     /// Plan whose locations the resident identities below occupy.
     plan: Option<UiTexturePlan>,
     /// Per page, the content identity resident at its location in `plan`.
-    uploaded: Vec<Option<[u8; 32]>>,
+    pub(super) uploaded: Vec<Option<[u8; 32]>>,
 }
 
 impl TextureUploadState {
@@ -115,7 +121,7 @@ impl TextureUploadState {
     }
 
     /// The executor is shared by device preparation and deterministic recording
-    /// tests. Only successful issuance of ALL writes commits content IDs.
+    /// tests. Only successful issuance of all supplied writes commits their content IDs.
     fn execute<E>(
         &mut self,
         catalog: &UiTextureCatalog,
@@ -129,13 +135,15 @@ impl TextureUploadState {
                 catalog.plan().locations()[index],
             )?;
         }
-        self.uploaded.clear();
-        self.uploaded
-            .extend(catalog.pages().iter().map(|page| Some(page.identity())));
-        self.static_identity = Some(catalog.static_identity());
         if self.plan.as_ref() != Some(catalog.plan()) {
+            self.uploaded.clear();
             self.plan = Some(catalog.plan().clone());
         }
+        self.uploaded.resize(catalog.pages().len(), None);
+        for &index in dirty {
+            self.uploaded[index] = Some(catalog.pages()[index].identity());
+        }
+        self.static_identity = Some(catalog.static_identity());
         Ok(())
     }
 }
@@ -143,15 +151,46 @@ impl TextureUploadState {
 #[derive(Default)]
 pub(super) struct UiGpuTextures {
     pub(super) fonts: render_model::FontAtlasFrame,
-    pub(super) buckets: Vec<GpuBucket>,
+    pub(super) buckets: Vec<Option<GpuBucket>>,
     pub(super) state: TextureUploadState,
     pub(super) locations: Vec<UiTextureLocation>,
     pub(super) bytes: usize,
     allocation_identity: Option<[u8; 32]>,
     allocation_plan: Option<UiTexturePlan>,
+    retry: Option<(Duration, u64)>,
+    pub(super) residency_generation: u64,
 }
 
 impl UiGpuTextures {
+    /// Reports whether the requested page has successfully uploaded storage.
+    pub(super) fn page_resident(&self, page: usize) -> bool {
+        self.state.uploaded.get(page).is_some_and(Option::is_some)
+            && self.locations.get(page).is_some_and(|location| {
+                self.buckets
+                    .get(location.bucket)
+                    .is_some_and(Option::is_some)
+            })
+    }
+
+    /// Invalidates failed glyph writes and delays another attempt on the same plan.
+    pub(super) fn failed_font_uploads(&mut self, pages: &[usize], bytes: u64, now: Duration) {
+        self.state.forget(pages);
+        self.fonts.clear();
+        self.retry = Some((now.saturating_add(TEXTURE_RETRY_DELAY), bytes));
+        self.residency_generation = self.residency_generation.wrapping_add(1);
+    }
+
+    /// Resolves a drawable page's binding, leaving failed pages absent.
+    pub(super) fn page_binding(&self, page: usize) -> Option<&BindGroup> {
+        if !self.page_resident(page) {
+            return None;
+        }
+        self.buckets[self.locations[page].bucket]
+            .as_ref()?
+            .bind_group
+            .as_ref()
+    }
+
     pub(super) fn allocated_buckets(&self) -> &[render_model::UiTextureBucket] {
         self.allocation_plan
             .as_ref()
@@ -161,6 +200,7 @@ impl UiGpuTextures {
         self.allocation_identity == Some(catalog.static_identity())
             && self.allocation_plan.as_ref() == Some(catalog.plan())
             && self.buckets.len() == catalog.plan().buckets().len()
+            && self.buckets.iter().all(Option::is_some)
             && self.locations == catalog.plan().locations()
             && self.state.uploaded.len() == catalog.pages().len()
             && self
@@ -176,6 +216,7 @@ impl UiGpuTextures {
         device: &RenderDevice,
         queue: &RenderQueue,
         profile: Option<&super::profile::UiProfile>,
+        now: Duration,
     ) -> Result<(), UiRenderRejectReason> {
         let limits = device.limits();
         catalog.plan().validate_device(
@@ -211,122 +252,148 @@ impl UiGpuTextures {
             }
         }
         // All catalog and per-device admission checks precede allocation/writes.
-        if replanned {
-            self.reallocate(catalog, device)?;
+        if !replanned {
+            let dirty = self.state.dirty(catalog)?;
+            if dirty
+                .iter()
+                .any(|&page| self.state.uploaded.get(page).is_some_and(Option::is_some))
+            {
+                self.residency_generation = self.residency_generation.wrapping_add(1);
+            }
+            self.state.forget(&dirty);
+            if let Some((retry_at, bytes)) = self.retry
+                && now < retry_at
+            {
+                return Err(UiRenderRejectReason::TextureAllocationFailed { bytes });
+            }
         }
-        if self.buckets.len() != catalog.plan().buckets().len() {
-            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        let mut failed_bytes = 0;
+        if replanned || self.buckets.iter().any(Option::is_none) {
+            failed_bytes += self.reallocate(catalog, device);
         }
         let dirty = self.state.dirty(catalog)?;
-        if dirty.is_empty() {
-            return Ok(());
-        }
-        let bytes = dirty
+        if dirty
             .iter()
-            .map(|&index| catalog.pages()[index].pixels().len() as u64)
-            .sum();
-        let buckets = &self.buckets;
-        let state = &mut self.state;
-        let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
-            state.execute(catalog, &dirty, |_, page, location| {
-                write_page(
-                    queue,
-                    &buckets[location.bucket].texture,
-                    page,
-                    location,
-                    profile,
-                );
-                Ok::<(), UiRenderRejectReason>(())
+            .any(|&page| catalog.pages()[page].font_atlas_side().is_some())
+        {
+            self.fonts.clear();
+        }
+        for (index, bucket) in self.buckets.iter().enumerate() {
+            let Some(bucket) = bucket else {
+                continue;
+            };
+            let pages = dirty
+                .iter()
+                .copied()
+                .filter(|&page| self.locations[page].bucket == index)
+                .collect::<Vec<_>>();
+            if pages.is_empty() {
+                continue;
+            }
+            let bytes = pages
+                .iter()
+                .map(|&page| catalog.pages()[page].pixels().len() as u64)
+                .sum();
+            let state = &mut self.state;
+            let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
+                state.execute(catalog, &pages, |_, page, location| {
+                    write_page(queue, &bucket.texture, page, location, profile);
+                    Ok::<(), UiRenderRejectReason>(())
+                })
+            });
+            if issued.is_none() {
+                self.state.forget(&pages);
+                failed_bytes += bytes;
+            } else {
+                self.residency_generation = self.residency_generation.wrapping_add(1);
+            }
+        }
+        self.retry =
+            (failed_bytes > 0).then(|| (now.saturating_add(TEXTURE_RETRY_DELAY), failed_bytes));
+        if failed_bytes > 0 {
+            Err(UiRenderRejectReason::TextureAllocationFailed {
+                bytes: failed_bytes,
             })
-        });
-        issued.unwrap_or_else(|| {
-            self.state.forget(&dirty);
-            Err(UiRenderRejectReason::TextureAllocationFailed { bytes })
-        })
+        } else {
+            Ok(())
+        }
     }
 
-    /// Replaces the buckets for a new plan, keeping every resident bucket whose extent,
-    /// format and layer count are unchanged so a resized page reallocates only the
-    /// buckets it moves between. Out-of-memory leaves the previous buckets resident.
-    fn reallocate(
-        &mut self,
-        catalog: &UiTextureCatalog,
-        device: &RenderDevice,
-    ) -> Result<(), UiRenderRejectReason> {
+    /// Keeps unchanged buckets and retries missing storage after freeing superseded
+    /// buckets on the first failure. Returns the bytes still missing from the new plan.
+    fn reallocate(&mut self, catalog: &UiTextureCatalog, device: &RenderDevice) -> u64 {
         let plan = catalog.plan();
         let old = self
             .allocation_plan
             .as_ref()
             .map_or(&[][..], UiTexturePlan::buckets);
-        let mut claimed = vec![false; self.buckets.len().min(old.len())];
-        let sources = plan
-            .buckets()
-            .iter()
-            .map(|bucket| {
-                let index = (0..claimed.len()).find(|&i| !claimed[i] && old[i] == *bucket)?;
-                claimed[index] = true;
-                Some(index)
-            })
-            .collect::<Vec<_>>();
-        let fresh = plan
-            .buckets()
-            .iter()
-            .zip(&sources)
-            .filter_map(|(bucket, source)| source.is_none().then_some(bucket))
-            .collect::<Vec<_>>();
-        let bytes = fresh
-            .iter()
-            .map(|bucket| {
-                u64::from(bucket.dimensions[0])
-                    * u64::from(bucket.dimensions[1])
-                    * u64::from(bucket.layers)
-                    * bucket.format.bytes_per_texel() as u64
-            })
-            .sum();
-        // Views and bindings are only made once every texture exists, since using an
-        // invalid texture raises an uncaptured, fatal validation error.
-        let textures =
-            gpu_allocation::checked(device, "bounded UI dimension bucket", bytes, || {
-                fresh
-                    .iter()
-                    .map(|bucket| create_texture(device, bucket))
-                    .collect::<Vec<_>>()
-            })
-            .ok_or(UiRenderRejectReason::TextureAllocationFailed { bytes })?;
-        let created = gpu_allocation::checked(device, "UI bucket bindings", 0, || {
-            fresh
-                .iter()
-                .zip(textures)
-                .map(|(bucket, texture)| bind_texture(device, bucket, texture))
-                .collect::<Vec<_>>()
-        })
-        .ok_or(UiRenderRejectReason::TextureAllocationFailed { bytes })?;
-        let mut previous = std::mem::take(&mut self.buckets)
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
+        let mut previous = std::mem::take(&mut self.buckets);
         let mut kept = vec![None; previous.len()];
-        let mut created = created.into_iter();
-        for (index, source) in sources.iter().enumerate() {
-            let bucket = match *source {
-                Some(old) => {
-                    kept[old] = Some(index);
-                    previous[old].take()
-                }
-                None => created.next(),
-            };
-            self.buckets
-                .push(bucket.expect("each planned bucket is kept or created once"));
+        for (index, bucket) in plan.buckets().iter().enumerate() {
+            let source =
+                (0..previous.len()).find(|&i| previous[i].is_some() && old.get(i) == Some(bucket));
+            self.buckets.push(source.and_then(|old| {
+                kept[old] = Some(index);
+                previous[old].take()
+            }));
         }
+        // Moving the plan invalidates pages in all superseded or missing buckets.
         self.state.rebind(plan, &kept);
-        // Glyph residency is cheap to rebuild and may refer to moved font pages.
+        self.residency_generation = self.residency_generation.wrapping_add(1);
         self.fonts.clear();
         self.allocation_identity = Some(catalog.static_identity());
         self.allocation_plan = Some(plan.clone());
         self.locations = plan.locations().to_vec();
-        self.bytes = plan.bytes();
-        Ok(())
+        let mut failed_bytes = 0;
+        for (index, bucket) in plan.buckets().iter().enumerate() {
+            if self.buckets[index].is_some() {
+                continue;
+            }
+            let mut created = allocate_bucket(device, bucket);
+            if created.is_none() && previous.iter().any(Option::is_some) {
+                // Free GPU storage even if an earlier submitted frame still owns a view.
+                for old in previous.iter().flatten() {
+                    old.texture.destroy();
+                }
+                previous.clear();
+                created = allocate_bucket(device, bucket);
+            }
+            if created.is_none() {
+                failed_bytes += bucket_bytes(bucket);
+            }
+            self.buckets[index] = created;
+        }
+        self.bytes = plan
+            .buckets()
+            .iter()
+            .zip(&self.buckets)
+            .filter(|(_, bucket)| bucket.is_some())
+            .map(|(bucket, _)| bucket_bytes(bucket) as usize)
+            .sum();
+        failed_bytes
     }
+}
+
+/// Counts the storage requested by a validated dimension bucket.
+fn bucket_bytes(bucket: &render_model::UiTextureBucket) -> u64 {
+    u64::from(bucket.dimensions[0])
+        * u64::from(bucket.dimensions[1])
+        * u64::from(bucket.layers)
+        * bucket.format.bytes_per_texel() as u64
+}
+
+/// Creates bindings only after a bucket's texture has passed its allocation scope.
+fn allocate_bucket(
+    device: &RenderDevice,
+    bucket: &render_model::UiTextureBucket,
+) -> Option<GpuBucket> {
+    let bytes = bucket_bytes(bucket);
+    let texture = gpu_allocation::checked(device, "bounded UI dimension bucket", bytes, || {
+        create_texture(device, bucket)
+    })?;
+    gpu_allocation::checked(device, "UI bucket bindings", bytes, || {
+        bind_texture(device, bucket, texture)
+    })
 }
 
 /// Creates one bucket's array texture.
@@ -381,6 +448,8 @@ fn bind_texture(
         view,
         format_uniform,
         bind_group: None,
+        #[cfg(test)]
+        allocation_lifetime: std::sync::Arc::new(()),
     }
 }
 
@@ -481,7 +550,7 @@ pub(super) fn prepare_ui_bind_group(
     } = &mut *gpu;
     let (viewport, sampler, linear_sampler) = (&*viewport, &*sampler, &*linear_sampler);
     let (glint_view, glint_sampler) = (&item_glint.view, &item_glint.sampler);
-    for bucket in &mut textures.buckets {
+    for bucket in textures.buckets.iter_mut().flatten() {
         if bucket.bind_group.is_some() && !changed {
             continue;
         }

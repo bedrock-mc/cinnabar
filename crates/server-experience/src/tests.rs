@@ -108,7 +108,7 @@ fn ssrf_and_rate_limits_are_conservative() {
             "{address}"
         );
     }
-    let mut rate = wire::RateLimit::new(1000);
+    let mut rate = crate::rate_limit::RateLimit::new(1000);
     for _ in 0..policy::MAX_MESSAGES_PER_SECOND {
         rate.charge(1, 1000).unwrap();
     }

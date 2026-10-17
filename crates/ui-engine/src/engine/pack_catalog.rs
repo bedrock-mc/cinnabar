@@ -136,10 +136,13 @@ impl CatalogPolicy {
         {
             tracing::debug!(note, "server ui pack");
         }
-        // Built-in screens keep the built-in templates they inherit, so pack overrides of shared
-        // ones cannot reach them.
+        // Built-in templates retain their geometry. New pack definitions and globals remain
+        // available to the message subtrees selected by the screen families.
         let builtin_screens = (!screen_controls.is_empty()).then(|| {
-            let mut screens = builtin;
+            let mut screens = catalog.clone();
+            for control in builtin.controls() {
+                screens.insert(control.clone());
+            }
             for control in screen_controls {
                 screens.insert(control);
             }

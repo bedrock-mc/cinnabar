@@ -119,3 +119,30 @@ fn dial_strips_bake_every_frame_in_order_under_their_frames_identifier() {
         "absent strips bake nothing"
     );
 }
+
+#[test]
+fn modeled_items_retain_their_separate_raw_atlas_source() {
+    let pack = pack();
+    let path = pack.path().join("textures/item_texture.json");
+    let mut atlas: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    atlas["texture_data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("bundle_blue");
+    fs::write(path, serde_json::to_vec(&atlas).unwrap()).unwrap();
+    let catalog =
+        RuntimeIconCatalog::decode(&compile_icon_assets(pack.path(), MANIFEST).unwrap().bytes)
+            .unwrap();
+    let raw = catalog
+        .sources()
+        .unwrap()
+        .iter()
+        .find(|source| source.path.as_ref() == "textures/items/flat.png")
+        .map(|source| &catalog.sprites()[source.sprite as usize])
+        .expect("modeled item's raw source");
+    assert_eq!(raw.rgba8.as_ref(), &[0, 200, 80, 255].repeat(16 * 16));
+    assert_ne!(
+        raw.rgba8,
+        catalog.lookup("minecraft:shield", 0).unwrap().rgba8
+    );
+}

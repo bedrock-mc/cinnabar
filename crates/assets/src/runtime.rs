@@ -406,6 +406,11 @@ impl RuntimeAssets {
             .binary_search_by_key(&template, |entry| entry.0)
             .ok()
             .map(|index| self.model_random_offsets[index].1)
+            .or_else(|| {
+                let model = self.model_templates.get(template as usize)?;
+                (model.flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0)
+                    .then_some(block_transform::random_offset::SHORT_GRASS)
+            })
     }
 
     #[must_use]

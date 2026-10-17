@@ -228,9 +228,9 @@ pub(super) fn draw_batches<'w>(
         else {
             continue;
         };
-        let binding = gpu.textures.buckets[location.bucket]
-            .bind_group
-            .as_ref()
+        let binding = gpu
+            .textures
+            .page_binding(batch.texture_page as usize)
             .unwrap();
         pass.set_bind_group(0, binding, &[]);
         pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
