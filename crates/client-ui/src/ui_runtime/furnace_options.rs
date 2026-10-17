@@ -71,12 +71,19 @@ impl UiRuntime {
         if options == previous {
             return Ok(0);
         }
-        if options != player.inventory.furnace_options(kind) {
-            if !self.queue_client_packet(protocol::furnace_options_packet(kind, options)) {
-                return Err(InventoryGestureError::Busy);
-            }
-            player.inventory.set_furnace_options(kind, options);
+        let packet = protocol::furnace_options_packet(kind, options);
+        let conflicts_with_pending = self
+            .client_packets
+            .iter()
+            .rev()
+            .find(|pending| kind.owns_packet(pending))
+            .is_some_and(|pending| pending != &packet);
+        let needs_packet =
+            options != player.inventory.furnace_options(kind) || conflicts_with_pending;
+        if needs_packet && !self.queue_client_packet(packet) {
+            return Err(InventoryGestureError::Busy);
         }
+        player.inventory.set_furnace_options(kind, options);
         self.screen.furnace = Some(options);
         self.screen.container_scroll.clear();
         Ok(0)

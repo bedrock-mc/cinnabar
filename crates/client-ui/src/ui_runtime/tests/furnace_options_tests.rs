@@ -363,3 +363,104 @@ fn furnace_options_do_not_commit_a_change_when_the_packet_queue_is_full() {
     );
     assert!(runtime.take_client_packet().is_none());
 }
+
+#[test]
+fn furnace_options_latest_selection_follows_a_conflicting_pending_update() {
+    use ui_screens::container_actions::Widget;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    open(
+        &mut runtime,
+        &mut player,
+        1,
+        7,
+        protocol::WINDOW_TYPE_FURNACE,
+    );
+    let initial = runtime.furnace_options(&player).unwrap();
+    click(&mut runtime, &mut player, Widget::FurnaceTab(2));
+    let queued = FurnaceOptions {
+        left_tab: FurnaceTab::Items,
+        ..initial
+    };
+    let received = FurnaceOptions {
+        left_tab: FurnaceTab::Food,
+        ..initial
+    };
+    apply(
+        &mut runtime,
+        &mut player,
+        2,
+        InventoryEvent::FurnaceOptions(FurnaceOptionsEvent {
+            kind: FurnaceKind::Furnace,
+            options: received,
+        }),
+    );
+    click(&mut runtime, &mut player, Widget::FurnaceTab(1));
+    assert_eq!(runtime.furnace_options(&player), Some(received));
+    assert_eq!(
+        runtime.take_client_packet(),
+        Some(protocol::furnace_options_packet(
+            FurnaceKind::Furnace,
+            queued
+        ))
+    );
+    assert_eq!(
+        runtime.take_client_packet(),
+        Some(protocol::furnace_options_packet(
+            FurnaceKind::Furnace,
+            received
+        )),
+        "the last packet must retain the user's latest selection"
+    );
+    assert!(runtime.take_client_packet().is_none());
+}
+
+#[test]
+fn furnace_options_pending_updates_only_compare_the_latest_packet_for_the_same_family() {
+    use ui_screens::container_actions::Widget;
+    for pending_same_family in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = crate::test_support::inventory_session(&mut player);
+        open(
+            &mut runtime,
+            &mut player,
+            1,
+            7,
+            protocol::WINDOW_TYPE_FURNACE,
+        );
+        let initial = runtime.furnace_options(&player).unwrap();
+        let received = FurnaceOptions {
+            left_tab: FurnaceTab::Food,
+            ..initial
+        };
+        let first = protocol::furnace_options_packet(
+            if pending_same_family {
+                FurnaceKind::Furnace
+            } else {
+                FurnaceKind::Smoker
+            },
+            initial,
+        );
+        assert!(runtime.queue_client_packet(first.clone()));
+        let latest = protocol::furnace_options_packet(FurnaceKind::Furnace, received);
+        if pending_same_family {
+            assert!(runtime.queue_client_packet(latest.clone()));
+        }
+        apply(
+            &mut runtime,
+            &mut player,
+            2,
+            InventoryEvent::FurnaceOptions(FurnaceOptionsEvent {
+                kind: FurnaceKind::Furnace,
+                options: received,
+            }),
+        );
+        click(&mut runtime, &mut player, Widget::FurnaceTab(1));
+        assert_eq!(runtime.take_client_packet(), Some(first));
+        if pending_same_family {
+            assert_eq!(runtime.take_client_packet(), Some(latest));
+        }
+        assert!(runtime.take_client_packet().is_none());
+        assert_eq!(runtime.furnace_options(&player), Some(received));
+    }
+}

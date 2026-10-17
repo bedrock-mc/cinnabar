@@ -24,6 +24,15 @@ impl FurnaceKind {
         }
     }
 
+    /// Whether a queued preference packet updates this furnace family's saved choices.
+    pub fn owns_packet(self, packet: &Packet) -> bool {
+        matches!(
+            packet.data.as_ref(),
+            packets::Packet::SetPlayerFurnaceOptions(options)
+                if options.furnace_type == self.wire()
+        )
+    }
+
     /// Converts the owned screen kind to the generated packet discriminator.
     fn wire(self) -> enums::FurnaceType {
         match self {
