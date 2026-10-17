@@ -47,3 +47,35 @@ first pose. All clip transitions must have matching joint transforms. Positions
 are authored model pixels; rotations are degrees. Static gallery artwork uses the
 first cycle pose, while world and character previews share caller-owned time.
 Exporting this project also updates its animation channels, preserving the playback profile.
+
+## Emissive items
+
+`render_flags.emissive: true` (optional, default false) draws the item fullbright in the
+world. Admission derives a world raster from the texture: texels with alpha of at least 128
+keep their colour with alpha 0, which the actor's emissive-alpha material draws without world
+lighting; all other texels are discarded. Pure black is lifted to `(1, 1, 1)` so it still
+draws. Gallery thumbnails and HUD or wardrobe previews use the authored texture unchanged.
+
+## Particle emitters
+
+An animation file may add a top-level `particles` array of at most four entries:
+
+```json
+{"bone": "nozzle_left", "offset": [0, -2.5, 0], "effect": {"format_version": "1.10.0", "particle_effect": {...}}}
+```
+
+- `bone` names a bone in the item's geometry.
+- `offset` is in model pixels from that bone's pivot, on the authored geometry axes (the same
+  axes as `.geo.json` cube origins); each component is finite and within ±64. The renderer
+  mirrors X with the geometry, so the emitter sits exactly where a cube corner at
+  `pivot + offset` renders, and it turns with the bone's rest rotation and animation.
+- `effect` is a complete Bedrock particle effect object with a string
+  `particle_effect.description.identifier`. Admission replaces that identifier with
+  `cinnabar_cosmetic:<first 16 hex digits of the animation SHA-256>_<index>`, so revisions never
+  collide with each other or with pack effects. Use a looping emitter lifetime; finished
+  emitters restart while the item remains drawn. Textures resolve against the runtime particle
+  atlas, for example `textures/particle/particles`.
+
+The emitter basis is the posed bone's axes in world space, including player scale. Any
+malformed entry rejects the whole item. Emitters run only for world-visible attachments, with a
+bounded number alive at once; previews never emit.

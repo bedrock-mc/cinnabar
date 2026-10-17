@@ -46,6 +46,18 @@ const TILE_VARIABLE_NAMES: [[&str; 4]; 5] = tile_variable_names! {
     "ground_particle_texture_coordinate", "ground_particle_texture_size";
     "surface_particle_texture_coordinate", "surface_particle_texture_size";
 };
+/// Process-unique identity of one particle world; emitter ids are only meaningful within it.
+#[derive(Debug)]
+struct Instance(u64);
+
+impl Default for Instance {
+    /// Draws the next identity, so a rebuilt system never matches its predecessor.
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
 #[derive(Default)]
 pub struct ParticleSystem {
     /// Winning client-entity aliases and authored controller-state effects.
@@ -65,6 +77,7 @@ pub struct ParticleSystem {
     pub(super) draw_scratch: super::draw::DrawScratch,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
+    instance: Instance,
     /// Cumulative authored-event admission losses; work counts skipped roots, not their descendants.
     pub event_overflows: EventOverflows,
 }
@@ -295,6 +308,19 @@ impl ParticleSystem {
         }
     }
 
+    /// Identifies this particle world. Hosts holding emitter ids discard them when it changes,
+    /// because a rebuilt system restarts its id sequence.
+    #[must_use]
+    pub fn instance(&self) -> u64 {
+        self.instance.0
+    }
+
+    /// Whether `id` is a live emitter that has not been stopped or finished emitting.
+    #[must_use]
+    pub fn is_emitting(&self, id: u64) -> bool {
+        self.emitters.iter().any(|e| e.id == id && !e.done)
+    }
+
     /// Moves an attached emitter; ignored once the emitter is gone.
     pub fn set_transform(&mut self, id: u64, position: [f32; 3], basis: [[f32; 3]; 3]) {
         if let Some(emitter) = self.emitters.iter_mut().find(|e| e.id == id) {
@@ -434,6 +460,18 @@ mod tests {
         assert!(system.spawn(&request("burst", 0.0)).is_some());
         system.tick(0.05, &EmptyWorld);
         assert_eq!(system.live_particles(), 4);
+    }
+
+    #[test]
+    fn hosts_can_tell_live_emitters_and_rebuilt_systems_apart() {
+        let mut system = system();
+        let id = system.spawn(&request("burst", 0.0)).unwrap();
+        assert!(system.is_emitting(id));
+        system.stop(id);
+        assert!(!system.is_emitting(id));
+        let rebuilt = self::system();
+        assert_ne!(rebuilt.instance(), system.instance());
+        assert!(!rebuilt.is_emitting(id));
     }
 
     #[test]

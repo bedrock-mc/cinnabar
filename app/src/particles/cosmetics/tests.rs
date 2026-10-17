@@ -1,0 +1,146 @@
+use super::*;
+use particles::EmptyWorld;
+use render_model::ActorEmitterTransform;
+
+const EFFECT: &str = r##"{"particle_effect":{"description":{"identifier":"cinnabar_cosmetic:0123456789abcdef_0",
+ "basic_render_parameters":{"material":"particles_alpha","texture":"textures/particle/particles"}},
+ "components":{"minecraft:emitter_rate_steady":{"spawn_rate":10,"max_particles":30},
+ "minecraft:emitter_lifetime_looping":{"active_time":1},
+ "minecraft:particle_lifetime_expression":{"max_lifetime":2},
+ "minecraft:particle_appearance_billboard":{"size":[0.1,0.1],"facing_camera_mode":"lookat_xyz"}}}}"##;
+const IDENTIFIER: &str = "cinnabar_cosmetic:0123456789abcdef_0";
+
+/// Admits a metadata-only catalog item; emitter tracking never reads its rig.
+fn item() -> cosmetics::Item {
+    let asset = cosmetics::Asset {
+        url: "fixture".into(),
+        sha256: "b".repeat(64),
+        bytes: 1,
+    };
+    cosmetics::Item::admit(cosmetics::Descriptor {
+        id: "fixture:emitting".into(),
+        slot: "aura".into(),
+        display_name: "Emitting fixture".into(),
+        tags: Vec::new(),
+        free: true,
+        assets: cosmetics::Assets {
+            geometry: asset.clone(),
+            texture: asset,
+            animation: None,
+        },
+        geometry_id: "geometry.fixture".into(),
+        attachment_bone: "head".into(),
+        offset: [0.0; 3],
+        render_flags: cosmetics::RenderFlags {
+            double_sided: false,
+            emissive: false,
+        },
+    })
+    .unwrap()
+}
+
+/// A placement of the fixture effect on one actor at `x`.
+fn placement(runtime_id: u64, x: f32) -> CosmeticEmitterPlacement {
+    CosmeticEmitterPlacement {
+        key: CosmeticEmitterKey {
+            runtime_id,
+            spawn_revision: 1,
+            item: item(),
+            emitter: 0,
+        },
+        identifier: IDENTIFIER.into(),
+        effect: EFFECT.as_bytes().into(),
+        transform: ActorEmitterTransform {
+            position: [x, 1.0, 0.0],
+            basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        },
+    }
+}
+
+/// Ids of the emitters still emitting in `system`.
+fn emitting(tracker: &CosmeticEmitters, system: &ParticleSystem) -> Vec<u64> {
+    tracker
+        .live
+        .values()
+        .map(|live| live.id)
+        .filter(|id| system.is_emitting(*id))
+        .collect()
+}
+
+#[test]
+fn cosmetic_emitters_register_lazily_follow_and_stop_with_their_placement() {
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    assert!(!system.has_effect(IDENTIFIER));
+    tracker.sync(&mut system, &[placement(7, 0.0)]);
+    assert!(system.has_effect(IDENTIFIER));
+    let [id] = emitting(&tracker, &system)[..] else {
+        panic!("one emitter starts");
+    };
+    system.tick(0.2, &EmptyWorld);
+    assert!(system.live_particles() > 0);
+
+    tracker.sync(&mut system, &[placement(7, 3.0)]);
+    assert_eq!(
+        emitting(&tracker, &system),
+        [id],
+        "a held placement moves its emitter"
+    );
+    assert_eq!(system.emitter_count(), 1);
+
+    tracker.sync(&mut system, &[]);
+    assert!(
+        !system.is_emitting(id),
+        "unequipped or hidden items stop emitting"
+    );
+    assert!(tracker.live.is_empty());
+}
+
+#[test]
+fn cosmetic_emitters_restart_after_the_system_is_cleared_or_rebuilt() {
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    tracker.sync(&mut system, &[placement(7, 0.0)]);
+    let first = emitting(&tracker, &system);
+    system.clear();
+    tracker.sync(&mut system, &[placement(7, 0.0)]);
+    let second = emitting(&tracker, &system);
+    assert_eq!(second.len(), 1);
+    assert_ne!(first, second, "a cleared emitter restarts");
+
+    let mut rebuilt = ParticleSystem::default();
+    tracker.sync(&mut rebuilt, &[placement(7, 0.0)]);
+    assert!(
+        rebuilt.has_effect(IDENTIFIER),
+        "rebuilt systems register again"
+    );
+    assert_eq!(emitting(&tracker, &rebuilt).len(), 1);
+    assert_eq!(tracker.live.len(), 1);
+}
+
+#[test]
+fn cosmetic_emitters_are_bounded_and_skip_rejected_effects() {
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    let crowd: Vec<_> = (1..=MAX_COSMETIC_EMITTERS as u64 + 8)
+        .map(|runtime_id| placement(runtime_id, 0.0))
+        .collect();
+    tracker.sync(&mut system, &crowd);
+    assert_eq!(emitting(&tracker, &system).len(), MAX_COSMETIC_EMITTERS);
+    tracker.sync(&mut system, &crowd[8..]);
+    assert_eq!(
+        emitting(&tracker, &system).len(),
+        MAX_COSMETIC_EMITTERS,
+        "freed slots admit waiting placements"
+    );
+
+    let mut system = ParticleSystem::default();
+    let mut tracker = CosmeticEmitters::default();
+    let mut broken = placement(9, 0.0);
+    broken.effect = b"{\"particle_effect\":7}".as_slice().into();
+    tracker.sync(&mut system, &[broken.clone()]);
+    tracker.sync(&mut system, &[broken]);
+    assert!(tracker.live.is_empty());
+    assert_eq!(system.emitter_count(), 0);
+    assert!(tracker.rejected.contains(IDENTIFIER));
+}
