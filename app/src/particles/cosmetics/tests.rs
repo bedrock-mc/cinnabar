@@ -211,6 +211,31 @@ fn bystander(system: &mut ParticleSystem) -> u64 {
         .unwrap()
 }
 
+#[test]
+fn cosmetics_wait_for_shared_capacity_without_evicting_gameplay_emitters() {
+    let mut system = ParticleSystem::default();
+    let gameplay: Vec<_> = (0..particles::MAX_EMITTERS)
+        .map(|_| bystander(&mut system))
+        .collect();
+    let mut tracker = CosmeticEmitters::default();
+    let placements = [placement(7, 0.0), placement(8, 0.0)];
+
+    tracker.sync(&mut system, &placements);
+    assert!(
+        tracker.live.is_empty(),
+        "a full shared table defers cosmetics"
+    );
+    assert!(gameplay.iter().all(|id| system.is_emitting(*id)));
+
+    system.stop(gameplay[0]);
+    system.tick(0.01, &EmptyWorld);
+    assert_eq!(system.emitter_count(), particles::MAX_EMITTERS - 1);
+    tracker.sync(&mut system, &placements);
+    assert_eq!(emitting(&tracker, &system).len(), 1);
+    assert_eq!(system.emitter_count(), particles::MAX_EMITTERS);
+    assert!(gameplay[1..].iter().all(|id| system.is_emitting(*id)));
+}
+
 /// A crowd filling the cosmetic budget with `effect`.
 fn crowd(effect: &str) -> Vec<CosmeticEmitterPlacement> {
     (1..=MAX_COSMETIC_EMITTERS as u64)

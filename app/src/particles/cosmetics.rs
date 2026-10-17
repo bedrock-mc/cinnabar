@@ -90,7 +90,9 @@ impl CosmeticEmitters {
             false
         });
         for placement in placements {
-            if self.occupied() >= MAX_COSMETIC_EMITTERS {
+            if self.occupied() >= MAX_COSMETIC_EMITTERS
+                || system.emitter_count() >= particles::MAX_EMITTERS
+            {
                 break;
             }
             if self.live.contains_key(&placement.key) || !self.admit_effect(system, placement) {
