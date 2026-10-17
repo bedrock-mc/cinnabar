@@ -13,10 +13,11 @@ and changing shoulders, using shared immutable geometry and caller-owned time.
 Unknown, unsupported and unowned items render nothing.
 Items flagged `render_flags.emissive` draw their opaque texels fullbright in the world through
 the emissive-alpha actor material; previews keep the authored texture. Animation files may
-declare up to four particle emitters on authored bones. Their effects are registered under
-client-owned identifiers, follow the posed bone and stop when the item is unequipped, hidden
-or despawned. Emitters run only in the world, with a bounded live count; HUD and wardrobe
-previews show geometry without particles.
+declare up to eight particle emitters on authored bones. Their effects are registered under
+client-owned identifiers and may draw original 16x16 sprites cut from the item's own texture.
+They follow the posed bone and stop when the item is unequipped, hidden or despawned.
+Emitters run only in the world, with at most 128 alive at once; HUD and wardrobe previews show
+geometry without particles.
 
 The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
 slot, through a filter icon beside

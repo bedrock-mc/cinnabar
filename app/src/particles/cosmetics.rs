@@ -7,14 +7,18 @@ use std::{
 };
 
 use client_presentation::actor_publication::{CosmeticEmitterKey, CosmeticEmitterPlacement};
-use particles::{ParticleSystem, SpawnRequest};
+use particles::{ParticleSystem, SpawnRequest, TileRequest};
 
 #[cfg(test)]
 mod tests;
 
-/// Most cosmetic emitters alive at once. Items declare at most four, so this covers sixteen
-/// fully decorated players; placements beyond it wait, in submission order, for a free slot.
-pub(super) const MAX_COSMETIC_EMITTERS: usize = 64;
+/// Players whose items may all emit at once when every item declares the per-item maximum.
+const FULLY_EMITTING_PLAYERS: usize = 16;
+/// Most cosmetic emitters alive at once (128 with eight per item), at most a quarter of the
+/// particle emitter table; placements beyond it wait, in submission order, for a free slot.
+pub(super) const MAX_COSMETIC_EMITTERS: usize =
+    FULLY_EMITTING_PLAYERS * render_model::hats::MAX_COSMETIC_EMITTERS;
+const _: () = assert!(MAX_COSMETIC_EMITTERS <= particles::MAX_EMITTERS / 4);
 
 /// One live emitter and the sync pass that last saw its placement.
 struct Live {
@@ -84,6 +88,11 @@ impl CosmeticEmitters {
                 seed: key.runtime_id
                     ^ key.spawn_revision.rotate_left(32)
                     ^ (u64::from(key.item.index()) << 8 | u64::from(key.emitter)),
+                tile: placement.sprite.as_ref().map(|(key, pixels)| TileRequest {
+                    key: *key,
+                    size: render_model::hats::COSMETIC_SPRITE_SIDE,
+                    pixels: Arc::clone(pixels),
+                }),
                 ..SpawnRequest::default()
             };
             if let Some(id) = system.spawn(&request) {

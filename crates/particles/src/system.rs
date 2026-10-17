@@ -16,6 +16,8 @@ use super::{
 mod biome_tinted;
 mod bookkeeping;
 #[cfg(test)]
+mod cosmetic_tests;
+#[cfg(test)]
 mod event_tests;
 
 use bookkeeping::Bookkeeping;
@@ -215,7 +217,8 @@ impl ParticleSystem {
         self.spawn(request)
     }
 
-    /// Resolves pixels and appends tile aliases after caller variables.
+    /// Resolves pixels and appends tile aliases after caller variables. Cosmetic sprites use
+    /// the request's tile like terrain and items but map UVs within it, so they add no aliases.
     fn resolve_texture(
         &mut self,
         source: &TextureSource,
@@ -224,6 +227,11 @@ impl ParticleSystem {
         let fallback = self.atlas.fallback();
         match source {
             TextureSource::Path(path) => self.atlas.placement(path).unwrap_or(fallback),
+            TextureSource::Cosmetic => request
+                .tile
+                .as_ref()
+                .and_then(|tile| self.atlas.tile(tile.key, tile.size, &tile.pixels))
+                .unwrap_or(fallback),
             TextureSource::Terrain | TextureSource::Items => {
                 let Some(tile) = request.tile.as_ref() else {
                     return fallback;

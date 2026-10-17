@@ -153,6 +153,7 @@ pub(super) fn build(
             .animation
             .as_ref()
             .map(|asset| asset.sha256.as_str()),
+        (&texture, &item.assets.texture.sha256),
     )?;
     let playback =
         cosmetics_animation::Playback::build(&mut definition, &names, &mut original, &mut parents)?;

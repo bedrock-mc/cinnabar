@@ -58,10 +58,10 @@ draws. Gallery thumbnails and HUD or wardrobe previews use the authored texture 
 
 ## Particle emitters
 
-An animation file may add a top-level `particles` array of at most four entries:
+An animation file may add a top-level `particles` array of at most eight entries:
 
 ```json
-{"bone": "nozzle_left", "offset": [0, -2.5, 0], "effect": {"format_version": "1.10.0", "particle_effect": {...}}}
+{"bone": "nozzle_left", "offset": [0, -2.5, 0], "sprites": [0, 16], "effect": {"format_version": "1.10.0", "particle_effect": {...}}}
 ```
 
 - `bone` names a bone in the item's geometry.
@@ -75,7 +75,11 @@ An animation file may add a top-level `particles` array of at most four entries:
   collide with each other or with pack effects. Use a looping emitter lifetime; finished
   emitters restart while the item remains drawn. Textures resolve against the runtime particle
   atlas, for example `textures/particle/particles`.
+- An effect whose texture is `atlas.cosmetic` draws the item's own art instead: `sprites` gives
+  the top-left texel `[u, v]` of a 16x16 region of the item texture, which must fit inside it.
+  Its UVs and flipbooks address that region with `texture_width` and `texture_height` set to 16.
+  `sprites` is required with `atlas.cosmetic` and rejected with any other texture.
 
 The emitter basis is the posed bone's axes in world space, including player scale. Any
-malformed entry rejects the whole item. Emitters run only for world-visible attachments, with a
-bounded number alive at once; previews never emit.
+malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
+most 128 alive at once (sixteen players with eight each); previews never emit.
