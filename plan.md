@@ -7153,7 +7153,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Locomotion, travel and replay share the preceding spin's compact liquid probe, including glide entry.
   Respawn search and ready anchors discard
   retained releases, active item-use charges, temporary use modifiers and pending launches from
-  the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
+  the old life, including their reserved input flags and facing. Item-use producers wait for
+  respawn completion before accepting new uses. Each distinct ready control retains a completion
+  before later server controls, including repeated positions; transport retries do not duplicate it.
+  Full respawn input suppression and tick continuity remain incomplete.
   Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
