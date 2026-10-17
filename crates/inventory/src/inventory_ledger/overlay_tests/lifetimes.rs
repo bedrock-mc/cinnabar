@@ -415,3 +415,56 @@ fn immediate_close_discards_result_with_only_inactive_ingredients() {
     );
     assert!(!ledger.resync_required());
 }
+
+/// Signed response damage replaces the full retained integer, including equal low bits.
+#[test]
+fn accepted_damage_correction_materializes_full_width_retained_values() {
+    for (previous, wire, expected) in [
+        (65_535, -1, -1),
+        (65_536, 0, 0),
+        (32_768, -32_768, -32_768),
+        (i32::MAX, 65_535, -1),
+        (i32::MIN, 65_536, 0),
+        (7, 65_543, 7),
+    ] {
+        for mining in [false, true] {
+            let mut ledger =
+                open_ledger(&[(0, named_stack(10, 4, previous, "Old", Some("Filtered old")))]);
+            let (request, count) = if mining {
+                (ledger.begin_mining_request(0, 0).unwrap(), 4)
+            } else {
+                let request = ledger
+                    .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+                    .unwrap();
+                send_all(&mut ledger);
+                (request, 3)
+            };
+            let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, count, 21);
+            Arc::make_mut(&mut reply.slots)[0].durability_correction = wire;
+            respond(
+                &mut ledger,
+                request,
+                StackResponseStatus::Accepted,
+                vec![reply],
+            );
+            let retained = ledger.displayed_stack(0).unwrap();
+            assert_eq!(
+                retained,
+                &named_stack(21, u16::from(count), expected, "Old", Some("Filtered old")),
+                "previous={previous}, wire={wire}, mining={mining}"
+            );
+            assert_eq!(
+                protocol::item_extra_damage_value(&retained.extra_data),
+                Some(expected)
+            );
+            assert_eq!(
+                protocol::item_stack_damage(retained),
+                u32::try_from(expected).ok()
+            );
+            assert_eq!(
+                ledger.slot_overlay(0).unwrap().durability_correction,
+                (expected >= 0).then_some(expected)
+            );
+        }
+    }
+}

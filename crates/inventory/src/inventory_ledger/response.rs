@@ -180,6 +180,7 @@ pub(super) fn merge_response_overlay(
 }
 
 /// Applies response identity fields to retained NBT before future gestures compare it.
+/// Normalizes the response damage while retaining the stored integer's full width.
 pub(super) fn apply_response_item_data(
     held: &mut Held,
     correction: &StackResponseSlot,
