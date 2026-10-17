@@ -11,6 +11,9 @@ use render_scene::{
     TextureArrayLimits, TextureMipUploadPlan, diagnostic_texture_page, plan_texture_page_bindings,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
 pub(in crate::chunk) fn build_chunk_texture_assets(
     assets: &ChunkTextureAssets,
