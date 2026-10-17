@@ -127,14 +127,16 @@ impl EquipmentRuntime {
     }
 }
 
-/// Camera from a raster attachable's rig frame under Java's first-person stack.
+/// Removes authored raster placement before scaling the image under Java's first-person stack.
 pub(super) fn java_raster_camera(
     hand: JavaHand,
     image_to_rig: Mat4,
     width: u16,
     height: u16,
+    held_scale: f32,
 ) -> Mat4 {
     java::first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
+        * Mat4::from_scale(bevy::math::Vec3::splat(held_scale))
         * image_to_rig.inverse()
 }
 
@@ -186,7 +188,7 @@ mod tests {
             * Mat4::from_rotation_y(1.0)
             * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
         let point = Vec4::new(3.5, 0.0, 9.5, 1.0);
-        let through = java_raster_camera(hand, image_to_rig, 16, 16) * (image_to_rig * point);
+        let through = java_raster_camera(hand, image_to_rig, 16, 16, 1.0) * (image_to_rig * point);
         let direct = java::first_person_item(
             hand,
             JavaItemMesh::Raster {

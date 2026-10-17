@@ -222,7 +222,8 @@ impl EquipmentRuntime {
                     raster.image_to_rig,
                     texture.width,
                     texture.height,
-                ) * bevy::math::Mat4::from_scale(Vec3::splat(held_scale));
+                    held_scale,
+                );
                 camera
                     .is_finite()
                     .then_some((camera, raster.rest, raster.normal_axis))

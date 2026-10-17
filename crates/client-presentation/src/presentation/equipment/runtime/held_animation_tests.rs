@@ -1200,3 +1200,6 @@ mod artwork;
 mod style;
 #[path = "held_variant_tests.rs"]
 mod variants;
+
+#[path = "held_raster_scale_tests.rs"]
+mod raster_scale;
