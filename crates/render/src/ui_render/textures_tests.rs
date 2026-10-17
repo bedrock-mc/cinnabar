@@ -177,21 +177,31 @@ fn missing_bucket_and_new_generation_never_recreate_or_reuse_uploaded_ids() {
     let (device, queue) = noop_device();
     let catalog = catalog(0);
     let mut gpu = UiGpuTextures::default();
-    gpu.prepare(&catalog, &device, &queue, None).unwrap();
+    gpu.prepare(&catalog, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
     assert_eq!(gpu.buckets.len(), 2);
     assert!(gpu.state.dirty(&catalog).unwrap().is_empty());
     assert!(gpu.resident(&catalog));
     let changed_generation =
         UiTextureCatalog::with_source_identity(catalog.pages().to_vec(), 1, [7; 32]).unwrap();
     assert!(
-        gpu.prepare(&changed_generation, &device, &queue, None)
-            .is_err()
+        gpu.prepare(
+            &changed_generation,
+            &device,
+            &queue,
+            None,
+            std::time::Duration::ZERO
+        )
+        .is_err()
     );
     assert_eq!(gpu.buckets.len(), 2);
     gpu.buckets.pop();
     assert!(!gpu.resident(&catalog));
     for _ in 0..10 {
-        assert!(gpu.prepare(&catalog, &device, &queue, None).is_err());
+        assert!(
+            gpu.prepare(&catalog, &device, &queue, None, std::time::Duration::ZERO)
+                .is_err()
+        );
         assert_eq!(gpu.buckets.len(), 1);
     }
 }
@@ -259,15 +269,14 @@ fn ui_model_resize_replaces_only_changed_buckets_and_rebinds_them() {
         .textures
         .buckets
         .iter()
-        .map(|bucket| bucket.texture.id())
+        .map(|bucket| bucket.as_ref().unwrap().texture.id())
         .collect::<Vec<_>>();
     assert!(
-        world
-            .resource::<UiGpu>()
-            .textures
-            .buckets
-            .iter()
-            .all(|b| b.bind_group.is_some())
+        world.resource::<UiGpu>().textures.buckets.iter().all(|b| b
+            .as_ref()
+            .unwrap()
+            .bind_group
+            .is_some())
     );
 
     scene
@@ -288,7 +297,7 @@ fn ui_model_resize_replaces_only_changed_buckets_and_rebinds_them() {
         .textures
         .buckets
         .iter()
-        .map(|bucket| bucket.texture.id())
+        .map(|bucket| bucket.as_ref().unwrap().texture.id())
         .collect::<Vec<_>>();
     assert_eq!(gpu.textures.bytes, resized.plan().bytes());
     assert_eq!(gpu.textures.locations, resized.plan().locations());
@@ -296,12 +305,11 @@ fn ui_model_resize_replaces_only_changed_buckets_and_rebinds_them() {
         .run_system_once(super::super::prepare_ui_bind_group)
         .unwrap();
     assert!(
-        world
-            .resource::<UiGpu>()
-            .textures
-            .buckets
-            .iter()
-            .all(|b| b.bind_group.is_some())
+        world.resource::<UiGpu>().textures.buckets.iter().all(|b| b
+            .as_ref()
+            .unwrap()
+            .bind_group
+            .is_some())
     );
 
     scene
@@ -336,6 +344,7 @@ fn assert_only_changed_buckets_replaced(
         "fixture keeps at least one bucket"
     );
     for (bucket, planned) in gpu.buckets.iter().zip(to.plan().buckets()) {
+        let bucket = bucket.as_ref().unwrap();
         let unchanged = from.plan().buckets().contains(planned);
         assert_eq!(from_textures.contains(&bucket.texture.id()), unchanged);
         assert_eq!(bucket.bind_group.is_some(), unchanged);
@@ -373,8 +382,9 @@ fn resizing_a_page_reuploads_only_pages_in_replaced_buckets() {
     let (device, queue) = noop_device();
     let (base, resized) = resizable_catalogs();
     let mut gpu = UiGpuTextures::default();
-    gpu.prepare(&base, &device, &queue, None).unwrap();
-    let kept = gpu.buckets[0].texture.id();
+    gpu.prepare(&base, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
+    let kept = gpu.buckets[0].as_ref().unwrap().texture.id();
     let uploads = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let observed = std::rc::Rc::clone(&uploads);
     let _observe = crate::gpu_allocation::inject(move |label, bytes| {
@@ -383,10 +393,11 @@ fn resizing_a_page_reuploads_only_pages_in_replaced_buckets() {
         }
         false
     });
-    gpu.prepare(&resized, &device, &queue, None).unwrap();
+    gpu.prepare(&resized, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
     assert!(gpu.resident(&resized));
     assert_eq!(
-        gpu.buckets[0].texture.id(),
+        gpu.buckets[0].as_ref().unwrap().texture.id(),
         kept,
         "static 1024 bucket is unchanged"
     );
@@ -396,35 +407,32 @@ fn resizing_a_page_reuploads_only_pages_in_replaced_buckets() {
         .iter()
         .map(|page| page.pixels().len() as u64)
         .sum();
-    assert_eq!(*uploads.borrow(), [all_bytes - static_bytes]);
+    assert_eq!(
+        uploads.borrow().iter().sum::<u64>(),
+        all_bytes - static_bytes
+    );
 }
 
 #[test]
-fn bucket_allocation_failure_keeps_previous_buckets_and_retries() {
+fn bucket_allocation_failure_keeps_unchanged_buckets_and_retries() {
     let (device, queue) = noop_device();
     let (base, resized) = resizable_catalogs();
     let mut gpu = UiGpuTextures::default();
-    gpu.prepare(&base, &device, &queue, None).unwrap();
-    let ids = |gpu: &UiGpuTextures| {
-        gpu.buckets
-            .iter()
-            .map(|bucket| bucket.texture.id())
-            .collect::<Vec<_>>()
-    };
-    let textures = ids(&gpu);
+    gpu.prepare(&base, &device, &queue, None, Duration::ZERO)
+        .unwrap();
+    let kept = gpu.buckets[0].as_ref().unwrap().texture.id();
     {
         let _failure =
             crate::gpu_allocation::inject(|label, _| label == "bounded UI dimension bucket");
-        for _ in 0..3 {
-            assert!(matches!(
-                gpu.prepare(&resized, &device, &queue, None),
-                Err(UiRenderRejectReason::TextureAllocationFailed { bytes }) if bytes > 0
-            ));
-            assert!(gpu.resident(&base));
-            assert_eq!(ids(&gpu), textures);
-        }
+        assert!(
+            matches!(gpu.prepare(&resized, &device, &queue, None, Duration::ZERO), Err(UiRenderRejectReason::TextureAllocationFailed { bytes }) if bytes > 0)
+        );
+        assert_eq!(gpu.buckets[0].as_ref().unwrap().texture.id(), kept);
+        assert!(gpu.page_resident(0));
+        assert!(gpu.buckets.iter().any(Option::is_none));
     }
-    gpu.prepare(&resized, &device, &queue, None).unwrap();
+    gpu.prepare(&resized, &device, &queue, None, TEXTURE_RETRY_DELAY)
+        .unwrap();
     assert!(gpu.resident(&resized));
 }
 
@@ -436,7 +444,7 @@ fn page_upload_failure_leaves_pages_dirty_until_a_complete_retry() {
     {
         let _failure = crate::gpu_allocation::inject(|label, _| label == "UI texture page upload");
         assert_eq!(
-            gpu.prepare(&catalog, &device, &queue, None),
+            gpu.prepare(&catalog, &device, &queue, None, std::time::Duration::ZERO),
             Err(UiRenderRejectReason::TextureAllocationFailed {
                 bytes: (1024 * 1024 + 256 * 256) * 4
             })
@@ -444,7 +452,8 @@ fn page_upload_failure_leaves_pages_dirty_until_a_complete_retry() {
     }
     assert!(!gpu.resident(&catalog));
     assert_eq!(gpu.state.dirty(&catalog).unwrap(), [0, 1]);
-    gpu.prepare(&catalog, &device, &queue, None).unwrap();
+    gpu.prepare(&catalog, &device, &queue, None, TEXTURE_RETRY_DELAY)
+        .unwrap();
     assert!(gpu.resident(&catalog));
 }
 
@@ -492,4 +501,230 @@ fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issu
     assert_eq!(issued[2].1, [side; 2]);
     assert!(state.dirty(&resized).unwrap().is_empty());
     assert_eq!(state.plan.as_ref(), Some(resized.plan()));
+}
+
+#[test]
+fn resize_releases_superseded_buckets_before_retrying_under_budget() {
+    let (device, queue) = noop_device();
+    let (base, resized) = resizable_catalogs();
+    let mut gpu = UiGpuTextures::default();
+    gpu.prepare(&base, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
+    let old = std::sync::Arc::downgrade(&gpu.buckets[1].as_ref().unwrap().allocation_lifetime);
+    let superseded_bytes = base.pages()[1..]
+        .iter()
+        .map(|page| page.pixels().len())
+        .sum::<usize>();
+    let budget = resized.plan().bytes() as u64;
+    let mut allocated_bytes = base.pages()[0].pixels().len() as u64;
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let observed = attempts.clone();
+    let _failure = crate::gpu_allocation::inject(move |label, bytes| {
+        if label != "bounded UI dimension bucket" {
+            return false;
+        }
+        observed.set(observed.get() + 1);
+        let live_old_bytes = if old.upgrade().is_some() {
+            superseded_bytes as u64
+        } else {
+            0
+        };
+        let failed = allocated_bytes + bytes + live_old_bytes > budget;
+        if !failed {
+            allocated_bytes += bytes;
+        }
+        failed
+    });
+    gpu.prepare(&resized, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
+    assert!(gpu.resident(&resized));
+    assert!(
+        attempts.get() >= 2,
+        "overlapping allocations must exhaust the budget first"
+    );
+}
+
+/// Publishes one triangle per page so preparation exercises actual batch admission.
+fn texture_scene(catalog: UiTextureCatalog) -> super::super::UiRenderInput {
+    use render_model::{UiRenderBatch, UiRenderVertex, UiScissor};
+    super::super::UiRenderInput {
+        revision: 1,
+        viewport_size: [64; 2],
+        safe_area: [0; 4],
+        vertices: vec![
+            UiRenderVertex {
+                position: [1.; 2],
+                clip_z: 0.,
+                clip_w: 1.,
+                uv: [0.; 2],
+                color: [255; 4],
+                style_flags: 0,
+                alpha_cutoff: -1.,
+                model_light: 1.,
+                overlay_color: [0.; 4],
+            };
+            3
+        ]
+        .into(),
+        indices: (0..catalog.pages().len())
+            .flat_map(|_| [0, 1, 2])
+            .collect::<Vec<_>>()
+            .into(),
+        batches: (0..catalog.pages().len())
+            .map(|page| {
+                UiRenderBatch::new(
+                    page as u32,
+                    UiScissor::new(0, 0, 64, 64),
+                    page as u32 * 3,
+                    3,
+                    0,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        textures: std::sync::Arc::new(catalog),
+    }
+}
+
+#[test]
+fn failed_bucket_keeps_other_pages_and_ui_batches_drawable() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::{UiRenderSceneResource, UiRenderStatsResource};
+    for failed_stage in [
+        "bounded UI dimension bucket",
+        "UI bucket bindings",
+        "UI texture page upload",
+        "UI font atlas upload",
+    ] {
+        let mut world = super::super::ordered_command_tests::binding_world();
+        let input = if failed_stage == "UI font atlas upload" {
+            let mut input = super::super::font_atlas_tests::input();
+            let pages = vec![
+                catalog(0).pages()[0].clone(),
+                input.textures.pages()[0].clone(),
+            ];
+            input.textures = std::sync::Arc::new(UiTextureCatalog::new(pages, 2).unwrap());
+            let mut font = input.batches[0];
+            font.texture_page = 1;
+            font.first_index = input.indices.len() as u32;
+            input.indices = input
+                .indices
+                .iter()
+                .copied()
+                .cycle()
+                .take(input.indices.len() * 2)
+                .collect::<Vec<_>>()
+                .into();
+            input.batches = vec![input.batches[0], font].into();
+            input
+        } else {
+            texture_scene(catalog(0))
+        };
+        let catalog = input.textures.clone();
+        let failed_bytes = catalog.pages()[1].pixels().len() as u64;
+        let mut scene = super::super::UiRenderScene::default();
+        scene
+            .publish(input, world.resource::<UiRenderStatsResource>())
+            .unwrap();
+        world.insert_resource(UiRenderSceneResource(scene));
+        let _failure = crate::gpu_allocation::inject(move |label, bytes| {
+            label == failed_stage
+                && (failed_stage == "UI font atlas upload"
+                    || bytes == failed_bytes
+                    || bytes == (1024 * 1024 * 4) + failed_bytes)
+        });
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        world
+            .run_system_once(super::super::prepare_ui_bind_group)
+            .unwrap();
+        let gpu = world.resource::<super::super::UiGpu>();
+        assert_eq!(gpu.accepted_revision, Some(1));
+        assert_eq!(gpu.batches.len(), 2);
+        assert_eq!(
+            gpu.textures.state.uploaded,
+            [Some(catalog.pages()[0].identity()), None]
+        );
+        assert!(!gpu.textures.resident(&catalog));
+        assert!(gpu.textures.page_binding(0).is_some());
+        assert!(gpu.textures.page_binding(1).is_none());
+        let drawable = super::super::resolved_batches(
+            gpu.accepted_revision,
+            &gpu.batches,
+            &gpu.textures.locations,
+            gpu.textures.allocated_buckets(),
+        )
+        .unwrap()
+        .filter(|(_, batch, _)| {
+            gpu.textures
+                .page_binding(batch.texture_page as usize)
+                .is_some()
+        })
+        .map(|(index, _, _)| index)
+        .collect::<Vec<_>>();
+        assert_eq!(drawable, [0]);
+        let generation = gpu.textures.residency_generation;
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        assert_eq!(
+            world.resource::<super::super::UiGpu>().accepted_revision,
+            Some(1)
+        );
+        drop(_failure);
+        world.resource_mut::<super::super::UiGpu>().started -= TEXTURE_RETRY_DELAY;
+        world
+            .run_system_once(super::super::resources::prepare_ui_resources)
+            .unwrap();
+        world
+            .run_system_once(super::super::prepare_ui_bind_group)
+            .unwrap();
+        let gpu = world.resource::<super::super::UiGpu>();
+        assert_eq!(gpu.accepted_revision, Some(1));
+        assert!(gpu.textures.resident(&catalog));
+        assert!(gpu.textures.page_binding(1).is_some());
+        assert_ne!(gpu.textures.residency_generation, generation);
+    }
+}
+
+#[test]
+fn unchanged_failed_plan_waits_for_backoff_but_changed_plan_retries() {
+    use std::{cell::Cell, rc::Rc, time::Duration};
+    let (device, queue) = noop_device();
+    let (base, resized) = resizable_catalogs();
+    let mut gpu = UiGpuTextures::default();
+    let attempts = Rc::new(Cell::new(0));
+    let observed = attempts.clone();
+    let _failure = crate::gpu_allocation::inject(move |label, _| {
+        if label != "bounded UI dimension bucket" {
+            return false;
+        }
+        observed.set(observed.get() + 1);
+        true
+    });
+    assert!(
+        gpu.prepare(&base, &device, &queue, None, Duration::ZERO)
+            .is_err()
+    );
+    let first = attempts.get();
+    assert!(
+        gpu.prepare(&base, &device, &queue, None, Duration::from_millis(1))
+            .is_err()
+    );
+    assert_eq!(attempts.get(), first, "next frame must not retry");
+    assert!(
+        gpu.prepare(&base, &device, &queue, None, Duration::from_secs(1))
+            .is_err()
+    );
+    let retried = attempts.get();
+    assert!(
+        retried > first,
+        "bounded backoff must allow another attempt"
+    );
+    assert!(
+        gpu.prepare(&resized, &device, &queue, None, Duration::from_secs(1))
+            .is_err()
+    );
+    assert!(attempts.get() > retried, "plan changes retry immediately");
 }

@@ -235,6 +235,7 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
     )
     .await
     .unwrap();
+    assert!(!session.resumed_account());
     for now in [11, 12, 13] {
         assert_eq!(
             session
@@ -271,10 +272,26 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
     .unwrap();
     session.flush_account().await.unwrap();
     session.flush_account().await.unwrap();
+    assert!(session.resumed_account());
+    assert!(session.pending_account().is_none());
     let requests = sent(&output);
     assert_eq!(requests[0]["resume"], "b");
     assert_eq!(requests[1]["op"], RELAY_OP_SIGN_OUT);
     assert_eq!(requests.len(), 2);
+    session.close(CloseReason::Transport);
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "d", 20)), false);
+    let output = transport.written.clone();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::from_secs(100),
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    assert!(!session.resumed_account());
+    assert_eq!(sent(&output)[0]["resume"], "");
 }
 
 #[tokio::test]

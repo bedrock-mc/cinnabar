@@ -180,47 +180,18 @@ pub(super) fn build(
         head,
         offset: item.offset,
         rest_vertices: Arc::from([]),
+        preview_part: crate::STANDARD_BIPED_BONES
+            .iter()
+            .position(|bone| bone.eq_ignore_ascii_case(&item.attachment_bone))
+            .map_or(u32::MAX, |part| part as u32),
+        preview_frame: Default::default(),
         texture,
         pixels,
         world_pixels,
         emitters,
         wind: definition.wind,
     };
-    let root = rig.geometry.bone_pivots[head];
-    let poses = rig.pose(
-        RenderBoneTransform {
-            rotation: Quat::IDENTITY.to_array(),
-            translation_scale: [root[0], root[1], root[2], 1.0],
-            axis_scale: crate::UNIT_AXIS_SCALE,
-        },
-        Motion {
-            seconds: rig.playback.as_ref().map_or(0.0, |clip| clip.rest_time()),
-            ..Default::default()
-        },
-    );
-    let part = crate::STANDARD_BIPED_BONES
-        .iter()
-        .position(|bone| bone.eq_ignore_ascii_case(&item.attachment_bone))
-        .map_or(u32::MAX, |part| part as u32);
-    rig.rest_vertices = rig
-        .geometry
-        .vertices
-        .iter()
-        .map(|vertex| {
-            let bone = vertex.bone_index as usize;
-            let pose = poses[bone];
-            let position = Vec3::from_slice(&pose.translation_scale[..3])
-                + Quat::from_array(pose.rotation)
-                    * (Vec3::from_array(vertex.position)
-                        - Vec3::from_array(rig.geometry.bone_pivots[bone]));
-            ActorVertex {
-                position: [-position.x, position.y, -position.z],
-                uv: vertex.uv,
-                part,
-            }
-        })
-        .collect::<Vec<_>>()
-        .into();
+    rig.rest_vertices = rig.preview_vertices(rig.preview_motion(0.0)).into();
     Some(rig)
 }
 

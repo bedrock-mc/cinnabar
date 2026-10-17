@@ -435,4 +435,4 @@ SOFTWARE.
   HTTP client for symbol servers; `devtool symbolicate` configures none and never uses it.
 - Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.
 
-The bunny ears and crown Blockbench projects, runtime geometry and textures in `crates/render-model/src/hats/` are original Cinnabar artwork, distributed under the repository license.
+The cosmetic regression geometry and textures in `crates/render-model/src/hats/` are original Cinnabar artwork, distributed under the repository license. Editable projects and production catalog assets are maintained in bedrock-mc/cinnabar-api.

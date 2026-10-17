@@ -65,7 +65,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "web-client"
 path = "web/client"
-allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input"]
+allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "launcher"]
 forbidden_dependencies = ["cinnabar", "launcher-host", "bevy", "wgpu"]
 
 [[crates]]

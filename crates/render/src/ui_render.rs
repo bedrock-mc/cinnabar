@@ -204,6 +204,8 @@ pub(crate) struct UiGpu {
     viewport_uploads: viewport::ViewportUploads,
     #[cfg(test)]
     geometry_writes: [usize; 2],
+    #[cfg(test)]
+    world_passes: std::sync::atomic::AtomicUsize,
     viewport_size: [u32; 2],
     started: std::time::Instant,
     textures: UiGpuTextures,
@@ -227,7 +229,7 @@ pub(crate) struct UiGpu {
     /// Each view's UI-layer composite pipelines.
     composite_pipelines: std::collections::BTreeMap<Entity, composite::CompositePipelines>,
     world_view_pipelines: std::collections::BTreeMap<
-        (Entity, bool, bool),
+        (Entity, bool, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
     >,
     model_view_pipelines: std::collections::BTreeMap<
@@ -235,6 +237,10 @@ pub(crate) struct UiGpu {
         (CachedRenderPipelineId, CachedRenderPipelineId),
     >,
 }
+
+#[cfg(test)]
+#[path = "ui_render/geometry_tests.rs"]
+mod geometry_tests;
 
 #[cfg(test)]
 #[path = "ui_render/ordered_command_tests.rs"]

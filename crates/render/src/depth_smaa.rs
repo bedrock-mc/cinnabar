@@ -52,12 +52,6 @@ impl Plugin for DepthSmaaPlugin {
             "depth_smaa/edge.wesl",
             crate::shader_safety::from_wesl
         );
-        load_internal_asset!(
-            app,
-            pipelines::RESTORE_SHADER,
-            "depth_smaa/restore.wgsl",
-            crate::shader_safety::from_wgsl
-        );
         crate::pipeline_warmup::register::<DepthSmaaPipelines>(app);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
@@ -84,7 +78,7 @@ struct DepthSmaaView {
     source: TextureViewId,
     uniform: BufferId,
     depth: BindGroup,
-    post: [(TextureViewId, BindGroup, BindGroup); 2],
+    post: [(TextureViewId, BindGroup); 2],
     ids: pipelines::PipelineIds,
     samples: u32,
     format: TextureFormat,
@@ -132,7 +126,7 @@ fn prepare(
                 && old
                     .post
                     .iter()
-                    .any(|(id, _, _)| *id == target.main_texture_view().id())
+                    .any(|(id, _)| *id == target.main_texture_view().id())
         }) {
             continue;
         }
@@ -148,12 +142,7 @@ fn prepare(
                 &cache.get_bind_group_layout(&pipelines.post_layout),
                 &BindGroupEntries::sequential((view, uniform.clone())),
             );
-            let restore = device.create_bind_group(
-                "SMAA scene restore",
-                &cache.get_bind_group_layout(&pipelines.restore_layout),
-                &BindGroupEntries::single(view),
-            );
-            (view.id(), binding, restore)
+            (view.id(), binding)
         });
         commands.entity(entity).insert(DepthSmaaView {
             source: crate::scene_sampling::view_depth(depth).id(),
