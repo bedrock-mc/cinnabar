@@ -301,7 +301,7 @@ fn shared_world_ui_preserves_pixels_across_depth_modes_and_sample_counts() {
                         "world UI changed: {msaa:?}, HDR={hdr}, {modes:?}, missing attached={missing_attached}, missing depth={missing_depth}"
                     );
                     assert!(
-                        actual.chunks_exact(4).any(|pixel| pixel[2] > 0),
+                        actual.as_chunks::<4>().0.iter().any(|pixel| pixel[2] > 0),
                         "UI did not draw: {msaa:?}, HDR={hdr}, {modes:?}, sample={:?}",
                         &actual[4 * (20 * SIDE as usize + 20)..4 * (20 * SIDE as usize + 20) + 4]
                     );
