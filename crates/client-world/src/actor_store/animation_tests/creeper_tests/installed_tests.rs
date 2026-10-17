@@ -352,14 +352,31 @@ fn assert_installed_creeper_samples(powered: bool) {
     }
 }
 
-/// Samples this fixture's pure X-axis rotations as a displayed pitch in radians.
+/// Checks the pitch of the blended transformed vertices between tick endpoints.
+#[test]
+fn displayed_pitch_follows_interpolated_vertices() {
+    let radians = 30.0_f32.to_radians();
+    let half = radians * 0.5;
+    let rotations = [[0.0, 0.0, 0.0, 1.0], [half.sin(), 0.0, 0.0, half.cos()]];
+    for alpha in [0.25, 0.75] {
+        let expected = (alpha * radians.sin()).atan2(1.0 - alpha + alpha * radians.cos());
+        assert!(
+            (interpolated_pitch(rotations, alpha) - expected).abs() < 1.0e-6,
+            "displayed pitch follows the blended transformed up vector"
+        );
+    }
+}
+
+/// Measures this fixture's pure X-axis pitch after blending transformed up vectors.
 fn interpolated_pitch(rotations: [[f32; 4]; 2], alpha: f32) -> f32 {
-    let pitches = rotations.map(|[x, y, z, w]| {
+    let up = rotations.map(|[x, y, z, w]| {
         assert!(
             y.abs() < 1e-6 && z.abs() < 1e-6,
             "fixture must rotate around X"
         );
-        2.0 * x.atan2(w)
+        [2.0 * x * w, 1.0 - 2.0 * x * x]
     });
-    pitches[0] + (pitches[1] - pitches[0]) * alpha
+    let sine = up[0][0] + (up[1][0] - up[0][0]) * alpha;
+    let cosine = up[0][1] + (up[1][1] - up[0][1]) * alpha;
+    sine.atan2(cosine)
 }
