@@ -31,16 +31,7 @@ fn cosmetic_viewport_reports_only_intersecting_gallery_tiles() {
         .unwrap();
         visible = preview.visible_cosmetics;
     });
-    let expected: Vec<_> = cosmetics::Item::all()
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| {
-            DressingRoomSection::Cosmetics.includes_cosmetic_slot(&item.descriptor().slot)
-        })
-        .map(|(index, _)| index)
-        .take(2)
-        .collect();
-    assert_eq!(visible, expected);
+    assert_eq!(visible, vec![0, 1]);
 }
 
 fn text_bounds(nodes: Vec<ui::UiNode>, size: [f32; 2]) -> Vec<([u8; 32], ui::UiRect)> {
@@ -619,70 +610,5 @@ fn cosmetics_offer_equip_remove_and_tabs_without_skin_management_actions() {
                 Action::Import | Action::ImportCape | Action::SetModel(_) | Action::BeginRename(_)
             )
         )));
-    }
-}
-
-#[test]
-fn pets_and_cosmetics_expose_only_their_own_tiles_and_keep_catalog_thumbnail_indices() {
-    let parrot = render_model::hats::fixture::shoulder_parrot();
-    let hat = render_model::hats::fixture::bunny();
-    for section in [DressingRoomSection::Cosmetics, DressingRoomSection::Pets] {
-        for width in [360.0, 1280.0] {
-            let mut view = view(STARTER_SKIN_NAMES.len());
-            Arc::make_mut(&mut view.dressing_room).section = section;
-            let key = if section == DressingRoomSection::Pets {
-                "dressing_room_pets"
-            } else {
-                "dressing_room_hats"
-            };
-            let offsets = if width < 600.0 {
-                HashMap::from([(key.into(), 320.0)])
-            } else {
-                HashMap::new()
-            };
-            let mut visible = Vec::new();
-            let (_, hits, _) = paint(offsets, |canvas| {
-                visible = super::draw(canvas, &view, [width, 720.0])
-                    .unwrap()
-                    .visible_cosmetics;
-            });
-            let selected = if section == DressingRoomSection::Pets {
-                parrot
-            } else {
-                hat
-            };
-            let other = if section == DressingRoomSection::Pets {
-                hat
-            } else {
-                parrot
-            };
-            let bounds = hits
-                .iter()
-                .find(|(action, _)| *action == command(Action::SelectCosmetic(Some(selected))))
-                .expect("active category item is selectable")
-                .1;
-            assert!(
-                (bounds.width() - bounds.height()).abs() < 0.01,
-                "preview cards stay square"
-            );
-            assert!(
-                !hits
-                    .iter()
-                    .any(|(action, _)| *action == command(Action::SelectCosmetic(Some(other))))
-            );
-            assert!(!hits.iter().any(|(action, _)| matches!(
-                action,
-                MenuAction::DressingRoom(Action::Import | Action::ImportCape)
-            )));
-            let items = cosmetics::Item::all();
-            assert!(
-                visible
-                    .iter()
-                    .all(|index| section.includes_cosmetic_slot(&items[*index].descriptor().slot))
-            );
-            if section == DressingRoomSection::Pets {
-                assert!(visible.iter().any(|index| items[*index] == parrot));
-            }
-        }
     }
 }

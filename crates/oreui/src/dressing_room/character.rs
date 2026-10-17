@@ -30,7 +30,7 @@ pub(super) fn draw(
     canvas.fill(badge, theme::PRIMARY_ROLE.shadow)?;
     canvas.text_centred("EQUIPPED", badge, CAPTION, TEXT, false)?;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
-    let hat_tab = view.dressing_room.section.is_cosmetic_gallery();
+    let hat_tab = view.dressing_room.section == DressingRoomSection::Cosmetics;
     let custom = if hat_tab {
         false
     } else if cape_tab {
@@ -80,21 +80,12 @@ pub(super) fn draw(
         let selected = view
             .dressing_room
             .selected_cosmetics
-            .iter()
-            .filter(|(slot, _)| view.dressing_room.section.includes_cosmetic_slot(slot))
-            .filter_map(|(_, id)| cosmetics::Item::from_id(id.as_deref()?))
+            .values()
+            .filter_map(|id| cosmetics::Item::from_id(id.as_deref()?))
             .next();
-        selected.map_or(
-            (
-                if view.dressing_room.section == DressingRoomSection::Pets {
-                    "No pet"
-                } else {
-                    "No cosmetics"
-                },
-                "Your original look",
-            ),
-            |item| (item.name(), "Select again to remove"),
-        )
+        selected.map_or(("No cosmetics", "Your original look"), |item| {
+            (item.name(), "Select again to remove")
+        })
     } else if cape_tab {
         view.dressing_room
             .selected_cape()

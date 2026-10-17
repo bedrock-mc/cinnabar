@@ -492,12 +492,11 @@ fn standard_skin(
 #[cfg(test)]
 mod tests;
 
-/// Toggles an item or clears its requested gallery; failed saves restore the previous loadout.
+/// Saves a local cosmetic atomically; a failed write restores the equipped choice.
 pub fn select_cosmetic(
     layout: &InstallLayout,
     view: &mut DressingRoomView,
     hat: Option<cosmetics::Item>,
-    section: launcher::dressing_room::DressingRoomSection,
 ) -> Result<(), String> {
     let previous = view.selected_cosmetics.clone();
     if let Some(item) = hat {
@@ -513,8 +512,7 @@ pub fn select_cosmetic(
         view.selected_cosmetics
             .insert(slot, (!selected).then(|| item.id().to_owned()));
     } else {
-        view.selected_cosmetics
-            .retain(|slot, _| !section.includes_cosmetic_slot(slot));
+        view.selected_cosmetics.clear();
     }
     if let Err(error) = save(layout, view) {
         view.selected_cosmetics = previous;

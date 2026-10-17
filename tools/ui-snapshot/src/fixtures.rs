@@ -73,14 +73,14 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
-        name: "dressing-room-pets",
+        name: "dressing-room-parrot",
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: parrot,
     },
     #[cfg(feature = "test-support")]
     State {
-        name: "dressing-room-pets-narrow",
+        name: "dressing-room-parrot-narrow",
         size: [360, 720],
         gui_scale: GUI_SCALE,
         fixture: parrot,
@@ -711,14 +711,14 @@ fn dragon_wings() -> Fixture {
     fixture
 }
 
-/// Shows the separate Pets category while head and back choices remain equipped.
+/// Shows the parrot alongside head and back items in the cosmetics gallery.
 #[cfg(feature = "test-support")]
 fn parrot() -> Fixture {
     let mut fixture = dragon_wings();
     if let Fixture::Menu(view) = &mut fixture {
         let item = render_model::hats::fixture::shoulder_parrot();
         let wardrobe = Arc::make_mut(&mut view.dressing_room);
-        wardrobe.section = launcher::dressing_room::DressingRoomSection::Pets;
+        wardrobe.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
         wardrobe
             .selected_cosmetics
             .insert(item.descriptor().slot.clone(), Some(item.id().into()));

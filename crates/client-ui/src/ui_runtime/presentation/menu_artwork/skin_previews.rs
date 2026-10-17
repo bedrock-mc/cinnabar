@@ -154,7 +154,8 @@ impl UiPresentationRuntime {
                 &self.menu_preview_model.cosmetics,
                 &self.menu_cosmetic_thumbnail_indices,
                 view.screen == MenuScreen::DressingRoom
-                    && view.dressing_room.section.is_cosmetic_gallery(),
+                    && view.dressing_room.section
+                        == launcher::dressing_room::DressingRoomSection::Cosmetics,
             ),
         });
         self.menu_artwork_loader.gallery = request;
@@ -311,39 +312,6 @@ mod tests {
                 .collect();
             assert_eq!(items, vec![(equipped, false), (shown, true)]);
         }
-    }
-
-    #[test]
-    fn pets_request_their_own_visible_thumbnail_and_retain_equipped_gear_textures() {
-        let pet = render_model::hats::fixture::shoulder_parrot();
-        let hat = render_model::hats::fixture::bunny();
-        let mut presentation =
-            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-        presentation.set_preview_cosmetics(&[hat, pet]);
-        let mut view = MenuView::new(true, "Fixture".into());
-        view.screen = MenuScreen::DressingRoom;
-        std::sync::Arc::make_mut(&mut view.dressing_room).section =
-            launcher::dressing_room::DressingRoomSection::Pets;
-        presentation.menu_cosmetic_thumbnail_indices = vec![
-            cosmetics::Item::all()
-                .iter()
-                .position(|item| *item == pet)
-                .unwrap(),
-        ];
-        presentation.sync_menu_artwork_view(&view);
-        let items: Vec<_> = sources(&presentation.menu_artwork_set)
-            .into_iter()
-            .filter_map(|source| match source {
-                Source::Item(item, thumbnail) => Some((item, thumbnail)),
-                _ => None,
-            })
-            .collect();
-        assert!(
-            items.contains(&(hat, false))
-                && items.contains(&(pet, false))
-                && items.contains(&(pet, true))
-        );
-        assert!(!items.contains(&(hat, true)));
     }
 
     #[test]
