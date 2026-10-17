@@ -1,4 +1,3 @@
-use super::control::OpenTarget;
 use super::{InventoryPendingState, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
@@ -27,10 +26,7 @@ impl PlayerInventoryLedger {
 
     /// Admits personal gestures only while the latest intent still wants this screen open.
     pub(super) fn personal_generation_for_gesture(&self) -> Option<u64> {
-        if !self.controls.personal.desired_open
-            || self.controls.admitted_personal_target() != self.controls.personal_target
-            || self.controls.personal_covered_by_storage_close()
-        {
+        if !self.controls.personal.desired_open {
             return None;
         }
         match self.personal {
@@ -45,30 +41,12 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Queues inventory input for the runtime actor selected when the user pressed it.
     pub fn request_personal_open(&mut self, target_runtime_id: u64) -> bool {
-        self.request_open(OpenTarget {
-            runtime_id: target_runtime_id,
-            actor_unique_id: None,
-        })
-    }
-
-    /// Opens an actor inventory and correlates its reply by persistent actor identity.
-    pub fn request_actor_open(&mut self, target_runtime_id: u64, actor_unique_id: i64) -> bool {
-        self.request_open(OpenTarget {
-            runtime_id: target_runtime_id,
-            actor_unique_id: Some(actor_unique_id),
-        })
-    }
-
-    /// Retains the requested target and latest intent until its transport reply arrives.
-    fn request_open(&mut self, target: OpenTarget) -> bool {
-        if self.authority.is_none() || target.runtime_id == 0 || self.storage.is_some() {
+        if self.authority.is_none() || target_runtime_id == 0 || self.storage.is_some() {
             return false;
         }
-        if self.controls.personal_target != Some(target) {
-            self.request_personal_close();
-        }
-        self.controls.personal_target = Some(target);
+        self.controls.personal_target = target_runtime_id;
         self.controls.personal.desired_open = true;
         self.reconcile_personal();
         true

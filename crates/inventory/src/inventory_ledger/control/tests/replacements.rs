@@ -1,51 +1,32 @@
 use super::*;
 
 #[test]
-fn rejected_replacement_preserves_storage_then_allows_a_personal_open() {
+fn unsupported_replacement_preserves_storage_and_does_not_send_a_close() {
     for replacement_id in [3, 4] {
-        for expire_close in [false, true] {
-            let mut ledger = ledger_with_slot_zero();
-            let mut server = Server::default();
-            server.open_storage(&mut ledger, 3);
-            let original = ledger.controls.storage.confirmed;
-            let generation = ledger.storage_generation();
-            let InventoryEvent::Open(mut replacement) = storage_open(replacement_id) else {
-                unreachable!()
-            };
-            replacement.window_type = i8::MAX;
-            assert!(protocol::WindowKind::from_window_type(replacement.window_type).is_none());
-            ledger.apply(&InventoryEvent::Open(replacement));
-
-            assert_eq!(ledger.storage_generation(), generation);
-            assert_eq!(ledger.controls.storage.confirmed, original);
-            assert!(ledger.controls.storage.desired_open);
-            if replacement_id != 3 {
-                assert_eq!(
-                    ledger.pending_control_packet().unwrap().unwrap(),
-                    protocol::container_close_packet(replacement_id).unwrap()
-                );
-                server.send(&mut ledger, 0, expire_close);
-                if expire_close {
-                    ledger.poll_timeout(INVENTORY_REQUEST_TIMEOUT_MILLIS);
-                } else {
-                    server.deliver(&mut ledger);
-                }
-            }
-            assert_eq!(ledger.storage_generation(), generation);
-            assert_eq!(ledger.controls.storage.confirmed, original);
-            ledger.request_storage_close();
-            let mut now = INVENTORY_REQUEST_TIMEOUT_MILLIS;
-            server.settle(&mut ledger, &mut now);
-            assert!(ledger.request_personal_open(42));
-            server.settle(&mut ledger, &mut now);
-            assert!(server.personal_open);
-            assert!(ledger.begin_click(0).is_ok());
-        }
+        let mut ledger = ledger_with_slot_zero();
+        ledger.apply(&storage_open(3));
+        let generation = ledger.storage_generation();
+        let InventoryEvent::Open(mut replacement) = storage_open(replacement_id) else {
+            unreachable!()
+        };
+        replacement.window_type = i8::MAX;
+        assert!(protocol::WindowKind::from_window_type(replacement.window_type).is_none());
+        ledger.apply(&InventoryEvent::Open(replacement));
+        assert_eq!(ledger.storage_generation(), generation);
+        assert_eq!(ledger.skipped_unknown_containers(), 1);
+        assert!(ledger.pending_batch().unwrap().is_none());
+        ledger.request_storage_close();
+        assert!(ledger.mark_transport_enqueued(0));
+        acknowledge_close(&mut ledger, 3, GENERIC_STORAGE_WINDOW_TYPE);
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(1));
+        ledger.apply(&InventoryEvent::Open(personal_open(7)));
+        assert!(ledger.begin_click(0).is_ok());
     }
 }
 
 #[test]
-fn rejected_replacement_preserves_storage_contents_and_pending_items() {
+fn unsupported_replacement_preserves_storage_contents_and_pending_items() {
     let mut ledger = ledger_with_slot_zero();
     ledger.apply(&storage_open(3));
     let count = *protocol::WindowKind::Storage

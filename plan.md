@@ -4619,8 +4619,8 @@ remain in the production build. The checkpoint is pushed through `2759e46d`;
 hosted run `34088016127` passed every job, including Windows acceptance,
 macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
-A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
-unavailable until the next session; broader timeout recovery remains incomplete.
+Open timeouts release local admission, and later server opens supply their actual
+window IDs. Broader timeout and reconnect behavior still needs live qualification.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
@@ -10029,9 +10029,11 @@ written but unrun; this does not close a renderer parity or frame-budget gate.
 
 Inventory input resolves a retained mount through live actor authority and sends its runtime
 ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
-request. The chosen target survives transport delay. Matching actor-window replies settle
-mounted requests and preserve cancellation or a newer reopen intent. Unrelated server
-windows remain authoritative. Unanswered opens retain their generations in request order,
-and stale replies preserve the active window and its items. A changed target closes the
-admitted personal window before sending the next open. Full mount container, vehicle input
-and platform-specific inventory-opening guards remain incomplete.
+request. The chosen runtime ID survives transport delay. Supported server window opens
+are handled without request correlation, including replies received after cancellation,
+timeout, or a changed target. An open settles the pending input without retaining reply
+history or sending a rejection close; an already active screen keeps its normal open guard.
+Open timeouts release local admission without closing a guessed window ID.
+Item requests and admitted user closes retain their window generations for settlement.
+Full mount container, vehicle input and platform-specific inventory-opening guards
+remain incomplete.

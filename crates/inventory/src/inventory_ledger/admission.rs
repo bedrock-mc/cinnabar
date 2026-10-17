@@ -397,23 +397,10 @@ impl PlayerInventoryLedger {
             .filter(|_| valid_storage_window_id(window_id))
         else {
             self.note_unrouted_container();
-            self.reject_window(window_id, open.window_type);
             return;
         };
-        let requested_open = self.answer_actor_open(open);
-        if requested_open == Some(false) {
-            if let Some(window_id) = open.container.window_id {
-                self.reject_window(window_id, open.window_type);
-            }
-            return;
-        }
-        if matches!(
-            self.personal,
-            Some(super::PersonalWindow::Open { .. } | super::PersonalWindow::Closing { .. })
-        ) {
-            if let Some(window_id) = open.container.window_id {
-                self.reject_window(window_id, open.window_type);
-            }
+        self.settle_open_request();
+        if matches!(self.personal, Some(super::PersonalWindow::Open { .. })) {
             return;
         }
         // Servers may repeat an open without sending the already-known chest contents again.
@@ -440,22 +427,19 @@ impl PlayerInventoryLedger {
                 .storage_generation
                 .is_some_and(|generation| !settling.contains(&generation))
         });
-        let desired_open = requested_open.unwrap_or_else(|| {
-            // Unsolicited storage opens supersede the personal screen and its intent.
-            self.controls.personal.desired_open = false;
-            self.discard_pending_personal_open();
-            true
-        });
+        self.controls.personal.desired_open = false;
+        self.controls.personal.confirmed = None;
+        self.discard_pending_personal_open();
+        self.finish_personal_close(false);
         self.enchant_options = None;
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
-        self.controls.confirm(ControlWindow {
+        self.controls.storage.confirmed = Some(ControlWindow {
             generation,
             window_id,
             window_type: open.window_type,
-            target: None,
         });
-        self.controls.storage.desired_open = desired_open;
+        self.controls.storage.desired_open = true;
         self.storage = Some(StorageWindow {
             window_id,
             window_type: open.window_type,
@@ -473,9 +457,6 @@ impl PlayerInventoryLedger {
         if let Some(protocol::OpenCells::Named { lengths, .. }) = kind.open_cells() {
             self.confirmed
                 .ensure_storage(lengths.iter().copied().min().unwrap_or(0));
-        }
-        if !desired_open {
-            self.request_storage_close();
         }
     }
 

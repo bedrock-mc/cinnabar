@@ -771,10 +771,7 @@ impl UiRuntime {
                                 .and_then(|mount| world.actor_by_unique_id(mount))
                         });
                     let ledger = player_runtime.inventory.ledger_mut();
-                    match mount {
-                        Some(mount) => ledger.request_actor_open(mount.runtime_id, mount.unique_id),
-                        None => ledger.request_personal_open(runtime_id),
-                    }
+                    ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
         }
         UiAuthorityTransition {
