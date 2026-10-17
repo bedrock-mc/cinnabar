@@ -24,7 +24,7 @@ use ui_engine::pages::WHOLE_ART_PAGE;
 mod skin_previews;
 use skin_previews::SkinArtwork;
 pub(super) mod cosmetic_requests;
-use cosmetic_requests::CosmeticArtwork;
+use cosmetic_requests::{CosmeticArtwork, Kind as CosmeticArtworkKind};
 mod cape_previews;
 mod packing;
 mod request_cache;
@@ -404,7 +404,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     let mut all: Vec<_> = set
         .cosmetics
         .iter()
-        .filter(|source| !source.thumbnail)
+        .filter(|source| source.kind == CosmeticArtworkKind::EquippedTexture)
         .take(MAX_ARTWORKS)
         .map(|source| Source::Item(source.item, false))
         .collect();
@@ -426,9 +426,17 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     all.extend(
         set.cosmetics
             .iter()
-            .filter(|source| source.thumbnail)
+            .filter(|source| source.kind == CosmeticArtworkKind::Thumbnail)
             .take(remaining)
             .map(|source| Source::Item(source.item, true)),
+    );
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        set.cosmetics
+            .iter()
+            .filter(|source| source.kind == CosmeticArtworkKind::GalleryTexture)
+            .take(remaining)
+            .map(|source| Source::Item(source.item, false)),
     );
     all
 }

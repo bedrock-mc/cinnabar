@@ -29,6 +29,8 @@ texture pages stay cached. Tiles center the isolated cosmetic at a stable scale,
 wardrobe fitting uses a worker-prepared, sampled motion envelope. Exact envelope coverage
 for arbitrary downloaded clips, live player-preview visual acceptance and hardware performance
 qualification remain incomplete.
+Visible thumbnail carriers take priority over optional gallery animation textures, and
+cosmetic atlas borders retain their original point-sampled edge texels.
 
 The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
 slot, through a filter icon beside
