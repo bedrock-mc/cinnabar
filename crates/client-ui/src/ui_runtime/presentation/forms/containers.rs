@@ -58,8 +58,12 @@ impl<'a> ContainerAuthority<'a> {
             loom_pattern: state.loom_pattern.as_deref(),
             crafter_disabled: std::array::from_fn(|slot| state.crafter.is_disabled(slot as u8)),
             crafter_powered: state.crafter.powered,
-            furnace_book_open: state.furnace_book_open,
-            furnace_tab: state.furnace_tab,
+            furnace_book_open: runtime
+                .furnace_options(player)
+                .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook),
+            furnace_tab: runtime
+                .furnace_options(player)
+                .map(|options| options.left_tab.index()),
             creative_tab: state.creative_tab,
             creative_wide: state.creative_wide,
             creative_expanded: &state.creative_expanded,

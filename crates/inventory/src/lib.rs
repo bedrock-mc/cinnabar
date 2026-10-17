@@ -3,6 +3,7 @@ mod anvil;
 mod crafting;
 mod crafting_authority;
 pub mod enchantments;
+mod furnace_options;
 mod furnace_recipes;
 mod ingress;
 pub mod inventory_ledger;
