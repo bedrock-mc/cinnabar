@@ -770,6 +770,8 @@ impl UiRuntime {
         self.screen.inventory = None;
         if self.inventory_open {
             self.observe_inventory_window(player_runtime);
+        } else {
+            self.screen.search_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -787,6 +789,7 @@ impl UiRuntime {
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
         self.screen.inventory = None;
+        self.screen.search_focused = false;
         player_runtime
             .inventory
             .ledger_mut()
