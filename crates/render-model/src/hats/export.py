@@ -37,7 +37,14 @@ def export(project):
             element = elements[child]
             if element['type'] == 'cube':
                 cube = {'origin': element['from'], 'size': [element['to'][i]-element['from'][i] for i in range(3)], 'uv': {}}
+                if any(element.get('rotation', [0, 0, 0])):
+                    cube['pivot'] = element['origin']
+                    cube['rotation'] = element['rotation']
+                if element.get('inflate'):
+                    cube['inflate'] = element['inflate']
                 for face, value in element['faces'].items():
+                    if 'texture' in value and value['texture'] is None:
+                        continue
                     uv = value['uv']
                     cube['uv'][face] = {'uv': uv[:2], 'uv_size': [uv[2]-uv[0], uv[3]-uv[1]]}
                 bone.setdefault('cubes', []).append(cube)
