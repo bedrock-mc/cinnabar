@@ -1,8 +1,13 @@
 //! Web pack delivery composes with host-owned play I/O and startup execution.
 
 use super::*;
-use futures::FutureExt;
+use bridge::FrameRead;
+use futures::{FutureExt, Stream};
 use sha2::{Digest, Sha256};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 const JOIN: u64 = 9;
 
@@ -41,6 +46,31 @@ fn web_login(settings: &LoginSettings) -> SessionLogin<'_> {
     }
 }
 
+/// A local host reader whose trace registration is observable without global tracing.
+struct HostFrames<R> {
+    reader: R,
+    trace: Rc<Cell<u64>>,
+}
+
+impl<R: FrameRead> Stream for HostFrames<R> {
+    type Item = Result<Bytes, BridgeError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.reader).poll_next(cx)
+    }
+}
+
+impl<R: FrameRead> FrameRead for HostFrames<R> {
+    fn trace_conn(&self) -> u64 {
+        self.trace.get()
+    }
+
+    fn set_trace_conn(&self, id: u64) {
+        self.trace.set(id);
+        self.reader.set_trace_conn(id);
+    }
+}
+
 #[tokio::test]
 async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
     for bulk in [true, false] {
@@ -49,6 +79,11 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
         let (reader, frames, writer) =
             bridge::tasks::prepare_bounded_connection(read, write, bridge::MAX_FRAME_LEN, 4096);
         let writer = tokio::spawn(writer);
+        let trace = Rc::new(Cell::new(0));
+        let reader = HostFrames {
+            reader,
+            trace: Rc::clone(&trace),
+        };
         let jobs = Rc::new(Cell::new(0));
         let preparation = LocalPreparation(Rc::clone(&jobs));
         let settings = LoginSettings::default();
@@ -99,6 +134,11 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
             "the host prepares startup after web admission"
         );
         assert_eq!(data.world.local_player_runtime_id, RUNTIME_ID);
+        assert_eq!(
+            trace.get(),
+            91,
+            "the underlying host receives the handoff identity"
+        );
         assert!(packs.required());
         let archives = packs.into_archives();
         assert_eq!(archives.len(), 1);
