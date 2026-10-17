@@ -175,8 +175,7 @@ pub(crate) fn prepare_ui_resources(
         }
     }
     if gpu.accepted_revision == Some(input.revision) {
-        if !gpu.textures.resident(&input.textures)
-            || (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
+        if (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
             || (!input.indices.is_empty() && gpu.index_buffer.is_none())
         {
             gpu.accepted_revision = None;
@@ -187,8 +186,11 @@ pub(crate) fn prepare_ui_resources(
                 input.revision,
                 UiRenderRejectReason::InvalidTextureExtent,
             );
+            return;
         }
-        return;
+        if gpu.textures.resident(&input.textures) {
+            return;
+        }
     }
     if let Err(reason) = input.validate() {
         gpu.accepted_revision = None;
@@ -202,17 +204,8 @@ pub(crate) fn prepare_ui_resources(
         &uploads.device,
         &uploads.queue,
         profile.as_deref(),
-    ) {
-        gpu.accepted_revision = None;
-        gpu.batches = Arc::from([]);
-        gpu.animation_damage = Arc::from([]);
-        record_render_rejection(&stats, input.revision, reason);
-        return;
-    }
-
-    if let Err(reason) = gpu
-        .textures
-        .prepare_fonts(input, &uploads.queue, profile.as_deref())
+        started.elapsed(),
+    ) && !matches!(reason, UiRenderRejectReason::TextureAllocationFailed { .. })
     {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -221,103 +214,33 @@ pub(crate) fn prepare_ui_resources(
         return;
     }
 
-    let fresh_vertices = gpu.vertex_capacity < input.vertices.len();
-    let fresh_indices = gpu.index_capacity < input.indices.len();
-    if fresh_vertices {
-        let capacity = arena_capacity(input.vertices.len(), MAX_UI_VERTICES);
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!(
-            "ui.vertex_allocate",
-            bytes = arena_bytes(capacity, size_of::<FontAtlasVertex>())
-        )
-        .entered();
-        gpu.vertex_buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
-            label: Some("shared bounded UI vertex arena"),
-            size: arena_bytes(capacity, size_of::<FontAtlasVertex>()),
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }));
-        gpu.vertex_capacity = capacity;
-        gpu.vertex_arena_id = gpu.vertex_arena_id.saturating_add(1);
-    }
-    if fresh_indices {
-        let capacity = arena_capacity(input.indices.len(), MAX_UI_INDICES);
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!(
-            "ui.index_allocate",
-            bytes = arena_bytes(capacity, size_of::<u32>())
-        )
-        .entered();
-        gpu.index_buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
-            label: Some("shared bounded UI index arena"),
-            size: arena_bytes(capacity, size_of::<u32>()),
-            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }));
-        gpu.index_capacity = capacity;
-        gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
-    }
-    let UiGpu {
-        uploads: buffer_uploads,
-        textures,
-        ..
-    } = &mut *gpu;
-    let upload = buffer_uploads.plan(input, &textures.fonts, fresh_vertices, fresh_indices);
-    if let Some(buffer) = gpu.vertex_buffer.as_ref()
-        && !upload.vertices.is_empty()
+    if let Err(reason) = gpu.textures.prepare_fonts(
+        input,
+        &uploads.device,
+        &uploads.queue,
+        profile.as_deref(),
+        started.elapsed(),
+    ) && !matches!(reason, UiRenderRejectReason::TextureAllocationFailed { .. })
     {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!(
-            "ui.vertex_write",
-            revision = input.revision,
-            vertices = upload.vertices.len(),
-            bytes = upload.vertices.len() * size_of::<FontAtlasVertex>(),
-        )
-        .entered();
-        uploads.queue.profiled_write_buffer(
-            buffer,
-            (upload.vertices.start * size_of::<FontAtlasVertex>()) as u64,
-            bytemuck::cast_slice(&gpu.textures.fonts.vertices[upload.vertices.clone()]),
-        );
-        if let Some(profile) = profile.as_deref() {
-            profile.record_upload(
-                profile::UploadKind::Geometry,
-                (upload.vertices.len() * size_of::<FontAtlasVertex>()) as u64,
-            );
-        }
-        #[cfg(test)]
-        {
-            gpu.geometry_writes[0] += 1;
-        }
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
+        return;
     }
-    if let Some(buffer) = gpu.index_buffer.as_ref()
-        && !upload.indices.is_empty()
-    {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!(
-            "ui.index_write",
-            revision = input.revision,
-            indices = upload.indices.len(),
-            bytes = upload.indices.len() * size_of::<u32>(),
-        )
-        .entered();
-        uploads.queue.profiled_write_buffer(
-            buffer,
-            (upload.indices.start * size_of::<u32>()) as u64,
-            bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
-        );
-        if let Some(profile) = profile.as_deref() {
-            profile.record_upload(
-                profile::UploadKind::Geometry,
-                (upload.indices.len() * size_of::<u32>()) as u64,
-            );
+
+    let upload = match prepare_geometry(&mut gpu, input, &uploads, profile.as_deref()) {
+        Ok(upload) => upload,
+        Err(reason) => {
+            // A replacement or queued write may have changed either arena before failure.
+            gpu.uploads.invalidate();
+            gpu.accepted_revision = None;
+            gpu.batches = Arc::from([]);
+            gpu.animation_damage = Arc::from([]);
+            record_render_rejection(&stats, input.revision, reason);
+            return;
         }
-        #[cfg(test)]
-        {
-            gpu.geometry_writes[1] += 1;
-        }
-    }
-    gpu.textures.fonts.commit_vertices();
+    };
     gpu.viewport_size = input.viewport_size;
 
     gpu.animation_damage = super::damage::animated_batches(input).into();
@@ -343,6 +266,129 @@ pub(crate) fn prepare_ui_resources(
         stats.rejected_revision = None;
         stats.rejected_reason = None;
     });
+}
+
+/// Checks arena growth and staging before committing the publication's resident geometry.
+fn prepare_geometry(
+    gpu: &mut UiGpu,
+    input: &UiRenderInput,
+    uploads: &crate::upload_staging::FrameUploads<'_>,
+    profile: Option<&profile::UiProfile>,
+) -> Result<uploads::UploadPlan, UiRenderRejectReason> {
+    let fresh_vertices = gpu.vertex_capacity < input.vertices.len();
+    let fresh_indices = gpu.index_capacity < input.indices.len();
+    if fresh_vertices {
+        let capacity = arena_capacity(input.vertices.len(), MAX_UI_VERTICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_allocate",
+            bytes = arena_bytes(capacity, size_of::<FontAtlasVertex>())
+        )
+        .entered();
+        gpu.vertex_buffer = Some(
+            crate::gpu_allocation::buffer(
+                &uploads.device,
+                &BufferDescriptor {
+                    label: Some("shared bounded UI vertex arena"),
+                    size: arena_bytes(capacity, size_of::<FontAtlasVertex>()),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            )
+            .ok_or(UiRenderRejectReason::GeometryAllocationFailed {
+                bytes: arena_bytes(capacity, size_of::<FontAtlasVertex>()),
+            })?,
+        );
+        gpu.vertex_capacity = capacity;
+        gpu.vertex_arena_id = gpu.vertex_arena_id.saturating_add(1);
+    }
+    if fresh_indices {
+        let capacity = arena_capacity(input.indices.len(), MAX_UI_INDICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_allocate",
+            bytes = arena_bytes(capacity, size_of::<u32>())
+        )
+        .entered();
+        gpu.index_buffer = Some(
+            crate::gpu_allocation::buffer(
+                &uploads.device,
+                &BufferDescriptor {
+                    label: Some("shared bounded UI index arena"),
+                    size: arena_bytes(capacity, size_of::<u32>()),
+                    usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            )
+            .ok_or(UiRenderRejectReason::GeometryAllocationFailed {
+                bytes: arena_bytes(capacity, size_of::<u32>()),
+            })?,
+        );
+        gpu.index_capacity = capacity;
+        gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
+    }
+    let upload = gpu
+        .uploads
+        .plan(input, &gpu.textures.fonts, fresh_vertices, fresh_indices);
+    if let Some(buffer) = gpu.vertex_buffer.as_ref()
+        && !upload.vertices.is_empty()
+    {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_write",
+            revision = input.revision,
+            vertices = upload.vertices.len(),
+            bytes = upload.vertices.len() * size_of::<FontAtlasVertex>(),
+        )
+        .entered();
+        let bytes = (upload.vertices.len() * size_of::<FontAtlasVertex>()) as u64;
+        crate::gpu_allocation::checked(&uploads.device, "UI vertex upload", bytes, || {
+            uploads.queue.profiled_write_buffer(
+                buffer,
+                (upload.vertices.start * size_of::<FontAtlasVertex>()) as u64,
+                bytemuck::cast_slice(&gpu.textures.fonts.vertices[upload.vertices.clone()]),
+            );
+        })
+        .ok_or(UiRenderRejectReason::GeometryAllocationFailed { bytes })?;
+        if let Some(profile) = profile {
+            profile.record_upload(profile::UploadKind::Geometry, bytes);
+        }
+        #[cfg(test)]
+        {
+            gpu.geometry_writes[0] += 1;
+        }
+    }
+    if let Some(buffer) = gpu.index_buffer.as_ref()
+        && !upload.indices.is_empty()
+    {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_write",
+            revision = input.revision,
+            indices = upload.indices.len(),
+            bytes = upload.indices.len() * size_of::<u32>(),
+        )
+        .entered();
+        let bytes = (upload.indices.len() * size_of::<u32>()) as u64;
+        crate::gpu_allocation::checked(&uploads.device, "UI index upload", bytes, || {
+            uploads.queue.profiled_write_buffer(
+                buffer,
+                (upload.indices.start * size_of::<u32>()) as u64,
+                bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
+            );
+        })
+        .ok_or(UiRenderRejectReason::GeometryAllocationFailed { bytes })?;
+        if let Some(profile) = profile {
+            profile.record_upload(profile::UploadKind::Geometry, bytes);
+        }
+        #[cfg(test)]
+        {
+            gpu.geometry_writes[1] += 1;
+        }
+    }
+    gpu.uploads.commit(input);
+    gpu.textures.fonts.commit_vertices();
+    Ok(upload)
 }
 
 /// Counts rejected publications without discarding the admission watermark.

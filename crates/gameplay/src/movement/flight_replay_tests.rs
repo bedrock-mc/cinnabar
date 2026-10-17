@@ -4,7 +4,7 @@ fn server_forced_flight_ascends_without_may_fly() {
     let world = VersionedFloor(1);
     let intent = ModeIntent {
         can_fly: false,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ability_sequence: Some(1),
         ..Default::default()
@@ -32,7 +32,7 @@ fn server_forced_flight_ascends_without_may_fly() {
         PlayerInputFlags::WANT_UP
     ));
     let cleared = ModeIntent {
-        server_flying: false,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
         ability_sequence: Some(2),
         ..intent
     };
@@ -56,7 +56,7 @@ fn server_sneak_clear_preserves_held_flight_descent_during_replay() {
     let world = VersionedFloor(1);
     let intent = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };
@@ -104,7 +104,7 @@ fn live_server_sneak_clear_does_not_release_flight_descent() {
     );
     let intent = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };
@@ -142,7 +142,7 @@ fn walking_sneak_correction_does_not_rewrite_later_flight_input() {
     let walking = step(&mut physics, input, ModeIntent::default(), &world);
     let flight = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };

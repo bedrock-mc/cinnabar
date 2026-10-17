@@ -206,15 +206,7 @@ pub(super) fn queue_ui_overlay(
         .retain(|(view, _, _), _| views.contains(*view));
     model_depths.synchronize_device(&render_device);
     model_depths.views.retain(|view, _| views.contains(*view));
-    if gpu.batches.is_empty()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-        || gpu.vertex_buffer.is_none()
-        || gpu.index_buffer.is_none()
-    {
+    if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
     }
     let needs_models = gpu
@@ -438,15 +430,6 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
-    if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-    {
-        return Ok(());
-    }
     let Some(batches) = resolved_batches(
         gpu.accepted_revision,
         &gpu.batches,
@@ -455,6 +438,11 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
+    let batches = batches.filter(|(_, batch, _)| {
+        gpu.textures
+            .page_binding(batch.texture_page as usize)
+            .is_some()
+    });
     let (Some(layer_pipeline), Some(composite_pipeline)) = (
         pipeline_cache.get_render_pipeline(*alpha),
         gpu.composite_pipelines
@@ -541,6 +529,7 @@ pub(crate) fn ui_overlay(
             .and(gpu.accepted_revision)
             .map(|revision| super::composite::UiLayerContent {
                 revision,
+                texture_generation: gpu.textures.residency_generation,
                 skip: skip.clone(),
                 viewport: viewport
                     .as_ref()
@@ -635,7 +624,7 @@ pub(crate) fn ui_overlay(
                     context,
                     world,
                     target,
-                    &raster.view,
+                    raster,
                     composite_pipeline,
                     &composite_layout,
                 );

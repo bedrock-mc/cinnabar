@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,7 @@ use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 
 /// A server may batch a whole pack transfer, or a large item registry, into one batch,
 /// so the local leg accepts batches far larger than a typical client's 16 MiB default.
@@ -23,6 +24,7 @@ pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
     let Ok(status) = bridge::read_status(socket_dir).await else {
         return false;
@@ -51,8 +53,9 @@ pub(crate) enum Terminal {
 /// poll until flushed, strictly in order, so cancellation neither loses nor repeats it. An
 /// optional [`PacketTap`] sees each received packet once, as its batch is read and split (see
 /// [`crate::packet_tap`] for what that time measures), and each sent packet once.
-pub(crate) struct SessionTransport {
-    reader: FramedReader,
+pub(crate) struct SessionTransport<R = FramedReader> {
+    reader: R,
+    timers: bridge::tasks::Timers,
     frames: FrameQueue,
     startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
     received: VecDeque<RawPacket>, // packets split from a batch but not yet read
@@ -92,11 +95,23 @@ impl InFlightSend {
     }
 }
 
-impl SessionTransport {
+impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Continues a handed-off session; the `startup` packets, each with its header, come first.
-    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: &[Bytes]) -> Self {
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn new(reader: R, frames: FrameQueue, startup: &[Bytes]) -> Self {
+        Self::with_timers(reader, frames, startup, bridge::tasks::Timers::tokio())
+    }
+
+    /// Continues prepared I/O with deadlines registered by its host.
+    pub(crate) fn with_timers(
+        reader: R,
+        frames: FrameQueue,
+        startup: &[Bytes],
+        timers: bridge::tasks::Timers,
+    ) -> Self {
         Self {
             reader,
+            timers,
             frames,
             startup: startup_batches(startup).into(),
             received: VecDeque::new(),
@@ -109,6 +124,11 @@ impl SessionTransport {
             split_frames: 0,
             delivered: (0, 0),
         }
+    }
+
+    /// Registers one host deadline without restarting it on each packet.
+    pub(crate) fn sleep(&self, duration: std::time::Duration) -> bridge::tasks::Timer {
+        self.timers.sleep(duration)
     }
 
     /// The latency-trace connection, frame and in-frame index of the packet [`Self::recv`]

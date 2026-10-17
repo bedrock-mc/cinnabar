@@ -428,6 +428,13 @@ hardware frame-time and capture acceptance remain open.
 | Performance/resource witness | No displayed-frame performance acceptance from hidden debug captures; ordinary Enhanced remains disabled |
 | Final status | Open |
 
+Video quality now reaches terrain meshing, including generation changes for running jobs and
+resource-pack rebuilds. Renderer work is reduced through uploaded native lightmap bytes,
+bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
+single-sample SMAA restoration. Opt-in Metal visibility admission uses fresh current-frame masks.
+Target-device frame-rate and full settings parity acceptance remain open; bounded fixtures
+and deterministic work budgets do not close these gates.
+
 ## P5.8-SETTINGS
 
 Minecraft import adds explicit consent, per-profile preview, schema-checked option

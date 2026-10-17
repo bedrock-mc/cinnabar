@@ -207,7 +207,10 @@ fn uv_of(
         };
         origin = [base[0] + step[0] * frame, base[1] + step[1] * frame];
     }
-    if matches!(def.texture, TextureSource::Path(_)) {
+    if matches!(
+        def.texture,
+        TextureSource::Path(_) | TextureSource::Cosmetic
+    ) {
         let [tw, th] = uv.texture_size;
         let [pu, pv, pw, ph] = placement;
         [

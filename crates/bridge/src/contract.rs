@@ -320,6 +320,30 @@ pub const MESSAGE_ART_FORE: &str = "fore";
 /// Image id marker for fg artwork.
 pub const MESSAGE_ART_FG: &str = "fg";
 
+/// Core disconnect message: The core could not join the server.
+pub const DISCONNECT_KEY_CANT_CONNECT: &str = "disconnectionScreen.cantConnect";
+
+/// Core disconnect message: The core could not join the Realm.
+pub const DISCONNECT_KEY_CANT_CONNECT_TO_REALM: &str = "disconnectionScreen.cantConnectToRealm";
+
+/// Core disconnect message: The server's resource packs could not be admitted.
+pub const DISCONNECT_KEY_RESOURCE_PACK: &str = "disconnectionScreen.resourcePack";
+
+/// Core disconnect message: The client's protocol or game version is older than the core's.
+pub const DISCONNECT_KEY_OUTDATED_CLIENT: &str = "disconnectionScreen.outdatedClient";
+
+/// Core disconnect message: The client's protocol is newer than the core's.
+pub const DISCONNECT_KEY_OUTDATED_SERVER: &str = "disconnectionScreen.outdatedServer";
+
+/// Core disconnect message: The client's login data is invalid only because of its skin.
+pub const DISCONNECT_KEY_INVALID_SKIN: &str = "disconnectionScreen.invalidSkin";
+
+/// Core disconnect message: The client's login data is invalid only because of its player name.
+pub const DISCONNECT_KEY_INVALID_NAME: &str = "disconnectionScreen.invalidName";
+
+/// Core disconnect message: The sign-in token was rejected because this device's clock is behind.
+pub const DISCONNECT_KEY_DEVICE_CLOCK: &str = "cinnabar.disconnect.deviceClock";
+
 /// Inbox category names in display order.
 pub const INBOX_CATEGORIES: [&str; 4] = ["News", "Realms", "Invites", "Feedback"];
 
@@ -332,6 +356,18 @@ pub const MESSAGE_EVENT_TYPES: [&str; 7] = [
     "Click",
     "Dismiss",
     "ControlImpression",
+];
+
+/// Every lang key the core sends as a whole disconnect message.
+pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
+    "disconnectionScreen.cantConnect",
+    "disconnectionScreen.cantConnectToRealm",
+    "disconnectionScreen.resourcePack",
+    "disconnectionScreen.outdatedClient",
+    "disconnectionScreen.outdatedServer",
+    "disconnectionScreen.invalidSkin",
+    "disconnectionScreen.invalidName",
+    "cinnabar.disconnect.deviceClock",
 ];
 
 /// Game mode a world starts players in.

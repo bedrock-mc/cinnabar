@@ -20,6 +20,7 @@ mod bed_screen_tests;
 mod chat_screen_tests;
 mod container_screen_tests;
 mod credits_screen_tests;
+mod cursor_durability_tests;
 mod debug_overlay_tests;
 pub mod engine_hud_tests;
 mod forms_tests;

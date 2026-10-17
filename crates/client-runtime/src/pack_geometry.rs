@@ -7,6 +7,7 @@ type GeometrySource = (
     render_scene::ChunkTextureAssetIdentity,
     u64,
     Option<meshing::ChunkBiomeTintIdentity>,
+    Option<u64>,
 );
 
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
@@ -33,6 +34,7 @@ impl GeometryPreparation {
             candidate.identity(),
             epoch,
             stream.map(chunk_pipeline::WorldStream::biome_tint_identity),
+            stream.map(chunk_pipeline::WorldStream::mesh_render_revision),
         );
         if self
             .pending
@@ -190,7 +192,12 @@ mod tests {
             }
             let mut preparation = GeometryPreparation {
                 pending: Some((
-                    (candidate.identity(), 0, Some(stream.biome_tint_identity())),
+                    (
+                        candidate.identity(),
+                        0,
+                        Some(stream.biome_tint_identity()),
+                        Some(stream.mesh_render_revision()),
+                    ),
                     Mutex::new(receiver),
                 )),
             };
@@ -221,7 +228,12 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
             pending: Some((
-                (candidate.identity(), 0, Some(before)),
+                (
+                    candidate.identity(),
+                    0,
+                    Some(before),
+                    Some(stream.mesh_render_revision()),
+                ),
                 Mutex::new(receiver),
             )),
         };
@@ -251,7 +263,12 @@ mod tests {
             drop(sender);
             let mut preparation = GeometryPreparation {
                 pending: Some((
-                    (candidate.identity(), 0, Some(before)),
+                    (
+                        candidate.identity(),
+                        0,
+                        Some(before),
+                        Some(stream.mesh_render_revision()),
+                    ),
                     Mutex::new(receiver),
                 )),
             };
@@ -279,12 +296,49 @@ mod tests {
     }
 
     #[test]
+    fn quality_round_trip_drops_cpu_geometry_without_waiting() {
+        let (mut stream, _) = changed_biomes();
+        let current = ChunkTextureAssets::default();
+        let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut preparation = GeometryPreparation {
+            pending: Some((
+                (
+                    candidate.identity(),
+                    0,
+                    Some(stream.biome_tint_identity()),
+                    Some(stream.mesh_render_revision()),
+                ),
+                Mutex::new(receiver),
+            )),
+        };
+        let original = stream.mesh_render_settings();
+        let cheap = meshing::MeshRenderSettings {
+            smooth_lighting: false,
+            transparent_leaves: false,
+        };
+        let now = std::time::Instant::now();
+        assert!(stream.set_mesh_render_settings(cheap, now));
+        assert!(stream.set_mesh_render_settings(original, now));
+        let mut world = World::new();
+        let mut state =
+            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let chunks = state.get_mut(&mut world).unwrap();
+        let gpu = ChunkTextureReload::default();
+        preparation
+            .request(&candidate, &current, Some(&stream), &chunks, &gpu)
+            .unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
+        assert!(gpu.geometry().is_some());
+    }
+
+    #[test]
     fn superseded_geometry_drops_the_existing_worker() {
         let current = ChunkTextureAssets::default();
         let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
-            pending: Some(((current.identity(), 0, None), Mutex::new(receiver))),
+            pending: Some(((current.identity(), 0, None, None), Mutex::new(receiver))),
         };
         let mut world = World::new();
         let mut state =

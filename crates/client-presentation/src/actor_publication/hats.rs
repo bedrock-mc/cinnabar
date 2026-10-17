@@ -1,12 +1,56 @@
 //! Catalog attachments follow admitted actors and their current bone poses.
 use super::RemoteHat;
 use crate::presentation::actors::ActorPresentationBatch;
+use bevy::prelude::Resource;
 use cosmetics::Item;
 use render_model::{
-    ACTOR_LAYER_BODY, ActorRigRoute, MAX_RENDERED_PLAYERS,
+    ACTOR_LAYER_BODY, ActorEmitterTransform, ActorMaterial, ActorRigRoute, MAX_RENDERED_PLAYERS,
     hats::{self, HatPoseCache},
 };
 use std::{collections::HashMap, sync::Arc};
+
+/// Identifies one authored emitter of one equipped item on one actor lifetime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CosmeticEmitterKey {
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub item: Item,
+    pub emitter: u8,
+}
+
+/// A world-visible cosmetic emitter placed on this frame's posed attachment.
+#[derive(Clone, Debug)]
+pub struct CosmeticEmitterPlacement {
+    pub key: CosmeticEmitterKey,
+    /// Client-owned effect identifier; register `effect` under it before spawning.
+    pub identifier: Arc<str>,
+    pub effect: Arc<[u8]>,
+    /// Particle-atlas tile key and `COSMETIC_SPRITE_SIDE`² RGBA8 texels for `atlas.cosmetic`
+    /// effects; `None` when the effect samples a runtime atlas path.
+    pub sprite: Option<(u64, Arc<[u8]>)>,
+    pub transform: ActorEmitterTransform,
+}
+
+/// Emitters of every cosmetic the latest actor frame draws; absent items have no emitters.
+#[derive(Resource, Default)]
+pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
+
+/// Bedrock's emissive-alpha state for fullbright catalog items. Other material fields, culling
+/// and overlay suppression follow the body, so player cosmetics stay two-sided as before.
+fn emissive_material(body: ActorMaterial) -> ActorMaterial {
+    ActorMaterial {
+        state: Some(assets::EntityRenderMaterialState {
+            alpha_test: true,
+            cull: body.state.is_some_and(|state| state.cull),
+            blend: false,
+            depth_write: true,
+            emissive: true,
+            disable_overlay: body.state.is_some_and(|state| state.disable_overlay),
+            ..Default::default()
+        }),
+        ..body
+    }
+}
 
 #[derive(Default)]
 struct Attachment {
@@ -20,6 +64,8 @@ pub(super) struct HatState {
     attachments: HashMap<(u64, u64, Item), Attachment>,
     local: Vec<Item>,
     local_attachments: HashMap<Item, Attachment>,
+    /// Submission indices of this frame's attachments, for emitter placement.
+    drawn: Vec<(usize, Item)>,
     seconds: f32,
     frame: u64,
 }
@@ -59,6 +105,7 @@ impl HatState {
         items: &[RemoteHat],
         scene: &mut render_scene::ActorRenderScene,
     ) {
+        self.drawn.clear();
         let Some(stream) = stream else {
             self.attachments.clear();
             return;
@@ -127,7 +174,7 @@ impl HatState {
                         continue;
                     }
                     let layer = batch.skin_layers.len() as u32;
-                    batch.skin_layers.push(model.pixels.clone());
+                    batch.skin_layers.push(model.world_pixels().clone());
                     textures.insert(item, layer);
                     layer
                 };
@@ -148,11 +195,61 @@ impl HatState {
                 };
                 submission.texture_layer = texture_layer;
                 submission.tint = 0;
+                if model.emissive() {
+                    submission.material = emissive_material(body.material);
+                }
+                self.drawn.push((batch.submissions.len(), item));
                 batch.submissions.push(submission);
             }
         }
         self.attachments
             .retain(|_, attachment| attachment.seen == self.frame);
+    }
+
+    /// Replaces `placements` with the emitters of this frame's attachments that still draw after
+    /// visibility styling, sampled at the frame's actor interpolation like their vertices.
+    pub(super) fn place_emitters(
+        &self,
+        batch: &ActorPresentationBatch,
+        partial_tick: f32,
+        placements: &mut Vec<CosmeticEmitterPlacement>,
+    ) {
+        placements.clear();
+        for &(index, item) in &self.drawn {
+            let Some(submission) = batch.submissions.get(index) else {
+                continue;
+            };
+            if submission.route == ActorRigRoute::NoDraw {
+                continue;
+            }
+            let model = hats::rig(item);
+            for (emitter, definition) in model.emitters().iter().enumerate() {
+                let Some(transform) = model.emitter_transform(
+                    emitter,
+                    &submission.input.previous_bones,
+                    &submission.input.current_bones,
+                    submission.world_from_actor,
+                    partial_tick,
+                ) else {
+                    continue;
+                };
+                placements.push(CosmeticEmitterPlacement {
+                    key: CosmeticEmitterKey {
+                        runtime_id: submission.input.identity.runtime_id,
+                        spawn_revision: submission.input.identity.spawn_revision,
+                        item,
+                        emitter: emitter as u8,
+                    },
+                    identifier: Arc::clone(&definition.identifier),
+                    effect: Arc::clone(&definition.effect),
+                    sprite: definition
+                        .sprite
+                        .as_ref()
+                        .map(|sprite| (sprite.key, Arc::clone(&sprite.pixels))),
+                    transform,
+                });
+            }
+        }
     }
 }
 

@@ -69,6 +69,7 @@ impl PlayerInventoryLedger {
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
             InventoryEvent::Close(close) => self.apply_close(*close),
+            InventoryEvent::RegistryCleanup(removed) => self.apply_bundle_cleanup(removed),
             InventoryEvent::Content(content) => self.apply_content(content),
             InventoryEvent::Slot(update) => {
                 self.apply_slot_update(update.identity, &update.stack);
