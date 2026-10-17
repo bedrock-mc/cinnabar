@@ -23,7 +23,7 @@ impl<P> NetworkHandle<P> {
         }
     }
 
-    /// Flushes the committed echo before any later outbound packet.
+    /// Admits the committed echo before any later outbound packet.
     pub fn flush_latency_reply(&self) -> Result<(), BatchSendError> {
         let mut pending = self
             .pending_latency_reply
@@ -32,7 +32,7 @@ impl<P> NetworkHandle<P> {
         self.flush_latency_reply_locked(&mut pending)
     }
 
-    /// Flushes under the same lock used to admit the next echo.
+    /// Admits an echo under the same lock used to retain the next one.
     fn flush_latency_reply_locked(
         &self,
         pending: &mut Option<protocol::Packet>,
@@ -59,7 +59,6 @@ impl<P> NetworkHandle<P> {
             physics_reanchor: None,
             interaction: None,
         });
-        frame.flush();
         Ok(())
     }
 }
@@ -121,38 +120,6 @@ mod tests {
     }
 
     #[test]
-    fn latency_reply_submits_preceding_packets_without_waiting_for_frame_end() {
-        let (handle, mut captured) = NetworkHandle::stub_capturing_packets();
-        handle
-            .send_packet(protocol::modal_form_cancel_response(1))
-            .unwrap();
-        assert!(captured.take_flushed_frame().is_none());
-        handle.send_latency_reply(777).unwrap();
-        let sent = captured
-            .take_flushed_frame()
-            .expect("the committed probe must flush immediately");
-        let expected = [
-            protocol::modal_form_cancel_response(1),
-            protocol::network_stack_latency_reply(777),
-        ];
-        assert_eq!(
-            sent.iter()
-                .map(|packet| protocol::encode(packet).unwrap())
-                .collect::<Vec<_>>(),
-            expected
-                .iter()
-                .map(|packet| protocol::encode(packet).unwrap())
-                .collect::<Vec<_>>()
-        );
-        handle
-            .send_packet(protocol::modal_form_cancel_response(2))
-            .unwrap();
-        assert!(captured.take_flushed_frame().is_none());
-        handle.flush_frame();
-        assert_eq!(captured.take_flushed_frame().unwrap().len(), 1);
-    }
-
-    #[test]
     fn two_latency_fences_and_later_packets_keep_fifo_order_under_backpressure() {
         let (handle, mut receiver) = handle();
         handle
@@ -170,16 +137,12 @@ mod tests {
         ));
         assert_probe(&mut receiver, 1);
         handle.send_latency_reply(3).unwrap();
-        assert_probe(&mut receiver, 2);
-        assert!(matches!(
-            receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
-        ));
-        handle.flush_latency_reply().unwrap();
         assert!(matches!(
             handle.send_packet(protocol::network_stack_latency_reply(4)),
             Err(PacketSendError::Full(_))
         ));
+        assert_probe(&mut receiver, 2);
+        handle.flush_frame();
         assert_probe(&mut receiver, 3);
         assert!(matches!(
             receiver.try_recv().unwrap(),
@@ -189,6 +152,31 @@ mod tests {
             .send_packet(protocol::network_stack_latency_reply(4))
             .unwrap();
         assert_probe(&mut receiver, 4);
+        assert_eq!(handle.pending_command_count(), 0);
+    }
+
+    /// A full frame submits its reserved delimiter without losing the retained reply.
+    #[test]
+    fn full_frame_keeps_a_latency_reply_for_the_next_frame() {
+        let (handle, mut receiver) = handle();
+        handle
+            .send_packet(protocol::network_stack_latency_reply(1))
+            .unwrap();
+        handle.send_latency_reply(2).unwrap();
+        handle.flush_frame();
+        assert!(handle.has_pending_latency_reply());
+        assert_probe(&mut receiver, 1);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NetworkCommand::FlushFrame
+        ));
+        handle.flush_frame();
+        assert!(!handle.has_pending_latency_reply());
+        assert_probe(&mut receiver, 2);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            NetworkCommand::FlushFrame
+        ));
         assert_eq!(handle.pending_command_count(), 0);
     }
 

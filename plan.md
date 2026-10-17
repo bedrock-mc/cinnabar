@@ -10046,3 +10046,12 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+
+### Latency reply batching
+
+Ordinary latency echoes retain FIFO admission and join the current outbound frame.
+A full command queue retains the echo and submits the reserved frame delimiter,
+then retries the echo without allowing later packets to pass it. Exact async
+receive/present phase, compression representation and transport jitter remain
+incomplete.
