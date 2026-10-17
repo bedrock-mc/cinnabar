@@ -348,7 +348,6 @@ fn inventory_options_search_focus_does_not_follow_into_a_book_reader() {
             PointerAction::Click(InventoryCellHit::CreativeSearch),
         );
         assert!(runtime.screen_state().search_focused);
-        runtime.close_inventory(&mut player);
         runtime.open_book(BookState::new(
             BookSource::Held(0),
             vec!["page".into()],
@@ -361,6 +360,34 @@ fn inventory_options_search_focus_does_not_follow_into_a_book_reader() {
         assert!(!runtime.screen_state().search_focused);
         assert_eq!(runtime.screen_state().text_focused(), editable);
         assert_eq!(runtime.screen_state().search, "");
+        assert!(runtime.take_client_packet().is_none());
+    }
+}
+
+#[test]
+fn inventory_options_closing_search_releases_keyboard_without_flushing_preferences() {
+    for toggle in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = crate::test_support::inventory_session(&mut player);
+        runtime.toggle_inventory(&mut player);
+        runtime.perform_pointer_action(
+            &mut player,
+            PointerAction::Click(InventoryCellHit::CreativeSearch),
+        );
+        runtime.screen_state_mut().type_text("iron");
+        assert!(runtime.screen_state().text_focused());
+        if toggle {
+            runtime.toggle_inventory(&mut player);
+        } else {
+            runtime.close_inventory(&mut player);
+        }
+        assert!(!runtime.inventory_open());
+        assert!(!runtime.screen_state().text_focused());
+        assert_eq!(runtime.screen_state().search, "iron");
+        assert_eq!(
+            player.inventory.inventory_options(),
+            InventoryOptions::default()
+        );
         assert!(runtime.take_client_packet().is_none());
     }
 }
