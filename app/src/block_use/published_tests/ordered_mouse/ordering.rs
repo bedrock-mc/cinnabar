@@ -399,3 +399,18 @@ fn ordered_mouse_a_refused_use_keeps_its_place_before_a_later_attack() {
         [(ActorUseAction::Interact, 0), (ActorUseAction::Attack, 0)]
     );
 }
+
+#[test]
+fn ordered_mouse_backend_keyboard_focus_reset_discards_the_whole_batch() {
+    let (mut world, mut captured) = mouse_fixture();
+    world
+        .resource_mut::<Messages<WindowEvent>>()
+        .write(bevy::input::keyboard::KeyboardFocusLost.into());
+    tap(&mut world, MouseButton::Left);
+    mouse_frame(&mut world, MouseButton::Left, &[]);
+    assert_eq!(attack_count(&mut captured), 0);
+    mouse_frame(&mut world, MouseButton::Left, &[]);
+    tap(&mut world, MouseButton::Left);
+    mouse_frame(&mut world, MouseButton::Left, &[]);
+    assert_eq!(attack_count(&mut captured), 1);
+}

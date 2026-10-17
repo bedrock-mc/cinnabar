@@ -22,6 +22,10 @@ pub(super) fn collect(
             WindowEvent::KeyboardInput(event) => event.window == window && !event.repeat,
             WindowEvent::MouseButtonInput(event) => event.window == window,
             WindowEvent::MouseWheel(event) => event.window == window,
+            WindowEvent::KeyboardFocusLost(_) => {
+                lost = true;
+                false
+            }
             WindowEvent::WindowFocused(event) => {
                 lost |= event.window == window && !event.focused;
                 false
