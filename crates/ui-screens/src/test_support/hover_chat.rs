@@ -7,7 +7,12 @@ pub const TOOLTIP: &str = "§d§lMESSAGE DETAILS\n§r\nExtra information\nOnly s
 
 /// Encodes a caption byte length followed by the caption and tooltip text.
 pub fn message() -> String {
-    format!("%.{:05}s{CAPTION}{TOOLTIP}", CAPTION.len())
+    message_with_caption(CAPTION)
+}
+
+/// Encodes caller-selected caption formatting with the fixture's tooltip.
+pub fn message_with_caption(caption: &str) -> String {
+    format!("%.{:05}s{caption}{TOOLTIP}", caption.len())
 }
 
 /// A server pack whose message rows parse their caption and retain a zero-sized tooltip.

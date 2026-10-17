@@ -149,7 +149,12 @@ impl ChatScreen {
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
+        let color = crate::settings_chat::default_color(&self.settings.options);
+        let text_color = |node: &json_ui::DrawNode| {
+            crate::settings_chat::message_color(&node.key, MESSAGES_VIEW, color)
+        };
         let art = ScreenArt {
+            text_color: Some(&text_color),
             pointer: self.pointer.map(|point| {
                 [
                     (point.x() - frame.safe_area.left()) / px,
@@ -539,7 +544,7 @@ fn chat_data(
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
-                    Scalar::Text(crate::settings_chat::message_text(settings, text.as_ref())),
+                    Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
                 )
                 .var(
                     "chat_font_type",

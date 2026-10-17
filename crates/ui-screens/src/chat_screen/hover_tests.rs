@@ -81,6 +81,15 @@ fn engine() -> FormEngine {
 
 #[test]
 fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
+    for caption in [crate::test_support::hover_chat::CAPTION, "Plain caption"] {
+        for color in [0, 1] {
+            check_message_tooltip(caption, color);
+        }
+    }
+}
+
+/// Paints decoded text and hover feedback with settings, scaling and safe-area variations.
+fn check_message_tooltip(expected_caption: &str, color: i32) {
     let engine = engine();
     let font = fixture_font();
     let messages = [ui::ChatMessage {
@@ -88,7 +97,7 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
         received_millis: 0,
         kind: ui::ChatMessageKind::System,
         source: None,
-        message: crate::test_support::hover_chat::message().into(),
+        message: crate::test_support::hover_chat::message_with_caption(expected_caption).into(),
         parameters: Arc::from([]),
     }]
     .into();
@@ -97,6 +106,9 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
         [SafeArea::ZERO, SafeArea::new(24.0, 18.0, 0.0, 0.0).unwrap()].map(|area| (dpi, area))
     }) {
         let mut screen = ChatScreen::default();
+        let mut options = launcher::menu::settings_options::SettingsOptions::default();
+        options.set(SettingId::ChatColor.index(), color);
+        screen.settings.set_snapshot((Arc::new(options), None));
         let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
         let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
         let mut nodes = Vec::new();
@@ -142,7 +154,22 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
                 .find(|node| node.name == "caption")
                 .unwrap();
             assert!(matches!(&caption.draw, Draw::Text { text, .. }
-                if text == crate::test_support::hover_chat::CAPTION));
+                if text == expected_caption));
+            let painted = nodes
+                .iter()
+                .find_map(|node| match node.visual() {
+                    UiVisual::Text { layout, .. } => layout.glyphs().first(),
+                    _ => None,
+                })
+                .expect("caption paints text");
+            let expected_color = if expected_caption.starts_with('§') {
+                ui::BedrockColor::LightPurple
+            } else if color == 0 {
+                ui::BedrockColor::Base
+            } else {
+                ui::BedrockColor::Green
+            };
+            assert_eq!(painted.style.color, expected_color);
             let tooltip = screen.nodes().iter().find_map(|node| match &node.draw {
                 Draw::Custom { renderer, data } if renderer == "hover_text_renderer" => Some(data),
                 _ => None,

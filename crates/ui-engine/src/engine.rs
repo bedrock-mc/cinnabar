@@ -6,7 +6,10 @@
 mod scene_policy;
 pub mod tooltip;
 
-use std::{borrow::Borrow, sync::Arc};
+use std::{
+    borrow::{Borrow, Cow},
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
@@ -504,6 +507,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
+    /// Default formatting color chosen per label after binding and localization.
+    pub text_color: Option<&'a dyn Fn(&DrawNode) -> Option<char>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -827,6 +832,21 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
+            let colored = self
+                .art
+                .text_color
+                .and_then(|color| color(node))
+                .map(|code| {
+                    let text = if *localize {
+                        text_paint::localized(text, self.translate)
+                    } else {
+                        Cow::Borrowed(text.as_str())
+                    };
+                    format!("§{code}{text}")
+                });
+            let (text, localize) = colored
+                .as_deref()
+                .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {
                 edit: feedback,
                 color: alpha(*color),
@@ -837,7 +857,7 @@ impl Canvas<'_> {
                 },
                 align: *align,
                 scale: *scale,
-                localize: *localize,
+                localize,
                 options,
             };
             return self.text(text, dest, clip, style);
