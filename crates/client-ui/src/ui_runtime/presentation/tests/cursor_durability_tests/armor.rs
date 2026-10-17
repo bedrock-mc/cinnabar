@@ -147,10 +147,6 @@ fn cursor_durability_survives_picking_up_all_four_armor_pieces() {
 }
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "names missing local carriers when the optional armor artwork check skips"
-)]
 fn cursor_durability_renders_with_installed_armor_artwork() {
     let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!("skipping cursor armor artwork: missing UI carrier; make assets");
