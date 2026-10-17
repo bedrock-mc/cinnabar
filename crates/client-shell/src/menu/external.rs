@@ -130,7 +130,6 @@ impl MenuRuntime {
             }
             MenuAction::SignOut => {
                 external.intent = Some(AccountIntent::SignOut);
-                self.clear_retry_target();
                 self.enter(MenuScreen::Profile);
             }
             MenuAction::OpenSignInLink => {} // The host opens it within the browser gesture.
@@ -286,6 +285,8 @@ mod tests {
         );
         assert!(menu.retry_target.is_some());
         menu.sync_external_account(AuthState::Authenticated, profile, None);
+        assert!(menu.retry_target.is_some());
+        menu.activate(MenuAction::SignOut);
         assert!(menu.retry_target.is_some());
         menu.sync_external_account(AuthState::SignedOut, MenuProfile::default(), None);
         assert!(menu.retry_target.is_none());
