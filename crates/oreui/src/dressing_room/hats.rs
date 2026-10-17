@@ -21,11 +21,21 @@ pub(super) fn collection(
 ) -> Result<f32, PaintError> {
     let [left, top, right, _] = b;
     let side = canvas.r(12.8).min(right - left);
-    let filter_width = canvas.r(12.8).min((right - left) * 0.5 - canvas.r(0.6));
+    let gap = canvas.r(1.2);
+    let control_width = side.min((right - left - gap) * 0.5);
+    let anchor = [left, top, left + control_width, top + canvas.r(4.4)];
+    super::filter::button(canvas, view, anchor)?;
+    preview.filter_anchor = Some(anchor);
+    let remove_left = anchor[2] + gap;
     widgets::button(
         canvas,
         view,
-        [left, top, left + filter_width, top + canvas.r(4.4)],
+        [
+            remove_left,
+            top,
+            remove_left + control_width,
+            top + canvas.r(4.4),
+        ],
         if view
             .dressing_room
             .selected_cosmetics
@@ -39,11 +49,7 @@ pub(super) fn collection(
         "Remove all",
         enabled(view).then_some(command(Action::SelectCosmetic(None))),
     )?;
-    let anchor = [right - filter_width, top, right, top + canvas.r(4.4)];
-    super::filter::button(canvas, view, anchor)?;
-    preview.filter_anchor = Some(anchor);
     let y = top + canvas.r(6.0);
-    let gap = canvas.r(1.2);
     let columns = (((right - left + gap) / (side + gap)).floor() as usize).max(1);
     let items = cosmetics::Item::all();
     let mut count: usize = 0;

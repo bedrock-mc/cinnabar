@@ -72,7 +72,7 @@ pub(super) fn popup(
         .r(4.8)
         .min((size[1] - margin * 2.0) / CosmeticCategory::ALL.len() as f32);
     let height = row_height * CosmeticCategory::ALL.len() as f32;
-    let left = (anchor[2] - width).clamp(margin, (size[0] - width - margin).max(margin));
+    let left = anchor[0].clamp(margin, (size[0] - width - margin).max(margin));
     let below = anchor[3] + canvas.r(0.4);
     let top = if below + height <= size[1] - margin {
         below
