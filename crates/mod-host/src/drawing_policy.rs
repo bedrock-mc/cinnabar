@@ -71,11 +71,6 @@ impl ModHost {
     pub fn needs_drawing_restart(&self) -> bool {
         self.drawing_restart
     }
-
-    /// Digest of the admitted source, used only for an explicit signed bundle scope.
-    pub fn source_digest(&self) -> [u8; 32] {
-        self.admitted_digest
-    }
 }
 
 #[cfg(test)]
