@@ -16,7 +16,9 @@ use ui_screens::recipe_book::BookEntry;
 /// Uses the mode's default until the player explicitly chooses a layout.
 pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &UiRuntime) -> bool {
     if ui_screens::furnace_book::active(player_runtime) {
-        return runtime.screen_state().furnace_book_open;
+        return runtime
+            .furnace_options(player_runtime)
+            .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook);
     }
     let creative =
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);

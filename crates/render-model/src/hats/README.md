@@ -1,52 +1,27 @@
-# Cosmetics
+# Cosmetic rendering and fixtures
 
-Open `bunny_ears.bbmodel` in Blockbench with `bunny_ears.png` beside it.
-Open `crown.bbmodel` with `crown.png` beside it for the rigid gold crown.
-Open `devil_horns.bbmodel` for red stepped horns attached directly to the head;
-its original palette texture is also embedded in the project.
-All projects and textures are original Cinnabar artwork under the repository license.
-After editing, run `python3 crates/render-model/src/hats/export.py` to regenerate
-`bunny_ears.geo.json`, the runtime export. Add `crown` or `devil_horns` to export the other headwear.
-Tests check the exports against their editable projects.
+The API serves production cosmetics. The client downloads, verifies, caches and
+renders them; it does not bundle the catalog artwork.
 
-Each ear is a connected, shallow extrusion of a stepped pixel silhouette.
-The ears sit directly on the head; there is no headband. Flat polygon normals
-keep the faces crisp. Upper-half rings follow a chain of joints, with shared ring positions across adjacent faces. There are no internal
-caps, gaps or separate rigid pieces at the joints. The lower half stays upright.
-Keep each joint pivot aligned with its surface ring and parents before children.
-Bake mesh transforms and group rotations into the surface before exporting.
+Editable Blockbench projects, textures, animations, export tooling and the full
+catalog belong in [cinnabar-api/art/cosmetics](https://github.com/bedrock-mc/cinnabar-api/tree/main/art/cosmetics).
+That repository checks project/export consistency and packaged asset digests in CI.
+Adding an item with supported features must not require a client change.
 
-For bunny ears, the first four texture pixels are black, highlight, pink and light-pink swatches.
-Face UVs select these swatches in discrete pixel patches; keep the texture unfiltered.
+The geometry, textures and fixture catalog retained here are stable regression
+inputs for client behavior. They are not synchronized with the live catalog. Keep
+fixtures limited to the features under test; test emission, lighting and playback
+with focused fixtures rather than copying each new catalog item.
 
-Open `dragon_wings.bbmodel` for the sculpted back attachment. Export it with
-`python3 crates/render-model/src/hats/export.py dragon_wings`. The palette is
-embedded and is also available in `dragon_wings.png`. The closed membranes and
-raised supports are one connected surface per wing.
+To check the entire API catalog with the production client validator:
 
-`dragon_wings.animation.json` supplies one looping cosmetic rotation clip, sampled
-linearly in degrees, plus a `tip_flex` profile. Rotations use the authored mesh
-axes (X, then Y, then Z); the renderer reflects X with the geometry. Each flex
-joint specifies its outward X direction, a rigid starting span, bend length,
-base angle, oscillation amplitude and phase delay. Distances are model pixels.
-Admission derives a shared joint at each authored X coordinate beyond the rigid
-span. All coincident vertices keep the same transform, including thick supports;
-only bone poses change during playback. The profile is a Cinnabar cosmetic
-extension, separate from Bedrock actor animation behavior. The world and HUD
-share a caller-owned looping phase. Head and back selections remain independent.
+```sh
+CINNABAR_API_CHECKOUT=/path/to/cinnabar-api cargo test -p render-model api_catalog_assets_admit_through_client_validation -- --nocapture
+```
 
-Open `shoulder_parrot.bbmodel` for the original pet-slot shoulder parrot. Its
-original atlas is embedded and available in `shoulder_parrot.png`. Export with
-`python3 crates/render-model/src/hats/export.py shoulder_parrot`. The body-root
-attachment sits on the shoulder independently of headwear and back cosmetics.
-The head, wings and tail remain separate editable groups. Three one-shot timelines
-in the project match `shoulder_parrot.animation.json`: a nearby arrival and flights
-to either shoulder. Its `playback` profile plays the intro once, then repeats a
-cycle of named clips with a delay before each flight. Delays hold the next clip's
-first pose. All clip transitions must have matching joint transforms. Positions
-are authored model pixels; rotations are degrees. Static gallery artwork uses the
-first cycle pose, while world and character previews share caller-owned time.
-Exporting this project also updates its animation channels, preserving the playback profile.
+Without that checkout the test reports a named missing fixture. An explicitly
+configured checkout must exist and its catalog assets must all validate. Run this
+compatibility check when changing the asset format or qualifying a catalog release.
 
 ## Emissive items
 
@@ -83,16 +58,3 @@ An animation file may add a top-level `particles` array of at most eight entries
 The emitter basis is the posed bone's axes in world space, including player scale. Any
 malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
 most 128 alive at once (sixteen players with eight each); previews never emit.
-
-Ten cube projects fill every slot: `studio_headphones`, `halo`, `pixel_shades`, `kitsune_mask`,
-`morpho_wings`, `ember_jetpack`, `fox_tail`, `knit_scarf`, `bee_buddy` and `amethyst_orbit`.
-Each `.bbmodel` embeds its original 64x64 texture, also saved beside it as a PNG; items with
-particles keep their 16x16 sprite sheet in the texture's bottom-right corner. Export each
-with `python3 crates/render-model/src/hats/export.py <name>`. Cube rotations and pivots are
-exported, faces without a texture are omitted, and two-sided cards are thin cubes so their
-faces never share a plane. The `animation.json` files keep their `playback` and `particles`
-fields when clips are re-exported. Wings, tail, scarf and tassel use looping clips; the bee and
-the amethyst shards circle on looping position clips; the pixel shades drop in once and then
-lift and drop back after each delay. The halo and amethyst orbit are `emissive`.
-Rotation keys interpolate along the shortest turn, so a continuous spin is authored as keys
-that wrap from +180 to -180 degrees a few microseconds apart.

@@ -25,6 +25,7 @@ pub mod inventory_drag;
 pub mod inventory_ingress;
 
 mod food;
+mod furnace_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
