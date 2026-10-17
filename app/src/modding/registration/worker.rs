@@ -4,6 +4,51 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
+/// Distinguishes a complete admission from inputs that changed while retirement was pending.
+pub(super) enum LoadResult {
+    Ready(Update),
+    Reobserve(u64),
+}
+
+/// Validates the observed preferences after saves drain, without admitting a different input.
+pub(super) fn load_request(
+    request: LoadRequest,
+    settings: &Mutex<BTreeMap<PathBuf, SettingsSnapshot>>,
+    admissions: &mut candidate::Admissions,
+) -> LoadResult {
+    for (entry, snapshot) in &request.sources {
+        let Ok(snapshot) = snapshot else { continue };
+        let current = settings
+            .lock()
+            .expect("mod settings snapshots")
+            .get(&entry.component)
+            .cloned();
+        let actual = crate::modding::admission::settings_seed(
+            entry.grants.settings,
+            current.as_ref(),
+            &entry.component,
+        );
+        if actual != snapshot.settings {
+            return LoadResult::Reobserve(request.generation);
+        }
+    }
+    let changes = request
+        .sources
+        .into_iter()
+        .map(|(entry, snapshot)| Change {
+            entry,
+            result: snapshot
+                .and_then(|snapshot| admissions.prepare(snapshot, None))
+                .map(Box::new),
+        })
+        .collect();
+    LoadResult::Ready(Update {
+        generation: request.generation,
+        registration: request.registration,
+        changes,
+    })
+}
+
 /// Runs one coordinator and one bounded loader, sharing no guest instances with the frame.
 #[allow(
     clippy::too_many_arguments,
@@ -33,13 +78,10 @@ pub(super) fn run(
                     let Ok(request)=request else {break};
                     if request.generation!=generation.load(Ordering::Acquire){continue;}
                     admissions.retain(&request.registration);
-                    let changes=after_retirement(&retired,||request.sources.into_iter().map(|(entry,snapshot)|{
-                        let current=settings.lock().expect("mod settings snapshots").get(&entry.component).cloned();
-                        let result=snapshot.and_then(|snapshot|admissions.prepare(snapshot,current.as_ref())).map(Box::new);
-                        Change {entry,result}
-                    }).collect());
-                    if request.generation==generation.load(Ordering::Acquire) {
-                        let _=results.send(Update{generation:request.generation,registration:request.registration,changes});
+                    let requested = request.generation;
+                    let result=after_retirement(&retired,||load_request(request,&settings,&mut admissions));
+                    if requested==generation.load(Ordering::Acquire) {
+                        let _=results.send(result);
                     }
                 }
                 recv(retired) -> host => {let Ok(host)=host else {break};drop(host);}
@@ -71,7 +113,7 @@ pub(super) fn run(
             let mut settings_inputs = BTreeMap::new();
             let fences = drawing.lock().expect("mod drawing fences").clone();
             for entry in registration.mods.iter().filter(|entry| entry.enabled) {
-                let snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
+                let mut snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
                     snapshot.drawing = fences.get(&entry.component).cloned();
                     snapshot
                 });
@@ -82,7 +124,7 @@ pub(super) fn run(
                 if snapshot.as_ref().map_or(true, |snapshot| {
                     snapshot.needs_admission(installed.get(&entry.component))
                 }) {
-                    if let Ok(snapshot) = &snapshot
+                    if let Ok(snapshot) = &mut snapshot
                         && entry.grants.settings
                     {
                         let current = current_settings
@@ -90,10 +132,8 @@ pub(super) fn run(
                             .expect("mod settings snapshots")
                             .get(&entry.component)
                             .cloned();
-                        settings_inputs.insert(
-                            entry.component.clone(),
-                            snapshot.settings_seed(current.as_ref()),
-                        );
+                        snapshot.settings = snapshot.settings_seed(current.as_ref());
+                        settings_inputs.insert(entry.component.clone(), snapshot.settings.clone());
                     }
                     sources.push((entry.clone(), snapshot));
                 }
@@ -131,9 +171,20 @@ pub(super) fn run(
         {
             pending_load = Some(request);
         }
-        for update in receive_results.try_iter() {
-            if update.generation == latest.load(Ordering::Acquire) {
-                pending_update = Some(update);
+        for result in receive_results.try_iter() {
+            match result {
+                LoadResult::Ready(update)
+                    if update.generation == latest.load(Ordering::Acquire) =>
+                {
+                    pending_update = Some(update);
+                }
+                LoadResult::Reobserve(generation)
+                    if generation == latest.load(Ordering::Acquire) =>
+                {
+                    fingerprint = None;
+                    pending_update = None;
+                }
+                _ => {}
             }
         }
         if let Some(update) = pending_update.take()

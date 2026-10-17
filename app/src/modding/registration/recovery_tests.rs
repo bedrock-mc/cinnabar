@@ -289,3 +289,68 @@ fn changed_committed_settings_retry_a_rejected_guest() {
     assert!(retried.generation > rejected.generation);
     assert!(retried.changes[0].result.is_err());
 }
+
+#[test]
+fn delayed_admission_keeps_the_observed_settings_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let prepared = candidate(directory.path(), "settings.wasm", "Hello");
+    let mut entry = prepared.registration.clone();
+    entry.grants.settings = true;
+    let path = mod_host::settings_companion(&entry.component);
+    let seed = "{\"observed\":true}";
+    fs::write(&path, seed).unwrap();
+    let snapshot = source::source_snapshot(entry).unwrap();
+    fs::write(path, [0xff]).unwrap();
+    let accepted = candidate::Admissions::default()
+        .prepare(snapshot, None)
+        .expect("admission uses the exact observed seed");
+    assert_eq!(accepted.host.settings_snapshot(), Some(seed));
+}
+
+#[test]
+fn delayed_worker_reobserves_changed_preferences_before_admission() {
+    for committed in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let prepared = candidate(directory.path(), "settings.wasm", "Hello");
+        let mut entry = prepared.registration.clone();
+        entry.grants.settings = true;
+        let path = mod_host::settings_companion(&entry.component);
+        let seed = "{\"observed\":true}";
+        fs::write(&path, seed).unwrap();
+        let snapshot = source::source_snapshot(entry.clone()).unwrap();
+        let request = |snapshot| LoadRequest {
+            generation: 1,
+            registration: Registration {
+                version: VERSION,
+                request_id: "same-selection".into(),
+                mods: vec![entry.clone()],
+            },
+            sources: vec![(entry.clone(), Ok(snapshot))],
+        };
+        let mut latest = BTreeMap::new();
+        if committed {
+            let mut current = SettingsSnapshot::read(&entry.component, None).unwrap();
+            current.json = "{\"observed\":false}".into();
+            latest.insert(entry.component.clone(), current);
+        } else {
+            fs::write(&path, [0xff]).unwrap();
+        }
+        let settings = Mutex::new(latest);
+        let mut admissions = candidate::Admissions::default();
+        assert!(matches!(
+            worker::load_request(request(snapshot), &settings, &mut admissions),
+            worker::LoadResult::Reobserve(1)
+        ));
+        // A returns before the next observation, without editing the source or registration.
+        settings.lock().unwrap().clear();
+        fs::write(&path, seed).unwrap();
+        let snapshot = source::source_snapshot(entry.clone()).unwrap();
+        let worker::LoadResult::Ready(accepted) =
+            worker::load_request(request(snapshot), &settings, &mut admissions)
+        else {
+            panic!("restored preferences admit the original selection");
+        };
+        let fresh = accepted.changes[0].result.as_ref().unwrap();
+        assert_eq!(fresh.host.settings_snapshot(), Some(seed));
+    }
+}

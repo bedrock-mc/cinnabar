@@ -99,10 +99,13 @@ impl SourceSnapshot {
 
     /// Prefers committed preferences to captured disk input, within the requested consent.
     fn settings_seed(&self, current: Option<&SettingsSnapshot>) -> SettingsSeed {
-        match (&self.settings, current) {
-            (Ok(None), _) => Ok(None),
-            (_, Some(current)) => Ok(Some(current.clone())),
-            _ => self.settings.clone(),
+        match current {
+            Some(current) => super::admission::settings_seed(
+                self.registration.grants.settings,
+                Some(current),
+                &self.registration.component,
+            ),
+            None => self.settings.clone(),
         }
     }
 }

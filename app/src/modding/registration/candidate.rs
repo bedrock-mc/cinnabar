@@ -81,7 +81,7 @@ impl Admissions {
         });
     }
 
-    /// Captures preferences after retirement, then caches only failures of those exact inputs.
+    /// Prepares one captured preference input and caches only failures of those exact inputs.
     pub(super) fn prepare(
         &mut self,
         mut snapshot: SourceSnapshot,
@@ -90,12 +90,8 @@ impl Admissions {
         let source = snapshot.identity;
         let path = snapshot.registration.component.clone();
         let drawing = snapshot.drawing_policy();
-        snapshot.settings = crate::modding::admission::settings_seed(
-            snapshot.registration.grants.settings,
-            settings,
-            &snapshot.registration.component,
-        );
-        let settings = snapshot.settings.clone();
+        let settings = snapshot.settings_seed(settings);
+        snapshot.settings = settings.clone();
         if let Some(failed) = self.failed.get(&path)
             && failed.source == source
             && failed.drawing == drawing
@@ -104,7 +100,7 @@ impl Admissions {
             return Err(failed.error.clone());
         }
         let result = match &settings {
-            Ok(seed) => build_candidate_with_settings(snapshot, seed.as_ref()),
+            Ok(_) => build_candidate(snapshot),
             Err(error) => Err(error.clone()),
         };
         match &result {
