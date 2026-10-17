@@ -648,7 +648,7 @@ fn displayed_stack_keeps_its_data_value_through_the_dip() {
 /// Java's body reaches its side during the fourteenth tick without moving its feet.
 #[test]
 fn death_body_reaches_java_angle_without_moving_its_feet() {
-    use crate::presentation::actors::death_tilted;
+    use crate::presentation::actors::transform::death_tilted;
     let base = [
         [1.0, 0.0, 0.0, 3.0],
         [0.0, 1.0, 0.0, 64.0],
@@ -686,7 +686,7 @@ fn local_death_root_reapplies_java_tilt_and_preserves_native_mode() {
     ];
     let ticks = 13.5;
     let progress = ticks / f32::from(client_world::DEATH_DURATION_TICKS);
-    let native = crate::presentation::actors::death_tilted(base, Some(progress));
+    let native = crate::presentation::actors::transform::death_tilted(base, Some(progress));
     assert_eq!(local_death_tilt(base, Some(progress), None), native);
     let java = local_death_tilt(base, Some(progress), Some(ticks));
     assert!(java[0][0].abs() < 1e-5);

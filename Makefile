@@ -17,7 +17,10 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_FEATURES ?=
+RENDER_MODE ?=
+CLIENT_CARGO_FEATURES = $(if $(strip $(CLIENT_FEATURES)),--features "$(CLIENT_FEATURES)") $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_RENDER_MODE_ARGS = $(if $(strip $(RENDER_MODE)),--render-mode "$(RENDER_MODE)")
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -134,7 +137,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_CARGO_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
 # macOS grants Game Mode only to bundled games, so `make play` runs the build from a dev bundle
 # whose Info.plist comes from the release template; its binaries are refreshed hard links.
@@ -150,9 +153,9 @@ ifneq ($(findstring Darwin,$(shell uname -s)),)
 		if [ -f "target/$(PROFILE_DIR)/$$binary" ]; then ln -f "target/$(PROFILE_DIR)/$$binary" "$(DEV_APP)/Contents/MacOS/$$binary"; \
 		else rm -f "$(DEV_APP)/Contents/MacOS/$$binary"; fi; \
 	done
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" "$(DEV_APP)/Contents/MacOS/cinnabar" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" "$(DEV_APP)/Contents/MacOS/cinnabar" $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 else
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_CARGO_FEATURES) -- $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 endif
 
 dist-local:

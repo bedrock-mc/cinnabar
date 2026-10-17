@@ -165,6 +165,8 @@ pub enum MenuAction {
     SettingsResetChat,
     SettingsAdvancedGraphics,
     ToggleRenderMode,
+    CycleEnhancedQuality,
+    SetEnhancedQuality(render_api::EnhancedQuality),
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,

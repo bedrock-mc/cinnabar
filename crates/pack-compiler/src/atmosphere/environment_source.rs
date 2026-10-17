@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use assets::{AssetError, MAX_ENVIRONMENT_IDENTIFIER_BYTES, MAX_ENVIRONMENT_PROFILES};
+use assets::{
+    AssetError,
+    atmosphere::{MAX_ENVIRONMENT_IDENTIFIER_BYTES, MAX_ENVIRONMENT_PROFILES},
+};
 use serde::Deserialize;
 
 use super::invalid;
@@ -99,7 +102,7 @@ pub(super) fn compile_transition(
 ) -> Result<assets::FogTransition, AssetError> {
     let initial = source.init_fog;
     let transition = assets::FogTransition {
-        mode: assets::FogDistanceMode::from_source_name(&initial.render_distance_type)
+        mode: assets::atmosphere::FogDistanceMode::from_source_name(&initial.render_distance_type)
             .ok_or_else(|| invalid("unsupported initial fog distance mode"))?,
         start_bits: initial.fog_start.to_bits(),
         end_bits: initial.fog_end.to_bits(),
@@ -216,7 +219,10 @@ mod tests {
         )
         .unwrap();
         let transition = compile_transition(source.transition_fog.unwrap()).unwrap();
-        assert_eq!(transition.mode, assets::FogDistanceMode::RenderRelative);
+        assert_eq!(
+            transition.mode,
+            assets::atmosphere::FogDistanceMode::RenderRelative
+        );
         assert_eq!(f32::from_bits(transition.start_bits), 2.0);
         assert_eq!(f32::from_bits(transition.end_bits), 3.0);
         assert_eq!(transition.rgb8, 0x123456);

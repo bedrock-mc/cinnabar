@@ -11,9 +11,10 @@ use std::{
 };
 
 use assets::{
-    AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
-    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
-    encode_entity_blob, read_biome_registry, write_blob_atomic,
+    AssetError, BlobProvenance, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
+    MATERIAL_FLAG_ALPHA_CUTOUT,
+    atmosphere::{AtmosphereRole, encode_atmosphere_blob},
+    encode_blob, encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
 use clap::Parser;
 use pack_compiler::{
@@ -857,7 +858,7 @@ where
         &Path,
         &[u8],
         AtmosphereCompileOptions<'a>,
-    ) -> Result<assets::CompiledAtmosphereAssets, AssetError>,
+    ) -> Result<assets::atmosphere::CompiledAtmosphereAssets, AssetError>,
 {
     let manifest_bytes = read_bounded_with_limit(
         source_manifest,
@@ -897,7 +898,7 @@ where
 
 fn build_atmosphere_report(
     source: serde_json::Value,
-    compiled: &assets::CompiledAtmosphereAssets,
+    compiled: &assets::atmosphere::CompiledAtmosphereAssets,
     blob: &[u8],
 ) -> AtmosphereReport {
     let textures = compiled

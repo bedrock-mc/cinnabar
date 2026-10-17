@@ -479,7 +479,7 @@ fn prepared_actor_and_equipment_decode_against_the_published_entity_carrier() {
             &fs::read(context.out.join(carriers::ENTITY.output)).unwrap(),
         )
         .unwrap();
-        let actor = assets::RuntimeActorCatalog::decode(
+        let actor = assets::actor::RuntimeActorCatalog::decode(
             &fs::read(context.out.join(carriers::ACTOR.output)).unwrap(),
             &entity,
         )

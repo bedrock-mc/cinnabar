@@ -17,6 +17,8 @@ pub(super) struct LayerPoses<'a> {
     pub native_body_sampled: bool,
     pub remote_skin_layers: &'a super::bodies::RemoteSkinLayers,
     pub native_pose: &'a hand::NativePoseCache,
+    /// The local actor draws its third-person world body as an Enhanced shadow caster.
+    pub local_shadows: bool,
 }
 
 impl<'a> LayerPoses<'a> {
@@ -63,6 +65,7 @@ pub(super) fn attach(
         native_body_sampled,
         remote_skin_layers,
         native_pose,
+        local_shadows,
     } = poses;
     let LayerCaches {
         layer_poses,
@@ -73,6 +76,11 @@ pub(super) fn attach(
     } = caches;
     let (partial_tick, delta_seconds, glint_settings) = frame;
     let mut layers_of = |runtime_id| {
+        // The local shadow body draws the third-person world rig's layers.
+        if local_shadows && runtime_id == local_runtime_id {
+            return culling::world_rig(stream?, runtime_id, local_runtime_id, true)
+                .map(|rig| std::borrow::Cow::Borrowed(rig.render));
+        }
         let render_frame = render_frame.as_mut()?;
         if let Some(pose) = poses.emote(runtime_id) {
             Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
@@ -120,7 +128,7 @@ pub(super) fn attach(
             cape,
             preparation,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows).map(|rig| {
                     if let Some(pose) = poses.emote(runtime_id) {
                         pose.snapshot(rig)
                     } else {
@@ -139,7 +147,7 @@ pub(super) fn attach(
             batch,
             artwork,
             |runtime_id| {
-                let rig = stream.authority().actor_rig(runtime_id)?;
+                let rig = culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows)?;
                 let emote = poses.emote(runtime_id);
                 let java_layers =
                     java::posed(java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());

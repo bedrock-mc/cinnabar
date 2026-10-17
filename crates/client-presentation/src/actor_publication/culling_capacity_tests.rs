@@ -307,7 +307,11 @@ impl Caches {
                     sampling_camera: Some(([0.0; 2], Vec3::Y.to_array())),
                     aspect: 1.0,
                 },
-                Some(view()),
+                Some(super::culling::ActorPublicationViews {
+                    main: view(),
+                    publication: view(),
+                    casts_shadows: false,
+                }),
             ),
             artwork,
             bodies::BodyCaches {

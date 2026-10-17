@@ -36,8 +36,15 @@ pub(super) fn attach(
                     .is_some_and(|actor| actor.is_using_item());
                 input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
             }
+            // The local shadow body holds items as its third-person world rig animates them.
             let animation = stream.authority().actor(runtime_id).zip(
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(
+                    stream,
+                    runtime_id,
+                    poses.local_runtime_id,
+                    poses.local_shadows,
+                )
+                .map(|rig| {
                     poses
                         .emote(runtime_id)
                         .map_or(rig, |pose| pose.snapshot(rig))

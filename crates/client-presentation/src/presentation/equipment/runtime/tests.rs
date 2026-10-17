@@ -394,7 +394,8 @@ fn carried_block_sheet_rejects_a_stale_manifest_or_out_of_range_visual() {
 fn carried_cube_alpha_mode_follows_world_materials_for_both_hands() {
     use assets::{
         BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,
-        TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
+        TextureRef, VisualKind, VisualSupport,
+        texture::{TextureArray, TextureMip},
     };
     use render_model::HandItemAlphaMode;
 

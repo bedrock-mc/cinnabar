@@ -1,6 +1,7 @@
 use bevy::ecs::schedule::Schedules;
 use simulation_clock::identity::SessionGeneration;
 
+use super::frame_systems::configure_client_runtime_frame_systems;
 use super::*;
 
 #[test]
