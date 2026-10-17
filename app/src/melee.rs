@@ -283,7 +283,7 @@ pub(crate) fn selected_attack_timing<'a>(
     let stream = world.stream.as_ref()?;
     let item = stream
         .authority()
-        .canonical_item_stack(player.selected_stack()?)?;
+        .canonical_item_stack(player.selected_backing_stack()?)?;
     stream
         .authority()
         .item_attack_timing(item.identifier.as_deref()?)

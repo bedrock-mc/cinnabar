@@ -56,6 +56,24 @@ impl PlayerState {
         self.inventory.selected_stack(self.facts.player_game_mode())
     }
 
+    /// Borrows the selected backing item once local backing mutations have entered transport.
+    pub fn selected_backing_stack(&self) -> Option<&NetworkItemStack> {
+        let selected = self
+            .inventory
+            .selected_backing_stack_snapshot(self.facts.player_game_mode())?;
+        if self
+            .inventory
+            .ledger()
+            .slot_backing_transport_pending(selected.slot)
+        {
+            return None;
+        }
+        match selected.state {
+            inventory::PlayerInventorySlot::Present(stack) => Some(stack),
+            _ => None,
+        }
+    }
+
     /// The custom name the selected hotbar cell presents, following the predicted stack.
     pub fn selected_stack_custom_name(&self) -> Option<Arc<str>> {
         self.inventory
