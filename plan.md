@@ -9111,6 +9111,13 @@ Stored unspecified layouts resolve to the recipe-book layout on opening. The
 profile-specific forced-layout branch, exact stable-client gameplay acceptance,
 recipe discovery, ghost rendering and other station rules remain incomplete.
 
+2026-10-17 recipe category facts: item registry components retain the legacy
+numeric category with its typed Int and low-byte rules. A valid properties
+compound defaults that fact to zero when the field is absent or has another
+type; ambiguous paths remain unresolved. Recipe-unlock category masks and
+their UI consumers, built-in category defaults, and complete stable-client
+acceptance remain incomplete.
+
 ## Entity interaction and emote starts
 
 Entity-use presses now send the selected stack and fresh actor hit in the input

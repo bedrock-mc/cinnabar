@@ -27,7 +27,7 @@ mod facts;
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
-mod registry_capacity;
+mod registry_properties;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
 pub use banner::{ItemBannerPattern, item_banner_patterns};
@@ -702,11 +702,11 @@ pub(crate) fn normalize_item_registry(
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
         let canonical_empty_component_data =
-            component_bytes == registry_capacity::CANONICAL_EMPTY_COMPONENT_DATA;
+            component_bytes == registry_properties::CANONICAL_EMPTY_COMPONENT_DATA;
         let negotiated_max_stack_size = if matches!(version, ItemRegistryVersion::Unknown(_)) {
             None
         } else {
-            registry_capacity::negotiated_max_stack_size(&component_bytes)
+            registry_properties::negotiated_max_stack_size(&component_bytes)
         };
         let entry = ItemRegistryEntry {
             identifier: Arc::from(item.item_name.to_string_lossy()),
@@ -718,7 +718,7 @@ pub(crate) fn normalize_item_registry(
             negotiated_max_stack_size,
             canonical_empty_component_data,
             item_tags: if item.is_component_based {
-                registry_capacity::declared_item_tags(&component_bytes).into()
+                registry_properties::declared_item_tags(&component_bytes).into()
             } else {
                 Arc::from([])
             },

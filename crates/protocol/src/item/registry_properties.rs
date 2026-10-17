@@ -1,8 +1,11 @@
+//! Bounded projections of typed facts from network registry NBT.
+
 const MAX_WALK_DEPTH: usize = 16;
 const MAX_WALK_TAGS: usize = 4_096;
 const MAX_COLLECTION_VALUES: usize = 4_096;
 
 pub(super) const CANONICAL_EMPTY_COMPONENT_DATA: &[u8] = &[10, 0, 0];
+pub(super) const CREATIVE_CATEGORY_PROPERTY: &str = "creative_category";
 
 #[derive(Clone, Copy)]
 enum Scope {
@@ -19,6 +22,9 @@ struct Evidence {
     max_stack_size: usize,
     value: Option<u8>,
     invalid: bool,
+    creative_category_fields: usize,
+    creative_category: u8,
+    creative_category_invalid: bool,
     tags: usize,
 }
 
@@ -45,6 +51,21 @@ impl Evidence {
 /// excess work, duplicate path segments, or a semantically unusable value make
 /// this optional projection unavailable without changing packet admission.
 pub(super) fn negotiated_max_stack_size(bytes: &[u8]) -> Option<u8> {
+    registry_properties(bytes)?.finish()
+}
+
+/// Reads the Int category's low byte, defaulting to zero within a valid properties compound.
+/// Missing or ambiguous ancestors and duplicate category fields stay unresolved.
+pub(super) fn negotiated_creative_category(bytes: &[u8]) -> Option<u8> {
+    let evidence = registry_properties(bytes)?;
+    (!evidence.creative_category_invalid
+        && evidence.components == 1
+        && evidence.item_properties == 1)
+        .then_some(evidence.creative_category)
+}
+
+/// Walks one complete registry payload under the shared tag, collection and depth limits.
+fn registry_properties(bytes: &[u8]) -> Option<Evidence> {
     let mut reader = Reader::new(bytes);
     let root_tag = reader.read_u8().ok()?;
     let _root_name = reader.read_string().ok()?;
@@ -58,7 +79,7 @@ pub(super) fn negotiated_max_stack_size(bytes: &[u8]) -> Option<u8> {
     if !reader.is_finished() {
         return None;
     }
-    evidence.finish()
+    Some(evidence)
 }
 
 /// Bounds on declared item tags retained per registry entry.
@@ -190,6 +211,7 @@ fn scan_compound(
                 evidence.components += 1;
                 if evidence.components != 1 || tag != 10 {
                     evidence.invalid = true;
+                    evidence.creative_category_invalid = true;
                 }
                 if tag == 10 {
                     Scope::Components
@@ -201,6 +223,7 @@ fn scan_compound(
                 evidence.item_properties += 1;
                 if evidence.item_properties != 1 || tag != 10 {
                     evidence.invalid = true;
+                    evidence.creative_category_invalid = true;
                 }
                 if tag == 10 {
                     Scope::ItemProperties
@@ -219,6 +242,17 @@ fn scan_compound(
                     if evidence.value.is_none() {
                         evidence.invalid = true;
                     }
+                    continue;
+                }
+                Scope::Other
+            }
+            Scope::ItemProperties if name == CREATIVE_CATEGORY_PROPERTY.as_bytes() => {
+                evidence.creative_category_fields += 1;
+                if evidence.creative_category_fields != 1 {
+                    evidence.creative_category_invalid = true;
+                }
+                if tag == 3 {
+                    evidence.creative_category = reader.read_zigzag_i32()? as u8;
                     continue;
                 }
                 Scope::Other
