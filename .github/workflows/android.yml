@@ -1,6 +1,6 @@
 name: Android
 
-# Builds the experimental arm64 APK for Android packaging changes, on CI's schedule and on
+# Builds the experimental arm64 APK for Android packaging/release workflow changes, on CI's schedule and on
 # demand, so the Android target keeps compiling. The APK is signed with a throwaway key per run;
 # installing a later build means uninstalling first.
 on:
@@ -8,6 +8,7 @@ on:
     paths:
       - packaging/android/**
       - .github/workflows/android.yml
+      - .github/workflows/package.yml
   schedule:
     - cron: "41 */6 * * *"
   workflow_dispatch:

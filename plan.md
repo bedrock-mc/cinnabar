@@ -310,7 +310,8 @@ consent and runs headless first-run preparation; the NativeActivity then runs th
 the install layout under the app's private files. Gameplay touch controls are a built-in JSON-UI
 screen whose painted rectangles capture fingers; inventory and server forms take one finger as
 the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
-and on demand.
+and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
+persistent signing key and release checksums; Android installs updates through the APK installer.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
