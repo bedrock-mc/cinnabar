@@ -32,8 +32,11 @@ pub(super) fn prepare(view: &LayeredPackView) -> Option<Arc<ActorArtworkPages>> 
             let image = pack_runtime::pack_textures::decode_pack_texture(view, &source.path)?;
             let width = u16::try_from(image.width).ok()?;
             let height = u16::try_from(image.height).ok()?;
-            if !retain_override_bytes(&mut bytes, image.rgba8.len(), assets::MAX_ACTOR_PIXEL_BYTES)
-            {
+            if !retain_override_bytes(
+                &mut bytes,
+                image.rgba8.len(),
+                assets::actor::MAX_ACTOR_PIXEL_BYTES,
+            ) {
                 return None;
             }
             Some((

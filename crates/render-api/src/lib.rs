@@ -10,6 +10,7 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod quality;
 pub use pose_generation::PoseGeneration;
 mod skin;
 mod ui_backdrop;
@@ -28,6 +29,7 @@ pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
     TerrainRemovalKind,
 };
+pub use quality::EnhancedQuality;
 pub use skin::{
     CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION,
     MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,

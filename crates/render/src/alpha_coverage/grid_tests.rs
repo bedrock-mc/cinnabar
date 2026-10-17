@@ -1,10 +1,9 @@
 use super::*;
 
+const CASE_BINDING: u32 = crate::material_shader::LAST_CHUNK_BINDING + 1;
 /// Five pages of eight cases fill forty cells; eight columns keep the grid square-ish.
 const COLUMNS: u32 = 8;
 const CELL_SIDE: u32 = SNAPSHOT_SIDE / COLUMNS;
-// Past every production group-0 binding, which the composed shader also declares.
-const GRID_CASES_BINDING: u32 = 27;
 
 struct GridCase {
     reference: u32,
@@ -125,8 +124,31 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
             resource: wgpu::BindingResource::Sampler(&sampler),
         });
     }
+    let texture_refs = gpu.words(
+        &vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS],
+        wgpu::BufferUsages::STORAGE,
+    );
+    if enhanced {
+        for (binding, view) in crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS
+            .into_iter()
+            .zip(&views)
+        {
+            bindings.push(wgpu::BindGroupEntry {
+                binding,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_SAMPLER_BINDING,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        });
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_TEXTURE_REF_BINDING,
+            resource: texture_refs.as_entire_binding(),
+        });
+    }
     bindings.push(wgpu::BindGroupEntry {
-        binding: GRID_CASES_BINDING,
+        binding: CASE_BINDING,
         resource: data.as_entire_binding(),
     });
     let production = if model {
@@ -142,16 +164,21 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     let mut source = crate::shader_source::standalone(production, definitions);
     let (sample, footprint, threshold) = if model {
         (
-            "var input: VertexOutput; input.uv = uv; input.visibility.x = select(1u, 1u | MODEL_BOUNDED_TILE, c.w != 0u); let sampled = sample_model_ref(input, c.x, dx, dy);",
+            "input.visibility.x = select(1u, 1u | MODEL_BOUNDED_TILE, c.w != 0u); let sampled = sample_model_ref(input, c.x, dx, dy);",
             "model_alpha_footprint(c.x, uv, dx, dy, sampled)",
             "MODEL_ALPHA_THRESHOLD",
         )
     } else {
         (
-            "let sampled = sample_material_texture_ref(c.x, uv, dx, dy, c.w);",
+            "let sampled = sample_material_texture_ref(input, c.x, uv, dx, dy, c.w);",
             "cube_alpha_footprint(c.x, uv, dx, dy, sampled, c.w)",
             "TERRAIN_ALPHA_THRESHOLD",
         )
+    };
+    let authored = if enhanced {
+        "input.authored_refs = vec2(authored_material_ref(0u, c.x));"
+    } else {
+        ""
     };
     let output = if samples == 1 {
         format!("if (sampled.a < {threshold}) {{ discard; }} return vec4(sampled.rgb, 1.0);")
@@ -160,7 +187,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     };
     source.push_str(&format!(
         r#"
-@group(0) @binding({GRID_CASES_BINDING}) var<storage, read> grid_cases: array<vec4<u32>>;
+@group(0) @binding({CASE_BINDING}) var<storage, read> grid_cases: array<vec4<u32>>;
 @vertex fn grid_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
     return vec4(uv * 2.0 - vec2(1.0), 0.5, 1.0);
@@ -171,11 +198,25 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     let uv = vec2(bitcast<f32>(c.y), 0.125);
     let dx = vec2(bitcast<f32>(c.z), 0.0);
     let dy = vec2(0.0);
+    var input: VertexOutput;
+    input.uv = uv; input.current_texture = c.x; input.next_texture = c.x;
+    {authored}
     {sample}
     {output}
 }}
 "#
     ));
+    let used = crate::shader_source::bindings_used_by_entry_points(
+        &source,
+        &["grid_vertex", "grid_fragment"],
+        0,
+    );
+    bindings.retain(|resource| used.contains(&resource.binding));
+    assert_eq!(
+        bindings.len(),
+        used.len(),
+        "grid fixture binds exactly its active resources"
+    );
     gpu.render_with_state(
         &source,
         "grid_vertex",

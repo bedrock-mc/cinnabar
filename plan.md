@@ -1015,12 +1015,36 @@ screen-effect parity remain incomplete.
   Joint material mip generation preserves cutout coverage and filters normals and roughness.
   Local packs can reuse a content-addressed decode cache. GPU uploads retain carrier
   resources and publish complete authored maps after bounded transfers.
-- Enhanced remains hard-disabled, so normal sessions do not load these packs or change
-  rendered output. Renderer integration and visual/performance acceptance remain incomplete.
+- Default builds keep Enhanced disabled. Opt-in builds load maps only after Enhanced
+  is selected. Native visual, stability and performance acceptance remain incomplete.
 - Incomplete: Java LabPBR files pair with Bedrock textures through a provisional name
   table (`crates/pack-compiler/src/pbr/sources/names.rs`, baselined in the architecture gate).
   Replace it with a generated Java/Bedrock mapping shared with shader-pack block IDs.
   Independent authored animation timing remains incomplete; frames use the carrier clock.
+
+
+## Enhanced lighting extension
+
+- The optional `enhanced` feature enables the settings toggle and Performance, Balanced
+  and Ultra presets. Default builds continue to force Vanilla. Mode and quality choices
+  persist and apply to the gameplay camera without a restart.
+- The renderer includes directional and local shadows, world-context shadow bodies,
+  atmospheric scattering and volumetric clouds, bounded voxel irradiance, geometry
+  reflection probes, water coverage and reflections, authored material shading,
+  exposure and temporal reconstruction. Coupled histories retire on world, asset
+  and camera discontinuities. Shared clock/biome uniforms serve both rendering modes.
+- This is a non-parity extension. The earlier Metal GPU fault and system freeze remain
+  unresolved. Native backend stability, nearby shadow and actor motion, streamed edits,
+  horizon filtering, controller settings input, frame budgets and join/streaming
+  performance still require acceptance. Existing shadow-history and GPU raster test
+  failures also need resolution; no acceptance gate closes here.
+- Incomplete approximations include the finite voxel volume and reflection coverage,
+  conservative model occupancy, one diffuse bounce, unknown-boundary sky fallback,
+  newly exposed probe warmup, no animated actors in secondary transport, approximate
+  higher-order scattering, screen refraction, analytic caustics and transparent
+  reactivity. Authored pack coverage, independent animation timing, split-screen
+  viewports and cross-backend rendering remain incomplete.
+- Implementation details: [Enhanced renderer](crates/render/src/enhanced/README.md).
 
 ## Anvil screen
 
@@ -3124,17 +3148,10 @@ session-pack version selection and equal-minimum merging remain incomplete; this
 closes the reported model defect, not the broad animal parity gate. See
 `docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
 
-2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
-WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
-Enhanced shader specialization and effect passes. The toggle is hidden, and saved
-settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
-unresolved; Enhanced visual and performance gates remain incomplete.
-The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
-(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
-preference. Home and Video settings remained legible with normal geometry,
-clipping, layering and colours; the Enhanced control was absent. Settings clicks,
-scrolling, hover focus and Escape navigation worked. This checks the disable,
-not gameplay performance or the unresolved GPU fault.
+Enhanced rendering is available only in an explicit `enhanced` feature build;
+default builds still force Vanilla. The earlier macOS GPU page faults and
+WindowServer watchdog panic remain unresolved. Enhanced visual, stability and
+performance gates remain incomplete, and the mode remains a non-parity extension.
 
 2026-10-02 native comparison follow-up (in progress; local and uncommitted,
 not pushed): both real Minecraft and Rust now join the same offline official BDS

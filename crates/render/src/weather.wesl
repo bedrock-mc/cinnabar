@@ -1,5 +1,5 @@
 import bevy_render::view::View;
-import render::lighting::{lit_colour, light_colour};
+import render::lighting::{lit_colour, light_colour, configured_distance_fog};
 
 // Port of the vanilla RenderDragon `Weather` material: wrapped particle streaks stretched along
 // the layer velocity, hidden below each column's occlusion height.
@@ -133,11 +133,6 @@ fn weather_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let lit = lit_colour(texel.rgb, light_colour(240u));
-    let fog = clamp(
-        (distance(in.world_position, view.world_position) - atmosphere.fog_color_start.w)
-            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
-        0.0,
-        1.0,
-    );
-    return vec4(mix(lit, atmosphere.fog_color_start.rgb, fog), texel.a);
+    return vec4(configured_distance_fog(lit, in.world_position, view.world_position,
+        atmosphere.fog_color_start, atmosphere.fog_end_time.x), texel.a);
 }

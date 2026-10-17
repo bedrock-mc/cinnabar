@@ -51,6 +51,7 @@ mod xbox_presence;
 use launcher_host::{
     auth, core_process, launcher_core::target_for, server_trust, servers, sign_in_browser,
 };
+use render_api::EnhancedQuality;
 use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
@@ -127,6 +128,8 @@ pub struct MenuRuntime {
     failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    enhanced_quality: EnhancedQuality,
+    enhanced_quality_request: Option<EnhancedQuality>,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -241,23 +244,11 @@ struct SessionIntents {
 }
 
 impl MenuRuntime {
-    /// Mirrors the applied mode; a pending menu toggle wins until taken.
-    pub fn sync_render_mode(&mut self, applied: RenderMode) {
-        if self.render_mode_request.is_none() {
-            self.render_mode = applied;
-        }
-    }
-
     /// Shows the VSync toggle locked to a launch-flag override.
     #[must_use]
     pub const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
         self.vsync_override = vsync;
         self
-    }
-
-    /// Consume the pending Video-section change.
-    pub fn take_render_mode_request(&mut self) -> Option<RenderMode> {
-        self.render_mode_request.take()
     }
 
     /// Return the extension settings file alongside the other user settings.
@@ -714,12 +705,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::ToggleRenderMode => {
-                if render_model::ENHANCED_RENDERING_ENABLED {
-                    self.render_mode = self.render_mode.toggled();
-                    self.render_mode_request = Some(self.render_mode);
-                }
-            }
+            action @ (MenuAction::ToggleRenderMode
+            | MenuAction::CycleEnhancedQuality
+            | MenuAction::SetEnhancedQuality(_)) => self.activate_enhanced_settings(action),
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {
                 self.navigation_focus = navigation::NavigationFocus::default();

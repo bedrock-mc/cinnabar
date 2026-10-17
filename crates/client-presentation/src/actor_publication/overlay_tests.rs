@@ -132,6 +132,7 @@ fn publish_overlay(
             native_body_sampled: false,
             remote_skin_layers: &Default::default(),
             native_pose: &state.java_hand.native_pose,
+            local_shadows: false,
         },
         layers::LayerCaches {
             equipment: Some(runtime),

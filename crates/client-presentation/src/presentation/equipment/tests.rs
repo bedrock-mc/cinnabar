@@ -982,12 +982,15 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     assert_eq!(layers[0].submission.overlay_rgba8, 0);
 }
 
-#[test]
-fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
+/// Stages a session sprite gem held in both hands and a session-worn crown attachable.
+fn gem_and_crown(
+    runtime: &mut super::runtime::EquipmentRuntime,
+    pages: ActorArtworkPages,
+) -> (
+    super::runtime::ActorEquipmentInput,
+    super::runtime::WornItem,
+) {
     use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
-    let (mut runtime, pages) = pack_runtime(crown_pack());
-    let mut body = player_body(&mut runtime);
-    body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
@@ -1033,6 +1036,15 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         ],
         ..Default::default()
     };
+    (input, item)
+}
+
+#[test]
+fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let mut body = player_body(&mut runtime);
+    body.overlay_rgba8 = 0x6600_00ff;
+    let (input, item) = gem_and_crown(&mut runtime, pages);
     let layers = runtime
         .layers_for_profile(&body, &input, render_api::CombatVisuals::Modern, None)
         .layers;
@@ -1052,7 +1064,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         .mask_first_person(&body, FirstPersonArms::for_hands(None, None))
         .unwrap();
     assert_eq!(arm.overlay_rgba8, body.overlay_rgba8);
-    let java_input = ActorEquipmentInput {
+    let java_input = super::runtime::ActorEquipmentInput {
         java: Some(super::JavaGrip { blocking: false }),
         ..input
     };
@@ -1066,6 +1078,17 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         };
         assert_eq!(layer.submission.overlay_rgba8, expected);
     }
+}
+
+/// Off-screen and local shadow bodies keep held items and armour in shadows and reflections.
+#[test]
+fn shadow_only_bodies_build_their_equipment_layers() {
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let mut body = player_body(&mut runtime);
+    let (input, _) = gem_and_crown(&mut runtime, pages);
+    body.make_shadow_only();
+    assert_eq!(body.route, ActorRigRoute::ShadowOnly);
+    assert_eq!(runtime.layers_for(&body, &input, None).len(), 3);
 }
 
 #[test]

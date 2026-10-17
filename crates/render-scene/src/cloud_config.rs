@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, fmt::Write as _, mem::size_of};
 
-use assets::AtmosphereTexture;
 use assets::CloudQuality;
+use assets::atmosphere::AtmosphereTexture;
 use meshing::cloud_viewport::{
     MAX_VIEWPORT_CLOUD_BYTES, MAX_VIEWPORT_CLOUD_QUADS, ViewportCloudQuad,
 };

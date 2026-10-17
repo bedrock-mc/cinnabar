@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
+use assets::{Material, ModelTemplate, RuntimeAssets, TextureRef, texture::TextureArray};
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
@@ -97,7 +97,7 @@ mod draw;
 #[cfg(feature = "enhanced")]
 pub(crate) mod enhanced;
 mod extract;
-mod gpu;
+pub(crate) mod gpu;
 mod gpu_cull;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
@@ -111,6 +111,8 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "enhanced")]
+pub(crate) mod resident_coverage;
 pub(crate) use coverage::TerrainCoverage;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;

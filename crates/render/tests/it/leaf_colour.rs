@@ -231,7 +231,7 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
                     resource: wgpu::BindingResource::Sampler(&native_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 27,
+                    binding: 40,
                     resource: data.as_entire_binding(),
                 },
             ],
@@ -293,7 +293,7 @@ struct LeafWitnessCase {
     fog_amount: vec4<f32>,
     route: vec4<u32>,
 }
-@group(0) @binding(27) var<storage, read> leaf_witness_cases: array<LeafWitnessCase>;
+@group(0) @binding(40) var<storage, read> leaf_witness_cases: array<LeafWitnessCase>;
 
 @vertex fn leaf_witness_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
@@ -304,7 +304,8 @@ struct LeafWitnessCase {
     let index = min(u32(position.y) / 64u * 4u + u32(position.x) / 64u, arrayLength(&leaf_witness_cases) - 1u);
     let witness = leaf_witness_cases[index];
     let flags = u32(witness.light_flags.w);
-    let sampled = sample_material_texture_ref(witness.route.y, vec2(0.5), vec2(0.0), vec2(0.0), flags);
+    var input: VertexOutput;
+    let sampled = sample_material_texture_ref(input, witness.route.y, vec2(0.5), vec2(0.0), vec2(0.0), flags);
     if (witness.route.x != 0u) {
         return native_cube_colour(sampled, flags, witness.tint_ao.rgb, witness.tint_ao.w, witness.light_flags.rgb, witness.fog_amount.rgb, witness.fog_amount.w);
     }

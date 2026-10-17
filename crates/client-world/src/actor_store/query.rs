@@ -268,6 +268,10 @@ impl ActorStore {
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
     }
+    /// Returns the current local world-body animation snapshot when it is available.
+    pub(crate) fn actor_world_body(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+        self.animation.world_body(runtime_id)
+    }
     pub(crate) fn actor_retargeted_pose(
         &self,
         runtime_id: u64,

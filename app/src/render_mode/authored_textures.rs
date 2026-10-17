@@ -153,16 +153,16 @@ pub(super) fn update_authored_textures(
     textures: Option<ResMut<ChunkTextureAssets>>,
     reload: Option<Res<ChunkTextureReload>>,
     device: Option<Res<RenderDevice>>,
+    support: Option<Res<render::EnhancedRenderSupport>>,
 ) {
     let (Some(mut loading), Some(mut textures)) = (loading, textures) else {
         return;
     };
     // A Vanilla fallback on an unsupported device never decodes or attaches authored maps.
-    let mode = if ENHANCED_RENDERING_ENABLED {
-        settings.user_settings_update().1.video.render_mode
-    } else {
-        RenderMode::Vanilla
-    };
+    let mode = super::effective_render_mode(
+        settings.user_settings_update().1.video.render_mode,
+        support.as_deref(),
+    );
     let limits = device.as_ref().map(|device| device.limits());
     loading.begin(mode, |base, keys| spawn(base, keys, limits.clone()));
     loading.poll();
@@ -212,13 +212,19 @@ mod tests {
         assert!(loading.selected(RenderMode::Vanilla).is_none());
     }
 
-    /// Completed maps follow mode selection without restarting the decoder.
+    #[cfg(feature = "enhanced")]
     #[test]
-    fn completed_maps_follow_selection_without_decoding_again() {
+    fn enhanced_selection_loads_once_and_runtime_mode_toggles_reuse_maps() {
         let base = Arc::new(RuntimeAssets::diagnostic());
+        let mut loading = AuthoredTextureLoading::new(base.clone(), Some(MaterialKeys::default()));
         let authored = maps();
-        let mut loading = AuthoredTextureLoading::new(base, None);
-        loading.loading = Loading::Complete(Some(authored.clone()));
+        loading.begin(RenderMode::Enhanced, |worker_base, _| {
+            assert!(Arc::ptr_eq(&base, &worker_base));
+            let (sender, receiver) = mpsc::channel();
+            sender.send(Some(authored.clone())).unwrap();
+            Ok(receiver)
+        });
+        loading.poll();
         assert!(Arc::ptr_eq(
             &loading.selected(RenderMode::Enhanced).unwrap(),
             &authored
@@ -246,9 +252,9 @@ mod tests {
         assert_eq!(textures.identity(), original_identity);
     }
 
-    /// The disabled renderer decodes and attaches nothing even with completed maps.
+    /// An Enhanced request on a device that falls back to Vanilla decodes and attaches nothing.
     #[test]
-    fn disabled_enhanced_never_loads_or_attaches_authored_maps() {
+    fn a_vanilla_fallback_never_loads_or_attaches_authored_maps() {
         let base = Arc::new(RuntimeAssets::diagnostic());
         let mut settings = RuntimeSettings::default();
         crate::render_mode::set_render_mode(&mut settings, RenderMode::Enhanced);
@@ -259,6 +265,7 @@ mod tests {
                 Some(MaterialKeys::default()),
             ))
             .insert_resource(ChunkTextureAssets::new(base))
+            .insert_resource(render::EnhancedRenderSupport(false))
             .add_systems(Update, update_authored_textures);
         app.update();
         assert!(matches!(
@@ -277,6 +284,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "enhanced")]
     #[test]
     fn unsupported_maps_are_discarded_before_server_assets_can_inherit_them() {
         let base = Arc::new(RuntimeAssets::diagnostic());
@@ -299,11 +307,38 @@ mod tests {
         );
         let mut loading = AuthoredTextureLoading::new(base.clone(), None);
         loading.loading = Loading::Complete(Some(authored));
-        loading.discard_unsupported(&wgpu::Limits {
-            max_texture_array_layers: 1,
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_texture_array_layers: 1,
+                ..Default::default()
+            },
             ..Default::default()
         });
-        assert!(matches!(loading.loading, Loading::Complete(None)));
-        assert!(loading.selected(RenderMode::Enhanced).is_none());
+        let mut settings = RuntimeSettings::default();
+        crate::render_mode::set_render_mode(&mut settings, RenderMode::Enhanced);
+        let mut app = App::new();
+        app.insert_resource(settings)
+            .insert_resource(loading)
+            .insert_resource(bevy::render::renderer::RenderDevice::from(device))
+            .insert_resource(ChunkTextureAssets::new(base))
+            .add_systems(Update, update_authored_textures);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ChunkTextureAssets>()
+                .enhanced()
+                .is_none()
+        );
+        assert!(matches!(
+            app.world().resource::<AuthoredTextureLoading>().loading,
+            Loading::Complete(None),
+        ));
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ChunkTextureAssets>()
+                .enhanced()
+                .is_none()
+        );
     }
 }

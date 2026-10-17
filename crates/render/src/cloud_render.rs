@@ -156,7 +156,14 @@ pub(crate) fn prepare_cloud_records(
     atmosphere: Res<AtmosphereFrame>,
     uploads: crate::upload_staging::FrameUploads,
     visibility: Res<CloudVisibility>,
-    views: Query<(Entity, &ExtractedView), With<Camera3d>>,
+    views: Query<
+        (
+            Entity,
+            &ExtractedView,
+            Option<&render_scene::EnhancedRendering>,
+        ),
+        With<Camera3d>,
+    >,
     mut gpu: ResMut<CloudGpu>,
 ) {
     if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
@@ -178,7 +185,14 @@ pub(crate) fn prepare_cloud_records(
     } = &mut *gpu;
     #[cfg(test)]
     let mut uploaded_views = 0;
-    for (entity, view) in &views {
+    for (entity, view, enhanced) in &views {
+        if render_model::ENHANCED_RENDERING_ENABLED
+            && atmosphere.physical_atmosphere_allowed()
+            && enhanced.is_some_and(|s| s.volumetric_clouds || s.reflection_capture)
+        {
+            prepared_views.remove(&entity);
+            continue;
+        }
         let camera = view.world_from_view.translation();
         let above = camera.y >= CLOUD_UNDERSIDE_Y.ceil();
         let Some(viewport) = CloudViewport::try_new(
@@ -490,6 +504,16 @@ fn prepare_cloud_bind_group(
     }
 }
 
+/// Views that may draw native clouds, with Enhanced settings that can replace them.
+type CloudView<'a> = (
+    Entity,
+    &'a MainEntity,
+    &'a ExtractedView,
+    &'a bevy::render::camera::ExtractedCamera,
+    &'a Msaa,
+    Option<&'a render_scene::EnhancedRendering>,
+);
+
 fn queue_clouds(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<CloudPipeline>,
@@ -497,19 +521,20 @@ fn queue_clouds(
     (atmosphere, visibility): (Res<AtmosphereFrame>, Res<CloudVisibility>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-    )>,
+    views: Query<CloudView>,
 ) {
     if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
-    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &views {
+        if render_model::ENHANCED_RENDERING_ENABLED
+            && atmosphere.physical_atmosphere_allowed()
+            && enhanced
+                .is_some_and(|settings| settings.volumetric_clouds || settings.reflection_capture)
+        {
+            continue;
+        }
         let Some(prepared) = gpu.views.get(&view_entity) else {
             continue;
         };

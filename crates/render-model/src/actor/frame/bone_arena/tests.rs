@@ -295,6 +295,31 @@ fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
 }
 
 #[test]
+fn shadow_only_instances_follow_the_exact_main_manifest_even_across_layers() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let mut shadow = submission(1, 1);
+    shadow.route = ActorRigRoute::ShadowOnly;
+    let mut equipment = submission(2, 1);
+    equipment.input.identity.layer = 1;
+    let frame = builder.build(0.5, None, [shadow, equipment, submission(3, 1)]);
+    assert_eq!(frame.instances.len(), 3);
+    assert!(
+        frame.manifest[..2]
+            .iter()
+            .all(|entry| entry.route == ActorRigRoute::Compiled)
+    );
+    assert_eq!(frame.manifest[2].route, ActorRigRoute::ShadowOnly);
+    assert_eq!(frame.manifest[2].identity.runtime_id, 1);
+    // The camera draw frame publishes exactly this prefix as its manifest.
+    for (index, entry) in frame.manifest[..2].iter().enumerate() {
+        assert_eq!(entry.instance_index as usize, index);
+        assert!(entry.identity.is_exact() && entry.reset_generation != 0);
+    }
+}
+
+#[test]
 fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
     for id in [crate::pack_rig_id(0), crate::pack_equipment_rig_id(0)] {
         let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();

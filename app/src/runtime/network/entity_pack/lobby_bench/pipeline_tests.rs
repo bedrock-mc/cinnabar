@@ -8,7 +8,7 @@ fn offline_actor_frames_publish_and_advance_the_synthetic_actor() {
     let (_pack, artwork, entities) = crate::tests::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
-        assets::ActorPoseMode::CompiledLiteral,
+        assets::actor::ActorPoseMode::CompiledLiteral,
     );
     let mut stream = crate::tests::actor_rest_presentation::stream(Arc::clone(&entities));
     stream

@@ -54,19 +54,15 @@ impl super::ActorPresentationState<'_, '_> {
         self.camera
             .single()
             .ok()
-            .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection))
+            .and_then(|(_, projection, _)| crate::camera::first_person_hand_fov(projection))
     }
 
-    /// Captures the active render camera's actor admission bounds.
-    pub(super) fn cull_view(&self) -> Option<render_model::ActorCullView> {
+    /// Captures the active render camera's actor admission bounds, widened for Enhanced shadows.
+    pub(super) fn actor_views(&self) -> Option<super::culling::ActorPublicationViews> {
         self.camera
             .single()
             .ok()
-            .map(|(transform, projection)| render_model::ActorCullView {
-                clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-                camera_position: transform.translation,
-                max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-            })
+            .map(super::culling::ActorPublicationViews::for_camera)
     }
 }
 

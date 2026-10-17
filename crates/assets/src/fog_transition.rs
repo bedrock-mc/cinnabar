@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::FogDistanceMode;
+use crate::atmosphere::FogDistanceMode;
 
 /// Initial fog and timing retained from a pack's `transition_fog` record.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -65,9 +65,9 @@ impl FogTransition {
 /// Blends the resolved initial fog into the target using the current client's two-stage timeline.
 pub(crate) fn apply(
     values: [f32; 9],
-    target: crate::ResolvedFog,
+    target: crate::atmosphere::ResolvedFog,
     seconds: f32,
-) -> crate::ResolvedFog {
+) -> crate::atmosphere::ResolvedFog {
     let [start, end, r, g, b, min, mid, percent, max] = values;
     if seconds >= max {
         return target;
@@ -81,7 +81,7 @@ pub(crate) fn apply(
     }
     .max(min);
     let initial = [r, g, b];
-    crate::ResolvedFog {
+    crate::atmosphere::ResolvedFog {
         start: start + (target.start - start) * amount,
         end: end + (target.end - end) * amount,
         rgb: std::array::from_fn(|i| target.rgb[i] * amount + initial[i] * (1.0 - amount)),
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn current_timeline_clamps_to_minimum_instead_of_lerping_from_it() {
-        let target = crate::ResolvedFog {
+        let target = crate::atmosphere::ResolvedFog {
             start: 4.0,
             end: 60.0,
             rgb: [1.0; 3],
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn zero_midpoint_uses_one_ramp_and_zero_duration_returns_target() {
-        let target = crate::ResolvedFog {
+        let target = crate::atmosphere::ResolvedFog {
             start: 4.0,
             end: 60.0,
             rgb: [1.0; 3],

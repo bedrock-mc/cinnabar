@@ -200,11 +200,11 @@ mod tests {
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
-            texture_pages: vec![assets::TexturePage::new(assets::TextureArray {
+            texture_pages: vec![assets::TexturePage::new(assets::texture::TextureArray {
                 layers: 1,
                 mips: [16_u32, 8, 4, 2, 1]
                     .into_iter()
-                    .map(|size| assets::TextureMip {
+                    .map(|size| assets::texture::TextureMip {
                         size,
                         rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                     })

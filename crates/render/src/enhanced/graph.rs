@@ -1,6 +1,10 @@
 use super::{
+    depth::{EnhancedDepthLabel, enhanced_depth},
     hand_layer::{EnhancedHandCompositeLabel, enhanced_hand_composite},
-    post::{EnhancedPostLabel, enhanced_post},
+    post::{
+        EnhancedLightingLabel, EnhancedPostLabel, EnhancedSkyLabel, enhanced_lighting,
+        enhanced_post, enhanced_sky,
+    },
     shadows::{EnhancedShadowLabel, enhanced_shadows},
     snapshot::{EnhancedSnapshotLabel, enhanced_snapshot},
 };
@@ -12,7 +16,8 @@ use bevy::{
 #[derive(Resource)]
 struct PassesInstalled;
 
-/// Keeps the enhanced world grade before the hand layer and HUD.
+/// Keeps shadows, depth and lighting before the world, the sky before the opaque snapshot,
+/// and the enhanced world grade before the hand layer and HUD.
 pub(super) fn install_graph(world: &mut World) {
     if world.contains_resource::<PassesInstalled>() {
         return;
@@ -23,28 +28,43 @@ pub(super) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             use bevy::core_pipeline::tonemapping::tonemapping;
             use {crate::gpu_timing::profiled, render_scene::RuntimeStage};
-            schedule.add_systems(
+            schedule.configure_sets(
                 (
-                    profiled(
-                        enhanced_shadows,
-                        Some(RuntimeStage::GpuShadows),
-                        "EnhancedShadowLabel",
-                    )
-                    .in_set(EnhancedShadowLabel)
-                    .before(crate::scene_target::ScenePass::Opaque),
-                    profiled(
-                        enhanced_snapshot,
-                        Some(RuntimeStage::GpuBlit),
-                        "EnhancedSnapshotLabel",
-                    )
-                    .in_set(EnhancedSnapshotLabel)
-                    .after(crate::scene_target::ScenePass::Opaque)
-                    .after(crate::chunk::GpuCullLateLabel)
-                    .after(crate::entity_shadow_render::EntityShadowLabel)
-                    .before(crate::scene_target::ScenePass::Transparent),
+                    EnhancedShadowLabel,
+                    EnhancedDepthLabel,
+                    EnhancedLightingLabel,
                 )
+                    .chain()
+                    .before(crate::scene_target::ScenePass::Opaque)
                     .in_set(Core3dSystems::MainPass),
             );
+            schedule.configure_sets(
+                (EnhancedSkyLabel, EnhancedSnapshotLabel)
+                    .chain()
+                    .after(crate::scene_target::ScenePass::Opaque)
+                    .before(crate::scene_target::ScenePass::Transparent)
+                    .in_set(Core3dSystems::MainPass),
+            );
+            schedule.add_systems((
+                profiled(
+                    enhanced_shadows,
+                    Some(RuntimeStage::GpuShadows),
+                    "EnhancedShadowLabel",
+                )
+                .in_set(EnhancedShadowLabel),
+                profiled(enhanced_depth, None, "EnhancedDepthLabel").in_set(EnhancedDepthLabel),
+                profiled(enhanced_lighting, None, "EnhancedLightingLabel")
+                    .in_set(EnhancedLightingLabel),
+                profiled(enhanced_sky, None, "EnhancedSkyLabel").in_set(EnhancedSkyLabel),
+                profiled(
+                    enhanced_snapshot,
+                    Some(RuntimeStage::GpuBlit),
+                    "EnhancedSnapshotLabel",
+                )
+                .in_set(EnhancedSnapshotLabel)
+                .after(crate::chunk::GpuCullLateLabel)
+                .after(crate::entity_shadow_render::EntityShadowLabel),
+            ));
             schedule.configure_sets(
                 (
                     EnhancedPostLabel,

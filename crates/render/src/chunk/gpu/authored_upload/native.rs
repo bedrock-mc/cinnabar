@@ -22,6 +22,19 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
     let carrier_materials = prepared.material_buffer.id();
     let old_authored_view = prepared.enhanced_views[0].id();
     let original_identity = prepared.identity;
+    #[cfg(feature = "enhanced")]
+    let mut lights = crate::enhanced::local_lights::LocalLightView::new(&device);
+    #[cfg(feature = "enhanced")]
+    let mut published = crate::chunk::gpu::bind_groups::ChunkGpuTextureAssets::default();
+    #[cfg(feature = "enhanced")]
+    {
+        published.prepared = Some(prepared.clone());
+        lights.observe_caster_textures(published.shadow_texture_key());
+        lights.dirty = false;
+        lights
+            .submitted
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let arrays: [TextureArray; 6] = std::array::from_fn(|page| {
         let mut array = array(4, 2);
         for (level, mip) in array.mips.iter_mut().enumerate() {
@@ -73,6 +86,14 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
     while !pending.complete() {
         assert_eq!(prepared.enhanced_views[0].id(), old_authored_view);
         assert_eq!(prepared.identity, original_identity);
+        #[cfg(feature = "enhanced")]
+        {
+            lights.observe_caster_textures(published.shadow_texture_key());
+            assert!(
+                !lights.dirty,
+                "incomplete uploads keep the published cutout shadows"
+            );
+        }
         let written = pending.step(&queue, 32);
         assert!(written > 0 && written <= 32);
         frames += 1;
@@ -80,6 +101,19 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
     assert!(frames > 2);
     assert_eq!(pending.step(&queue, FRAME_UPLOAD_BYTES), 0);
     pending.publish(&mut prepared, &mut stats);
+    #[cfg(feature = "enhanced")]
+    {
+        published.prepared = Some(prepared.clone());
+        lights.observe_caster_textures(published.shadow_texture_key());
+        assert!(
+            lights.dirty,
+            "published authored cutouts invalidate point shadows"
+        );
+        assert!(!lights.submitted.load(std::sync::atomic::Ordering::Relaxed));
+        lights.dirty = false;
+        lights.observe_caster_textures(published.shadow_texture_key());
+        assert!(!lights.dirty, "unchanged cutouts retain their shadow cache");
+    }
     assert_eq!(prepared.identity, candidate.identity());
     assert_eq!(prepared._textures[0].id(), carrier_texture);
     assert_eq!(prepared.material_buffer.id(), carrier_materials);
@@ -223,4 +257,13 @@ fn sample_page(page:u32,layer:i32,mip:i32)->vec4<f32>{
     assert_eq!(prepared._textures[0].id(), carrier_texture);
     assert_eq!(prepared.material_buffer.id(), carrier_materials);
     assert_eq!(prepared._enhanced_textures[0].id(), carrier_texture);
+    #[cfg(feature = "enhanced")]
+    {
+        published.prepared = Some(prepared.clone());
+        lights.observe_caster_textures(published.shadow_texture_key());
+        assert!(
+            lights.dirty,
+            "detaching authored cutouts also invalidates point shadows"
+        );
+    }
 }

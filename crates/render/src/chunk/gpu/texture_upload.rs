@@ -535,6 +535,9 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         native_leaf_views,
         native_leaf_sampler,
         sampler,
+        #[cfg(feature = "enhanced")]
+        enhanced_sampler: render_device
+            .create_sampler(&crate::material_shader::pbr_sampler_descriptor()),
     };
     Some((prepared, stats))
 }
