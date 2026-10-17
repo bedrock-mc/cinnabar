@@ -161,7 +161,13 @@ pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
 /// Reads item damage as a signed 16-bit value from its retained integer `Damage` tag.
 #[must_use]
 pub fn item_extra_damage_value(extra_data: &[u8]) -> Option<i32> {
-    root_damage_tag(decode_extra_nbt(extra_data)?).map(|damage| i32::from(damage as i16))
+    item_extra_damage_integer(extra_data).map(|damage| i32::from(damage as i16))
+}
+
+/// Reads the stored root `Damage` integer without applying item damage conversion.
+#[must_use]
+pub fn item_extra_damage_integer(extra_data: &[u8]) -> Option<i32> {
+    root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 
 /// Whether a stack's extra data carries a true root `Unbreakable` byte.

@@ -175,8 +175,8 @@ pub use item::{
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_banner_patterns, item_book, item_bundle_id,
     item_charged_projectile, item_custom_color, item_display, item_enchantment_level,
-    item_enchantment_level_value, item_extra_damage, item_extra_damage_value,
-    item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
+    item_enchantment_level_value, item_extra_damage, item_extra_damage_integer,
+    item_extra_damage_value, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
     select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item::{
