@@ -371,6 +371,14 @@ pub(super) fn snapshot(world: &World) -> Value {
         "cave_visibility": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>()
             .map(crate::runtime::visibility::CaveVisibilityCache::telemetry_snapshot),
         "recording": world.get_resource::<Recording>().map(Recording::summary),
+        "atmosphere": world.get_resource::<render_scene::AtmosphereFrame>().map(|frame| json!({
+            "rain": frame.rain_level(),
+            "thunder": frame.thunder_level(),
+            "sun_direction": frame.sun_direction(),
+            "moon_phase": frame.moon_phase(),
+            "fog_end": frame.fog_end(),
+            "sky_kind": format!("{:?}", frame.sky_kind()),
+        })),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
         "frame_count": world.get_resource::<bevy::diagnostic::FrameCount>().map(|count| count.0),
         "placement_frames": world.get_resource::<client_interaction::block_use::BlockUseRuntime>().map(|runtime| json!({

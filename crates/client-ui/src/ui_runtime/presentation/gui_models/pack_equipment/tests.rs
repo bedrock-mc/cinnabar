@@ -200,7 +200,7 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
         .gui_models
         .models
         .insert(icon_key(optional), item_gui::cube([optional; 6]).unwrap());
-    let flame_side = assets::TILE_SIZE;
+    let flame_side = assets::texture::TILE_SIZE;
     let fire = assets::ParticleTexture {
         path: assets::ACTOR_FLAME_TEXTURE.into(),
         width: flame_side,

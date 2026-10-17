@@ -1,13 +1,18 @@
 //! Optional pack fog parsing shares carrier validation and transition data.
 
-use assets::{FogDistance, FogDistanceMode, FogMedium, FogProfile, FogTransition};
+use assets::{
+    FogTransition,
+    atmosphere::{FogDistance, FogDistanceMode, FogMedium, FogProfile},
+};
 use serde_json::Value;
 
 /// Parses finite supported fog distances, dropping unfamiliar media independently.
 pub(super) fn fog_profile(root: &Value) -> Option<FogProfile> {
     let settings = &root["minecraft:fog_settings"];
     let identifier = settings["description"]["identifier"].as_str()?;
-    if identifier.is_empty() || identifier.len() > assets::MAX_ENVIRONMENT_IDENTIFIER_BYTES {
+    if identifier.is_empty()
+        || identifier.len() > assets::atmosphere::MAX_ENVIRONMENT_IDENTIFIER_BYTES
+    {
         return None;
     }
     let mut distances = Vec::new();

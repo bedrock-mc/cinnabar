@@ -36,7 +36,7 @@ pub(super) fn queue_actors(
         .executed_instances
         .store(0, std::sync::atomic::Ordering::Relaxed);
     let view_count = params.views.iter().count();
-    if params.gpu.instance_count == 0 {
+    if params.gpu.instance_count == 0 || params.gpu.spans.is_empty() {
         params.witness.observe_queue(ActorQueueWitness {
             prepared_instances: params.gpu.instance_count,
             bind_group: params.gpu.bind_group.is_some(),
@@ -66,7 +66,8 @@ pub(super) fn queue_actors(
         };
 
         let mut view_queued = false;
-        if params.gpu.spans.iter().any(|span| !sorted(span.material)) {
+        let (spans, sorted_draws) = view_draws(&params.gpu, enhanced);
+        if spans.iter().any(|span| !sorted(span.material)) {
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function,
@@ -89,8 +90,8 @@ pub(super) fn queue_actors(
             .get_mut(&view.retained_view_entity)
         {
             let rangefinder = view.rangefinder3d();
-            for (index, range) in params.gpu.sorted.ranges.iter().enumerate() {
-                let span = &params.gpu.spans[params.gpu.sorted.indices[range.start]];
+            for (index, range) in sorted_draws.ranges.iter().enumerate() {
+                let span = &spans[sorted_draws.indices[range.start]];
                 let Some(instance) = params.gpu.instances.get(span.first as usize) else {
                     continue;
                 };
@@ -131,11 +132,13 @@ pub(super) fn queue_actors(
             continue;
         }
         queued = true;
-        intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
-            current.min(view_entity.to_bits())
-        }));
+        if enhanced.is_none_or(|settings| !settings.reflection_capture) {
+            intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
+                current.min(view_entity.to_bits())
+            }));
+        }
     }
-    if queued {
+    if let Some(intended_view) = intended_view {
         let Some(draw_generation) = next_draw_generation.checked_add(1) else {
             return;
         };
@@ -147,10 +150,10 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
-            intended_view.expect("queued view exists"),
-            &params.gpu.spans,
+            intended_view,
+            &params.gpu.main_spans,
         );
     }
     params.witness.observe_queue(ActorQueueWitness {
@@ -166,6 +169,7 @@ pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<false>,
     ),
 >;
@@ -175,6 +179,7 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<true>,
     ),
 >;
@@ -237,6 +242,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         let cache = cache.into_inner();
         let mut executed_instances = 0;
         let mut bound_page = None;
+        let (spans, sorted_draws) = view_draws(gpu, view.4);
         let span_indices = if SORTED {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index()
             else {
@@ -246,26 +252,26 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                 return RenderCommandResult::Skip;
             }
             let (Some(first), Some(last)) = (
-                gpu.sorted.ranges.get(range.start as usize),
-                gpu.sorted.ranges.get(range.end as usize - 1),
+                sorted_draws.ranges.get(range.start as usize),
+                sorted_draws.ranges.get(range.end as usize - 1),
             ) else {
                 return RenderCommandResult::Skip;
             };
-            let Some(indices) = gpu.sorted.indices.get(first.start..last.end) else {
+            let Some(indices) = sorted_draws.indices.get(first.start..last.end) else {
                 return RenderCommandResult::Skip;
             };
             Some(indices)
         } else {
             None
         };
-        let span_count = span_indices.map_or(gpu.spans.len(), |indices| indices.len());
+        let span_count = span_indices.map_or(spans.len(), |indices| indices.len());
         let mut receipts = gpu
             .draw_batch(view.0.to_bits())
             .filter(|_| span_count <= render_model::MAX_ACTOR_RENDER_INSTANCES)
             .map(|batch| (batch, Vec::new()));
         for ordinal in 0..span_count {
             let index = span_indices.map_or(ordinal, |indices| indices[ordinal]);
-            let span = &gpu.spans[index];
+            let span = &spans[index];
             if sorted(span.material) != SORTED {
                 continue;
             }
@@ -320,3 +326,37 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         RenderCommandResult::Success
     }
 }
+
+/// Only reflection captures draw shadow-only bodies.
+fn draws_all_spans(settings: Option<&render_scene::EnhancedRendering>) -> bool {
+    settings.is_some_and(|settings| settings.reflection_capture)
+}
+
+/// Chooses camera-visible spans while preserving the main view's shadow-only exclusion.
+fn view_spans<'a>(
+    main: &'a [crate::actor::gpu::ActorDrawSpan],
+    all: &'a [crate::actor::gpu::ActorDrawSpan],
+    settings: Option<&render_scene::EnhancedRendering>,
+) -> &'a [crate::actor::gpu::ActorDrawSpan] {
+    if draws_all_spans(settings) { all } else { main }
+}
+
+/// Pairs a view's spans with the sorted plan whose indices address them.
+fn view_draws<'a>(
+    gpu: &'a ActorGpu,
+    settings: Option<&render_scene::EnhancedRendering>,
+) -> (
+    &'a [crate::actor::gpu::ActorDrawSpan],
+    &'a super::dissolve::SortedDraws,
+) {
+    let spans = view_spans(&gpu.main_spans, &gpu.spans, settings);
+    if draws_all_spans(settings) {
+        (spans, &gpu.capture_sorted)
+    } else {
+        (spans, &gpu.sorted)
+    }
+}
+
+#[cfg(test)]
+#[path = "phase_tests.rs"]
+mod tests;

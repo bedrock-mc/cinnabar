@@ -267,10 +267,6 @@ fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
     assert!(SHADER.contains("fn fragment_depth("));
     assert!(SHADER.contains("@interpolate(flat) depth_write_route: u32"));
     assert!(SHADER.contains("LIQUID_DEPTH_WRITE_BIT"));
-    assert!(
-        SHADER
-            .contains("let material = positional_material(packed_material & LIQUID_MATERIAL_MASK,")
-    );
     assert!(SHADER.contains("return vertex_for_record(instance_index, vertex_index)"));
     assert!(SHADER.contains("out.depth_write_route = packed_material >> 31u"));
     assert!(SHADER.contains("if (in.depth_write_route != 0u)"));

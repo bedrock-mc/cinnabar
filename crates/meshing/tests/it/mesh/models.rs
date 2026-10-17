@@ -13,8 +13,9 @@ use assets::{
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_blob, read_registry,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RegistryRecord, RuntimeAssets, TexturePage, TextureRef,
+    VisualKind, encode_blob, read_registry,
+    texture::{TextureArray, TextureMip},
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use meshing::{

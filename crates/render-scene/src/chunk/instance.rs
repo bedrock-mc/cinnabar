@@ -1,6 +1,14 @@
 use crate::chunk::*;
 use crate::{ChunkUploadPriority, ChunkUploadToken};
 
+/// Shared quad and model geometry with their corresponding lighting streams.
+pub type RetainedGeometry = (
+    Arc<[PackedQuad]>,
+    Arc<[PackedModelRef]>,
+    Arc<[PackedQuadLighting]>,
+    Arc<[PackedQuadLighting]>,
+);
+
 /// Extracted packed geometry for one visible, frustum-cullable sub-chunk.
 #[derive(Component, Clone, ExtractComponent)]
 #[extract_app(bevy::render::RenderApp)]
@@ -8,6 +16,8 @@ use crate::{ChunkUploadPriority, ChunkUploadToken};
 #[require(VisibilityClass)]
 #[component(on_add = visibility::add_visibility_class::<ChunkRenderInstance>)]
 pub struct ChunkRenderInstance {
+    #[cfg(feature = "enhanced")]
+    pub light_emitters: Arc<[meshing::BlockLightEmitter]>,
     pub key: SubChunkKey,
     pub cube_quads: Arc<[PackedQuad]>,
     pub cube_lighting: Arc<[PackedQuadLighting]>,
@@ -30,17 +40,36 @@ pub struct ChunkRenderInstance {
     pub origin: [i32; 3],
 }
 
+/// Extracted block lights with no GPU geometry or publication permit.
+#[cfg(feature = "enhanced")]
+#[derive(Component, Clone)]
+pub struct ChunkLightEmitters {
+    pub key: SubChunkKey,
+    pub emitters: Arc<[meshing::BlockLightEmitter]>,
+}
+
 impl ChunkRenderInstance {
+    /// Reports whether extraction has any geometry to send to the GPU uploader.
+    #[must_use]
+    pub fn geometry_is_empty(&self) -> bool {
+        self.cube_quads.is_empty() && self.model_refs.is_empty() && self.liquid_quads.is_empty()
+    }
+
     /// Replaces geometry while preserving the resident entity and its world identity.
+    #[allow(unused_mut)]
     pub fn with_resource_mesh(
         mut self,
-        mesh: ChunkMesh,
+        mut mesh: ChunkMesh,
         biome: PackedBiomeRecord,
         tint_identity: ChunkBiomeTintIdentity,
     ) -> Self {
         self.biome = biome;
         self.tint_identity = tint_identity;
         self.cube_layout = mesh.cube_layout();
+        #[cfg(feature = "enhanced")]
+        {
+            self.light_emitters = mesh.take_light_emitters().into();
+        }
         let (cubes, cube_light, models, model_light, draws, transparent, liquids, liquid_light) =
             mesh.into_streams();
         self.cube_quads = cubes.into();
@@ -60,6 +89,24 @@ impl ChunkRenderInstance {
         self.token = None;
         self.publication_permit = None;
         self
+    }
+
+    /// Retains immutable resident geometry without copying its packed streams.
+    #[must_use]
+    pub fn indirect_geometry(&self) -> RetainedGeometry {
+        (
+            Arc::clone(&self.cube_quads),
+            Arc::clone(&self.model_refs),
+            Arc::clone(&self.cube_lighting),
+            Arc::clone(&self.model_lighting),
+        )
+    }
+
+    /// Returns block emitters independently of the instance's visible geometry.
+    #[cfg(feature = "enhanced")]
+    #[must_use]
+    pub fn light_emitters(&self) -> &[meshing::BlockLightEmitter] {
+        &self.light_emitters
     }
 
     #[must_use]

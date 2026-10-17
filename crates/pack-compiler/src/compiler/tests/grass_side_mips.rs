@@ -83,7 +83,7 @@ fn grass_side_mips_keep_the_dirt_under_its_tint_mask() {
     let material = compiled.materials[visual.faces[BlockFace::North as usize] as usize];
     assert_ne!(material.flags & MATERIAL_FLAG_OVERLAY_MASK, 0);
     let page = &compiled.texture_pages[material.texture.page() as usize].texture;
-    let expected = assets::build_legacy_terrain_mip_chain(&side, TILE_SIZE).unwrap();
+    let expected = assets::texture::build_legacy_terrain_mip_chain(&side, TILE_SIZE).unwrap();
     for (level, mip) in page.mips.iter().enumerate() {
         let layer_bytes = (mip.size * mip.size * 4) as usize;
         let start = material.texture.layer() as usize * layer_bytes;

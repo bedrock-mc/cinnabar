@@ -5827,7 +5827,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5843,6 +5843,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "thiserror 2.0.18",
@@ -5852,7 +5853,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6889,6 +6890,15 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
+dependencies = [
+ "unicode-xid",
+]
 
 [[package]]
 name = "presser"
@@ -8074,6 +8084,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "shaderpack"
+version = "0.1.20"
+dependencies = [
+ "naga",
+ "pp-rs",
+ "zip",
 ]
 
 [[package]]
@@ -9884,7 +9903,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -9911,7 +9930,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -9944,7 +9963,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9952,7 +9971,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9960,7 +9979,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9968,7 +9987,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -10023,7 +10042,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10032,7 +10051,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=96a61b51731356308db5498db49a077b53072822#96a61b51731356308db5498db49a077b53072822"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5#e863d9d0b2bd9b60a1e0fef5da7927bf3125f0c5"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",

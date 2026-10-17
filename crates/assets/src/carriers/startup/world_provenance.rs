@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use crate::{
-    RuntimeAssets, RuntimeAtmosphereAssets, canonical_source_manifest_sha256,
+    RuntimeAssets, atmosphere::RuntimeAtmosphereAssets, canonical_source_manifest_sha256,
     registry_header_protocol,
 };
 

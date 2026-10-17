@@ -4,7 +4,7 @@
 use crate::{
     BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_DISABLE_AO,
     MATERIAL_FLAG_ISOTROPIC, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    Material, ModelQuad, ModelTemplate, TextureArray, VisualKind,
+    Material, ModelQuad, ModelTemplate, VisualKind, texture::TextureArray,
 };
 
 use super::CUBE_FACES;
@@ -177,7 +177,9 @@ pub fn face_brightness(corners: [[f32; 3]; 4]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
+    use crate::{
+        MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureRef, texture::TextureMip,
+    };
 
     #[test]
     fn cube_gui_surfaces_face_the_inventory_camera() {

@@ -88,7 +88,8 @@ fn assert_explicit_fragment_samples(source: &str, entry_name: &str) {
 #[test]
 fn divergent_fragments_keep_explicit_gradients_before_rejection() {
     for (raw, entry_name) in [
-        (include_str!("../../src/actor.wesl"), "actor_colour"),
+        // Shared by the colour, Enhanced shadow and motion fragments.
+        (include_str!("../../src/actor.wesl"), "actor_surface_color"),
         (include_str!("../../src/hand_rig.wesl"), "hand_fragment"),
     ] {
         assert_explicit_fragment_samples(&standalone(raw), entry_name);

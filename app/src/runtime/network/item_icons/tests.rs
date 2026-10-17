@@ -238,8 +238,9 @@ fn block_items_beat_short_name_guesses() {
 #[test]
 fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
     use assets::{
-        BlockFlags, BlockOverlay, BlockVisual, ContributorRole, Material, TextureArray, TextureMip,
-        TextureRef, VisualKind, VisualSupport,
+        BlockFlags, BlockOverlay, BlockVisual, ContributorRole, Material, TextureRef, VisualKind,
+        VisualSupport,
+        texture::{TextureArray, TextureMip},
     };
     for flags in [
         assets::MATERIAL_FLAG_ALPHA_CUTOUT,

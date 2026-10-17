@@ -1,5 +1,5 @@
 use super::*;
-use assets::TextureMip;
+use assets::texture::TextureMip;
 
 #[test]
 fn queue_mip_uploads_borrow_every_layer_without_padding() {

@@ -423,7 +423,7 @@ mod tests {
             ActorRigSubmission,
         };
         let textures = (1..=u16::from(u8::MAX) + 2)
-            .map(|height| assets::ActorTexture {
+            .map(|height| assets::actor::ActorTexture {
                 source: u32::from(height),
                 width: 1,
                 height,
@@ -431,16 +431,17 @@ mod tests {
                 rgba8: vec![255; usize::from(height) * 4].into(),
             })
             .collect::<Vec<_>>();
-        let bindings = [0, textures.len() as u32 - 1].map(|texture| assets::ActorArtworkBinding {
-            rig: texture,
-            geometry_candidate: texture,
-            entity_symbol: texture,
-            geometry: 0,
-            render_controller: 0,
-            texture,
-            material: "entity".into(),
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-        });
+        let bindings =
+            [0, textures.len() as u32 - 1].map(|texture| assets::actor::ActorArtworkBinding {
+                rig: texture,
+                geometry_candidate: texture,
+                entity_symbol: texture,
+                geometry: 0,
+                render_controller: 0,
+                texture,
+                material: "entity".into(),
+                pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
+            });
         let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &bindings);
         let low = pages.route(render_model::pack_rig_id(0)).unwrap();
         let high = pages

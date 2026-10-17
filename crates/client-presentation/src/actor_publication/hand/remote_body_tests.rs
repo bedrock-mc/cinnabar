@@ -215,6 +215,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         native_body_sampled: false,
                         native_pose: &native_pose,
                         remote_skin_layers: &bodies.remote_skin_layers,
+                        local_shadows: false,
                     },
                     super::super::layers::LayerCaches {
                         layer_poses: &mut layer_poses,
