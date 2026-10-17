@@ -183,3 +183,14 @@ fn facts_migration_pinned_air_trait_preserves_named_empty_block_admission() {
         );
     }
 }
+
+#[test]
+fn leaf_effect_classification_matches_the_native_species_vocabulary() {
+    for &effect in crate::facts::ParticleEffect::ALL {
+        let leaf = effect
+            .identifier()
+            .strip_suffix("_particle")
+            .and_then(leaf_particle);
+        assert_eq!(is_leaf_particle(effect), leaf == Some(effect), "{effect:?}");
+    }
+}

@@ -71,7 +71,8 @@ impl AmbientParticles {
     ) {
         let due = self.due_ticks(elapsed);
         let leaf_effect_present = ParticleEffect::ALL.iter().any(|effect| {
-            effect.name().ends_with("leaves_particle") && system.has_effect(effect.identifier())
+            assets::facts::presentation::is_leaf_particle(*effect)
+                && system.has_effect(effect.identifier())
         });
         let fire_effect_present = system.has_effect(FIRE_SMOKE_EFFECT);
         let effect_present =
