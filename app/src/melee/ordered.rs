@@ -5,7 +5,6 @@ use crate::ordered_interactions::{Progress, Step};
 use bevy::prelude::In;
 use gameplay::{
     melee::{Crosshair, ItemAttackPress},
-    mining::FrozenMiningSelection,
     survival_mining::DestroyTarget,
 };
 
@@ -43,9 +42,10 @@ pub(crate) struct AttackAttempt {
     picked: Option<crosshair::ResolvedTarget>,
     lifetime: Option<actor_animation::ActorLifetimeId>,
     initialized: bool,
-    selection: Option<(FrozenMiningSelection, Option<u64>)>,
+    selection: Option<client_interaction::mining::SelectionObservation>,
     press: Option<PressContext>,
     destroy: Option<DestroyTarget>,
+    fence: Option<gameplay::movement::InteractionFence>,
 }
 
 impl AttackAttempt {
@@ -59,6 +59,7 @@ impl AttackAttempt {
             selection: None,
             press: None,
             destroy: None,
+            fence: None,
         }
     }
 }
@@ -69,7 +70,7 @@ impl AttackAttempt {
     reason = "Gameplay owners are borrowed separately by ECS."
 )]
 pub(crate) fn step(
-    In(mut attempt): In<AttackAttempt>,
+    In((mut attempt, input)): In<(AttackAttempt, crate::ordered_interactions::InteractionInput)>,
     mut player: ResMut<client_state::PlayerRuntime>,
     mut context: MeleeContext,
     mut runtime: ResMut<MeleeRuntime>,
@@ -82,7 +83,8 @@ pub(crate) fn step(
         if hand_interaction_selection(&player).is_none() {
             return Step::new(attempt, Progress::Pending);
         }
-        attempt.picked = crosshair::resolve_captured(&player, &context, &attempt.source.inputs);
+        attempt.picked =
+            crosshair::resolve_captured(&player, &context, &attempt.source.inputs, &input);
         attempt.lifetime = attempt.picked.and_then(|picked| match picked.crosshair {
             Crosshair::Actor(hit) => context
                 .client_world
@@ -116,21 +118,18 @@ pub(crate) fn step(
     }
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     if attempt.press.is_none() {
-        let Some(selection) = hand_interaction_selection(&player) else {
-            return Step::new(attempt, Progress::Pending);
-        };
-        let revision = context
-            .ui
-            .inventory_ledger(&player)
-            .authoritative_slot_revision(selection.slot);
-        if let Some(expected) = &attempt.selection {
-            if expected != &(selection.clone(), revision) {
+        if let Some(selection) = &attempt.selection {
+            if !selection.current(&player, &context.ui) {
                 runtime.cancel();
                 return Step::new(attempt, Progress::Complete);
             }
         } else {
-            attempt.selection = Some((selection.clone(), revision));
+            attempt.selection = client_interaction::mining::SelectionObservation::hand(&player);
         }
+        let Some(observation) = attempt.selection.as_ref() else {
+            return Step::new(attempt, Progress::Pending);
+        };
+        let selection = observation.selection.clone();
         let timing = selected_attack_timing(&player, &context.client_world);
         picked.crosshair = runtime.observe_attack_target(
             picked.crosshair,
@@ -151,11 +150,11 @@ pub(crate) fn step(
         let Some(stream) = context.client_world.stream.as_ref() else {
             return Step::new(attempt, Progress::Pending);
         };
-        let input = context.input.snapshot().expect("finalized ordered input");
+        attempt.fence = Some(movement.reserve_interaction_before(sample.tick));
         attempt.press = Some(PressContext {
             tick: sample.tick,
             player_position: sample.position,
-            input_mode: protocol_input_mode(input.input_mode),
+            input_mode: protocol_input_mode(input.mode),
             local_runtime_id: stream.local_player_runtime_id(),
             selection: Some(selection),
             swing_duration: timing
@@ -181,27 +180,22 @@ pub(crate) fn step(
             attempt.destroy = crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
+                &input.origin,
                 player.facts.game_mode_capabilities(),
-                input.input_mode,
-                (input.authority_generation, input.frame_sequence),
+                input.mode,
+                input.identity,
                 movement.interaction_authority_identity().1,
             );
         }
-    } else if runtime.press_pending() {
-        let expected = attempt
+    } else if runtime.press_pending()
+        && !attempt
             .selection
             .as_ref()
-            .expect("captured press selection");
-        if hand_interaction_selection(&player).as_ref() != Some(&expected.0)
-            || context
-                .ui
-                .inventory_ledger(&player)
-                .authoritative_slot_revision(expected.0.slot)
-                != expected.1
-        {
-            runtime.cancel();
-            return Step::new(attempt, Progress::Complete);
-        }
+            .expect("captured press selection")
+            .current(&player, &context.ui)
+    {
+        runtime.cancel();
+        return Step::new(attempt, Progress::Complete);
     }
     let authority = player
         .facts
@@ -221,7 +215,7 @@ pub(crate) fn step(
         gameplay::melee::AttackFrame {
             attack: Some((picked.crosshair, press.clone())),
             mining_target: attempt.destroy.as_ref(),
-            attack_held: context.input.phase(Action::Attack).held,
+            attack_held: input.edge.buttons.held(Action::Attack),
             authority,
             now_millis: now,
             local_runtime_id: press.local_runtime_id,
@@ -254,6 +248,9 @@ pub(crate) fn step(
             &mut movement,
             tick,
         );
+    }
+    if !runtime.press_pending() {
+        attempt.fence = None;
     }
     let progress = if runtime.press_pending() {
         Progress::Pending

@@ -20,7 +20,81 @@ pub struct SelectedStackSnapshot<'a> {
     pub state: PlayerInventorySlot<'a>,
 }
 
+/// Cancellation identity for local input preceding a forced server selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionAuthority {
+    session: u64,
+    generation: u64,
+}
+
+/// One cell's authoritative lifetime, independent of its current local prediction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionStamp {
+    authority: SelectionAuthority,
+    slot: u8,
+    revision: Option<u64>,
+}
+
+/// A selection packet and the inventory evidence that permits that exact packet to retry.
+pub struct PreparedHotbarSelection {
+    stamp: SelectionStamp,
+    packet: protocol::Packet,
+}
+
+impl PreparedHotbarSelection {
+    /// Borrows the exact descriptor prepared before transport refusal.
+    pub fn packet(&self) -> &protocol::Packet {
+        &self.packet
+    }
+    /// Returns the selected cell announced by this proposal.
+    pub const fn slot(&self) -> u8 {
+        self.stamp.slot
+    }
+}
+
 impl InventorySession {
+    /// Identifies input invalidated by an authoritative forced selection, including same-slot writes.
+    pub const fn selection_authority(&self) -> SelectionAuthority {
+        SelectionAuthority {
+            session: self.session_id,
+            generation: self.selection_generation,
+        }
+    }
+
+    /// Observes one cell's revision under the current selection authority.
+    pub fn selection_stamp(&self, slot: u8) -> SelectionStamp {
+        SelectionStamp {
+            authority: self.selection_authority(),
+            slot,
+            revision: self.inventory_ledger.authoritative_slot_revision(slot),
+        }
+    }
+
+    /// Rejects a retained cell after an authoritative write or session replacement.
+    pub fn selection_stamp_current(&self, stamp: SelectionStamp) -> bool {
+        self.selection_stamp(stamp.slot) == stamp
+    }
+
+    /// Prepares one slot's equipment packet together with its cancellation evidence.
+    pub fn prepare_hotbar_selection(
+        &self,
+        slot: u8,
+    ) -> Result<Option<PreparedHotbarSelection>, protocol::InventoryPacketError> {
+        Ok(self
+            .hotbar_packet(slot)?
+            .map(|packet| PreparedHotbarSelection {
+                stamp: self.selection_stamp(slot),
+                packet,
+            }))
+    }
+
+    /// Checks both authoritative lifetime and fallback equipment before retrying an exact packet.
+    pub fn hotbar_selection_current(&self, proposal: &PreparedHotbarSelection) -> bool {
+        self.selection_stamp_current(proposal.stamp)
+            && self.hotbar_packet(proposal.slot()).ok().flatten().as_ref()
+                == Some(proposal.packet())
+    }
+
     /// Retained main-hand equipment while the ledger's selected slot is unknown.
     pub const fn local_selected_equipment(&self) -> Option<&SequencedLocalEquipment> {
         self.local_selected_equipment.as_ref()
@@ -310,5 +384,77 @@ mod ordered_tests {
             Some(0)
         );
         assert_eq!(session.pending_hotbar_selection(), None);
+    }
+}
+
+#[cfg(test)]
+mod selection_lifetime_tests {
+    use super::*;
+    use protocol::{
+        ContainerIdentity, InventoryEvent, InventorySlotEvent, SelectedSlotEvent, SlotIdentity,
+    };
+
+    /// Supplies one known target cell and the runtime id needed by selection encoding.
+    fn fixture() -> InventorySession {
+        let mut session = InventorySession::new(7);
+        session.publish_local_runtime_id(7, 42).unwrap();
+        session.set_local_selected_slot(0);
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 1,
+                },
+                stack: protocol::NetworkItemStack::empty(),
+                storage_item: None,
+            }));
+        session
+    }
+
+    #[test]
+    fn prepared_selection_is_cancelled_even_by_a_same_slot_forced_write() {
+        let mut session = fixture();
+        let proposal = session.prepare_hotbar_selection(1).unwrap().unwrap();
+        assert!(session.hotbar_selection_current(&proposal));
+        session
+            .enqueue_inventory_event(
+                7,
+                1,
+                InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                    container: ContainerIdentity::window(0),
+                    slot: 0,
+                    select_slot: true,
+                }),
+            )
+            .unwrap();
+        session.drain_pending_inventory();
+        assert!(!session.hotbar_selection_current(&proposal));
+        assert_eq!(
+            session.selected_hotbar_slot(Some(PlayerGameMode::Survival)),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn prepared_selection_is_cancelled_by_an_authoritative_target_cell_revision() {
+        let mut session = fixture();
+        let proposal = session.prepare_hotbar_selection(1).unwrap().unwrap();
+        session
+            .enqueue_inventory_event(
+                7,
+                1,
+                InventoryEvent::Slot(InventorySlotEvent {
+                    identity: SlotIdentity {
+                        container: ContainerIdentity::window(0),
+                        slot: 1,
+                    },
+                    stack: protocol::NetworkItemStack::empty(),
+                    storage_item: None,
+                }),
+            )
+            .unwrap();
+        session.drain_pending_inventory();
+        assert!(!session.hotbar_selection_current(&proposal));
     }
 }

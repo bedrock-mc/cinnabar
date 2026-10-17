@@ -41,14 +41,33 @@ impl<T> Step<T> {
     }
 }
 
+/// Only the resolved edge and its captured interaction facts cross an admission boundary.
+#[derive(Clone)]
+pub(crate) struct InteractionInput {
+    pub edge: ActionEvent,
+    pub mode: semantic_input::InputMode,
+    pub identity: (
+        semantic_input::identity::InputAuthorityGeneration,
+        semantic_input::identity::InputSequence,
+    ),
+    pub origin: InteractionOriginSnapshot,
+    pub view: LocalViewPose,
+    pub aim: Option<Quat>,
+}
+
 /// Geometry and input identity are captured once per batch, without retaining its event vector.
 struct CapturedFrame {
-    input: ActionSnapshot,
+    mode: semantic_input::InputMode,
+    identity: (
+        semantic_input::identity::InputAuthorityGeneration,
+        semantic_input::identity::InputSequence,
+    ),
     origin: InteractionOriginSnapshot,
     view: LocalViewPose,
     pick: Option<FramePick>,
     attack: crate::melee::ordered::CapturedAttack,
     aim: Option<Quat>,
+    selection_authority: inventory::SelectionAuthority,
 }
 
 #[derive(Default)]
@@ -109,7 +128,7 @@ fn cancel_pending_owners(world: &mut World) {
 }
 
 /// Captures a batch after UI authority, keeping the existing published picking phase.
-fn capture(world: &mut World, mut input: ActionSnapshot) -> Arc<CapturedFrame> {
+fn capture(world: &mut World, input: &ActionSnapshot) -> Arc<CapturedFrame> {
     let position = world
         .resource::<MovementTicker>()
         .interaction_authority_identity()
@@ -135,14 +154,18 @@ fn capture(world: &mut World, mut input: ActionSnapshot) -> Arc<CapturedFrame> {
         .and_then(|(aim, camera)| {
             client_interaction::camera::aim_assist::action_rotation(aim, camera)
         });
-    input.ordered = None;
     Arc::new(CapturedFrame {
-        input,
+        mode: input.input_mode,
+        identity: (input.authority_generation, input.frame_sequence),
         origin: world.resource::<InteractionOriginSnapshot>().clone(),
         view: *world.resource::<LocalViewPose>(),
         pick,
         attack,
         aim,
+        selection_authority: world
+            .resource::<client_state::PlayerRuntime>()
+            .inventory
+            .selection_authority(),
     })
 }
 
@@ -252,7 +275,7 @@ pub(crate) fn drain(world: &mut World) {
             runtime.queue.observe_neutral(ordered.neutral());
             if active && !snapshot.authority_released && !runtime.queue.quarantined() {
                 let tail = &ordered.events()[runtime.ingested..];
-                let source = (!tail.is_empty()).then(|| capture(world, snapshot.clone()));
+                let source = (!tail.is_empty()).then(|| capture(world, &snapshot));
                 for edge in tail.iter().copied() {
                     let source = source.as_ref().expect("nonempty action batch");
                     if let Some(work) = work(edge, &source) {
@@ -280,6 +303,19 @@ pub(crate) fn drain(world: &mut World) {
     world
         .run_system_cached(crate::item_use::ordered::flush_release)
         .expect("ordered release carrier");
+    let stop_ready = world
+        .run_system_cached_with(
+            crate::block_use::ordered::fence,
+            !active || snapshot.authority_released || runtime.queue.quarantined(),
+        )
+        .expect("accepted block stop carrier");
+    let selection_ready = world
+        .run_system_cached(crate::hotbar::ordered::flush_existing)
+        .expect("older selection carrier");
+    if !stop_ready || !selection_ready {
+        world.insert_resource(runtime);
+        return;
+    }
     while runtime.remaining > 0 {
         let Some(mut entry) = runtime.queue.pop_front() else {
             break;
@@ -297,33 +333,26 @@ pub(crate) fn drain(world: &mut World) {
             runtime.queue.restore_front(entry);
             break;
         }
-        if !matches!(&entry.value.work, Work::Selection(_))
-            && world
-                .resource::<client_state::PlayerRuntime>()
-                .inventory
-                .pending_hotbar_selection()
-                .is_some()
-            && !world
-                .run_system_cached(crate::hotbar::ordered::flush_existing)
-                .expect("older selection carrier")
+        if !entry.admitted
+            && entry.value.source.selection_authority
+                != world
+                    .resource::<client_state::PlayerRuntime>()
+                    .inventory
+                    .selection_authority()
         {
-            runtime.queue.restore_front(entry);
-            break;
+            cancel_pending_owners(world);
+            continue;
         }
         let Event { edge, source, work } = entry.value;
-        let saved_input = world
-            .remove_resource::<SemanticInputSnapshot>()
-            .expect("finalized input resource");
-        let saved_origin = world
-            .remove_resource::<InteractionOriginSnapshot>()
-            .expect("interaction origin");
-        world.insert_resource(SemanticInputSnapshot(
-            semantic_input::finalized::FinalizedInput::from_finalized(edge.project(&source.input)),
-        ));
-        world.insert_resource(source.origin.clone());
-        let step = dispatch(world, work, edge, &source);
-        world.insert_resource(saved_input);
-        world.insert_resource(saved_origin);
+        let input = InteractionInput {
+            edge,
+            mode: source.mode,
+            identity: source.identity,
+            origin: source.origin.clone(),
+            view: source.view,
+            aim: source.aim,
+        };
+        let step = dispatch(world, work, input, &source);
         match step.progress {
             Progress::Complete => runtime.buttons = edge.buttons,
             Progress::Pending | Progress::Carrier => {
@@ -348,9 +377,10 @@ pub(crate) fn drain(world: &mut World) {
 fn dispatch(
     world: &mut World,
     work: Work,
-    edge: ActionEvent,
+    input: InteractionInput,
     source: &CapturedFrame,
 ) -> Step<Work> {
+    let edge = input.edge;
     if edge.action != Action::Use
         && !world
             .run_system_cached_with(
@@ -363,7 +393,7 @@ fn dispatch(
     }
     match work {
         Work::Attack(attempt) => world
-            .run_system_cached_with(crate::melee::ordered::step, *attempt)
+            .run_system_cached_with(crate::melee::ordered::step, (*attempt, input))
             .expect("ordered attack admission")
             .map(|attempt| Work::Attack(Box::new(attempt))),
         Work::Selection(attempt) => {
@@ -388,22 +418,19 @@ fn dispatch(
                 return Step::new(Work::Pick(attempt), Progress::Pending);
             }
             world
-                .run_system_cached_with(crate::pick_block::step_ordered_pick, attempt)
+                .run_system_cached_with(crate::pick_block::step_ordered_pick, (attempt, input))
                 .expect("ordered pick admission")
                 .map(Work::Pick)
         }
         Work::Release => Step::new(Work::Release, Progress::Complete),
         Work::Use(mut attempt) => {
             if !attempt.block_done {
-                let view = *world.resource::<LocalViewPose>();
-                world.insert_resource(source.view);
                 let block = world
                     .run_system_cached_with(
                         crate::block_use::ordered::step,
-                        (attempt.block, source.pick),
+                        (attempt.block, (source.pick, input.clone())),
                     )
                     .expect("ordered block admission");
-                world.insert_resource(view);
                 attempt.block = block.attempt;
                 if attempt.block.cancelled() {
                     return Step::new(Work::Use(attempt), Progress::Complete);
@@ -414,10 +441,7 @@ fn dispatch(
                 attempt.block_done = true;
             }
             let air = world
-                .run_system_cached_with(
-                    crate::item_use::ordered::step,
-                    (attempt.air, (source.aim, source.view)),
-                )
+                .run_system_cached_with(crate::item_use::ordered::step, (attempt.air, input))
                 .expect("ordered item admission");
             attempt.air = air.attempt;
             Step::new(Work::Use(attempt), air.progress)

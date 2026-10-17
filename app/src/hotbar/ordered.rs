@@ -8,7 +8,7 @@ use bevy::prelude::In;
 #[derive(Default)]
 pub(crate) struct SelectionAttempt {
     target: Option<u8>,
-    packet: Option<Packet>,
+    proposal: Option<inventory::PreparedHotbarSelection>,
 }
 
 /// Admits one selection before publishing its prediction to later ordered actions.
@@ -29,13 +29,13 @@ pub(crate) fn step(
         }
         attempt.target = Some(target);
     }
-    if attempt.packet.is_none() {
+    if attempt.proposal.is_none() {
         match player
             .inventory
-            .hotbar_packet(attempt.target.expect("selection target"))
+            .prepare_hotbar_selection(attempt.target.expect("selection target"))
         {
-            Ok(Some(packet)) => {
-                attempt.packet = Some(packet);
+            Ok(Some(proposal)) => {
+                attempt.proposal = Some(proposal);
             }
             Ok(None) => return Step::new(attempt, Progress::Pending),
             Err(error) => {
@@ -47,11 +47,14 @@ pub(crate) fn step(
             }
         }
     }
-    let packet = attempt
-        .packet
+    let proposal = attempt
+        .proposal
         .as_ref()
-        .expect("prepared selection packet")
-        .clone();
+        .expect("prepared selection proposal");
+    if !player.inventory.hotbar_selection_current(proposal) {
+        return Step::new(attempt, Progress::Complete);
+    }
+    let packet = proposal.packet().clone();
     let progress = match network.send_hotbar_packet(packet) {
         Ok(()) => {
             let target = attempt.target.expect("selection target");

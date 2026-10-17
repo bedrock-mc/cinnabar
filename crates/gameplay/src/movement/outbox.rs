@@ -233,6 +233,9 @@ pub fn flush_player_auth_inputs_guarded<E>(
         let Some(mut sample) = ticker.outbox.front().cloned() else {
             break;
         };
+        if ticker.interaction_blocks_tick(sample.snapshot.tick) {
+            break;
+        }
         if ticker
             .held_release
             .as_ref()

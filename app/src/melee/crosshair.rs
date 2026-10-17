@@ -63,7 +63,10 @@ impl FrameInputs {
         position_authority: PositionAuthorityGeneration,
     ) {
         std::mem::swap(&mut self.previous, &mut self.current);
-        let frame = Arc::make_mut(&mut self.current);
+        if Arc::get_mut(&mut self.current).is_none() {
+            self.current = Arc::default();
+        }
+        let frame = Arc::get_mut(&mut self.current).expect("unshared publication buffer");
         frame.origin.clone_from(&context.origin);
         frame.action_rotation =
             client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
@@ -120,7 +123,15 @@ pub(super) fn resolve_crosshair(
     frames: &FrameInputs,
     position_authority: PositionAuthorityGeneration,
 ) -> Option<ResolvedTarget> {
-    resolve_frame(player, context, frames.published(position_authority))
+    context.origin.outbound_ray()?;
+    let input = context.input.snapshot()?;
+    resolve_frame(
+        player,
+        context,
+        frames.published(position_authority),
+        input.input_mode,
+        (input.authority_generation, input.frame_sequence),
+    )
 }
 
 /// Immutable published geometry shared by a batch, with no cached hit or admission decision.
@@ -149,8 +160,10 @@ pub(super) fn resolve_captured(
     player: &client_state::PlayerRuntime,
     context: &MeleeContext,
     captured: &CapturedInputs,
+    input: &crate::ordered_interactions::InteractionInput,
 ) -> Option<ResolvedTarget> {
-    resolve_frame(player, context, &captured.0)
+    input.origin.outbound_ray()?;
+    resolve_frame(player, context, &captured.0, input.mode, input.identity)
 }
 
 /// Applies current admission policy to one coherent published camera and actor frame.
@@ -158,16 +171,19 @@ fn resolve_frame(
     player: &client_state::PlayerRuntime,
     context: &MeleeContext,
     frame: &Frame,
+    mode: semantic_input::InputMode,
+    identity: (
+        semantic_input::identity::InputAuthorityGeneration,
+        semantic_input::identity::InputSequence,
+    ),
 ) -> Option<ResolvedTarget> {
-    context.origin.outbound_ray()?;
     let ray = frame.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
     if !ray_is_current(ray, SessionGeneration::new(context.ui.session_id()), stream) {
         return None;
     }
     let world = stream.authority();
-    let input = context.input.snapshot()?;
-    let input_mode = protocol_input_mode(input.input_mode);
+    let input_mode = protocol_input_mode(mode);
     let caps = player.facts.game_mode_capabilities();
     let reach = if caps.is_some_and(|caps| caps.creative_reach) {
         creative_reach(input_mode)
@@ -240,7 +256,7 @@ fn resolve_frame(
                 (
                     input_mode,
                     block_pick_reach(reach, actor_reach),
-                    (input.authority_generation, input.frame_sequence),
+                    identity,
                     frame.position_authority,
                 ),
             ) {

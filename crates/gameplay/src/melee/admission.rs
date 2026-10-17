@@ -185,11 +185,9 @@ fn admit(
                 let Some((crosshair, press)) = frame.attack.as_ref() else {
                     break;
                 };
-                let before_input = movement.is_first_unsent_tick(press.tick);
-                let between = movement
-                    .between_ticks_sample()
-                    .is_some_and(|sample| sample.tick == press.tick);
-                if (!before_input && !between) || movement.carries_survival_mining(press.tick) {
+                if !movement.interaction_tick_available(press.tick)
+                    || movement.carries_survival_mining(press.tick)
+                {
                     break;
                 }
                 attempted = true;

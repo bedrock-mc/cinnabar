@@ -195,6 +195,7 @@ fn maintain_block_use(
     let Some(observed) = observe_use_target(
         &player_runtime,
         &context,
+        &context.origin,
         input_mode,
         clock.survival,
         (input.authority_generation, input.frame_sequence),
@@ -212,7 +213,7 @@ fn maintain_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
-    let mut attempt = build::FrozenBuild::new(observed, state, trigger, due, clock);
+    let mut attempt = build::FrozenBuild::new(observed, state, trigger, due, clock, *context.view);
     build::advance(
         &mut player_runtime,
         &mut context,

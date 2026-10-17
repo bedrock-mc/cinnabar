@@ -415,3 +415,79 @@ fn ordered_mouse_review_overflow_drains_an_accepted_block_stop_before_neutral_re
             .all(|tx| tx.item_use().is_none())
     );
 }
+
+#[test]
+fn ordered_mouse_review_changed_world_cancels_a_frozen_block_pick() {
+    let (mut app, mut captured) = app_fixture(2);
+    remove_actor(app.world_mut());
+    fill(&app, 2);
+    tap(app.world_mut(), MouseButton::Middle);
+    frame(&mut app);
+    assert!(crate::ordered_interactions::pending(app.world()));
+    captured.drain();
+    {
+        let mut client = app
+            .world_mut()
+            .resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    }
+    frame(&mut app);
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .all(|p| p.kind() != protocol::block_pick_request_packet([4, 2, 6], false).kind())
+    );
+}
+
+#[test]
+fn ordered_mouse_review_changed_world_cancels_a_frozen_block_use() {
+    let (mut app, mut captured) = app_fixture(8);
+    remove_actor(app.world_mut());
+    set_hotbar_stack(app.world_mut(), 0, Some("minecraft:stone"));
+    app.world_mut()
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Creative);
+    {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let stone = records
+            .iter()
+            .find(|r| r.name.as_ref() == "minecraft:stone")
+            .unwrap()
+            .sequential_id;
+        let mut client = app
+            .world_mut()
+            .resource_mut::<crate::runtime::world::ClientWorld>();
+        client
+            .stream
+            .as_mut()
+            .unwrap()
+            .predict_block([4, 2, 6], 0, stone);
+    }
+    fill(&app, 8);
+    tap(app.world_mut(), MouseButton::Right);
+    frame(&mut app);
+    assert!(crate::ordered_interactions::pending(app.world()));
+    captured.drain();
+    {
+        let mut client = app
+            .world_mut()
+            .resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    }
+    frame(&mut app);
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .all(|tx| tx.item_use().is_none())
+    );
+}

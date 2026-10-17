@@ -57,6 +57,20 @@ pub(crate) fn ray_is_current(
         && ray.fifo_sequence() <= FifoSequence::new(stream.committed_sequence())
 }
 
+/// Verifies inspected collision columns without recasting a frozen proposal at a new target.
+pub(crate) fn world_identity_current(
+    client_world: &ClientWorld,
+    collisions: &PhysicsCollisionRegistries,
+    identity: &sim::WorldCollisionIdentity,
+) -> bool {
+    client_world.stream.as_ref().is_some_and(|stream| {
+        collisions.registry(stream.network_id_mode()).identity() == identity.registry
+            && identity.chunks.iter().all(|revision| {
+                stream.collision_store().collision_revision(revision.chunk) == Some(*revision)
+            })
+    })
+}
+
 /// The ray or world evidence behind a block observation is stale or unreadable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BlockRayUnavailable;

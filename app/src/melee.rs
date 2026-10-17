@@ -275,6 +275,7 @@ fn maintain_attacks(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
+                &context.origin,
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),

@@ -21,6 +21,8 @@ mod effects;
 mod emote;
 mod encoding;
 mod input_state;
+mod interaction_fence;
+pub use interaction_fence::InteractionFence;
 
 pub use input_state::TickInput;
 mod evidence;
@@ -164,6 +166,7 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<PositionAuthorityGeneration>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
+    interaction_fence: std::sync::Weak<interaction_fence::Reservation>,
     /// A sent release keeps its launch until the following movement reaches the socket.
     admitted_riptide: Option<physics::RiptideRequest>,
     written_riptide_tick: Option<u64>,
@@ -217,6 +220,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
+            interaction_fence: std::sync::Weak::new(),
             admitted_riptide: None,
             written_riptide_tick: None,
             next_tick_flags: PlayerInputFlags::NONE,

@@ -8,18 +8,17 @@ use gameplay::{
 
 /// One press/repeat's observed target and pre-tick pose, retained across transport refusal.
 pub(crate) struct FrozenBuild {
-    pub observed: FrozenBlockObservation,
+    observed: FrozenBlockObservation,
+    plan: Option<BuildPlan>,
     pub state: UnsentSampleView,
     pub trigger: ItemUseTrigger,
     pub due: std::time::Duration,
     pub clock: RepeatClock,
-    plan: Option<BuildPlan>,
+    view: LocalViewPose,
 }
 
 /// A proposal freezes selection, placement and inventory effects before its first send.
-#[derive(Clone)]
 struct BuildPlan {
-    observed: FrozenBlockObservation,
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
@@ -32,6 +31,11 @@ struct BuildPlan {
 }
 
 impl FrozenBuild {
+    /// Borrows the sole observation retained before and after preparation.
+    pub(super) fn observation(&self) -> &FrozenBlockObservation {
+        &self.observed
+    }
+
     /// Captures immutable press facts; packet and local prediction preparation happens once.
     pub(super) fn new(
         observed: FrozenBlockObservation,
@@ -39,14 +43,16 @@ impl FrozenBuild {
         trigger: ItemUseTrigger,
         due: std::time::Duration,
         clock: RepeatClock,
+        view: LocalViewPose,
     ) -> Self {
         Self {
             observed,
+            plan: None,
             state,
             trigger,
             due,
             clock,
-            plan: None,
+            view,
         }
     }
 }
@@ -58,9 +64,9 @@ fn prepare(
     runtime: &mut BlockUseRuntime,
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     movement: &MovementTicker,
-    attempt: &FrozenBuild,
+    attempt: &mut FrozenBuild,
 ) -> Option<BuildPlan> {
-    let mut observed = attempt.observed.clone();
+    let mut observed = attempt.observation().clone();
     let state = &attempt.state;
     let tick = state.tick.saturating_add(1);
     let game_mode = player_runtime.facts.player_game_mode();
@@ -91,7 +97,7 @@ fn prepare(
                 observed.selection.item.block_runtime_id(),
                 &observed,
                 &surroundings,
-                *context.view,
+                attempt.view,
             )
         })
         .flatten();
@@ -139,8 +145,8 @@ fn prepare(
                 .inventory
                 .prepare_change(&observed.selection, legacy_request_id)
         });
+    attempt.observed = observed;
     Some(BuildPlan {
-        observed,
         server_selection,
         inventory_revision,
         local_use,
@@ -173,21 +179,10 @@ pub(crate) fn advance(
             attempt,
         );
     }
-    let Some(plan) = attempt.plan.as_ref().cloned() else {
+    let Some(plan) = attempt.plan.as_ref() else {
         return false;
     };
-    let BuildPlan {
-        observed,
-        server_selection,
-        inventory_revision,
-        local_use,
-        destination,
-        predicted,
-        local_runtime_id,
-        swing_effects,
-        block_network_id,
-        change,
-    } = plan;
+    let observed = &attempt.observed;
     let state = &attempt.state;
     let trigger = attempt.trigger;
     let due = attempt.due;
@@ -196,23 +191,23 @@ pub(crate) fn advance(
     let Some(stream) = context.client_world.stream.as_ref() else {
         return false;
     };
-    if !runtime.may_attempt(tick, local_use, swings) {
+    if !runtime.may_attempt(tick, plan.local_use, swings) {
         return false;
     }
     let start_destination = runtime
         .last_success_destination()
         .is_none()
-        .then_some(destination);
+        .then_some(plan.destination);
     let mut before_swing = swings.clone();
     let packets = use_packets(
-        (&observed, block_network_id),
+        (observed, plan.block_network_id),
         state.position,
         trigger,
-        local_use,
+        plan.local_use,
         start_destination,
-        change.clone(),
-        local_runtime_id,
-        |tick| swings.try_swing_before_tick(tick, swing_effects),
+        plan.change.clone(),
+        plan.local_runtime_id,
+        |tick| swings.try_swing_before_tick(tick, plan.swing_effects),
         tick,
     );
     let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
@@ -220,9 +215,9 @@ pub(crate) fn advance(
     if sent {
         runtime.intention.record(
             trigger == ItemUseTrigger::SimulationTick,
-            destination,
-            local_use,
-            local_use != LocalUse::Interact
+            plan.destination,
+            plan.local_use,
+            plan.local_use != LocalUse::Interact
                 && held_block_store_id(stream, observed.selection.item.block_runtime_id())
                     .is_some_and(|block| {
                         context
@@ -233,27 +228,29 @@ pub(crate) fn advance(
             observed.target.hit_world,
         );
     }
-    if !runtime.admit(trigger, due, tick, local_use, clock, sent) {
+    if !runtime.admit(trigger, due, tick, plan.local_use, clock, sent) {
         runtime.refuse_transport(
             tick,
-            local_use,
+            plan.local_use,
             matches!(result, Some(Err(client_session::BatchSendError::Full))),
         );
-        before_swing.defer_unadmitted_attempt(&swings);
+        before_swing.defer_unadmitted_attempt(swings);
         *swings = before_swing;
         return false;
     }
-    if let Some(change) = change {
+    if let Some(change) = &plan.change {
         player_runtime
             .inventory
             .ledger_mut()
-            .settle_use_slot_change(server_selection.slot, inventory_revision, &change);
-        runtime
-            .inventory
-            .commit(server_selection, inventory_revision, change);
+            .settle_use_slot_change(plan.server_selection.slot, plan.inventory_revision, change);
+        runtime.inventory.commit(
+            plan.server_selection.clone(),
+            plan.inventory_revision,
+            change.clone(),
+        );
     }
-    if local_use == LocalUse::Place {
-        let position = destination;
+    if plan.local_use == LocalUse::Place {
+        let position = plan.destination;
         context
             .audio_cues
             .write(client_audio::audio::LocalBlockCue::Place {
@@ -264,16 +261,18 @@ pub(crate) fn advance(
             });
     }
     // Java re-equips the held item after each placement.
-    if local_use == LocalUse::Place
+    if plan.local_use == LocalUse::Place
         && let Some(stream) = context.client_world.stream.as_mut()
     {
         stream.reset_local_java_equip();
     }
     // Vanilla places locally as it sends; a correction replaces the prediction.
-    if let (true, Some(cells), Some(stream)) =
-        (sent, predicted, context.client_world.stream.as_mut())
-    {
-        let applied = stream.predict_blocks(&cells);
+    if let (true, Some(cells), Some(stream)) = (
+        sent,
+        plan.predicted.as_ref(),
+        context.client_world.stream.as_mut(),
+    ) {
+        let applied = stream.predict_blocks(cells);
         if applied {
             runtime.prediction_frames.committed(
                 context.frame.0,

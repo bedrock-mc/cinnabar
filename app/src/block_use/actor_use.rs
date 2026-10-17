@@ -21,6 +21,7 @@ pub(crate) struct ActorUseAttempt {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn prepare(
     context: &BlockUseContext,
+    origin: &InteractionOriginSnapshot,
     selection: &FrozenMiningSelection,
     game_mode: Option<protocol::PlayerGameMode>,
     pick: FramePick,
@@ -30,7 +31,7 @@ pub(super) fn prepare(
     clock: RepeatClock,
 ) -> Option<ActorUseAttempt> {
     let stream = context.client_world.stream.as_ref()?;
-    let ray = context.origin.outbound_ray()?;
+    let ray = origin.outbound_ray()?;
     if !crate::interaction_authority::ray_is_current(
         ray,
         SessionGeneration::new(context.ui.session_id()),
@@ -163,7 +164,15 @@ pub(super) fn produce(
     clock: RepeatClock,
 ) -> bool {
     let Some(attempt) = prepare(
-        context, selection, game_mode, pick, state, input_mode, due, clock,
+        context,
+        &context.origin,
+        selection,
+        game_mode,
+        pick,
+        state,
+        input_mode,
+        due,
+        clock,
     ) else {
         return false;
     };
