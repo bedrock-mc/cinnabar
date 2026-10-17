@@ -10,7 +10,8 @@ Bounded rotation clips and continuous span flex animate wings alongside independ
 using shared immutable geometry and caller-owned looping time.
 Unknown, unsupported and unowned items render nothing.
 
-The Cosmetics gallery offers All, Head and Back categories. Filtering preserves equipped
+The Cosmetics gallery offers All, Head and Back choices through a filter icon beside
+Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
 items, retains separate scroll positions and limits thumbnails and keyboard navigation
 to the selected category.
 

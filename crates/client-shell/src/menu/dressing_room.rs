@@ -244,18 +244,20 @@ impl MenuRuntime {
         }
         match action {
             Action::SetSection(section) => {
-                Arc::make_mut(&mut self.dressing_room).section = section;
+                let view = Arc::make_mut(&mut self.dressing_room);
+                view.section = section;
+                view.cosmetic_filter_open = false;
                 self.field = None;
                 self.hovered = None;
                 self.pressed = None;
                 self.focused = 0;
             }
+            Action::ToggleCosmeticFilter => {
+                self.set_cosmetic_filter_open(!self.dressing_room.cosmetic_filter_open);
+            }
             Action::SetCosmeticCategory(category) => {
                 Arc::make_mut(&mut self.dressing_room).cosmetic_category = category;
-                self.field = None;
-                self.hovered = None;
-                self.pressed = None;
-                self.focused = 0;
+                self.set_cosmetic_filter_open(false);
             }
             Action::Select(index) => self.queue_skin_job(Job::Select(index)),
             Action::Import => self.queue_skin_job(Job::Import(None)),
@@ -287,6 +289,25 @@ impl MenuRuntime {
             Action::ConfirmDelete => self.confirm_skin_delete(),
             Action::Cancel => self.cancel_skin_editor(),
         }
+    }
+
+    /// Opens category choices or restores focus to their filter button after dismissal.
+    fn set_cosmetic_filter_open(&mut self, open: bool) {
+        Arc::make_mut(&mut self.dressing_room).cosmetic_filter_open = open;
+        self.field = None;
+        self.hovered = None;
+        self.pressed = None;
+        let action = MenuAction::DressingRoom(if open {
+            Action::SetCosmeticCategory(self.dressing_room.cosmetic_category)
+        } else {
+            Action::ToggleCosmeticFilter
+        });
+        self.focused = self
+            .dressing_room_focus()
+            .iter()
+            .position(|candidate| *candidate == action)
+            .unwrap_or_default();
+        self.navigation_focus.record_input(Some(action));
     }
 
     /// Uses the same skin importer as the Dressing Room file picker.
@@ -323,6 +344,7 @@ impl MenuRuntime {
                 result.view.busy = worker.pending != 0;
                 result.view.section = self.dressing_room.section;
                 result.view.cosmetic_category = self.dressing_room.cosmetic_category;
+                result.view.cosmetic_filter_open = self.dressing_room.cosmetic_filter_open;
                 if !result.completed_command {
                     result.view.editor = self.dressing_room.editor.clone();
                     result.view.message = self.dressing_room.message.clone();
@@ -438,6 +460,15 @@ impl MenuRuntime {
         if self.dressing_room.busy {
             return actions;
         }
+        if self.dressing_room.cosmetic_filter_open {
+            return std::iter::once(MenuAction::DressingRoom(Action::ToggleCosmeticFilter))
+                .chain(
+                    launcher::dressing_room::CosmeticCategory::ALL.map(|category| {
+                        MenuAction::DressingRoom(Action::SetCosmeticCategory(category))
+                    }),
+                )
+                .collect();
+        }
         actions.extend(
             launcher::dressing_room::DressingRoomSection::ALL
                 .into_iter()
@@ -467,14 +498,7 @@ impl MenuRuntime {
             return actions;
         }
         if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Cosmetics {
-            actions.extend(
-                launcher::dressing_room::CosmeticCategory::ALL
-                    .into_iter()
-                    .filter(|category| *category != self.dressing_room.cosmetic_category)
-                    .map(|category| {
-                        MenuAction::DressingRoom(Action::SetCosmeticCategory(category))
-                    }),
-            );
+            actions.push(MenuAction::DressingRoom(Action::ToggleCosmeticFilter));
             actions.push(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
             actions.extend(
                 cosmetics::Item::all()

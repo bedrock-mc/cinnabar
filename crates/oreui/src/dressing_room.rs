@@ -2,6 +2,7 @@
 
 mod character;
 mod editor;
+mod filter;
 mod hats;
 mod library;
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub(super) struct PreviewArea {
     pub(super) visible_skins: Vec<usize>,
     pub(super) visible_capes: Vec<usize>,
     pub(super) visible_cosmetics: Vec<usize>,
+    pub(super) filter_anchor: Option<Bounds>,
 }
 
 fn command(action: Action) -> MenuAction {
@@ -133,10 +135,21 @@ fn scroll_key(view: &MenuView, stacked: bool) -> std::borrow::Cow<'static, str> 
     base.into()
 }
 
-pub(super) fn draw_editor(
+/// Paints the active wardrobe overlay after the character preview.
+pub(super) fn draw_overlay(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
+    filter_anchor: Option<Bounds>,
 ) -> Result<(), PaintError> {
-    editor::draw(canvas, view, size)
+    if view.dressing_room.editor.is_some() {
+        editor::draw(canvas, view, size)
+    } else if view.dressing_room.cosmetic_filter_open
+        && enabled(view)
+        && let Some(anchor) = filter_anchor
+    {
+        filter::popup(canvas, view, size, anchor)
+    } else {
+        Ok(())
+    }
 }

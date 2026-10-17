@@ -50,6 +50,7 @@ impl SkinModel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     SetSection(DressingRoomSection),
+    ToggleCosmeticFilter,
     SetCosmeticCategory(CosmeticCategory),
     Select(usize),
     Import,
@@ -143,6 +144,7 @@ pub struct DressingRoomCape {
 pub struct DressingRoomView {
     pub section: DressingRoomSection,
     pub cosmetic_category: CosmeticCategory,
+    pub cosmetic_filter_open: bool,
     pub skins: Arc<[DressingRoomSkin]>,
     pub selected: Option<usize>,
     pub busy: bool,

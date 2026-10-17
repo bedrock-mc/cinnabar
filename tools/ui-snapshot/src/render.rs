@@ -164,11 +164,15 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
-                screen
-                    .take_paint()
-                    .unwrap()
+                let paint = screen.take_paint().unwrap();
+                paint
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                if view.dressing_room.editor.is_some() || view.dressing_room.cosmetic_filter_open {
+                    screen
+                        .paint_dressing_overlay(&paint, &view, size, &artwork, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
                 let popup = if let Some(prompt) = view.server_trust_prompt() {
                     Some(launcher::menu::dialogs::server_trust(
                         &prompt.url,

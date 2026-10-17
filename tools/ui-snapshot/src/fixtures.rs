@@ -66,6 +66,20 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-cosmetics-filter",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: cosmetic_filter,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-cosmetics-filter-narrow",
+        size: [320, 720],
+        gui_scale: GUI_SCALE,
+        fixture: cosmetic_filter,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "dressing-room-cosmetics-back",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -698,6 +712,16 @@ fn cosmetic_category(category: launcher::dressing_room::CosmeticCategory) -> Fix
     let mut fixture = wardrobe();
     if let Fixture::Menu(view) = &mut fixture {
         Arc::make_mut(&mut view.dressing_room).cosmetic_category = category;
+    }
+    fixture
+}
+
+/// Shows the anchored category choices with a selected filter.
+#[cfg(feature = "test-support")]
+fn cosmetic_filter() -> Fixture {
+    let mut fixture = cosmetic_category(launcher::dressing_room::CosmeticCategory::Head);
+    if let Fixture::Menu(view) = &mut fixture {
+        Arc::make_mut(&mut view.dressing_room).cosmetic_filter_open = true;
     }
     fixture
 }

@@ -525,8 +525,9 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
         CosmeticCategory::Back,
     )));
     let actions = menu.dressing_room_focus();
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::ToggleCosmeticFilter)));
     assert!(
-        actions.contains(&MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        !actions.contains(&MenuAction::DressingRoom(Action::SetCosmeticCategory(
             CosmeticCategory::All,
         )))
     );
@@ -545,4 +546,37 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
     wait(&mut menu, &mut local, &mut world);
     assert!(local.cosmetics.is_empty());
     assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Back);
+}
+
+#[test]
+fn cosmetic_filter_closes_on_selection_and_back_and_restores_button_focus() {
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
+    let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
+    menu.screen = MenuScreen::DressingRoom;
+    Arc::make_mut(&mut menu.dressing_room).section = DressingRoomSection::Cosmetics;
+    let equipped = menu.dressing_room.selected_cosmetics.clone();
+    let toggle = MenuAction::DressingRoom(Action::ToggleCosmeticFilter);
+    menu.activate_from_navigation(toggle);
+    assert!(menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(
+        menu.dressing_room_focus()[menu.focused],
+        MenuAction::DressingRoom(Action::SetCosmeticCategory(CosmeticCategory::All))
+    );
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Back,
+    )));
+    assert!(!menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Back);
+    assert_eq!(menu.dressing_room_focus()[menu.focused], toggle);
+    assert_eq!(menu.dressing_room.selected_cosmetics, equipped);
+    menu.activate(toggle);
+    menu.go_back();
+    assert_eq!(menu.screen(), MenuScreen::DressingRoom);
+    assert!(!menu.dressing_room.cosmetic_filter_open);
+    assert_eq!(menu.dressing_room_focus()[menu.focused], toggle);
+    menu.activate(toggle);
+    menu.activate(MenuAction::DressingRoom(Action::SetSection(
+        DressingRoomSection::Skins,
+    )));
+    assert!(!menu.dressing_room.cosmetic_filter_open);
 }
