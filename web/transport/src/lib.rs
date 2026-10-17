@@ -38,9 +38,17 @@ pub enum CloseReason {
 /// Browser-local transport boundary; JS stream handles never need `Send` wrappers.
 #[allow(async_fn_in_trait)]
 pub trait RelayTransport {
-    type Stream: AsyncRead + AsyncWrite + Unpin;
+    type Stream: AsyncRead + AsyncWrite + Unpin + 'static;
     /// Opens a reliable channel; the caller writes its framed Hello next.
     async fn open(&mut self, channel: Channel) -> Result<Self::Stream, CloseReason>;
+    /// Waits for this play's independent receive stream; fallback returns inline delivery.
+    fn accept_packs(
+        &self,
+    ) -> impl Future<Output = Result<Option<Self::Stream>, CloseReason>> + 'static {
+        async { Ok(None) }
+    }
+    /// Resets the completed play and any outstanding archive reader, retaining control.
+    fn finish_play(&mut self) {}
     /// Returns the available datagram payload ceiling, or no datagram lane.
     fn max_datagram_size(&self) -> Option<usize>;
     /// Sends one bounded optional datagram; completion does not imply delivery.

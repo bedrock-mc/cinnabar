@@ -134,7 +134,11 @@ async fn receive_handoff(
     Ok((handoff, archives))
 }
 
-async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, ProtocolError> {
+/// Decodes the next bridge frame without choosing a transport implementation.
+pub(super) async fn next_message<S>(reader: &mut S) -> Result<CoreMessage, ProtocolError>
+where
+    S: futures::Stream<Item = Result<bytes::Bytes, BridgeError>> + Unpin,
+{
     match reader.next().await {
         Some(Ok(frame)) => crate::session_wire::decode_core_message(frame).map_err(bridge_error),
         Some(Err(error)) => Err(bridge_error(error)),
@@ -143,7 +147,7 @@ async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, Protocol
 }
 
 /// The error a message other than the next setup step ends the join with, as a login ended before.
-fn join_ended(message: CoreMessage) -> ProtocolError {
+pub(super) fn join_ended(message: CoreMessage) -> ProtocolError {
     match message {
         CoreMessage::Disconnect(disconnect) => join_disconnect(
             "login",
@@ -172,7 +176,8 @@ fn unexpected(reason: &'static str) -> ProtocolError {
     bridge_error(BridgeError::InvalidSessionMessage { reason })
 }
 
-fn bridge_error(error: BridgeError) -> ProtocolError {
+/// Preserves bridge failures as the protocol owner's public error.
+pub(super) fn bridge_error(error: BridgeError) -> ProtocolError {
     ProtocolError::Bridge(error.into())
 }
 

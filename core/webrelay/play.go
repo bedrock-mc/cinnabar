@@ -59,3 +59,17 @@ func (session *webSession) endPlay() {
 	session.play = nil
 	session.mu.Unlock()
 }
+
+// claimPackJoin rejects reused identities within one controller before publishing any archive.
+func (session *webSession) claimPackJoin(control context.Context, join uint64) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.packControl != control {
+		session.packControl, session.packJoin = control, 0
+	}
+	if join == 0 || join <= session.packJoin {
+		return false
+	}
+	session.packJoin = join
+	return true
+}

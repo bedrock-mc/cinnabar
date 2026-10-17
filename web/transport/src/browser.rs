@@ -20,6 +20,12 @@ extern "C" {
     #[wasm_bindgen(catch)]
     fn create(origin: &str, quic: bool, config: &str) -> Result<JsValue, JsValue>;
     fn open(transport: &JsValue, name: &str) -> Promise;
+    #[wasm_bindgen(js_name = packChannel)]
+    fn pack_channel(transport: &JsValue) -> JsValue;
+    #[wasm_bindgen(js_name = acceptPacks)]
+    fn accept_packs(transport: &JsValue, channel: &JsValue) -> Promise;
+    #[wasm_bindgen(js_name = finishPlay)]
+    fn finish_play(transport: &JsValue);
     fn read(channel: &JsValue) -> Promise;
     fn write(channel: &JsValue, bytes: &Uint8Array) -> Promise;
     fn flush(channel: &JsValue) -> Promise;
@@ -58,19 +64,28 @@ impl RelayTransport for BrowserTransport {
         let handle = JsFuture::from(open(&self.0, channel.name()))
             .await
             .map_err(|_| CloseReason::Transport)?;
-        Ok(BrowserStream {
-            handle,
-            buffer: Uint8Array::new_with_length(0),
-            offset: 0,
-            reading: None,
-            writing: None,
-            flushing: None,
-            eof: false,
-            shutting_down: None,
-            finished: false,
-            shutdown_started: false,
-        })
+        Ok(BrowserStream::new(handle))
     }
+    fn accept_packs(
+        &self,
+    ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static {
+        let transport = self.0.clone();
+        let mut acceptance = PackAcceptance {
+            channel: pack_channel(&transport),
+            accepted: false,
+        };
+        async move {
+            let handle = JsFuture::from(accept_packs(&transport, &acceptance.channel))
+                .await
+                .map_err(|_| CloseReason::Transport)?;
+            acceptance.accepted = true;
+            Ok((!handle.is_null()).then(|| BrowserStream::new(handle)))
+        }
+    }
+    fn finish_play(&mut self) {
+        finish_play(&self.0);
+    }
+
     fn max_datagram_size(&self) -> Option<usize> {
         let size = maximum(&self.0);
         (size > 0).then_some(size)
@@ -112,6 +127,19 @@ impl Drop for BrowserTransport {
     }
 }
 
+/// Cancels a pending archive wait even when its Rust future is dropped before first poll.
+struct PackAcceptance {
+    channel: JsValue,
+    accepted: bool,
+}
+impl Drop for PackAcceptance {
+    fn drop(&mut self) {
+        if !self.accepted && !self.channel.is_null() {
+            close_channel(&self.channel);
+        }
+    }
+}
+
 /// Reliable byte stream with retained promises and one size-checked JS receive chunk.
 pub struct BrowserStream {
     handle: JsValue,
@@ -124,6 +152,23 @@ pub struct BrowserStream {
     shutting_down: Option<JsFuture>,
     finished: bool,
     shutdown_started: bool,
+}
+impl BrowserStream {
+    /// Retains one newly locked browser byte reader and optional writer.
+    fn new(handle: JsValue) -> Self {
+        Self {
+            handle,
+            buffer: Uint8Array::new_with_length(0),
+            offset: 0,
+            eof: false,
+            reading: None,
+            writing: None,
+            flushing: None,
+            shutting_down: None,
+            finished: false,
+            shutdown_started: false,
+        }
+    }
 }
 /// Hides browser exception details from public errors.
 fn io_error(_: JsValue) -> io::Error {

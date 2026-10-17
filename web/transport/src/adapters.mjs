@@ -18,7 +18,9 @@ function channel(t, limit) {
     const ch = { t, limit, queue: [], bytes: 0, ended: false, waiters: new Set() };
     ch.fail = () => {
         if (ch.failed) return;
-        ch.failed = true; ch.queue = []; ch.bytes = 0;
+        ch.failed = true; ch.packs?.fail();
+        if (t.packs === ch) t.packs = undefined;
+        ch.queue = []; ch.bytes = 0;
         for (const cancel of ch.waiters) cancel(); ch.waiters.clear();
         ch.socket?.close();
         if (ch.reader) ch.reader.cancel().catch(() => {}).finally(() => ch.reader.releaseLock());
@@ -42,7 +44,9 @@ function wait(ch, promise) {
 export async function open(t, name) {
     const control = name === t.c.control;
     const ch = channel(t, !t.quic && control ? t.c.controlBytes + 4 : t.c.playBytes);
+    if (!control) { finishPlay(t); t.play = ch; }
     if (t.quic) {
+        if (!control) preparePacks(t, ch);
         await wait(ch, t.connection.ready);
         if (t.closed || ch.failed) throw new Error("relay closed");
         // Own late-created streams too when cancellation wins the stream-creation race.
@@ -76,6 +80,39 @@ export async function open(t, name) {
     if (ws.protocol !== t.c.protocol) { ch.fail(); throw new Error("relay protocol"); }
     return ch;
 }
+/** Owns one archive reader per play and resets unsolicited or extra incoming streams. */
+function preparePacks(t, play) {
+    const packs = play.packs = t.packs = channel(t, t.c.playBytes);
+    packs.opening = new Promise(resolve => { packs.accept = resolve; });
+    if (!t.incomingTask) {
+        t.incomingTask = (async () => {
+            await t.connection.ready;
+            if (t.closed) return;
+            const incoming = t.incoming = t.connection.incomingUnidirectionalStreams.getReader();
+            try {
+                while (!t.closed) {
+                    const { done, value } = await incoming.read();
+                    if (done) { close(t); return; }
+                    const active = t.packs;
+                    if (active && !active.failed && !active.reader) {
+                        active.reader = value.getReader(); active.accept(active);
+                    } else { value.cancel().catch(() => {}); }
+                }
+            } finally { incoming.releaseLock(); t.incoming = undefined; }
+        })().catch(() => close(t));
+    }
+}
+/** Captures the current archive channel so cancelling an old wait cannot reset a new join. */
+export function packChannel(t) { return t.quic ? t.packs ?? null : null; }
+/** Waits for the current play's server-initiated reliable archive stream. */
+export async function acceptPacks(t, packs = packChannel(t)) {
+    if (!t.quic) return null;
+    if (!packs || packs.failed || packs.claimed) throw new Error("no pack join");
+    packs.claimed = true;
+    return wait(packs, packs.opening);
+}
+/** Resets play and archives without closing the retained control channel. */
+export function finishPlay(t) { t.play?.fail(); t.play = undefined; }
 /** Reads only on demand; checks chunk size before Rust makes its JS-to-wasm copy. */
 export async function read(ch) {
     if (ch.failed) throw new Error("relay closed");
@@ -141,7 +178,7 @@ export function closeChannel(ch) { ch.fail(); }
 /** Closes every channel of a candidate, including pending open/read/write promises. */
 export function close(t) {
     if (t.closed) return;
-    t.closed = true; for (const ch of t.channels) ch.fail(); t.connection?.close();
+    t.closed = true; for (const ch of t.channels) ch.fail(); t.incoming?.cancel().catch(() => {}); t.connection?.close();
 }
 /** Returns the browser's live datagram ceiling; fallback has no datagram lane. */
 export function maximum(t) { return t.quic && !t.closed ? Math.min(t.connection.datagrams.maxDatagramSize, t.c.playBytes) : 0; }

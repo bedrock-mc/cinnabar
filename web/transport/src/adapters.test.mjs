@@ -33,6 +33,7 @@ class Quic {
     constructor(url) {
         this.url = url; this.ready = Promise.resolve(); this.closed = new Promise(() => {});
         this.sent = []; this.released = 0; this.closes = 0;
+        this.incomingUnidirectionalStreams = new ReadableStream({ start: controller => { this.incoming = controller; } });
         this.stream = {
             readable: { getReader: () => ({ read: async () => ({ value: new Uint8Array([1, 2]), done: false }),
                 cancel: async () => {}, releaseLock: () => { this.released++; } }) },
@@ -162,4 +163,64 @@ test("WebSocket writes reject cancellation after an unthrottled drain", async ()
         assert.equal(ws.sent.length, 0);
         adapter.close(t);
     }
+});
+
+/** Emits an archive stream with observable reset and lock ownership. */
+function archiveStream(bytes) {
+    let resets = 0;
+    const stream = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(bytes)); },
+        cancel() { resets++; } });
+    return { stream, resets: () => resets };
+}
+
+test("pack streams stay independent from control and play and reset between joins", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    const control = await adapter.open(t, config.control);
+    const play = await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const peer = Quic.instances.at(-1);
+    const archive = archiveStream([3, 4]);
+    peer.incoming.enqueue(archive.stream);
+    const packs = await adapter.acceptPacks(t);
+    assert.deepEqual(await adapter.read(packs), new Uint8Array([3, 4]));
+    assert.deepEqual(await adapter.read(play), new Uint8Array([1, 2]));
+    const extra = archiveStream([5]); peer.incoming.enqueue(extra.stream); await turns();
+    assert.equal(extra.resets(), 1);
+    const reading = adapter.read(packs);
+    adapter.finishPlay(t); await assert.rejects(reading); await turns();
+    assert.equal(archive.resets(), 1); assert.equal(archive.stream.locked, false);
+    assert.deepEqual(await adapter.read(control), new Uint8Array([1, 2]));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const next = archiveStream([6]); peer.incoming.enqueue(next.stream);
+    const fresh = await adapter.acceptPacks(t);
+    assert.notEqual(fresh, packs);
+    assert.deepEqual(await adapter.read(fresh), new Uint8Array([6]));
+    adapter.close(t); await turns(); assert.equal(next.resets(), 1);
+});
+
+test("pending pack acceptance cancels immediately and fallback opens no bulk connection", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const accepting = adapter.acceptPacks(t);
+    adapter.finishPlay(t); await assert.rejects(accepting);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const archive = archiveStream([7]); Quic.instances.at(-1).incoming.enqueue(archive.stream);
+    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), new Uint8Array([7]));
+    adapter.close(t);
+    const ws = adapter.create("https://relay.invalid", false, JSON.stringify(config));
+    const sockets = Socket.instances.length;
+    assert.equal(await adapter.acceptPacks(ws), null);
+    assert.equal(Socket.instances.length, sockets);
+    adapter.close(ws);
+});
+
+test("an unpolled old pack wait cannot claim the next join", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    const stale = adapter.packChannel(t);
+    adapter.finishPlay(t);
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY);
+    await assert.rejects(adapter.acceptPacks(t, stale));
+    const archive = archiveStream([8]); Quic.instances.at(-1).incoming.enqueue(archive.stream);
+    assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), new Uint8Array([8]));
+    adapter.close(t);
 });

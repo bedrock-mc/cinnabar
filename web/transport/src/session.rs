@@ -55,6 +55,7 @@ pub struct Session<T: RelayTransport> {
     desired: Option<AccountOperation>,
     attempts: u32,
     retry_at: Duration,
+    join: u64,
     pub unknown_events: u64,
 }
 impl<T: RelayTransport> Session<T> {
@@ -68,6 +69,7 @@ impl<T: RelayTransport> Session<T> {
             desired: None,
             attempts: 0,
             retry_at: Duration::ZERO,
+            join: 0,
             unknown_events: 0,
         }
     }
@@ -254,6 +256,7 @@ impl<T: RelayTransport> Session<T> {
         let State::Ready(generation) = self.state else {
             return Err(CloseReason::Protocol);
         };
+        self.join = self.join.checked_add(1).ok_or(CloseReason::Protocol)?;
         self.state = State::Playing(generation);
         let result = async {
             let stream = self
@@ -263,11 +266,11 @@ impl<T: RelayTransport> Session<T> {
                 .open(Channel::Play)
                 .await?;
             let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
-            play.send(Bytes::from(
-                hello(Channel::Play, self.resume(now()), generation).to_string(),
-            ))
-            .await
-            .map_err(|_| CloseReason::Transport)?;
+            let mut prefix = hello(Channel::Play, self.resume(now()), generation);
+            prefix["join"] = self.join.into();
+            play.send(Bytes::from(prefix.to_string()))
+                .await
+                .map_err(|_| CloseReason::Transport)?;
             let (read, write) = tokio::io::split(play.into_inner());
             Ok(bridge::tasks::prepare_bounded_connection(
                 read,
@@ -282,6 +285,38 @@ impl<T: RelayTransport> Session<T> {
         }
         result
     }
+    /// Returns the identity expected in this play's pack stream and handoff.
+    pub fn play_join(&self) -> Option<u64> {
+        matches!(self.state, State::Playing(_)).then_some(self.join)
+    }
+
+    /// Obtains a receive future without borrowing control, so keepalives remain independent.
+    pub fn pack_stream(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<T::Stream>, CloseReason>> + use<T> {
+        let source = self
+            .transport
+            .as_ref()
+            .filter(|_| self.play_join().is_some())
+            .map(RelayTransport::accept_packs);
+        async move { source.ok_or(CloseReason::Protocol)?.await }
+    }
+
+    /// Ends exactly the current join; later joins never inherit archive handles or observations.
+    pub fn finish_play(&mut self, join: u64) -> Result<(), CloseReason> {
+        let State::Playing(generation) = self.state else {
+            return Err(CloseReason::Protocol);
+        };
+        if join != self.join {
+            return Err(CloseReason::Protocol);
+        }
+        if let Some(transport) = &mut self.transport {
+            transport.finish_play();
+        }
+        self.state = State::Ready(generation);
+        Ok(())
+    }
+
     /// Closes the controller and its play channels immediately; deliberate cancellation is final.
     pub fn close(&mut self, reason: CloseReason) {
         if let Some(mut transport) = self.transport.take() {

@@ -390,3 +390,35 @@ async fn received_capabilities_use_observation_time_and_closed_stays_terminal() 
     );
     assert_eq!(session.state(), State::Closed);
 }
+/// Each new play claims a fresh identity; stale completion cannot reset the active join.
+#[tokio::test]
+async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false);
+    let output = transport.written.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    let (reader, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let first = session.play_join().unwrap();
+    let packs = session.pack_stream();
+    session.desire_account(AccountOperation::SignOut);
+    assert!(packs.await.unwrap().is_none());
+    drop((reader, frames, writer));
+    session.finish_play(first).unwrap();
+    assert_eq!(session.state(), State::Ready(7));
+    let (_reader, _frames, _writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let second = session.play_join().unwrap();
+    assert!(second > first);
+    assert_eq!(session.finish_play(first), Err(CloseReason::Protocol));
+    assert_eq!(session.play_join(), Some(second));
+    let requests = sent(&output);
+    assert_eq!(requests[1]["join"], first);
+    assert_eq!(requests[2]["join"], second);
+}

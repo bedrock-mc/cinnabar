@@ -429,3 +429,22 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 		t.Fatal("core refusal did not traverse reliable play", err)
 	}
 }
+
+func TestPackJoinCannotBeReusedByAController(t *testing.T) {
+	relay := testRelay(t)
+	session, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach(time.Now())
+	first, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if !session.claimPackJoin(first, 1) || session.claimPackJoin(first, 1) || session.claimPackJoin(first, 0) || !session.claimPackJoin(first, 2) {
+		t.Fatal("join identities were reused")
+	}
+	next, stop := context.WithCancel(t.Context())
+	defer stop()
+	if !session.claimPackJoin(next, 1) {
+		t.Fatal("new controller could not start a fresh join")
+	}
+}
