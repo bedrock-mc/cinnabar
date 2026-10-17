@@ -22,6 +22,21 @@ impl UiPresentationRuntime {
         crop_icon(self, icon, max_side)
     }
 
+    /// The admitted six-face sheet for this pack item variant, falling back to variant zero.
+    pub fn session_block_sheet(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        self.session_icons
+            .sheets
+            .get(identifier)
+            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+            .copied()
+    }
+
+    /// Copies an admitted block sheet into six untinted faces for world-space item rendering.
+    pub fn block_sheet_cube(&self, sheet: IconRef) -> Option<render_model::DroppedItemCube> {
+        let pixels = crop_icon(self, sheet, assets::MAX_TILE_SIZE)?;
+        carried_cube_pixels(pixels.width, pixels.height, &pixels.rgba8)
+    }
+
     /// Native carried block faces, not the inventory's projected cube thumbnail or tinted
     /// world materials. Both catalogs must have been built from the same pinned pack.
     pub fn carried_block_cube(
@@ -44,10 +59,24 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Decodes the canonical face sheet stored in the startup icon catalog.
 fn carried_cube(sprite: &assets::IconSprite) -> Option<render_model::DroppedItemCube> {
+    carried_cube_pixels(
+        u32::from(sprite.width),
+        u32::from(sprite.height),
+        &sprite.rgba8,
+    )
+}
+
+/// Splits a canonical carried sheet into six faces without projecting or tinting its pixels.
+fn carried_cube_pixels(
+    width: u32,
+    height: u32,
+    rgba8: &[u8],
+) -> Option<render_model::DroppedItemCube> {
     use assets::{BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE};
-    if [sprite.width, sprite.height] != BLOCK_ITEM_SHEET_SIZE
-        || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
+    if [width, height] != BLOCK_ITEM_SHEET_SIZE.map(u32::from)
+        || rgba8.len() != width as usize * height as usize * 4
     {
         return None;
     }
@@ -57,8 +86,8 @@ fn carried_cube(sprite: &assets::IconSprite) -> Option<render_model::DroppedItem
         let (x, y) = (face % columns * side, face / columns * side);
         let mut pixels = Vec::with_capacity(side * side * 4);
         for row in 0..side {
-            let start = ((y + row) * usize::from(sprite.width) + x) * 4;
-            pixels.extend_from_slice(&sprite.rgba8[start..start + side * 4]);
+            let start = ((y + row) * width as usize + x) * 4;
+            pixels.extend_from_slice(&rgba8[start..start + side * 4]);
         }
         std::sync::Arc::from(pixels)
     });

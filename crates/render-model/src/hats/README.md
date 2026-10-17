@@ -1,4 +1,4 @@
-# Headwear
+# Cosmetics
 
 Open `bunny_ears.bbmodel` in Blockbench with `bunny_ears.png` beside it.
 Open `crown.bbmodel` with `crown.png` beside it for the rigid gold crown.
@@ -18,3 +18,32 @@ Bake mesh transforms and group rotations into the surface before exporting.
 
 For bunny ears, the first four texture pixels are black, highlight, pink and light-pink swatches.
 Face UVs select these swatches in discrete pixel patches; keep the texture unfiltered.
+
+Open `dragon_wings.bbmodel` for the sculpted back attachment. Export it with
+`python3 crates/render-model/src/hats/export.py dragon_wings`. The palette is
+embedded and is also available in `dragon_wings.png`. The closed membranes and
+raised supports are one connected surface per wing.
+
+`dragon_wings.animation.json` supplies one looping cosmetic rotation clip, sampled
+linearly in degrees, plus a `tip_flex` profile. Rotations use the authored mesh
+axes (X, then Y, then Z); the renderer reflects X with the geometry. Each flex
+joint specifies its outward X direction, a rigid starting span, bend length,
+base angle, oscillation amplitude and phase delay. Distances are model pixels.
+Admission derives a shared joint at each authored X coordinate beyond the rigid
+span. All coincident vertices keep the same transform, including thick supports;
+only bone poses change during playback. The profile is a Cinnabar cosmetic
+extension, separate from Bedrock actor animation behavior. The world and HUD
+share a caller-owned looping phase. Head and back selections remain independent.
+
+Open `shoulder_parrot.bbmodel` for the original pet-slot shoulder parrot. Its
+original atlas is embedded and available in `shoulder_parrot.png`. Export with
+`python3 crates/render-model/src/hats/export.py shoulder_parrot`. The body-root
+attachment sits on the shoulder independently of headwear and back cosmetics.
+The head, wings and tail remain separate editable groups. Three one-shot timelines
+in the project match `shoulder_parrot.animation.json`: a nearby arrival and flights
+to either shoulder. Its `playback` profile plays the intro once, then repeats a
+cycle of named clips with a delay before each flight. Delays hold the next clip's
+first pose. All clip transitions must have matching joint transforms. Positions
+are authored model pixels; rotations are degrees. Static gallery artwork uses the
+first cycle pose, while world and character previews share caller-owned time.
+Exporting this project also updates its animation channels, preserving the playback profile.

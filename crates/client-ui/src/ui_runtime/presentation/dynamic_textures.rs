@@ -20,6 +20,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     if !changed {
         return;
     }
+    runtime.clear_player_list();
     runtime.player_preview_source_hash = None;
     runtime.player_preview_pose = None;
     runtime.player_preview_raster_pose = None;

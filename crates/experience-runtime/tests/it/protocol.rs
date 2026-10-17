@@ -133,15 +133,18 @@ fn unknown_field_is_rejected() {
         frame.extend_from_slice(json.as_bytes());
         frame
     };
-    let known = frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[]}"#);
+    let known = frame_of(
+        r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[],"recipes":[]}"#,
+    );
     assert!(
         read_frame::<Request>(&mut Cursor::new(known))
             .unwrap()
             .is_some()
     );
 
-    let extra =
-        frame_of(r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[],"extra":1}"#);
+    let extra = frame_of(
+        r#"{"type":"load","dir":"/srv/experiences/benergistics","items":[],"recipes":[],"extra":1}"#,
+    );
     let err = read_frame::<Request>(&mut Cursor::new(extra)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidData);
 

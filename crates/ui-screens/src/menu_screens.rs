@@ -94,7 +94,11 @@ pub fn screen_data(
             text(translated(translate, words.title.0, words.title.1)),
         );
         let body = match words.body {
-            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(
+                translate,
+                key,
+                launcher::menu::disconnect::body_fallback(key),
+            ),
             launcher::menu::disconnect::DisconnectBody::Server(message) => message,
         };
         data.set_global("#disconnect_text", text(body));

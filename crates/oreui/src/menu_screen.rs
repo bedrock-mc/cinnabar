@@ -92,6 +92,8 @@ pub struct MenuPaint {
     /// The home or pause character, drawn by the adapter under the route's entrance.
     pub character_preview: Option<CharacterPreview>,
     pub dressing_preview: Option<DressingPreview>,
+    /// The cosmetic filter button that anchors the category menu.
+    pub dressing_filter_anchor: Option<[f32; 4]>,
     /// The settings route took input this frame.
     pub settings_input: bool,
     entrance: Option<EntranceScope>,
@@ -99,8 +101,8 @@ pub struct MenuPaint {
     surface: motion::Surface,
 }
 
-/// The character editor's targets, which alone count while it is open.
-pub struct EditorPaint {
+/// Input targets owned by an open dressing room overlay.
+pub struct DressingOverlayPaint {
     pub hits: Vec<(MenuAction, UiRect)>,
     pub focus: Vec<MenuAction>,
     pub focus_targets: Vec<SettingsFocusTarget>,
@@ -132,15 +134,15 @@ impl OreUiScreen {
         self.paint.take()
     }
 
-    /// Draws the dressing room's character editor over the route.
-    pub fn paint_editor(
+    /// Draws the active dressing room overlay above the character preview.
+    pub fn paint_dressing_overlay(
         &mut self,
         paint: &MenuPaint,
         view: &MenuView,
         size: [f32; 2],
         artwork: &HashMap<String, IconRef>,
         frame: &mut PaintFrame<'_>,
-    ) -> Result<EditorPaint, PaintError> {
+    ) -> Result<DressingOverlayPaint, PaintError> {
         self.configure_accessibility(&view.settings_options);
         let originals = self
             .originals
@@ -161,9 +163,9 @@ impl OreUiScreen {
         editor.seconds = frame.now;
         editor.surface = paint.surface;
         editor.transitions = Some(&mut self.transitions);
-        dressing_room::draw_editor(&mut editor, view, size)?;
+        dressing_room::draw_overlay(&mut editor, view, size, paint.dressing_filter_anchor)?;
         let focus = focus_actions(&editor);
-        Ok(EditorPaint {
+        Ok(DressingOverlayPaint {
             hits: editor.hits,
             focus,
             focus_targets: editor.focus_targets,
@@ -427,6 +429,9 @@ impl Screen for OreUiScreen {
             scrolls: canvas.scrolls,
             spots: canvas.spots,
             character_preview,
+            dressing_filter_anchor: dressing_preview
+                .as_ref()
+                .and_then(|area| area.filter_anchor),
             dressing_preview: dressing_preview.map(|area| DressingPreview {
                 preview: CharacterPreview {
                     control: area.control,

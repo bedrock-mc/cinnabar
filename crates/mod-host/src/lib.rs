@@ -62,6 +62,20 @@ pub struct InteractionOutput {
     pub attack_pulse: bool,
 }
 
+/// A vanilla inventory request a player mod committed, consumed once; the client makes it as
+/// the vanilla screen it stands for would, and the server checks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InventoryRequest {
+    /// A creative catalog take of `count` of the item `identifier` with `aux`.
+    CreativeTake {
+        identifier: String,
+        aux: u16,
+        count: u8,
+    },
+    /// One recipe book craft of crafting recipe `network_id`.
+    FillRecipe { network_id: u32 },
+}
+
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CameraDelta {

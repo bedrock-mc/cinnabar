@@ -31,7 +31,7 @@ pub(super) fn build(
         .bones
         .iter()
         .position(|bone| bone.name.as_ref() == item.attachment_bone.as_str())?;
-    let parents: Vec<_> = model
+    let mut parents: Vec<_> = model
         .bones
         .iter()
         .map(|bone| {
@@ -47,7 +47,7 @@ pub(super) fn build(
     {
         return None;
     }
-    let definition: cosmetics_animation::Animation = if animation.is_empty() {
+    let mut definition: cosmetics_animation::Animation = if animation.is_empty() {
         Default::default()
     } else {
         serde_json::from_slice(animation).ok()?
@@ -64,7 +64,7 @@ pub(super) fn build(
     }) {
         return None;
     }
-    let flex: Vec<_> = model
+    let mut flex: Vec<_> = model
         .bones
         .iter()
         .map(|bone| {
@@ -141,7 +141,20 @@ pub(super) fn build(
         height: image.height(),
         rgba8: image.into_raw().into(),
     };
-    let rest_rotations = model
+    let playback = cosmetics_animation::Playback::build(
+        &mut definition,
+        &model
+            .bones
+            .iter()
+            .map(|bone| bone.name.as_ref())
+            .collect::<Vec<_>>(),
+        &mut original,
+        &mut parents,
+    )?;
+    while flex.len() < parents.len() {
+        flex.push(flex[parents[flex.len()]?]);
+    }
+    let mut rest_rotations: Vec<_> = model
         .bones
         .iter()
         .map(|bone| {
@@ -151,7 +164,9 @@ pub(super) fn build(
             })
         })
         .collect();
+    rest_rotations.resize(parents.len(), Quat::IDENTITY);
     let mut rig = HatRig {
+        playback,
         geometry: original,
         parents,
         flex,
@@ -170,7 +185,10 @@ pub(super) fn build(
             translation_scale: [root[0], root[1], root[2], 1.0],
             axis_scale: crate::UNIT_AXIS_SCALE,
         },
-        0.0,
+        Motion {
+            seconds: rig.playback.as_ref().map_or(0.0, |clip| clip.rest_time()),
+            ..Default::default()
+        },
     );
     let part = crate::STANDARD_BIPED_BONES
         .iter()

@@ -1,8 +1,9 @@
-//! Server WIT 0.5's calls. x=24 makes each once; x=25 toggles a lamp; x=26 marks every member of
-//! a node's network; x=27 makes stacks.
+//! Server WIT 0.5's and 0.6's calls. x=24 makes each 0.5 call once; x=25 toggles a lamp; x=26
+//! marks every member of a node's network; x=27 makes stacks; x=28 asks the server's recipes;
+//! x=29 schedules updates.
 
 use experience_sdk::server::{
-    BlockDef, BlockPos, BlockState, BlockType, Callback, ItemDef, Mining, NewStack,
+    BlockDef, BlockPos, BlockState, BlockType, Callback, ItemDef, ItemKey, Mining, NewStack,
     PlacementStates, Registration, StateDef, StateValue, StateValues, TextureBinding, WorldError,
     cube,
 };
@@ -162,6 +163,37 @@ fn states(result: Result<Vec<BlockState>, WorldError>) -> String {
             .join(","),
         Err(error) => error.name().to_owned(),
     }
+}
+
+/// What two planks stacked in the grid's left column make, and a grid of nine cells but one, as
+/// `crafted {id} {count}|none short {id|none}`.
+pub(crate) fn craft(ctx: &Callback) -> String {
+    let planks = || {
+        Some(ItemKey {
+            id: "minecraft:oak_planks".to_owned(),
+            metadata: 0,
+        })
+    };
+    let mut grid = vec![None; 9];
+    grid[0] = planks();
+    grid[3] = planks();
+    let made = |grid: &[Option<ItemKey>]| {
+        ctx.crafting_result(grid)
+            .map_or_else(|| "none".to_owned(), |c| format!("{} {}", c.id, c.count))
+    };
+    format!("crafted {} short {}", made(&grid), made(&grid[..8]))
+}
+
+/// Schedules an update of `p` two ticks on, then tries zero ticks and a block it does not own
+/// (the one below), as `schedule {outcome} zero {outcome} foreign {outcome}`.
+pub(crate) fn schedule(ctx: &Callback, p: BlockPos) -> String {
+    let below = BlockPos { y: p.y - 1, ..p };
+    format!(
+        "schedule {} zero {} foreign {}",
+        refusal(ctx.schedule_update(p, 2)),
+        refusal(ctx.schedule_update(p, 0)),
+        refusal(ctx.schedule_update(below, 2)),
+    )
 }
 
 /// A world error's name, or `ok` for any success.

@@ -372,6 +372,25 @@ interface screen {
     set-text: func(control: string, text: string) -> result<_, string>;
     /// Selects the drawn edit box named `control`, as a press on it would.
     focus-text: func(control: string) -> result<_, string>;
+    /// The modifier keys held with the event being delivered, such as Shift with a press.
+    held-modifiers: func() -> modifiers;
+    /// Monotonic seconds since the mod loaded, to animate by, as JEI cycles ingredients.
+    elapsed-seconds: func() -> f64;
+}
+
+/// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,
+/// and the server checks it. Every function errs without the `inventory` permission. Requests
+/// are sent after the callback returns, at most `MAX_INVENTORY_REQUESTS` per callback.
+interface inventory {
+    use cinnabar:session/items@0.1.0.{item-key};
+
+    /// Takes `count` of creative item `key` into the first free inventory slot, else the
+    /// cursor, as a click on the creative catalog does. Errs outside Creative or when the
+    /// item is not in the creative content.
+    creative-take: func(key: item-key, count: u8) -> result<_, string>;
+    /// Crafts crafting recipe `network-id` once from inventory ingredients onto the cursor, as
+    /// a click on the recipe book does. Errs while no crafting screen is up.
+    fill-recipe: func(network-id: u32) -> result<_, string>;
 }
 
 /// Opt-in local camera policy; requires the explicit camera grant.
@@ -483,6 +502,7 @@ world extension {
 world player-mod {
     include extension;
     import screen;
+    import inventory;
     import cinnabar:session/items@0.1.0;
     import cinnabar:session/recipes@0.1.0;
 

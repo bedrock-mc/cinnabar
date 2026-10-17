@@ -189,6 +189,19 @@ impl ModUi {
         modal.screen.press(point, pressed, released)
     }
 
+    /// The collection and row of the drawn modal's cell under `point`, such as a slot of its
+    /// read-only `inventory_items` or `hotbar_items` rows.
+    pub fn experience_modal_cell_at(&self, point: [f32; 2]) -> Option<(&str, usize)> {
+        self.experience_modal.as_ref()?.screen.cell_at(point)
+    }
+
+    /// Whether an edit box of the drawn modal is selected and takes typing.
+    pub fn experience_modal_text_focused(&self) -> bool {
+        self.experience_modal
+            .as_ref()
+            .is_some_and(|modal| modal.screen.text_focused())
+    }
+
     /// Tracks a secondary (right) press; see [`TemplateScreen::secondary_press`].
     pub fn secondary_press_experience_modal(
         &mut self,
