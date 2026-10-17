@@ -26,6 +26,7 @@ pub mod inventory_ingress;
 
 mod food;
 mod furnace_options;
+mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
@@ -765,6 +766,10 @@ impl UiRuntime {
                         .ledger_mut()
                         .request_personal_open(runtime_id)
                 });
+        }
+        self.screen.inventory = None;
+        if self.inventory_open {
+            self.observe_inventory_window(player_runtime);
         }
         UiAuthorityTransition {
             consumes_text: false,

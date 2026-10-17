@@ -43,8 +43,11 @@ impl<'a> Source<'a> {
                 crafter_powered: None,
                 furnace_book_open: false,
                 furnace_tab: None,
-                creative_tab: ui_screens::container_actions::SEARCH_TAB,
-                creative_wide: false,
+                inventory: inventory::InventoryController::new(
+                    Default::default(),
+                    inventory::InventoryContext::Personal,
+                    false,
+                ),
                 creative_expanded: groups,
                 search: "",
                 container_scroll: scrolls,

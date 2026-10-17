@@ -20,6 +20,9 @@ impl UiRuntime {
     pub fn observe_inventory_window(&mut self, player: &player_state::PlayerState) {
         self.screen
             .observe_window(player.inventory.ledger().storage_generation());
+        if self.inventory_open() {
+            self.initialize_inventory_controller(player);
+        }
         if self.screen.furnace.is_none()
             && let Some(kind) = player
                 .inventory

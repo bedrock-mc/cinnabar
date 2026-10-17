@@ -232,10 +232,9 @@ fn furnace_options_do_not_share_families_or_crafting_filtering() {
         protocol::WINDOW_TYPE_WORKBENCH,
     );
     assert!(
-        runtime.recipe_filtering(&player),
-        "crafting keeps its own survival default"
+        !runtime.recipe_filtering(&player),
+        "crafting keeps its own unfiltered default"
     );
-    runtime.screen_state_mut().recipe_filtering = Some(false);
     open(
         &mut runtime,
         &mut player,

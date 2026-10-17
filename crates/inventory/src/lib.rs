@@ -3,6 +3,8 @@ mod anvil;
 mod crafting;
 mod crafting_authority;
 pub mod enchantments;
+mod inventory_options;
+pub use inventory_options::{InventoryContext, InventoryController};
 mod furnace_options;
 mod furnace_recipes;
 mod ingress;

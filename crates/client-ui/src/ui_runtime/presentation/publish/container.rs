@@ -92,7 +92,7 @@ fn capture_titles(
                 .map(|text| text.to_string())
         }),
         InventoryScreen::Creative => {
-            let key = match runtime.screen_state().creative_tab {
+            let key = match runtime.screen_state().creative_tab() {
                 0 => "itemGroup.name.construction",
                 1 => "itemGroup.name.nature",
                 2 => "itemGroup.name.equipment",

@@ -39,7 +39,9 @@ impl HudLayout<'_> {
         if let Some(icon) = frame.window_icons.book_button {
             self.icon_gui(icon, [at[0] + 2.0, at[1] + 1.0])?;
         }
-        if !state.book_open.unwrap_or(false) {
+        if !state.inventory.is_some_and(|controller| {
+            controller.layout() != protocol::InventoryLayout::InventoryOnly
+        }) {
             return Ok(());
         }
         let book = screens::book_origin(main_origin);
