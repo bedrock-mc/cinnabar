@@ -65,6 +65,8 @@ pub(super) struct CellPrediction {
     pub(super) before: Option<Held>,
     pub(super) held: Option<Held>,
     pub(super) active: bool,
+    /// Sparse owner replaced by this local write, including an empty prediction.
+    pub(super) previous_owner: Option<i32>,
     /// No later authoritative write has invalidated this rollback source.
     pub(super) current: bool,
     /// A later rollback explicitly restored this empty result into backing.
@@ -169,13 +171,13 @@ impl PlayerInventoryLedger {
                 unique.push(cell);
             }
         }
-        for previous in self
-            .queue
-            .iter_mut()
-            .flat_map(|request| &mut request.predicted)
-        {
-            if unique.contains(&previous.cell) {
-                previous.active = false;
+        let mut previous_owners = Vec::new();
+        for previous_request in &mut self.queue {
+            for previous in &mut previous_request.predicted {
+                if previous.active && unique.contains(&previous.cell) {
+                    previous_owners.push((previous.cell, previous_request.request_id));
+                    previous.active = false;
+                }
             }
         }
         request.predicted = unique
@@ -192,6 +194,9 @@ impl PlayerInventoryLedger {
                     before: before.get(cell).cloned(),
                     held,
                     active: true,
+                    previous_owner: previous_owners
+                        .iter()
+                        .find_map(|(owned, id)| (*owned == cell).then_some(*id)),
                     current: true,
                     owns_empty_backing: false,
                 }
@@ -627,7 +632,7 @@ impl PlayerInventoryLedger {
 
     /// Recovers an admitted request dropped unanswered, remembering which
     /// surfaces that put into recovery for [`Self::settle_abandoned_rejection`].
-    fn recover_abandoned(&mut self, request: &PendingRequest) {
+    pub(super) fn recover_abandoned(&mut self, request: &PendingRequest) {
         let mut touched: Vec<CellSurface> = Vec::new();
         for surface in request.touched().map(|cell| cell.surface()) {
             if !touched.contains(&surface) {
@@ -692,44 +697,6 @@ impl PlayerInventoryLedger {
         for abandoned in &mut self.abandoned {
             abandoned.recovering.retain(|owned| *owned != surface);
         }
-    }
-
-    /// Drops matching requests. Unsent ones roll back together with every later
-    /// unsent request built on them; admitted ones become ambiguous and mark
-    /// their cells for authoritative recovery. Client authority restores the
-    /// newest surviving prediction on each cell before refolding.
-    pub(super) fn abandon_requests(&mut self, matches: impl Fn(&PendingRequest) -> bool) {
-        let mut rolling_back = false;
-        let mut index = 0;
-        while index < self.queue.len() {
-            let request = &self.queue[index];
-            let unsent = request.state == InventoryPendingState::AwaitingTransport;
-            if (unsent && rolling_back) || matches(request) {
-                let request = self.queue.remove(index).expect("index is in range");
-                if unsent {
-                    rolling_back = true;
-                } else if !request.locally_committed() {
-                    self.recover_abandoned(&request);
-                }
-                continue;
-            }
-            index += 1;
-        }
-        if self.authority == Some(protocol::InventoryAuthority::Client) {
-            let mut owned = Vec::new();
-            for prediction in self
-                .queue
-                .iter_mut()
-                .rev()
-                .flat_map(|request| request.predicted.iter_mut().rev())
-            {
-                prediction.active = !owned.contains(&prediction.cell);
-                if prediction.active {
-                    owned.push(prediction.cell);
-                }
-            }
-        }
-        self.refold();
     }
 
     /// Detects timeout work while preserving shared presentation owners on quiet polls.

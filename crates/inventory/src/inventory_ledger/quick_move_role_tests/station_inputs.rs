@@ -372,6 +372,16 @@ fn station_inputs_admission_refresh_retires_grindstone_placements() {
             resend(&mut ledger, &replacement);
             assert!(ledger.target_stack(target).is_none());
             assert_eq!(ledger.resync_required(), transported);
+            if !transported {
+                if quick_move {
+                    assert_eq!(ledger.displayed_stack(SOURCE_SLOT).unwrap().count, 1);
+                    assert!(ledger.cursor_stack().is_none());
+                    assert!(ledger.displayed_stack(0).is_none());
+                } else {
+                    assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+                    assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+                }
+            }
         }
     }
 }

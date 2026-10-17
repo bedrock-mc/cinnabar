@@ -1985,8 +1985,10 @@ not close a parity or visual acceptance gate.
   require an enchantment List or admitted damageability without a true Unbreakable Byte.
   Valid durability components retain a zero Int maximum as damageable, without a durability bar
   or positive repair maximum. Registry changes retire placements or fallback routes whose
-  admission changes. Registry-dependent malformed component loading and remaining station
-  membership checks are incomplete.
+  admission changes. Cancelling unsent gestures restores the sparse owners they replaced,
+  including empty cursor ownership; server rejection keeps its separate response behavior.
+  Registry-dependent malformed component loading and remaining station membership checks
+  are incomplete.
 - Incomplete: book-edit publication and replacement ordering, crafting remainders and multiple results, enchanting prediction and availability,
   remaining station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
