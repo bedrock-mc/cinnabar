@@ -3,6 +3,34 @@ use std::{mem::size_of, num::NonZeroU64, sync::Arc};
 
 use super::budget::{Credits, Permit};
 
+pub(super) const REGISTRY_DOMAIN: u8 = 1;
+pub(super) const CATALOG_DOMAIN: u8 = 1 << 1;
+pub(super) const AUTHORITY_DOMAIN: u8 = 1 << 2;
+pub(super) const UNLOCKS_DOMAIN: u8 = 1 << 3;
+/// Rule observations form an independent authority domain during queue loss.
+pub(super) const CRAFTING_RULES_DOMAIN: u8 = 1 << 4;
+/// Full loss includes every domain bit, including domains introduced later.
+pub(super) const ALL_DOMAINS: u8 = u8::MAX;
+
+/// Classifies pending authority before observation can allocate or discard its payload.
+pub(super) fn event_domain(event: &crate::InventoryAuthorityEvent) -> u8 {
+    use crate::InventoryAuthorityEvent;
+    match event {
+        InventoryAuthorityEvent::Registry(_) => REGISTRY_DOMAIN,
+        InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::Recipes(_)) => CATALOG_DOMAIN,
+        InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::Authority(_)) => {
+            AUTHORITY_DOMAIN
+        }
+        InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::RecipeUnlocks(_)) => {
+            UNLOCKS_DOMAIN
+        }
+        InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::CraftingRules(_)) => {
+            CRAFTING_RULES_DOMAIN
+        }
+        _ => 0,
+    }
+}
+
 pub(super) fn transaction_cell_index(identity: protocol::SlotIdentity) -> Option<usize> {
     match protocol::project_container_cell(&identity.container, identity.slot) {
         Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
@@ -134,25 +162,10 @@ pub(super) enum Observation {
     Authority(protocol::InventoryAuthority),
 }
 
-impl Observation {
-    pub(super) fn domain(&self) -> u8 {
-        match self {
-            Self::Registry(_) => 1,
-            Self::Recipes(_) => 2,
-            Self::RecipeUnlocks(_) => 8,
-            Self::CraftingRules(_) => CRAFTING_RULES_DOMAIN,
-            Self::Authority(_) => 4,
-            Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
-        }
-    }
-}
-
-/// Rule observations form an independent authority domain during queue loss.
-pub(super) const CRAFTING_RULES_DOMAIN: u8 = 1 << 4;
-
 #[derive(Debug, Clone)]
 pub(super) struct Record {
     pub(super) sequence: u64,
+    pub(super) domain: u8,
     pub(super) observation: Observation,
 }
 

@@ -356,3 +356,43 @@ fn membership_cardinality_is_bounded_across_catalog_replacements() {
     assert!(!state.contains(names[0]));
     assert!(snapshot.contains("test:old"));
 }
+
+#[test]
+fn one_retained_unlock_does_not_block_admission_after_a_large_catalog_clear() {
+    for retain_unlock in [false, true] {
+        let credits = Credits::isolated(2 * 1024 * 1024);
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        let mut recipes = vec![recipe("test:retained", 1)];
+        let prefix = "x".repeat(15 * 1024);
+        recipes.extend((0..72).map(|index| recipe(&format!("test:{prefix}{index}"), index + 2)));
+        let body = CraftingDataFixture {
+            recipes,
+            clear_recipes: true,
+            ..Default::default()
+        }
+        .encode();
+        let first = decode_with_credits(&body, &credits).unwrap();
+        assert!(!first.is_unavailable());
+        assert!(catalog.apply_with_credits(1, 1, &first, &credits));
+        drop(first);
+        let mut state = RecipeUnlockState::default();
+        if retain_unlock {
+            state.apply_with_credits(&catalog, &update(2, &["test:retained"], &credits), &credits);
+            assert!(state.contains("test:retained"));
+        }
+        install(&mut catalog, 2, vec![], true, &credits);
+        let replacement = decode_with_credits(&body, &credits).unwrap();
+        assert!(
+            !replacement.is_unavailable(),
+            "one retained name must not pin the cleared recipe batch"
+        );
+        assert!(catalog.apply_with_credits(1, 3, &replacement, &credits));
+        assert!(catalog.is_available());
+        assert_eq!(state.contains("test:retained"), retain_unlock);
+        drop(replacement);
+        drop(state);
+        drop(catalog);
+        assert_eq!(credits.used(), 0);
+    }
+}

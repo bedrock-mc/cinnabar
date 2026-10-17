@@ -233,3 +233,38 @@ fn rule_observations_wait_for_commit_and_lost_authority_does_not_reuse_defaults(
     assert!(!session.crafting_rules().unwrap().requires_manual_unlock());
     assert!(next.crafting_rules().is_none());
 }
+
+#[test]
+fn rule_updates_in_the_outer_fifo_are_retired_when_cell_pressure_discards_the_frontier() {
+    let mut session = session(false);
+    let snapshot = session.clone();
+    let end = 3 + inventory::MAX_PENDING_INVENTORY_EVENTS as u64;
+    for sequence in 4..end {
+        session
+            .enqueue_inventory_event(
+                1,
+                sequence,
+                InventoryEvent::Slot(::protocol::InventorySlotEvent {
+                    identity: ::protocol::SlotIdentity {
+                        container: ::protocol::ContainerIdentity::window(
+                            ::protocol::UI_INVENTORY_WINDOW_ID,
+                        ),
+                        slot: 28,
+                    },
+                    stack: NetworkItemStack::empty(),
+                    storage_item: None,
+                }),
+            )
+            .unwrap();
+    }
+    commit(
+        &mut session,
+        end,
+        InventoryEvent::CraftingRules(CraftingRules {
+            recipes_unlock: None,
+            limited_crafting: Some(true),
+        }),
+    );
+    assert!(session.crafting_rules().is_none());
+    assert!(!snapshot.crafting_rules().unwrap().requires_manual_unlock());
+}
