@@ -104,13 +104,21 @@ impl SettingsOptions {
                 return Some((format!("gamepad:{name}"), Some(*action), None));
             }
             let (name, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
-            return Some((format!("gamepad:{name}"), None, *control));
+            return Some((
+                format!("gamepad:{name}"),
+                BindingId::from_name(name)?.definition().action,
+                *control,
+            ));
         }
         if let Some((action, name)) = KEY_BINDINGS.get(index) {
             return Some(((*name).to_owned(), Some(*action), None));
         }
         let (name, control) = EXTRA_KEYS.get(index.checked_sub(KEY_BINDINGS.len())?)?;
-        Some(((*name).to_owned(), None, Some(*control)))
+        Some((
+            (*name).to_owned(),
+            BindingId::from_name(name)?.definition().action,
+            Some(*control),
+        ))
     }
 
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
@@ -258,9 +266,9 @@ impl SettingsOptions {
                 bindings.retain(|binding| binding.action != action);
             }
         }
-        for index in (0..KEY_BINDINGS.len())
-            .chain((0..GAMEPAD_BINDINGS.len()).map(|index| GAMEPAD_OFFSET + index))
-        {
+        for index in (0..KEY_BINDINGS.len() + EXTRA_KEYS.len()).chain(
+            (0..GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()).map(|index| GAMEPAD_OFFSET + index),
+        ) {
             let Some((name, Some(action), _)) = self.binding(index) else {
                 continue;
             };

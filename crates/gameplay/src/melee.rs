@@ -35,7 +35,9 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 
 mod admission;
 mod queue;
-pub use admission::{AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame};
+pub use admission::{
+    AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame, admit_attack_press,
+};
 
 mod swing;
 pub use swing::SwingTracker;
@@ -89,6 +91,11 @@ pub struct MeleeRuntime {
 }
 
 impl MeleeRuntime {
+    /// Whether any pending press or admitted mining carrier still owns attack admission.
+    pub fn has_queued_work(&self) -> bool {
+        !self.queue.entries.is_empty()
+    }
+
     /// Latest successfully queued local actor attack in the current position authority.
     pub const fn admitted_attack(&self) -> Option<AdmittedActorAttack> {
         self.admitted_attack

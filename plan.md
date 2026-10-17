@@ -3998,6 +3998,16 @@ releases must drain first. Lowered visual eyes do not change the network anchor.
 camera sampling, held-item user-data bytes, network batch boundaries and latency-reply
 timing remain incomplete pending a matched packet capture.
 
+Desktop button transitions now retain backend arrival order through binding resolution
+and a shared interaction admission cursor. Repeated taps keep separate attempts;
+selection, pick, attack and use stop behind a refused head. Pending context and accepted
+movement/release fences have separate lifetimes. The client bounds a pending burst at
+`semantic_input::MAX_PENDING_ACTION_EVENTS`; overflow cancels unadmitted work and
+quarantines new gestures until a complete neutral sample. This resource policy and
+its overload timing remain provisional and incomplete. Full parity for global camera
+sampling, other input modes and device-specific chords remains incomplete. The existing
+published camera phase is preserved. Regression execution and live acceptance are pending.
+
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the
 target offers an interaction. Players offer one only while the server's interact

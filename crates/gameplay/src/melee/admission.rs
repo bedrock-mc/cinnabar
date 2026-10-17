@@ -37,7 +37,42 @@ pub struct AttackAdmission {
 
 /// Advances the queue in order before movement drains. A later pending press never blocks
 /// delivery of an earlier admitted break, and expiry only removes unadmitted entries.
+/// Admits a press and advances held mining exactly once for the frame.
 pub fn admit_attack_frame(
+    runtime: &mut MeleeRuntime,
+    mining: &mut SurvivalMiningRuntime,
+    swings: &mut SwingTracker,
+    movement: &mut MovementTicker,
+    frame: AttackFrame<'_>,
+    effects: AttackEffects<
+        impl FnMut(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+        impl Fn(u64) -> i32,
+        impl FnMut(u8, i32) -> Option<i32>,
+        impl FnMut([i32; 3]),
+    >,
+) -> AttackAdmission {
+    admit(runtime, mining, swings, movement, frame, effects, true)
+}
+
+/// Admits one ordered press without repeating held mining maintenance.
+pub fn admit_attack_press(
+    runtime: &mut MeleeRuntime,
+    mining: &mut SurvivalMiningRuntime,
+    swings: &mut SwingTracker,
+    movement: &mut MovementTicker,
+    frame: AttackFrame<'_>,
+    effects: AttackEffects<
+        impl FnMut(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+        impl Fn(u64) -> i32,
+        impl FnMut(u8, i32) -> Option<i32>,
+        impl FnMut([i32; 3]),
+    >,
+) -> AttackAdmission {
+    admit(runtime, mining, swings, movement, frame, effects, false)
+}
+
+/// Shares carrier admission between per-event work and frame maintenance.
+fn admit(
     runtime: &mut MeleeRuntime,
     mining: &mut SurvivalMiningRuntime,
     swings: &mut SwingTracker,
@@ -49,6 +84,7 @@ pub fn admit_attack_frame(
         impl FnMut(u8, i32) -> Option<i32>,
         impl FnMut([i32; 3]),
     >,
+    maintain: bool,
 ) -> AttackAdmission {
     runtime.synchronize(movement.interaction_authority_identity());
     mining.synchronize(movement.interaction_authority_identity());
@@ -184,6 +220,9 @@ pub fn admit_attack_frame(
                 }
             }
         }
+    }
+    if !maintain {
+        return result;
     }
     // Only a fresh mining start waits; existing progress, aborts and held delay still advance.
     let held_input = if frame.attack_held {

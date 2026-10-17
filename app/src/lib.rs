@@ -27,6 +27,7 @@ mod melee;
 mod modding;
 pub mod movement;
 mod named_audio;
+mod ordered_interactions;
 
 mod particles;
 mod pick_block;

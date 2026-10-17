@@ -71,9 +71,15 @@ impl CapturedPackets {
 
 #[cfg(any(test, feature = "test-support"))]
 impl<P> NetworkHandle<P> {
+    /// Captures packets from the normal bounded command FIFO.
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
+        Self::stub_capturing_packets_with_capacity(COMMAND_CAPACITY)
+    }
+
+    /// Captures a small FIFO so adapter tests can refuse and retry a specific packet prefix.
+    pub fn stub_capturing_packets_with_capacity(capacity: usize) -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
-        let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
+        let (commands, command_rx) = frame_flush::command_channel(capacity);
         handle.commands = commands;
         (
             handle,

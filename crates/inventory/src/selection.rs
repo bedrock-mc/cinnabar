@@ -85,15 +85,23 @@ impl InventorySession {
         let Some(target) = self.pending_hotbar_selection() else {
             return Ok(None);
         };
+        if self.selected_hotbar_slot(game_mode) != Some(target) {
+            return Ok(None);
+        }
+        Ok(self.hotbar_packet(target)?.map(|packet| (target, packet)))
+    }
+
+    /// Builds a known slot's selection packet without predicting or queuing that selection.
+    pub fn hotbar_packet(
+        &self,
+        target: u8,
+    ) -> Result<Option<protocol::Packet>, protocol::InventoryPacketError> {
         let Some(runtime_id) = self.local_runtime_id() else {
             return Ok(None);
         };
-        let Some(snapshot) = self.selected_stack_snapshot(game_mode) else {
+        let Some(snapshot) = self.hotbar_stack_snapshot(target) else {
             return Ok(None);
         };
-        if snapshot.slot != target {
-            return Ok(None);
-        }
         let packet = match snapshot.state {
             PlayerInventorySlot::Unknown => return Ok(None),
             PlayerInventorySlot::Empty => protocol::select_hotbar_slot_packet(
@@ -101,12 +109,12 @@ impl InventorySession {
                 target,
                 &protocol::NetworkItemStack::empty(),
             ),
-            // The packet carries no stack network id, so a predicted id needs no answer first.
+            // Selection packets carry no stack network id.
             PlayerInventorySlot::Present(stack) => {
                 protocol::select_hotbar_slot_packet(runtime_id, target, stack)
             }
         }?;
-        Ok(Some((target, packet)))
+        Ok(Some(packet))
     }
     /// Clear the pending command only if it is still the slot just sent.
     pub fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
@@ -143,6 +151,11 @@ impl InventorySession {
         game_mode: Option<protocol::PlayerGameMode>,
     ) -> Option<SelectedStackSnapshot<'_>> {
         let slot = self.selected_hotbar_slot(game_mode)?;
+        self.hotbar_stack_snapshot(slot)
+    }
+
+    /// Borrows one hotbar cell using the same ledger and equipment fallback as selected use.
+    fn hotbar_stack_snapshot(&self, slot: u8) -> Option<SelectedStackSnapshot<'_>> {
         let ledger_state = self.inventory_ledger.slot_state(slot)?;
         let state = match ledger_state {
             PlayerInventorySlot::Unknown => self
@@ -264,5 +277,38 @@ mod tests {
             .expect("hotbar selection must build a MobEquipment packet");
         assert_eq!(packet.count, 3);
         assert_eq!(packet.stack_network_id, None);
+    }
+}
+
+#[cfg(test)]
+mod ordered_tests {
+    use super::*;
+    use protocol::{ContainerIdentity, InventoryEvent, InventorySlotEvent, SlotIdentity};
+
+    #[test]
+    fn preparing_an_ordered_selection_does_not_leave_a_cancelled_prediction() {
+        let mut session = InventorySession::new(7);
+        session.publish_local_runtime_id(7, 42).unwrap();
+        session.set_local_selected_slot(0);
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(0),
+                        slot_type: None,
+                        dynamic_id: None,
+                    },
+                    slot: 1,
+                },
+                stack: protocol::NetworkItemStack::empty(),
+                storage_item: None,
+            }));
+        assert!(session.hotbar_packet(1).unwrap().is_some());
+        assert_eq!(
+            session.selected_hotbar_slot(Some(PlayerGameMode::Survival)),
+            Some(0)
+        );
+        assert_eq!(session.pending_hotbar_selection(), None);
     }
 }

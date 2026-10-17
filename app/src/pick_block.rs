@@ -32,13 +32,24 @@ pub(crate) struct PickBlockContext<'w, 's> {
     network: Res<'w, NetworkHandle<PackApplication>>,
 }
 
-/// Sends one server-authoritative pick request per middle-click on a reachable target.
-pub(crate) fn produce_pick_block(
-    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
-    context: PickBlockContext,
-    ui: ResMut<UiRuntimeResource>,
-) {
-    if !context.controls.pick_block_pressed
+/// A pick request retains its original target while waiting for transport.
+#[derive(Clone)]
+pub(crate) struct PickAttempt {
+    packet: protocol::Packet,
+    lifetime: Option<actor_animation::ActorLifetimeId>,
+}
+
+/// Resolves a pick with the same binding, screen, range and actor competition as ordinary input.
+fn observe(
+    player_runtime: &client_state::PlayerRuntime,
+    context: &PickBlockContext,
+    ui: &UiRuntimeResource,
+) -> Option<PickAttempt> {
+    if !(context.controls.pick_block_pressed
+        || context
+            .input
+            .phase(semantic_input::Action::PickItem)
+            .pressed)
         || context.focus.absorbs_input
         || !context.windows.single().is_ok_and(|window| window.focused)
         || player_runtime
@@ -46,13 +57,13 @@ pub(crate) fn produce_pick_block(
             .player_game_mode()
             .is_some_and(|mode| !mode.shows_hotbar())
     {
-        return;
+        return None;
     }
     let (Some(snapshot), Some(selection)) = (
         context.input.snapshot(),
         hand_interaction_selection(&player_runtime),
     ) else {
-        return;
+        return None;
     };
     let input_mode = protocol_input_mode(snapshot.input_mode);
     let reach = if player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative) {
@@ -74,7 +85,7 @@ pub(crate) fn produce_pick_block(
             simulation_clock::identity::PositionAuthorityGeneration::new(0),
         ),
     ) else {
-        return;
+        return None;
     };
     if let (Some(stream), Some(ray)) = (
         context.client_world.stream.as_ref(),
@@ -87,19 +98,67 @@ pub(crate) fn produce_pick_block(
         observed.as_ref().map(|observed| observed.hit_distance()),
         ui.gameplay_hud().mount_unique_id(),
     ) {
-        let _ = context
-            .network
-            .send_inventory_packet(protocol::actor_pick_request_packet(unique_id, false));
-        return;
+        return Some(PickAttempt {
+            packet: protocol::actor_pick_request_packet(unique_id, false),
+            lifetime: stream
+                .authority()
+                .remote_actors()
+                .find(|actor| actor.unique_id == unique_id)
+                .and_then(|actor| stream.authority().actor_lifetime(actor.runtime_id)),
+        });
     }
     let Some(observed) = observed else {
-        return;
+        return None;
     };
-    // A full queue drops the pick; the player simply clicks again.
-    let _ = context
-        .network
-        .send_inventory_packet(protocol::block_pick_request_packet(
-            observed.target.position,
-            false,
-        ));
+    Some(PickAttempt {
+        packet: protocol::block_pick_request_packet(observed.target.position, false),
+        lifetime: None,
+    })
+}
+
+/// Sends an ordinary pick once; ordered input is owned by the interaction cursor.
+pub(crate) fn produce_pick_block(
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
+    context: PickBlockContext,
+    ui: ResMut<UiRuntimeResource>,
+) {
+    if context
+        .input
+        .snapshot()
+        .is_some_and(|input| input.ordered.is_some())
+    {
+        return;
+    }
+    if let Some(attempt) = observe(&player_runtime, &context, &ui) {
+        let _ = context.network.send_inventory_packet(attempt.packet);
+    }
+}
+
+/// Attempts the same ordered pick until admission, without redirecting a reused actor ID.
+pub(crate) fn step_ordered_pick(
+    bevy::prelude::In(mut attempt): bevy::prelude::In<Option<PickAttempt>>,
+    player: bevy::prelude::Res<client_state::PlayerRuntime>,
+    context: PickBlockContext,
+    ui: ResMut<UiRuntimeResource>,
+) -> crate::ordered_interactions::Step<Option<PickAttempt>> {
+    use crate::ordered_interactions::{Progress, Step};
+    if attempt.is_none() {
+        attempt = observe(&player, &context, &ui);
+    }
+    let Some(pick) = attempt.as_ref() else {
+        return Step::new(attempt, Progress::Complete);
+    };
+    if let Some(lifetime) = pick.lifetime {
+        let valid = context.client_world.stream.as_ref().is_some_and(|stream| {
+            stream.authority().actor_lifetime(lifetime.runtime_id) == Some(lifetime)
+        });
+        if !valid {
+            return Step::new(attempt, Progress::Complete);
+        }
+    }
+    let progress = match context.network.send_inventory_packet(pick.packet.clone()) {
+        Err(client_session::PacketSendError::Full(_)) => Progress::Pending,
+        _ => Progress::Complete,
+    };
+    Step::new(attempt, progress)
 }

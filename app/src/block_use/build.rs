@@ -1,0 +1,288 @@
+//! Frozen build proposals share the same prediction and transport commit as held placement.
+
+use super::*;
+use gameplay::{
+    mining::FrozenMiningSelection,
+    movement::{MiningEffects, UnsentSampleView},
+};
+
+/// One press/repeat's observed target and pre-tick pose, retained across transport refusal.
+pub(crate) struct FrozenBuild {
+    pub observed: FrozenBlockObservation,
+    pub state: UnsentSampleView,
+    pub trigger: ItemUseTrigger,
+    pub due: std::time::Duration,
+    pub clock: RepeatClock,
+    plan: Option<BuildPlan>,
+}
+
+/// A proposal freezes selection, placement and inventory effects before its first send.
+#[derive(Clone)]
+struct BuildPlan {
+    observed: FrozenBlockObservation,
+    server_selection: FrozenMiningSelection,
+    inventory_revision: u64,
+    local_use: LocalUse,
+    destination: [i32; 3],
+    predicted: Option<Vec<([i32; 3], u32, u32)>>,
+    local_runtime_id: u64,
+    swing_effects: MiningEffects,
+    block_network_id: u32,
+    change: Option<protocol::PredictedSlotChange>,
+}
+
+impl FrozenBuild {
+    /// Captures immutable press facts; packet and local prediction preparation happens once.
+    pub(super) fn new(
+        observed: FrozenBlockObservation,
+        state: UnsentSampleView,
+        trigger: ItemUseTrigger,
+        due: std::time::Duration,
+        clock: RepeatClock,
+    ) -> Self {
+        Self {
+            observed,
+            state,
+            trigger,
+            due,
+            clock,
+            plan: None,
+        }
+    }
+}
+
+/// Computes a proposal without sending packets, committing inventory or changing the world.
+fn prepare(
+    player_runtime: &client_state::PlayerRuntime,
+    context: &BlockUseContext,
+    runtime: &mut BlockUseRuntime,
+    item_use: &mut client_interaction::item_use::ItemUseRuntime,
+    movement: &MovementTicker,
+    attempt: &FrozenBuild,
+) -> Option<BuildPlan> {
+    let mut observed = attempt.observed.clone();
+    let state = &attempt.state;
+    let tick = state.tick.saturating_add(1);
+    let game_mode = player_runtime.facts.player_game_mode();
+    let caps = player_runtime.facts.game_mode_capabilities()?;
+    let stream = context.client_world.stream.as_ref()?;
+    let server_selection = observed.selection.clone();
+    let inventory_revision = context
+        .ui
+        .inventory_ledger(player_runtime)
+        .authoritative_slot_revision(server_selection.slot)
+        .unwrap_or(0);
+    observed.selection = runtime
+        .inventory
+        .selection(&server_selection, inventory_revision);
+    let surroundings = use_surroundings(context, &observed, state.position, state.sneaking);
+    let mut local_use = LocalUse::resolve(
+        &observed.selection.item,
+        observed.target.position,
+        observed.target.face,
+        &surroundings,
+        &caps,
+    );
+    let placement = (caps.can_build && local_use != LocalUse::Interact)
+        .then(|| {
+            predicted_placement(
+                &context.collisions,
+                stream,
+                observed.selection.item.block_runtime_id(),
+                &observed,
+                &surroundings,
+                *context.view,
+            )
+        })
+        .flatten();
+    if placement.is_some() && observed.selection.item.count() > 0 {
+        local_use = LocalUse::Place;
+    }
+    let destination = placement.as_ref().map_or_else(
+        || {
+            surroundings
+                .destination(observed.target.position, observed.target.face)
+                .0
+        },
+        |placement| placement.position,
+    );
+    let predicted = placement
+        .filter(|_| local_use == LocalUse::Place)
+        .map(|placement| {
+            std::iter::once((placement.position, 0, placement.block))
+                .chain(
+                    placement
+                        .additional
+                        .into_iter()
+                        .map(|(position, block)| (position, 0, block)),
+                )
+                .collect::<Vec<_>>()
+        });
+    let predicted = predicted.or_else(|| {
+        (local_use == LocalUse::Interact)
+            .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+            .flatten()
+            .map(|block| vec![(observed.target.position, 0, block)])
+    });
+    let local_runtime_id = stream.local_player_runtime_id();
+    // The tick has not simulated yet, so its swing reads the effects in force before it.
+    let swing_effects = context
+        .effects
+        .mining_tick(tick, movement.completed_tick())
+        .0;
+    let block_network_id = stream.block_network_id(observed.target.runtime_id)?;
+    item_use.synchronize(context.ui.session_id());
+    let legacy_request_id = protocol::next_legacy_request_id()?;
+    let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
+        .then(|| {
+            runtime
+                .inventory
+                .prepare_change(&observed.selection, legacy_request_id)
+        });
+    Some(BuildPlan {
+        observed,
+        server_selection,
+        inventory_revision,
+        local_use,
+        destination,
+        predicted,
+        local_runtime_id,
+        swing_effects,
+        block_network_id,
+        change,
+    })
+}
+
+/// Sends one frozen proposal and commits its effects only after successful transport admission.
+pub(crate) fn advance(
+    player_runtime: &mut client_state::PlayerRuntime,
+    context: &mut BlockUseContext,
+    runtime: &mut BlockUseRuntime,
+    item_use: &mut client_interaction::item_use::ItemUseRuntime,
+    swings: &mut SwingTracker,
+    movement: &MovementTicker,
+    attempt: &mut FrozenBuild,
+) -> bool {
+    if attempt.plan.is_none() {
+        attempt.plan = prepare(
+            player_runtime,
+            context,
+            runtime,
+            item_use,
+            movement,
+            attempt,
+        );
+    }
+    let Some(plan) = attempt.plan.as_ref().cloned() else {
+        return false;
+    };
+    let BuildPlan {
+        observed,
+        server_selection,
+        inventory_revision,
+        local_use,
+        destination,
+        predicted,
+        local_runtime_id,
+        swing_effects,
+        block_network_id,
+        change,
+    } = plan;
+    let state = &attempt.state;
+    let trigger = attempt.trigger;
+    let due = attempt.due;
+    let clock = attempt.clock;
+    let tick = state.tick.saturating_add(1);
+    let Some(stream) = context.client_world.stream.as_ref() else {
+        return false;
+    };
+    if !runtime.may_attempt(tick, local_use, swings) {
+        return false;
+    }
+    let start_destination = runtime
+        .last_success_destination()
+        .is_none()
+        .then_some(destination);
+    let mut before_swing = swings.clone();
+    let packets = use_packets(
+        (&observed, block_network_id),
+        state.position,
+        trigger,
+        local_use,
+        start_destination,
+        change.clone(),
+        local_runtime_id,
+        |tick| swings.try_swing_before_tick(tick, swing_effects),
+        tick,
+    );
+    let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
+    let sent = matches!(result, Some(Ok(())));
+    if sent {
+        runtime.intention.record(
+            trigger == ItemUseTrigger::SimulationTick,
+            destination,
+            local_use,
+            local_use != LocalUse::Interact
+                && held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                    .is_some_and(|block| {
+                        context
+                            .collisions
+                            .block_has_build_intention(stream.network_id_mode(), block)
+                    }),
+            state.sneaking,
+            observed.target.hit_world,
+        );
+    }
+    if !runtime.admit(trigger, due, tick, local_use, clock, sent) {
+        runtime.refuse_transport(
+            tick,
+            local_use,
+            matches!(result, Some(Err(client_session::BatchSendError::Full))),
+        );
+        before_swing.defer_unadmitted_attempt(&swings);
+        *swings = before_swing;
+        return false;
+    }
+    if let Some(change) = change {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .settle_use_slot_change(server_selection.slot, inventory_revision, &change);
+        runtime
+            .inventory
+            .commit(server_selection, inventory_revision, change);
+    }
+    if local_use == LocalUse::Place {
+        let position = destination;
+        context
+            .audio_cues
+            .write(client_audio::audio::LocalBlockCue::Place {
+                position,
+                block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
+                    observed.selection.item.block_runtime_id().to_ne_bytes(),
+                )) as i32,
+            });
+    }
+    // Java re-equips the held item after each placement.
+    if local_use == LocalUse::Place
+        && let Some(stream) = context.client_world.stream.as_mut()
+    {
+        stream.reset_local_java_equip();
+    }
+    // Vanilla places locally as it sends; a correction replaces the prediction.
+    if let (true, Some(cells), Some(stream)) =
+        (sent, predicted, context.client_world.stream.as_mut())
+    {
+        let applied = stream.predict_blocks(&cells);
+        if applied {
+            runtime.prediction_frames.committed(
+                context.frame.0,
+                cells
+                    .iter()
+                    .filter_map(|cell| stream.prediction_generation(cell.0)),
+            );
+        }
+        bevy::log::debug!(?cells, applied, "local block prediction committed");
+    }
+    true
+}

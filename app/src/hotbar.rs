@@ -1,9 +1,7 @@
 //! Local hotbar slot selection.
 //!
-//! Bedrock owns hotbar-slot selection on the client: number keys, the mouse wheel, and the
-//! controller cycle buttons change the held slot immediately (predicted locally so the HUD
-//! highlight follows input without waiting for the server), and the choice is announced upstream
-//! with a `PlayerHotbar` packet.
+//! Number keys, the mouse wheel and controller buttons announce the selected slot through
+//! equipment packets. Ordered desktop input publishes its local selection on FIFO admission.
 
 use crate::runtime::{
     network::resource_packs::PackApplication,
@@ -14,6 +12,8 @@ use client_runtime::network::NetworkHandle;
 use client_session::PacketSendError;
 use protocol::Packet;
 
+pub(crate) mod ordered;
+
 /// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
     clippy::too_many_arguments,
@@ -23,7 +23,15 @@ pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<FatalError>,
+    input: Option<Res<client_state::SemanticInputSnapshot>>,
 ) {
+    if input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.ordered.is_some())
+    {
+        return;
+    }
     if network.closed_command_has_pending_control() {
         return;
     }

@@ -37,6 +37,8 @@ use {
 };
 
 mod actor_use;
+mod build;
+pub(crate) mod ordered;
 
 use gameplay::block_use::{LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets};
 
@@ -58,7 +60,18 @@ pub(crate) struct BlockUseContext<'w, 's> {
     audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
-pub(crate) fn produce_block_use(
+/// Drains physical interactions before physics, then advances held placement once.
+pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+    crate::ordered_interactions::drain(world);
+    if !crate::ordered_interactions::pending(world) {
+        world
+            .run_system_cached(maintain_block_use)
+            .expect("block maintenance resources");
+    }
+}
+
+/// Advances held placement once after all immediately eligible ordered edges have drained.
+fn maintain_block_use(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
@@ -68,7 +81,12 @@ pub(crate) fn produce_block_use(
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
     let pick = runtime.pick(movement.interaction_authority_identity());
-    if context.input.phase(Action::Use).pressed {
+    if context.input.phase(Action::Use).pressed
+        && !context
+            .input
+            .snapshot()
+            .is_some_and(|input| input.ordered.is_some())
+    {
         runtime.forget_press_resolution();
     }
     swings.sync_ticks_for_item(
@@ -94,7 +112,11 @@ pub(crate) fn produce_block_use(
         stop_block_use(&mut runtime, &context, false);
         return;
     };
-    let use_phase = context.input.phase(Action::Use);
+    let mut use_phase = context.input.phase(Action::Use);
+    if input.ordered.is_some() {
+        use_phase.pressed = false;
+        use_phase.released = false;
+    }
     let attacking = context.input.phase(Action::Attack).held;
     if attacking {
         runtime.clear_press();
@@ -116,7 +138,9 @@ pub(crate) fn produce_block_use(
     }
     // An attack in the same frame is handled first: the use waits until melee resolves it,
     // and an actor hit then holds the use off for the post-attack window.
-    if context.input.phase(Action::Attack).pressed || context.melee.press_pending() {
+    if (input.ordered.is_none() && context.input.phase(Action::Attack).pressed)
+        || context.melee.press_pending()
+    {
         return;
     }
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
@@ -168,195 +192,36 @@ pub(crate) fn produce_block_use(
     ) {
         return;
     }
-    let (Some(mut observed), Some(stream)) = (
-        observe_use_target(
-            &player_runtime,
-            &context,
-            input_mode,
-            clock.survival,
-            (input.authority_generation, input.frame_sequence),
-            movement.interaction_authority_identity().1,
-            &runtime,
-            pick,
-            trigger,
-            &state,
-        ),
-        context.client_world.stream.as_ref(),
+    let Some(observed) = observe_use_target(
+        &player_runtime,
+        &context,
+        input_mode,
+        clock.survival,
+        (input.authority_generation, input.frame_sequence),
+        movement.interaction_authority_identity().1,
+        &runtime,
+        pick,
+        trigger,
+        &state,
     ) else {
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
-    let server_selection = observed.selection.clone();
-    let inventory_revision = context
-        .ui
-        .inventory_ledger(&player_runtime)
-        .authoritative_slot_revision(server_selection.slot)
-        .unwrap_or(0);
-    observed.selection = runtime
-        .inventory
-        .selection(&server_selection, inventory_revision);
-    let surroundings = use_surroundings(&context, &observed, state.position, state.sneaking);
-    let mut local_use = LocalUse::resolve(
-        &observed.selection.item,
-        observed.target.position,
-        observed.target.face,
-        &surroundings,
-        &caps,
-    );
-    let placement = (caps.can_build && local_use != LocalUse::Interact)
-        .then(|| {
-            predicted_placement(
-                &context.collisions,
-                stream,
-                observed.selection.item.block_runtime_id(),
-                &observed,
-                &surroundings,
-                *context.view,
-            )
-        })
-        .flatten();
-    if placement.is_some() && observed.selection.item.count() > 0 {
-        local_use = LocalUse::Place;
-    }
-    if !runtime.may_attempt(tick, local_use, &swings) {
-        return;
-    }
-    let destination = placement.as_ref().map_or_else(
-        || {
-            surroundings
-                .destination(observed.target.position, observed.target.face)
-                .0
-        },
-        |placement| placement.position,
-    );
-    let predicted = placement
-        .filter(|_| local_use == LocalUse::Place)
-        .map(|placement| {
-            std::iter::once((placement.position, 0, placement.block))
-                .chain(
-                    placement
-                        .additional
-                        .into_iter()
-                        .map(|(position, block)| (position, 0, block)),
-                )
-                .collect::<Vec<_>>()
-        });
-    let predicted = predicted.or_else(|| {
-        (local_use == LocalUse::Interact)
-            .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
-            .flatten()
-            .map(|block| vec![(observed.target.position, 0, block)])
-    });
-    let local_runtime_id = stream.local_player_runtime_id();
-    // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
-    // The tick has not simulated yet, so its swing reads the effects in force before it.
-    let swing_effects = context
-        .effects
-        .mining_tick(tick, movement.completed_tick())
-        .0;
-    let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
-        return;
-    };
-    item_use.synchronize(context.ui.session_id());
-    let Some(legacy_request_id) = protocol::next_legacy_request_id() else {
-        return;
-    };
-    let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
-        .then(|| {
-            runtime
-                .inventory
-                .prepare_change(&observed.selection, legacy_request_id)
-        });
-    let start_destination = runtime
-        .last_success_destination()
-        .is_none()
-        .then_some(destination);
-    let mut before_swing = swings.clone();
-    let packets = use_packets(
-        (&observed, block_network_id),
-        state.position,
-        trigger,
-        local_use,
-        start_destination,
-        change.clone(),
-        local_runtime_id,
-        |tick| swings.try_swing_before_tick(tick, swing_effects),
-        tick,
+    let mut attempt = build::FrozenBuild::new(observed, state, trigger, due, clock);
+    build::advance(
+        &mut player_runtime,
+        &mut context,
+        &mut runtime,
+        &mut item_use,
+        &mut swings,
+        &movement,
+        &mut attempt,
     );
-    let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
-    let sent = matches!(result, Some(Ok(())));
-    if sent {
-        runtime.intention.record(
-            trigger == ItemUseTrigger::SimulationTick,
-            destination,
-            local_use,
-            local_use != LocalUse::Interact
-                && held_block_store_id(stream, observed.selection.item.block_runtime_id())
-                    .is_some_and(|block| {
-                        context
-                            .collisions
-                            .block_has_build_intention(stream.network_id_mode(), block)
-                    }),
-            state.sneaking,
-            observed.target.hit_world,
-        );
-    }
-    if !runtime.admit(trigger, due, tick, local_use, clock, sent) {
-        runtime.refuse_transport(
-            tick,
-            local_use,
-            matches!(result, Some(Err(client_session::BatchSendError::Full))),
-        );
-        before_swing.defer_unadmitted_attempt(&swings);
-        *swings = before_swing;
-        return;
-    }
-    if let Some(change) = change {
-        player_runtime
-            .inventory
-            .ledger_mut()
-            .settle_use_slot_change(server_selection.slot, inventory_revision, &change);
-        runtime
-            .inventory
-            .commit(server_selection, inventory_revision, change);
-    }
-    if local_use == LocalUse::Place {
-        let position = destination;
-        context
-            .audio_cues
-            .write(client_audio::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
-                    observed.selection.item.block_runtime_id().to_ne_bytes(),
-                )) as i32,
-            });
-    }
-    // Java re-equips the held item after each placement.
-    if local_use == LocalUse::Place
-        && let Some(stream) = context.client_world.stream.as_mut()
-    {
-        stream.reset_local_java_equip();
-    }
-    // Vanilla places locally as it sends; a correction replaces the prediction.
-    if let (true, Some(cells), Some(stream)) =
-        (sent, predicted, context.client_world.stream.as_mut())
-    {
-        let applied = stream.predict_blocks(&cells);
-        if applied {
-            runtime.prediction_frames.committed(
-                context.frame.0,
-                cells
-                    .iter()
-                    .filter_map(|cell| stream.prediction_generation(cell.0)),
-            );
-        }
-        bevy::log::debug!(?cells, applied, "local block prediction committed");
-    }
 }
 
 fn use_surroundings(

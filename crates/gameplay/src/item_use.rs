@@ -162,6 +162,20 @@ impl ItemUseRuntime {
         }
     }
 
+    /// A newly admitted selection ends a charge without inventing a release transaction.
+    pub fn retire_reselected_use(&mut self, slot: u8) {
+        self.observe_selected_slot(Some(slot));
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.selection.slot != slot)
+        {
+            self.active = None;
+            self.riptide_release = None;
+            self.release_pending = false;
+        }
+    }
+
     /// Accepted use timing shared by native presentation and movement.
     pub fn active_timing(&self) -> Option<(u64, u32)> {
         self.active
@@ -294,6 +308,11 @@ impl ItemUseRuntime {
     /// Takes an admitted throw's inventory change once, including nonempty remainders.
     pub fn take_inventory_change(&mut self) -> Option<(u8, u64, PredictedSlotChange)> {
         self.inventory_change.take()
+    }
+
+    /// Whether a press or observed release still awaits packet admission.
+    pub const fn pending_edge(&self) -> bool {
+        self.latched_press || self.release_pending
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.

@@ -6,7 +6,7 @@ use client_presentation::{
 };
 use gameplay::melee::{ActorHit, Crosshair, classify, pick_actor_by, pick_distance};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::{collections::HashMap, ops::Range};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use super::MeleeContext;
 use crate::{
@@ -17,13 +17,14 @@ use client_interaction::mining::hand_interaction_selection;
 use gameplay::mining::{creative_reach, protocol_input_mode, survival_reach};
 
 /// One actor's identity and its ordered boxes in the frame's geometry buffer.
+#[derive(Clone)]
 struct FrameActor {
     identity: ActorLifetimeId,
     boxes: Range<usize>,
 }
 
 /// Published picking inputs contain no hit, classification or admission result.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Frame {
     origin: InteractionOriginSnapshot,
     action_rotation: Option<Quat>,
@@ -45,11 +46,16 @@ impl Frame {
 /// Two reusable input buffers keep the preceding published frame coherent.
 #[derive(Default)]
 pub(crate) struct FrameInputs {
-    previous: Frame,
-    current: Frame,
+    previous: Arc<Frame>,
+    current: Arc<Frame>,
 }
 
 impl FrameInputs {
+    /// Identifies a complete published frame without advancing the two frame buffers.
+    pub(super) fn has_current(&self, position: PositionAuthorityGeneration) -> bool {
+        self.current.position_authority == position && self.current.origin.outbound_ray().is_some()
+    }
+
     /// Publishes the current ray and frame-positioned actor boxes together, reusing storage.
     pub(super) fn publish(
         &mut self,
@@ -57,7 +63,7 @@ impl FrameInputs {
         position_authority: PositionAuthorityGeneration,
     ) {
         std::mem::swap(&mut self.previous, &mut self.current);
-        let frame = &mut self.current;
+        let frame = Arc::make_mut(&mut self.current);
         frame.origin.clone_from(&context.origin);
         frame.action_rotation =
             client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
@@ -100,11 +106,11 @@ impl FrameInputs {
 
 /// One frame's resolved press and its action-facing decision travel together.
 #[derive(Clone, Copy)]
-pub(super) struct ResolvedTarget {
-    pub(super) crosshair: Crosshair,
-    pub(super) hover: Option<gameplay::entity_hover::HoveredActor>,
-    pub(super) direction: [f32; 3],
-    pub(super) action_rotation: Option<Quat>,
+pub(crate) struct ResolvedTarget {
+    pub(crate) crosshair: Crosshair,
+    pub(crate) hover: Option<gameplay::entity_hover::HoveredActor>,
+    pub(crate) direction: [f32; 3],
+    pub(crate) action_rotation: Option<Quat>,
 }
 
 /// Picks once against published camera and actor geometry, using current admission policy.
@@ -114,8 +120,46 @@ pub(super) fn resolve_crosshair(
     frames: &FrameInputs,
     position_authority: PositionAuthorityGeneration,
 ) -> Option<ResolvedTarget> {
+    resolve_frame(player, context, frames.published(position_authority))
+}
+
+/// Immutable published geometry shared by a batch, with no cached hit or admission decision.
+#[derive(Clone)]
+pub(crate) struct CapturedInputs(Arc<Frame>);
+
+/// An early press retains the last publication; a late press retains the preceding buffer.
+pub(super) fn capture_ordered_inputs(
+    frames: &FrameInputs,
+    position: PositionAuthorityGeneration,
+    prepared_this_frame: bool,
+) -> CapturedInputs {
+    let frame = if prepared_this_frame
+        && frames.previous.position_authority == position
+        && frames.previous.origin.outbound_ray().is_some()
+    {
+        &frames.previous
+    } else {
+        &frames.current
+    };
+    CapturedInputs(Arc::clone(frame))
+}
+
+/// Resolves each ordered press separately against its published inputs and current policy.
+pub(super) fn resolve_captured(
+    player: &client_state::PlayerRuntime,
+    context: &MeleeContext,
+    captured: &CapturedInputs,
+) -> Option<ResolvedTarget> {
+    resolve_frame(player, context, &captured.0)
+}
+
+/// Applies current admission policy to one coherent published camera and actor frame.
+fn resolve_frame(
+    player: &client_state::PlayerRuntime,
+    context: &MeleeContext,
+    frame: &Frame,
+) -> Option<ResolvedTarget> {
     context.origin.outbound_ray()?;
-    let frame = frames.published(position_authority);
     let ray = frame.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
     if !ray_is_current(ray, SessionGeneration::new(context.ui.session_id()), stream) {
@@ -197,7 +241,7 @@ pub(super) fn resolve_crosshair(
                     input_mode,
                     block_pick_reach(reach, actor_reach),
                     (input.authority_generation, input.frame_sequence),
-                    position_authority,
+                    frame.position_authority,
                 ),
             ) {
                 Ok(observed) => observed,
