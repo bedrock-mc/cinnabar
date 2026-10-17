@@ -71,6 +71,11 @@ impl ModHost {
     pub fn needs_drawing_restart(&self) -> bool {
         self.drawing_restart
     }
+
+    /// Identifies the successfully admitted component for session capability scope.
+    pub fn admitted_source_digest(&self) -> [u8; 32] {
+        self.admitted_digest
+    }
 }
 
 #[cfg(test)]
