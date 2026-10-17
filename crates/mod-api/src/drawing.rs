@@ -1,46 +1,27 @@
 //! Authority and lifetimes for the versioned world drawing interface.
 
-/// Independently consented drawing authority. Absence always denies a capability.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DrawingPermissions {
-    pub world_draw: bool,
-    pub entity_observe: bool,
-    pub entity_highlight: bool,
-    pub render_through_walls: bool,
-    pub render_material: bool,
-    pub render_post: bool,
-}
-
-impl DrawingPermissions {
-    /// Host ceiling for an explicitly local world; user consent still applies.
-    pub const ALL: Self = Self {
-        world_draw: true,
-        entity_observe: true,
-        entity_highlight: true,
-        render_through_walls: true,
-        render_material: true,
-        render_post: true,
-    };
-
-    /// Retains only permissions independently authorized by both inputs.
-    pub const fn intersect(self, other: Self) -> Self {
-        Self {
-            world_draw: self.world_draw && other.world_draw,
-            entity_observe: self.entity_observe && other.entity_observe,
-            entity_highlight: self.entity_highlight && other.entity_highlight,
-            render_through_walls: self.render_through_walls && other.render_through_walls,
-            render_material: self.render_material && other.render_material,
-            render_post: self.render_post && other.render_post,
+macro_rules! permissions {
+    ($($field:ident),+ $(,)?) => {
+        /// Independently consented drawing authority. Absence always denies a capability.
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub struct DrawingPermissions { $(pub $field: bool,)+ }
+        impl DrawingPermissions {
+            /// Canonical capability names, generated from their owning fields.
+            pub const NAMES: &'static [&'static str] = &[$(stringify!($field),)+];
+            /// Host ceiling for an explicitly local world; user consent still applies.
+            pub const ALL: Self = Self { $($field: true,)+ };
+            /// Retains only authority independently granted by both inputs.
+            pub const fn intersect(self, other: Self) -> Self { Self { $($field: self.$field && other.$field,)+ } }
+            /// Reads one canonical permission name; unknown names never grant authority.
+            pub fn enabled(self, name: &str) -> bool { match name { $(stringify!($field) => self.$field,)+ _ => false } }
+            /// Intersects host limits, package request, user consent and current session policy.
+            pub const fn effective(host: Self, requested: Self, consent: Self, session: Self) -> Self {
+                host.intersect(requested).intersect(consent).intersect(session)
+            }
         }
-    }
-
-    /// Intersects host limits, the package request, user consent and current session policy.
-    pub const fn effective(host: Self, requested: Self, consent: Self, session: Self) -> Self {
-        host.intersect(requested)
-            .intersect(consent)
-            .intersect(session)
-    }
+    };
 }
+permissions! { world_draw, entity_observe, entity_highlight, render_through_walls, render_material, render_post }
 
 /// A token belongs to one owner incarnation; slots never authorize another incarnation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
