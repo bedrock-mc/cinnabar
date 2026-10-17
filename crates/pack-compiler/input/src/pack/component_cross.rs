@@ -165,10 +165,10 @@ fn material(block: &Value) -> Option<(&str, CrossMaterial)> {
             _ => return None,
         }
     }
-    if let Some(dimming) = instance.get("face_dimming") {
-        if !dimming.as_bool()? {
-            flags |= assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
-        }
+    if let Some(dimming) = instance.get("face_dimming")
+        && !dimming.as_bool()?
+    {
+        flags |= assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
     }
     let texture = instance.get("texture")?.as_str()?.trim();
     (!texture.is_empty()).then_some((
