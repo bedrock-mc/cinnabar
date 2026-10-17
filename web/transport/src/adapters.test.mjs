@@ -276,3 +276,17 @@ test("finishing a join resets readers still waiting for their archive prefix", a
     assert.equal(partial.locked, false);
     adapter.close(t);
 });
+
+
+test("retired prefix probes backpressure stream admission without resetting the fresh join", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    await adapter.open(t, values.RELAY_CHANNEL_PLAY, "3");
+    const fresh = archiveStream([3], 3n);
+    const peer = Quic.instances.at(-1);
+    for (const archive of [archiveStream([1], 1n), archiveStream([2], 2n), fresh]) peer.incoming.enqueue(archive.stream);
+    await turns();
+    try {
+        assert.equal(fresh.resets(), 0);
+        assert.deepEqual(await adapter.read(await adapter.acceptPacks(t)), fresh.bytes);
+    } finally { adapter.close(t); }
+});

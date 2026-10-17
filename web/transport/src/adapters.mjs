@@ -93,13 +93,18 @@ function preparePacks(t, play, join) {
             const incoming = t.incoming = t.connection.incomingUnidirectionalStreams.getReader();
             try {
                 while (!t.closed) {
+                    const pending = t.packs;
+                    if (pending?.probes.size >= t.c.chunks) {
+                        await Promise.race(Array.from(pending.probes, probe => probe.routing));
+                        continue;
+                    }
                     const { done, value } = await incoming.read();
                     if (done) { close(t); return; }
                     const active = t.packs;
-                    if (active && !active.failed && !active.reader && active.probes.size < t.c.chunks) {
+                    if (active && !active.failed && !active.reader) {
                         const probe = channel(t, t.c.playBytes);
                         probe.reader = value.getReader(); active.probes.add(probe);
-                        routePacks(active, probe).catch(() => {}).finally(() => {
+                        probe.routing = routePacks(active, probe).catch(() => {}).finally(() => {
                             active.probes.delete(probe); probe.fail();
                         });
                     } else { value.cancel().catch(() => {}); }
