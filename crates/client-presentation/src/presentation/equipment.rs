@@ -5,11 +5,12 @@ mod atlas;
 mod display;
 mod first_person;
 #[cfg(any(test, feature = "test-support"))]
-mod frame_raster;
+pub(crate) mod frame_raster;
 #[cfg(test)]
 mod frames;
 mod input;
 mod runtime;
+pub(crate) use runtime::HeldSelection;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 #[cfg(test)]
@@ -18,8 +19,8 @@ mod tests;
 pub use display::FirstPersonHand;
 pub use input::{local_input, remote_input};
 pub use runtime::{
-    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, HeldKind, JavaGrip, WornItem,
-    java_draws_attachable,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation, HeldKind,
+    JavaGrip, WornItem, java_draws_attachable,
 };
 pub use runtime::{
     BlockItemPreparer, EquipmentRuntime, FirstPersonArms, FirstPersonItem, PreparedBlockItems,

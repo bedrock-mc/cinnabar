@@ -113,6 +113,7 @@ fn held(identifier: &str) -> ActorEquipmentInput {
             kind: HeldKind::Sprite,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         ..Default::default()
     }
@@ -399,7 +400,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         rig.completed_tick = tick;
         batch.submissions.truncate(1);
         batch.artwork.clear();
-        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body| {
+        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body, _| {
             runtime.layers_for(
                 body,
                 &input,
@@ -419,7 +420,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         runtime.begin_frame();
         batch.submissions.truncate(1);
         batch.artwork.clear();
-        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body| {
+        crate::presentation::actors::attach_layers(&mut batch, &mut runtime, |runtime, body, _| {
             runtime.layers_for(
                 body,
                 &input,
@@ -1193,3 +1194,5 @@ mod artwork;
 
 #[path = "held_style_tests.rs"]
 mod style;
+#[path = "held_variant_tests.rs"]
+mod variants;

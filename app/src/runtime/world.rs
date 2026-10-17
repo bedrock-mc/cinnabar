@@ -14,7 +14,7 @@ use {
     acceptance::model_witness::ModelWitnessFileSource,
     acceptance::mutation::deterministic_mutation_coordinate, diagnostics::write_stdout_marker,
 };
-mod committed_ui;
+pub(super) mod committed_ui;
 mod control_apply;
 mod dimension;
 mod input_locks;

@@ -341,6 +341,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let armor = ActorEquipmentInput {
@@ -410,6 +411,7 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
                 kind: HeldKind::Sprite,
                 dye_rgb: None,
                 enchanted: false,
+                glint: Default::default(),
             }),
             ..ActorEquipmentInput::default()
         };
@@ -614,28 +616,6 @@ fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     ]
 }
 
-#[test]
-fn java_hand_preserves_a_pack_bow_binding_selected_ahead_of_vanilla() {
-    let files = crown_pack()
-        .into_iter()
-        .map(|(path, bytes)| {
-            let bytes = if path.ends_with(".json") {
-                String::from_utf8(bytes)
-                    .unwrap()
-                    .replace("test:crown", "minecraft:bow")
-                    .into_bytes()
-            } else {
-                bytes
-            };
-            (path, bytes)
-        })
-        .collect();
-    let (mut runtime, _) = pack_runtime(files);
-    assert!(runtime.is_vanilla_attachable("minecraft:bow"));
-    runtime.set_pack_layer(None);
-    assert!(!runtime.is_vanilla_attachable("minecraft:bow"));
-}
-
 // A custom attachable whose name and geometry say nothing is worn where `minecraft:wearable` puts it.
 #[test]
 fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
@@ -652,6 +632,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let worn = ActorEquipmentInput {
@@ -685,6 +666,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
@@ -757,6 +739,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         ..ActorEquipmentInput::default()
     };
@@ -812,6 +795,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let mut items = session_items(
@@ -974,6 +958,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         java: Some(JavaGrip::default()),
         ..ActorEquipmentInput::default()
@@ -1013,6 +998,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let items = session_items(
@@ -1047,7 +1033,9 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         ],
         ..Default::default()
     };
-    let layers = runtime.layers_for_profile(&body, &input, render_api::CombatVisuals::Modern, None);
+    let layers = runtime
+        .layers_for_profile(&body, &input, render_api::CombatVisuals::Modern, None)
+        .layers;
     assert_eq!(layers.len(), 3);
     assert!(
         layers
@@ -1095,6 +1083,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
@@ -1103,6 +1092,8 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     runtime.set_session_items(Some(&items), Some(staged), locations);
     let glinting = WornItem {
         enchanted: true,
+
+        glint: Default::default(),
         ..plain.clone()
     };
     let mut materials = |item: &WornItem| {

@@ -155,6 +155,23 @@ fn open_search() -> (screen::Modal, Arc<screen::Files>) {
     (modal, Arc::new(files(&[("ui/terminal.json", SEARCH)])))
 }
 
+/// The `#item_id_aux` keys a client part binds in its rows are the ones its item renderers draw.
+#[test]
+fn bound_item_keys_are_the_modal_icon_keys() {
+    let (mut modal, files) = open_search();
+    let row =
+        |key: i64| screen::Row::from([("#item_id_aux".to_owned(), screen::Value::Integer(key))]);
+    modal
+        .collections
+        .insert("items".into(), Arc::from([row(1 << 16), row(5 << 16 | 2)]));
+    let presentation = drawn(&modal, &files, [1280, 720]);
+    let keys = presentation.mod_ui().experience_modal_icon_keys().unwrap();
+    assert_eq!(
+        keys.iter().copied().collect::<Vec<_>>(),
+        [1 << 16, 5 << 16 | 2]
+    );
+}
+
 /// The drawn modal's size is its root's, in GUI units, with the GUI scale that maps them onto the
 /// window; a resize changes it, and a closed modal has none.
 #[test]

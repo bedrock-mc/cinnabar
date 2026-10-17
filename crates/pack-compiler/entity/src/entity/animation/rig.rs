@@ -32,11 +32,12 @@ pub(super) struct PendingRigPayload {
 struct PendingRig {
     entity_symbol: u32,
     placement_frame: assets::placement::EntityPlacementFrame,
-    render_controller: u32,
+    render_controller: Option<u32>,
     geometries: Vec<PendingRigGeometry>,
     fallback: EntityRigFallback,
     initialize: Option<u32>,
     pre_animation: Option<u32>,
+    item_condition: Option<u32>,
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
 }
@@ -110,6 +111,7 @@ impl PendingRigPayload {
                 fallback: rig.fallback,
                 initialize: rig.initialize,
                 pre_animation: rig.pre_animation,
+                item_condition: rig.item_condition,
                 scale: rig.scale,
                 scale_expressions: rig.scale_expressions,
             });
@@ -181,6 +183,43 @@ pub(super) fn compile_rigs(
             symbol: entity_symbol as u32,
             reason,
         };
+        let item_condition = description
+            .get("item")
+            .and_then(Value::as_object)
+            .and_then(|items| items.values().next())
+            .map(|condition| {
+                condition
+                    .as_str()
+                    .ok_or_else(|| invalid("item condition must be a string"))
+                    .and_then(|condition| molang.compile(condition))
+                    .or_else(|_| {
+                        outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
+                            source: entity.source_index,
+                            symbol: entity_symbol as u32,
+                            reason: FallbackReason::UnsupportedOptionalExpression,
+                        });
+                        // An unreadable restriction must not admit this definition for every owner.
+                        molang.compile("0")
+                    })
+            })
+            .transpose()?;
+        // Owner selection remains available when this pack reuses external render resources.
+        let selection_rig = (entity.kind == EntityAssetKind::Attachable).then(|| {
+            let index = rigs.len();
+            rigs.push(PendingRig {
+                placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
+                entity_symbol: entity_symbol as u32,
+                render_controller: None,
+                geometries: Vec::new(),
+                fallback: EntityRigFallback::GeometryOnly,
+                initialize: None,
+                pre_animation: None,
+                item_condition,
+                scale: EntityGeometryScalar::new(1.0).expect("unit scale is valid"),
+                scale_expressions: None,
+            });
+            index
+        });
         let Some(geometry_name) = default_geometry(description.get("geometry")) else {
             outcomes.push(reject(RejectReason::MissingGeometryReference));
             continue;
@@ -348,14 +387,14 @@ pub(super) fn compile_rigs(
             });
         }
         let rig_index = rigs.len() as u32;
-        rigs.push(PendingRig {
+        let compiled_rig = PendingRig {
             placement_frame: if entity.kind == EntityAssetKind::Entity {
                 assets::placement::builtin_placement_frame(&entity.identifier)
             } else {
                 assets::placement::EntityPlacementFrame::Unresolved
             },
             entity_symbol: entity_symbol as u32,
-            render_controller,
+            render_controller: Some(render_controller),
             geometries: pending_geometries,
             fallback: if static_fallback {
                 EntityRigFallback::GeometryOnly
@@ -364,9 +403,20 @@ pub(super) fn compile_rigs(
             },
             initialize: scripts.initialize,
             pre_animation: scripts.pre_animation,
+            item_condition,
             scale: scripts.scale,
             scale_expressions: scripts.scale_expressions,
-        });
+        };
+        let rig_index = match selection_rig {
+            Some(index) => {
+                rigs[index] = compiled_rig;
+                index as u32
+            }
+            None => {
+                rigs.push(compiled_rig);
+                rig_index
+            }
+        };
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
     Ok((PendingRigPayload { rigs, outcomes }, names))
@@ -395,7 +445,13 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let field = |name: &str| {
+            scripts.and_then(|scripts| {
+                scripts
+                    .get(name)
+                    .or_else(|| scripts.get(&name.to_ascii_lowercase()))
+            })
+        };
         let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),

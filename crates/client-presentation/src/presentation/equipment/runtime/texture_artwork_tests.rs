@@ -47,6 +47,12 @@ fn assert_draw_work(
     location: ActorArtworkLocation,
     source: (Arc<RuntimeEquipmentCatalog>, bool),
 ) {
+    let source = super::pack::BindingSource {
+        catalog: source.0,
+        from_pack: source.1,
+        index: 0,
+        startup: None,
+    };
     let (path, catalog_accesses) = assets::equipment::count_texture_slice_accesses(|| {
         catalog.textures()[index].identifier.as_ref()
     });
@@ -58,12 +64,8 @@ fn assert_draw_work(
         assets::equipment::count_texture_slice_accesses(|| {
             test_alloc::count(|| {
                 for _ in 0..128 {
-                    let (resolved, selected, placed) = std::hint::black_box(runtime.draw_artwork(
-                        "fixture:equipment",
-                        path,
-                        (Arc::clone(&source.0), source.1),
-                    ))
-                    .unwrap();
+                    let (resolved, selected, placed) =
+                        std::hint::black_box(runtime.draw_artwork(path, &source)).unwrap();
                     assert!(Arc::ptr_eq(&resolved, catalog));
                     assert_eq!(selected, index);
                     assert_eq!(placed, location);
@@ -127,7 +129,15 @@ fn pack_texture_lookup_does_not_scan_or_reuse_replaced_indices() {
         );
         assert!(
             runtime
-                .draw_artwork("fixture:equipment", "textures/missing", (catalog, true))
+                .draw_artwork(
+                    "textures/missing",
+                    &super::pack::BindingSource {
+                        catalog,
+                        from_pack: true,
+                        index: 0,
+                        startup: None,
+                    },
+                )
                 .is_none()
         );
     }

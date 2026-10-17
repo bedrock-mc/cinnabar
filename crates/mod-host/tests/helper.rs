@@ -110,6 +110,7 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
             },
             epoch: 1,
             gui: None,
+            items: None,
         })
         .unwrap();
     reply(helper)

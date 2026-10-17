@@ -1212,6 +1212,12 @@
           "go": "PermissionMedia",
           "json": "media",
           "implemented": false
+        },
+        {
+          "rust": "Items",
+          "go": "PermissionItems",
+          "json": "items",
+          "implemented": false
         }
       ]
     },

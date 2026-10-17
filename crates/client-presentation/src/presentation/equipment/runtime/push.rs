@@ -8,18 +8,58 @@ use {
 };
 
 impl EquipmentRuntime {
+    /// Draws one admitted held definition, then uses the selected hand's ordinary mesh.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_held(
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
         layer: u8,
-        hand: Option<usize>,
+        bones: &BodyBones,
+        source: Option<&pack::BindingSource>,
+        (equipment, animation): (&ActorEquipmentInput, Option<EquipmentAnimation<'_>>),
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        if self.push_attachable(body, item, layer, hand, layer == LAYER_OFF_HAND, layers) {
-            return;
+        if let Some(source) = source {
+            let binding = &source.catalog.bindings()[source.index];
+            let authored = layer != LAYER_MAIN_HAND
+                || equipment.java.is_none()
+                || java::keep_authored_hand(&item.identifier, binding.category, source.from_pack);
+            if authored
+                && (equipment.java.is_none() || binding.third_person.literal().is_none())
+                && let Some(animation) = animation
+                && let Some(animated) = self.held_attachable_from_source(
+                    body,
+                    item,
+                    source,
+                    animation.owner,
+                    animation.rig,
+                    animation.held_input(equipment, layer == LAYER_OFF_HAND),
+                    None,
+                )
+            {
+                layers.push(animated.presentation);
+                return;
+            }
+            let hand = if layer == LAYER_OFF_HAND {
+                bones.left_item
+            } else {
+                bones.right_item
+            };
+            if self.push_attachable(body, item, layer, hand, source, layers) {
+                return;
+            }
         }
-        self.push_attached(body, item, layer, hand, None, layers);
+        if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
+            self.push_java_held(body, item, bones, grip, layers);
+        } else {
+            let hand = if layer == LAYER_OFF_HAND {
+                bones.left_item
+            } else {
+                bones.right_item
+            };
+            self.push_attached(body, item, layer, hand, None, layers);
+        }
     }
 
     /// A held item whose attachable ships its own single-bone geometry and a literal
@@ -31,26 +71,21 @@ impl EquipmentRuntime {
         item: &WornItem,
         layer: u8,
         hand: Option<usize>,
-        off_hand: bool,
+        source: &pack::BindingSource,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
-        if self.uses_native_item_mesh(&item.identifier) {
-            return false;
-        }
         let Some(hand) = hand else {
             return false;
         };
-        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
-            return false;
-        };
-        let Some(binding) = catalog.binding(&item.identifier) else {
-            return false;
-        };
-        let Some((_, _, location)) = self.draw_artwork(
-            &item.identifier,
-            &binding.texture.identifier,
-            (Arc::clone(&catalog), from_pack),
-        ) else {
+        let off_hand = layer == LAYER_OFF_HAND;
+        let pack::BindingSource {
+            ref catalog,
+            from_pack,
+            index,
+            ..
+        } = *source;
+        let binding = &catalog.bindings()[index];
+        let Some((_, _, location)) = self.draw_artwork(&binding.texture.identifier, source) else {
             return false;
         };
         let channels = match self.effective_category(&item.identifier, binding.category) {
@@ -223,6 +258,7 @@ impl EquipmentRuntime {
         body_geometry: u32,
         (slot, layer): (ArmorSlot, u8),
         item: &WornItem,
+        source: pack::BindingSource,
         (equipment, animation, profile): (
             &ActorEquipmentInput,
             Option<EquipmentAnimation<'_>>,
@@ -230,61 +266,123 @@ impl EquipmentRuntime {
         ),
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
-            return;
-        };
-        let Some(binding) = catalog.binding(&item.identifier) else {
-            return;
-        };
+        let pack::BindingSource {
+            ref catalog,
+            from_pack,
+            index,
+            ..
+        } = source;
+        let binding = &catalog.bindings()[index];
         // A custom item's `minecraft:wearable` slot names where its attachable is worn.
         let category = self.effective_category(&item.identifier, binding.category);
         if category != (EquipmentCategory::Armor { slot }) {
             return;
         }
-        let selected = animation
-            .and_then(|animation| self.worn_render(item, slot, equipment, animation, from_pack));
+        let selected = match animation.map(|animation| {
+            self.worn_render(
+                item,
+                slot,
+                equipment,
+                animation,
+                from_pack,
+                binding.attachable_identifier(),
+                body,
+                bones,
+            )
+        }) {
+            Some(Ok(None)) => return,
+            Some(Ok(selected)) => selected,
+            _ => None,
+        };
         let texture = selected
             .as_ref()
-            .map(|(texture, _)| texture.as_ref())
+            .map(|selected| selected.texture.as_ref())
             .unwrap_or(&binding.texture.identifier);
-        let Some((_, _, location)) =
-            self.draw_artwork(&item.identifier, texture, (Arc::clone(&catalog), from_pack))
-        else {
+        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
             return;
         };
-        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier, from_pack)
-        else {
+        let geometry_identifier = selected
+            .as_ref()
+            .map_or(binding.geometry.identifier.as_ref(), |selected| {
+                selected.geometry.as_ref()
+            });
+        let geometry = self
+            .armor_geometry_for(geometry_identifier, from_pack)
+            .map(|geometry| (geometry_identifier, geometry))
+            .or_else(|| {
+                if from_pack
+                    || selected.is_some()
+                    || binding.category != (EquipmentCategory::Armor { slot })
+                    || binding.geometry.resolution != EntityDependencyResolution::External
+                {
+                    return None;
+                }
+                // Native external models keep a static startup mesh without its owner scripts.
+                catalog
+                    .bindings_for(&item.identifier)
+                    .iter()
+                    .rev()
+                    .find_map(|fallback| {
+                        self.armor_geometry_for(&fallback.geometry.identifier, false)
+                            .map(|geometry| (fallback.geometry.identifier.as_ref(), geometry))
+                    })
+            });
+        let Some((geometry_identifier, geometry)) = geometry else {
             return;
         };
+        if selected.is_some()
+            && geometry_identifier != binding.geometry.identifier.as_ref()
+            && self.selected_geometries.insert(geometry.rig)
+        {
+            let assets = if from_pack {
+                &self.pack.as_ref().unwrap().assets
+            } else {
+                &self.assets
+            };
+            if let Some(index) = find_geometry_index(assets, geometry_identifier)
+                && let Some(mesh) =
+                    render_model::equipment_geometry(assets, index as usize, geometry.rig)
+            {
+                self.pending.push(mesh);
+            }
+        }
         let map = Arc::clone(
             self.armor_maps
                 .entry((
                     body_geometry,
                     if from_pack {
-                        format!(
-                            "{}{}",
-                            pack::ARMOR_CACHE_PREFIX,
-                            binding.geometry.identifier
-                        )
-                        .into()
+                        format!("{}{}", pack::ARMOR_CACHE_PREFIX, geometry_identifier).into()
                     } else {
-                        binding.geometry.identifier.clone()
+                        geometry_identifier.into()
                     },
                 ))
                 .or_insert_with(|| bone_map(&geometry.names, &bones.names).into()),
         );
         let tint = binding.color_mask_rgb(item.dye_rgb).map_or(0, pack_tint);
-        let (previous, current) = (
+        let (mut previous, mut current) = (
             remap_pose(&map, &body.input.previous_bones),
             remap_pose(&map, &body.input.current_bones),
         );
+        if let Some(selected) = &selected {
+            for poses in [&mut previous, &mut current] {
+                for (index, pose) in poses.iter_mut().enumerate() {
+                    if selected.layer.hidden_bones.contains(&(index as u32)) {
+                        *pose = hidden_bone();
+                    } else if map[index].is_none()
+                        && let Some(authored) = selected.pose.get(index)
+                    {
+                        *pose = *authored;
+                    }
+                }
+            }
+        }
         let poses = self.poses.share(body, layer, [&previous, &current]);
         let mut presentation = layer_presentation(body, layer, geometry.rig, poses, location, tint);
         let color_mask = profile == render_api::CombatVisuals::Legacy112
             && binding.color_mask == assets::EquipmentColorMask::Dye;
         presentation.submission.material.color_mask = color_mask;
         if profile == render_api::CombatVisuals::Legacy112 {
-            presentation.submission.material.kind = if item.enchanted {
+            presentation.submission.material.kind = if item.has_glint() {
                 assets::EntityRenderMaterial::Glint
             } else {
                 assets::EntityRenderMaterial::Default
@@ -297,18 +395,20 @@ impl EquipmentRuntime {
         }
         if profile == render_api::CombatVisuals::Legacy112
             && from_pack
-            && let Some((_, selected)) = selected
+            && let Some(selected) = selected
         {
             presentation.submission.material.glint = render_model::ActorGlint {
                 profile,
                 ..Default::default()
             };
-            super::style::LayerStyle::from_layer(&selected).apply(&mut presentation.submission);
+            super::style::LayerStyle::from_layer(&selected.layer)
+                .apply(&mut presentation.submission);
         }
         layers.push(presentation);
     }
 
     /// Returns selected worn artwork and shading; the binding supplies missing state.
+    #[allow(clippy::too_many_arguments)]
     fn worn_render(
         &mut self,
         item: &WornItem,
@@ -316,51 +416,86 @@ impl EquipmentRuntime {
         equipment: &ActorEquipmentInput,
         animation: EquipmentAnimation<'_>,
         from_pack: bool,
-    ) -> Option<(Box<str>, actor_animation::RenderTextureLayer)> {
-        let elapsed = animation
-            .owner
-            .is_using_item()
-            .then_some(animation.rig.hand[1].use_ticks);
-        let use_facts = equipment
-            .main
-            .as_ref()
-            .map(|main| main.use_facts)
-            .unwrap_or_default();
-        let duration = use_facts.ticks.unwrap_or_default();
-        let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
-        let input = equipment.attachable_input(actor_animation::AttachableAnimationInput {
-            worn: true,
-            worn_slot: slot as u8,
-            frame_alpha: animation.frame_alpha,
-            use_elapsed_ticks: elapsed,
-            delta_seconds: Some(animation.delta_seconds),
-            animation_frame: inventory::ranged_animation_frame(
-                use_facts.animation,
-                elapsed,
-                duration,
-            ),
-            max_use_ticks: duration,
-            owner_variables: &variables,
-            ..Default::default()
-        });
+        attachable_identifier: &str,
+        body: &ActorRigSubmission,
+        bones: &BodyBones,
+    ) -> Result<Option<types::WornRender>, ()> {
+        let variables = [(
+            assets::entity::EngineVariable::IsEnchanted.name(),
+            f32::from(item.has_glint()),
+        )];
+        let input = animation.worn_input(equipment, slot, &variables);
         let (assets, runtime) = if from_pack {
-            let pack = self.pack.as_mut()?;
+            let pack = self.pack.as_mut().ok_or(())?;
             (&pack.assets, &mut pack.attachables)
         } else {
             (&self.assets, &mut self.attachables)
         };
-        let evaluated =
-            runtime.evaluate(&item.identifier, animation.owner, animation.rig, input)?;
-        let layer = evaluated
+        let evaluated = runtime
+            .evaluate(attachable_identifier, animation.owner, animation.rig, input)
+            .ok_or(())?;
+        let Some(layer) = evaluated
             .render
             .iter()
-            .find(|layer| layer.texture_slot == 0)?;
-        let path = &assets.sources().get(layer.source as usize)?.path;
+            .find(|layer| layer.texture_slot == 0)
+        else {
+            return Ok(None);
+        };
+        let geometry_index = layer.geometry.unwrap_or(evaluated.geometry);
+        let geometry = assets
+            .geometries()
+            .get(geometry_index as usize)
+            .ok_or(())?
+            .identifier
+            .clone();
+        let local = if layer.pose.is_empty() {
+            evaluated.pose
+        } else {
+            &layer.pose
+        };
+        let pose = local
+            .iter()
+            .enumerate()
+            .map(|(index, local)| {
+                if layer.hidden_bones.contains(&(index as u32))
+                    || (geometry_index == evaluated.geometry
+                        && evaluated.bone_names.get(index).is_some_and(|name| {
+                            bones
+                                .names
+                                .iter()
+                                .any(|owner| owner.eq_ignore_ascii_case(name))
+                        }))
+                {
+                    return Some(hidden_bone());
+                }
+                let root = evaluated.bone_parent(geometry_index, index)?;
+                if root == actor_animation::AttachableBoneParent::BindingExpression {
+                    return None;
+                }
+                let parent = modern::parent_for_root(
+                    &body.input.previous_bones,
+                    &body.input.current_bones,
+                    bones,
+                    input,
+                    root,
+                    evaluated.axis_scale.map(|axis| axis * evaluated.scale),
+                )?;
+                modern::compose_parent(parent, *local)
+            })
+            .map(|pose| pose.unwrap_or_else(hidden_bone))
+            .collect();
+        let path = &assets.sources().get(layer.source as usize).ok_or(())?.path;
         let texture = path
             .strip_suffix(".png")
-            .or_else(|| path.strip_suffix(".tga"))?
+            .or_else(|| path.strip_suffix(".tga"))
+            .ok_or(())?
             .into();
-        Some((texture, layer.clone()))
+        Ok(Some(types::WornRender {
+            texture,
+            geometry,
+            layer: layer.clone(),
+            pose,
+        }))
     }
 
     /// A worn head riding the body's head bone.
@@ -431,13 +566,13 @@ pub(super) fn attachable_glint(
     )
 }
 
-/// Adds the requested glint material when the item's stack is enchanted.
+/// Adds shine when actual enchantments or intrinsic facts request it.
 fn with_glint(
     mut presentation: EquipmentPresentation,
     item: &WornItem,
     glint: render_model::ActorGlint,
 ) -> EquipmentPresentation {
-    if item.enchanted {
+    if item.has_glint() {
         presentation.submission.material = render_model::ActorMaterial {
             glint,
             ..presentation.submission.material

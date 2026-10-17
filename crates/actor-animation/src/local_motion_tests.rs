@@ -10,7 +10,7 @@ fn fixture() -> (HashMap<u64, TestActor>, ActorAnimationStore) {
     compiled.symbols[4].identifier = "minecraft:player".into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.animation_clips[0].symbol = 2;
     let mut actor = super::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {

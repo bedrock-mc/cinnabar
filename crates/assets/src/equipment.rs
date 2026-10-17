@@ -75,6 +75,9 @@ pub enum EquipmentColorMask {
 pub struct EquipmentBinding {
     /// Item identifier the attachable binds to (the catalog sort key).
     pub identifier: Box<str>,
+    /// Authored attachable definition when it differs from the item identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachable: Option<Box<str>>,
     pub category: EquipmentCategory,
     pub geometry: EquipmentReference,
     pub texture: EquipmentReference,
@@ -113,6 +116,11 @@ pub struct AttachablePoseBone {
 }
 
 impl EquipmentBinding {
+    /// Returns the definition whose scripts and owner condition select this binding.
+    pub fn attachable_identifier(&self) -> &str {
+        self.attachable.as_deref().unwrap_or(&self.identifier)
+    }
+
     /// The literal pose stored under `key`.
     #[must_use]
     pub fn pose(&self, key: &str) -> Option<&AttachablePose> {
@@ -296,15 +304,15 @@ impl RuntimeEquipmentCatalog {
     }
 
     /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
-    /// nonzero digest of the pack sources). Bindings and textures are sorted by identifier
-    /// and the first of a repeated identifier is kept; nothing is carried for item use.
+    /// nonzero digest of the pack sources). Bindings retain distinct authored definitions;
+    /// exact duplicate definitions and texture identifiers keep their first entry.
     pub fn from_parts(
         identity: [u8; 32],
         mut bindings: Vec<EquipmentBinding>,
         mut textures: Vec<EquipmentTexture>,
     ) -> Result<Self, AssetError> {
-        bindings.sort_by(|left, right| left.identifier.cmp(&right.identifier));
-        bindings.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        bindings.sort_by(|left, right| binding_key(left).cmp(&binding_key(right)));
+        bindings.dedup_by(|later, earlier| binding_key(later) == binding_key(earlier));
         textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
         textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
         validate(&identity, &identity, &bindings)?;
@@ -403,11 +411,23 @@ impl RuntimeEquipmentCatalog {
 
     #[must_use]
     pub fn binding(&self, identifier: &str) -> Option<&EquipmentBinding> {
-        self.bindings
-            .binary_search_by(|binding| binding.identifier.as_ref().cmp(identifier))
-            .ok()
-            .map(|index| &self.bindings[index])
+        self.bindings_for(identifier).last()
     }
+
+    /// Returns every owner-specific definition of an item in stable definition order.
+    pub fn bindings_for(&self, identifier: &str) -> &[EquipmentBinding] {
+        let start = self
+            .bindings
+            .partition_point(|binding| binding.identifier.as_ref() < identifier);
+        let count = self.bindings[start..]
+            .partition_point(|binding| binding.identifier.as_ref() == identifier);
+        &self.bindings[start..start + count]
+    }
+}
+
+/// Orders item definitions without discarding owner-specific variants.
+fn binding_key(binding: &EquipmentBinding) -> (&str, &str) {
+    (&binding.identifier, binding.attachable_identifier())
 }
 
 /// Hashes the validated, sorted texture identifiers with unambiguous length framing.
@@ -564,13 +584,14 @@ fn validate(
     {
         return Err(invalid("equipment catalog provenance or count is invalid"));
     }
-    let mut previous: Option<&str> = None;
+    let mut previous = None;
     for binding in bindings {
         validate_identifier(&binding.identifier)?;
+        validate_identifier(binding.attachable_identifier())?;
         validate_identifier(&binding.geometry.identifier)?;
         validate_identifier(&binding.texture.identifier)?;
         binding.resources.validate()?;
-        if previous.is_some_and(|previous| previous >= binding.identifier.as_ref())
+        if previous.is_some_and(|previous| previous >= binding_key(binding))
             || binding.material.is_empty()
             || binding.material.len() > MAX_EQUIPMENT_IDENTIFIER_BYTES
             || binding.render_controller.is_empty()
@@ -582,7 +603,7 @@ fn validate(
         {
             return Err(invalid("invalid or unordered equipment binding"));
         }
-        previous = Some(&binding.identifier);
+        previous = Some(binding_key(binding));
     }
     Ok(())
 }
@@ -774,6 +795,7 @@ mod tests {
         vec![
             EquipmentBinding {
                 identifier: "minecraft:diamond_helmet".into(),
+                attachable: None,
                 category: EquipmentCategory::Armor {
                     slot: ArmorSlot::Helmet,
                 },
@@ -796,6 +818,7 @@ mod tests {
             },
             EquipmentBinding {
                 identifier: "minecraft:trident".into(),
+                attachable: None,
                 category: EquipmentCategory::Held,
                 geometry: EquipmentReference {
                     identifier: "geometry.trident".into(),

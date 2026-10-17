@@ -516,11 +516,10 @@ impl HandCache {
 fn vanilla_draws(
     main: Option<&WornItem>,
     off: Option<&WornItem>,
-    vanilla_attachable: impl Fn(&str) -> bool,
+    mut vanilla_attachable: impl FnMut(&WornItem) -> bool,
 ) -> bool {
     let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
-    main.is_some_and(|item| map(item) || vanilla_attachable(&item.identifier))
-        || off.is_some_and(map)
+    main.is_some_and(|item| map(item) || vanilla_attachable(item)) || off.is_some_and(map)
 }
 
 /// Retains the drawn stack through Java's dip while authored player rigs keep their whole hand.
@@ -562,8 +561,28 @@ pub(super) fn hand_source(
         main: main.clone(),
         ..equipment_input.clone()
     };
-    if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
-        equipment.is_vanilla_attachable(identifier)
+    let main_attachable_input = super::hand::attachable_hand_input(
+        &retained_equipment,
+        owner_equipment,
+        actor_animation::AttachableAnimationInput {
+            first_person: true,
+            frame_alpha: alpha,
+            ..item_animation.unwrap_or_default()
+        },
+        false,
+    );
+    let main_selection = main.as_ref().and_then(|item| {
+        Some(equipment.select_held_item(
+            item,
+            stream.authority().actor(runtime_id)?,
+            &rig,
+            main_attachable_input,
+        ))
+    });
+    if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |item| {
+        main_selection
+            .as_ref()
+            .is_some_and(|selected| selected.uses_authored_hand(item))
     }) {
         let progress = FirstPersonHand {
             swing: hand.swing,
@@ -584,6 +603,9 @@ pub(super) fn hand_source(
             progress,
             &mut cache.native_pose,
             true,
+            main_selection
+                .as_ref()
+                .map(|selection| (selection, main_attachable_input)),
         )?;
         let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
         if main.as_ref().is_some_and(|item| !map(item))
@@ -596,19 +618,22 @@ pub(super) fn hand_source(
     let main_layer = main.as_ref().and_then(|item| {
         let attachable =
             (retained == selected && java_draws_attachable(&item.identifier)).then(|| {
-                let mut input = item_animation?;
-                let (use_ticks, _) = use_clock(rig.hand[1].use_ticks, alpha, Some(&input));
-                input.frame_alpha = alpha;
-                input.animation_frame = java_bow_frame(use_ticks);
-                let input = equipment_input.attachable_input(input.for_hand(false));
+                item_animation?;
+                let (use_ticks, _) =
+                    use_clock(rig.hand[1].use_ticks, alpha, item_animation.as_ref());
+                let main_attachable_input = actor_animation::AttachableAnimationInput {
+                    animation_frame: java_bow_frame(use_ticks),
+                    ..main_attachable_input
+                };
                 let actor = stream.authority().actor(runtime_id)?;
                 cache.native_pose.apply(&mut inputs);
-                equipment.first_person_attachable(
+                equipment.first_person_selected_attachable(
                     &inputs.presentation.submission,
                     item,
+                    main_selection.as_ref()?,
                     actor,
                     &rig,
-                    input,
+                    main_attachable_input,
                     Some(hand),
                 )
             });

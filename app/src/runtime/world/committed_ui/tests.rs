@@ -68,7 +68,7 @@ enum InputCase {
 }
 
 /// Builds a complete authority schedule with independent player and UI owners.
-fn fixture_app() -> (App, Entity) {
+pub(crate) fn fixture_app() -> (App, Entity) {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();

@@ -279,6 +279,48 @@ fn recipes_carry_shape_ingredient_kinds_and_categories() {
 }
 
 #[test]
+fn furnace_recipes_list_under_their_station() {
+    let smelt = |net_id, tag: &str| RecipeFixture {
+        tag: tag.into(),
+        net_id,
+        ..RecipeFixture::shapeless(
+            "test:smelt",
+            vec![descriptor("name", "minecraft:stone", 0)],
+            result(6),
+        )
+    };
+    let update = CraftingDataFixture::clearing(vec![
+        smelt(1, "furnace"),
+        smelt(2, "blast_furnace"),
+        smelt(3, "smoker"),
+    ])
+    .update();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let data = build(&creative(), &catalog);
+    let categories: Vec<_> = data.recipes.iter().map(|recipe| recipe.category).collect();
+    assert_eq!(
+        categories,
+        [
+            RecipeCategory::Furnace,
+            RecipeCategory::BlastFurnace,
+            RecipeCategory::Smoker
+        ]
+    );
+    for recipe in data.recipes.iter() {
+        assert_eq!(recipe.outputs[0].key, key("minecraft:stone_slab", 0));
+        assert_eq!(
+            recipe.ingredients,
+            [Some(Ingredient {
+                kind: IngredientKind::Item(key("minecraft:stone", 0)),
+                count: 1
+            })]
+        );
+    }
+}
+
+#[test]
 fn revisions_move_only_when_their_inputs_are_resent() {
     let registry = registry();
     let (creative, catalog) = (creative(), catalog());

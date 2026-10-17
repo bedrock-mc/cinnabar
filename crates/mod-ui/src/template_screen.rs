@@ -227,14 +227,18 @@ impl TemplateScreen {
             };
             self.dispatcher.pointer(hits, &mut self.view, pointer);
             (self.view.hovered, self.view.pressed) = (hovered, held);
-            let press = ButtonInput {
-                id: "button.menu_select",
-                down: true,
-                point,
-                mode: InputMode::Mouse,
-                now,
-            };
-            events.extend(self.dispatcher.button(hits, &mut self.view, press).events);
+            // The release follows at once: the dispatcher takes only a press after a release as a
+            // new interaction, so a press without one would leave the box deaf to the next.
+            for down in [true, false] {
+                let edge = ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point,
+                    mode: InputMode::Mouse,
+                    now,
+                };
+                events.extend(self.dispatcher.button(hits, &mut self.view, edge).events);
+            }
         }
         for text in typed {
             events.extend(

@@ -24,6 +24,21 @@ impl TextureSource for EmptyArt {
 
 /// Lays out an original edit box without runtime art or a renderer.
 fn edit_frame(control: &str) -> EngineFrame {
+    edit_frame_with(control, serde_json::json!([]))
+}
+
+/// An edit box with vanilla `text_edit_box`'s select and deselect mappings.
+fn selectable_edit_frame(control: &str) -> EngineFrame {
+    edit_frame_with(
+        control,
+        serde_json::json!([
+            { "from_button_id": "button.menu_select", "to_button_id": "button.text_edit_box_selected", "handle_select": true, "handle_deselect": false, "mapping_type": "pressed" },
+            { "from_button_id": "button.menu_select", "to_button_id": "button.text_edit_box_selected", "handle_select": false, "handle_deselect": true, "mapping_type": "global", "consume_event": false }
+        ]),
+    )
+}
+
+fn edit_frame_with(control: &str, mappings: serde_json::Value) -> EngineFrame {
     let root = ResolvedControl {
         name: "edit".into(),
         control_type: Some("edit_box".into()),
@@ -36,9 +51,23 @@ fn edit_frame(control: &str) -> EngineFrame {
                 "max_length".into(),
                 serde_json::json!(server_experience::policy::MAX_EDIT_TEXT_BYTES),
             ),
+            ("button_mappings".into(), mappings),
+            ("text_control".into(), serde_json::json!("display")),
         ])
         .into(),
-        children: Vec::new(),
+        children: vec![ResolvedControl {
+            name: "display".into(),
+            control_type: Some("label".into()),
+            base: None,
+            unresolved_base: None,
+            properties: BTreeMap::from([
+                ("text".into(), serde_json::json!("")),
+                ("size".into(), serde_json::json!([100, 20])),
+            ])
+            .into(),
+            children: Vec::new(),
+            factory: None,
+        }],
         factory: None,
     };
     let (laid, report) = json_ui::layout_with(
@@ -170,4 +199,30 @@ fn bound_values_and_rows_reach_the_engine_bindings() {
         ],
     );
     assert_eq!(data_source(&modal), expected);
+}
+
+#[test]
+fn a_deselected_box_selects_again_on_the_next_press() {
+    let template = "ui/overlay.json".to_owned();
+    let mut screen = TemplateScreen::default();
+    let mut modal = screen::Modal::default();
+    screen.follow(Some(&template), &modal);
+    screen.frame = Some(selectable_edit_frame("query"));
+    let on_box = Some([60.0, 50.0]);
+    let typed = |text: &str| vec![text.to_owned()];
+
+    screen.edit(on_box, true, &[], false, 0.0);
+    assert!(screen.text_focused());
+    let first = screen.edit(on_box, false, &typed("iron"), false, 0.0);
+    assert_eq!(first.edits, [("query".to_owned(), "iron".to_owned())]);
+    // Pressing outside deselects, then the host clears the box (a secondary press on it).
+    screen.edit(Some([5.0, 5.0]), true, &[], false, 1.0);
+    assert!(!screen.text_focused());
+    modal.set_text("query".into(), String::new());
+    screen.follow(Some(&template), &modal);
+    screen.apply_pending_texts();
+
+    let second = screen.edit(on_box, true, &typed("stone"), false, 2.0);
+    assert!(screen.text_focused());
+    assert_eq!(second.edits, [("query".to_owned(), "stone".to_owned())]);
 }

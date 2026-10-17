@@ -104,12 +104,18 @@ pub(super) struct GuiModels {
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
     hand_pivots: Option<[[f32; 3]; 2]>,
+    selected_held: [Option<held::SelectedModel>; 2],
     fire: fire::FireAtlas,
     /// Tinted copies of `models`, kept while frames draw them.
     modulated: std::sync::Mutex<ModulatedMeshes>,
 }
 
 impl GuiModels {
+    /// Clears selected hand models when their equipment catalog changes.
+    pub(super) fn clear_selected_hands(&mut self) {
+        self.selected_held = [None, None];
+    }
+
     /// Drops optional block meshes and restores required pages. Returns whether anything was dropped;
     /// callers reinstall fire frames after a discard.
     fn discard_optional_models(&mut self, first: usize) -> bool {
@@ -195,7 +201,11 @@ impl UiPresentationRuntime {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
             }
-            if let Some(binding) = equipment.binding(assets::gui_item::SHIELD_IDENTIFIER)
+            if let Some(binding) = equipment
+                .bindings_for(assets::gui_item::SHIELD_IDENTIFIER)
+                .iter()
+                .rev()
+                .find(|binding| player_preview::selection::unrestricted(binding, Some(entities)))
                 && let Some(geometry) = entities
                     .geometries()
                     .iter()
@@ -314,6 +324,7 @@ impl UiPresentationRuntime {
         self.gui_models.required_pages = required_pages;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
+        self.gui_models.clear_selected_hands();
         self.gui_models.hand_pivots = held::player_hands(entities);
         self.gui_models.cape = render_model::cape::CapeRig::resolve(entities);
         self.gui_models.fire.pages_start = None;
@@ -532,6 +543,19 @@ impl UiPresentationRuntime {
                 return None;
             }
             let hand = hand.as_ref()?;
+            if let Some(selected) = self.gui_models.selected_held[index].as_ref()
+                && selected.ready
+                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
+                && selected.item.metadata == hand.metadata
+            {
+                return Some(
+                    selected
+                        .model
+                        .as_ref()?
+                        .with_grip(hand.grip)
+                        .with_glint(hand.glint),
+                );
+            }
             let (identifier, metadata) = Self::item_icon_key(
                 &hand.identifier,
                 hand.metadata,

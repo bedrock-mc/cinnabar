@@ -432,17 +432,7 @@ pub(super) fn evaluate_state(
     let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
     // The first-person draw zeroes the actor's rotations, so the view-following target, body
     // and head rotation queries read 0 there; the camera placement carries the view instead.
-    let input = if context.is_local_first_person {
-        ActorTickInput {
-            body_yaw: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            pitch: 0.0,
-            ..observed
-        }
-    } else {
-        observed
-    };
+    let input = evaluation_input(observed, context);
     let motion = state.motion;
     let evaluator = Evaluator {
         assets,
@@ -498,16 +488,7 @@ pub(super) fn evaluate_state(
             variables.set(layout.named_slot(assets, name), value);
         }
     }
-    if let Some(attachable) = context.attachable {
-        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id());
-        variables.set(
-            engine.context_first_person,
-            f32::from(attachable.first_person),
-        );
-        variables.set(engine.context_paperdoll, f32::from(attachable.is_paperdoll));
-        variables.set_string(engine.context_item_slot, attachable.item_slot());
-        variables.set(engine.attack_time, observed.attack_time);
-    }
+    attachable::apply_context_variables(engine, &mut variables, actor, context, &observed);
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
     let samples_motion = state.motion_sampling.as_ref().is_some_and(|sampling| {
@@ -727,7 +708,10 @@ pub(super) fn evaluate_state(
         },
         budget,
     )
-    .and_then(|mut layers| {
+    .and_then(|layers| {
+        let Some(mut layers) = layers else {
+            return Ok(None);
+        };
         let posed = super::render::pose_layers(
             &evaluator,
             &variables,
@@ -740,10 +724,10 @@ pub(super) fn evaluate_state(
         if !state.initialized {
             posed?;
         }
-        Ok(layers)
+        Ok(Some(layers))
     });
     let render = match render {
-        Ok(layers) => Some(layers),
+        Ok(layers) => layers,
         Err(error) if !state.initialized => return Err(error),
         Err(_) => None,
     };
@@ -987,4 +971,22 @@ pub(super) fn evaluate_scale(
         *slot = if value.is_finite() { value } else { 1.0 };
     }
     Ok(Some(scale))
+}
+
+/// Uses neutral owner rotations for view-following queries in the camera-space hand.
+pub(super) fn evaluation_input(
+    input: ActorTickInput,
+    context: &ActorTickContext,
+) -> ActorTickInput {
+    if context.is_local_first_person {
+        ActorTickInput {
+            body_yaw: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            pitch: 0.0,
+            ..input
+        }
+    } else {
+        input
+    }
 }

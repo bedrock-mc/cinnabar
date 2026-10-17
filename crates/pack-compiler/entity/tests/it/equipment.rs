@@ -11,7 +11,9 @@ use pack_entity_compiler::compile_entity_assets_with_report;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
+mod owner_predicates;
 mod texture_resolution;
+mod variant_transforms;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
@@ -62,7 +64,7 @@ fn visual<'a>(visuals: &'a [ItemVisualDefinition], identifier: &str) -> &'a Item
 fn ingests_bindings_populates_transforms_and_round_trips_the_carrier() {
     let compilation = compile_entity_assets_with_report(equipment_pack().path(), MANIFEST).unwrap();
     let bindings = &compilation.equipment_bindings;
-    assert_eq!(bindings.len(), 2);
+    assert_eq!(bindings.len(), 3);
 
     let trident = bindings
         .iter()
@@ -83,7 +85,7 @@ fn ingests_bindings_populates_transforms_and_round_trips_the_carrier() {
 
     let helmet = bindings
         .iter()
-        .find(|binding| binding.identifier.as_ref() == "minecraft:diamond_helmet")
+        .find(|binding| binding.attachable_identifier() == "minecraft:diamond_helmet.player")
         .unwrap();
     assert_eq!(
         helmet.category,
@@ -91,7 +93,11 @@ fn ingests_bindings_populates_transforms_and_round_trips_the_carrier() {
             slot: ArmorSlot::Helmet
         }
     );
-    // Player variant won: its geometry is the one collected into the catalog.
+    // Both owner definitions remain available; the player definition keeps its geometry.
+    assert!(bindings.iter().any(|binding| {
+        binding.attachable_identifier() == "minecraft:diamond_helmet"
+            && binding.geometry.identifier.as_ref() == "geometry.humanoid.armor.helmet"
+    }));
     assert_eq!(
         helmet.geometry.identifier.as_ref(),
         "geometry.player.armor.helmet"

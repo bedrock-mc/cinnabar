@@ -577,6 +577,7 @@ fn enums() -> Enums {
             Messaging,
             Scene,
             Media,
+            Items,
         )),
         implemented_permissions: implemented_permissions(),
         directions: all_variants!(Direction: ToClient, ToServer).to_vec(),

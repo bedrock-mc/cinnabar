@@ -95,6 +95,7 @@ impl UiPresentationRuntime {
             player_preview_bob: 0.0,
             player_preview_gear: player_preview::PreviewEquipment::default(),
             equipment_catalog: None,
+            preview_equipment_selection: Default::default(),
             gui_models: Default::default(),
             player_preview_pixels: None,
             preview_dirty: false,

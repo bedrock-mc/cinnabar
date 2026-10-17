@@ -165,7 +165,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     compiled.symbols[4].identifier = "minecraft:player".into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.animation_clips[0].symbol = 2;
     let assets = Arc::new(
         assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),

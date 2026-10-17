@@ -23,6 +23,14 @@ fn equipment_fixture() -> (EquipmentRuntime, render_model::ActorArtworkPages) {
 fn equipment_fixture_with_native_bow(
     native_bow: bool,
 ) -> (EquipmentRuntime, render_model::ActorArtworkPages) {
+    equipment_fixture_with_bow_override(native_bow, None)
+}
+
+/// Installs an optional owner-conditional bow with distinct artwork over the startup fixture.
+fn equipment_fixture_with_bow_override(
+    native_bow: bool,
+    condition: Option<&str>,
+) -> (EquipmentRuntime, render_model::ActorArtworkPages) {
     let mut files: Vec<(Box<str>, Vec<u8>)> = vec![
         ("models/entity/test.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":16,"texture_height":16},"bones":[{"name":"item","pivot":[0,0,0],"texture_meshes":[{"texture":"default","position":[0,0,0],"rotation":[0,0,0]}]}]}]}"#.to_vec()),
         ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"arrays":{"textures":{"Array.frames":["Texture.default","Texture.pull1","Texture.pull2","Texture.pull3"]}},"textures":["Array.frames[query.get_animation_frame]"]}}}"#.to_vec()),
@@ -58,7 +66,7 @@ fn equipment_fixture_with_native_bow(
             }
         }
     }
-    let mut compiled = pack_entity_compiler::compile_actor_pack(files)
+    let mut compiled = pack_entity_compiler::compile_actor_pack(files.clone())
         .unwrap()
         .unwrap();
     compiled.entities.block_visual_count = 1;
@@ -109,7 +117,45 @@ fn equipment_fixture_with_native_bow(
         None,
         render_model::ActorArtworkPages::default(),
     );
-    if native_bow {
+    if let Some(condition) = condition {
+        files.retain(|(path, _)| !path.starts_with("attachables/") || path.ends_with("bow.json"));
+        for (path, bytes) in &mut files {
+            if path.ends_with(".json") {
+                *bytes = String::from_utf8(std::mem::take(bytes))
+                    .unwrap()
+                    .replace("textures/test", "textures/override")
+                    .into_bytes();
+                if path.ends_with("bow.json") {
+                    let mut json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+                    json["minecraft:attachable"]["description"]["item"] =
+                        serde_json::json!({BOW: condition});
+                    *bytes = serde_json::to_vec(&json).unwrap();
+                }
+            } else if path.starts_with("textures/") {
+                let frame = path.strip_prefix("textures/test").unwrap().as_bytes()[0] - b'0';
+                *bytes = fixture_png(frame + 1);
+                *path = path.replace("textures/test", "textures/override").into();
+            }
+        }
+        let compiled = pack_entity_compiler::compile_actor_pack(files)
+            .unwrap()
+            .unwrap();
+        let catalog = Arc::new(
+            assets::RuntimeEquipmentCatalog::from_parts(
+                compiled.identity,
+                compiled.equipment_bindings,
+                compiled.equipment_textures,
+            )
+            .unwrap(),
+        );
+        let entities =
+            Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+        let (next, locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        pages = next;
+        equipment.set_pack_layer(Some((entities, Some(catalog), locations)));
+        assert!(!equipment.uses_native_item_mesh(BOW));
+    } else if native_bow {
         let (next, locations) =
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
         pages = next;
@@ -158,6 +204,25 @@ fn source_for_use_and_swing(
     swing: Option<actor_animation::LocalSwingProgress>,
     timing: Option<actor_animation::AttachableAnimationInput<'static>>,
 ) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
+    source_with_equipment(
+        identifier,
+        with_artwork,
+        use_ticks,
+        swing,
+        timing,
+        equipment_fixture(),
+    )
+}
+
+/// Publishes the settled stack using the supplied startup and session equipment catalogs.
+fn source_with_equipment(
+    identifier: Option<&str>,
+    with_artwork: bool,
+    use_ticks: u32,
+    swing: Option<actor_animation::LocalSwingProgress>,
+    timing: Option<actor_animation::AttachableAnimationInput<'static>>,
+    (mut equipment, artwork): (EquipmentRuntime, render_model::ActorArtworkPages),
+) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
     let mut stream = super::tests::head_stream();
     let mut feed = super::tests::uploaded_skin_feed(false);
     let protocol::PlayerSkin::Standard(skin) = &mut feed.skin else {
@@ -187,7 +252,6 @@ fn source_for_use_and_swing(
         stream.sync_local_swing(swing);
         stream.advance_actor_interpolation_frame(0);
     }
-    let (mut equipment, artwork) = equipment_fixture();
     let artwork = if with_artwork {
         artwork
     } else {
@@ -209,6 +273,7 @@ fn source_for_use_and_swing(
             damage: None,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
             kind: if identifier == "minecraft:stone" {
                 HeldKind::Block(0)
             } else {
@@ -298,6 +363,151 @@ fn every_java_bow_pull_frame_publishes_one_textured_raster_without_an_arm() {
             );
         }
     }
+}
+
+/// Optionally exports the original bow fixture through the shared offline hand rasterizer.
+fn write_bow_frame(name: &str, source: &HandSource, meshes: &[render_model::ActorRigGeometry]) {
+    let Some(directory) = std::env::var_os("INSTA_OUTPUT_DIRECTORY") else {
+        return;
+    };
+    use crate::presentation::equipment::frame_raster::{
+        HEIGHT, Image, Target, WIDTH, bone_mat, draw_mesh, rows_to_mat,
+    };
+    let submissions = source.submissions();
+    let draw = submissions[1].as_ref().unwrap();
+    let mesh = meshes
+        .iter()
+        .find(|mesh| mesh.id == draw.input.rig)
+        .unwrap();
+    assert!(mesh.bone_pivots.iter().all(|pivot| *pivot == [0.0; 3]));
+    let (item, atlas) = source.items[0].as_ref().unwrap();
+    let layer_bytes = usize::from(atlas.width) * usize::from(atlas.height) * 4;
+    let start = item.presentation.location.layer() as usize * layer_bytes;
+    let texture = Image {
+        width: usize::from(atlas.width),
+        height: usize::from(atlas.height),
+        rgba8: atlas.rgba8[start..start + layer_bytes].to_vec(),
+    };
+    let mut target = Target {
+        color: [25, 32, 44, 255].repeat(WIDTH * HEIGHT),
+        depth: vec![f32::INFINITY; WIDTH * HEIGHT],
+    };
+    let placement = rows_to_mat(draw.world_from_actor);
+    draw_mesh(
+        &mut target,
+        &mesh.vertices,
+        |vertex| {
+            let bone = bone_mat(draw.input.current_bones[vertex.bone_index as usize]);
+            placement.transform_point3(bone.transform_point3(Vec3::from(vertex.position)))
+        },
+        &texture,
+    );
+    let directory = std::path::PathBuf::from(directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    image::save_buffer(
+        directory.join(format!("{name}.png")),
+        &target.color,
+        WIDTH as u32,
+        HEIGHT as u32,
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+}
+
+#[test]
+fn java_bow_hand_follows_the_owner_admitted_definition() {
+    for use_ticks in [19, 0, 2, 15] {
+        for swing in [0.4, 0.0] {
+            let publish = |condition| {
+                let (mut equipment, pages) = equipment_fixture_with_bow_override(true, condition);
+                if condition.is_none() {
+                    equipment.set_pack_layer(None);
+                }
+                source_with_equipment(
+                    Some(BOW),
+                    true,
+                    use_ticks,
+                    Some(actor_animation::LocalSwingProgress {
+                        bedrock: [swing; 2],
+                        java: [swing; 2],
+                        frame_alpha: Some(0.5),
+                    }),
+                    None,
+                    (equipment, pages),
+                )
+            };
+            let (baseline, baseline_meshes) = publish(None);
+            let (rejected, rejected_meshes) =
+                publish(Some("q.owner_identifier != 'minecraft:player'"));
+            let (admitted, admitted_meshes) =
+                publish(Some("q.owner_identifier == 'minecraft:player'"));
+            if use_ticks == 19 && swing == 0.4 {
+                for (name, source, meshes) in [
+                    ("baseline", &baseline, &baseline_meshes),
+                    ("rejected", &rejected, &rejected_meshes),
+                    ("admitted", &admitted, &admitted_meshes),
+                ] {
+                    write_bow_frame(name, source, meshes);
+                }
+            }
+            let baseline_item = &baseline.items[0].as_ref().unwrap().0;
+            let rejected_item = &rejected.items[0].as_ref().unwrap().0;
+            let admitted_item = &admitted.items[0].as_ref().unwrap().0;
+            assert!(baseline_item.java_camera.is_some());
+            assert_eq!(
+                rejected_item.java_camera, baseline_item.java_camera,
+                "rejected bow changed the Java hand: use_ticks={use_ticks}, swing={swing}"
+            );
+            assert_eq!(rejected_item.camera_space, baseline_item.camera_space);
+            assert_eq!(
+                rejected_item.presentation.location,
+                baseline_item.presentation.location
+            );
+            assert_eq!(
+                rejected_item.presentation.submission.input.current_bones,
+                baseline_item.presentation.submission.input.current_bones
+            );
+            assert!(admitted_item.java_camera.is_none());
+            assert!(!admitted_item.camera_space);
+            assert_ne!(
+                admitted_item.presentation.location,
+                baseline_item.presentation.location
+            );
+            for source in [&baseline, &rejected, &admitted] {
+                assert!(source.body.is_none());
+                assert_eq!(source.items.iter().flatten().count(), 1);
+                assert_resolved_textures(source);
+            }
+        }
+    }
+}
+
+#[test]
+fn authored_pack_bow_keeps_native_frame_inputs_in_java_mode() {
+    let (source, _) = source_with_equipment(
+        Some(BOW),
+        true,
+        9,
+        None,
+        Some(actor_animation::AttachableAnimationInput {
+            is_local_player: true,
+            use_elapsed_ticks: Some(9),
+            animation_frame: 2,
+            ..Default::default()
+        }),
+        equipment_fixture_with_bow_override(true, Some("1")),
+    );
+    let (item, atlas) = source.items[0].as_ref().unwrap();
+    assert!(item.java_camera.is_none());
+    let layer_start = item.presentation.location.layer() as usize
+        * usize::from(atlas.width)
+        * usize::from(atlas.height)
+        * 4;
+    assert_eq!(
+        atlas.rgba8[layer_start + 2],
+        170,
+        "the pack controller must receive native frame 2 at elapsed use tick 9"
+    );
 }
 
 #[test]
@@ -429,6 +639,7 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let mut cache = HandCache::default();

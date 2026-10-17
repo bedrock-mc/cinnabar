@@ -352,6 +352,10 @@ verification. No parity gate closes here.
 
 ## Launcher updates
 
+Windows runtime executables carry `asInvoker` manifests and refuse elevated game, core and
+crash-monitor startup or relaunch. Setup does not launch the game, and MSI Restart Manager
+relaunch is disabled. The machine-wide install identity and custom install folders remain supported.
+
 One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
 update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
@@ -1490,6 +1494,8 @@ not close a parity or visual acceptance gate.
   clocks through swaps, authored first-person rigs retain ownership, and raster depth stays
   one sixteenth at any texture size. Emote skin layers follow the sampled body pose.
   Unchanged render layers sharing geometry retain their own completed pose allocations.
+  Held-item hand routing uses the owner's admitted definition, so rejected pack bows
+  retain the startup bow's Java placement in both views.
 - Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
   exercise held-item swaps, use, both third-person views, cape motion and local emotes.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
@@ -1626,6 +1632,11 @@ not close a parity or visual acceptance gate.
 
 ## Worn server-pack armour textures
 
+- Item bindings retain owner-specific attachables and evaluate their item conditions
+  against the wearer. A stand-only chestplate or pair of leggings leaves players
+  using their own definition. Custom armour bones retain their authored pose, and
+  controller-selected geometry and visibility reach the worn draw. Skin visibility
+  masks are applied after equipment attachment so hiding a torso does not hide its armour.
 - Worn armour from server packs runs its attachable scripts with the wearer as
   `context.owning_entity` and draws the texture its render controller selects,
   such as owner-driven team variants. Each worn slot keeps its own retained state
@@ -1634,9 +1645,16 @@ not close a parity or visual acceptance gate.
   remain available to owner queries when the body pose is static.
   Attachable timing is independent of owner tick batching, and elytra scripts
   receive the actual render delta.
-- Incomplete: worn armour still uses the binding's default geometry on remapped
-  body bones. Attachable animations and controller-selected geometry or
-  materials are not applied, and vanilla armour keeps its static binding.
+- Cape composition retains the chest route used by the equipment draw. First-person
+  hand placement and drawing share one admitted definition, and preview atlas fallback
+  retains its startup choice and category. Predicate cache warming cannot change a
+  routing decision within those compositions. The routing table includes budget
+  exhaustion and armour-stand helmet and chest slots.
+- Incomplete: matching body bones still use the owner's pose without the attachable's
+  own animation channels. Worn bone-binding expressions, multiple armour material
+  groups, trim artwork, modern controller materials, and precedence among overlapping
+  owner mappings remain incomplete. Native humanoid models absent from the
+  resource pack still use the existing static player-model fallback.
 
 ## Tip text slot
 
@@ -3899,6 +3917,12 @@ dispatch and a fresh live check remain outstanding. New chat/loading regressions
 are authored but unrun at the user's request. Native
 `#item_name_text_offset` controller binding remains
 incomplete; this correction preserves the approved built-in pack geometry.
+
+Legacy lowercase `scalex`, `scaley` and `scalez` scripts use the same compiled scale
+programs as the modern spellings. Malformed optional values retain their counted
+fallback. The grown wither now uses its authored scale in the matched local fixture.
+Incomplete: native precedence when both spellings are supplied and the
+remaining wither spawn, armor and death behavior still need matched verification.
 
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor

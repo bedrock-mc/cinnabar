@@ -20,7 +20,7 @@ pub(super) fn apply(
         if profile == CombatVisuals::Legacy112 {
             if let Some(slot) = layer_id.checked_sub(LAYER_HELMET)
                 && let Some(Some(item)) = input.armor.get(usize::from(slot))
-                && item.enchanted
+                && item.has_glint()
                 && submission.material.state.is_none()
             {
                 submission.material.kind = assets::EntityRenderMaterial::Glint;

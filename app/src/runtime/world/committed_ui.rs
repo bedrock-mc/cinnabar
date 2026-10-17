@@ -277,4 +277,4 @@ pub(super) fn refresh_player_list_cache_for_controls(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

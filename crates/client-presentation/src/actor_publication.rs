@@ -1,4 +1,8 @@
+#[cfg(test)]
+mod armour_tests;
 mod bodies;
+#[cfg(test)]
+mod cape_tests;
 mod commit;
 mod flames;
 mod geometry;
