@@ -382,12 +382,10 @@ fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
     ui: Res<UiRuntimeResource>,
-    mut drawing_frame: ResMut<render_scene::mod_scene::retained::DrawingFrame>,
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
         anchors::reconcile(&mut extension.hosts, &gameplay);
-        drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
         extension.hosts.begin_frame();
     }
 }
@@ -417,7 +415,6 @@ struct ModObservation<'w, 's> {
     environment_loader: Option<Res<'w, environment_loader::Loader>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
-    drawing_frame: ResMut<'w, render_scene::mod_scene::retained::DrawingFrame>,
     cameras: Query<
         'w,
         's,
@@ -456,7 +453,6 @@ fn drive_mod(
         environment_loader,
         watcher,
         render_scene,
-        mut drawing_frame,
         cameras,
         mut frame_rate,
         mut module_observer,
@@ -628,7 +624,6 @@ fn drive_mod(
             );
         }
     }
-    drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(&extension);

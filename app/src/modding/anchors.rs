@@ -9,6 +9,11 @@ use std::collections::BinaryHeap;
 
 /// Supplies bounded nearby candidates; confirmed removal is distinct from unloaded terrain.
 pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
+    if !(0..hosts.host_count())
+        .any(|index| hosts.host(index).is_active() && hosts.host(index).grants().entity_observe)
+    {
+        return;
+    }
     let authority = context
         .world
         .as_ref()
@@ -77,7 +82,7 @@ pub(super) fn publish(
     runtime: Option<ResMut<ModRuntime>>,
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
-    actors: Res<render_scene::ActorRenderFrame>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
     ui: Res<UiRuntimeResource>,
     mut drawing: ResMut<DrawingFrame>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
@@ -88,8 +93,10 @@ pub(super) fn publish(
         scene.clear();
         runtime.render_sources.clear();
     }
+    reconcile(&mut runtime.hosts, &context);
     super::drawing_policy::publish_frame(&runtime.hosts, &context, &ui, &mut drawing);
     super::render::publish(Some(scene), &mut runtime);
+    let Some(actors) = actors else { return };
     let Some(world) = context
         .world
         .as_ref()
