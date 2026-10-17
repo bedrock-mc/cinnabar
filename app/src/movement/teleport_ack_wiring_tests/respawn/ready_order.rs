@@ -28,11 +28,7 @@ fn respawn_ready_responses_follow_distinct_controls_before_latency() {
                 }),
             );
         }
-        submit(
-            &mut app,
-            3,
-            WorldEvent::NetworkStackLatency { creation_time: 123 },
-        );
+        submit(&mut app, 3, WorldEvent::NetworkStackLatency(123));
         app.update();
         if unavailable {
             assert!(captured.drain().is_empty());
