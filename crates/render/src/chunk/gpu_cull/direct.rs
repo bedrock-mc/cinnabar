@@ -900,7 +900,9 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
         .add_systems(
             Render,
             (
-                select_visibility.in_set(RenderSystems::PrepareViews),
+                select_visibility
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue),
                 prepare_direct_occlusion
                     .in_set(RenderSystems::PrepareResources)
                     .after(prepare_gpu_chunks)

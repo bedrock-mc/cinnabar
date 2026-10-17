@@ -199,3 +199,48 @@ fn adaptive_visibility_keeps_a_settled_still_view_on_the_cheaper_readback_path()
     assert!(!occlusion.same_frame());
     assert!(occlusion.reset_masks);
 }
+
+#[test]
+fn adaptive_visibility_uses_restored_msaa_for_settled_views() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    {
+        let mut occlusion = app
+            .sub_app_mut(RenderApp)
+            .world_mut()
+            .resource_mut::<DirectOcclusion>();
+        let tag = VerdictTag {
+            frame: occlusion.frame,
+            basis: occlusion.last_view.unwrap().1,
+            slots: occlusion.table.slot_count(),
+        };
+        for _ in 0..super::super::occlusion::REQUIRED_OCCLUDED_READBACKS {
+            occlusion.history.apply(&tag, &[0]);
+        }
+        assert!(occlusion.history.settled(&tag.basis));
+        occlusion.same_frame = true;
+        occlusion.adaptive = true;
+        occlusion.admission.observe(tag.frame, 128, 100);
+    }
+    for _ in 0..4 {
+        app.sub_app_mut(RenderApp)
+            .world_mut()
+            .resource_mut::<DirectOcclusion>()
+            .stats
+            .candidates = 128;
+        frame(&mut app);
+        let occlusion = app.sub_app(RenderApp).world().resource::<DirectOcclusion>();
+        assert!(occlusion.history.settled(&occlusion.last_view.unwrap().1));
+        assert!(
+            !occlusion.same_frame(),
+            "a temporary sample override must not request fresh occlusion for a settled view"
+        );
+    }
+}
