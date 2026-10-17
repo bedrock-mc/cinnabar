@@ -639,3 +639,45 @@ fn npc_menu_takeover_keeps_its_closing_reply_and_actor_lifetime() {
         );
     }
 }
+
+/// Unsupported NPC content has no valid modal-form identity to cancel or reject.
+#[test]
+fn npc_unsupported_dismissal_and_menu_takeover_send_no_modal_response() {
+    for menu_takeover in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(
+                &mut player,
+                envelope(
+                    1,
+                    1,
+                    UiEvent::Form(FormRequestEvent {
+                        form_id: protocol::NPC_DIALOGUE_FORM_ID,
+                        kind: FormKind::NpcDialogue,
+                        title: None,
+                        json: Arc::from("{}"),
+                        model: ServerFormModel::Unsupported(UnsupportedForm::Controls),
+                    }),
+                ),
+            )
+            .unwrap();
+        if menu_takeover {
+            runtime.server_forms_mut().reject_active_busy();
+        } else {
+            let identity = identity(&runtime);
+            runtime
+                .respond_to_server_form(identity, LocalFormAction::Dismiss)
+                .unwrap();
+        }
+        assert!(
+            !flush_form_response(
+                &mut runtime,
+                |_| true,
+                |_| panic!("NPC emitted a modal-form response")
+            )
+            .unwrap()
+        );
+        assert!(!runtime.server_forms().owns_input());
+    }
+}
