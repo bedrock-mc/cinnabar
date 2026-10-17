@@ -62,12 +62,14 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || Fixture::CursorDurability,
     },
+    #[cfg(feature = "test-support")]
     State {
         name: "chat-server-content-idle",
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || chat_server_content(false),
     },
+    #[cfg(feature = "test-support")]
     State {
         name: "chat-server-content-hover",
         size: SIZE,
@@ -619,6 +621,7 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
 }
 
 /// Keeps encoded message metadata out of history and reveals it through a hover renderer.
+#[cfg(feature = "test-support")]
 fn chat_server_content(hover: bool) -> Fixture {
     Fixture::Chat {
         draft: "",

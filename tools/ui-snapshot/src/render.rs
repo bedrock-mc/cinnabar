@@ -293,6 +293,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
             server_hover,
         } => {
             let mut engine = json_engine(&carriers)?;
+            #[cfg(feature = "test-support")]
             if server_hover.is_some() {
                 engine.set_server_pack(&[ui_screens::test_support::hover_chat::files()]);
             }
