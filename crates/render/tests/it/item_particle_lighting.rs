@@ -107,7 +107,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
         ),
     ] {
         let table = inputs.build();
-        let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+        let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
         for (block, sky) in [(0_u8, 0_u8), (0, 15), (10, 0), (15, 15)] {
             let light = native_light(&table, block, sky);
             for (particle, lit) in [(false, true), (true, true), (true, false)] {

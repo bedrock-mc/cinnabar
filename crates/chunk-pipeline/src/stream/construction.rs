@@ -94,6 +94,8 @@ impl WorldStream {
             block_cracks: block_cracks::BlockCracks::default(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             classifier: BlockClassifier::new(air_network_id),
+            mesh_render_settings: ::meshing::MeshRenderSettings::default(),
+            mesh_render_revision: 0,
             startup_terrain_announced: true,
             seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             ingress_dimension: bootstrap.dimension,

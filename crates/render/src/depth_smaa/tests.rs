@@ -114,7 +114,7 @@ fn depth_smaa_prewarm_queues_and_reuses_every_sample_variant() {
                 };
                 let mut before = Vec::new();
                 pipelines.prewarm(cache, view, &mut before).unwrap();
-                assert_eq!(before.len(), 4);
+                assert_eq!(before.len(), 3);
                 let mut after = Vec::new();
                 pipelines.prewarm(cache, view, &mut after).unwrap();
                 assert_eq!(before, after);

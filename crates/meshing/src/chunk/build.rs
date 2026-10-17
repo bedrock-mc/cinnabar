@@ -71,6 +71,8 @@ pub fn mesh_sub_chunk_in_neighbourhood(
 /// Meshing choices that depend on data outside the block snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MeshOptions {
+    /// User choices that change the emitted geometry or lighting.
+    pub rendering: crate::MeshRenderSettings,
     /// Keeps every biome-tinted cube face one block wide. Set when the sub-chunk's biome
     /// record is mixed, so the renderer can blend its tint once per face instead of per pixel.
     pub split_tinted_faces: bool,
@@ -161,6 +163,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         neighbourhood,
         light_sampler,
         &block_bits,
+        options.rendering.smooth_lighting,
     );
     let neighbour_facts: [OnceCell<PaletteFacts<'_>>; Face::ALL.len()] =
         std::array::from_fn(|_| OnceCell::new());
@@ -176,7 +179,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             .seasonal_foliage
             .then(|| super::seasonal_foliage::SeasonalCoverage::new(palette_context));
 
-    let leaves = super::leaves::LeafOcclusion::new(&block_bits);
+    let leaves =
+        super::leaves::LeafOcclusion::new(&block_bits, options.rendering.transparent_leaves);
     let mut cube_streams = CubeQuadStreams::default();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     // Greedy merging reads lighting only at the current slice's visible cells, which are

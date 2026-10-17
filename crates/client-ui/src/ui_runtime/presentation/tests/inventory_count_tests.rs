@@ -597,3 +597,47 @@ fn recipe_book_entries_glint_like_inventory_slots() {
         "listed enchanted books glint like they do in a slot"
     );
 }
+
+#[test]
+fn cursor_durability_paints_on_fallback_personal_and_storage_screens() {
+    for storage in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = if storage {
+            storage_inventory(&mut player, 27, None, None, Some(1))
+        } else {
+            let mut runtime = personal_inventory(&mut player, Some((0, 1)));
+            let ledger = runtime.inventory_ledger_mut(&mut player);
+            assert!(ledger.mark_transport_enqueued(0));
+            ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(2),
+                window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                position: [0; 3],
+                runtime_entity_id: -1,
+            }));
+            ledger.begin_take_count(0, 1).unwrap();
+            runtime.set_inventory_pointer_gui(Some([320.0, 180.0]));
+            runtime
+        };
+        runtime.set_inventory_pointer_gui(Some([320.0, 180.0]));
+        let mut presentation =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        for durability in [None, Some(0.5)] {
+            presentation.hud_frame_mut().cursor_durability = durability;
+            let input = presentation
+                .build(
+                    &player,
+                    &runtime,
+                    0,
+                    [1280, 720],
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            let pixels = super::super::forms::snapshot::rasterize(&input);
+            assert_eq!(
+                pixels.pixels().any(|pixel| pixel.0 == [255, 255, 0, 255]),
+                durability.is_some(),
+                "the cursor bar must paint on storage={storage}"
+            );
+        }
+    }
+}

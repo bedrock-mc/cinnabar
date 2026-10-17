@@ -7,10 +7,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{
-    CollectionItem, DataSource, Draw, DrawNode, RectOut, Scalar, TextAlign, ViewState, hit_test,
-    press_region,
-};
+use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test, press_region};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
@@ -31,8 +28,10 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
-/// A clip wide enough to never cut the held stack (virtual px).
-const UNCLIPPED: f64 = 1.0e5;
+mod held_stack;
+#[cfg(test)]
+mod held_stack_tests;
+use held_stack::held_stack;
 
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
 #[derive(Clone, Copy, Debug)]
@@ -260,6 +259,7 @@ impl ContainerScreen {
         let overlay = held_stack(
             source.player().inventory.ledger().cursor_stack(),
             items.cursor_icon,
+            items.cursor_durability,
             pointer,
             &mut icons,
         );
@@ -859,74 +859,6 @@ fn survival_globals(data: &mut DataSource, title: &str) {
         data.set_global(name, Scalar::Bool(value));
     }
     data.set_global("#crafting_label_text", Scalar::Text(title.to_owned()));
-}
-
-/// The held stack drawn under the pointer, above the screen.
-fn held_stack(
-    stack: Option<&NetworkItemStack>,
-    icon: Option<IconRef>,
-    pointer: Option<[f32; 2]>,
-    icons: &mut Vec<IconRef>,
-) -> Vec<DrawNode> {
-    let (Some(stack), Some(icon), Some(point)) = (stack, icon, pointer) else {
-        return Vec::new();
-    };
-    icons.push(icon);
-    let clip = RectOut {
-        x: -UNCLIPPED,
-        y: -UNCLIPPED,
-        w: UNCLIPPED * 2.0,
-        h: UNCLIPPED * 2.0,
-    };
-    let (x, y) = (f64::from(point[0]) - 8.0, f64::from(point[1]) - 8.0);
-    let node = |dest: RectOut, draw: Draw| DrawNode {
-        name: "held_item".to_owned(),
-        key: String::new(),
-        dest,
-        clip,
-        layer: i32::MAX,
-        alpha: 1.0,
-        anim: None,
-        draw,
-        gates: Vec::new(),
-    };
-    let mut nodes = vec![node(
-        RectOut {
-            x,
-            y,
-            w: 16.0,
-            h: 16.0,
-        },
-        Draw::Custom {
-            renderer: "inventory_item_renderer".to_owned(),
-            data: [(
-                "#item_renderer_data".to_owned(),
-                Value::from((icons.len() - 1) as u64),
-            )]
-            .into_iter()
-            .collect(),
-        },
-    )];
-    if stack.count > 1 {
-        nodes.push(node(
-            RectOut {
-                x,
-                y: y + 8.0,
-                w: 17.0,
-                h: 9.0,
-            },
-            Draw::Text {
-                text: stack.count.to_string(),
-                color: [255; 4],
-                shadow: true,
-                align: TextAlign::Right,
-                scale: 1.0,
-                localize: false,
-                options: Default::default(),
-            },
-        ));
-    }
-    nodes
 }
 
 #[cfg(test)]
