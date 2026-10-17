@@ -236,7 +236,6 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         action: PointerAction,
     ) {
-        self.observe_inventory_window(player_runtime);
         let _ = match action {
             PointerAction::Click(hit) => {
                 let before = place_snapshot(player_runtime, hit);
