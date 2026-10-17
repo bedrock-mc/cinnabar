@@ -11,7 +11,7 @@ use protocol::{ActorMetadataValue, MovementPredictionSync, client_movement_predi
 
 use super::LocalPhysicsController;
 
-/// Attribute names in wire order of the sync's attribute block; all must be set to send.
+/// Attribute names in wire order; undefined values are sent as zero.
 const ATTRIBUTE_NAMES: [&str; 6] = [
     Attribute::Movement.wire_name(),
     Attribute::UnderwaterMovement.wire_name(),
@@ -28,13 +28,6 @@ const MODIFIER_ATTRIBUTES: [(&str, f32); 2] = [
 /// Air drag modifier sent while the attribute is undefined.
 const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 
-#[derive(Default)]
-pub struct PredictionSyncState {
-    /// Syncs withheld because a required attribute was unset.
-    skipped: u64,
-    skip_logged: bool,
-}
-
 /// Sends a due correction sync and clears its countdown only after admission.
 /// `air_drag_modifier` is the session's last accepted finite value, which
 /// outlives the replay history that dimension waits and hard corrections clear.
@@ -42,7 +35,6 @@ pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
     air_drag_modifier: Option<f32>,
-    state: &mut PredictionSyncState,
     send: impl FnOnce(protocol::Packet) -> bool,
 ) {
     if !physics.prediction_sync.due() {
@@ -51,7 +43,7 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    let Some(attributes) = attributes(
+    let attributes = attributes(
         |name| {
             actor
                 .attributes
@@ -59,19 +51,7 @@ pub fn send_movement_prediction_sync(
                 .map(|attribute| attribute.current)
         },
         air_drag_modifier,
-    ) else {
-        // An unset attribute would read as zero, which a server may treat as a cheat; retry later.
-        if !state.skip_logged {
-            state.skipped = state.skipped.saturating_add(1);
-            state.skip_logged = true;
-            tracing::debug!(
-                skipped = state.skipped,
-                "prediction sync withheld: attribute unset"
-            );
-        }
-        return;
-    };
-    state.skip_logged = false;
+    );
     let sync = MovementPredictionSync {
         actor_flags: flag_words(&actor.metadata),
         bounding_box: bounding_box(&actor.metadata),
@@ -110,28 +90,25 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
 
 /// `air_drag_modifier` is the accepted value, so a skipped non-finite update
 /// never reaches the sync; other modifiers skip it here.
-fn attributes(
-    current: impl Fn(&str) -> Option<f32>,
-    air_drag_modifier: Option<f32>,
-) -> Option<[f32; 9]> {
-    let value = |index: usize| current(ATTRIBUTE_NAMES[index]);
+fn attributes(current: impl Fn(&str) -> Option<f32>, air_drag_modifier: Option<f32>) -> [f32; 9] {
+    let value = |index: usize| current(ATTRIBUTE_NAMES[index]).unwrap_or(0.0);
     let modifier = |index: usize| {
         let (name, undefined) = MODIFIER_ATTRIBUTES[index];
         current(name)
             .filter(|value| value.is_finite())
             .unwrap_or(undefined)
     };
-    Some([
-        value(0)?,
-        value(1)?,
-        value(2)?,
-        value(3)?,
-        value(4)?,
-        value(5)?,
+    [
+        value(0),
+        value(1),
+        value(2),
+        value(3),
+        value(4),
+        value(5),
         modifier(0),
         modifier(1),
         air_drag_modifier.unwrap_or(UNDEFINED_AIR_DRAG_MODIFIER),
-    ])
+    ]
 }
 
 #[cfg(test)]
@@ -174,20 +151,23 @@ mod tests {
     }
 
     #[test]
-    fn any_unset_attribute_withholds_the_sync_and_undefined_modifiers_use_their_defaults() {
-        assert_eq!(attributes(|_| None, None), None);
+    fn undefined_attributes_use_wire_defaults_without_discarding_known_values() {
+        assert_eq!(
+            attributes(|_| None, None),
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+        );
         assert_eq!(
             attributes(
                 |name| (name != Attribute::PlayerHunger.wire_name()).then_some(0.1),
                 None
             ),
-            None
+            [0.1, 0.1, 0.1, 0.1, 0.1, 0.0, 0.1, 0.1, 1.0]
         );
         let required = |name: &str| ATTRIBUTE_NAMES.contains(&name).then_some(0.1);
-        let block = attributes(required, None).unwrap();
+        let block = attributes(required, None);
         assert_eq!(&block[..6], &[0.1; 6]);
         assert_eq!(&block[6..], &[1.0, 0.0, 1.0]);
-        let block = attributes(|_| Some(0.1), Some(0.1)).unwrap();
+        let block = attributes(|_| Some(0.1), Some(0.1));
         assert_eq!(
             &block[6..],
             &[0.1; 3],
@@ -204,7 +184,7 @@ mod tests {
                 Some(f32::INFINITY)
             }
         };
-        let block = attributes(stored, Some(2.0)).unwrap();
+        let block = attributes(stored, Some(2.0));
         assert_eq!(
             &block[6..],
             &[1.0, 0.0, 2.0],
@@ -318,18 +298,35 @@ mod tests {
 
     fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
         let mut sent = None;
-        send_movement_prediction_sync(
-            physics,
-            &local_actor(),
-            accepted,
-            &mut PredictionSyncState::default(),
-            |packet| {
-                sent = Some(packet);
-                true
-            },
-        );
+        send_movement_prediction_sync(physics, &local_actor(), accepted, |packet| {
+            sent = Some(packet);
+            true
+        });
         protocol::test_support::packets::prediction_sync_attributes(&sent.expect("sync sent"))
             .expect("wrong packet")[8]
+    }
+
+    /// Undefined attributes still produce a due sync, and transport refusal keeps it pending.
+    #[test]
+    fn undefined_attributes_publish_defaults_and_retry_until_accepted() {
+        let mut actor = local_actor();
+        actor.0.attributes.clear();
+        let mut physics = due_physics();
+        let mut attempts = Vec::new();
+        for accepted in [false, true] {
+            send_movement_prediction_sync(&mut physics, &actor, None, |packet| {
+                attempts.push(
+                    protocol::test_support::packets::prediction_sync_attributes(&packet)
+                        .expect("wrong packet"),
+                );
+                accepted
+            });
+            assert_eq!(physics.prediction_sync.due(), !accepted);
+        }
+        assert_eq!(
+            attempts,
+            vec![[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0]; 2]
+        );
     }
 
     struct NoEffects;

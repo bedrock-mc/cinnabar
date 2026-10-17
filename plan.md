@@ -8259,6 +8259,10 @@ attributes and exits remain open. The 49-scenario, 1,112-tick Go differential ch
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
 
+Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
+a due packet. Known values and transport-admission retries are retained. Full correction-state,
+locomotion and packet-order parity remain incomplete.
+
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
 Ready ledger requests now share one ItemStackRequest packet, retaining each request's
