@@ -1984,6 +1984,8 @@ not close a parity or visual acceptance gate.
 - Closing a screen returns its active temporary inputs and cursor, drops what does not fit,
   and keeps unrelated inactive inputs from blocking world interaction. Named stacks can
   merge and drag; a drag clamps contributions after an authoritative decrease.
+- World-use selection reads player backing separately from screen predictions and recovery.
+  Local backing mutations and hotbar changes still wait for transport admission.
 - A normal close acknowledgement retires that screen's unanswered requests without
   committing their predictions. HUD mining requests retain their separate ownership,
   and HUD/crafting observers follow the admitted packet and backing state.

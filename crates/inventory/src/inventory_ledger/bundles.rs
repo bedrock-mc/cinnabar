@@ -177,6 +177,7 @@ impl PlayerInventoryLedger {
                 cell: Cell::Cursor,
                 held: Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,

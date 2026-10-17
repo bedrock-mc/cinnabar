@@ -74,7 +74,7 @@ fn placement_skips_empty_air_and_uninitialized_block_ids() {
 }
 
 #[test]
-fn unknown_or_inventory_pending_selection_fails_closed() {
+fn unknown_selection_and_unsent_hotbar_changes_wait_for_authority() {
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
 
     let mut ui = UiRuntime::new(7);
@@ -100,7 +100,7 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
     assert_eq!(selection.slot, 2);
     assert_eq!(selection.item.block_runtime_id(), 77);
 
-    // A gesture on another cell leaves the selected stack usable; one on the selected slot waits.
+    // Screen predictions leave the selected backing stack usable on either cell.
     ui.inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(3, network_item(3, 0)));
     ui.inventory_ledger_mut(&mut player_runtime)
@@ -113,7 +113,13 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
     ui.inventory_ledger_mut(&mut player_runtime)
         .begin_click(2)
         .unwrap();
-    assert!(verified_use_selection(&player_runtime, &ui).is_none());
+    assert_eq!(
+        verified_use_selection(&player_runtime, &ui)
+            .unwrap()
+            .item
+            .network_id(),
+        2
+    );
 
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     let mut pending_hotbar = UiRuntime::new(7);
@@ -128,6 +134,78 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
         .inventory
         .queue_local_hotbar_selection(4, game_mode);
     assert!(verified_use_selection(&player_runtime, &pending_hotbar).is_none());
+}
+
+/// Opens a personal inventory with a known selected backing stack.
+fn selection_fixture() -> (client_state::PlayerRuntime, UiRuntime) {
+    let mut runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
+    let mut ui = UiRuntime::new(7);
+    runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.inventory.set_local_selected_slot(2);
+    let ledger = ui.inventory_ledger_mut(&mut runtime);
+    ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    ledger.apply(&inventory_slot(2, network_item(2, 77)));
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    (runtime, ui)
+}
+
+#[test]
+fn world_backing_use_keeps_the_selected_item_while_a_screen_predicts_its_removal() {
+    let (mut runtime, mut ui) = selection_fixture();
+    let ledger = ui.inventory_ledger_mut(&mut runtime);
+    ledger.begin_click(2).unwrap();
+    assert!(ledger.displayed_stack(2).is_none());
+    let selection = verified_use_selection(&runtime, &ui).expect("backing item remains usable");
+    assert_eq!(selection.item.network_id(), 2);
+    assert_eq!(selection.item.stack_network_id(), 41);
+}
+
+#[test]
+fn world_backing_use_ignores_recovery_on_inactive_screen_inputs() {
+    let (mut runtime, mut ui) = selection_fixture();
+    let ledger = ui.inventory_ledger_mut(&mut runtime);
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 28,
+        },
+        stack: network_item(5, 0),
+        storage_item: None,
+    }));
+    assert!(ledger.poll_timeout(inventory::inventory_ledger::INVENTORY_REQUEST_TIMEOUT_MILLIS));
+    assert!(
+        ledger.resync_required(),
+        "control retains the unfinished input recovery"
+    );
+    let selection = verified_use_selection(&runtime, &ui)
+        .expect("screen recovery does not own world selection");
+    assert_eq!(selection.item.network_id(), 2);
+}
+
+#[test]
+fn world_backing_use_observes_a_server_restatement_under_a_screen_prediction() {
+    let (mut runtime, mut ui) = selection_fixture();
+    let ledger = ui.inventory_ledger_mut(&mut runtime);
+    ledger.begin_click(2).unwrap();
+    let mut replacement = network_item(4, 99);
+    replacement.stack_network_id = 91;
+    ledger.apply(&inventory_slot(2, replacement));
+    assert!(
+        ledger.displayed_stack(2).is_none(),
+        "screen prediction still owns its presentation"
+    );
+    let selection =
+        verified_use_selection(&runtime, &ui).expect("world selection reads the restated backing");
+    assert_eq!(
+        (
+            selection.item.network_id(),
+            selection.item.stack_network_id()
+        ),
+        (4, 91)
+    );
 }
 
 /// A settled chest cursor must not make an unrelated retained input block the selected stack.
