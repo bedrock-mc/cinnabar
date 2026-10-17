@@ -63,6 +63,7 @@ fn assert_respawn_discards_release(stage: ReleaseStage, search: bool, predicted:
         let item =
             protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
         let release = protocol::release_item_packet(protocol::HeldItemRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             selected_slot: 0,
             selected_item: item,
             player_position: facing.position,

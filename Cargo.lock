@@ -9026,6 +9026,7 @@ name = "ui-snapshot"
 version = "0.1.20"
 dependencies = [
  "assets",
+ "bridge",
  "cosmetics",
  "image",
  "inventory 0.1.20",

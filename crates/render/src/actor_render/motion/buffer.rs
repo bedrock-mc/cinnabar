@@ -1,6 +1,6 @@
 //! Retained actor history storage avoids staging identical bytes on repeated frames.
 
-use crate::actor::gpu::allocation;
+use crate::gpu_allocation;
 use bevy::render::{render_resource::*, renderer::RenderDevice};
 
 pub(super) struct MotionBuffer {
@@ -34,7 +34,7 @@ impl MotionBuffer {
             None
         };
         let buffer = replacement.as_ref().unwrap_or(&self.buffer);
-        if allocation::checked(device, "actor velocity upload", bytes.len() as u64, || {
+        if gpu_allocation::checked(device, "actor velocity upload", bytes.len() as u64, || {
             write(buffer, bytes)
         })
         .is_none()
@@ -58,7 +58,7 @@ fn allocate(device: &RenderDevice, bytes: usize) -> Option<Buffer> {
     if bytes as u64 > crate::actor::gpu::storage_binding_bytes(device) {
         return None;
     }
-    allocation::buffer(
+    gpu_allocation::buffer(
         device,
         &BufferDescriptor {
             label: Some("actor velocity history"),
@@ -95,7 +95,7 @@ mod tests {
         let device = RenderDevice::from(device);
         let mut buffer = MotionBuffer::new(&device, 16).unwrap();
         let previous = buffer.buffer.id();
-        let _failure = allocation::inject(|label, _| label == "actor velocity history");
+        let _failure = gpu_allocation::inject(|label, _| label == "actor velocity history");
         assert!(
             buffer
                 .upload(&device, &[1; 64], |_, _| panic!(

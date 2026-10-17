@@ -65,11 +65,11 @@ pub struct SessionDataCache {
 }
 
 impl SessionDataCache {
-    /// The session data for `inputs`, with `name` localizing an identifier.
+    /// The session data for `inputs`, with `name` localizing an identifier and aux.
     pub fn update(
         &mut self,
         inputs: SessionInputs<'_>,
-        name: &dyn Fn(&str) -> String,
+        name: &dyn Fn(&str, u16) -> String,
     ) -> Arc<SessionData> {
         let registry = inputs
             .registry
@@ -142,8 +142,9 @@ pub fn session_data(
         catalog: player_runtime.inventory.screen_catalog(),
         language: runtime.text_generation(),
     };
-    let data = cache.update(inputs, &|identifier| {
-        runtime.localized_item_name(identifier)
+    // Named as vanilla's tooltips name a stack: potions and tipped arrows by their aux.
+    let data = cache.update(inputs, &|identifier, aux| {
+        super::presentation::inventory_tooltip::default_name(runtime, identifier, u32::from(aux))
     });
     cache.language_source = runtime.translator();
     data
@@ -175,7 +176,7 @@ pub fn session_stack(
 fn build_items(
     creative: Option<&protocol::CreativeContentEvent>,
     registry: Option<&BTreeMap<i32, ItemRegistryEntry>>,
-    name: &dyn Fn(&str) -> String,
+    name: &dyn Fn(&str, u16) -> String,
 ) -> (Vec<Item>, usize) {
     let Some(registry) = registry else {
         return (Vec::new(), 0);
@@ -186,7 +187,7 @@ fn build_items(
             aux,
         },
         icon: SessionData::icon_key(entry.network_id, aux),
-        name: name(&entry.identifier),
+        name: name(&entry.identifier, aux),
         group: None,
         category: None,
         max_stack: entry.negotiated_max_stack_size.unwrap_or(DEFAULT_MAX_STACK),
