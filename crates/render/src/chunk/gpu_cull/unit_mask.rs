@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn unchanged_visibility_mask_buffers_reuse_both_bind_groups() {
-        let (device, _) = wgpu::Device::noop(&Default::default());
+        let (device, _queue) = wgpu::Device::noop(&Default::default());
         let masks = UnitMasks::new(&device);
         let buffer = || {
             device.create_buffer(&wgpu::BufferDescriptor {
