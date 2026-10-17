@@ -88,10 +88,9 @@ impl PlayerInventoryLedger {
             .or_else(|error| {
                 // A first-frame hotbar swap queues behind its unsent Open, never ahead of it.
                 if error == InventoryGestureError::PersonalInventoryUnavailable
-                    && let Some(super::control::ControlRequest::Open { generation, .. }) =
-                        self.pending_control()
+                    && let Some(super::control::ControlRequest::Open(open)) = self.pending_control()
                 {
-                    return Ok(Some(generation));
+                    return Ok(Some(open.generation));
                 }
                 Err(error)
             })?;

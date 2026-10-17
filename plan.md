@@ -10020,5 +10020,7 @@ Inventory input resolves a retained mount through live actor authority and sends
 ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
 request. The chosen target survives transport delay. Matching actor-window replies settle
 mounted requests and preserve cancellation or a newer reopen intent. Unrelated server
-windows remain authoritative. Full mount container, vehicle input
+windows remain authoritative. Unanswered opens retain their generations in request order,
+and stale replies preserve the active window and its items. A changed target closes the
+admitted personal window before sending the next open. Full mount container, vehicle input
 and platform-specific inventory-opening guards remain incomplete.

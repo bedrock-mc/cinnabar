@@ -2,7 +2,7 @@
 
 use protocol::{ContainerCloseEvent, ContainerOpenEvent};
 
-use super::{ControlKind, ControlRequest, ControlWindow, SentControl};
+use super::{ControlKind, ControlRequest, ControlWindow, OpenRequest, SentControl};
 use crate::inventory_ledger::PlayerInventoryLedger;
 
 impl PlayerInventoryLedger {
@@ -11,11 +11,15 @@ impl PlayerInventoryLedger {
         &mut self,
         open: ContainerOpenEvent,
     ) -> Option<bool> {
-        let (generation, target) = self.controls.actor_opens.remove(&open.runtime_entity_id)?;
-        if self.controls.personal.sent.is_some_and(|sent| {
-            matches!(sent.request, ControlRequest::Open { generation: sent_generation, .. }
-                if sent_generation == generation)
-        }) {
+        let OpenRequest { generation, target } = self.controls.answer_open(open)?;
+        let current = self.controls.personal.sent.is_some_and(|sent| {
+            matches!(sent.request, ControlRequest::Open(request)
+                if request.generation == generation)
+        });
+        let desired_open = current
+            && self.controls.personal.desired_open
+            && self.controls.personal_target == Some(target);
+        if current {
             self.controls.personal.sent = None;
         }
         if self
@@ -27,9 +31,7 @@ impl PlayerInventoryLedger {
             self.controls.personal.confirmed = None;
             self.controls.personal.reset_required = false;
         }
-        let matches_target = self.controls.personal_target == Some(target);
-        let desired_open = self.controls.personal.desired_open && matches_target;
-        if matches_target {
+        if desired_open {
             self.controls.personal.desired_open = false;
         }
         if self
@@ -41,28 +43,11 @@ impl PlayerInventoryLedger {
         Some(desired_open)
     }
 
-    /// Accepts the sole outstanding open, including one whose screen was superseded.
+    /// Keeps personal replies bound to a compatible admitted target until its window closes.
     pub(in crate::inventory_ledger) fn apply_personal_open(&mut self, open: ContainerOpenEvent) {
         let Some(window_id) = open.container.window_id else {
             self.note_unrouted_container();
             return;
-        };
-        let generation = if let Some(super::SentControl {
-            request: ControlRequest::Open { generation, .. },
-            ..
-        }) = self.controls.personal.sent
-        {
-            self.controls.personal.sent = None;
-            generation
-        } else if let Some(window) = self.controls.personal.confirmed {
-            window.generation
-        } else {
-            self.note_unrouted_container();
-            // With no outstanding open or confirmed window, this may predate a completed reset.
-            self.controls.personal.reset_required = true;
-            let generation = self.next_open_generation;
-            self.next_open_generation = generation.wrapping_add(1).max(1);
-            generation
         };
         if !super::super::helpers::valid_raw_window_id(window_id) {
             self.controls.personal.desired_open = false;
@@ -70,11 +55,51 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
-        self.controls.personal.confirmed = Some(ControlWindow {
-            generation,
-            window_id,
-            window_type: open.window_type,
+        let request = self.controls.answer_open(open);
+        // Personal replies carry no actor identity. A same-target reply can confirm an
+        // admitted retry, whose own unanswered entry still guards its eventual late reply.
+        let admitted = self.controls.personal.sent.and_then(|sent| {
+            if let ControlRequest::Open(admitted) = sent.request
+                && admitted.target.actor_unique_id.is_none()
+                && request.is_none_or(|request| request.target == admitted.target)
+            {
+                Some(admitted)
+            } else {
+                None
+            }
         });
+        let window = if let Some(OpenRequest { generation, target }) = admitted.or(request) {
+            let current = self.controls.personal.sent.is_some_and(|sent| {
+                matches!(sent.request, ControlRequest::Open(request)
+                    if request.generation == generation)
+            });
+            if current {
+                self.controls.personal.sent = None;
+            } else if !self
+                .controls
+                .personal
+                .confirmed
+                .is_some_and(|window| window.generation == generation)
+            {
+                self.reject_window(window_id, open.window_type);
+                return;
+            }
+            ControlWindow {
+                generation,
+                window_id,
+                window_type: open.window_type,
+                target: Some(target),
+            }
+        } else if let Some(window) = self.controls.personal.confirmed {
+            ControlWindow {
+                window_id,
+                ..window
+            }
+        } else {
+            self.reject_window(window_id, open.window_type);
+            return;
+        };
+        self.controls.confirm(window);
         // A late open during timeout recovery supplies the actual ID for the required close.
         self.reconcile_personal();
     }
@@ -155,6 +180,9 @@ impl PlayerInventoryLedger {
     ) {
         let kind = window.kind();
         let state = self.controls.state_mut(kind);
+        if state.rejected == Some(window) {
+            state.rejected = None;
+        }
         if state.confirmed == Some(window) {
             state.confirmed = None;
             state.reset_required = false;

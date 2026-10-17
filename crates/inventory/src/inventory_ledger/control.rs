@@ -1,4 +1,4 @@
-//! One outstanding control and one desired state per window kind.
+//! One admitted control per window kind, with unanswered opens retained in send order.
 
 use super::{INVENTORY_REQUEST_TIMEOUT_MILLIS, PERSONAL_INVENTORY_WINDOW_TYPE};
 
@@ -18,6 +18,7 @@ pub(super) struct ControlWindow {
     pub generation: u64,
     pub window_id: i32,
     pub window_type: i8,
+    pub target: Option<OpenTarget>,
 }
 
 impl ControlWindow {
@@ -38,16 +39,30 @@ pub(super) struct OpenTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct OpenRequest {
+    pub generation: u64,
+    pub target: OpenTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ControlRequest {
-    Open { generation: u64, target: OpenTarget },
+    Open(OpenRequest),
     Close(ControlWindow),
 }
 
 impl ControlRequest {
+    /// Identifies the open or close generation owned by this admitted control.
+    pub fn generation(self) -> u64 {
+        match self {
+            Self::Open(request) => request.generation,
+            Self::Close(window) => window.generation,
+        }
+    }
+
     /// Returns the window kind whose admission slot this request occupies.
     pub fn kind(self) -> ControlKind {
         match self {
-            Self::Open { .. } => ControlKind::Personal,
+            Self::Open(_) => ControlKind::Personal,
             Self::Close(window) => window.kind(),
         }
     }
@@ -76,6 +91,8 @@ pub(super) struct WindowControl {
     pub desired_open: bool,
     pub confirmed: Option<ControlWindow>,
     pub sent: Option<SentControl>,
+    /// A rejected reply needs a close without becoming the active window.
+    pub rejected: Option<ControlWindow>,
     /// An unanswered open needs a close before it is safe to try opening again.
     pub reset_required: bool,
 }
@@ -85,11 +102,49 @@ pub(super) struct WindowControls {
     pub personal: WindowControl,
     pub storage: WindowControl,
     pub personal_target: Option<OpenTarget>,
-    /// Actor opens retain their generation and target until their replies, even after timeouts.
-    pub actor_opens: std::collections::BTreeMap<i64, (u64, OpenTarget)>,
+    /// Timeouts release admission slots, but replies still consume their original requests.
+    pub unanswered_opens: std::collections::VecDeque<OpenRequest>,
 }
 
 impl WindowControls {
+    /// Returns the admitted target while its open or confirmed window still owns the slot.
+    pub fn admitted_personal_target(&self) -> Option<OpenTarget> {
+        if let Some(SentControl {
+            request: ControlRequest::Open(OpenRequest { target, .. }),
+            ..
+        }) = self.personal.sent
+        {
+            Some(target)
+        } else {
+            self.personal.confirmed.and_then(|window| window.target)
+        }
+    }
+
+    /// Matches the oldest unanswered request for the identity carried by this reply.
+    pub fn answer_open(&mut self, open: protocol::ContainerOpenEvent) -> Option<OpenRequest> {
+        let index = self.unanswered_opens.iter().position(|request| {
+            if open.window_type == PERSONAL_INVENTORY_WINDOW_TYPE {
+                request.target.actor_unique_id.is_none()
+            } else {
+                request.target.actor_unique_id == Some(open.runtime_entity_id)
+            }
+        })?;
+        self.unanswered_opens.remove(index)
+    }
+
+    /// Confirms a window and drops unsent rejection closes that would hit its reused ID.
+    pub fn confirm(&mut self, window: ControlWindow) {
+        for state in [&mut self.personal, &mut self.storage] {
+            if state
+                .rejected
+                .is_some_and(|rejected| rejected.window_id == window.window_id)
+            {
+                state.rejected = None;
+            }
+        }
+        self.state_mut(window.kind()).confirmed = Some(window);
+    }
+
     /// Borrows the state that owns this kind's desired state and outstanding request.
     pub fn state(&self, kind: ControlKind) -> &WindowControl {
         match kind {
@@ -112,23 +167,21 @@ impl WindowControls {
         let covered_personal_generation = match request {
             ControlRequest::Close(window) => {
                 assert!(!self.close_outstanding(window.window_id));
-                if window.kind() == ControlKind::Storage {
+                if window.kind() == ControlKind::Storage && self.storage.rejected != Some(window) {
                     self.personal
                         .confirmed
                         .filter(|personal| personal.window_id == window.window_id)
                         .map(|personal| personal.generation)
                         .or_else(|| match self.personal.sent?.request {
-                            ControlRequest::Open { generation, .. } => Some(generation),
+                            ControlRequest::Open(request) => Some(request.generation),
                             ControlRequest::Close(_) => None,
                         })
                 } else {
                     None
                 }
             }
-            ControlRequest::Open { generation, target } => {
-                if let Some(actor) = target.actor_unique_id {
-                    self.actor_opens.insert(actor, (generation, target));
-                }
+            ControlRequest::Open(request) => {
+                self.unanswered_opens.push_back(request);
                 None
             }
         };

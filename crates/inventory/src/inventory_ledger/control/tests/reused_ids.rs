@@ -227,7 +227,7 @@ pub(super) fn covering_storage_close_interleaving(
     assert!(ledger.controls.personal.confirmed.is_none());
     assert!(matches!(
         ledger.pending_control(),
-        Some(ControlRequest::Open { .. })
+        Some(ControlRequest::Open(_))
     ));
     assert_eq!(
         ledger.begin_click(0),

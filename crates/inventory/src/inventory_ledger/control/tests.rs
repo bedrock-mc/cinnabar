@@ -95,7 +95,7 @@ impl Server {
         );
         let mut replacement = None;
         let reply = match request {
-            ControlRequest::Open { .. } => {
+            ControlRequest::Open(_) => {
                 if self.personal_open {
                     self.duplicate_opens += 1;
                     return;

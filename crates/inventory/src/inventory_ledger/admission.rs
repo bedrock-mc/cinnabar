@@ -389,6 +389,13 @@ impl PlayerInventoryLedger {
             self.apply_personal_open(open);
             return;
         }
+        let requested_open = self.answer_actor_open(open);
+        if requested_open == Some(false) {
+            if let Some(window_id) = open.container.window_id {
+                self.reject_window(window_id, open.window_type);
+            }
+            return;
+        }
         if matches!(
             self.personal,
             Some(super::PersonalWindow::Open { .. } | super::PersonalWindow::Closing { .. })
@@ -433,7 +440,7 @@ impl PlayerInventoryLedger {
             self.confirmed.clear_storage();
             return;
         };
-        let desired_open = self.answer_actor_open(open).unwrap_or_else(|| {
+        let desired_open = requested_open.unwrap_or_else(|| {
             // Unsolicited storage opens supersede the personal screen and its intent.
             self.controls.personal.desired_open = false;
             self.discard_pending_personal_open();
@@ -442,10 +449,11 @@ impl PlayerInventoryLedger {
         self.enchant_options = None;
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
-        self.controls.storage.confirmed = Some(ControlWindow {
+        self.controls.confirm(ControlWindow {
             generation,
             window_id,
             window_type: open.window_type,
+            target: None,
         });
         self.controls.storage.desired_open = desired_open;
         self.storage = Some(StorageWindow {
