@@ -1,6 +1,64 @@
 use super::*;
 use render_model::{UiRenderBatch, UiScissor, UiTextureCatalog, UiTexturePage};
 
+#[test]
+fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let cache = world.resource::<PipelineCache>();
+    let pipeline = UiCompositePipeline::from_world(&mut World::new());
+    let layout = cache.get_bind_group_layout(&pipeline.layout);
+    let size = Extent3d {
+        width: 2,
+        height: 2,
+        depth_or_array_layers: 1,
+    };
+    let layer = retained_layer(device, size);
+    let scenes = [retained_layer(device, size), retained_layer(device, size)];
+    let frame = frame_layer(&layer, false);
+    let first = frame
+        .bindings
+        .lock()
+        .unwrap()
+        .get(device, &layout, [&frame.view, &scenes[0].view]);
+    let second =
+        frame
+            .bindings
+            .lock()
+            .unwrap()
+            .get(device, &layout, [&frame.view, &scenes[1].view]);
+    let allocated = test_alloc::thread_allocations();
+    for index in 0..8 {
+        let next = frame_layer(&layer, false);
+        let group = next.bindings.lock().unwrap().get(
+            device,
+            &layout,
+            [&next.view, &scenes[index % 2].view],
+        );
+        assert_eq!(
+            group,
+            if index % 2 == 0 {
+                first.clone()
+            } else {
+                second.clone()
+            }
+        );
+    }
+    assert_eq!(test_alloc::thread_allocations(), allocated);
+    let replacement = retained_layer(device, size);
+    let changed =
+        frame
+            .bindings
+            .lock()
+            .unwrap()
+            .get(device, &layout, [&frame.view, &replacement.view]);
+    assert_ne!(changed, first);
+    assert_ne!(changed, second);
+    assert_eq!(frame.bindings.lock().unwrap().entries.len(), 2);
+    let new_raster = frame_layer(&replacement, false);
+    assert!(new_raster.bindings.lock().unwrap().entries.is_empty());
+}
+
 /// Supplies one valid triangle with an immutable texture catalog.
 fn input() -> Arc<UiRenderInput> {
     Arc::new(UiRenderInput {
