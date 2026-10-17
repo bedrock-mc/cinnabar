@@ -205,7 +205,7 @@ pub(crate) struct UiGpu {
     #[cfg(test)]
     geometry_writes: [usize; 2],
     #[cfg(test)]
-    world_passes: std::sync::atomic::AtomicUsize,
+    pub(crate) world_passes: std::sync::atomic::AtomicUsize,
     viewport_size: [u32; 2],
     started: std::time::Instant,
     textures: UiGpuTextures,
@@ -213,7 +213,7 @@ pub(crate) struct UiGpu {
     /// `bilinear` sprites sample through this instead.
     linear_sampler: Sampler,
     item_glint: item_glint::GpuItemGlint,
-    batches: Arc<[UiRenderBatch]>,
+    pub(crate) batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     /// The accepted revision draws glint, which animates without a new revision.
     animated: bool,
@@ -228,7 +228,7 @@ pub(crate) struct UiGpu {
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
     /// Each view's UI-layer composite pipelines.
     composite_pipelines: std::collections::BTreeMap<Entity, composite::CompositePipelines>,
-    world_view_pipelines: std::collections::BTreeMap<
+    pub(crate) world_view_pipelines: std::collections::BTreeMap<
         (Entity, bool, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
     >,
