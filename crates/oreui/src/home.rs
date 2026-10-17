@@ -225,14 +225,6 @@ fn action_panel(
         ];
         live_event(canvas, view, b, event, translate)?;
     }
-    if view.updates.ready.is_some() {
-        super::updates::notice(
-            canvas,
-            view,
-            [x, y, right, y + canvas.r(update_height - 1.2)],
-        )?;
-        y += canvas.r(update_height);
-    }
     canvas.text_line("LET'S PLAY", [x, y], right - x, HEADER5, TEXT)?;
     y += canvas.r(HEADER5.line + 0.8);
     canvas.text_line(
@@ -287,6 +279,15 @@ fn action_panel(
             Variant::Neutral,
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
+        )?;
+        y += canvas.r(5.6);
+    }
+    if view.updates.ready.is_some() {
+        let top = y + canvas.r(0.8);
+        super::updates::notice(
+            canvas,
+            view,
+            [x, top, right, top + canvas.r(update_height - 1.2)],
         )?;
     }
     canvas.end_clip(clip);

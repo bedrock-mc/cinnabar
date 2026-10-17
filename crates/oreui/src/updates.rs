@@ -1,13 +1,13 @@
-//! The home notice uses the existing button styles; in-world menus only show a badge.
+//! A quiet release card below the home actions; world menus only show a badge.
 use super::{
     paint::{Bounds, Canvas},
-    theme::{CAPTION, TEXT},
+    theme::{CAPTION, EDGE, HEADER5, NEUTRAL80, PRIMARY_ROLE, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuView, updates::Action};
 use ui_engine::engine::screen::PaintError;
 
-/// Draws the two consent actions beside one short verified-release title.
+/// Draws a release heading and version above explicit update and defer actions.
 pub(super) fn notice(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -20,10 +20,29 @@ pub(super) fn notice(
         return Ok(());
     }
     let [left, top, right, bottom] = bounds;
-    canvas.text_line(&ready.title(), [left, top], right - left, CAPTION, TEXT)?;
+    let surface = canvas.role(NEUTRAL80);
+    canvas.fill(bounds, surface.pressed)?;
+    canvas.frame(bounds, EDGE, surface.border)?;
+    canvas.fill([left, top, left + canvas.r(0.4), bottom], PRIMARY_ROLE.fill)?;
+    let pad = canvas.r(1.6);
+    let x = left + pad;
+    let right = right - pad;
+    let title = if ready.protocol_required {
+        "Update required to connect"
+    } else {
+        "Update available"
+    };
+    canvas.text_line(title, [x, top + pad], right - x, HEADER5, TEXT)?;
+    canvas.text_line(
+        &format!("Version {}", ready.version),
+        [x, top + pad + canvas.r(HEADER5.line + 0.4)],
+        right - x,
+        CAPTION,
+        TEXT_DIMMER,
+    )?;
     let gap = canvas.r(0.8);
-    let middle = (left + right - gap) * 0.5;
-    let button_top = top + canvas.r(CAPTION.line + 1.2);
+    let later_width = canvas.r(8.0);
+    let button_top = bottom - pad - canvas.r(4.8);
     let label = if ready.writable {
         "Restart and update"
     } else {
@@ -32,7 +51,7 @@ pub(super) fn notice(
     widgets::button(
         canvas,
         view,
-        [left, button_top, middle, bottom],
+        [x, button_top, right - later_width - gap, bottom - pad],
         Variant::Secondary,
         label,
         Some(MenuAction::Update(ready.action())),
@@ -40,7 +59,7 @@ pub(super) fn notice(
     widgets::button(
         canvas,
         view,
-        [middle + gap, button_top, right, bottom],
+        [right - later_width, button_top, right, bottom - pad],
         Variant::Neutral,
         "Later",
         Some(MenuAction::Update(Action::Later)),

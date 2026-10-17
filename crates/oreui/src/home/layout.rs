@@ -3,7 +3,7 @@
 use ui::IconRef;
 
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
-pub(super) const UPDATE_NOTICE_HEIGHT: f32 = 12.8;
+pub(super) const UPDATE_NOTICE_HEIGHT: f32 = 15.6;
 
 pub(super) struct Layout {
     pub scale: f32,

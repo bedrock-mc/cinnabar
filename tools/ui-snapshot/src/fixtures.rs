@@ -3,6 +3,7 @@
 mod minecraft_import;
 mod mods;
 mod out_of_game;
+mod updates;
 
 use std::sync::Arc;
 
@@ -50,6 +51,30 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "home-update-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(true, false),
+    },
+    State {
+        name: "home-update-required",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(true, true),
+    },
+    State {
+        name: "home-update-download",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(false, false),
+    },
+    State {
+        name: "home-update-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || updates::home(true, false),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",

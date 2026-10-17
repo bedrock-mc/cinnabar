@@ -196,7 +196,19 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
         })
         .collect::<String>()
         .replace(' ', "");
-    assert!(text.contains("Updateready(2.0.0)"));
+    assert!(text.contains("Updateavailable"));
+    assert!(text.contains("Version2.0.0"));
+    let play = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Play))
+        .unwrap()
+        .1;
+    let update = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Update(launcher::menu::updates::Action::Restart))
+        .unwrap()
+        .1;
+    assert!(play.max().y() < update.min().y());
     for action in [
         launcher::menu::updates::Action::Restart,
         launcher::menu::updates::Action::Later,
