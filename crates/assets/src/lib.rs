@@ -49,7 +49,7 @@ pub mod painting;
 mod particle;
 mod physics_registry;
 mod pinned_content;
-mod potion;
+pub mod potion;
 mod provenance;
 pub mod registry;
 mod runtime;
@@ -257,10 +257,6 @@ pub use physics_registry::{
 pub use pinned_content::{
     active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,
     pinned_world_provenance,
-};
-pub use potion::{
-    POTION_DESCRIPTORS, PotionDescriptor, PotionEffect, potion_descriptor, tipped_arrow_name_key,
-    vanilla_potion_variant,
 };
 pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
