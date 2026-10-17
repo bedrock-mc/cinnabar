@@ -146,7 +146,34 @@ fn admitted_consumption_survives_accepted_screen_prediction() {
     }
 }
 
-/// Unsent requests are rebuilt from consumed backing, so their later correction needs no offset.
+/// Consumption after an identical authoritative restatement still outlives the screen response.
+#[test]
+fn consumption_after_identical_restatement_survives_older_screen_response() {
+    let original = stack(6, 10, 4);
+    let mut ledger = open_ledger(&[(0, original.clone())]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    ledger.apply(&slot_push(0, original));
+    let latest = consume_backing(&mut ledger, 0);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            0,
+            3,
+            91,
+        )],
+    );
+    let backing = ledger.confirmed_stack(Cell::Inventory(0)).unwrap();
+    assert_eq!((backing.count, backing.stack_network_id), (2, latest));
+    assert_eq!(ledger.displayed_stack(0), Some(backing));
+}
+
+/// Unsent requests are rebuilt before transport without a second consumption offset.
 #[test]
 fn admitted_consumption_is_not_counted_twice_for_an_unsent_screen_request() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);

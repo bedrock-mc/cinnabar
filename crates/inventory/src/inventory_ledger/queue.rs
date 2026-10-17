@@ -105,7 +105,6 @@ impl PendingRequest {
             cell == Cell::Inventory(mining.slot) && mining.source.as_ref().is_some_and(same_source)
         }) || self.predicted.iter().any(|prediction| {
             prediction.cell == cell
-                && prediction.current
                 && prediction
                     .held
                     .as_ref()
