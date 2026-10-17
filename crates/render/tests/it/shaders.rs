@@ -278,3 +278,20 @@ fn direct_terrain_unit_shaders_validate_with_and_without_msaa_cutout() {
         }
     }
 }
+
+#[test]
+fn java_sky_and_cloud_encoded_variants_validate() {
+    for raw in [
+        include_str!("../../src/atmosphere.wesl"),
+        include_str!("../../src/cloud.wesl"),
+    ] {
+        let source = shader_source::standalone(raw, &["JAVA_ENCODED"]);
+        let module = naga::front::wgsl::parse_str(&source).expect("encoded world shader parses");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("encoded world shader validates");
+    }
+}

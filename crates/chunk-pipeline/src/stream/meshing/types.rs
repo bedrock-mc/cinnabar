@@ -7,6 +7,7 @@ pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) column: Option<Arc<BTreeMap<i32, Arc<SubChunk>>>>,
     pub(in crate::stream) center_y: i32,
     pub(in crate::stream) light_halo: MeshLightHalo,
+    pub(in crate::stream) java_world_lighting: bool,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =
@@ -103,6 +104,7 @@ impl MeshSnapshot {
             &self.light_halo,
             ::meshing::MeshOptions {
                 split_tinted_faces: biome.uniform_tint_index().is_none(),
+                java_world_lighting: self.java_world_lighting,
             },
         )
     }

@@ -252,7 +252,8 @@ pub(crate) fn render_at(
         uniform,
     );
     let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere =
+        [0.0; std::mem::size_of::<render_scene::AtmosphereFrame>() / std::mem::size_of::<f32>()];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);

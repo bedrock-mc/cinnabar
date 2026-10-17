@@ -1,19 +1,11 @@
+import render::lighting::WorldAtmosphere;
 import bevy_render::view::View;
-import render::lighting::{lit_colour, light_colour};
+import render::lighting::{lit_colour, light_colour, distance_fog_weight};
 
 // Port of the vanilla RenderDragon `Weather` material: wrapped particle streaks stretched along
 // the layer velocity, hidden below each column's occlusion height.
 
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>,
-    moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>,
-    sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>,
-    fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>,
-    sky_extra: vec4<f32>,
-}
+alias AtmosphereUniform = WorldAtmosphere;
 
 // forward: box offset ahead of the camera, then 1 when the vanilla sheet is bound.
 // grid: occlusion grid origin x and z.
@@ -133,11 +125,7 @@ fn weather_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let lit = lit_colour(texel.rgb, light_colour(240u));
-    let fog = clamp(
-        (distance(in.world_position, view.world_position) - atmosphere.fog_color_start.w)
-            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
-        0.0,
-        1.0,
-    );
+    let fog = distance_fog_weight(in.world_position - view.world_position,
+        atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, atmosphere.java_fog);
     return vec4(mix(lit, atmosphere.fog_color_start.rgb, fog), texel.a);
 }

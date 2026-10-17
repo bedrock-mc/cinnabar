@@ -387,7 +387,8 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     );
     let templates = gpu.words(&template_words(), storage);
     let geometry = gpu.words(&geometry_words(), storage);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere =
+        [0.0; std::mem::size_of::<render_scene::AtmosphereFrame>() / std::mem::size_of::<f32>()];
     atmosphere[16..19].copy_from_slice(&[0.24, 0.31, 0.47]);
     atmosphere[19] = 4.0;
     atmosphere[20] = 180.0;

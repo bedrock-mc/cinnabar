@@ -1,5 +1,8 @@
 use std::cell::Cell;
 
+mod java;
+pub use java::JAVA_SAMPLE_FLAG;
+
 use assets::{MODEL_QUAD_FLAG_FACE_MASK, ModelQuad, NetworkIdMode, RuntimeAssets, VisualKind};
 use world::{MeshDependencyMask, MeshNeighbourhood, SubChunk};
 
@@ -131,6 +134,10 @@ pub(crate) struct CellInputs {
 
 /// Occlusion and light lookups shared by the direct and cached bake paths.
 pub(crate) trait LightingInputs {
+    /// Selects the optional corner-light calculation for this immutable mesh job.
+    fn java_world_lighting(&self) -> bool {
+        false
+    }
     /// Native cached solid-render bit, independent of geometric face coverage.
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
     /// Native shade brightness is 0.2 for leaves and solid render blocks; only
@@ -233,6 +240,7 @@ pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     occluders: [Cell<u64>; HALO_WORDS],
     shade_known: [Cell<u64>; HALO_WORDS],
     darkened_shades: [Cell<u64>; HALO_WORDS],
+    java_world_lighting: bool,
 }
 
 impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
@@ -259,11 +267,17 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
             occluders: [const { Cell::new(0) }; HALO_WORDS],
             shade_known: [const { Cell::new(0) }; HALO_WORDS],
             darkened_shades: [const { Cell::new(0) }; HALO_WORDS],
+            java_world_lighting: false,
         }
     }
 }
 
 impl<S: MeshLightSampler + ?Sized> MeshLightingCache<'_, '_, S> {
+    /// Selects a job-local light format without changing solved world light.
+    pub(crate) fn with_java_world_lighting(mut self, enabled: bool) -> Self {
+        self.java_world_lighting = enabled;
+        self
+    }
     fn occludes_at(&self, index: usize, coordinate: [i32; 3]) -> bool {
         let (word, bit) = (index / 64, 1_u64 << (index % 64));
         if self.occluder_known[word].get() & bit == 0 {
@@ -299,6 +313,9 @@ impl<S: MeshLightSampler + ?Sized> MeshLightingCache<'_, '_, S> {
 }
 
 impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, S> {
+    fn java_world_lighting(&self) -> bool {
+        self.java_world_lighting
+    }
     fn occludes(&self, coordinate: [i32; 3]) -> bool {
         halo_index(coordinate).map_or_else(
             || self.direct.occludes(coordinate),
@@ -400,6 +417,9 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
     liquid_outward_center: bool,
     emitting_block: bool,
 ) -> PackedQuadLighting {
+    if inputs.java_world_lighting() && !liquid_outward_center {
+        return java::bake(inputs, block, face, positions, check_bounds);
+    }
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
     let axis = normal.iter().position(|&n| n != 0).expect("face axis");

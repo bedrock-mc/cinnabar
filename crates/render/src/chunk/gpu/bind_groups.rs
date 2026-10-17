@@ -1,9 +1,11 @@
 use super::resource_geometry::PreparedResourceGeometry;
 
+mod java_mips;
 mod reload;
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::color::ColorToPacked;
+pub(in crate::chunk) use java_mips::prepare_java_terrain_mips;
 pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
 use render_scene::{

@@ -56,3 +56,5 @@ pub use types::{
     MODEL_REF_FLAG_RANDOM_OFFSET, Neighbourhood, PackedLiquidQuad, PackedModelDrawRef,
     PackedModelRef, PackedQuad, PackedQuadLighting,
 };
+
+pub mod java_clouds;

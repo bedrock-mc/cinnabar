@@ -7,6 +7,7 @@ pub(crate) const SKYBOX_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unor
 /// Uploads the active dimension and invalidates bindings only when its assets change.
 pub(super) fn prepare_atmosphere_textures(
     requested: Res<AtmosphereTextureAssets>,
+    java: Res<render_scene::JavaWorldVisuals>,
     frame: Option<Res<AtmosphereFrame>>,
     weather_textures: Option<Res<WeatherTextureAssets>>,
     render_device: Res<RenderDevice>,
@@ -26,8 +27,9 @@ pub(super) fn prepare_atmosphere_textures(
     });
     let end_sky_identity = end_sky.map(|(identity, _)| identity);
     let dimension = crate::pack_skybox::dimension(frame.as_deref().copied().unwrap_or_default());
+    let identity = java.texture_identity(requested.identity());
     if gpu.prepared.as_ref().is_some_and(|prepared| {
-        prepared.identity == requested.identity()
+        prepared.identity == identity
             && prepared.end_sky_identity == end_sky_identity
             && prepared.dimension == dimension
     }) {
@@ -40,6 +42,8 @@ pub(super) fn prepare_atmosphere_textures(
     let moon_phases = runtime
         .texture(AtmosphereRole::MoonPhases)
         .expect("validated MCBEATM2 always contains the moon atlas");
+    let sun = java.sky_texture(sun);
+    let moon_phases = java.sky_texture(moon_phases);
     let (sun_texture, sun_view) =
         upload_atmosphere_texture(&render_device, &render_queue, sun, "pinned vanilla sun");
     let (moon_texture, moon_view) = upload_atmosphere_texture(
@@ -88,7 +92,7 @@ pub(super) fn prepare_atmosphere_textures(
     let (_skybox_textures, skybox_views) = uploaded.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
     let skybox_sampler = render_device.create_sampler(&skybox_sampler_descriptor());
     gpu.prepared = Some(PreparedAtmosphereAssets {
-        identity: requested.identity(),
+        identity,
         end_sky_identity,
         dimension,
         _skybox_textures: _skybox_textures.try_into().unwrap(),

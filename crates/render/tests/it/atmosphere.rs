@@ -79,7 +79,7 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_nine_vec4_abi() {
+fn atmosphere_frame_has_a_uniform_compatible_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());

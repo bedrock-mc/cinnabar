@@ -45,6 +45,23 @@ impl ResourceMeshSnapshot {
 }
 
 impl WorldStream {
+    /// Reports the lighting style captured by subsequently dispatched mesh jobs.
+    pub fn java_world_lighting(&self) -> bool {
+        self.java_world_lighting
+    }
+
+    /// Requeues resident meshes with new revisions; old records remain decodable until replaced.
+    pub fn set_java_world_lighting(&mut self, enabled: bool, now: Instant) {
+        if self.java_world_lighting == enabled {
+            return;
+        }
+        self.java_world_lighting = enabled;
+        self.retain_mesh_changes(|_| false);
+        for key in self.resident.iter().copied().collect::<Vec<_>>() {
+            self.mark_dirty_exact(key, now);
+        }
+    }
+
     /// Captures resident render neighbourhoods only when their lighting is ready.
     pub fn resource_mesh_snapshot(
         &self,

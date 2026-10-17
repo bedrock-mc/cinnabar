@@ -224,6 +224,7 @@ pub(crate) fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBi
 
 pub(crate) fn update_camera_medium(
     client_world: Res<ClientWorld>,
+    player: Option<Res<client_state::PlayerRuntime>>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
@@ -271,6 +272,10 @@ pub(crate) fn update_camera_medium(
         camera_biome_identifier: fog_bindings.identifier(raw_id),
         camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
         render_distance_blocks: Some(stream.render_distance_blocks()),
+        camera_sky_light: stream.solved_light_at(position).map(|(_, sky)| sky),
+        spectator: player.as_ref().is_some_and(|player| {
+            player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator)
+        }),
     };
 }
 

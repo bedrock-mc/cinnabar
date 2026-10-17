@@ -32,6 +32,7 @@ pub mod hud_renderers;
 pub mod inventory_capture;
 pub mod invite_screen;
 pub mod java_animations_setting;
+pub mod java_world_visuals_setting;
 pub mod join_progress;
 pub mod loading_screen;
 pub mod menu_caret;

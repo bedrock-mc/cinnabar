@@ -55,6 +55,7 @@ impl SettingsOptions {
         settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
         settings.video.view_bobbing = self.value(SettingId::ViewBobbing) != 0;
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
+        settings.video.java_world_visuals = self.value(SettingId::JavaWorldVisuals) != 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
         settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;

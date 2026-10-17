@@ -57,6 +57,8 @@ mod lang_command;
 #[path = "assetc/output_bundle.rs"]
 mod output_bundle;
 use output_bundle::write_output_bundle;
+#[path = "assetc/java_world_command.rs"]
+mod java_world_command;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
 #[path = "assetc/particle_command.rs"]
@@ -232,6 +234,12 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             let bytes =
                 asset_compiler::block_shapes::compile_registry(protocol, &breg, &records, &input)?;
             write_blob_atomic(&out, &bytes)?;
+        }
+        Command::JavaWorldAssets {
+            source_manifest,
+            out,
+        } => {
+            java_world_command::prepare(&source_manifest, &out)?;
         }
         Command::Atmosphere {
             pack,

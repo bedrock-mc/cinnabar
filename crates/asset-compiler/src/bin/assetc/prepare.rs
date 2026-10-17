@@ -284,6 +284,10 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
                 out,
             }
         }
+        Recipe::JavaWorld => Command::JavaWorldAssets {
+            source_manifest: manifest(),
+            out,
+        },
         Recipe::Atmosphere => Command::Atmosphere {
             pack,
             source_manifest: manifest(),

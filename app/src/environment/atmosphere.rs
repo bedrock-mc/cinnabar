@@ -185,9 +185,10 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 
 /// Menu options and optional sky settings consumed by atmosphere updates.
 type AtmospherePreferences<'w> = (
-    Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    Option<ResMut<'w, client_shell::menu::MenuRuntime>>,
     Option<ResMut<'w, render_scene::CloudVisibility>>,
     Option<ResMut<'w, render_scene::SkyboxSettings>>,
+    Option<ResMut<'w, render_scene::JavaWorldVisuals>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -208,10 +209,14 @@ pub(crate) fn update_atmosphere_frame(
     outputs: AtmosphereOutputs,
     settings: Res<client_state::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
-    mut renderer_clock: Local<super::renderer_clock::RendererClock>,
+    renderer_state: (
+        Local<super::renderer_clock::RendererClock>,
+        Local<render_model::java_world::JavaVisualState>,
+    ),
     preferences: AtmospherePreferences,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
+    let (mut renderer_clock, mut java_state) = renderer_state;
     let vision = vision
         .1
         .as_deref()
@@ -223,8 +228,17 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
-    let (menu, clouds, skybox) = preferences;
+    let (mut menu, clouds, skybox, mut java) = preferences;
+    if let Some(menu) = menu.as_mut() {
+        menu.sync_java_world_visuals_available(java.as_ref().is_some_and(|java| java.available()));
+    }
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    if let Some(java) = java.as_mut() {
+        java.set_enabled(options.as_ref().map_or_else(
+            || settings.user_settings_update().1.video.java_world_visuals,
+            |options| options.value(SettingId::JavaWorldVisuals) != 0,
+        ));
+    }
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
@@ -319,6 +333,68 @@ pub(crate) fn update_atmosphere_frame(
         ),
         ..Default::default()
     };
+    if let Some(java) = java.as_ref().and_then(|java| java.assets()) {
+        let identifier = context.camera_biome_identifier.as_deref();
+        let environment = java.environment(
+            context.dimension,
+            identifier,
+            visual_world_time(clock, elapsed),
+        );
+        let now_tick = boss_bars
+            .estimated_server_tick(u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
+        let fire_resistance = boss_bars.gameplay_hud().effects().iter().any(|effect| {
+            assets::effect_descriptor(effect.effect_id)
+                .is_some_and(|descriptor| descriptor.identifier == "minecraft:fire_resistance")
+                && effect.visible_at_tick(now_tick)
+        });
+        let requested_distance = f32::from(
+            settings
+                .user_settings_update()
+                .1
+                .video
+                .render_distance_chunks,
+        ) * 16.0;
+        let confirmed_distance = frame.cloud_fade_distance();
+        let camera = render_model::java_world::JavaCameraInputs {
+            render_distance: if confirmed_distance > 0.0 {
+                requested_distance.min(confirmed_distance)
+            } else {
+                requested_distance
+            },
+            forward: view_inputs.forward,
+            rain: shown.rain_level,
+            thunder: shown.lightning_level,
+            water: medium.0 == CameraMedium::Water,
+            lava: medium.0 == CameraMedium::Lava,
+            spectator: context.spectator,
+            fire_resistance,
+            brightness: lighting.0.brightness,
+            night_vision: vision.night_vision,
+            blindness: vision.blindness,
+            fog_darkness: vision.darkness,
+            darkness: vision.darkness * darkness_scale,
+            darkness_pulse: lighting.0.darkness_pulse,
+            sky_exposure: context
+                .camera_sky_light
+                .map_or(1.0, |sky| ((f32::from(sky) - 8.0) / 7.0).clamp(0.0, 1.0)),
+            precipitation: identifier
+                .and_then(|identifier| java.biomes.get(identifier))
+                .is_none_or(|biome| biome.precipitation),
+        };
+        let visual = java_state.evaluate(
+            clock.session_generation(),
+            renderer_ticks,
+            environment,
+            camera,
+        );
+        lighting.0.java = Some(visual.lightmap);
+        *frame = frame.with_java_world(
+            visual,
+            renderer_ticks,
+            java.atmosphere_texture(assets::AtmosphereRole::Clouds)
+                .width,
+        );
+    }
     *route = next_route;
 }
 

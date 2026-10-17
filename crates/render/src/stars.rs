@@ -1,5 +1,8 @@
 //! Vanilla star candidate generation.
 
+mod java;
+pub(crate) use java::vertices as java_vertices;
+
 /// Builds tangent square triangles with the client's candidate and random-draw ordering.
 pub(crate) fn vertices() -> Vec<[f32; 4]> {
     let mut random = assets::ClientRandom::new(10842);

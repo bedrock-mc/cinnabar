@@ -418,6 +418,8 @@ impl Content<'_, '_> {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
+        } else if id == SettingId::JavaWorldVisuals {
+            launcher::menu::settings_options::JAVA_WORLD_VISUALS_DESCRIPTION.to_owned()
         } else if id == SettingId::VerboseLogging {
             "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
         } else if id == SettingId::RecordNetworkSession {
@@ -442,7 +444,7 @@ impl Content<'_, '_> {
                         self.view.vsync_override.unwrap_or(value != 0),
                         self.view.vsync_override.is_none(),
                     ),
-                    _ => (value != 0, true),
+                    _ => (value != 0, self.view.settings_options.option_enabled(id)),
                 };
                 self.boolean(
                     &title,

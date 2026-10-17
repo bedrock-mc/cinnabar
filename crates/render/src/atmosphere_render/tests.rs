@@ -50,6 +50,8 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
                     hdr: false,
                     stars,
                     skybox: false,
+                    java: false,
+                    encoded: false,
                 },
                 &mut descriptor,
             )

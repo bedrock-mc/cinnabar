@@ -152,7 +152,8 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let bounded_sampler = gpu
         .device
         .create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere =
+        [0.0; std::mem::size_of::<render_scene::AtmosphereFrame>() / std::mem::size_of::<f32>()];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

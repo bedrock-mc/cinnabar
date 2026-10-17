@@ -183,6 +183,10 @@ const _: () = assert!(size_of::<ViewportCloudQuad>() == 16);
 #[must_use]
 pub fn shader_source(source: &str) -> String {
     let mut source = source.replace("CLOUD_FADE_START_VALUE", &format!("{CLOUD_FADE_START:?}"));
+    source = source.replace(
+        "JAVA_CLOUD_Z_OFFSET_VALUE",
+        &format!("{:?}", crate::java_clouds::Z_OFFSET),
+    );
     for (token, face) in [
         ("CLOUD_FACE_DOWN_VALUE", CloudFace::Down),
         ("CLOUD_FACE_UP_VALUE", CloudFace::Up),

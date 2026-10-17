@@ -64,6 +64,7 @@ struct AtmosphereRenderInstalled;
 
 pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<AtmosphereFrame>();
+    app.init_resource::<render_scene::JavaWorldVisuals>();
     app.init_resource::<render_scene::SkyboxSettings>();
     app.init_resource::<render_scene::AtmosphereViewInputs>();
     app.init_resource::<AtmosphereTextureAssets>();
@@ -88,6 +89,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
 
     app.add_plugins((
         ExtractResourcePlugin::<AtmosphereFrame>::default(),
+        ExtractResourcePlugin::<render_scene::JavaWorldVisuals>::default(),
         ExtractResourcePlugin::<render_scene::SkyboxSettings>::default(),
         ExtractResourcePlugin::<render_scene::AtmosphereViewInputs>::default(),
         ExtractResourcePlugin::<AtmosphereTextureAssets>::default(),
@@ -136,6 +138,7 @@ pub(crate) struct AtmosphereGpu {
     uploaded: Option<(AtmosphereFrame, crate::pack_skybox::SkyboxUniform)>,
     stars: Buffer,
     star_vertex_count: u32,
+    java_star_range: std::ops::Range<u32>,
     prepared: Option<PreparedAtmosphereAssets>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
@@ -172,7 +175,11 @@ fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>)
         contents: bytemuck::bytes_of(&crate::pack_skybox::SkyboxUniform::zeroed()),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let vertices = crate::stars::vertices();
+    let mut vertices = crate::stars::vertices();
+    let star_vertex_count = vertices.len() as u32;
+    let java_star_first = 3 + star_vertex_count;
+    vertices.extend(crate::stars::java_vertices());
+    let java_star_range = java_star_first..3 + vertices.len() as u32;
     let stars = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("seeded classic star quads"),
         contents: bytemuck::cast_slice(&vertices),
@@ -184,7 +191,8 @@ fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>)
         skybox_active: false,
         uploaded: None,
         stars,
-        star_vertex_count: vertices.len() as u32,
+        star_vertex_count,
+        java_star_range,
         prepared: None,
         bind_group: None,
         view_buffer_id: None,
@@ -386,6 +394,8 @@ struct AtmospherePipelineKey {
     hdr: bool,
     stars: bool,
     skybox: bool,
+    java: bool,
+    encoded: bool,
 }
 
 // Target Stars material uses OneMinusDestColor→One and disables alpha writes.
@@ -411,16 +421,37 @@ impl Specializer<RenderPipeline> for AtmospherePipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        if key.encoded {
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .push("JAVA_ENCODED".into());
+        }
         let target = descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap();
         target.format = if key.hdr {
             render_scene::SCENE_HDR_FORMAT
+        } else if key.encoded {
+            render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
             render_scene::SCENE_COLOR_FORMAT
         };
         target.blend = if key.stars {
-            Some(native_star_blend())
+            Some(if key.java {
+                BlendState {
+                    color: BlendComponent {
+                        src_factor: BlendFactor::SrcAlpha,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    },
+                    alpha: BlendComponent::REPLACE,
+                }
+            } else {
+                native_star_blend()
+            })
         } else if key.skybox {
             Some(BlendState::ALPHA_BLENDING)
         } else {
@@ -451,7 +482,14 @@ impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        for (stars, skybox) in [(false, false), (true, false), (false, true)] {
+        for (stars, skybox, java) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, false, true),
+            (false, true, true),
+        ] {
             ids.push(self.variants.specialize(
                 cache,
                 AtmospherePipelineKey {
@@ -459,6 +497,8 @@ impl crate::pipeline_warmup::PrewarmPipelines for AtmospherePipeline {
                     hdr: view.hdr,
                     stars,
                     skybox,
+                    java,
+                    encoded: java && !view.hdr,
                 },
             )?);
         }
@@ -553,17 +593,24 @@ fn prepare_atmosphere_bind_group(
 fn queue_atmosphere(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<AtmospherePipeline>,
-    views: Query<(&bevy::render::camera::ExtractedCamera, &Msaa)>,
+    views: Query<(
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+        Option<&crate::scene_target::SceneTarget>,
+    )>,
     mut gpu: ResMut<AtmosphereGpu>,
+    frame: Res<AtmosphereFrame>,
 ) {
     gpu.pipelines.clear();
-    for (view, msaa) in &views {
+    for (view, msaa, scene) in &views {
         for (stars, skybox) in [(false, false), (true, false), (false, true)] {
             let key = AtmospherePipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
                 stars,
                 skybox,
+                java: frame.java_world_visuals(),
+                encoded: frame.java_world_visuals() && !view.hdr && scene.is_some(),
             };
             if let Ok(id) = pipeline.variants.specialize(&pipeline_cache, key) {
                 gpu.pipelines.insert(key, id);

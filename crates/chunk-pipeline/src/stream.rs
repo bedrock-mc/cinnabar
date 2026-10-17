@@ -360,6 +360,7 @@ pub struct WorldStream {
     block_cracks: block_cracks::BlockCracks,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     classifier: BlockClassifier,
+    java_world_lighting: bool,
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,

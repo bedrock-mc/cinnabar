@@ -22,6 +22,8 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
                             hdr,
                             stars,
                             skybox,
+                            java: false,
+                            encoded: false,
                         },
                     )
                     .unwrap();

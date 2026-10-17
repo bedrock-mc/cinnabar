@@ -16,6 +16,13 @@ pub(super) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Fetch and prepare the pinned Java world presentation resources locally.
+    JavaWorldAssets {
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Install the checked-in entity facts with checksum and target validation.
     EntityFacts {
         #[arg(long)]

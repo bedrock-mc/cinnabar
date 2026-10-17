@@ -41,7 +41,8 @@ fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
     });
     let sampler = gpu.device.create_sampler(&Default::default());
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere =
+        [0.0; std::mem::size_of::<render_scene::AtmosphereFrame>() / std::mem::size_of::<f32>()];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     atmosphere[32] = 57.0;

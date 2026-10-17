@@ -25,6 +25,7 @@ reads = [
     "assets/licenses/NotoSansCJK-OFL-1.1.txt",
     "assets/ui-font-source.json",
     "assets/vanilla-source.json",
+    "assets/java-world-source.json",
     "crates/assets/data/*",
     "crates/assets/src/facts/identities_generated.rs",
     "crates/assets/tests/fixtures/registry-wire.hex",
