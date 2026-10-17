@@ -4,12 +4,17 @@ use bedrock_protocol_1_26_51::{
     packets::MobEquipment as MobEquipmentPacket, types::ActorRuntimeID, wire,
 };
 
+const AUXILIARY_WILDCARD: u32 = i16::MAX as u32;
+
 /// Compares held item descriptors independently of count and stack network IDs.
-/// Compound entry order is ignored; trailer bytes and other item fields remain exact.
+/// Either auxiliary may be a wildcard. Compound entry order is ignored; trailer bytes
+/// and other item fields remain exact.
 #[must_use]
 pub fn held_items_match(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
     a.network_id == b.network_id
-        && a.metadata == b.metadata
+        && (a.metadata == b.metadata
+            || a.metadata == AUXILIARY_WILDCARD
+            || b.metadata == AUXILIARY_WILDCARD)
         && a.block_runtime_id == b.block_runtime_id
         && super::nbt_equal::same_extra(&a.extra_data, &b.extra_data)
 }
@@ -70,4 +75,34 @@ fn held_equipment_packet(
         selected_slot: wire::U8(selected_slot),
         container_id: wire::U8(container),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Either descriptor may carry a wildcard without hiding a different item or block state.
+    #[test]
+    fn held_item_auxiliary_wildcard_preserves_other_identity_checks() {
+        let ordinary = NetworkItemStack {
+            network_id: 7,
+            count: 1,
+            metadata: 5,
+            ..NetworkItemStack::empty()
+        };
+        let wildcard = NetworkItemStack {
+            metadata: AUXILIARY_WILDCARD,
+            ..ordinary.clone()
+        };
+        assert!(held_items_match(&ordinary, &wildcard));
+        assert!(held_items_match(&wildcard, &ordinary));
+        let mut different = ordinary.clone();
+        different.metadata += 1;
+        assert!(!held_items_match(&ordinary, &different));
+        different.network_id += 1;
+        assert!(!held_items_match(&wildcard, &different));
+        different = ordinary;
+        different.block_runtime_id = 1;
+        assert!(!held_items_match(&wildcard, &different));
+    }
 }
