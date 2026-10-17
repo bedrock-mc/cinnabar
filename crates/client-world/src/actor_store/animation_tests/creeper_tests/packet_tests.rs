@@ -130,7 +130,7 @@ fn swell_server_selected_clip_extends_the_authored_dependency_graph() {
                 },
             );
             compiled.symbols = symbols.into();
-            compiled.rig_bindings[0].render_controller = 4;
+            compiled.rig_bindings[0].render_controller = Some(4);
             compiled.molang_symbols = [
                 (assets::MolangSymbolKind::Name, "wield"),
                 (assets::MolangSymbolKind::Query, "query.life_time"),
@@ -238,7 +238,7 @@ fn swell_packet_clock_expansion_keeps_each_endpoint_sampling_plan() {
         );
         compiled.symbols = symbols.into();
         compiled.controllers[0].symbol = 4;
-        compiled.rig_bindings[0].render_controller = 5;
+        compiled.rig_bindings[0].render_controller = Some(5);
         let mut ops = compiled.molang_ops.to_vec();
         ops.push(MolangOp::LoadQuery(4));
         compiled.molang_ops = ops.into();

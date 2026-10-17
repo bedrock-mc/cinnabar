@@ -886,10 +886,9 @@ screen show, with no packet, world or account access. Known gaps: CraftingData c
 smelting at the 1.26.x target, brewing is skipped, and a recipe with a Molang, complex,
 deferred or int-id ingredient is dropped by the decoder.
 
-This package is the one definition client parts use too. SP5's planned `items.lookup` for
-client WIT 1.2 is `cinnabar:session/items.lookup`: the `server-bundle` world imports
+This package is the one definition client parts use too: the `server-bundle` world imports
 `cinnabar:session/items@0.1.0` from this same file (as a further WIT path, the way mod-api
-reads `client/deps/server-experience`) instead of restating it in `capabilities.wit`.
+reads `client/deps/server-experience`) under the `items` permission.
 
 **Keys.** While a container screen or the view is up and no edit box is selected, a press of
 a declared key that vanilla's container screen does not use (the inventory and drop

@@ -2,8 +2,9 @@
 //! what the client already decoded, and rebuilt only when the server resends a source.
 //!
 //! Known gaps, recorded rather than fixed here:
-//! - Smelting: the vanilla client reads CraftingData entry types 0, 1 and 4–9 only, so furnace
-//!   recipes never arrive in CraftingData.
+//! - Smelting: only shapeless recipes tagged `furnace`, `blast_furnace` or `smoker` are listed;
+//!   the vanilla client reads CraftingData entry types 0, 1 and 4–9 only, so furnace entries
+//!   (types 2 and 3) are not.
 //! - Brewing: the decoder skips CraftingData's potion and container-change vectors
 //!   (`protocol` `recipes/grammar.rs`).
 //! - A recipe with a Molang, complex alias, deferred or int-id ingredient is dropped whole by the
@@ -360,6 +361,9 @@ fn build_recipes(
             RecipeCategory::SmithingTransform,
         ),
         (ScreenRecipeKind::SmithingTrim, RecipeCategory::SmithingTrim),
+        (ScreenRecipeKind::Furnace, RecipeCategory::Furnace),
+        (ScreenRecipeKind::BlastFurnace, RecipeCategory::BlastFurnace),
+        (ScreenRecipeKind::Smoker, RecipeCategory::Smoker),
     ] {
         for recipe in catalog.screen_recipes(kind) {
             let outputs = match &recipe.output {

@@ -1,4 +1,6 @@
 //! Per-frame HUD observation and publication.
+use std::sync::Arc;
+
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{Local, Transform, Vec3};
 use client_runtime::network::NetworkHandle;
@@ -193,6 +195,13 @@ pub(crate) fn prepare_ui_runtime(
     } else {
         player_preview::PlayerPreviewPose::of_local_player(stream)
     };
+    presentation.set_preview_equipment_assets(
+        client_world.entity_assets.clone(),
+        client_world
+            .pack_entities
+            .as_ref()
+            .map(|pack| Arc::clone(&pack.assets)),
+    );
     presentation.set_preview_pack_equipment(
         client_world
             .pack_entities
@@ -203,13 +212,23 @@ pub(crate) fn prepare_ui_runtime(
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
     } else {
-        presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
-            client_world
-                .stream
-                .as_ref()?
-                .authority()
-                .canonical_item_stack(stack)
-        });
+        presentation.dress_player_preview(
+            &player_runtime,
+            &runtime,
+            stream,
+            actor_animation::AttachableAnimationInput {
+                frame_alpha: actor_partial.0,
+                delta_seconds: Some(time.delta_secs()),
+                ..Default::default()
+            },
+            |stack| {
+                client_world
+                    .stream
+                    .as_ref()?
+                    .authority()
+                    .canonical_item_stack(stack)
+            },
+        );
     }
     let doll_state = client_world
         .stream

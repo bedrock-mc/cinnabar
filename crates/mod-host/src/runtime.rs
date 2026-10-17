@@ -41,7 +41,7 @@ mod gameplay;
 mod hud;
 #[path = "item_use.rs"]
 mod item_use;
-mod player_mod;
+pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
 #[path = "render.rs"]

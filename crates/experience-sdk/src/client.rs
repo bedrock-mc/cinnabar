@@ -4,20 +4,21 @@
 //! Implement [`ClientPart`] on a type and export it with
 //! [`export_client_part!`](crate::export_client_part). Records travel as [`Value`]s:
 //! [`ClientPart::dispatch`] receives what the server half sends, and [`send`] sends a record on a
-//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`] and
-//! [`media`]; each refuses what the bundle's grants do not allow.
+//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`],
+//! [`media`] and [`items`]; each refuses what the bundle's grants do not allow.
 
 /// Bindings generated from `wit/client/client.wit`.
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "wit/client",
-        world: "server-bundle",
+        path: ["wit/session", "wit/client"],
+        world: "cinnabar:extension/server-bundle@0.1.0",
         generate_all,
         pub_export_macro: true,
     });
 }
 
 pub use bindings::cinnabar::server_experience::{input, media, messaging, scene, ui};
+pub use bindings::cinnabar::session::items;
 
 use crate::{Channel, Value};
 

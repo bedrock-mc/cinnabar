@@ -39,7 +39,7 @@ fn controller(compiled: &mut CompiledEntityAssets) {
         },
     );
     compiled.symbols = symbols.into();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     let mut names = compiled.molang_symbols.to_vec();
     names.insert(
         1,

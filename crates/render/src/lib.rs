@@ -119,6 +119,10 @@ pub use actor_render::ActorRenderPlugin;
 pub use actor_render::equipment_test_support::{
     EquipmentPreparation, PreparedEquipmentDraw, equipment_pixels,
 };
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{
+    PublicationActorPreparation, publication_actor_preparation,
+};
 
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};

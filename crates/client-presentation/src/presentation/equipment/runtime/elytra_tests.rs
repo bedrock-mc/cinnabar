@@ -180,6 +180,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
                 kind: HeldKind::Other,
                 dye_rgb: None,
                 enchanted,
+                glint: Default::default(),
             }),
             None,
             None,

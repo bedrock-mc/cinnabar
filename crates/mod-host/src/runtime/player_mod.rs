@@ -336,7 +336,7 @@ pub(super) fn stack(stack: &data::Stack) -> GuestStack {
     }
 }
 
-fn item(item: &data::Item) -> items::Item {
+pub(crate) fn item(item: &data::Item) -> items::Item {
     items::Item {
         key: key(&item.key),
         icon: item.icon,
@@ -371,6 +371,9 @@ fn recipe(recipe: &data::Recipe) -> recipes::Recipe {
             data::RecipeCategory::Cartography => recipes::Category::Cartography,
             data::RecipeCategory::SmithingTransform => recipes::Category::SmithingTransform,
             data::RecipeCategory::SmithingTrim => recipes::Category::SmithingTrim,
+            data::RecipeCategory::Furnace => recipes::Category::Furnace,
+            data::RecipeCategory::BlastFurnace => recipes::Category::BlastFurnace,
+            data::RecipeCategory::Smoker => recipes::Category::Smoker,
         },
         shapeless: recipe.shapeless,
         width: recipe.width,

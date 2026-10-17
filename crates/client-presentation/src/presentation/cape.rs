@@ -71,7 +71,7 @@ pub fn apply_capes<'a>(
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
     java_cape: impl Fn(u64) -> Option<JavaCapeInput>,
-    elytra_of: impl Fn(u64) -> bool,
+    mut elytra_of: impl FnMut(u64) -> bool,
 ) {
     preparation.begin_frame();
     let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();

@@ -73,6 +73,7 @@ bootstrap-ui = { path = "../crates/bootstrap-ui" }
 crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
+update-installer = { path = "../crates/update-installer" }
 bridge = { path = "../crates/bridge" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../crates/mod-api" }

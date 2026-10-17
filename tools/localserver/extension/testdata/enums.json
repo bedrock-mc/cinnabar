@@ -5,7 +5,8 @@
     "input",
     "messaging",
     "scene",
-    "media"
+    "media",
+    "items"
   ],
   "implemented_permissions": [
     "ui",

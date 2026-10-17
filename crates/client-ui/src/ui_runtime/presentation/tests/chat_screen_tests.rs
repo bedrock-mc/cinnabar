@@ -126,11 +126,12 @@ fn texts(nodes: &[DrawNode]) -> Vec<&str> {
         .collect()
 }
 
-/// Find a rendered label by its content.
+/// Finds a rendered label by its visible text, ignoring formatting codes.
 fn text_node<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
-    nodes
-        .iter()
-        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == wanted))
+    nodes.iter().find(|node| {
+        matches!(&node.draw, Draw::Text { text, .. }
+            if ui::parse_bedrock_text(text, text.len()).unwrap().plain_text() == wanted)
+    })
 }
 
 /// Add an authoritative chat message.
@@ -331,6 +332,7 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
     }
 }
 
+/// Checks that each suggestion's bounds select its own completion index.
 fn assert_suggestion_hits(presentation: &UiPresentationRuntime, count: usize) {
     let hits = presentation.chat_hits();
     for index in 0..count {

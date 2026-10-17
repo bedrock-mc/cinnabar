@@ -183,6 +183,7 @@ pub struct UiPresentationRuntime {
     /// Worn armor and the held item the model shows, and where armor art comes from.
     player_preview_gear: player_preview::PreviewEquipment,
     equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    preview_equipment_selection: player_preview::selection::EquipmentSelection,
     gui_models: gui_models::GuiModels,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
