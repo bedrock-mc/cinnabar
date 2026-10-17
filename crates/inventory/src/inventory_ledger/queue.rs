@@ -307,7 +307,9 @@ impl PlayerInventoryLedger {
             if !rejected {
                 self.invalidate_request_sources(cell, request.request_id);
             }
-            self.confirmed.set(cell, to.clone());
+            if self.confirmed.set(cell, to.clone()) && !rejected && cell == Cell::Offhand {
+                self.offhand_written = true;
+            }
             if rejected
                 && to.is_none()
                 && let Some(previous) = self.queue.iter_mut().rev().find(|previous| {

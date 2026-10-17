@@ -146,7 +146,9 @@ impl PlayerInventoryLedger {
                 return Err(InventoryGestureError::InvalidRequest);
             }
             let count = held.as_ref().map_or(0, |held| held.stack.count);
-            contribution.placed = contribution.placed.min(count);
+            contribution.placed = contribution
+                .placed
+                .min(count.saturating_sub(contribution.baseline));
             contribution.baseline = count - contribution.placed;
         }
         for target in targets {

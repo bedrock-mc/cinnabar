@@ -475,16 +475,18 @@ impl GameplayHudState {
                     self.diagnostics.dropped_inventory_events.saturating_add(1);
             }
         }
-        match ledger
-            .authoritative_gear_slot_state(inventory::inventory_ledger::InventoryTarget::Offhand)
-        {
-            Some(inventory::PlayerInventorySlot::Present(stack)) => {
-                self.offhand = Some(stack.clone())
+        if ledger.offhand_authority_changed() {
+            match ledger.authoritative_gear_slot_state(
+                inventory::inventory_ledger::InventoryTarget::Offhand,
+            ) {
+                Some(inventory::PlayerInventorySlot::Present(stack)) => {
+                    self.offhand = Some(stack.clone())
+                }
+                Some(inventory::PlayerInventorySlot::Empty) => {
+                    self.offhand = Some(NetworkItemStack::empty())
+                }
+                Some(inventory::PlayerInventorySlot::Unknown) | None => {}
             }
-            Some(inventory::PlayerInventorySlot::Empty) => {
-                self.offhand = Some(NetworkItemStack::empty())
-            }
-            Some(inventory::PlayerInventorySlot::Unknown) | None => {}
         }
     }
 }

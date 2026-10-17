@@ -460,6 +460,65 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
     );
 }
 
+/// Unrelated inventory traffic must not replay an older offhand snapshot over equipment.
+#[test]
+fn newer_offhand_equipment_survives_unrelated_inventory_events() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let update = |id| {
+        InventoryEvent::Content(InventoryContentEvent {
+            container: inventory_container(protocol::OFFHAND_WINDOW_ID),
+            slots: Arc::from([stack(id)]),
+            storage_item: NetworkItemStack::empty(),
+        })
+    };
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 1, update(50))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        50
+    );
+    runtime.retain_local_selected_equipment(
+        &mut player,
+        2,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(60),
+            inventory_slot: 0,
+            selected_slot: 0,
+            window_id: protocol::OFFHAND_WINDOW_ID as u8,
+            handedness: Some(ActorHandedness::Left),
+        },
+    );
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            3,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 2,
+                select_slot: true,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        60
+    );
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 4, update(70))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        70
+    );
+}
+
 // The local player's armor is window 120's content, whatever container name
 // the server gives it, and a later slot update replaces one piece.
 #[test]
