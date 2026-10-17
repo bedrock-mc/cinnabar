@@ -29,6 +29,13 @@ pub(in crate::ui_runtime::presentation) fn requested(
                     item,
                     thumbnail: true,
                 };
+                let texture = CosmeticArtwork {
+                    item,
+                    thumbnail: false,
+                };
+                if !result.contains(&texture) {
+                    result.push(texture);
+                }
                 if !result.contains(&source) {
                     result.push(source);
                 }

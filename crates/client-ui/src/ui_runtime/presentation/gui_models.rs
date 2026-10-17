@@ -18,6 +18,7 @@ use {
 
 mod atlas;
 mod block_models;
+mod cosmetic_previews;
 mod fire;
 mod held;
 mod live_player;
@@ -95,6 +96,7 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    cosmetics: cosmetic_previews::Previews,
     cape: Option<render_model::cape::CapeRig>,
     pub(super) wearing_elytra: bool,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
@@ -392,6 +394,7 @@ impl UiPresentationRuntime {
         if !self.gui_models.enabled {
             return;
         }
+        self.apply_cosmetic_gallery_models(nodes);
         let preview = self.player_preview_icon.map(icon_key);
         let mut modulated_meshes = self
             .gui_models
@@ -669,7 +672,7 @@ impl UiPresentationRuntime {
                     .get(&hat)
                     .map_or(&[][..], Vec::as_slice)
             } else {
-                &render_model::hats::rig(hat).rest_vertices
+                self.gui_models.cosmetics.vertices(hat)
             };
             sources = sources.with_attachment(vertices, icon);
         }

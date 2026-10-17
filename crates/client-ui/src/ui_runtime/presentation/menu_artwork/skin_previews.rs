@@ -310,7 +310,12 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(items, vec![(equipped, false), (shown, true)]);
+            let mut expected = vec![(equipped, false)];
+            if shown != equipped {
+                expected.push((shown, false));
+            }
+            expected.push((shown, true));
+            assert_eq!(items, expected);
         }
     }
 
