@@ -2614,6 +2614,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "web-time",
  "world",
 ]
 
@@ -7083,6 +7084,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "web-time",
  "xxhash-rust",
  "zeroize",
 ]
@@ -9772,8 +9774,11 @@ dependencies = [
  "bridge",
  "futures",
  "js-sys",
+ "launcher",
  "semantic-input",
+ "serde",
  "serde_json",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-transport",

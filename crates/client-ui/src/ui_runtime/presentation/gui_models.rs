@@ -18,6 +18,7 @@ use {
 
 mod atlas;
 mod block_models;
+mod cosmetic_previews;
 mod fire;
 mod held;
 mod live_player;
@@ -95,6 +96,7 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    cosmetics: cosmetic_previews::Previews,
     cape: Option<render_model::cape::CapeRig>,
     pub(super) wearing_elytra: bool,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
@@ -392,7 +394,6 @@ impl UiPresentationRuntime {
         if !self.gui_models.enabled {
             return;
         }
-        let preview = self.player_preview_icon.map(icon_key);
         let mut modulated_meshes = self
             .gui_models
             .modulated
@@ -413,6 +414,19 @@ impl UiPresentationRuntime {
         );
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
+        self.apply_gui_player_model_in(nodes, viewport, safe_area, effects);
+        self.apply_cosmetic_gallery_models(nodes);
+    }
+
+    /// Admits the equipped character before optional gallery meshes consume the remaining budget.
+    fn apply_gui_player_model_in(
+        &self,
+        nodes: &mut [UiNode],
+        viewport: UiRect,
+        safe_area: SafeArea,
+        effects: TextEffects<'_>,
+    ) {
+        let preview = self.player_preview_icon.map(icon_key);
         let is_preview = |visual: &UiVisual| match visual {
             UiVisual::Sprite {
                 texture_page, uv, ..
@@ -669,7 +683,7 @@ impl UiPresentationRuntime {
                     .get(&hat)
                     .map_or(&[][..], Vec::as_slice)
             } else {
-                &render_model::hats::rig(hat).rest_vertices
+                self.gui_models.cosmetics.vertices(hat)
             };
             sources = sources.with_attachment(vertices, icon);
         }
