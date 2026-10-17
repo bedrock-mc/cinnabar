@@ -199,11 +199,13 @@ impl BookState {
 }
 
 impl UiRuntime {
-    /// Queues a client packet for the next network flush.
-    pub fn queue_client_packet(&mut self, packet: Packet) {
-        if self.client_packets.len() < MAX_QUEUED_CLIENT_PACKETS {
-            self.client_packets.push_back(packet);
+    /// Queues a client packet for the next flush; returns false when the queue is full.
+    pub fn queue_client_packet(&mut self, packet: Packet) -> bool {
+        if self.client_packets.len() >= MAX_QUEUED_CLIENT_PACKETS {
+            return false;
         }
+        self.client_packets.push_back(packet);
+        true
     }
 
     pub fn take_client_packet(&mut self) -> Option<Packet> {

@@ -17,6 +17,7 @@ mod fixtures;
 mod form_compatibility;
 mod form_element_images;
 mod form_menu_capacity;
+mod furnace_options;
 mod held_placement_packets;
 mod hud_state_packets;
 mod interaction_packets;

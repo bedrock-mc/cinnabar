@@ -162,6 +162,10 @@ pub use inventory::{
     ui_slot_for_name, ui_slot_request_container,
 };
 pub use inventory::{
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
+};
+pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{MineBlockRequest, MineBlockRequestError};

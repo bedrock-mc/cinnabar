@@ -459,7 +459,9 @@ impl GameplayHudState {
                     }
                 }
             }
-            InventoryEvent::Slot(_) | InventoryEvent::Transaction(_) => {}
+            InventoryEvent::Slot(_)
+            | InventoryEvent::Transaction(_)
+            | InventoryEvent::FurnaceOptions(_) => {}
             // SelectedSlot is consumed by the caller's slot-precedence logic;
             // the remaining container events are not modeled yet.
             InventoryEvent::SelectedSlot(_)
