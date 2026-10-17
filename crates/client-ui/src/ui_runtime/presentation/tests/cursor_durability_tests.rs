@@ -7,6 +7,8 @@ use protocol::{
     StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 
+mod armor;
+
 /// Corrects mining damage or accepts a pickup from player slot zero onto the cursor.
 fn corrected(request_id: i32, slot_type: u8, damage: i32, stack_id: i32) -> InventoryEvent {
     let mut containers = vec![StackResponseContainer {
