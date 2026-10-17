@@ -152,8 +152,8 @@ fn recipe_book_rule_matrix_keeps_locked_search_results_unselectable() {
         let searched = session.book_recipes(false, true, 0, 10);
         assert_eq!(searched.len(), usize::from(!unlocking || !limited));
         if unlocking && !limited {
-            assert!(!session.book_recipe_craftable(&searched[0]));
-            assert!(session.begin_book_craft(&searched[0]).is_err());
+            assert!(!session.book_recipe_selectable(&searched[0].recipe));
+            assert!(session.begin_book_craft(&searched[0].recipe).is_err());
             assert_eq!(session.ledger().pending_request_count(), 0);
         }
     }
@@ -193,7 +193,12 @@ fn recipe_identity_stays_with_its_record_and_unlocks_do_not_spread_between_varia
     assert!(
         matches!(session.crafting_match(), CraftGridMatch::Unique(recipe) if recipe.network_id() == 9)
     );
-    assert_eq!(session.book_recipes(false, false, 0, 10)[0].network_id(), 9);
+    assert_eq!(
+        session.book_recipes(false, false, 0, 10)[0]
+            .recipe
+            .network_id(),
+        9
+    );
     commit(&mut session, 7, recipe_unlock_event(3, &["test:locked"]));
     assert!(matches!(session.crafting_match(), CraftGridMatch::NoMatch));
     assert!(session.book_recipes(false, false, 0, 10).is_empty());
@@ -267,4 +272,61 @@ fn rule_updates_in_the_outer_fifo_are_retired_when_cell_pressure_discards_the_fr
     );
     assert!(session.crafting_rules().is_none());
     assert!(!snapshot.crafting_rules().unwrap().requires_manual_unlock());
+}
+
+#[test]
+fn recipe_book_keeps_materials_from_locked_siblings_without_granting_selection() {
+    let mut session = session(false);
+    let locked = recipe("test:locked", 9, false);
+    let mut granted = recipe("test:granted", 10, false);
+    granted.ingredients = vec![IngredientFixture::named("minecraft:crimson_stem", 0)];
+    commit(
+        &mut session,
+        4,
+        InventoryEvent::Recipes(CraftingDataFixture::clearing(vec![locked, granted]).update()),
+    );
+    commit(&mut session, 5, recipe_unlock_event(1, &["test:granted"]));
+    let mut material = session
+        .ledger()
+        .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(
+            *::protocol::CRAFTING_INPUT_SLOTS.start(),
+        ))
+        .unwrap()
+        .clone();
+    material.count = 8;
+    material.stack_network_id = 12;
+    commit(
+        &mut session,
+        6,
+        InventoryEvent::Content(InventoryContentEvent {
+            container: ::protocol::ContainerIdentity::window(0),
+            slots: Arc::from([material]),
+            storage_item: NetworkItemStack::empty(),
+        }),
+    );
+    for filtering in [false, true] {
+        for searched in [false, true] {
+            let entries = session.book_recipes(filtering, searched, 0, 10);
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].recipe.network_id(), 10);
+            assert!(entries[0].craftable);
+            assert!(session.book_recipe_selectable(&entries[0].recipe));
+            assert!(session.begin_book_craft(&entries[0].recipe).is_err());
+        }
+    }
+    let locked = session.screen_catalog().unwrap().recipe(9).unwrap();
+    assert!(!session.book_recipe_selectable(&locked));
+    assert!(session.begin_book_craft(&locked).is_err());
+    assert_eq!(session.ledger().pending_request_count(), 0);
+    commit(
+        &mut session,
+        7,
+        InventoryEvent::Content(InventoryContentEvent {
+            container: ::protocol::ContainerIdentity::window(0),
+            slots: Arc::from([NetworkItemStack::empty()]),
+            storage_item: NetworkItemStack::empty(),
+        }),
+    );
+    assert!(session.book_recipes(true, false, 0, 10).is_empty());
+    assert!(!session.book_recipes(false, false, 0, 10)[0].craftable);
 }

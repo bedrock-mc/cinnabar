@@ -103,12 +103,14 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
             assert_eq!(
                 listed
                     .iter()
-                    .map(RecipeHandle::network_id)
+                    .map(|entry| entry.recipe.network_id())
                     .collect::<Vec<_>>(),
                 [2, 3]
             );
             assert_eq!(
-                session.book_recipes(filtering, false, 1, 1)[0].network_id(),
+                session.book_recipes(filtering, false, 1, 1)[0]
+                    .recipe
+                    .network_id(),
                 3
             );
         }
@@ -119,7 +121,7 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
         session
             .book_recipes(false, false, 0, usize::MAX)
             .iter()
-            .map(RecipeHandle::network_id)
+            .map(|entry| entry.recipe.network_id())
             .collect::<Vec<_>>(),
         [1, 3]
     );

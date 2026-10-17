@@ -83,7 +83,12 @@ impl ContainerSource for Source<'_> {
     fn book_entries(&self) -> Vec<BookEntry<'_>> {
         self.player
             .inventory
-            .book_recipes(self.recipe_filtering(), 0, usize::MAX)
+            .book_recipes(
+                self.recipe_filtering(),
+                !self.screen.search.is_empty(),
+                0,
+                usize::MAX,
+            )
             .into_iter()
             .map(BookEntry::Recipe)
             .collect()

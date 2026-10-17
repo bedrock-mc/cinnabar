@@ -1,6 +1,6 @@
 //! UI choices projected through the inventory recipe authority.
 use super::UiRuntime;
-use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe};
+use protocol::{RecipeCatalog, ScreenRecipe};
 
 impl UiRuntime {
     /// Borrows the currently credited recipe catalog.
@@ -55,7 +55,7 @@ impl UiRuntime {
         player_runtime: &player_state::PlayerState,
         skip: usize,
         take: usize,
-    ) -> Vec<RecipeHandle> {
+    ) -> Vec<inventory::BookRecipe> {
         player_runtime.inventory.book_recipes(
             self.recipe_filtering(player_runtime),
             !self.screen_state().search.is_empty(),

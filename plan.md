@@ -8319,9 +8319,11 @@ exact tag priority and synthesized multi-recipe identities remain incomplete.
 Startup and later crafting rules now reach the committed inventory frontier.
 Manual results check exact recipe discovery when both recipe unlocking and
 limited crafting are enabled. The book distinguishes absent discovery state
-from an empty component, and nonempty search can show locked recipes disabled
-when limited crafting is off. Book actions recheck the current recipe handle
+from an empty component, and nonempty search can show locked recipes
+when limited crafting is off. Their selection remains guarded. Book actions recheck the current recipe handle
 and discovery; rule and unlock changes invalidate retained output previews.
+Book rows aggregate ingredient availability across same-output variants separately
+from the candidate's discovery permission, and selection rechecks that permission.
 Category masks, toast presentation, exact player lifecycle, complete book
 variant ranking and stable live acceptance remain incomplete.
 
