@@ -389,6 +389,17 @@ impl PlayerInventoryLedger {
             self.apply_personal_open(open);
             return;
         }
+        let Some(window_id) = open.container.window_id else {
+            self.note_unrouted_container();
+            return;
+        };
+        let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
+            .filter(|_| valid_storage_window_id(window_id))
+        else {
+            self.note_unrouted_container();
+            self.reject_window(window_id, open.window_type);
+            return;
+        };
         let requested_open = self.answer_actor_open(open);
         if requested_open == Some(false) {
             if let Some(window_id) = open.container.window_id {
@@ -429,17 +440,6 @@ impl PlayerInventoryLedger {
                 .storage_generation
                 .is_some_and(|generation| !settling.contains(&generation))
         });
-        let Some(window_id) = open.container.window_id else {
-            return;
-        };
-        let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
-            .filter(|_| valid_storage_window_id(window_id))
-        else {
-            self.reject_window(window_id, open.window_type);
-            self.storage = None;
-            self.confirmed.clear_storage();
-            return;
-        };
         let desired_open = requested_open.unwrap_or_else(|| {
             // Unsolicited storage opens supersede the personal screen and its intent.
             self.controls.personal.desired_open = false;

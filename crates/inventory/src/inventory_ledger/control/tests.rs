@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 mod mounted;
+mod replacements;
 mod reused_ids;
 
 use protocol::{ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryEvent};

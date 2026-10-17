@@ -1,4 +1,4 @@
-//! One admitted control per window kind, with unanswered opens retained in send order.
+//! One admitted control per window kind, with late replies guarded by their targets.
 
 use super::{INVENTORY_REQUEST_TIMEOUT_MILLIS, PERSONAL_INVENTORY_WINDOW_TYPE};
 
@@ -38,10 +38,28 @@ pub(super) struct OpenTarget {
     pub actor_unique_id: Option<i64>,
 }
 
+impl OpenTarget {
+    /// Matches only the target identity available in this kind of open reply.
+    fn matches_reply(self, open: protocol::ContainerOpenEvent) -> bool {
+        if open.window_type == PERSONAL_INVENTORY_WINDOW_TYPE {
+            self.actor_unique_id.is_none()
+        } else {
+            self.actor_unique_id == Some(open.runtime_entity_id)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OpenRequest {
     pub generation: u64,
     pub target: OpenTarget,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct OpenReply {
+    pub target: OpenTarget,
+    /// Only a reply that settles the currently admitted open carries its generation.
+    pub generation: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,8 +120,8 @@ pub(super) struct WindowControls {
     pub personal: WindowControl,
     pub storage: WindowControl,
     pub personal_target: Option<OpenTarget>,
-    /// Timeouts release admission slots, but replies still consume their original requests.
-    pub unanswered_opens: std::collections::VecDeque<OpenRequest>,
+    /// Late replies retain their targets, but only `personal.sent` owns an open generation.
+    open_targets: std::collections::VecDeque<OpenTarget>,
 }
 
 impl WindowControls {
@@ -120,16 +138,30 @@ impl WindowControls {
         }
     }
 
-    /// Matches the oldest unanswered request for the identity carried by this reply.
-    pub fn answer_open(&mut self, open: protocol::ContainerOpenEvent) -> Option<OpenRequest> {
-        let index = self.unanswered_opens.iter().position(|request| {
-            if open.window_type == PERSONAL_INVENTORY_WINDOW_TYPE {
-                request.target.actor_unique_id.is_none()
-            } else {
-                request.target.actor_unique_id == Some(open.runtime_entity_id)
-            }
-        })?;
-        self.unanswered_opens.remove(index)
+    /// Settles a compatible admitted retry while retaining guards for any later replies.
+    pub fn answer_open(&mut self, open: protocol::ContainerOpenEvent) -> Option<OpenReply> {
+        let target = self
+            .open_targets
+            .iter()
+            .position(|target| target.matches_reply(open))
+            .and_then(|index| self.open_targets.remove(index));
+        if let Some(SentControl {
+            request: ControlRequest::Open(request),
+            ..
+        }) = self.personal.sent
+            && request.target.matches_reply(open)
+            && target.is_none_or(|target| target == request.target)
+        {
+            self.personal.sent = None;
+            return Some(OpenReply {
+                generation: Some(request.generation),
+                target: request.target,
+            });
+        }
+        target.map(|target| OpenReply {
+            generation: None,
+            target,
+        })
     }
 
     /// Confirms a window and drops unsent rejection closes that would hit its reused ID.
@@ -181,7 +213,7 @@ impl WindowControls {
                 }
             }
             ControlRequest::Open(request) => {
-                self.unanswered_opens.push_back(request);
+                self.open_targets.push_back(request.target);
                 None
             }
         };

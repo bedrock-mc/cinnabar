@@ -221,6 +221,45 @@ fn actor_open_in_window(actor_unique_id: i64, window_id: i32) -> InventoryEvent 
 }
 
 #[test]
+fn mounted_retry_recovers_after_missing_open_replies() {
+    for missing_replies in 1..=3 {
+        let mut ledger = opening_mount();
+        for attempt in 1..=missing_replies {
+            let now = attempt * (INVENTORY_REQUEST_TIMEOUT_MILLIS + 1);
+            reset_unanswered_open(&mut ledger, now);
+            assert!(ledger.mark_transport_enqueued(now));
+        }
+
+        ledger.apply(&actor_open(-91));
+        assert_eq!(ledger.window_actor(), Some(-91));
+        assert!(ledger.pending_control_packet().unwrap().is_none());
+        ledger.poll_timeout((missing_replies + 1) * (INVENTORY_REQUEST_TIMEOUT_MILLIS + 1));
+        assert_eq!(ledger.window_actor(), Some(-91));
+        assert!(ledger.pending_control_packet().unwrap().is_none());
+    }
+}
+
+#[test]
+fn mounted_retry_cancellation_rejects_a_remaining_late_reply() {
+    let mut ledger = opening_mount();
+    reset_unanswered_open(&mut ledger, INVENTORY_REQUEST_TIMEOUT_MILLIS);
+    assert!(ledger.mark_transport_enqueued(INVENTORY_REQUEST_TIMEOUT_MILLIS + 1));
+    ledger.apply(&actor_open(-91));
+    assert_eq!(ledger.window_actor(), Some(-91));
+    ledger.request_storage_close();
+    assert!(ledger.mark_transport_enqueued(INVENTORY_REQUEST_TIMEOUT_MILLIS + 2));
+    acknowledge_close(&mut ledger, 7, protocol::WINDOW_TYPE_HORSE);
+
+    ledger.apply(&actor_open_in_window(-91, 8));
+    assert!(ledger.storage_generation().is_none());
+    assert!(!ledger.personal_inventory_desired_open());
+    assert_eq!(
+        ledger.pending_control_packet().unwrap().unwrap(),
+        protocol::container_close_packet(8).unwrap()
+    );
+}
+
+#[test]
 fn cancelled_mount_retry_rejects_both_late_replies_in_either_order() {
     for retry_times_out in [false, true] {
         for reply_ids in [[7, 8], [8, 7]] {

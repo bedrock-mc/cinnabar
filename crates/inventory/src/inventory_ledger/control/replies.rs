@@ -2,7 +2,7 @@
 
 use protocol::{ContainerCloseEvent, ContainerOpenEvent};
 
-use super::{ControlKind, ControlRequest, ControlWindow, OpenRequest, SentControl};
+use super::{ControlKind, ControlRequest, ControlWindow, OpenReply, SentControl};
 use crate::inventory_ledger::PlayerInventoryLedger;
 
 impl PlayerInventoryLedger {
@@ -11,23 +11,14 @@ impl PlayerInventoryLedger {
         &mut self,
         open: ContainerOpenEvent,
     ) -> Option<bool> {
-        let OpenRequest { generation, target } = self.controls.answer_open(open)?;
-        let current = self.controls.personal.sent.is_some_and(|sent| {
-            matches!(sent.request, ControlRequest::Open(request)
-                if request.generation == generation)
-        });
-        let desired_open = current
+        let OpenReply { generation, target } = self.controls.answer_open(open)?;
+        let desired_open = generation.is_some()
             && self.controls.personal.desired_open
             && self.controls.personal_target == Some(target);
-        if current {
-            self.controls.personal.sent = None;
-        }
-        if self
-            .controls
-            .personal
-            .confirmed
-            .is_some_and(|window| window.generation == generation)
-        {
+        if self.controls.personal.confirmed.is_some_and(|window| {
+            Some(window.generation) == generation
+                || (self.controls.personal.reset_required && window.target == Some(target))
+        }) {
             self.controls.personal.confirmed = None;
             self.controls.personal.reset_required = false;
         }
@@ -36,7 +27,7 @@ impl PlayerInventoryLedger {
         }
         if self
             .personal
-            .is_some_and(|personal| personal.generation() == generation)
+            .is_some_and(|personal| Some(personal.generation()) == generation)
         {
             self.discard_pending_personal_open();
         }
@@ -56,50 +47,30 @@ impl PlayerInventoryLedger {
             return;
         }
         let request = self.controls.answer_open(open);
-        // Personal replies carry no actor identity. A same-target reply can confirm an
-        // admitted retry, whose own unanswered entry still guards its eventual late reply.
-        let admitted = self.controls.personal.sent.and_then(|sent| {
-            if let ControlRequest::Open(admitted) = sent.request
-                && admitted.target.actor_unique_id.is_none()
-                && request.is_none_or(|request| request.target == admitted.target)
+        let window =
+            if let Some(OpenReply {
+                generation: Some(generation),
+                target,
+            }) = request
             {
-                Some(admitted)
+                ControlWindow {
+                    generation,
+                    window_id,
+                    window_type: open.window_type,
+                    target: Some(target),
+                }
+            } else if let Some(window) = self.controls.personal.confirmed.filter(|window| {
+                request.is_none_or(|request| window.target == Some(request.target))
+            }) {
+                ControlWindow {
+                    window_id,
+                    ..window
+                }
             } else {
-                None
-            }
-        });
-        let window = if let Some(OpenRequest { generation, target }) = admitted.or(request) {
-            let current = self.controls.personal.sent.is_some_and(|sent| {
-                matches!(sent.request, ControlRequest::Open(request)
-                    if request.generation == generation)
-            });
-            if current {
-                self.controls.personal.sent = None;
-            } else if !self
-                .controls
-                .personal
-                .confirmed
-                .is_some_and(|window| window.generation == generation)
-            {
+                self.note_unrouted_container();
                 self.reject_window(window_id, open.window_type);
                 return;
-            }
-            ControlWindow {
-                generation,
-                window_id,
-                window_type: open.window_type,
-                target: Some(target),
-            }
-        } else if let Some(window) = self.controls.personal.confirmed {
-            ControlWindow {
-                window_id,
-                ..window
-            }
-        } else {
-            self.note_unrouted_container();
-            self.reject_window(window_id, open.window_type);
-            return;
-        };
+            };
         self.controls.confirm(window);
         // A late open during timeout recovery supplies the actual ID for the required close.
         self.reconcile_personal();
