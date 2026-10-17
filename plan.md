@@ -10020,7 +10020,8 @@ Accepted eating and drinking uses report due progress before their movement
 inputs, using the negotiated item identity. Progress admission survives an input
 retry without sending the event twice; release, reselection and life changes end it.
 
-Incomplete validation: focused timing, cancellation, admission and packet tests
-are queued. Other animation kinds, block-backed item uses, relevant-user-data
-cancellation, mounted phases and special movement catch-up need further parity
-work. This does not close the complete serverbound parity gate.
+Focused gameplay tests cover timing, cancellation and admission retries. Progress
+pauses while a release awaits retry, and non-consumable cancellation stays with
+the item-use lifecycle. Other animation kinds, block-backed item uses,
+relevant-user-data cancellation, mounted phases and special movement catch-up
+need further parity work. This does not close the complete serverbound parity gate.

@@ -12,6 +12,14 @@ impl ItemUseRuntime {
         animation: Option<ItemUseAnimationFact>,
         send: impl FnOnce(protocol::Packet) -> Result<(), E>,
     ) -> Result<(), E> {
+        if self.release_pending
+            || !matches!(
+                animation,
+                Some(ItemUseAnimationFact::Eat | ItemUseAnimationFact::Drink)
+            )
+        {
+            return Ok(());
+        }
         let Some(active) = self.active.as_mut() else {
             return Ok(());
         };
@@ -22,10 +30,7 @@ impl ItemUseRuntime {
             self.active = None;
             return Ok(());
         }
-        if !matches!(
-            animation,
-            Some(ItemUseAnimationFact::Eat | ItemUseAnimationFact::Drink)
-        ) || active.last_progress_tick.is_some_and(|last| tick <= last)
+        if active.last_progress_tick.is_some_and(|last| tick <= last)
             || selection.item.block_runtime_id() != 0
         {
             return Ok(());

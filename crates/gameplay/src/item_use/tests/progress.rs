@@ -86,6 +86,62 @@ fn use_progress_retries_failed_admission_without_repeating_a_successful_event() 
 }
 
 #[test]
+fn use_progress_waits_for_a_rejected_release_before_reporting_a_new_use() {
+    for animation in [ItemUseAnimationFact::Eat, ItemUseAnimationFact::Drink] {
+        let (mut runtime, selection) = eating();
+        let mut swings = SwingTracker::default();
+        step_and_send(
+            &mut runtime,
+            &mut swings,
+            &item_frame(106, false, selection.clone(), "minecraft:golden_apple"),
+            42,
+            6,
+            |packets| {
+                assert_eq!(packets.len(), 1);
+                assert_eq!(use_kind(&packets[0]), "release");
+                Err(BatchSendError::Full)
+            },
+        );
+        assert!(runtime.is_using());
+        let mut packets = Vec::new();
+        for tick in [107, 111] {
+            send(
+                &mut runtime,
+                tick,
+                Some(&selection),
+                Some(animation),
+                &mut packets,
+            );
+        }
+        assert!(packets.is_empty(), "a pending release has no new progress");
+
+        runtime.observe_press(true);
+        assert!(step_and_send(
+            &mut runtime,
+            &mut swings,
+            &item_frame(112, true, selection.clone(), "minecraft:golden_apple"),
+            42,
+            6,
+            |packets| {
+                assert_eq!(
+                    packets.iter().map(use_kind).collect::<Vec<_>>(),
+                    ["release", "use"]
+                );
+                Ok(())
+            },
+        ));
+        send(
+            &mut runtime,
+            119,
+            Some(&selection),
+            Some(animation),
+            &mut packets,
+        );
+        assert_eq!(packets.len(), 1, "the admitted new use reports progress");
+    }
+}
+
+#[test]
 fn use_progress_stops_on_release_respawn_session_change_and_reselection() {
     for cancellation in 0..4 {
         let (mut runtime, selection) = eating();
