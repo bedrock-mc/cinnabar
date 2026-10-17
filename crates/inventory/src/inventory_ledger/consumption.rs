@@ -1,6 +1,7 @@
 //! Admitted gameplay consumption shared by retained response and rollback history.
 
 use super::cells::{Cell, Held};
+use super::queue::RollbackAuthority;
 use super::{InventoryPendingState, PendingRequest, PlayerInventoryLedger};
 
 /// Later consumption belonging to one retained request cell, independent of its screen scope.
@@ -31,7 +32,13 @@ impl PlayerInventoryLedger {
             self.confirmed.set(*cell, after.clone());
         }
         for (cell, before, after) in changes {
-            self.rebase_predictions(i32::MAX, cell, Some(&before), after);
+            self.rebase_predictions(
+                i32::MAX,
+                cell,
+                Some(&before),
+                after,
+                RollbackAuthority::Known,
+            );
         }
         self.refold();
     }

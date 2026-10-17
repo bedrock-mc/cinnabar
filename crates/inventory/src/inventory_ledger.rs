@@ -892,8 +892,7 @@ impl PlayerInventoryLedger {
     /// Requires a refresh independently of any abandoned request's eventual answer.
     fn mark_cell_recovery(&mut self, cell: Cell) {
         self.disown_abandoned_recovery(cell.surface());
-        self.queue
-            .retain(|request| !request.locally_committed() || !request.touches(cell));
+        self.discard_requests(|request| request.locally_committed() && request.touches(cell));
         if let Some(held) = self.confirmed.get_mut(cell) {
             held.overlay = None;
         }

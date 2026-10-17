@@ -146,13 +146,16 @@ impl PlayerInventoryLedger {
                 continue;
             };
             let request = self.queue.remove(index).expect("index observed");
+            let current = self.request_is_current(&request);
             if response.status == StackResponseStatus::Accepted {
                 self.settle(&request, &response.containers);
-            } else if response.status == StackResponseStatus::Rejected
-                && self.request_is_current(&request)
-            {
+            } else if response.status == StackResponseStatus::Rejected && current {
                 self.reject_request(&request);
             }
+            self.finish_request_retirement(
+                request.request_id,
+                current && response.status == StackResponseStatus::Accepted,
+            );
         }
         self.refold();
         // Settlement may have released the last request of a closing window.
