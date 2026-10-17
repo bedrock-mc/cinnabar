@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use bridge::{BridgeError, FrameRead};
+use bridge::{BridgeError, FrameRead, tasks::Timers};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use tokio::io::AsyncRead;
@@ -38,7 +38,8 @@ impl LoginSequence {
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession<WebSessionReader<R>>, P), ProtocolError> {
         send_connect(&io.frames, &login).await?;
-        let (handoff, archives, reader) = receive_handoff(io.reader, join, packs).await?;
+        let (handoff, archives, reader) =
+            receive_handoff(io.reader, join, packs, io.timers).await?;
         Self::continue_handoff(
             SessionIo {
                 reader,
@@ -58,10 +59,12 @@ impl LoginSequence {
     /// the independent stream, or returns None for WebSocket. Play remains readable for terminal
     /// messages while bulk data arrives. The returned reader preserves bounded intervening batches
     /// and feeds the existing login transport; dropping this future drops its archive stream.
+    /// The host's timer bounds the terminal-message drain after an archive failure.
     pub async fn receive_web_handoff<S, P>(
         reader: S,
         join: u64,
         packs: impl Future<Output = Result<Option<P>, ProtocolError>>,
+        timers: Timers,
     ) -> Result<
         (
             SessionHandoff,
@@ -74,7 +77,7 @@ impl LoginSequence {
         S: Stream<Item = Result<Bytes, BridgeError>> + Unpin,
         P: AsyncRead + Unpin,
     {
-        receive_handoff(reader, join, packs).await
+        receive_handoff(reader, join, packs, timers).await
     }
 }
 
@@ -83,6 +86,7 @@ async fn receive_handoff<S, P>(
     mut reader: S,
     join: u64,
     packs: impl Future<Output = Result<Option<P>, ProtocolError>>,
+    timers: Timers,
 ) -> Result<(SessionHandoff, Vec<Vec<u8>>, WebSessionReader<S>), ProtocolError>
 where
     S: Stream<Item = Result<Bytes, BridgeError>> + Unpin,
@@ -119,7 +123,12 @@ where
                         return Err(join_ended(decode_core_message(frame).map_err(bridge_error)?));
                     }
                 }
-                result = &mut receiving => { result?; break; }
+                result = &mut receiving => {
+                    if let Err(error) = result {
+                        return Err(pack_failure(&mut reader, error, timers).await);
+                    }
+                    break;
+                }
             }
         }
     } else {
@@ -137,6 +146,35 @@ where
     }
     let archives = receiver.into_archives().map_err(bridge_error)?;
     Ok((handoff, archives, WebSessionReader { reader, pending }))
+}
+
+/// Drains play after an archive failure so a delayed disconnect or transfer keeps its meaning.
+/// Discarded batches need no buffering; closure, malformed play or expiry keeps the archive error.
+async fn pack_failure<S>(reader: &mut S, error: ProtocolError, timers: Timers) -> ProtocolError
+where
+    S: Stream<Item = Result<Bytes, BridgeError>> + Unpin,
+{
+    let expires = timers.sleep(super::WRITE_FAILURE_DRAIN);
+    tokio::pin!(expires);
+    loop {
+        let frame = tokio::select! {
+            biased;
+            () = &mut expires => return error,
+            frame = reader.next() => match frame {
+                Some(Ok(frame)) => frame,
+                _ => return error,
+            },
+        };
+        if batch_frame_body(&frame).is_some() {
+            continue;
+        }
+        return match decode_core_message(frame) {
+            Ok(message @ (CoreMessage::Disconnect(_) | CoreMessage::Transfer(_))) => {
+                join_ended(message)
+            }
+            _ => error,
+        };
+    }
 }
 
 /// Replays bounded play read-ahead without losing the injected reader's trace identity.

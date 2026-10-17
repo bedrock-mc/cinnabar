@@ -194,7 +194,7 @@ async fn injected_web_join_rejects_bad_admission_and_digest_before_preparation()
             SessionIo {
                 reader,
                 frames,
-                timers: bridge::tasks::Timers::tokio(),
+                timers: bridge::tasks::Timers(|_| Box::pin(std::future::ready(()))),
             },
             web_login(&settings),
             JOIN,
