@@ -41,6 +41,9 @@ fn after_physics(app: &mut App) {
     app.world_mut()
         .resource_mut::<Messages<WindowEvent>>()
         .clear();
+    app.world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::ZERO;
 }
 
 /// Runs one rendered interaction frame with no extra physics completion.
@@ -178,17 +181,26 @@ fn ordered_mouse_review_full_attack_cannot_be_retired_by_its_movement_tick() {
 
 /// Produces a real controller cycle and lets its ordinary flusher encounter Full.
 fn refused_controller_selection(app: &mut App) {
+    let mut gamepad = bevy::input::gamepad::Gamepad::default();
+    gamepad
+        .digital_mut()
+        .press(bevy::input::gamepad::GamepadButton::RightTrigger);
+    gamepad.digital_mut().clear();
+    let controller = app.world_mut().spawn(gamepad).id().index().index();
     let mut router = crate::semantic_controls::SemanticInputRuntime::default();
     let snapshot = router
         .route_and_finalize(semantic_input::DeviceFrame {
             controllers: vec![semantic_input::ControllerFrame {
-                device_id: 1,
+                device_id: controller,
                 buttons: vec![5],
                 ..Default::default()
             }],
             ..Default::default()
         })
         .unwrap();
+    app.world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::X;
     app.world_mut().insert_resource(router);
     app.world_mut().insert_resource(SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
