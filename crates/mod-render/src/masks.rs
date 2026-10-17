@@ -164,10 +164,10 @@ impl MaskStore {
 
     /// Publishes a successful transaction, preserving identity for unchanged selections.
     pub fn commit(&mut self) -> Arc<[Mask]> {
-        if let Some(staged) = self.staged.take() {
-            if staged.as_slice() != self.committed.as_ref() {
-                self.committed = staged.into();
-            }
+        if let Some(staged) = self.staged.take()
+            && staged.as_slice() != self.committed.as_ref()
+        {
+            self.committed = staged.into();
         }
         Arc::clone(&self.committed)
     }
