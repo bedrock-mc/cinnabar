@@ -1009,6 +1009,19 @@ screen-effect parity remain incomplete.
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
 
+## Authored terrain materials
+
+- Optional authored maps decode texture sets, MER/MERS and explicit LabPBR 1.3.
+  Joint material mip generation preserves cutout coverage and filters normals and roughness.
+  Local packs can reuse a content-addressed decode cache. GPU uploads retain carrier
+  resources and publish complete authored maps after bounded transfers.
+- Enhanced remains hard-disabled, so normal sessions do not load these packs or change
+  rendered output. Renderer integration and visual/performance acceptance remain incomplete.
+- Incomplete: Java LabPBR files pair with Bedrock textures through a provisional name
+  table (`crates/pack-compiler/src/pbr/sources/names.rs`, baselined in the architecture gate).
+  Replace it with a generated Java/Bedrock mapping shared with shader-pack block IDs.
+  Independent authored animation timing remains incomplete; frames use the carrier clock.
+
 ## Anvil screen
 
 - The anvil predicts its result and cost: repair materials restore a

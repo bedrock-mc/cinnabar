@@ -418,6 +418,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         assets: loaded_assets,
         actor: actor_catalog,
         equipment: equipment_catalog,
+        authored_texture_loading,
     } = carriers.core.context("load startup block assets")?;
     logging::loaded_assets(&loaded_assets);
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
@@ -824,6 +825,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(atmosphere_assets)
     .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(authored_texture_loading)
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)
