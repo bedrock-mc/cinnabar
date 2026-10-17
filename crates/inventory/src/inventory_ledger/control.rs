@@ -32,11 +32,14 @@ impl ControlWindow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct OpenTarget {
+    pub runtime_id: u64,
+    pub actor_unique_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ControlRequest {
-    Open {
-        generation: u64,
-        target_runtime_id: u64,
-    },
+    Open { generation: u64, target: OpenTarget },
     Close(ControlWindow),
 }
 
@@ -81,7 +84,7 @@ pub(super) struct WindowControl {
 pub(super) struct WindowControls {
     pub personal: WindowControl,
     pub storage: WindowControl,
-    pub personal_target: u64,
+    pub personal_target: Option<OpenTarget>,
 }
 
 impl WindowControls {

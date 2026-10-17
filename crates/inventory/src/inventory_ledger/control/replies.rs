@@ -6,6 +6,21 @@ use super::{ControlKind, ControlRequest, ControlWindow, SentControl};
 use crate::inventory_ledger::PlayerInventoryLedger;
 
 impl PlayerInventoryLedger {
+    /// Transfers a matching actor reply to storage while preserving the latest screen intent.
+    pub(in crate::inventory_ledger) fn answer_actor_open(
+        &mut self,
+        open: ContainerOpenEvent,
+    ) -> Option<bool> {
+        let ControlRequest::Open { target, .. } = self.controls.personal.sent?.request else {
+            return None;
+        };
+        if target.actor_unique_id != Some(open.runtime_entity_id) {
+            return None;
+        }
+        self.controls.personal.sent = None;
+        Some(self.controls.personal.desired_open)
+    }
+
     /// Accepts the sole outstanding open, including one whose screen was superseded.
     pub(in crate::inventory_ledger) fn apply_personal_open(&mut self, open: ContainerOpenEvent) {
         let Some(window_id) = open.container.window_id else {

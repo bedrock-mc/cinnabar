@@ -432,7 +432,8 @@ impl PlayerInventoryLedger {
             self.confirmed.clear_storage();
             return;
         };
-        // Storage opens are authoritative events, not client inventory control requests.
+        let desired_open = self.answer_actor_open(open).unwrap_or(true);
+        // Unsolicited storage opens supersede the personal screen; actor replies retain its intent.
         self.supersede_pending_personal_open();
         self.enchant_options = None;
         let generation = self.next_open_generation;
@@ -442,7 +443,7 @@ impl PlayerInventoryLedger {
             window_id,
             window_type: open.window_type,
         });
-        self.controls.storage.desired_open = true;
+        self.controls.storage.desired_open = desired_open;
         self.storage = Some(StorageWindow {
             window_id,
             window_type: open.window_type,
@@ -460,6 +461,9 @@ impl PlayerInventoryLedger {
         if let Some(protocol::OpenCells::Named { lengths, .. }) = kind.open_cells() {
             self.confirmed
                 .ensure_storage(lengths.iter().copied().min().unwrap_or(0));
+        }
+        if !desired_open {
+            self.request_storage_close();
         }
     }
 

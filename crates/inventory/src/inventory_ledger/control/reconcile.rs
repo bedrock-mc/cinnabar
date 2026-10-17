@@ -41,7 +41,7 @@ impl PlayerInventoryLedger {
         {
             return Some(ControlRequest::Open {
                 generation,
-                target_runtime_id: self.controls.personal_target,
+                target: self.controls.personal_target?,
             });
         }
         None
@@ -53,9 +53,7 @@ impl PlayerInventoryLedger {
     ) -> Result<Option<protocol::Packet>, InventoryGestureError> {
         self.pending_control()
             .map(|request| match request {
-                ControlRequest::Open {
-                    target_runtime_id, ..
-                } => open_inventory_packet(target_runtime_id),
+                ControlRequest::Open { target, .. } => open_inventory_packet(target.runtime_id),
                 ControlRequest::Close(window) => container_close_packet(window.window_id),
             })
             .transpose()

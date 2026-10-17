@@ -1,3 +1,4 @@
+use super::control::OpenTarget;
 use super::{InventoryPendingState, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
@@ -43,10 +44,26 @@ impl PlayerInventoryLedger {
     }
 
     pub fn request_personal_open(&mut self, target_runtime_id: u64) -> bool {
-        if self.authority.is_none() || target_runtime_id == 0 || self.storage.is_some() {
+        self.request_open(OpenTarget {
+            runtime_id: target_runtime_id,
+            actor_unique_id: None,
+        })
+    }
+
+    /// Opens an actor inventory and correlates its reply by persistent actor identity.
+    pub fn request_actor_open(&mut self, target_runtime_id: u64, actor_unique_id: i64) -> bool {
+        self.request_open(OpenTarget {
+            runtime_id: target_runtime_id,
+            actor_unique_id: Some(actor_unique_id),
+        })
+    }
+
+    /// Retains the requested target and latest intent until its transport reply arrives.
+    fn request_open(&mut self, target: OpenTarget) -> bool {
+        if self.authority.is_none() || target.runtime_id == 0 || self.storage.is_some() {
             return false;
         }
-        self.controls.personal_target = target_runtime_id;
+        self.controls.personal_target = Some(target);
         self.controls.personal.desired_open = true;
         self.reconcile_personal();
         true

@@ -9907,5 +9907,7 @@ written but unrun; this does not close a renderer parity or frame-budget gate.
 
 Inventory input resolves a retained mount through live actor authority and sends its runtime
 ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
-request. The chosen target survives transport delay. Full mount container, vehicle input
+request. The chosen target survives transport delay. Matching actor-window replies settle
+mounted requests and preserve cancellation or a newer reopen intent. Unrelated server
+windows remain authoritative. Full mount container, vehicle input
 and platform-specific inventory-opening guards remain incomplete.
