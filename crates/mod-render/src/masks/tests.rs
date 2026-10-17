@@ -150,3 +150,43 @@ fn attachment_accounting_includes_resolve_and_all_samples() {
     assert_eq!(attachment_bytes(1920, 1080, 4), Some(1920 * 1080 * 4 * 5));
     assert_eq!(attachment_bytes(u32::MAX, u32::MAX, u32::MAX), None);
 }
+#[test]
+fn appearance_is_bounded_and_foreign_bindings_are_rejected() {
+    let (mut store, _) = store(1);
+    let mask = store.create(MaskDepth::Test).unwrap();
+    let style = mod_api::drawing::MaskStyle {
+        outline: [1.0; 4],
+        outline_radius: 1.0,
+        glow: [1.0; 4],
+        glow_radius: mod_api::drawing::MAX_MASK_GLOW_RADIUS,
+    };
+    store.set_style(mask, Some(style)).unwrap();
+    assert_eq!(
+        store.set_style(
+            mask,
+            Some(mod_api::drawing::MaskStyle {
+                outline_radius: f32::NAN,
+                ..style
+            })
+        ),
+        Err(MaskError::Invalid)
+    );
+    assert_eq!(
+        store.set_style(
+            mask,
+            Some(mod_api::drawing::MaskStyle {
+                glow_radius: style.glow_radius + 1.0,
+                ..style
+            })
+        ),
+        Err(MaskError::Invalid)
+    );
+    assert_eq!(store.commit()[0].style, Some(style));
+    assert!(store.bindings(&[mask]).is_ok());
+    assert_eq!(
+        store.bindings(&[DrawingHandle { owner: 99, ..mask }]),
+        Err(MaskError::StaleHandle)
+    );
+    store.remove(mask).unwrap();
+    assert_eq!(store.bindings(&[mask]), Err(MaskError::StaleHandle));
+}

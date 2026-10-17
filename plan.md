@@ -10026,4 +10026,8 @@ vertex counts. Masks draw admitted body and equipment meshes with the scene's po
 material coverage. Depth-tested coverage is filtered before post effects; always-visible
 coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
 observation and through-wall consent until a visibility-filtered target source exists.
-Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
+Bounded host outlines and shared downsampled halos compose display-space colours after grading,
+independently of world bloom. Custom post effects declare only their owner's masks and need
+separate post authority. Incomplete: in-world Enhanced bloom on/off, hand/UI ordering acceptance,
+resolution-transition captures and hardware budget measurements. Offscreen tests do not close
+those live or performance gates.

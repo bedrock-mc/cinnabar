@@ -53,11 +53,17 @@ impl RenderState {
         self.generation
     }
 
-    /// Publishes retained masks after any successful callback, including event callbacks.
+    /// Publishes retained masks and effects after any successful callback.
     pub(super) fn commit_masks(&mut self) {
         let masks = self.masks.commit();
-        if masks != self.committed.masks {
-            self.committed.masks = masks;
+        let mut changed = masks != self.committed.masks;
+        self.committed.masks = masks;
+        if let Some(mut passes) = self.staged_passes.take() {
+            passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+            changed |= passes != self.committed.passes;
+            self.committed.passes = passes;
+        }
+        if changed {
             self.generation = next_revision();
         }
     }
@@ -73,14 +79,7 @@ impl RenderState {
     pub fn commit(&mut self) {
         let primitives = std::mem::take(&mut self.staged_primitives);
         let mut changed = false;
-        let masks = self.masks.commit();
-        changed |= masks != self.committed.masks;
-        self.committed.masks = masks;
-        if let Some(mut passes) = self.staged_passes.take() {
-            passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
-            changed |= passes != self.committed.passes;
-            self.committed.passes = passes;
-        }
+        self.commit_masks();
         // Unchanged content keeps its identity, so the renderer rebuilds and uploads nothing.
         if primitives != *self.committed.primitives {
             self.committed.primitives = Arc::new(primitives);
@@ -124,6 +123,15 @@ impl RenderState {
         self.masks.begin();
     }
 
+    /// Retained post effects hold their declared mask resources until removed or replaced.
+    pub(super) fn mask_in_use(&self, handle: mod_api::drawing::DrawingHandle) -> bool {
+        self.staged_passes
+            .as_ref()
+            .unwrap_or(&self.committed.passes)
+            .iter()
+            .any(|pass| pass.masks.contains(&handle))
+    }
+
     fn staged(&mut self) -> &mut Vec<Pass> {
         self.staged_passes
             .get_or_insert_with(|| self.committed.passes.clone())
@@ -160,15 +168,13 @@ impl State {
     }
 }
 
-impl wit::Host for State {
-    fn set_block_highlights(
+impl State {
+    /// Admits either a legacy pass or an explicitly owner-bound masked pass.
+    pub(super) fn register_render_pass(
         &mut self,
-        spec: Option<wit::BlockHighlightSpec>,
+        spec: wit::PassSpec,
+        masks: Vec<mod_api::drawing::DrawingHandle>,
     ) -> Result<Result<(), String>> {
-        super::block_highlights::set(self, spec)
-    }
-
-    fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
         if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
@@ -185,6 +191,7 @@ impl wit::Host for State {
         if let Some(index) = existing
             && *passes[index].source == spec.source
             && passes[index].depth == spec.depth
+            && passes[index].masks == masks
         {
             passes[index].order = spec.order;
             return Ok(Ok(()));
@@ -198,7 +205,8 @@ impl wit::Host for State {
             ));
         }
         self.render.compiles_left -= 1;
-        let shader = match mod_render::shader::compose(&spec.source, spec.depth) {
+        let shader = match mod_render::shader::compose_masked(&spec.source, spec.depth, masks.len())
+        {
             Ok(shader) => shader,
             Err(error) => return Ok(Err(error)),
         };
@@ -206,6 +214,7 @@ impl wit::Host for State {
             name: spec.name,
             order: spec.order,
             depth: spec.depth,
+            masks,
             source: spec.source.into(),
             shader: shader.into(),
             revision: next_revision(),
@@ -222,6 +231,19 @@ impl wit::Host for State {
             None => passes.push(pass),
         }
         Ok(Ok(()))
+    }
+}
+
+impl wit::Host for State {
+    fn set_block_highlights(
+        &mut self,
+        spec: Option<wit::BlockHighlightSpec>,
+    ) -> Result<Result<(), String>> {
+        super::block_highlights::set(self, spec)
+    }
+
+    fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
+        self.register_render_pass(spec, Vec::new())
     }
 
     fn remove_pass(&mut self, name: String) -> Result<Result<(), String>> {

@@ -35,6 +35,8 @@ pub struct Draw<'a> {
 }
 
 pub struct RasterState {
+    /// Initial background for mask and colour witnesses.
+    pub clear_color: wgpu::Color,
     /// Optional production actor fragment selected by the actor raster fixture.
     pub actor_fragment: Option<&'static str>,
     pub layout: Option<wgpu::PipelineLayout>,
@@ -61,6 +63,7 @@ struct RasterConfiguration<'a> {
 impl Default for RasterState {
     fn default() -> Self {
         Self {
+            clear_color: CLEAR_COLOR,
             actor_fragment: None,
             layout: None,
             primitive: Default::default(),
@@ -466,7 +469,7 @@ impl Gpu {
                     resolve_target: multisampled_view.as_ref().map(|_| &view),
                     ops: wgpu::Operations {
                         load: if index == 0 {
-                            wgpu::LoadOp::Clear(CLEAR_COLOR)
+                            wgpu::LoadOp::Clear(state.clear_color)
                         } else {
                             wgpu::LoadOp::Load
                         },

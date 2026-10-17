@@ -43,6 +43,7 @@ fn token(value: DrawingHandle) -> types::Handle {
 /// Keeps typed failures separate from traps and callback-budget exhaustion.
 fn error(value: MaskError) -> types::DrawError {
     let (code, detail) = match value {
+        MaskError::Invalid => (types::ErrorCode::Invalid, "invalid mask appearance"),
         MaskError::Denied => (types::ErrorCode::Denied, "entity mask authority denied"),
         MaskError::StaleHandle => (
             types::ErrorCode::StaleHandle,
@@ -108,7 +109,62 @@ impl wit::Host for State {
 
     fn remove(&mut self, mask: types::Handle) -> anyhow::Result<Result<(), types::DrawError>> {
         self.render.mask_budget()?;
+        if self.render.mask_in_use(handle(mask)) {
+            return Ok(Err(types::DrawError {
+                code: types::ErrorCode::InUse,
+                detail: "remove effects that reference this mask first".into(),
+            }));
+        }
         Ok(self.render.masks.remove(handle(mask)).map_err(error))
+    }
+
+    fn set_style(
+        &mut self,
+        mask: types::Handle,
+        appearance: Option<wit::Style>,
+    ) -> anyhow::Result<Result<(), types::DrawError>> {
+        self.render.mask_budget()?;
+        let rgba = |value: wit::Rgba| [value.r, value.g, value.b, value.a];
+        let style = appearance.map(|value| mod_api::drawing::MaskStyle {
+            outline: rgba(value.outline),
+            outline_radius: value.outline_radius,
+            glow: rgba(value.glow),
+            glow_radius: value.glow_radius,
+        });
+        Ok(self
+            .render
+            .masks
+            .set_style(handle(mask), style)
+            .map_err(error))
+    }
+
+    fn register_effect(
+        &mut self,
+        spec: wit::EffectSpec,
+    ) -> anyhow::Result<Result<(), types::DrawError>> {
+        self.render.mask_budget()?;
+        if spec.masks.len() > mod_api::drawing::MAX_MASKS {
+            return Ok(Err(error(MaskError::BudgetExceeded)));
+        }
+        let masks: Vec<_> = spec.masks.into_iter().map(handle).collect();
+        if let Err(failure) = self.render.masks.bindings(&masks) {
+            return Ok(Err(error(failure)));
+        }
+        if !self.grants.render_post {
+            return Ok(Err(error(MaskError::Denied)));
+        }
+        let spec = super::cinnabar::extension::render::PassSpec {
+            name: spec.name,
+            source: spec.source,
+            order: spec.order,
+            depth: false,
+        };
+        Ok(self
+            .register_render_pass(spec, masks)?
+            .map_err(|detail| types::DrawError {
+                code: types::ErrorCode::Invalid,
+                detail,
+            }))
     }
 }
 
@@ -170,5 +226,43 @@ mod tests {
             state.remove(mask).unwrap().unwrap_err().code,
             types::ErrorCode::StaleHandle
         );
+    }
+
+    #[test]
+    fn post_effects_require_separate_authority_and_hold_only_declared_masks() {
+        let mut state = State::new(
+            crate::ModGrants::default(),
+            String::new(),
+            Default::default(),
+        );
+        state.render.masks.bind(mod_api::drawing::DrawingSession {
+            connection: 7,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+            ..Default::default()
+        });
+        let mask = state.create(wit::DepthPolicy::Test).unwrap().unwrap();
+        let spec = wit::EffectSpec { name: "selection".into(), order: 0, source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) + vec3<f32>(mask(0u, uv)); }".into(), masks: vec![mask] };
+        assert_eq!(
+            state
+                .register_effect(spec.clone())
+                .unwrap()
+                .unwrap_err()
+                .code,
+            types::ErrorCode::Denied
+        );
+        state.grants.render_post = true;
+        state.register_effect(spec).unwrap().unwrap();
+        state.render.commit_masks();
+        assert_eq!(state.render.output().passes.len(), 1);
+        assert_eq!(
+            state.remove(mask).unwrap().unwrap_err().code,
+            types::ErrorCode::InUse
+        );
+        use super::super::cinnabar::extension::render::Host as _;
+        state.remove_pass("selection".into()).unwrap().unwrap();
+        state.remove(mask).unwrap().unwrap();
+        state.render.commit_masks();
+        assert!(state.render.output().masks.is_empty());
+        assert!(state.render.output().passes.is_empty());
     }
 }

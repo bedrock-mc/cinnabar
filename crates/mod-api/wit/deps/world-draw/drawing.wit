@@ -15,10 +15,17 @@ interface drawing {
 interface masks {
     use drawing.{handle, draw-error};
     enum depth-policy { test, always }
+    record rgba { r: f32, g: f32, b: f32, a: f32 }
+    /// Display-space colours and physical-pixel radii; zero alpha disables a layer.
+    record style { outline: rgba, outline-radius: f32, glow: rgba, glow-radius: f32 }
+    record effect-spec { name: string, order: s32, source: string, masks: list<handle> }
     /// Resolves an already authorized actor. Unfiltered lookup requires observation authority.
     entity: func(runtime-id: u64) -> result<handle, draw-error>;
     create: func(depth: depth-policy) -> result<handle, draw-error>;
     /// Atomically replaces membership; an empty selection clears coverage.
     select: func(mask: handle, entities: list<handle>) -> result<_, draw-error>;
     remove: func(mask: handle) -> result<_, draw-error>;
+    set-style: func(mask: handle, appearance: option<style>) -> result<_, draw-error>;
+    /// Arbitrary sampling also requires the separately negotiated render-post capability.
+    register-effect: func(spec: effect-spec) -> result<_, draw-error>;
 }
