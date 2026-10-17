@@ -704,6 +704,17 @@ Full transport parity remains incomplete. Host-resolver timing and address admis
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
 
+## Source-water retention during block changes
+
+Primary block changes preserve source water in the secondary layer when the
+pinned block property permits it. Server updates and local predictions share
+this transition, including ordered explicit secondary writes and water removal.
+The block registry derives containment per state from the shared library rather
+than an identifier list. Regressions cover both session ID formats, replacement
+controls, and malformed updates. Flowing/falling water retention, server-defined
+block capabilities, broader liquid parity, and hardware performance gates remain
+incomplete.
+
 ## Liquid surfaces beneath opaque roofs
 
 Liquid tops below opaque roofs remain visible when any surface corner is below

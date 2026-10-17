@@ -18,6 +18,17 @@ exact regeneration and focused compile checks pass. Local BDS frames and animati
 phases pass against the official Android reference. Broader pack/platform parity
 and hardware performance gates remain open; the command-block editor is unfinished.
 
+## Source-water retention during block changes
+
+Primary updates and predictions share source-water retention using generated
+per-state liquid-containment facts. Owning regressions cover both ID formats,
+ordered layer overrides, solid-block and bucket-removal controls, and malformed
+cells. The registry and bound carriers regenerate together. Flowing/falling
+water, custom block capabilities, broader parity and hardware performance remain
+open gates. Local BDS checks pass for own/observed placements, fence breaking and
+bucket removal against the official Android client. Focused checks pass; two
+installed-creeper tests in the broader suite remain unattributed.
+
 ## Liquid surfaces beneath opaque roofs
 
 Lowered water and lava tops remain visible below solid blocks, with shared side
