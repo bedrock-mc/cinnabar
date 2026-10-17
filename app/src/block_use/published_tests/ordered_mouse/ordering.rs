@@ -414,3 +414,6 @@ fn ordered_mouse_backend_keyboard_focus_reset_discards_the_whole_batch() {
     mouse_frame(&mut world, MouseButton::Left, &[]);
     assert_eq!(attack_count(&mut captured), 1);
 }
+
+#[path = "review.rs"]
+mod review;
