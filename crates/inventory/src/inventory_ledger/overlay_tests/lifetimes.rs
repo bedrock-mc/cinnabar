@@ -1,6 +1,8 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+mod accepted_descendants;
+
 /// Builds a named stack with unrelated NBT that must survive sparse corrections.
 fn named_stack(
     id: i32,

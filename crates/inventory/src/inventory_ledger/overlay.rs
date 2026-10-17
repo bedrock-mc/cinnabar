@@ -37,6 +37,36 @@ pub(super) enum DeltaGroup {
 }
 
 impl DeltaGroup {
+    /// Maps a result's item data to its input owner without replaying counts or wire actions.
+    /// Empty destinations inherit the source, occupied ones keep their data, and sets start fresh.
+    pub(super) fn item_data_source(&self, result: Cell) -> Option<Cell> {
+        match self {
+            Self::Transfer {
+                source,
+                destination,
+                destination_id,
+                ..
+            } => Some(if result == *destination && destination_id.is_none() {
+                *source
+            } else {
+                result
+            }),
+            Self::Swap {
+                source,
+                destination,
+                ..
+            } => Some(if result == *source {
+                *destination
+            } else if result == *destination {
+                *source
+            } else {
+                result
+            }),
+            Self::Shrink { .. } => Some(result),
+            Self::Set { cell, .. } => (result != *cell).then_some(result),
+        }
+    }
+
     /// Names the current source cells when rebuilding an unsent request.
     pub(super) fn rebind(&mut self, cells: &Cells) {
         let name = |cell| {
