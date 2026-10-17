@@ -38,7 +38,7 @@ public final class BootstrapActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        start();
+        if (!StartupDiagnostics.showPreviousFailure(this, this::start)) start();
     }
 
     private void start() {

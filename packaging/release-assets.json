@@ -13,6 +13,11 @@
       "x86_64": "Cinnabar-x86_64.dmg"
     }
   },
+  "manual_assets": {
+    "android": {
+      "arm64": "Cinnabar-arm64-v8a.apk"
+    }
+  },
   "symbols": {
     "archive": "cinnabar-symbols-{version}-{platform}-{arch}.zip",
     "manifest": "manifest.json"

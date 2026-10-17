@@ -778,3 +778,186 @@ fn full_custom_names_are_kept_when_repairing_without_a_rename() {
         Some(name.as_str())
     );
 }
+
+#[test]
+fn filtered_names_follow_actual_anvil_name_edits() {
+    use protocol::{
+        CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
+        StackRequestSlot,
+    };
+
+    for typed in [None, Some("Renamed"), Some("")] {
+        let (mut runtime, mut player) = anvil();
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                custom_name: Some(Some(" Raw blade ".into())),
+                filtered_custom_name: Some(Some("Filtered blade".into())),
+                ..Default::default()
+            },
+        );
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, " Raw blade ");
+        if let Some(name) = typed {
+            runtime.screen_state_mut().anvil_name = name.into();
+        }
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+
+        let input_slot = |slot| {
+            let ledger = runtime.inventory_ledger(&player);
+            StackRequestSlot {
+                container: protocol::ui_slot_request_container(slot).unwrap(),
+                slot,
+                stack_network_id: ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .unwrap()
+                    .stack_network_id,
+            }
+        };
+        let target = input_slot(ANVIL_TARGET_SLOT);
+        let material = input_slot(ANVIL_MATERIAL_SLOT);
+        let input = runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .unwrap();
+
+        let expected_name = match typed {
+            None => Some(" Raw blade "),
+            Some("") => None,
+            Some(name) => Some(name),
+        };
+        let expected_filtered = typed.is_none().then_some("Filtered blade");
+        let expected_extra = protocol::edit_item_extra(
+            &input.extra_data,
+            &protocol::ItemNbtEdit {
+                damage: Some(0),
+                repair_cost: Some(1),
+                custom_name: Some(expected_name.map(str::to_owned)),
+                filtered_custom_name: Some(expected_filtered.map(str::to_owned)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let preview = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(preview.outcome.material_used, 3);
+        assert_eq!(
+            preview.outcome.custom_name,
+            typed.map(|name| (!name.is_empty()).then(|| name.to_owned()))
+        );
+        assert_eq!(
+            (
+                protocol::item_custom_name(&preview.stack.extra_data).as_deref(),
+                protocol::item_filtered_custom_name(&preview.stack.extra_data).as_deref(),
+            ),
+            (expected_name, expected_filtered)
+        );
+        assert_eq!(preview.stack.extra_data, expected_extra);
+
+        runtime.perform_pointer_action(
+            &mut player,
+            crate::ui_runtime::inventory_drag::PointerAction::Click(
+                ui_screens::container_actions::InventoryCellHit::CraftOutput,
+            ),
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        assert_eq!(ledger.cursor_stack().unwrap().extra_data, expected_extra);
+        let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
+        assert_eq!(requests, 1);
+        let request_id = ledger.pending_request_id().unwrap();
+        let filter_strings: Vec<String> = typed.into_iter().map(str::to_owned).collect();
+        let expected = protocol::item_stack_request_packet_filtered(
+            request_id,
+            &[
+                Action::CraftRecipeOptional {
+                    recipe_network_id: 0,
+                    filtered_string_index: if typed.is_some() { 0 } else { -1 },
+                },
+                Action::CraftResultsDeprecated {
+                    results: Arc::from([CraftResult {
+                        identifier: Arc::from("minecraft:diamond_sword"),
+                        aux: 0,
+                        count: 1,
+                        block_runtime_id: 0,
+                        user_data: expected_extra,
+                    }]),
+                    crafts: 1,
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: target,
+                },
+                Action::Consume {
+                    amount: 3,
+                    source: material,
+                },
+                Action::Take {
+                    amount: 1,
+                    source: StackRequestSlot {
+                        container: Container::CreatedOutput,
+                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        stack_network_id: request_id,
+                    },
+                    destination: StackRequestSlot {
+                        container: Container::Cursor,
+                        slot: 0,
+                        stack_network_id: 0,
+                    },
+                },
+            ],
+            &filter_strings,
+        )
+        .unwrap();
+        assert_eq!(packet, expected);
+    }
+}
+
+#[test]
+fn overlay_only_names_survive_until_an_actual_rename() {
+    let (runtime, player) = anvil();
+    let input = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap();
+    assert_eq!(protocol::item_custom_name(&input.extra_data), None);
+    assert_eq!(protocol::item_filtered_custom_name(&input.extra_data), None);
+
+    for filtered in [None, Some(""), Some("Filtered server blade")] {
+        let overlay = inventory::inventory_ledger::StackResponseOverlay {
+            custom_name: Some(Arc::from("Server blade")),
+            filtered_custom_name: filtered.map(Arc::from),
+            durability_correction: None,
+        };
+        let corrected = protocol::edit_item_extra(
+            &input.extra_data,
+            &anvil_name_edit(&input.extra_data, Some(&overlay), None),
+        )
+        .unwrap();
+        assert_eq!(
+            protocol::item_custom_name(&corrected).as_deref(),
+            Some("Server blade")
+        );
+        assert_eq!(
+            protocol::item_filtered_custom_name(&corrected).as_deref(),
+            filtered.filter(|name| !name.is_empty())
+        );
+        assert_eq!(protocol::item_extra_damage_value(&corrected), Some(1000));
+
+        for name in [Some("Renamed".to_owned()), None] {
+            let edited = protocol::edit_item_extra(
+                &corrected,
+                &anvil_name_edit(&corrected, Some(&overlay), Some(name.clone())),
+            )
+            .unwrap();
+            assert_eq!(
+                protocol::item_custom_name(&edited).as_deref(),
+                name.as_deref()
+            );
+            assert_eq!(protocol::item_filtered_custom_name(&edited), None);
+        }
+    }
+}

@@ -486,6 +486,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
         blocks: Arc::from([
             CustomBlock {
                 state_physics: Default::default(),
+                player_interact: false,
                 name: "example:plain".into(),
                 tags: Default::default(),
                 state_count: 1,
@@ -497,6 +498,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
             },
             CustomBlock {
                 state_physics: Default::default(),
+                player_interact: false,
                 name: "example:powered".into(),
                 tags: Default::default(),
                 state_count: 2,
@@ -626,6 +628,7 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
 fn plain_identity_block(name: &str) -> CustomBlock {
     CustomBlock {
         state_physics: Default::default(),
+        player_interact: false,
         name: name.into(),
         tags: Default::default(),
         state_count: 1,
@@ -748,6 +751,7 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
                 selection: CustomSelection::Default,
                 friction: None,
                 state_physics: Default::default(),
+                player_interact: false,
                 tags: Default::default(),
                 visual: Arc::default(),
             }]),

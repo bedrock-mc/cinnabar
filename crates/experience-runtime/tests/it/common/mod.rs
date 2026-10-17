@@ -11,9 +11,29 @@ use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use experience_runtime::protocol::{
-    BlockPos, Call, Cell, Face, INVENTORY_SLOTS, Info, Inventory, Op, Outcome, Request, Scalar,
-    ServerItem,
+    BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
+    Recipe, Request, Scalar, ServerItem,
 };
+
+/// The server's recipes as an adapter lists them for the probe: sticks from two planks, one
+/// above the other.
+pub fn recipes() -> Vec<Recipe> {
+    let planks = || {
+        vec![ItemMatch {
+            id: "minecraft:oak_planks".to_owned(),
+            metadata: None,
+        }]
+    };
+    vec![Recipe {
+        shape: Some([1, 2]),
+        inputs: vec![planks(), planks()],
+        output: Crafted {
+            id: "minecraft:stick".to_owned(),
+            metadata: 0,
+            count: 4,
+        },
+    }]
+}
 
 /// The server's items as an adapter lists them for the probe: stone, 64 to a stack, and ender
 /// pearls, 16.
@@ -52,6 +72,8 @@ const SERVER_WIT_0_2: &str = include_str!("../../../wit/0.2/server.wit");
 const SERVER_WIT_0_3: &str = include_str!("../../../wit/0.3/server.wit");
 /// The server WIT 0.4, which the runtime still accepts.
 const SERVER_WIT_0_4: &str = include_str!("../../../wit/0.4/server.wit");
+/// The server WIT 0.5, which the runtime still accepts.
+const SERVER_WIT_0_5: &str = include_str!("../../../wit/0.5/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
 /// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer
@@ -73,7 +95,8 @@ const LOOPING_REGISTER: &str = r#"(module
         unreachable)
     (func (export "client-message") (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
         unreachable)
-    (func (export "epoch") (param i32 i32 i32) (result i32) unreachable))"#;
+    (func (export "epoch") (param i32 i32 i32) (result i32) unreachable)
+    (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32) unreachable))"#;
 
 /// A core module for the 0.1 `server` world, as a guest built before 0.2 would be. `register`
 /// declares `probe:counter`, breakable with hardness 1, whose `*` texture is `counter.png`, and
@@ -293,6 +316,63 @@ const V0_4_GUEST: &str = r#"(module
         (call $drop (local.get 0))
         (i32.const 0)))"#;
 
+/// A core module for the 0.5 `server` world, as a guest built before 0.6 would be: it is
+/// [`V0_4_GUEST`] through the 0.5 imports, telling "v0.5", and its `register` declares no
+/// blocks and no items.
+const V0_5_GUEST: &str = r#"(module
+    (import "cinnabar:experience-server/world-access@0.5.0" "[method]callback.tell"
+        (func $tell (param i32 i32 i32 i32 i32 i32)))
+    (import "cinnabar:experience-server/world-access@0.5.0" "[method]callback.send-client"
+        (func $send (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+    (import "cinnabar:experience-server/world-access@0.5.0" "[resource-drop]callback"
+        (func $drop (param i32)))
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (data (i32.const 32) "\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00")
+    (data (i32.const 64) "\00\01\00\00\0d\00\00\00\10\01\00\00\06\00\00\00")
+    (data (i32.const 80) "\80\00\00\00\01\00\00\00\01\00\00\00\00\00\80\3f")
+    (data (i32.const 128) "\20\01\00\00\01\00\00\00\28\01\00\00\0b\00\00\00")
+    (data (i32.const 256) "probe:counter")
+    (data (i32.const 272) "Legacy")
+    (data (i32.const 288) "*")
+    (data (i32.const 296) "counter.png")
+    (data (i32.const 320) "v0.5")
+    (func (export "cabi_realloc") (param i32 i32) (param $align i32) (param $size i32)
+        (result i32)
+        (local $at i32)
+        (local.set $at (i32.and
+            (i32.add (global.get $heap) (i32.sub (local.get $align) (i32.const 1)))
+            (i32.sub (i32.const 0) (local.get $align))))
+        (global.set $heap (i32.add (local.get $at) (local.get $size)))
+        (local.get $at))
+    (func (export "register") (result i32) (i32.const 32))
+    (func (export "on-place")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-break")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-interact")
+        (param $ctx i32) (param $player i32) (param $len i32) (param i32 i32 i32 i32) (result i32)
+        (call $tell (local.get $ctx) (local.get $player) (local.get $len)
+            (i32.const 320) (i32.const 4) (i32.const 16))
+        (call $drop (local.get $ctx))
+        (i32.const 0))
+    (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "client-message")
+        (param $ctx i32) (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $send (local.get $ctx) (local.get 1) (local.get 2) (local.get 3) (local.get 4)
+            (local.get 5) (local.get 6) (local.get 7) (i32.const 16))
+        (call $drop (local.get $ctx))
+        (i32.const 0))
+    (func (export "epoch") (param i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0)))"#;
+
 /// The probe's `assets/counter.png`: a 1×1 opaque RGBA PNG.
 const COUNTER_PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -450,6 +530,12 @@ pub fn v0_4_dir() -> TempDir {
     wat_dir(V0_4_GUEST, SERVER_WIT_0_4)
 }
 
+/// A probe artifact whose `server.wasm` is [`V0_5_GUEST`] with the 0.5 `server` world embedded,
+/// and whose manifest has `api = "0.5"`.
+pub fn v0_5_dir() -> TempDir {
+    wat_dir(V0_5_GUEST, SERVER_WIT_0_5)
+}
+
 /// The manifest `api` of a server WIT: its package's `major.minor`.
 fn api_of(wit: &str) -> &str {
     let package = wit
@@ -516,6 +602,8 @@ pub fn probe() -> &'static Probe {
         let loaded = load(&engine, dir.path())
             .unwrap()
             .with_server_items(server_items())
+            .unwrap()
+            .with_recipes(recipes())
             .unwrap();
         Probe {
             engine,
@@ -632,6 +720,11 @@ pub fn epoch() -> Request {
         snapshot.clear();
     }
     request
+}
+
+/// An update the probe scheduled for its block at `pos` is due.
+pub fn scheduled(pos: BlockPos) -> Request {
+    callback(pos, Call::ScheduledUpdate { pos })
 }
 
 /// `request`, a client message or an epoch, with `anchor` as its player's focus: its snapshot is

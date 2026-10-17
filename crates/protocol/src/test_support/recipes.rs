@@ -3,8 +3,9 @@
 use bedrock_protocol_1_26_51::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
 use bedrock_protocol_1_26_51::packets::{self, CraftingData};
 use bedrock_protocol_1_26_51::types::{
-    ItemDescriptor, NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData,
-    RecipeNetID, RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
+    ContainerMixDataEntry, ItemDescriptor, NetworkItemInstanceDescriptorSerializedData,
+    PotionMixDataEntry, RecipeIngredientSerializedData, RecipeNetID,
+    RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
     StackRequestAction as Action, StackRequestSlotInfo,
 };
 use bedrock_protocol_1_26_51::wire::{self, Encode};
@@ -173,6 +174,10 @@ impl RecipeFixture {
 pub struct CraftingDataFixture {
     pub recipes: Vec<RecipeFixture>,
     pub clear_recipes: bool,
+    /// Potion mixes: input id and aux, reagent id and aux, output id and aux.
+    pub potions: Vec<[i32; 6]>,
+    /// Container mixes: input, reagent and output ids.
+    pub containers: Vec<[i32; 3]>,
 }
 
 impl CraftingDataFixture {
@@ -181,6 +186,7 @@ impl CraftingDataFixture {
         Self {
             recipes,
             clear_recipes: true,
+            ..Self::default()
         }
     }
 
@@ -221,6 +227,30 @@ impl CraftingDataFixture {
                 }),
             }
         }
+        let z = wire::ZigZag32;
+        packet.potion_mixes = self
+            .potions
+            .iter()
+            .map(
+                |[input, input_aux, reagent, reagent_aux, output, output_aux]| PotionMixDataEntry {
+                    from_potion_id: z(*input),
+                    from_item_aux: z(*input_aux),
+                    reagent_item_id: z(*reagent),
+                    reagent_item_aux: z(*reagent_aux),
+                    to_potion_id: z(*output),
+                    to_item_aux: z(*output_aux),
+                },
+            )
+            .collect();
+        packet.container_mixes = self
+            .containers
+            .iter()
+            .map(|[input, reagent, output]| ContainerMixDataEntry {
+                from_item_id: z(*input),
+                reagent_item_id: z(*reagent),
+                to_item_id: z(*output),
+            })
+            .collect();
         packet
             .encode_to_vec()
             .expect("fixture CraftingData encodes")

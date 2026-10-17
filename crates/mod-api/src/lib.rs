@@ -40,6 +40,8 @@ pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
 /// Bounded control and settings payloads for personal components.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
+/// Inventory requests one player-mod callback may make.
+pub const MAX_INVENTORY_REQUESTS: usize = 4;
 /// Optional top-level component data containing one existing personal panel bundle.
 pub const PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@1";
 /// Optional top-level component data containing one outline font for the personal panel.

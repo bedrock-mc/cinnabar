@@ -163,6 +163,7 @@ fn render_is_denied_by_default_even_with_other_grants() {
         items: true,
         recipes: true,
         keys: true,
+        inventory: true,
         block_highlights: false,
         fullbright: false,
     };

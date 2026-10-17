@@ -8,7 +8,7 @@ use gameplay::movement::MovementEffectSource;
 use protocol::test_support::transactions::observe_transaction;
 
 /// Routes a frame through the same semantic input owner as the producers.
-fn buttons(world: &mut World, buttons: Vec<u8>) {
+pub(super) fn buttons(world: &mut World, buttons: Vec<u8>) {
     let snapshot = world
         .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
         .route_and_finalize(semantic_input::DeviceFrame {
@@ -25,7 +25,7 @@ fn buttons(world: &mut World, buttons: Vec<u8>) {
 }
 
 /// Supplies telemetry and idle controls, then registers the actual interaction schedule.
-fn interaction_app(mut world: World) -> App {
+pub(super) fn interaction_app(mut world: World) -> App {
     world.init_resource::<bevy::ecs::schedule::Schedules>();
     #[cfg(feature = "acceptance")]
     {
@@ -66,7 +66,7 @@ fn interaction_app(mut world: World) -> App {
 }
 
 /// Publishes completed ticks with the fixture's stable network position.
-fn ticks(world: &mut World, first: u64, end: u64) {
+pub(super) fn ticks(world: &mut World, first: u64, end: u64) {
     world
         .resource_mut::<LocalMovementEffectTimeline>()
         .begin_frame();

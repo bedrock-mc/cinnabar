@@ -264,6 +264,11 @@ impl Cells {
         self.storage = Arc::default();
     }
 
+    /// Discards the preview owned by a screen without changing actual ingredients.
+    pub(super) fn clear_result(&mut self) {
+        self.created_output = None;
+    }
+
     /// Empties every screen input, grid cell and the created output.
     pub(super) fn clear_ui(&mut self) {
         self.craft = Arc::new(std::array::from_fn(|_| None));

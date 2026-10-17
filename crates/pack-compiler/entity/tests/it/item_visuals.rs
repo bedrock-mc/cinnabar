@@ -217,16 +217,17 @@ fn write(root: &Path, relative: &str, bytes: &[u8]) {
 
 fn item_pack(reverse: bool) -> TempDir {
     let temporary = tempfile::tempdir().unwrap();
-    let files: [(&str, &[u8]); 9] = [
+    let files: [(&str, &[u8]); 10] = [
         ("entity/item.entity.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:item","geometry":{"default":"geometry.item"},"render_controllers":["controller.render.item"]}}}"#),
         ("models/entity/item.geo.json", br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.item"},"bones":[{"name":"root"}]}]}"#),
         ("animations/empty.json", br#"{"format_version":"1.8.0","animations":{}}"#),
         ("animation_controllers/empty.json", br#"{"format_version":"1.10.0","animation_controllers":{}}"#),
         ("render_controllers/item.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.item":{"geometry":"Geometry.default"}}}"#),
         ("textures/entity/item.png", b"entity-raster"),
-        ("textures/item_texture.json", br#"{"resource_pack_name":"synthetic","texture_name":"atlas.items","texture_data":{"apple":{"textures":["textures/items/apple","textures/items/apple_alt"]},"missing":{"textures":"textures/items/missing"},"stone":{"textures":"textures/blocks/stone"}}}"#),
+        ("textures/item_texture.json", br#"{"resource_pack_name":"synthetic","texture_name":"atlas.items","texture_data":{"apple":{"textures":["textures/items/apple","textures/items/apple_alt"]},"missing":{"textures":"textures/items/missing"},"stone":{"textures":"textures/blocks/stone"},"nether_wart":{"textures":"textures/items/nether_wart"}}}"#),
         ("textures/items/apple.png", b"apple-raster"),
         ("textures/items/apple_alt.png", b"apple-alt-raster"),
+        ("textures/items/nether_wart.png", b"nether-wart-raster"),
     ];
     let iterator: Box<dyn Iterator<Item = &(&str, &[u8])>> = if reverse {
         Box::new(files.iter().rev())
@@ -639,4 +640,14 @@ fn legacy_icon_routes_bind_identifiers_to_their_atlas_variants() {
         ItemVisualDefinitionRoute::Missing
     ));
     assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+}
+
+/// Retail draws nether wart with its item sprite: the crop it places has no inventory form.
+#[test]
+fn nether_wart_keeps_its_item_sprite_over_its_crop() {
+    let compiled = compile_entity_assets(item_pack(false).path(), MANIFEST).unwrap();
+    assert!(matches!(
+        visual(&compiled.item_visuals, "minecraft:nether_wart", 0).route,
+        ItemVisualDefinitionRoute::Sprite { .. }
+    ));
 }

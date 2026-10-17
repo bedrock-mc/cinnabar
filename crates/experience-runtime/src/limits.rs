@@ -99,6 +99,14 @@ pub const MAX_STACK_SIZE: u8 = 64;
 pub const MAX_ITEM_DATA_BYTES: usize = 8192;
 /// Items the adapter may list as the server's when it loads an Experience.
 pub const MAX_SERVER_ITEMS: usize = 16_384;
+/// Crafting recipes the adapter may send when it loads an Experience.
+pub const MAX_RECIPES: usize = 8192;
+/// Items one recipe input may accept: an item tag's members.
+pub const MAX_RECIPE_INPUT_ITEMS: usize = 512;
+/// The most game ticks ahead `schedule-update` may schedule: an hour.
+pub const MAX_SCHEDULE_TICKS: u32 = 72_000;
+/// Updates one callback may schedule.
+pub const MAX_SCHEDULED_UPDATES: usize = 64;
 /// Members one callback's network holds; the adapter's flood stops there and marks the network
 /// truncated.
 pub const MAX_NETWORK_BLOCKS: usize = 1024;
