@@ -275,6 +275,34 @@ fn local_driver_runs_one_job_and_reuses_the_native_queue_order() {
     assert!(!run_one(&shared, now, &mut scratch));
 }
 
+/// Ready meshes retain a foreground turn while overdue lighting remains queued.
+#[test]
+fn local_driver_does_not_starve_meshes_behind_overdue_lighting() {
+    let shared = Shared::default();
+    let queued = Moment::default();
+    let now = queued.checked_add(LIGHT_MAX_WAIT).unwrap();
+    let (sent, received) = crossbeam_channel::unbounded();
+    for lane in [Lane::Light, Lane::Light, Lane::Light, Lane::Mesh] {
+        let sent = sent.clone();
+        shared
+            .lock()
+            .push(lane, queued, Box::new(move |_| sent.send(lane).unwrap()));
+    }
+    let mut scratch = world::LightSolverScratch::default();
+    for _ in 0..2 {
+        assert!(run_one(&shared, now, &mut scratch));
+    }
+    assert_eq!(
+        received.try_iter().collect::<Vec<_>>(),
+        [Lane::Light, Lane::Mesh]
+    );
+    for _ in 0..2 {
+        assert!(run_one(&shared, now, &mut scratch));
+        assert_eq!(received.try_recv().unwrap(), Lane::Light);
+    }
+    assert!(!run_one(&shared, now, &mut scratch));
+}
+
 /// Summary age never promotes it above urgent or near work; foreground leaves it queued.
 #[test]
 fn summaries_never_jump_urgent_or_near_work() {
