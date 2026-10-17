@@ -19,7 +19,7 @@ fn personal_control_timeouts_preserve_the_latest_screen_intent_through_recovery(
             runtime
                 .publish_local_runtime_id(&mut player, 1, 42)
                 .unwrap();
-            runtime.toggle_inventory(&mut player);
+            runtime.toggle_inventory(&mut player, None);
             assert!(runtime.inventory_open());
             assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
             let open = InventoryEvent::Open(ContainerOpenEvent {
@@ -33,11 +33,11 @@ fn personal_control_timeouts_preserve_the_latest_screen_intent_through_recovery(
                     .enqueue_inventory_event(&mut player, 1, 1, open.clone())
                     .unwrap();
                 runtime.drain_pending_inventory(&mut player);
-                runtime.toggle_inventory(&mut player);
+                runtime.toggle_inventory(&mut player, None);
                 assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
             }
             if runtime.inventory_open() != desired_open {
-                runtime.toggle_inventory(&mut player);
+                runtime.toggle_inventory(&mut player, None);
             }
             runtime.inventory_pointer_gui = desired_open.then_some([20.0, 30.0]);
             runtime.poll_inventory_timeout(&mut player, INVENTORY_REQUEST_TIMEOUT_MILLIS);
