@@ -192,11 +192,12 @@ fn stationary_pointer_preserves_keyboard_selection_until_accept() {
     {
         let mut runtime = h.app.world_mut().resource_mut::<UiRuntimeResource>();
         let emotes = runtime.emotes_mut();
+        let displaced = emotes.slots()[1];
         emotes.open();
         emotes.change_emotes();
         emotes.activate_slot(1, 0);
         emotes.close();
-        assert!(emotes.slots()[0].is_none());
+        assert_eq!(emotes.slots()[0], displaced);
         assert!(emotes.slots()[1].is_some());
     }
     h.app

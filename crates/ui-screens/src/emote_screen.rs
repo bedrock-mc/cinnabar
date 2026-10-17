@@ -36,6 +36,7 @@ pub struct EmoteScreen {
 /// The emote wheel or equip popup, as the client's emote state shows it.
 pub struct EmoteInput<'a> {
     pub equipping: bool,
+    pub equipping_emote: Option<CustomEmote>,
     pub selected_slot: Option<usize>,
     pub slots: &'a [Option<CustomEmote>],
     /// The live player preview the occupied slots show.
@@ -192,9 +193,7 @@ fn emote_data(
         "#emote_name",
         Scalar::Text(selected.map_or(String::new(), |emote| emote.label().to_owned())),
     );
-    let chosen = actor_animation::CustomEmote::ALL
-        .first()
-        .map_or("", |emote| emote.label());
+    let chosen = state.equipping_emote.map_or("", |emote| emote.label());
     data.set_global("#emote_popup_title", Scalar::Text(chosen.to_owned()));
     for (name, key) in [
         (

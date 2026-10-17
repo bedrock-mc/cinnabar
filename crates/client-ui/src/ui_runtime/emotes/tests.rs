@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn breakdance_is_playable_by_default_and_can_be_added_to_saved_slots() {
+    let mut state = EmoteState::default();
+    let slot = state
+        .slots()
+        .iter()
+        .position(|emote| *emote == Some(CustomEmote::Breakdance))
+        .unwrap();
+    state.open();
+    assert_eq!(
+        state.activate_slot(slot, 250),
+        Some(CustomEmote::Breakdance)
+    );
+    assert_eq!(state.playback().unwrap().elapsed(750), 0.5);
+
+    let saved = [Some(CustomEmote::Twerk.id().to_owned()), None, None, None];
+    state.apply_preferences(Some(&saved));
+    state.open();
+    state.change_emotes();
+    assert_eq!(state.equipping_emote(), Some(CustomEmote::Breakdance));
+    state.activate_slot(3, 800);
+    let saved = state.take_preferences().unwrap();
+    assert_eq!(saved[3].as_deref(), Some(CustomEmote::Breakdance.id()));
+    let mut restored = EmoteState::default();
+    restored.apply_preferences(Some(&saved));
+    restored.open();
+    assert_eq!(
+        restored.activate_slot(3, 900),
+        Some(CustomEmote::Breakdance)
+    );
+}
+
+#[test]
 fn selecting_equipped_slot_starts_loop_without_changing_other_slots() {
     let mut state = EmoteState::default();
     state.open();

@@ -18,6 +18,24 @@ pub(super) fn fixture() -> Arc<SkinGeometry> {
 }
 
 #[test]
+fn breakdance_keeps_classic_body_and_clothing_on_the_original_mesh() {
+    use crate::CustomEmote;
+    use crate::custom_emotes::{sample_custom_emote, tests::Fixture};
+
+    let source = fixture();
+    let f = Fixture::from_skin((*source).clone());
+    let rig = f.rig();
+    let pose = sample_custom_emote(&rig, CustomEmote::Breakdance, 0.0, 2.0).unwrap();
+    assert!(pose.articulated.is_none());
+    assert_eq!(pose.snapshot(rig).bone_names, rig.bone_names);
+    assert_eq!(pose.current.len(), rig.current.len());
+    assert_eq!(
+        pose.snapshot(rig).skin_geometry.unwrap().digest,
+        source.digest
+    );
+}
+
+#[test]
 fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
     let source = fixture();
     let original = (*source).clone();
