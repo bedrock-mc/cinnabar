@@ -32,17 +32,17 @@ pub(crate) fn depth_smaa(
         return Ok(());
     };
     scene.finish(context, world, target);
-    let output = target.post_process_write();
+    // Single-sample filtering writes the shared scene directly instead of copying a second
+    // post-process image back. Multisampling still needs the coverage-preserving restore.
+    let output = (view.samples > 1).then(|| target.post_process_write());
+    let source = output
+        .as_ref()
+        .map_or(target.main_texture_view(), |write| write.source);
     let (_, post, _) = view
         .post
         .iter()
-        .find(|(id, _, _)| *id == output.source.id())
+        .find(|(id, _, _)| *id == source.id())
         .expect("prepared SMAA source");
-    let (_, _, restored) = view
-        .post
-        .iter()
-        .find(|(id, _, _)| *id == output.destination.id())
-        .expect("prepared SMAA destination");
     {
         let attachments = [Some(RenderPassColorAttachment {
             view: &textures.edge_detection_color_texture.default_view,
@@ -116,7 +116,9 @@ pub(crate) fn depth_smaa(
     }
     {
         let attachments = [Some(RenderPassColorAttachment {
-            view: output.destination,
+            view: output
+                .as_ref()
+                .map_or(scene.color_view(false), |write| write.destination),
             depth_slice: None,
             resolve_target: None,
             ops: Operations {
@@ -142,13 +144,12 @@ pub(crate) fn depth_smaa(
         pass.set_bind_group(1, &groups.neighborhood_blending_bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
-    if view.samples == 1 {
-        context.command_encoder().copy_texture_to_texture(
-            target.main_texture().as_image_copy(),
-            scene.texture.as_image_copy(),
-            scene.texture.size(),
-        );
-    } else {
+    if let Some(output) = output {
+        let (_, _, restored) = view
+            .post
+            .iter()
+            .find(|(id, _, _)| *id == output.destination.id())
+            .expect("prepared SMAA destination");
         let attachments = [Some(scene.color_attachment(target, false))];
         let mut pass = context
             .command_encoder()

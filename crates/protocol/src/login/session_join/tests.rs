@@ -16,16 +16,18 @@ use crate::Packet;
 const RUNTIME_ID: u64 = 7;
 
 /// A core that speaks the session endpoint's frames to one client.
-struct FakeCore {
-    stream: UnixStream,
+struct FakeCore<S = UnixStream> {
+    stream: S,
 }
 
-impl FakeCore {
+impl FakeCore<UnixStream> {
     async fn accept(listener: &UnixListener) -> Self {
         let (stream, _) = listener.accept().await.expect("client connects");
         Self { stream }
     }
+}
 
+impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> FakeCore<S> {
     async fn send(&mut self, frame: Bytes) {
         self.stream.write_u32(frame.len() as u32).await.unwrap();
         self.stream.write_all(&frame).await.expect("core writes");
@@ -625,3 +627,5 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
         );
     }
 }
+
+mod prepared;

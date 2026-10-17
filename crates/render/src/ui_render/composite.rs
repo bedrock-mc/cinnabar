@@ -13,9 +13,10 @@ use bevy::{
     render::{
         camera::ExtractedCamera,
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayout, Extent3d, LoadOp, Operations,
-            RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Texture, TextureDescriptor,
-            TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
+            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutId, Extent3d, LoadOp,
+            Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Texture,
+            TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewId,
         },
         renderer::RenderContext,
     },
@@ -42,6 +43,7 @@ const UI_LAYER_BYTES_PER_TEXEL: u64 = {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UiLayerContent {
     pub(crate) revision: u64,
+    pub(crate) texture_generation: u64,
     pub(crate) skip: Option<Range<u32>>,
     pub(crate) viewport: Option<(UVec2, UVec2)>,
     pub(crate) model_depth: bool,
@@ -58,6 +60,8 @@ pub(crate) struct UiLayerTexture {
     pub(crate) view: TextureView,
     /// The drawn content and whether it encoded any batch.
     held: Arc<Mutex<Option<HeldLayer>>>,
+    /// Bindings share the retained raster's lifetime and cover both scene ping-pong views.
+    bindings: Arc<Mutex<CompositeBindings>>,
     /// Set when the frame's final layer is left for [`ui_present`] to composite.
     present: AtomicBool,
     /// Whether this frame already wrote the final camera output.
@@ -136,6 +140,7 @@ impl UiLayerTexture {
             texture,
             view,
             held: Arc::default(),
+            bindings: Arc::default(),
             present: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             direct_output: false,
@@ -170,6 +175,7 @@ impl HeldLayer {
             || self.content.segment != content.segment
             || self.content.inverted != content.inverted
             || self.content.model_depth != content.model_depth
+            || self.content.texture_generation != content.texture_generation
             || self.content.revision != previous.revision
             || content.revision != input.revision
             || extent != input.viewport_size
@@ -184,6 +190,45 @@ struct RetainedLayer {
     texture: Texture,
     view: TextureView,
     held: Arc<Mutex<Option<HeldLayer>>>,
+    bindings: Arc<Mutex<CompositeBindings>>,
+}
+
+/// Keeps the two scene orientations without retaining replaced views indefinitely.
+#[derive(Default)]
+struct CompositeBindings {
+    entries: Vec<([TextureViewId; 2], BindGroupLayoutId, BindGroup)>,
+}
+
+impl CompositeBindings {
+    /// Reuses a binding until one source or its layout changes; at most two pairs stay resident.
+    fn get(
+        &mut self,
+        device: &RenderDevice,
+        layout: &BindGroupLayout,
+        sources: [&TextureView; 2],
+        live_scenes: [TextureViewId; 2],
+    ) -> BindGroup {
+        self.entries
+            .retain(|(views, _, _)| live_scenes.contains(&views[1]));
+        let key = sources.map(TextureView::id);
+        if let Some((_, _, group)) = self
+            .entries
+            .iter()
+            .find(|(views, id, _)| *views == key && *id == layout.id())
+        {
+            return group.clone();
+        }
+        let group = device.create_bind_group(
+            "UI composite bind group",
+            layout,
+            &BindGroupEntries::sequential((sources[0], sources[1])),
+        );
+        if self.entries.len() == 2 {
+            self.entries.remove(0);
+        }
+        self.entries.push((key, layout.id(), group.clone()));
+        group
+    }
 }
 
 /// Per-view layers kept across frames, unlike the frame-scoped texture cache.
@@ -325,6 +370,7 @@ fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
         texture: layer.texture.clone(),
         view: layer.view.clone(),
         held: Arc::clone(&layer.held),
+        bindings: Arc::clone(&layer.bindings),
         present: AtomicBool::new(false),
         presented: AtomicBool::new(false),
         direct_output,
@@ -349,6 +395,7 @@ fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
         texture,
         view,
         held: Arc::default(),
+        bindings: Arc::default(),
     }
 }
 
@@ -520,7 +567,7 @@ pub(crate) fn composite(
     context: &mut RenderContext,
     world: &World,
     target: &ViewTarget,
-    layer: &TextureView,
+    layer: &UiLayerTexture,
     pipeline: &RenderPipeline,
     layout: &BindGroupLayout,
 ) {
@@ -537,7 +584,11 @@ pub(crate) fn composite(
     encode_composite(
         context,
         world,
-        [layer, write.source],
+        CompositeSources {
+            layer,
+            scene: write.source,
+            target,
+        },
         destination,
         None,
         pipeline,
@@ -545,10 +596,18 @@ pub(crate) fn composite(
     );
 }
 
+/// UI and scene views, together with the view that owns the live scene pair.
+struct CompositeSources<'a> {
+    layer: &'a UiLayerTexture,
+    scene: &'a TextureView,
+    target: &'a ViewTarget,
+}
+
+/// Blends a raster over its current scene and releases bindings for retired scene targets.
 fn encode_composite(
     context: &mut RenderContext,
     world: &World,
-    sources: [&TextureView; 2],
+    sources: CompositeSources<'_>,
     destination: RenderPassColorAttachment,
     scissor: Option<(UVec2, UVec2)>,
     pipeline: &RenderPipeline,
@@ -564,11 +623,24 @@ fn encode_composite(
         },
         None => None,
     };
-    let bind_group: BindGroup = context.render_device().create_bind_group(
-        "UI composite bind group",
-        layout,
-        &BindGroupEntries::sequential((sources[0], sources[1])),
-    );
+    let CompositeSources {
+        layer,
+        scene,
+        target,
+    } = sources;
+    let bind_group = layer
+        .bindings
+        .lock()
+        .expect("UI composite bindings lock")
+        .get(
+            context.render_device(),
+            layout,
+            [&layer.view, scene],
+            [
+                target.main_texture_view().id(),
+                target.main_texture_other_view().id(),
+            ],
+        );
     if let Some(profile) = world.get_resource::<super::profile::UiProfile>() {
         profile.record_pass(render_scene::RuntimeStage::GpuUiComposite);
         profile.record_draw(render_scene::RuntimeStage::GpuUiComposite, 0);
@@ -647,7 +719,11 @@ pub(crate) fn ui_present(
         encode_composite(
             &mut context,
             world,
-            [&layer.view, target.main_texture_view()],
+            CompositeSources {
+                layer,
+                scene: target.main_texture_view(),
+                target,
+            },
             attachment,
             scissor,
             pipeline,
@@ -657,7 +733,7 @@ pub(crate) fn ui_present(
         return;
     }
     if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-        composite(&mut context, world, target, &layer.view, pipeline, &layout);
+        composite(&mut context, world, target, layer, pipeline, &layout);
     }
 }
 

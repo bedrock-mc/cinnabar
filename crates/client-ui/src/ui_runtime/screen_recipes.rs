@@ -41,6 +41,9 @@ impl UiRuntime {
 
     /// Resolves the recipe-book filter choice against the current game mode.
     pub fn recipe_filtering(&self, player_runtime: &player_state::PlayerState) -> bool {
+        if let Some(options) = self.furnace_options(player_runtime) {
+            return options.filtering;
+        }
         self.screen_state().recipe_filtering.unwrap_or(
             player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative),
         )

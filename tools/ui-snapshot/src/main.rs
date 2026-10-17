@@ -29,6 +29,7 @@ fn run() -> Result<(), String> {
     let mut out = None;
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let mut list = false;
+    let mut seconds = render::CAPTURE_SECONDS;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--list" => list = true,
@@ -41,8 +42,20 @@ fn run() -> Result<(), String> {
             "--carriers" => {
                 dir = PathBuf::from(args.next().ok_or("--carriers requires a directory")?)
             }
+            "--time" => {
+                seconds = args
+                    .next()
+                    .ok_or("--time requires seconds")?
+                    .parse::<f64>()
+                    .map_err(|_| "--time requires finite, nonnegative seconds")?;
+                if !seconds.is_finite() || seconds < 0.0 {
+                    return Err("--time requires finite, nonnegative seconds".into());
+                }
+            }
             "--help" | "-h" => {
-                println!("ui-snapshot --list | --state NAME --out PNG [--carriers DIR]");
+                println!(
+                    "ui-snapshot --list | --state NAME --out PNG [--carriers DIR] [--time SECONDS]"
+                );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument {arg}; use --help")),
@@ -66,7 +79,7 @@ fn run() -> Result<(), String> {
     if out.extension().is_none_or(|extension| extension != "png") {
         return Err("--out must have a .png extension".into());
     }
-    let png = match render::png(state, &dir) {
+    let png = match render::png_at(state, &dir, seconds) {
         Ok(png) => png,
         Err(carriers::Error::Missing(message)) => {
             eprintln!("skipping {}: missing fixture {message}", state.name);
@@ -76,7 +89,7 @@ fn run() -> Result<(), String> {
     };
     let metadata = serde_json::json!({
         "state": state.name, "size": state.size, "gui_scale": state.gui_scale,
-        "dpi": 1, "backend": "cpu", "time_seconds": render::CAPTURE_SECONDS,
+        "dpi": 1, "backend": "cpu", "time_seconds": seconds,
     });
     std::fs::write(&out, png).map_err(|error| format!("{}: {error}", out.display()))?;
     std::fs::write(out.with_extension("json"), format!("{metadata}\n"))

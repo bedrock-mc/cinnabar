@@ -237,6 +237,10 @@ pub(crate) struct UiGpu {
 }
 
 #[cfg(test)]
+#[path = "ui_render/geometry_tests.rs"]
+mod geometry_tests;
+
+#[cfg(test)]
 #[path = "ui_render/ordered_command_tests.rs"]
 mod ordered_command_tests;
 

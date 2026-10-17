@@ -43,4 +43,12 @@ Use one worktree per concurrent change; each gets its own Cargo `build-dir` outs
 
 Every PR that changes visible output attaches before/after screenshots with `gh pr create --attach` (or `gh pr edit --attach`) and a short "How to see it" note: where in the game and which setting or action shows it. Render isolated UI states offline with `cargo run -p ui-snapshot -- --state <name> --out <png>`, which agents may build even when they otherwise build nothing; use a headless client MCP session for in-world changes. Keep real account details and server addresses out of captures. Do not commit game assets, BDS binaries, credentials, recordings, traces, or `.local/` carriers. Delete raw captures and traces after the PR is open.
 
-Cinnabar's Gophertunnel integration uses `HashimTheArab/gophertunnel:resource-pack-changes`, based on `lunar`. Pin the module to a commit there, pull updates from `lunar`, and do not push to `lunar` unless explicitly asked.
+Cinnabar's Gophertunnel integration uses `HashimTheArab/gophertunnel:resource-pack-changes`, based on `lunar`. Pin the module to a commit there, pull updates from `lunar`, and do not push to `lunar` unless explicitly asked. wgpu patches live on `bedrock-mc/wgpu`'s `cinnabar-v<major>` branch: merge fixes there before `Cargo.toml` pins them; CI rejects a pin that isn't on it.
+
+## Cosmetic asset ownership
+
+The API repository owns cosmetic authoring projects, exports, production catalog
+assets and export/catalog checks. The client owns download, validation, caching,
+rendering and small stable regression fixtures. Do not copy new catalog items into
+the client for tests. Use the external-catalog compatibility check documented in
+`crates/render-model/src/hats/README.md` when validating the complete API catalog.

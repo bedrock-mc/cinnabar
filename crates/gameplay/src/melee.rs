@@ -264,6 +264,7 @@ impl MeleeRuntime {
             });
             let Ok(packet) = protocol::use_item_as_attack_packet(
                 protocol::HeldItemRequest {
+                    hand: protocol::ItemUseHand::Mainhand,
                     selected_slot: selection.slot,
                     selected_item: selection.item.clone(),
                     player_position: press.player_position,

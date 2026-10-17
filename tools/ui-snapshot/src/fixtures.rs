@@ -3,6 +3,7 @@
 mod minecraft_import;
 mod mods;
 mod out_of_game;
+mod updates;
 
 use std::sync::Arc;
 
@@ -34,6 +35,9 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// A damaged stack picked up from the survival inventory.
+    #[cfg(feature = "test-support")]
+    CursorDurability,
     /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
     #[cfg(feature = "test-support")]
     CraftOverlap {
@@ -50,6 +54,49 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "inventory-cursor-durability",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CursorDurability,
+    },
+    State {
+        name: "home-update-compact",
+        size: [480, 640],
+        gui_scale: 3,
+        fixture: || updates::home(true, false),
+    },
+    State {
+        name: "home-signed-in-update",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: updates::signed_in,
+    },
+    State {
+        name: "home-update-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(true, false),
+    },
+    State {
+        name: "home-update-required",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(true, true),
+    },
+    State {
+        name: "home-update-download",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::home(false, false),
+    },
+    State {
+        name: "home-update-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || updates::home(true, false),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics",
@@ -169,6 +216,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::disconnect_no_retry,
+    },
+    State {
+        name: "disconnect-device-clock",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_device_clock,
     },
     State {
         name: "connect-failed",

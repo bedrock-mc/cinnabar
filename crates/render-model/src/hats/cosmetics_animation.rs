@@ -12,6 +12,8 @@ pub(super) struct Animation {
     pub animations: BTreeMap<String, clip_playback::Definition>,
     pub playback: Option<clip_playback::Sequence>,
     pub tip_flex: Option<TipFlex>,
+    #[serde(default)]
+    pub particles: Vec<super::emitters::Definition>,
 }
 #[derive(Deserialize)]
 pub(super) struct Wind {

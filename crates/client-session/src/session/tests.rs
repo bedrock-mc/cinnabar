@@ -516,27 +516,28 @@ async fn final_cache_telemetry_flushes_after_shutdown_is_already_set() {
     worker.await.expect("network pump stops after final flush");
 }
 
-#[tokio::test]
-async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() {
+#[test]
+fn final_cache_telemetry_flush_uses_the_host_deadline_when_control_queue_stays_full() {
     let session = CachedInboundSession {
         inbound: None,
         stats: BlobCacheStats::default(),
     };
     let (events, _event_rx) = mpsc::channel(1);
     events
-        .send(NetworkControlEvent::Stopped {
+        .try_send(NetworkControlEvent::Stopped {
             decode_error_count: 0,
         })
-        .await
-        .expect("fill control queue");
-    let delivered = tokio::time::timeout(
-        Duration::from_secs(1),
-        send_final_blob_cache_telemetry(&session, &events),
-    )
-    .await
-    .expect("final telemetry flush must have a fixed deadline");
-
-    assert!(!delivered);
+        .unwrap();
+    let timers = bridge::tasks::Timers(|duration| {
+        assert_eq!(duration, super::FINAL_CONTROL_FLUSH_TIMEOUT);
+        Box::pin(std::future::ready(()))
+    });
+    let mut delivered = std::pin::pin!(send_final_blob_cache_telemetry(&session, &events, timers));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert_eq!(
+        delivered.as_mut().poll(&mut context),
+        std::task::Poll::Ready(false)
+    );
 }
 
 #[tokio::test]

@@ -210,6 +210,7 @@ fn a_written_release_does_not_hold_later_inputs_for_another_frame() {
         .newest_unsent_sample()
         .unwrap();
     let release = protocol::release_item_packet(protocol::HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: selection.slot,
         selected_item: selection.item,
         player_position: sample.position,

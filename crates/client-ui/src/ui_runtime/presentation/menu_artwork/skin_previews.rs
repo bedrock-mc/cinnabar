@@ -166,6 +166,7 @@ impl UiPresentationRuntime {
 mod tests {
     use super::super::{DecodeCache, Source, sources};
     use launcher::dressing_room::{DressingRoomSkin, DressingRoomView};
+    use std::sync::Arc;
     use {
         super::*,
         launcher::menu::{MenuScreen, MenuView},
@@ -310,8 +311,67 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(items, vec![(equipped, false), (shown, true)]);
+            let mut expected = vec![(equipped, false)];
+            expected.push((shown, true));
+            if shown != equipped {
+                expected.push((shown, false));
+            }
+            assert_eq!(items, expected);
         }
+    }
+
+    #[test]
+    fn cosmetic_gallery_keeps_every_visible_thumbnail_when_animation_textures_reach_the_budget() {
+        let gallery = render_model::hats::fixture::gallery();
+        let equipped = render_model::hats::fixture::crown();
+        let all = cosmetics::Item::all();
+        let visible: Vec<_> = gallery
+            .iter()
+            .map(|item| all.iter().position(|candidate| candidate == item).unwrap())
+            .collect();
+        let set = ArtworkSet {
+            cosmetics: super::super::cosmetic_requests::requested(&[equipped], &visible, true),
+            ..Default::default()
+        };
+        let admitted = sources(&set);
+        assert!(admitted.len() <= super::super::MAX_ARTWORKS);
+        assert!(matches!(admitted.first(), Some(Source::Item(item, false)) if *item == equipped));
+        for &item in gallery {
+            assert!(
+                admitted
+                    .iter()
+                    .any(|source| matches!(source, Source::Item(shown, true) if *shown == item)),
+                "missing visible thumbnail for {}",
+                item.id()
+            );
+        }
+    }
+
+    #[test]
+    fn cosmetic_geometry_revision_prepares_bounds_when_its_texture_is_cached() {
+        let [original, revised] = render_model::hats::fixture::wing_revisions();
+        let mut cache = DecodeCache::default();
+        let mut set = ArtworkSet {
+            cosmetics: super::super::cosmetic_requests::requested(&[original], &[], false),
+            ..Default::default()
+        };
+        let missing = cache.missing(&set);
+        cache.decode(&missing, &set);
+        let key = Source::Item(original, false).key();
+        let texture = Arc::clone(&cache.decoded[&key]);
+        assert_eq!(original.texture_key(), revised.texture_key());
+        assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
+        set.cosmetics = super::super::cosmetic_requests::requested(&[revised], &[], false);
+        assert!(cache.missing(&set).is_empty());
+        let frame = render_model::hats::thumbnail::prepared_frame(revised)
+            .expect("new rig bounds despite the texture cache hit");
+        assert_ne!(
+            frame.model_bounds(),
+            render_model::hats::thumbnail::prepared_frame(original)
+                .unwrap()
+                .model_bounds()
+        );
+        assert!(Arc::ptr_eq(&texture, &cache.decoded[&key]));
     }
 
     #[test]

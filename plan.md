@@ -4,15 +4,39 @@ The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and in
 head, back, face, body, pet and aura slots. Geometry, textures and optional joint motion
 are loaded from bounded, SHA-256-checked assets. The catalog includes original bunny
 ears, the crown, rigid red devil horns, animated back-slot dragon wings and a pet-slot
-shoulder parrot; editable artwork and export conformance tests remain available.
+shoulder parrot, plus studio headphones and a halo (head), pixel shades and a kitsune
+mask (face), morpho wings and an ember jetpack (back), a fox tail and a knit scarf (body),
+a bee buddy (pet) and an amethyst orbit (aura). Editable artwork and export conformance
+checks live in cinnabar-api; the client keeps stable regression fixtures and an optional
+compatibility check against an API checkout.
 The parrot stays in Cosmetics, with its existing pet slot exposed by the category filter.
 Each attachment follows its declared bone and offset. World and HUD share local motion.
 Bounded transform clips and continuous span flex animate wings alongside independent hats.
 An optional intro and delayed repeating clip sequence animate the parrot flying in once
 and changing shoulders, using shared immutable geometry and caller-owned time.
 Unknown, unsupported and unowned items render nothing.
+Items flagged `render_flags.emissive` draw their opaque texels fullbright in the world through
+the emissive-alpha actor material; previews keep the authored texture. Animation files may
+declare up to eight particle emitters on authored bones. Their effects are registered under
+client-owned identifiers and may draw original 16x16 sprites cut from the item's own texture.
+They follow the posed bone and stop when the item is unequipped, hidden or despawned.
+Emitters run only in the world, with at most 128 alive at once; HUD and wardrobe previews show
+geometry without particles.
 
-The Cosmetics gallery offers All, Head, Back and Pet choices through a filter icon beside
+Visible catalog tiles and menu character/paper-doll previews play authored repeating joint
+motion without a joined world. Preview playback starts after an optional world fly-in intro;
+the HUD continues to share the local actor's evaluated motion. Static poses and original
+texture pages stay cached. Tiles center the isolated cosmetic at a stable scale, and
+wardrobe fitting uses a worker-prepared, sampled motion envelope. Exact envelope coverage
+for arbitrary downloaded clips, live player-preview visual acceptance and hardware performance
+qualification remain incomplete.
+Visible thumbnail carriers take priority over optional gallery animation textures, and
+cosmetic atlas borders retain their original point-sampled edge texels.
+Equipped character geometry is admitted before optional tile meshes consume the frame budget.
+Each admitted rig revision prepares its motion bounds on the artwork worker, including texture-cache hits.
+
+The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
+slot, through a filter icon beside
 Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
 items, retains separate scroll positions and limits thumbnails and keyboard navigation
 to the selected category.
@@ -200,6 +224,13 @@ resumption retains account intent and bearer expiry; play reconnects never repla
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+The browser account adapter projects checking, device-code prompts, refusals and identity
+into the shared menu. External menu services expose account intents and preference changes
+without native helper launches. Browser preference documents bound saved addressed servers
+and GUI scale; storage failures are reported. The sign-in gesture bridge validates links,
+resolves the current input action and removes its listeners on teardown.
+Incomplete: these menu, gesture and persistence handoffs still need the playable browser host
+and rendered browser acceptance. The current page remains the entry preview.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
@@ -369,8 +400,9 @@ Windows runtime executables carry `asInvoker` manifests and refuse elevated game
 crash-monitor startup or relaunch. Setup does not launch the game, and MSI Restart Manager
 relaunch is disabled. The machine-wide install identity and custom install folders remain supported.
 
-One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
-update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
+One client per install owns update checks, Beta/Nightly/Stable channel selection, a compact corner
+card with an explicit Restart and update or Download update button, and a separate default-off
+install-on-quit preference. Signed manifests
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
@@ -1026,8 +1058,11 @@ screen-effect parity remain incomplete.
   bindings keep their physical codes. Provisional: keys not yet observed use physical names;
   startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
-  panels and controls. Home keeps the shipped title above Play and character cards, with compact
-  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+  panels and controls. Home keeps the shipped title above translucent, top-aligned Play and character
+  cards. Account access stays in the footer, Realms keeps its original text link, and the utility
+  buttons retain their original widths, account icon and red Quit action. Compact menus use a centred column whose
+  width stays proportional to its controls. The footer retains the original Minecraft version and
+  protocol wording. Versions use their canonical sources.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
@@ -1119,6 +1154,14 @@ screen-effect parity remain incomplete.
   Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
 
 ## Movement and input audit fixes
+
+Ability updates retain the winning Flying value and its local-change authority
+independently of NoClip. Collision bypass uses the selected travel physics and
+survives correction replay. Higher fixed flight denials prevent local re-entry;
+NoClip alone grants no hunger or sprint exemption. Incomplete: matched trajectories,
+outgoing flight requests, hunger/sprint contexts, unloaded terrain, mounted movement
+and complete block-contact behavior still need acceptance; these changes do not close
+a movement parity gate.
 
 Server-enabled flight also remains active in ordinary modes without MayFly;
 that permission still controls starting flight locally. A native Android
@@ -1992,7 +2035,7 @@ not close a parity or visual acceptance gate.
 - Provisional: no version-matched witness of the current engine's values is recorded, and the
   first-person crumb point (0.45 ahead, 0.15 below the camera) is an approximation.
 
-## Read-back terrain occlusion on direct-draw devices
+## Terrain occlusion on direct-draw devices
 
 - Metal (any direct-draw device with compute) never draws indirectly. While the view holds
   still and a verdict could change, solid terrain draws in its own pass ahead of other opaque
@@ -2015,7 +2058,33 @@ not close a parity or visual acceptance gate.
   ties and current-frame depth handles disocclusion. Missing depth or pipelines clears the
   flags. Metal indirect draws remain disabled. Native raster fixtures cover page tails,
   camera changes and one-sample/2× MSAA output equality. Performance and presentation
-  acceptance remain incomplete; this path does not change the default.
+  acceptance remain incomplete.
+- Opt-in Metal admission (`CINNABAR_TERRAIN_VISIBILITY=adaptive`) probes current-frame
+  visibility for views with at least 64 candidates. An inactive view probes once per 64 frames and remains active while completed feedback
+  hides at least half its candidates. Settled still views keep the cheaper readback path.
+  Feedback only chooses whether to do fresh work;
+  current depth supplies every visibility mask, including during motion. Falling back
+  clears masks before direct draws. The default and `CINNABAR_TERRAIN_VISIBILITY=0` keep
+  the legacy path; `1` forces the current-frame path. The admission thresholds are
+  provisional and do not close the hardware performance gate.
+
+## Video quality and repeated renderer work
+
+- Smooth Lighting now chooses corner interpolation/AO or one light sample per face.
+  Transparent Leaves now chooses exposed cutout leaves or opaque leaves with internal
+  shared faces removed. Runtime changes rebuild resident meshes, cancel old work and
+  invalidate resource-pack snapshots even after an A/B/A toggle. Existing defaults keep
+  full-quality rendering.
+- Native lightmap bytes are prepared once per upload. Sky fan lookup uses a bounded
+  search while preserving rim-edge rounding and the existing draw order. Uniform sky
+  colour conversions run at vertices. Actor readiness polls retained unique pipelines, and retained UI
+  layers reuse composite bindings across both scene ping-pong views.
+- Single-sample SMAA writes its filtered result directly into the shared scene, removing
+  the extra restoration copy. The main scene transfer still preserves encoded material
+  blending and post-processing colour ownership.
+- Incomplete: these bounded native fixtures and work-count checks do not establish the
+  MacBook Neo frame-rate gain or close the live frame, join, streaming or settings parity
+  gates. Simple Graphics precipitation and stock Fancy Skies behavior remain unverified.
 
 ## Bounded lighting CPU work
 
@@ -4126,9 +4195,17 @@ Codec, fixture and unit coverage only: no 1.26.50 server join, native visual, or
 vanilla acceptance gate has been run on this target yet. New 2193 fields are
 decoded but not yet consumed (MoveActorDelta interpolation ticks, PlaySound
 range bypass and playback offset, camera preset starting rotation, dimension
-default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
+default biome, RecordStarted); that parity work is
 incomplete. The account/auth cache is keyed on the game version, so the first
 join re-authenticates.
+
+Item-use request builders now carry an explicit logical hand through standalone
+transactions and embedded PlayerAuthInput block interactions. Offhand requests
+use transaction slot zero and retain the caller-supplied authoritative stack.
+Independent byte tests cover both hands, stack identity and the following fields.
+This is a request/builder foundation: gameplay still selects the main hotbar hand.
+Offhand gameplay selection, predicted inventory changes, item release and exact
+stable-target gameplay acceptance remain incomplete. Full inventory parity is open.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
@@ -7310,6 +7387,12 @@ Source-water, source-lava, and powder-snow collection were observed against a
 local Bedrock server. Waterlogged-source acceptance remains unverified; this does
 not close the interaction parity gate.
 
+Dynamic container registry cleanup retires only matching retained bundle contents
+through the session inventory FIFO. Other containers and item stacks stay intact,
+and cleanup frees capacity for subsequent dynamic containers. Focused wire and
+ledger tests cover cleanup, ID reuse, retention pressure and session reset;
+exact stable-client gameplay validation and full inventory parity remain incomplete.
+
 Middle-click picking includes mobs and paintings, and asks the server for the
 nearest eligible actor's item using its persistent ID. Mob spawn eggs remain
 server-authoritative; walls, reach, and mounted-actor exclusion still constrain
@@ -9096,8 +9179,18 @@ result; repeat selection returns the ingredient before clearing the preview.
 Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
-recipe discovery and server-persisted
-furnace UI options remain incomplete; the full furnace parity gate stays open.
+recipe discovery remain incomplete; the full furnace parity gate stays open.
+
+2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
+inventory ingress and retain separate player choices for furnace, blast furnace
+and smoker. Each open controller snapshots its saved tab, filtering and layout;
+later server updates change retained preferences without replacing that snapshot.
+Changed controls save and queue one options packet, unchanged controls send none,
+and a full queue leaves the choice available to retry. Furnace filtering no
+longer uses the crafting filter, and the inventory tab is independent of layout.
+Stored unspecified layouts resolve to the recipe-book layout on opening. The
+profile-specific forced-layout branch, exact stable-client gameplay acceptance,
+recipe discovery, ghost rendering and other station rules remain incomplete.
 
 ## Entity interaction and emote starts
 
@@ -9881,6 +9974,18 @@ captures and measured renderer work remain outstanding; no speedup is claimed.
 Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
 
 Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.
+
+## UI texture allocation recovery
+
+UI texture resizes keep unchanged dimension buckets. If replacement storage fails,
+superseded buckets are released before another attempt. Successfully allocated
+and uploaded pages remain drawable; unavailable pages are absent. An unchanged
+failed plan retries after 250 ms using time from the caller, while plan changes
+retry immediately. Residency changes invalidate retained UI pixels even when the
+publication revision stays the same.
+
+Hardware memory-pressure captures remain outstanding. This recovery does not
+close the texture streaming or hardware frame budget acceptance gates.
 
 ## Actor GPU allocation recovery
 
