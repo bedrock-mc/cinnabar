@@ -479,8 +479,10 @@ fn carried_sheets_keep_exact_variants_and_only_fall_back_to_zero() {
             let cube = presentation.block_sheet_cube(resolved.unwrap()).unwrap();
             let color = if metadata == 7 { 160 } else { 90 };
             assert!(cube.faces.iter().all(|face| {
-                face.chunks_exact(4)
-                    .all(|pixel| pixel == [color, 50, 80, 255])
+                face.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [color, 50, 80, 255])
             }));
         }
     }
