@@ -113,6 +113,100 @@ test("gesture bridge uses current intent, bounds concurrent pickers and owns tea
   assert.equal(requests, 1);
 });
 
+for (const compatibilityClick of [false, true]) {
+  for (const result of ["cancel", "change", "error"]) {
+    test(`touch ${compatibilityClick ? "with" : "without"} a compatibility click permits keyboard imports after ${result}`, async () => {
+      const { input, doc } = fixture();
+      const target = new EventTarget();
+      let requests = 0;
+      const completions = [];
+      let finish;
+      const completed = new Promise((resolve) => { finish = resolve; });
+      const stop = dressingPickerEdges(target, () => {
+        requests++;
+        return {
+          cape: false, maximumCount: 2, admit() {},
+          complete(files, error) { completions.push({ files, error }); finish(); },
+        };
+      }, doc);
+      try {
+        target.dispatchEvent(new Event("touchstart", { cancelable: true }));
+        target.dispatchEvent(new Event("touchend", { cancelable: true }));
+        if (compatibilityClick) target.dispatchEvent(new Event("click", { cancelable: true }));
+        assert.equal(requests, 1);
+        input.files = [file("skin.png", 1, async () => {
+          if (result === "error") throw new Error("read denied");
+          return new ArrayBuffer(1);
+        })];
+        input.dispatchEvent(new Event(result === "cancel" ? "cancel" : "change"));
+        await completed;
+        await Promise.resolve();
+        assert.equal(completions.length, 1);
+        assert.equal(completions[0].files.length, result === "change" ? 1 : 0);
+        assert.equal(completions[0].error, result === "error" ? "read denied" : null);
+        for (const key of ["Enter", " "]) {
+          const keyboardCompleted = new Promise((resolve) => { finish = resolve; });
+          const event = Object.assign(new Event("keydown", { cancelable: true }), { key });
+          target.dispatchEvent(event);
+          assert.ok(event.defaultPrevented, `${JSON.stringify(key)} starts the next import`);
+          assert.equal(requests, completions.length + 1);
+          input.dispatchEvent(new Event("cancel"));
+          await keyboardCompleted;
+          await Promise.resolve();
+        }
+        assert.equal(completions.length, 3);
+      } finally { stop(); }
+    });
+  }
+}
+
+test("all activation edges are consumed while a selected file is still being read", async () => {
+  const { input, doc } = fixture();
+  const target = new EventTarget();
+  let requests = 0, propagated = 0, finishRead, finish;
+  const completed = new Promise((resolve) => { finish = resolve; });
+  const stop = dressingPickerEdges(target, () => {
+    requests++;
+    return { cape: false, maximumCount: 2, admit() {}, complete: finish };
+  }, doc);
+  try {
+    target.dispatchEvent(new Event("click", { cancelable: true }));
+    input.files = [file("skin.png", 1, () => new Promise((resolve) => { finishRead = resolve; }))];
+    input.dispatchEvent(new Event("change"));
+    for (const type of ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "click", "keydown"]) {
+      target.addEventListener(type, () => { propagated++; });
+      const event = Object.assign(new Event(type, { cancelable: true }), { key: "Enter", button: 0 });
+      target.dispatchEvent(event);
+      assert.ok(event.defaultPrevented, `${type} belongs to the in-flight import`);
+      assert.equal(requests, 1);
+    }
+    assert.equal(propagated, 0);
+    finishRead(new ArrayBuffer(1));
+    assert.equal((await completed).length, 1);
+  } finally { stop(); }
+});
+
+test("click activation does not require a primary pointer flag", async () => {
+  const { input, doc } = fixture();
+  const target = new EventTarget();
+  let requests = 0, finish;
+  const completed = new Promise((resolve) => { finish = resolve; });
+  const stop = dressingPickerEdges(target, () => {
+    requests++;
+    return { cape: false, maximumCount: 2, admit() {}, complete: finish };
+  }, doc);
+  try {
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const event = Object.assign(new Event("click", { cancelable: true }), { button: 0, isPrimary: false });
+      target.dispatchEvent(event);
+      assert.ok(event.defaultPrevented);
+      assert.equal(requests, 1);
+    }
+    input.dispatchEvent(new Event("cancel"));
+    assert.deepEqual(await completed, []);
+  } finally { stop(); }
+});
+
 for (const [name, pointerType, events] of [
   ["mouse pointer", "mouse", ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]],
   ["legacy mouse", undefined, ["mousedown", "mouseup", "click"]],

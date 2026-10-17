@@ -66,59 +66,55 @@ export function pickSkinFiles(cape, admit, maximumCount, signal, doc = document)
 export function dressingPickerEdges(target, intent, doc = document) {
   const controller = new AbortController();
   const listenerOptions = { capture: true, passive: false };
-  let active = false;
-  let pointer = null;
+  let inFlight = null;
   /** Keeps every edge of a reserved activation out of ordinary menu input. */
   const consume = (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
   };
-  /** Opens a reserved ticket while this event still has browser user activation. */
-  const open = (request) => {
-    active = true;
-    pickSkinFiles(request.cape, (metadata) => request.admit(metadata), request.maximumCount, controller.signal, doc)
-      .then((files) => request.complete(files, null), (error) => request.complete([], String(error.message || error)))
-      .finally(() => { active = false; });
+  /** Retires the request before publishing its result, so later gestures can import again. */
+  const complete = (files, error) => {
+    const { request } = inFlight;
+    inFlight = null;
+    request.complete(files, error);
   };
-  /** Reserves before a frame can process the press; touch and pen activate on release. */
-  const press = (event) => {
-    if (event.isPrimary === false || (event.button != null && event.button !== 0)) return;
-    if (active || pointer?.down) { if (pointer) consume(event); return; }
-    pointer = null;
+  /** Opens the current request once while this event still has browser user activation. */
+  const open = () => {
+    if (!inFlight || inFlight.opened) return;
+    inFlight.opened = true;
+    const { request } = inFlight;
+    pickSkinFiles(request.cape, (metadata) => request.admit(metadata), request.maximumCount, controller.signal, doc)
+      .then((files) => complete(files, null), (error) => complete([], String(error.message || error)));
+  };
+  /** Reserves before ordinary input, dropping every further activation until completion. */
+  const gesture = (event) => {
+    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+    if ((event.type === "pointerdown" && event.isPrimary === false)
+      || (event.button != null && event.button !== 0)) return;
+    if (inFlight) { consume(event); return; }
     const request = intent(event);
     if (!request) return;
+    inFlight = { request, opened: false };
     consume(event);
-    const onRelease = event.type === "touchstart" || ["touch", "pen"].includes(event.pointerType);
-    pointer = { down: true, request: onRelease ? request : null };
-    if (!onRelease) open(request);
+    const onRelease = event.type === "touchstart"
+      || (event.type === "pointerdown" && ["touch", "pen"].includes(event.pointerType));
+    if (!onRelease) open();
   };
-  /** Consumes compatibility releases and opens a deferred touch or pen picker once. */
+  /** Opens touch and pen requests on release and consumes releases while importing. */
   const release = (event) => {
-    if (!pointer || event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+    if (!inFlight || event.isPrimary === false || (event.button != null && event.button !== 0)) return;
     consume(event);
-    pointer.down = false;
-    const request = pointer.request;
-    pointer.request = null;
-    if (request) open(request);
+    open();
   };
   /** Cancels a touch reservation that never reached its release activation. */
   const cancel = (event) => {
     if (event?.isPrimary === false) return;
-    if (pointer && event) consume(event);
-    const request = pointer?.request;
-    pointer = null;
-    request?.complete([], null);
-  };
-  /** Handles keyboard and standalone clicks without repeating a pointer reservation. */
-  const gesture = (event) => {
-    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
-    if (event.type === "click" && pointer) { consume(event); pointer = null; return; }
-    if (active || pointer) return;
-    const request = intent(event);
-    if (request) { consume(event); open(request); }
+    if (!inFlight) return;
+    if (event) consume(event);
+    if (!inFlight.opened) complete([], null);
   };
   const listeners = [
-    ["pointerdown", press], ["mousedown", press], ["touchstart", press],
+    ["pointerdown", gesture], ["mousedown", gesture], ["touchstart", gesture],
     ["pointerup", release], ["mouseup", release], ["touchend", release],
     ["pointercancel", cancel], ["touchcancel", cancel],
     ["click", gesture], ["keydown", gesture],
