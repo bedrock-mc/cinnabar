@@ -11,7 +11,7 @@ export function signInGestures(canvas, actionAt, focusedAction, link, report, vi
       report("The sign-in link is invalid."); return;
     }
     try { view.open(url.href, "_blank", "noopener,noreferrer"); }
-    catch { report("The sign-in page could not be opened. Use the displayed code to sign in."); }
+    catch { report("The sign-in page could not be opened. Try opening the link again."); }
   };
   /** Uses this event's coordinates rather than a previous frame's hover state. */
   const pointer = (event) => {

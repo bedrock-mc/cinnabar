@@ -83,6 +83,8 @@ pub enum MenuDialog {
     RemoveSaved(usize),
     StorageDelete,
     StorageError,
+    /// A dismissible host notice whose body is supplied by the menu view.
+    Notice,
     SettingsSupport(settings_support::SupportDialog),
     SettingsResetBindings(bool),
     SettingsResetGroup(settings_options::SettingsGroup),

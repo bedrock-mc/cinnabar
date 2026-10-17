@@ -163,7 +163,8 @@ impl RelayAccount {
                     (Some(uri), Some(code))
                         if verification_link(uri).is_some()
                             && !code.is_empty()
-                            && code.len() <= 64 =>
+                            && code.len() <= 64
+                            && ::launcher::menu::sign_in::device_code_url(code).is_some() =>
                     {
                         AuthState::AwaitingCode {
                             uri: uri.clone(),

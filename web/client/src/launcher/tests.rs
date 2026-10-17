@@ -182,6 +182,8 @@ fn launcher_rejects_unsafe_or_incomplete_prompts() {
             .observe(&ControlEvent::Account(json!({"state": false})))
             .is_err()
     );
+    adapter.observe(&ControlEvent::Account(json!({"state":"awaiting_code", "verification_uri":"https://example.invalid", "user_code":"TEST&other=value"}))).unwrap();
+    assert!(matches!(adapter.state(), AuthState::Failed(_)));
 }
 
 #[test]
