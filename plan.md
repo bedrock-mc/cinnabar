@@ -10013,3 +10013,11 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+### Keep custom playback out of native emote input
+
+Custom emotes continue through their render overlay and Cinnabar API. They no
+longer start or cancel the native movement-input emote duration. An adapter
+regression checks the serialized next input during local playback and restarts.
+Native Marketplace admission, identity, cancellation and timing parity remain
+incomplete.
