@@ -351,9 +351,53 @@ fn breakdance_loops_continuously_and_freezes_upside_down() {
     let direction = |pose: BoneTransform| rotate_vector(pose.rotation, [0.0, 1.0, 0.0]);
     let left = direction(spin.previous[f.index("body")]);
     let right = direction(spin.current[f.index("body")]);
+    let horizontal_length = |v: [f32; 3]| (v[0] * v[0] + v[2] * v[2]).sqrt();
     assert!(
-        left[0] * right[0] + left[2] * right[2] < -0.8,
+        (left[0] * right[0] + left[2] * right[2])
+            / (horizontal_length(left) * horizontal_length(right))
+            < -0.99,
         "windmill turns around the world vertical axis"
+    );
+}
+
+#[test]
+fn breakdance_windmill_pivots_on_the_upper_back_with_hips_clear_of_the_floor() {
+    let f = Fixture::new();
+    let duration = CustomEmote::Breakdance.duration_seconds();
+    let mut hips = Vec::new();
+    for step in 0..=96 {
+        let phase = 0.32 + (0.70 - 0.32) * f64::from(step) / 96.0;
+        let seconds = duration * phase;
+        let pose =
+            sample_custom_emote(&f.rig(), CustomEmote::Breakdance, seconds, seconds).unwrap();
+        let body = pose.current[f.index("body")];
+        let upper_back = point(body, [0.0, 0.0, 2.0]);
+        near(upper_back, [0.0; 3]);
+        assert!(
+            rotate_vector(body.rotation, [0.0, 0.0, 1.0])[1] < -0.7,
+            "the back must face the floor, rather than the belly"
+        );
+        let hip = point(body, [0.0, -12.0, 0.0]);
+        assert!(
+            hip[1] > 7.0,
+            "the pelvis must stay lifted during the windmill: {hip:?}"
+        );
+        hips.push(hip);
+        let head = pose.current[f.index("head")];
+        for x in [-4.0, 4.0] {
+            for y in [0.0, 8.0] {
+                for z in [-4.0, 4.0] {
+                    assert!(
+                        point(head, [x, y, z])[1] > 0.5,
+                        "tuck the head above the shoulder contact"
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        (hips[0][2] - hips[16][2]).abs() > 15.0,
+        "the raised hips must circle the shoulder support, rather than stay on the spin axis"
     );
 }
 

@@ -32,6 +32,8 @@ Emotes offers an unequipped clip first, so existing saved wheels can add Breakda
 
 Breakdance is an original looping sequence with alternating top rock steps,
 a floor windmill with scissoring legs, an inverted freeze and a return to standing.
+The windmill anchors the upper back, raises the hips into an orbit around the
+shoulders, and tucks the head clear of the floor.
 Its period, label and identifier come from the shared catalog. Named body targets
 preserve attached clothing and independent skin hierarchies, retain the source
 rigid mesh, and ground the classic biped silhouette. Unusual custom proportions

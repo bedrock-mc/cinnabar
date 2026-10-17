@@ -3,6 +3,8 @@ use super::*;
 
 const WINDMILL_START: f32 = 0.32;
 const WINDMILL_END: f32 = 0.70;
+const FLOOR_ENTRY: f32 = 0.24;
+const FLOOR_EXIT: f32 = 0.78;
 const SPIN_DEGREES: f32 = 3.0 * 360.0;
 
 #[derive(Clone, Copy)]
@@ -38,44 +40,44 @@ const FRAMES: &[Frame] = &[
         [[15.0, 0.0, -8.0], [-25.0, 0.0, 18.0]],
     ),
     frame(
-        0.24,
-        [-45.0, 0.0, -25.0],
+        FLOOR_ENTRY,
+        [45.0, 0.0, -25.0],
         [[-85.0, 0.0, -20.0], [-50.0, 0.0, 30.0]],
         [[65.0, 0.0, -25.0], [-55.0, 0.0, 35.0]],
     ),
     frame(
         WINDMILL_START,
-        [-105.0, 0.0, 0.0],
-        [[-30.0, 0.0, -75.0], [-30.0, 0.0, 75.0]],
+        [125.0, 0.0, 0.0],
+        [[0.0, 0.0, -75.0], [0.0, 0.0, 75.0]],
         [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
     ),
     frame(
         WINDMILL_END,
-        [-105.0, SPIN_DEGREES, 0.0],
-        [[-30.0, 0.0, -75.0], [-30.0, 0.0, 75.0]],
+        [125.0, SPIN_DEGREES, 0.0],
+        [[0.0, 0.0, -75.0], [0.0, 0.0, 75.0]],
         [[-15.0, 0.0, -65.0], [15.0, 0.0, 65.0]],
     ),
     frame(
-        0.78,
-        [-180.0, SPIN_DEGREES, -12.0],
+        FLOOR_EXIT,
+        [180.0, SPIN_DEGREES, -12.0],
         [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
         [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
     ),
     frame(
         0.85,
-        [-180.0, SPIN_DEGREES, -12.0],
+        [180.0, SPIN_DEGREES, -12.0],
         [[-165.0, 0.0, -8.0], [-155.0, 0.0, 12.0]],
         [[-20.0, 0.0, -40.0], [35.0, 0.0, 25.0]],
     ),
     frame(
         0.94,
-        [-330.0, SPIN_DEGREES, 0.0],
+        [330.0, SPIN_DEGREES, 0.0],
         [[-65.0, 0.0, -20.0], [-65.0, 0.0, 20.0]],
         [[35.0, 0.0, -15.0], [35.0, 0.0, 15.0]],
     ),
     frame(
         1.0,
-        [-360.0, SPIN_DEGREES, 0.0],
+        [360.0, SPIN_DEGREES, 0.0],
         [[0.0; 3]; 2],
         [[0.0; 3]; 2],
     ),
@@ -115,6 +117,14 @@ fn sample(seconds: f64) -> Frame {
     result
 }
 
+/// Transfers the spin support from hips to upper back during the floor entry and exit.
+fn shoulder_support(phase: f32) -> f32 {
+    let entering = (phase - FLOOR_ENTRY) / (WINDMILL_START - FLOOR_ENTRY);
+    let leaving = (FLOOR_EXIT - phase) / (FLOOR_EXIT - WINDMILL_END);
+    let amount = entering.min(leaving).clamp(0.0, 1.0);
+    amount * amount * (3.0 - 2.0 * amount)
+}
+
 /// Applies world-space joint targets so independent limbs and hierarchical skins agree.
 pub(super) fn targets(
     bones: &[RuntimeBone],
@@ -124,6 +134,18 @@ pub(super) fn targets(
     height: f32,
 ) -> Vec<Option<BoneTransform>> {
     let frame = sample(seconds);
+    let support = shoulder_support(frame.phase);
+    let shoulders = names
+        .iter()
+        .position(|name| name.as_ref() == "body")
+        .map_or([0.0, height * 2.0, 0.0], |index| {
+            std::array::from_fn(|axis| rest[index].translation_scale[axis])
+        });
+    let pivot = [
+        shoulders[0] * support,
+        height + (shoulders[1] - height) * support,
+        (shoulders[2] + height / 6.0) * support,
+    ];
     // Separate world yaw from the floor tilt so the windmill circles the floor.
     let turn = quat_multiply(
         quat_from_euler([0.0, frame.turn[1].rem_euclid(360.0), 0.0]),
@@ -135,7 +157,8 @@ pub(super) fn targets(
         .zip(rest)
         .map(|((bone, name), rest)| {
             let rotation = match name.as_ref() {
-                "waist" | "body" | "head" => [0.0; 3],
+                "waist" | "body" => [0.0; 3],
+                "head" => [(10.0 - frame.turn[0]) * support, 0.0, 0.0],
                 "leftarm" => frame.arms[0],
                 "rightarm" => frame.arms[1],
                 "leftleg" => frame.legs[0],
@@ -144,11 +167,7 @@ pub(super) fn targets(
                 _ => return None,
             };
             let mut target = *rest;
-            let relative = [
-                rest.translation_scale[0],
-                rest.translation_scale[1] - height,
-                rest.translation_scale[2],
-            ];
+            let relative = std::array::from_fn(|axis| rest.translation_scale[axis] - pivot[axis]);
             let pivot = rotate_vector(turn, relative);
             target.translation_scale[..3].copy_from_slice(&[pivot[0], pivot[1] + height, pivot[2]]);
             target.rotation = quat_multiply(
