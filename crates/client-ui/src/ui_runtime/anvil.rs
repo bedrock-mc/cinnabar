@@ -263,6 +263,7 @@ impl UiRuntime {
                         .as_ref()
                         .map(|name| Some(name.to_string()))
                 }),
+                ..Default::default()
             },
         )?;
         let mut stack = left.stack;

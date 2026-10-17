@@ -945,7 +945,7 @@ fn round_tripped_selected_sword(
 }
 
 #[test]
-fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
+fn zero_durability_correction_repairs_the_retained_damage_tag() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime =
@@ -972,14 +972,8 @@ fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
             .unwrap(),
         assets::item::durability::builtin_item_durability("minecraft:iron_sword").maximum(),
     );
-    assert!(
-        derived.is_some_and(|fraction| (fraction - 0.5).abs() < 0.01),
-        "the local damage tag alone must still derive the bar: {derived:?}"
-    );
-    assert_eq!(
-        presented, None,
-        "a repaired sword hides its pristine bar despite the stale local NBT tag"
-    );
+    assert_eq!(derived, None, "the retained damage tag is pristine");
+    assert_eq!(presented, None, "a repaired sword hides its pristine bar");
 }
 
 #[test]

@@ -454,15 +454,15 @@ fn workbench_crafts_three_by_three_from_its_grid() {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 
@@ -790,9 +790,9 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     );
 }
 
-/// A workbench close acknowledgement that overtakes its return still lets the return apply.
+/// A retired workbench request cannot commit its predicted ingredient return.
 #[test]
-fn workbench_close_ack_before_the_return_response_applies_the_return() {
+fn workbench_close_ack_retires_the_unanswered_return() {
     let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
     workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
     workbench.request_storage_close();
@@ -818,11 +818,13 @@ fn workbench_close_ack_before_the_return_response_applies_the_return() {
             ),
         ],
     );
+    assert_eq!(workbench.displayed_stack(0).map(|stack| stack.count), None);
     assert_eq!(
-        workbench.displayed_stack(0).map(|stack| stack.count),
+        workbench
+            .target_stack(InventoryTarget::Craft(36))
+            .map(|stack| stack.count),
         Some(1)
     );
-    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
     assert!(!workbench.resync_required());
 }
 
@@ -953,7 +955,7 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(!ledger.personal_inventory_desired_open());
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
 
-    // The stranded ingredient awaits the server, but the reopened screen still closes.
+    // A later close builds a fresh return from the still-confirmed ingredient.
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(20));
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
@@ -965,6 +967,9 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(ledger.personal_inventory_desired_open());
     ledger.request_personal_close();
     assert!(!ledger.personal_inventory_desired_open());
+    let (returning, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", returning.kind()), "ItemStackRequestPacket");
+    assert!(ledger.mark_transport_enqueued(30));
     let (close, _) = ledger.pending_batch().unwrap().unwrap();
     assert_eq!(format!("{:?}", close.kind()), "ContainerClosePacket");
 }
@@ -1117,4 +1122,88 @@ fn review_overlapping_ingredients_find_a_complete_assignment() {
         };
         assert!(result.is_ok(), "{result:?}");
     }
+}
+
+/// Checks that another output take can merge into a compatible held stack.
+#[test]
+fn parity_actions_manual_output_merges_into_cursor() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 2)));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: None,
+            slot_type: Some(CONTAINER_NAME_CURSOR),
+            dynamic_id: None,
+        },
+        slots: Arc::from([stack(PLANKS, 202, 3)]),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    let recipe = unique(&ledger, &catalog());
+    let result = ledger.begin_craft_into(&recipe, 1, CraftSink::Cursor);
+    assert!(result.is_ok(), "compatible cursor has room: {result:?}");
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+}
+
+/// Checks that shift crafting fills all three available output spaces.
+#[test]
+fn parity_actions_craft_all_uses_maximum_fitting_count() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut slots: Vec<_> = (0..PLAYER_INVENTORY_SLOT_COUNT)
+        .map(|slot| stack(COBBLE, 300 + slot as i32, 64))
+        .collect();
+    slots[0] = stack(PLANKS, 250, 61);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 10)));
+    let recipe = unique(&ledger, &catalog());
+    ledger.begin_craft_all(&recipe).unwrap();
+    assert_eq!(
+        ledger.displayed_stack(0).unwrap().count,
+        64,
+        "exactly three crafts fit"
+    );
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        7
+    );
+}
+
+/// Checks close admission while a manual craft and its created output await a response.
+#[test]
+fn parity_actions_close_during_manual_craft() {
+    let mut ledger = ledger(WORKBENCH_WINDOW_TYPE);
+    ledger.apply(&craft_slot(32, stack(LOG, 101, 2)));
+    let recipe = unique(&ledger, &catalog());
+    ledger.begin_craft(&recipe, 1).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.request_storage_close();
+    assert!(ledger.cursor_stack().is_none());
+    assert!(ledger.target_stack(InventoryTarget::Craft(32)).is_none());
+    assert_eq!(
+        ledger.pending_request_count(),
+        3,
+        "craft plus input and cursor returns"
+    );
+    assert_eq!(
+        ledger.begin_craft(&recipe, 1),
+        Err(InventoryGestureError::ResyncRequired)
+    );
+    let (_, count) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(count, 2, "both returns share the next request batch");
+    for _ in 0..count {
+        assert!(ledger.mark_transport_enqueued(11));
+    }
+    let (packet, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", packet.kind()), "ContainerClosePacket");
+    assert_eq!(
+        ledger.pending_request_count(),
+        3,
+        "no answer was needed for close admission"
+    );
 }

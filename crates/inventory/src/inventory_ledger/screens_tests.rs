@@ -125,14 +125,17 @@ fn named_window_refreshes_keep_taken_slots_empty_after_rejection() {
         refreshed[1] = NetworkItemStack::empty();
         match admission {
             0 => ledger.apply(&content(ContainerIdentity::window(3), refreshed)),
-            1 => ledger.apply_window_content(ContainerIdentity::window(3), 0, &refreshed),
+            1 => ledger.apply(&content(ContainerIdentity::window(3), refreshed)),
             _ => {
                 let (StackRequestContainer::OpenWindow { name, .. }, _) =
                     protocol::open_cell_request(WindowKind::Furnace, 1, None, None).unwrap()
                 else {
                     panic!("named furnace cell");
                 };
-                ledger.apply_window_content(named(3, name), name, &[NetworkItemStack::empty()]);
+                ledger.apply(&content(
+                    named(protocol::DYNAMIC_STORAGE_WINDOW_ID, name),
+                    vec![NetworkItemStack::empty()],
+                ));
             }
         }
         ledger.apply(&InventoryEvent::Response(
@@ -349,14 +352,12 @@ fn personal_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger
     ledger
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn set_cursor(ledger: &mut PlayerInventoryLedger, held: NetworkItemStack) {
-    ledger.apply(&content(
-        ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
-        },
-        vec![held],
+    ledger.apply(&slot_update(
+        ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+        0,
+        held,
     ));
 }
 
@@ -448,6 +449,7 @@ fn bundle_stack(stack_network_id: i32, bundle_id: i32) -> NetworkItemStack {
     let mut extra = (-1_i16).to_le_bytes().to_vec();
     extra.push(1);
     extra.extend(nbt);
+    extra.extend_from_slice(&[0; 8]);
     NetworkItemStack {
         nbt_digest: sha2::Sha256::digest(&extra).into(),
         extra_data: Arc::from(extra),
@@ -457,17 +459,45 @@ fn bundle_stack(stack_network_id: i32, bundle_id: i32) -> NetworkItemStack {
 
 fn dynamic(dynamic_id: u32) -> ContainerIdentity {
     ContainerIdentity {
-        window_id: Some(-1),
+        window_id: Some(protocol::DYNAMIC_STORAGE_WINDOW_ID),
         slot_type: Some(protocol::CONTAINER_NAME_DYNAMIC),
         dynamic_id: Some(dynamic_id),
     }
 }
 
+/// Admits a component-backed bundle and its registered storage descriptor.
+fn bundle_ledger(id: u32, contents: Vec<NetworkItemStack>) -> PlayerInventoryLedger {
+    let mut ledger = personal_ledger(&[]);
+    let mut registry = protocol::test_support::items::component_item_registry(
+        "fixture:bundle",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    );
+    let entry = &mut Arc::make_mut(&mut registry.entries)[0];
+    let components = entry.components.get_or_insert_with(Default::default);
+    Arc::make_mut(components).storage_container = true;
+    ledger.apply_registry(&registry);
+    let bundle = bundle_stack(70, id as i32);
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = bundle.clone();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: dynamic(id),
+        slots: contents.into(),
+        storage_item: bundle,
+    }));
+    ledger
+}
+
 /// A bundle's contents ride its dynamic container; extract takes the newest item.
 #[test]
 fn bundle_extract_takes_the_newest_item_from_the_dynamic_container() {
-    let mut ledger = personal_ledger(&[(0, bundle_stack(70, 7))]);
-    ledger.apply(&content(dynamic(7), vec![stack(80, 3), stack(81, 2)]));
+    let mut ledger = bundle_ledger(7, vec![stack(80, 3), stack(81, 2)]);
     assert_eq!(ledger.bundle_contents(7).map(<[_]>::len), Some(2));
     ledger
         .begin_bundle_extract(InventoryTarget::Player(0))
@@ -495,8 +525,7 @@ fn bundle_extract_takes_the_newest_item_from_the_dynamic_container() {
 /// Insert appends after the last content slot and empties the cursor.
 #[test]
 fn bundle_insert_appends_to_the_dynamic_container() {
-    let mut ledger = personal_ledger(&[(0, bundle_stack(70, 7))]);
-    ledger.apply(&content(dynamic(7), vec![stack(80, 3)]));
+    let mut ledger = bundle_ledger(7, vec![stack(80, 3)]);
     set_cursor(&mut ledger, stack(60, 4));
     ledger
         .begin_bundle_insert(InventoryTarget::Player(0))

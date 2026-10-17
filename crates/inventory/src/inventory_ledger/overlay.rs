@@ -34,6 +34,8 @@ pub(super) enum DeltaGroup {
     },
     /// Writes a created stack (crafting and creative output).
     Set { cell: Cell, held: Held },
+    /// Retains a response snapshot without predicting a change to the item.
+    Retain { cell: Cell, stack_id: i32 },
 }
 
 impl DeltaGroup {
@@ -69,6 +71,7 @@ impl DeltaGroup {
             Self::Shrink {
                 source, source_id, ..
             } => *source_id = name(*source),
+            Self::Retain { cell, stack_id } => *stack_id = name(*cell),
             Self::Set { .. } => {}
         }
     }
@@ -85,7 +88,7 @@ impl DeltaGroup {
                 ..
             } => (*source, Some(*destination)),
             Self::Shrink { source, .. } => (*source, None),
-            Self::Set { cell, .. } => (*cell, None),
+            Self::Set { cell, .. } | Self::Retain { cell, .. } => (*cell, None),
         };
         std::iter::once(first).chain(second)
     }
@@ -100,6 +103,7 @@ impl DeltaGroup {
                 ..
             } => *source == cell || (*destination == cell && destination_id.is_some()),
             Self::Shrink { source, .. } => *source == cell,
+            Self::Retain { cell: retained, .. } => *retained == cell,
             Self::Swap { .. } | Self::Set { .. } => false,
         }
     }
@@ -160,6 +164,13 @@ impl DeltaGroup {
                 true
             }
             Self::Set { cell, held } => cells.set(*cell, Some(held.clone())),
+            Self::Retain { cell, stack_id } => {
+                cells.contains(*cell)
+                    && cells
+                        .get(*cell)
+                        .map_or(0, |held| held.stack.stack_network_id)
+                        == *stack_id
+            }
         }
     }
 }

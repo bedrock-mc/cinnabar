@@ -3,13 +3,19 @@ use std::{mem::size_of, num::NonZeroU64, sync::Arc};
 
 use super::budget::{Credits, Permit};
 
-pub(super) fn transaction_cell_index(identity: protocol::SlotIdentity) -> Option<usize> {
+/// Resolves packet-context personal inputs and cursor before named response aliases.
+pub(super) fn personal_cell_index(identity: protocol::SlotIdentity) -> Option<usize> {
+    if identity.container.window_id == Some(protocol::UI_INVENTORY_WINDOW_ID) {
+        return if identity.slot == 0 {
+            Some(4)
+        } else {
+            protocol::personal_craft_slot_index(&identity.container, identity.slot).map(usize::from)
+        };
+    }
     match protocol::project_container_cell(&identity.container, identity.slot) {
         Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
         Some(protocol::CanonicalCell::Cursor) => Some(4),
-        _ => {
-            protocol::personal_craft_slot_index(&identity.container, identity.slot).map(usize::from)
-        }
+        _ => None,
     }
 }
 
@@ -69,39 +75,30 @@ impl StackOwner {
             .checked_add(64)
     }
 
-    pub(super) fn grid_with_credits(
-        stacks: [&NetworkItemStack; 4],
+    /// Reserves the whole observation before cloning any stack, publishing no partial batch.
+    pub(super) fn many_with_credits<const N: usize>(
+        stacks: [&NetworkItemStack; N],
         credits: &Arc<Credits>,
-    ) -> Option<[Arc<Self>; 4]> {
-        let charges = [
-            Self::charge(stacks[0])?,
-            Self::charge(stacks[1])?,
-            Self::charge(stacks[2])?,
-            Self::charge(stacks[3])?,
-        ];
+    ) -> Option<[Arc<Self>; N]> {
+        let mut charges = [0; N];
+        for (charge, stack) in charges.iter_mut().zip(stacks) {
+            *charge = Self::charge(stack)?;
+        }
         charges
             .iter()
             .try_fold(0usize, |sum, charge| sum.checked_add(*charge))?;
-        // Every permit precedes every stack clone/Arc allocation. On refusal,
-        // already reserved permits drop without publishing a partial grid.
-        let first = credits.reserve(charges[0])?;
-        let second = credits.reserve(charges[1])?;
-        let third = credits.reserve(charges[2])?;
-        let fourth = credits.reserve(charges[3])?;
-        Some(
-            [
-                (stacks[0], first),
-                (stacks[1], second),
-                (stacks[2], third),
-                (stacks[3], fourth),
-            ]
-            .map(|(stack, permit)| {
-                Arc::new(Self {
-                    stack: stack.clone(),
-                    _permit: permit,
-                })
-            }),
-        )
+        let mut permits = std::array::from_fn::<_, N, _>(|index| credits.reserve(charges[index]));
+        if permits.iter().any(Option::is_none) {
+            return None;
+        }
+        Some(std::array::from_fn(|index| {
+            Arc::new(Self {
+                stack: stacks[index].clone(),
+                _permit: permits[index]
+                    .take()
+                    .expect("all observation credits reserved"),
+            })
+        }))
     }
 
     pub(super) fn with_credits(
@@ -119,7 +116,6 @@ impl StackOwner {
 
 #[derive(Debug, Clone)]
 pub(super) enum Observation {
-    Grid([Arc<StackOwner>; 4]),
     Cell {
         index: usize,
         stack: Arc<StackOwner>,
@@ -138,7 +134,7 @@ impl Observation {
             Self::Registry(_) => 1,
             Self::Recipes(_) => 2,
             Self::Authority(_) => 4,
-            Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
+            Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
         }
     }
 }

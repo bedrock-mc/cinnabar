@@ -72,7 +72,7 @@ impl Held {
 
 #[derive(Debug, Clone)]
 pub(super) struct Cells {
-    player: Arc<[Option<Held>; PLAYER_INVENTORY_SLOT_COUNT]>,
+    player: Arc<Vec<Option<Held>>>,
     cursor: Option<Held>,
     storage: Arc<Vec<Option<Held>>>,
     armor: Arc<[Option<Held>; ARMOR_CELLS]>,
@@ -85,7 +85,7 @@ pub(super) struct Cells {
 impl Default for Cells {
     fn default() -> Self {
         Self {
-            player: Arc::new(std::array::from_fn(|_| None)),
+            player: Arc::new(vec![None; PLAYER_INVENTORY_SLOT_COUNT]),
             cursor: None,
             storage: Arc::default(),
             armor: Arc::new(std::array::from_fn(|_| None)),
@@ -124,7 +124,7 @@ impl Cells {
     /// Whether `cell` addresses a retained position at all.
     pub(super) fn contains(&self, cell: Cell) -> bool {
         match cell {
-            Cell::Inventory(slot) => usize::from(slot) < PLAYER_INVENTORY_SLOT_COUNT,
+            Cell::Inventory(slot) => usize::from(slot) < self.player.len(),
             Cell::Storage(slot) => usize::from(slot) < self.storage.len(),
             Cell::Armor(slot) => usize::from(slot) < ARMOR_CELLS,
             Cell::Craft(slot) => craft_index(slot).is_some(),
@@ -163,22 +163,14 @@ impl Cells {
         self.storage = Arc::new(slots.iter().map(Held::new).collect());
     }
 
-    /// Overwrites the run starting at `first`, growing the window up to `max_len`.
-    pub(super) fn write_storage(
-        &mut self,
-        first: usize,
-        slots: &[NetworkItemStack],
-        max_len: usize,
-    ) {
-        let end = first.saturating_add(slots.len()).min(max_len);
-        self.ensure_storage(end);
-        for (offset, stack) in slots.iter().enumerate() {
-            let index = first + offset;
-            if index >= end {
-                break;
-            }
-            Arc::make_mut(&mut self.storage)[index] = Held::new(stack);
-        }
+    /// Replaces the player container, including its authoritative extent.
+    pub(super) fn replace_player(&mut self, slots: &[NetworkItemStack]) {
+        self.player = Arc::new(slots.iter().map(Held::new).collect());
+    }
+
+    /// The currently retained player container extent.
+    pub(super) fn player_len(&self) -> usize {
+        self.player.len()
     }
 
     /// Grows the window to at least `len` empty cells.

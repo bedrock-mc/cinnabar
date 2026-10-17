@@ -72,11 +72,7 @@ impl Source {
         match event {
             InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(slot)) => {
                 let container = &slot.identity.container;
-                let index = match protocol::project_container_cell(container, slot.identity.slot) {
-                    Some(protocol::CanonicalCell::CraftInput(index)) => Some(index),
-                    Some(protocol::CanonicalCell::Cursor) => Some(4),
-                    _ => protocol::personal_craft_slot_index(container, slot.identity.slot),
-                }?;
+                let index = super::projection::personal_cell_index(slot.identity)?;
                 Some(Self::new(
                     1,
                     *container,
@@ -94,10 +90,11 @@ impl Source {
                         2,
                         content.container,
                         indices.map(|index| index as u16),
-                        15,
+                        31,
                         sequence,
                     ))
                 } else if content.slots.len() == 1
+                    && content.container.window_id.is_none()
                     && content.container.slot_type == Some(protocol::CONTAINER_NAME_CURSOR)
                 {
                     Some(Self::new(2, content.container, [0; 4], 16, sequence))
@@ -109,7 +106,7 @@ impl Source {
                 let mut mask = 0;
                 let mut slots = [0; 4];
                 for slot in event.slot_updates() {
-                    if let Some(index) = super::projection::transaction_cell_index(slot.identity) {
+                    if let Some(index) = super::projection::personal_cell_index(slot.identity) {
                         mask |= 1 << index;
                         if let Some(position) = slots.get_mut(index) {
                             *position = slot.identity.slot;

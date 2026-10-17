@@ -19,15 +19,15 @@ fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(value: Option<NetworkItemStack>) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([value.unwrap_or_default()]),
-        storage_item: NetworkItemStack::default(),
+        stack: value.unwrap_or_default(),
+        storage_item: None,
     })
 }
 

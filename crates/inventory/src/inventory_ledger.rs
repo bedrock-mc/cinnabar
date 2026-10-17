@@ -43,6 +43,7 @@ mod offhand_quick_move_tests;
 mod overlay;
 #[cfg(test)]
 mod overlay_tests;
+mod packet_routes;
 mod personal;
 mod presentation;
 mod queue;
@@ -59,7 +60,7 @@ mod screen_actions;
 mod screens_tests;
 #[cfg(test)]
 mod server_menu_tests;
-mod settling;
+mod validation;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
@@ -73,7 +74,6 @@ pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;
 pub use screen_actions::{ANVIL_MATERIAL_SLOT, ANVIL_TARGET_SLOT, ScreenCraft};
-use settling::SettlingWindow;
 
 #[cfg(test)]
 use protocol::NO_CONTAINER_WINDOW_TYPE;
@@ -145,7 +145,7 @@ pub enum InventoryGestureError {
     LegacyActionUnavailable,
     #[error("personal inventory open has not been admitted")]
     PersonalInventoryUnavailable,
-    #[error("player inventory slot {0} is outside 0..36")]
+    #[error("player inventory slot {0} is outside the authoritative container")]
     InvalidSlot(u8),
     #[error("generic storage slot {0} is outside the authoritative window")]
     InvalidStorageSlot(u8),
@@ -163,6 +163,8 @@ pub enum InventoryGestureError {
     InvalidRequest,
     #[error("the equipment slot does not accept this item")]
     EquipmentRefused,
+    #[error("this item cannot leave its slot")]
+    SlotLocked,
 }
 
 #[derive(Debug, Clone)]
@@ -196,7 +198,6 @@ pub struct PlayerInventoryLedger {
     next_open_generation: u64,
     personal: Option<PersonalWindow>,
     /// Acknowledged closes whose requests still await answers; they stay current.
-    settling: VecDeque<SettlingWindow>,
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
     /// Each window kind retains one desired state and at most one outstanding request.
@@ -241,7 +242,6 @@ impl Default for PlayerInventoryLedger {
             session_generation: 0,
             next_open_generation: 1,
             personal: None,
-            settling: VecDeque::new(),
             storage: None,
             furnace_selection: None,
             controls: control::WindowControls::default(),
@@ -303,13 +303,30 @@ impl PlayerInventoryLedger {
     /// Worn armor or offhand presentation, preserving unobserved versus empty cells.
     /// Other surfaces and out-of-range armor addresses return `None`.
     pub fn gear_slot_state(&self, target: InventoryTarget) -> Option<PlayerInventorySlot<'_>> {
+        self.gear_state(target, self.view())
+    }
+
+    /// Returns server-observed gear without retaining a temporary local prediction.
+    pub fn authoritative_gear_slot_state(
+        &self,
+        target: InventoryTarget,
+    ) -> Option<PlayerInventorySlot<'_>> {
+        self.gear_state(target, &self.confirmed)
+    }
+
+    /// Projects a gear cell from the requested owner while preserving observation state.
+    fn gear_state<'a>(
+        &self,
+        target: InventoryTarget,
+        cells: &'a Cells,
+    ) -> Option<PlayerInventorySlot<'a>> {
         let known = match target {
             InventoryTarget::Armor(slot) => *self.armor_known.get(usize::from(slot))?,
             InventoryTarget::Offhand => self.offhand_known,
             _ => return None,
         };
-        Some(match self.target_stack(target) {
-            Some(stack) => PlayerInventorySlot::Present(stack),
+        Some(match cells.get(target.cell()) {
+            Some(held) => PlayerInventorySlot::Present(&held.stack),
             None if known => PlayerInventorySlot::Empty,
             None => PlayerInventorySlot::Unknown,
         })
@@ -435,7 +452,7 @@ impl PlayerInventoryLedger {
         self.queue
             .iter()
             .rev()
-            .filter_map(|pending| pending.mining)
+            .filter_map(|pending| pending.mining.as_ref())
             .find(|mining| mining.slot == slot)
             .map(|mining| mining.damage)
             .or_else(|| self.slot_overlay(slot)?.durability_correction)
@@ -622,21 +639,17 @@ impl PlayerInventoryLedger {
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_control_timeout(now_millis);
         self.expire_overdue_requests(now_millis);
-        self.finish_settled_closes();
         personal_expired
     }
 
     /// Whether polling can change a deadline, request, or deferred close.
     pub(crate) fn timeout_work_due(&self, now_millis: u64) -> bool {
-        self.controls.timeout_due(now_millis)
-            || self.request_timeout_work_due(now_millis)
-            || self.settled_close_index().is_some()
+        self.controls.timeout_due(now_millis) || self.request_timeout_work_due(now_millis)
     }
 
     pub fn transport_closed(&mut self) {
         self.controls = control::WindowControls::default();
         self.personal = None;
-        self.settling.clear();
         self.abandon_requests(|_| true);
         self.finish_closing();
     }
@@ -711,22 +724,22 @@ impl PlayerInventoryLedger {
     }
 
     fn discard_storage(&mut self) {
+        let Some(kind) = self.window_kind() else {
+            return;
+        };
         self.discard_storage_window();
-        self.clear_storage_inputs();
+        self.clear_storage_inputs(kind);
     }
 
-    /// Our acknowledged close keeps the window's unanswered requests correlated.
+    /// A normal acknowledgement destroys this screen's request ownership, preserving backing.
     fn acknowledge_storage_close(&mut self, server_initiated: bool) {
         let Some(storage) = self.storage.as_ref() else {
             return;
         };
-        let window = SettlingWindow::Storage {
-            generation: storage.generation,
-            identity: storage.identity,
-        };
-        if !server_initiated && storage.closing && self.has_unanswered(window) {
+        if !server_initiated && storage.closing {
+            let generation = storage.generation;
+            self.retire_screen_requests(|request| request.storage_generation == Some(generation));
             self.discard_storage_window();
-            self.retain_settling(window);
             self.refold();
         } else {
             self.close_storage();
@@ -740,8 +753,8 @@ impl PlayerInventoryLedger {
         self.confirmed.clear_storage();
     }
 
-    fn clear_storage_inputs(&mut self) {
-        self.clear_crafting();
+    fn clear_storage_inputs(&mut self, kind: protocol::WindowKind) {
+        self.clear_crafting(Some(kind));
         if self.confirmed.get(Cell::Cursor).is_some() {
             self.disown_abandoned_recovery(CellSurface::Player);
             self.disown_abandoned_recovery(CellSurface::Cursor);
@@ -751,7 +764,7 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
-    fn finish_personal_close(&mut self, retain_confirmed_cursor: bool) {
+    fn finish_personal_close(&mut self, acknowledged: bool) {
         let generation = match self.personal {
             Some(
                 PersonalWindow::Open { generation, .. }
@@ -759,25 +772,19 @@ impl PlayerInventoryLedger {
             ) => generation,
             _ => return,
         };
-        let window = SettlingWindow::Personal(generation);
-        if retain_confirmed_cursor && self.has_unanswered(window) {
+        if acknowledged {
+            self.retire_screen_requests(|request| request.personal_generation == Some(generation));
             self.personal = None;
-            self.retain_settling(window);
             self.refold();
             return;
         }
-        // The cursor is session-owned rather than window-owned. Only a
-        // settled cursor may survive the acknowledgement of our own close.
-        let retain_confirmed_cursor = retain_confirmed_cursor
-            && self.gestures().next().is_none()
-            && !self.cursor_resync_required;
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
-        self.clear_window_inputs(retain_confirmed_cursor);
+        self.clear_window_inputs(false);
     }
 
     fn clear_window_inputs(&mut self, retain_confirmed_cursor: bool) {
-        self.clear_crafting();
+        self.clear_crafting(None);
         if !retain_confirmed_cursor {
             self.drop_confirmed_cursor();
         }
@@ -786,14 +793,18 @@ impl PlayerInventoryLedger {
 
     /// Inputs are actual inventory, not a disposable preview. Never erase an
     /// unreturned ingredient just because the screen stopped owning its UI.
-    fn clear_crafting(&mut self) {
+    fn clear_crafting(&mut self, kind: Option<protocol::WindowKind>) {
+        if crafting_close::screen_input_cells(kind).any(|cell| self.confirmed.get(cell).is_some()) {
+            self.disown_abandoned_recovery(CellSurface::Crafting);
+            self.crafting_resync_required = true;
+            return;
+        }
         if self
             .confirmed
             .occupied()
             .any(|(cell, _)| matches!(cell, Cell::Craft(_)))
         {
-            self.disown_abandoned_recovery(CellSurface::Crafting);
-            self.crafting_resync_required = true;
+            // Another screen's inputs are retained independently of this close.
             return;
         }
         self.confirmed.clear_ui();

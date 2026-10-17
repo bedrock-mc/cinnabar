@@ -30,6 +30,8 @@ pub struct ItemComponents {
     pub fuel_duration_ticks: Option<u32>,
     /// Whether fuel was declared, including malformed component values.
     pub fuel_declared: bool,
+    /// Both storage components required to register a dynamic item container are present.
+    pub storage_container: bool,
     /// Attack and kinetic presentation facts, when this item declares them.
     pub attack: Option<super::ItemAttackTiming>,
     /// `item_texture.json` key from `minecraft:icon`.
@@ -246,6 +248,9 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .and_then(Nbt::number)
             .and_then(duration_ticks),
         fuel_declared: component("minecraft:fuel").is_some(),
+        storage_container: ["minecraft:storage_item", "minecraft:storage_weight_limit"]
+            .into_iter()
+            .all(|name| component(name).is_some_and(|value| matches!(value, Nbt::Compound(_)))),
         attack: super::attack::parse_attack(components),
         icon: super::icons::icon_key(bytes),
         display_name: text(
@@ -829,5 +834,35 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(overridden.allow_off_hand, Some(false));
+    }
+    #[test]
+    fn dynamic_storage_requires_both_component_objects() {
+        for storage in [false, true] {
+            for weight in [false, true] {
+                let mut fields = Vec::new();
+                if storage {
+                    fields.push(compound("minecraft:storage_item", &[]));
+                }
+                if weight {
+                    fields.push(compound("minecraft:storage_weight_limit", &[]));
+                }
+                let payload = compound("", &[compound("components", &fields)]);
+                assert_eq!(
+                    parse_components(&payload).unwrap().storage_container,
+                    storage && weight
+                );
+            }
+        }
+        let payload = compound(
+            "",
+            &[compound(
+                "components",
+                &[
+                    string("minecraft:storage_item", "wrong"),
+                    compound("minecraft:storage_weight_limit", &[]),
+                ],
+            )],
+        );
+        assert!(!parse_components(&payload).unwrap().storage_container);
     }
 }

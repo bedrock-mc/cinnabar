@@ -8,7 +8,7 @@ use protocol::{
 
 use super::cells::{Cell, CellSurface, Cells, Held};
 use super::overlay::DeltaGroup;
-use super::response::merge_response_overlay;
+use super::response::apply_response_item_data;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
 
 /// Retained predictions awaiting answers. New gestures are refused rather than evicting work
@@ -34,8 +34,6 @@ pub(super) struct PendingRequest {
     pub(super) storage_generation: Option<u64>,
     pub(super) personal_generation: Option<u64>,
     pub(super) storage_identity: Option<ContainerIdentity>,
-    /// Its storage window closed while it settles; its storage cells belong to no visible window.
-    pub(super) storage_detached: bool,
     /// A split must end with distinct settled stack ids on surviving halves.
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.
@@ -72,12 +70,12 @@ pub(super) struct CellPrediction {
 }
 
 /// The durability a mine-block request predicts for one hotbar slot.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(super) struct MiningPrediction {
     pub(super) slot: u8,
     pub(super) damage: i32,
-    /// The item identity that mining may still correct after later local moves.
-    pub(super) source_stack_id: Option<i32>,
+    /// The selected item snapshot owned by this request's HUD scope.
+    pub(super) source: Option<Held>,
 }
 
 /// Bounds outstanding mining predictions; the oldest is forgotten first.
@@ -90,10 +88,7 @@ impl PendingRequest {
     }
 
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
-        self.groups
-            .iter()
-            .flat_map(DeltaGroup::touched)
-            .filter(|cell| !(self.storage_detached && matches!(cell, Cell::Storage(_))))
+        self.groups.iter().flat_map(DeltaGroup::touched)
     }
 
     pub(super) fn touches(&self, cell: Cell) -> bool {
@@ -232,31 +227,28 @@ impl PlayerInventoryLedger {
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {
         request.session_generation == self.session_generation
             && request.personal_generation.is_none_or(|generation| {
-                self.personal_settling(generation)
-                    || self
-                        .personal
-                        .as_ref()
-                        .map(super::personal::PersonalWindow::generation)
-                        == Some(generation)
+                self.personal
+                    .as_ref()
+                    .map(super::personal::PersonalWindow::generation)
+                    == Some(generation)
             })
             && self.storage_request_is_current(request)
     }
 
-    /// A storage request answers its own open window, or the closed one it settles against.
+    /// A storage request belongs only to its currently retained screen generation.
     fn storage_request_is_current(&self, request: &PendingRequest) -> bool {
         let current = self.storage.as_ref();
-        let identity = match request.storage_generation {
-            Some(generation) if current.map(|storage| storage.generation) != Some(generation) => {
-                match self.storage_settling(generation) {
-                    Some(identity) => identity,
-                    None => return false,
-                }
-            }
-            _ => current.and_then(|storage| storage.identity),
-        };
-        request
+        request.storage_generation.is_none_or(|generation| {
+            current.is_some_and(|storage| storage.generation == generation)
+        }) && request
             .storage_identity
-            .is_none_or(|expected| identity == Some(expected))
+            .is_none_or(|expected| current.and_then(|storage| storage.identity) == Some(expected))
+    }
+
+    /// Forgets a destroyed screen's predictions without committing them or locking shared cells.
+    pub(super) fn retire_screen_requests(&mut self, owns: impl Fn(&PendingRequest) -> bool) {
+        self.queue
+            .retain(|request| request.mining.is_some() || !owns(request));
     }
 
     pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
@@ -375,7 +367,15 @@ impl PlayerInventoryLedger {
                     })
                 {
                     let same_item = match (prediction.before.as_ref(), replacement.as_ref()) {
-                        (Some(before), Some(after)) => Self::same_item(&before.stack, &after.stack),
+                        (Some(before), Some(after)) => {
+                            Self::same_item(&before.stack, &after.stack)
+                                || (before.source_stack_id.is_some()
+                                    && before.source_stack_id == after.source_stack_id
+                                    && before.stack.network_id == after.stack.network_id
+                                    && before.stack.metadata == after.stack.metadata
+                                    && before.stack.block_runtime_id
+                                        == after.stack.block_runtime_id)
+                        }
                         (None, None) => true,
                         _ => false,
                     };
@@ -442,16 +442,15 @@ impl PlayerInventoryLedger {
             // already owns recovery.
             return;
         }
-        if containers.iter().any(|container| {
-            matches!(
+        for container in containers.iter() {
+            if matches!(
                 project_container_cell(&container.container, 0),
                 Some(CanonicalCell::GenericStorage { .. })
             ) && storage_identity_mismatch(request.storage_identity, container.container)
-        }) {
-            self.recover_request(request);
-            return;
-        }
-        for container in containers.iter() {
+            {
+                self.note_unrouted_container();
+                continue;
+            }
             for correction in container.slots.iter() {
                 let Some(cell) =
                     self.retained_response_cell(&container.container, u16::from(correction.slot))
@@ -466,21 +465,16 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                     continue;
                 };
-                if request.storage_detached
-                    && (matches!(cell, Cell::Storage(_)) || matches!(requested, Cell::Storage(_)))
-                {
-                    continue;
-                }
-                // A mining correction never touches a cell a later gesture owns.
-                let owned = request.mining.is_some_and(|mining| {
-                    self.confirmed
-                        .get(cell)
-                        .is_none_or(|held| held.source_stack_id != mining.source_stack_id)
-                }) || (request.mining.is_some()
-                    && self
-                        .queue
-                        .iter()
-                        .any(|later| later.request_id < request.request_id && later.touches(cell)));
+                // HUD mining owns a separate sparse scope from front-screen predictions.
+                let owned = request.mining.as_ref().is_some_and(|mining| {
+                    self.confirmed.get(requested).is_none_or(|held| {
+                        held.source_stack_id
+                            != mining
+                                .source
+                                .as_ref()
+                                .and_then(|source| source.source_stack_id)
+                    })
+                });
                 if !owned {
                     self.apply_correction(request, requested, cell, correction);
                 }
@@ -499,10 +493,14 @@ impl PlayerInventoryLedger {
         cell: Cell,
         correction: &StackResponseSlot,
     ) {
+        let prediction = request
+            .predicted
+            .iter()
+            .find(|prediction| prediction.cell == requested);
+        let retained_legacy =
+            protocol::is_legacy_request_id(correction.item_stack_id) && request.locally_committed();
         if (correction.count == 0 && correction.item_stack_id > 0)
-            || (correction.count > 0
-                && correction.item_stack_id <= 0
-                && !protocol::is_legacy_request_id(correction.item_stack_id))
+            || (correction.count > 0 && correction.item_stack_id <= 0 && !retained_legacy)
         {
             tracing::warn!(target: "cinnabar::inventory_requests",
                 request_id = request.request_id, slot = correction.slot,
@@ -511,10 +509,15 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
-        let prediction = request
-            .predicted
-            .iter()
-            .find(|prediction| prediction.cell == requested);
+        if prediction.is_none()
+            && !request
+                .mining
+                .as_ref()
+                .is_some_and(|mining| requested == Cell::Inventory(mining.slot))
+        {
+            self.note_unrouted_container();
+            return;
+        }
         if request.locally_committed() && prediction.is_some_and(|prediction| !prediction.current) {
             return;
         }
@@ -533,13 +536,27 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
-        self.note_authoritative_write(cell);
         let count = u16::from(correction.count)
             .saturating_sub(request.world_drop.map_or(0, |drop| drop.consumed_after));
         let mut held = prediction
             .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
-            .or_else(|| self.confirmed.get(cell))
+            .or_else(|| {
+                request
+                    .mining
+                    .as_ref()
+                    .filter(|mining| requested == Cell::Inventory(mining.slot))
+                    .and_then(|mining| mining.source.as_ref())
+            })
             .cloned();
+        if held.as_ref().is_some_and(|held| {
+            self.negotiated_item_entry(held.stack.network_id)
+                .and_then(super::registry::entry_capacity)
+                .is_some_and(|capacity| correction.count > capacity)
+        }) {
+            self.note_unrouted_container();
+            return;
+        }
+        self.note_authoritative_write(cell);
         if count == 0 {
             held = None;
         } else if let Some(held) = &mut held {
@@ -550,7 +567,10 @@ impl PlayerInventoryLedger {
                 .and_then(|_| prediction.and_then(|prediction| prediction.held.as_ref()))
                 .map_or(correction.item_stack_id, |held| held.stack.stack_network_id);
             held.acknowledged_request_id = Some(request.request_id);
-            merge_response_overlay(&mut held.overlay, correction);
+            if apply_response_item_data(held, correction).is_none() {
+                self.note_unrouted_container();
+                return;
+            }
         } else if !matches!(cell, Cell::Craft(_) | Cell::CreatedOutput) {
             self.mark_cell_recovery(cell);
         }
@@ -817,7 +837,6 @@ impl PlayerInventoryLedger {
                 storage_generation: None,
                 personal_generation: None,
                 storage_identity: None,
-                storage_detached: false,
                 requires_distinct_stack_ids: false,
                 registry_bound_merge: false,
                 quick_move_route: None,
@@ -825,10 +844,7 @@ impl PlayerInventoryLedger {
                 mining: Some(MiningPrediction {
                     slot,
                     damage,
-                    source_stack_id: self
-                        .view()
-                        .get(Cell::Inventory(slot))
-                        .and_then(|held| held.source_stack_id),
+                    source: self.view().get(Cell::Inventory(slot)).cloned(),
                 }),
                 world_drop: None,
             },
@@ -874,7 +890,21 @@ impl PlayerInventoryLedger {
         cell: Cell,
         overlay: super::StackResponseOverlay,
     ) {
-        self.confirmed.get_mut(cell).expect("occupied cell").overlay = Some(overlay);
+        let held = self.confirmed.get_mut(cell).expect("occupied cell");
+        super::response::apply_response_item_data(
+            held,
+            &protocol::StackResponseSlot {
+                custom_name: overlay.custom_name.clone().unwrap_or_default(),
+                filtered_custom_name: overlay.filtered_custom_name.clone().unwrap_or_default(),
+                durability_correction: overlay.durability_correction.unwrap_or(0),
+                slot: 0,
+                hotbar_slot: 0,
+                count: held.stack.count as u8,
+                item_stack_id: held.stack.stack_network_id,
+            },
+        )
+        .expect("valid fixture data");
+        held.overlay = Some(overlay);
         self.refold();
     }
 

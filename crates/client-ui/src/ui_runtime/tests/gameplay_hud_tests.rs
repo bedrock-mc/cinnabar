@@ -1172,17 +1172,22 @@ fn empty_offhand_content_preserves_known_equipment() {
         slot_type: None,
         dynamic_id: None,
     };
-    state.apply_inventory(&InventoryEvent::Slot(InventorySlotEvent {
-        identity: SlotIdentity { container, slot: 0 },
-        stack: stack(77),
-        storage_item: None,
-    }));
+    let mut ledger = inventory::PlayerInventoryLedger::default();
+    let initial = InventoryEvent::Content(InventoryContentEvent {
+        container,
+        slots: vec![stack(77)].into(),
+        storage_item: NetworkItemStack::empty(),
+    });
+    ledger.apply(&initial);
+    state.apply_inventory(&initial, &ledger);
     assert!(state.offhand_stack().is_some());
-    state.apply_inventory(&InventoryEvent::Content(InventoryContentEvent {
+    let empty = InventoryEvent::Content(InventoryContentEvent {
         container,
         slots: Arc::from([]),
         storage_item: NetworkItemStack::empty(),
-    }));
+    });
+    ledger.apply(&empty);
+    state.apply_inventory(&empty, &ledger);
     assert_eq!(state.offhand_stack().unwrap().network_id, 77);
 }
 

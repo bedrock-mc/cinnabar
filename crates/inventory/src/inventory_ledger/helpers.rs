@@ -1,6 +1,6 @@
 use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 
-use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger, StorageWindow};
+use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
     /// Resolves a default descriptor only against the open legacy storage window.
@@ -111,32 +111,6 @@ pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {
 
 pub(super) const fn valid_storage_window_id(window_id: i32) -> bool {
     window_id != 0 && valid_raw_window_id(window_id)
-}
-
-pub(super) fn storage_slot_identity_matches(
-    storage: &StorageWindow,
-    identity: ContainerIdentity,
-) -> bool {
-    if identity.window_id != Some(storage.window_id) {
-        return false;
-    }
-    match (identity.slot_type, identity.dynamic_id) {
-        (None, None) => true,
-        _ => storage.identity == Some(identity),
-    }
-}
-
-/// Whether one container identity the projection left unrouted is exactly the
-/// prior bare-window storage leg: no decoded container name, no dynamic id,
-/// and a window id matching the one open generic-storage window. Named or
-/// dynamic identities never qualify — they must project canonically first.
-pub(super) fn bare_storage_window_matches(
-    storage: Option<&StorageWindow>,
-    identity: &ContainerIdentity,
-) -> bool {
-    identity.slot_type.is_none()
-        && identity.dynamic_id.is_none()
-        && storage.is_some_and(|storage| storage_slot_identity_matches(storage, *identity))
 }
 
 /// How the open window's own cells are named in a request.
