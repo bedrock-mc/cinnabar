@@ -100,6 +100,12 @@ fn actor_attacks(
 #[test]
 fn attack_press_waits_for_backing_drop_admission() {
     let (mut world, mut captured) = unpublished_attack_fixture(7.5);
+    world.resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
+        world
+            .resource_mut::<UiRuntimeResource>()
+            .publish_local_runtime_id(&mut player, 7, 42)
+            .unwrap();
+    });
     {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let ledger = player.inventory.ledger_mut();
@@ -135,6 +141,12 @@ fn attack_press_waits_for_backing_drop_admission() {
     assert!(actor_attacks(&mut captured).is_empty());
     assert!(world.resource::<MeleeRuntime>().press_pending());
 
+    {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        player.inventory.set_local_selected_slot(1);
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(0, mode);
+    }
     assert!(
         world
             .resource_mut::<client_state::PlayerRuntime>()
@@ -152,6 +164,19 @@ fn attack_press_waits_for_backing_drop_admission() {
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(idle),
     ));
+    produce(&mut world);
+    assert!(actor_attacks(&mut captured).is_empty());
+    assert!(world.resource::<MeleeRuntime>().press_pending());
+    world
+        .run_system_cached(crate::hotbar::flush_hotbar_selection)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource::<client_state::PlayerRuntime>()
+            .inventory
+            .pending_hotbar_selection(),
+        None
+    );
     produce(&mut world);
     let attacks = actor_attacks(&mut captured);
     assert_eq!(attacks.len(), 1);
