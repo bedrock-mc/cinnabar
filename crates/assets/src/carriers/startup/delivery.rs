@@ -40,7 +40,7 @@ pub fn startup_carriers() -> impl Iterator<Item = &'static Carrier> {
 
 /// The required delivery set plus supported optional artwork, from the canonical table.
 fn delivery_carriers() -> impl Iterator<Item = &'static Carrier> {
-    startup_carriers().chain(std::iter::once(&carriers::FONT))
+    startup_carriers().chain([&carriers::FONT, &carriers::AUDIO])
 }
 
 impl DeliveryManifest {
@@ -98,7 +98,8 @@ impl DeliveryManifest {
     pub fn from_directory(directory: &Path) -> Result<Self, DeliveryError> {
         let entries = startup_carriers()
             .chain(
-                std::iter::once(&carriers::FONT)
+                [&carriers::FONT, &carriers::AUDIO]
+                    .into_iter()
                     .filter(|carrier| directory.join(carrier.output).is_file()),
             )
             .map(|carrier| {
@@ -163,6 +164,24 @@ impl MemoryCarriers {
         )
         .ok()
         .map(Arc::new)
+    }
+
+    /// Admits an optional audio catalog only when its decoder and pinned source agree.
+    fn audio(&self) -> Result<Option<Arc<crate::RuntimeAudioCatalog>>, DeliveryError> {
+        let Some(bytes) = self.bytes.get(carriers::AUDIO.name) else {
+            return Ok(None);
+        };
+        let audio = crate::RuntimeAudioCatalog::decode(bytes).map_err(|error| {
+            DeliveryError(format!("invalid {}: {error}", carriers::AUDIO.output))
+        })?;
+        if audio.source_manifest_sha256()
+            != canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
+        {
+            return Err(DeliveryError(
+                "audio carrier source identity mismatch".into(),
+            ));
+        }
+        Ok(Some(Arc::new(audio)))
     }
 
     /// Verifies size and SHA-256 before publishing bytes; failed replacements retain old data.
@@ -239,6 +258,7 @@ impl MemoryCarriers {
                 protocol,
             )?;
             Ok(StartupCarriers {
+                audio: self.audio()?,
                 font: self.font(),
                 world: Arc::new(world),
                 item_facts,
@@ -270,6 +290,7 @@ impl MemoryCarriers {
 }
 /// Validated domain data for client composition; no browser objects escape the web host.
 pub struct StartupCarriers {
+    pub audio: Option<Arc<crate::RuntimeAudioCatalog>>,
     pub font: Option<Arc<crate::RuntimeFontCatalog>>,
     pub world: Arc<RuntimeAssets>,
     pub item_facts: Arc<crate::facts::ItemFacts>,
@@ -304,6 +325,34 @@ mod tests {
                     sha256: Sha256::digest(bytes).into(),
                 })
                 .collect(),
+        }
+    }
+
+    #[test]
+    fn optional_audio_requires_valid_bytes_and_the_pinned_source() {
+        let missing = MemoryCarriers::new(manifest(b"unused")).unwrap();
+        assert!(missing.audio().unwrap().is_none());
+        let pinned = canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes());
+        for (bytes, accepted) in [
+            (
+                crate::encode_audio_catalog(pinned, [0; 32], &[]).unwrap(),
+                true,
+            ),
+            (
+                crate::encode_audio_catalog([0; 32], [0; 32], &[]).unwrap(),
+                false,
+            ),
+            (b"invalid audio".to_vec(), false),
+        ] {
+            let mut index = manifest(&bytes);
+            index.entries.push(DeliveryEntry {
+                name: carriers::AUDIO.name.into(),
+                bytes: bytes.len() as u64,
+                sha256: Sha256::digest(&bytes).into(),
+            });
+            let mut source = MemoryCarriers::new(index).unwrap();
+            source.insert(carriers::AUDIO.name, bytes).unwrap();
+            assert_eq!(source.audio().is_ok(), accepted);
         }
     }
     #[test]

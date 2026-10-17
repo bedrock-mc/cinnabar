@@ -24,6 +24,8 @@ pub fn run(
     canvas: String,
     identity: protocol::ClientRandomId,
     input: Box<dyn FnMut() -> semantic_input::DeviceFrame>,
+    audio: Option<client_audio::audio::SoundBank>,
+    output: client_audio::named_audio::AudioDevice,
 ) -> anyhow::Result<Host> {
     anyhow::ensure!(
         !STARTED.with(std::cell::Cell::get),
@@ -32,7 +34,7 @@ pub fn run(
     let mut settings = bevy::render::settings::WgpuSettings::default();
     render::device_settings::configure(&mut settings);
     let mut app = App::new();
-    let (host, commands) = startup::install(&mut app, startup, identity)?;
+    let (host, commands) = startup::install(&mut app, startup, identity, audio, output)?;
     STARTED.with(|started| started.set(true));
     app.add_plugins(
         DefaultPlugins

@@ -6,7 +6,7 @@ use bevy::render::settings::WgpuSettings;
 pub fn configure(settings: &mut WgpuSettings) {
     #[cfg(target_arch = "wasm32")]
     {
-        settings.priority = bevy::render::settings::WgpuSettingsPriority::WebGPU;
+        settings.priority = bevy::render::settings::WgpuSettingsPriority::Functionality;
         settings.backends = Some(wgpu::Backends::BROWSER_WEBGPU);
     }
     // Shipping installs use FXC; a DLL in the launch directory must not change that.

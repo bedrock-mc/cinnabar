@@ -4,8 +4,8 @@
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected
 session I/O and canvas input. A wasm artifact builds. Browser boot and join/transfer acceptance
-remain unverified; interactive UI controls, audio delivery/playback and hardware budgets remain
-incomplete. This adds no completed parity or browser-release gate.
+remain unverified. Audio ranges feed the existing decoder and Web Audio mixer, but real
+playback acceptance remains unverified. Interactive UI controls and hardware budgets remain incomplete. This adds no completed parity or browser-release gate.
 
 ## Redstone dust item sprite
 

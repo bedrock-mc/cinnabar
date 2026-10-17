@@ -1,6 +1,12 @@
 //! Source-owned retirement. Cancellation NEVER releases a submitted reservation.
 use assets::RuntimeAudioPcm;
-use rodio::{OutputStream, OutputStreamHandle, Source};
+use rodio::Source;
+#[cfg(not(target_arch = "wasm32"))]
+use rodio::{OutputStream, OutputStreamHandle};
+#[cfg(target_arch = "wasm32")]
+mod browser;
+#[cfg(target_arch = "wasm32")]
+use browser::Output;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::{
@@ -153,12 +159,21 @@ impl Source for CancelablePcm {
 const MIXER_RATE: u32 = 48_000;
 
 /// Keeps the default output alive on the platform that owns its callbacks.
+#[cfg(not(target_arch = "wasm32"))]
 struct Output {
     handle: OutputStreamHandle,
-    #[cfg(not(target_arch = "wasm32"))]
     _release: Sender<()>,
-    #[cfg(target_arch = "wasm32")]
-    _stream: OutputStream,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Output {
+    /// Submits one source to the retained native output handle.
+    fn play_raw(
+        &self,
+        source: impl Source<Item = f32> + Send + 'static,
+    ) -> Result<(), rodio::PlayError> {
+        self.handle.play_raw(source)
+    }
 }
 
 /// The shared output half from its owner thread, with a sender whose drop releases the stream.
@@ -205,20 +220,22 @@ impl AudioDevice {
             }
         }
     }
-    /// Opens Web Audio on the calling browser turn, which must carry a user gesture.
+    /// Opens Web Audio; a later user gesture resumes its retained context.
     #[cfg(target_arch = "wasm32")]
     pub fn open_default_once() -> Self {
-        let Some((stream, (handle, sample_rate))) = open_default_stream() else {
+        let Some((output, sample_rate)) = Output::open() else {
             return Self::disabled();
         };
         Self {
-            output: Some(Output {
-                handle,
-                _stream: stream,
-            }),
+            output: Some(output),
             sample_rate,
             ..Self::disabled()
         }
+    }
+    /// Returns the context driving the actual mixer so gestures resume the retained stream.
+    #[cfg(target_arch = "wasm32")]
+    pub fn browser_context(&self) -> Option<web_sys::AudioContext> {
+        self.output.as_ref().map(Output::context)
     }
     /// Takes the output once its owner thread finishes opening it; a failed open stays disabled.
     fn resolve(&mut self) {
@@ -325,10 +342,10 @@ impl AudioDevice {
             return true;
         }
         self.resolve();
-        let Some(Output { handle, .. }) = &self.output else {
+        let Some(output) = &self.output else {
             return false;
         };
-        if handle
+        if output
             .play_raw(priority::CallbackSource::new(source))
             .is_err()
         {
@@ -348,10 +365,10 @@ impl AudioDevice {
             return true;
         }
         self.resolve();
-        let Some(Output { handle, .. }) = &self.output else {
+        let Some(output) = &self.output else {
             return false;
         };
-        if handle
+        if output
             .play_raw(priority::CallbackSource::new(
                 source.convert_samples::<f32>(),
             ))
@@ -366,6 +383,7 @@ impl AudioDevice {
 }
 
 /// Opens the default output at its default rate, or `None` with a logged reason.
+#[cfg(not(target_arch = "wasm32"))]
 fn open_default_stream() -> Option<(OutputStream, (OutputStreamHandle, u32))> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
     let Some(device) = rodio::cpal::default_host().default_output_device() else {

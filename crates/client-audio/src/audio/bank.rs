@@ -27,7 +27,7 @@ use super::{server::ServerSoundPack, voice::Pcm};
 
 pub const SOUND_BANK_FILENAME: &str = assets::carriers::AUDIO_BANK.output;
 #[cfg(not(target_arch = "wasm32"))]
-const HEADER_READ_BYTES: usize = 40;
+const HEADER_READ_BYTES: usize = assets::sound_bank::HEADER_BYTES;
 const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
 /// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
 const DECODE_WORKERS: usize = 2;

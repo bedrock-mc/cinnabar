@@ -12,8 +12,10 @@ use wasm_bindgen::prelude::{JsError, JsValue, wasm_bindgen};
 use wasm_bindgen_futures::spawn_local;
 use web_transport::{CloseReason, browser::BrowserTransport, session::AccountOperation};
 
+mod audio;
 mod game;
 mod timer;
+pub use audio::SoundSource;
 pub use game::Game;
 
 /// Samples the browser's monotonic clock only at the platform edge.
@@ -269,20 +271,36 @@ impl Carriers {
         canvas: String,
         input: &crate::BrowserInput,
         identity: i64,
+        audio: Option<SoundSource>,
     ) -> Result<Game, JsError> {
         console_error_panic_hook::set_once();
         let startup = self.into_startup().map_err(error)?;
         let identity = protocol::ClientRandomId::new(identity)
             .ok_or_else(|| JsError::new("invalid client identity"))?;
         let mut input = input.clone();
-        cinnabar::browser::run(
+        let (bank, audio_task) = match audio {
+            Some(audio) => {
+                let (bank, task) = audio.start(startup.audio.clone());
+                (Some(bank), Some(task))
+            }
+            None => (None, None),
+        };
+        let output = if bank.is_some() {
+            client_audio::named_audio::AudioDevice::open_default_once()
+        } else {
+            client_audio::named_audio::AudioDevice::disabled()
+        };
+        let context = output.browser_context();
+        let host = cinnabar::browser::run(
             startup,
             canvas,
             identity,
             Box::new(move || input.take_device()),
+            bank,
+            output,
         )
-        .map(Game::new)
-        .map_err(|error| JsError::new(&error.to_string()))
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(Game::new(host, context, audio_task))
     }
 }
 /// Presents a carrier validation failure with the canonical rebuild hint.

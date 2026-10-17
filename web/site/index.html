@@ -21,10 +21,12 @@ a { color: #a9dad2; }
 <label>Server address <input id="server" placeholder="Server address and optional port" maxlength="255"></label>
 <button id="join" disabled>Join server</button> <button id="disconnect" disabled>Disconnect</button>
 <p id="status" role="status">Loading browser module…</p>
+<p id="audio-status" role="status"></p>
 <canvas id="game" aria-label="Client canvas"></canvas>
 <script type="module">
-import init, { Page, Carriers, BrowserInput, manifest_limit } from "./pkg/web_client.js";
+import init, { Page, Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } from "./pkg/web_client.js";
 import { boundedBytes, canvasEdges, pageLifecycle } from "./edges.mjs";
+import { openSoundBank } from "./audio.mjs";
 /** Finds a page control by its stable DOM identifier. */
 const element = (id) => document.getElementById(id);
 const status = element("status");
@@ -52,6 +54,7 @@ async function prepare(input) {
   if (!manifestResponse.ok) throw new Error("Delivery manifest unavailable");
   const manifest = JSON.parse(new TextDecoder().decode(await boundedBytes(manifestResponse, manifest_limit(), false)));
   let carriers = new Carriers(JSON.stringify(manifest));
+  let audio;
   try {
     for (const [name, path] of JSON.parse(carriers.entries())) {
       const entry = manifest.entries.find((entry) => entry.name === name);
@@ -61,8 +64,17 @@ async function prepare(input) {
     const prepared = carriers;
     carriers = null;
     const identity = crypto.getRandomValues(new BigInt64Array(1))[0] || 1n;
-    return prepared.boot("#game", input, identity);
-  } finally { carriers?.free(); }
+    try {
+      const bank = await openSoundBank(new URL(sound_bank_filename(), base), sound_bank_header_bytes(), sound_bank_prefix_bytes);
+      audio = new SoundSource(bank.prefix, bank.total, bank.source);
+      element("audio-status").textContent = "Click the game to enable sound.";
+    } catch (error) {
+      element("audio-status").textContent = `Sound unavailable: ${error.message}`;
+    }
+    const sound = audio;
+    audio = undefined;
+    return prepared.boot("#game", input, identity, sound);
+  } finally { carriers?.free(); audio?.free(); }
 }
 
 try {
@@ -99,10 +111,15 @@ try {
   };
   element("disconnect").onclick = () => game?.disconnect();
   const input = new BrowserInput();
-  const audio = new AudioContext();
+  const audio = {
+    /** Resumes the context retained by the game's output device. */
+    resume: () => game?.resume_audio() || Promise.resolve(),
+    /** Suspends that same context during cached navigation. */
+    suspend: () => game?.suspend_audio() || Promise.resolve(),
+  };
   const stop = canvasEdges(element("game"), input, audio);
   pageLifecycle(input, audio, () => page, () => {
-    stop(); game?.free(); input.free(); page?.free(); audio.close().catch(() => {});
+    stop(); game?.free(); input.free(); page?.free();
   });
 } catch (error) { status.textContent = error.message; }
 

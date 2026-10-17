@@ -40,6 +40,7 @@ fn screen_focus(
 
 /// Installs production owners in the same authority, simulation and publication phases.
 pub(super) fn configure(app: &mut App) {
+    crate::primitive_shapes::configure(app);
     use crate::ui_runtime::presentation::{
         observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
     };

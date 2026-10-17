@@ -2466,6 +2466,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tokio",
+ "web-sys",
  "web-time",
  "windows-sys 0.61.2",
  "world",
@@ -9787,6 +9788,7 @@ dependencies = [
  "assets",
  "bridge",
  "cinnabar",
+ "client-audio",
  "client-session",
  "console_error_panic_hook",
  "futures",
@@ -9800,6 +9802,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
  "web-transport",
 ]
 

@@ -18,7 +18,7 @@ impl Drop for Task {
 }
 impl Task {
     /// Runs browser-local work without requiring Send or a Tokio runtime.
-    fn spawn(work: impl Future<Output = ()> + 'static) -> Self {
+    pub(super) fn spawn(work: impl Future<Output = ()> + 'static) -> Self {
         let (abort, registration) = AbortHandle::new_pair();
         spawn_local(async move {
             let _ = Abortable::new(work, registration).await;
@@ -63,10 +63,16 @@ pub struct Game {
     host: Rc<RefCell<cinnabar::browser::Host>>,
     play: Option<Task>,
     _jobs: Task,
+    _audio_task: Option<Task>,
+    audio: Option<web_sys::AudioContext>,
 }
 impl Game {
     /// Adopts the game host returned after canvas startup.
-    pub(super) fn new(host: cinnabar::browser::Host) -> Self {
+    pub(super) fn new(
+        host: cinnabar::browser::Host,
+        audio: Option<web_sys::AudioContext>,
+        audio_task: Option<Task>,
+    ) -> Self {
         let jobs = Task::spawn(async {
             let mut jobs = cinnabar::browser::Jobs::default();
             let mut delay = Duration::from_millis(16);
@@ -80,6 +86,8 @@ impl Game {
             }
         });
         Self {
+            audio,
+            _audio_task: audio_task,
             _jobs: jobs,
             host: Rc::new(RefCell::new(host)),
             play: None,
@@ -88,6 +96,22 @@ impl Game {
 }
 #[wasm_bindgen]
 impl Game {
+    /// Resumes the real game mixer during the canvas's user gesture.
+    pub fn resume_audio(&self) -> Result<js_sys::Promise, wasm_bindgen::JsValue> {
+        self.audio.as_ref().map_or_else(
+            || Ok(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)),
+            web_sys::AudioContext::resume,
+        )
+    }
+
+    /// Suspends the retained mixer while the page lives in the browser's navigation cache.
+    pub fn suspend_audio(&self) -> Result<js_sys::Promise, wasm_bindgen::JsValue> {
+        self.audio.as_ref().map_or_else(
+            || Ok(js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED)),
+            web_sys::AudioContext::suspend,
+        )
+    }
+
     /// Starts a fresh manual join, cancelling the previous play task and its writer.
     pub fn join(&mut self, page: &Page, address: &str) -> Result<(), JsError> {
         let bridge::ConnectTarget::RakNet(address) =
@@ -116,6 +140,9 @@ impl Game {
 impl Drop for Game {
     fn drop(&mut self) {
         self.disconnect();
+        if let Some(audio) = &self.audio {
+            let _ = audio.close();
+        }
     }
 }
 

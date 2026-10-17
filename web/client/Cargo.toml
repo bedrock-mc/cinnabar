@@ -25,6 +25,8 @@ console_error_panic_hook = "0.1.7"
 protocol = { path = "../../crates/protocol" }
 client-session = { path = "../../crates/client-session" }
 cinnabar = { path = "../../app", default-features = false }
+client-audio = { path = "../../crates/client-audio" }
+web-sys = { version = "0.3.104", features = ["AudioContext"] }
 js-sys = "0.3.104"
 wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4.77"

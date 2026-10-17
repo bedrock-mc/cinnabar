@@ -8,17 +8,26 @@ use bevy::render::{
 };
 
 /// Returns no resource when allocation or staging ran out of memory on this thread.
+/// WebGPU reports errors asynchronously through Bevy's device error handler instead.
 pub(crate) fn checked<T>(
     device: &RenderDevice,
     label: &str,
     bytes: u64,
     create: impl FnOnce() -> T,
 ) -> Option<T> {
+    #[cfg(not(target_arch = "wasm32"))]
     let scope = device
         .wgpu_device()
         .push_error_scope(wgpu::ErrorFilter::OutOfMemory);
     let resource = create();
+    #[cfg(not(target_arch = "wasm32"))]
     let failed = bevy::tasks::block_on(scope.pop()).is_some();
+    #[cfg(target_arch = "wasm32")]
+    let failed = {
+        // A WebGPU error-scope promise cannot settle while this browser turn is blocked.
+        let _ = device;
+        false
+    };
     #[cfg(test)]
     let failed = failed
         || FAILURE.with_borrow_mut(|hook| hook.as_mut().is_some_and(|hook| hook(label, bytes)));

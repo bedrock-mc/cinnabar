@@ -44,6 +44,8 @@ pub(super) fn install(
     app: &mut App,
     startup: StartupCarriers,
     identity: protocol::ClientRandomId,
+    audio: Option<client_audio::audio::SoundBank>,
+    output: client_audio::named_audio::AudioDevice,
 ) -> Result<(Host, HostCommands)> {
     let entities = Arc::new(startup.entities);
     network::set_vanilla_item_paths(&entities);
@@ -157,8 +159,8 @@ pub(super) fn install(
         .insert_resource(movement)
         .init_resource::<client_audio::session_audio::SessionAudioCatalog>()
         .insert_resource(client_audio::named_audio::NamedAudio::new(None))
-        .insert_resource(client_audio::audio::AudioEngine::new(None))
-        .insert_non_send(client_audio::named_audio::AudioDevice::disabled())
+        .insert_resource(client_audio::audio::AudioEngine::new(audio))
+        .insert_non_send(output)
         .insert_resource(PhysicsAuthorityGate::ProductionEnabled)
         .insert_resource(skin)
         .init_resource::<LocalPhysicsController>()
@@ -195,7 +197,6 @@ pub(super) fn install(
     }
     crate::block_entities::configure(app, font);
     crate::block_selection::configure(app);
-    crate::primitive_shapes::configure(app);
     crate::particles::configure_particles(app);
     Ok(host)
 }

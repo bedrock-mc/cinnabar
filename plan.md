@@ -225,6 +225,8 @@ on suspension or disposal. Explicit retries retain the account after admission o
 refusals; expired or refused resume requires a new session. Typed control payloads share
 Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
 finishing a join retires control so the next login obtains a new generation.
+A valid resume replaces the prior relay controller and cancels its channels even during
+transport teardown. New play waits for the old handler to finish while retaining the account.
 
 The browser entry accepts verified memory carriers and an optional bundled font, then builds
 shared world, actor, movement and HUD owners on the page canvas. A server-address field opens
@@ -232,10 +234,13 @@ one relay play lease through the existing login and packet pump. Disconnect reti
 authority; bounded server transfers open fresh play generations. Canvas input enters the same
 semantic router. Native pacing, processes, signing, disk caches and menu services remain native.
 Renderer, geometry, UI preparation and retired snapshots use bounded browser job slots.
+Pending cloud windows yield until their exact geometry is ready. WebGPU reports allocation
+errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
 
-Incomplete: interactive inventory/chat/forms controls, sound-bank range fetching and audio
-playback remain pending. The shared audio bank has bounded host-driven decode admission and
-stale-result rejection, but browser playback is not wired. A wasm artifact builds; browser boot,
+The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
+The existing decoder and mixer feed Web Audio, resumed by a canvas gesture and suspended
+on cached navigation. Browser range/decode/playback acceptance remains unverified.
+Incomplete: interactive inventory/chat/forms controls remain pending. A wasm artifact builds; browser boot,
 relay join/transfer acceptance, shader output comparisons on WebGPU and Metal, and indivisible
 job costs still require verification. Cached navigation retains page resources and restores
 relay controls with an unexpired capability. No browser release or parity gate closes here.
