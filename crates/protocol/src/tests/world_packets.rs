@@ -2,6 +2,8 @@ use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
 
 #[path = "world_packets/block_sync.rs"]
 mod block_sync;
+#[path = "world_packets/crafting_rules.rs"]
+mod crafting_rules;
 #[path = "world_packets/dimension.rs"]
 mod dimension;
 #[path = "world_packets/lighting_diagnostics.rs"]
@@ -741,6 +743,7 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
             weather_cycle: None,
             hud: HudRules::default(),
             death: Default::default(),
+            crafting: Default::default(),
         }))
     );
 
@@ -779,6 +782,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
                 show_days_played: Some(false),
             },
             death: Default::default(),
+            crafting: Default::default(),
         }))
     );
     let mut game_data = game_data();

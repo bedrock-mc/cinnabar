@@ -149,6 +149,10 @@ pub use inventory::{
     repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
+    CraftingRules, FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
+};
+pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS,
 };
@@ -162,10 +166,6 @@ pub use inventory::{
     WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
     is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
     ui_slot_for_name, ui_slot_request_container,
-};
-pub use inventory::{
-    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
-    furnace_options_packet,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,

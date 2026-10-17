@@ -1,11 +1,13 @@
 //! Inactive, committed crafting projection. This owns no request, journal or UI.
 mod budget;
 mod observation;
+mod policy;
 mod projection;
 
 use projection::{
-    ALL_DOMAINS, AUTHORITY_DOMAIN, CATALOG_DOMAIN, Observation, Queue, REGISTRY_DOMAIN, Record,
-    RegistryOwner, StackOwner, UNLOCKS_DOMAIN, event_domain, transaction_cell_index,
+    ALL_DOMAINS, AUTHORITY_DOMAIN, CATALOG_DOMAIN, CRAFTING_RULES_DOMAIN, Observation, Queue,
+    REGISTRY_DOMAIN, Record, RegistryOwner, StackOwner, UNLOCKS_DOMAIN, event_domain,
+    transaction_cell_index,
 };
 use protocol::{InventoryAuthority, InventoryEvent, RecipeCatalog, VerifiedNetworkItemStack};
 use std::{num::NonZeroU64, sync::Arc};
@@ -55,6 +57,8 @@ pub(super) struct CraftingAuthority {
     catalog: Arc<RecipeCatalog>,
     catalog_lost: bool,
     unlocks: protocol::RecipeUnlockState,
+    unlock_component: Option<bool>,
+    rules: protocol::CraftingRules,
     grid: [Option<Arc<StackOwner>>; 4],
     cursor: Option<Arc<StackOwner>>,
     queue: Option<Arc<Queue>>,
@@ -89,6 +93,8 @@ impl CraftingAuthority {
             catalog: Arc::new(catalog),
             catalog_lost: true,
             unlocks: Default::default(),
+            unlock_component: Some(false),
+            rules: protocol::CraftingRules::default().resolved(),
             grid: std::array::from_fn(|_| None),
             cursor: None,
             queue: None,
@@ -155,6 +161,10 @@ impl CraftingAuthority {
         }
         if domains & UNLOCKS_DOMAIN != 0 {
             self.unlocks.clear();
+            self.unlock_component = None;
+        }
+        if domains & CRAFTING_RULES_DOMAIN != 0 {
+            self.rules = protocol::CraftingRules::default();
         }
         if domains & AUTHORITY_DOMAIN != 0 {
             self.authority = None;
@@ -200,6 +210,19 @@ impl CraftingAuthority {
     /// The committed name authority; recipe and unlock observations share one FIFO.
     pub(super) fn recipe_unlocks(&self) -> &protocol::RecipeUnlockState {
         &self.unlocks
+    }
+
+    /// Complete rules at the committed frontier; partial recovery cannot restore missing fields.
+    pub(super) fn crafting_rules(&self) -> Option<protocol::CraftingRules> {
+        self.rules.is_complete().then_some(self.rules)
+    }
+
+    /// Publishes startup rules before any session observations can replace them.
+    pub(super) fn bootstrap_rules(&mut self, rules: protocol::CraftingRules) {
+        if self.accepts_bootstrap() {
+            self.rules = rules.resolved();
+            self.changed_cells();
+        }
     }
 
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
@@ -294,17 +317,21 @@ impl CraftingAuthority {
         registry: Option<&protocol::ItemRegistryEvent>,
         authority: InventoryAuthority,
     ) {
-        if self.observed != 0
-            || self.consumed != 0
-            || self.barrier != 0
-            || self.authority_loss != 0
-            || self.epoch != 0
-        {
+        if !self.accepts_bootstrap() {
             return;
         }
         self.registry = registry.and_then(|event| self.registry_owner(event));
         self.authority = Some(authority);
         observation::bootstrap(self.session, self.registry.is_some());
+    }
+
+    /// Bootstrap facts are admissible only before the stream or an authority loss begins.
+    fn accepts_bootstrap(&self) -> bool {
+        self.observed == 0
+            && self.consumed == 0
+            && self.barrier == 0
+            && self.authority_loss == 0
+            && self.epoch == 0
     }
 
     pub(super) fn observe(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
@@ -331,6 +358,9 @@ impl CraftingAuthority {
             }
             InventoryAuthorityEvent::Inventory(InventoryEvent::RecipeUnlocks(update)) => {
                 Observation::RecipeUnlocks(update.clone())
+            }
+            InventoryAuthorityEvent::Inventory(InventoryEvent::CraftingRules(rules)) => {
+                Observation::CraftingRules(*rules)
             }
             InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) => {
                 let index = match protocol::project_container_cell(
@@ -477,7 +507,22 @@ impl CraftingAuthority {
                         }
                     }
                 }
-                Observation::RecipeUnlocks(update) => self.unlocks.apply(&self.catalog, update),
+                Observation::RecipeUnlocks(update) => {
+                    self.unlock_component = if update.is_unavailable() {
+                        self.unlock_component.filter(|present| *present)
+                    } else {
+                        Some(true)
+                    };
+                    self.unlocks.apply(&self.catalog, update);
+                    self.changed_cells();
+                }
+                Observation::CraftingRules(update) => {
+                    let previous = self.rules;
+                    self.rules.apply(*update);
+                    if self.rules != previous {
+                        self.changed_cells();
+                    }
+                }
                 Observation::Authority(authority) if record.sequence > self.authority_loss => {
                     self.authority = Some(*authority)
                 }
@@ -606,8 +651,17 @@ impl CraftingAuthority {
                     .map_or(ManualCraftCell::Unknown, ManualCraftCell::Present)
             }
         });
-        let value =
-            crate::match_manual_grid(&self.catalog, self.session, &registry.snapshot, &grid);
+        let value = if self.manual_recipes_available() {
+            crate::matching::match_manual_grid_where(
+                &self.catalog,
+                self.session,
+                &registry.snapshot,
+                &grid,
+                |recipe| self.manual_recipe_allowed(recipe),
+            )
+        } else {
+            ManualCraftMatch::Unavailable
+        };
         self.preview = Some(Arc::new(PreviewOwner {
             value,
             _registry: Arc::clone(registry),

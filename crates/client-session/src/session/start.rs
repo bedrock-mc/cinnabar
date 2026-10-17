@@ -127,6 +127,7 @@ pub fn spawn_network<P: Send + 'static>(
                         hardcore: settings.hardcore,
                         hud_rules: settings.hud_rules,
                         death_rules: settings.death_rules,
+                        crafting_rules: settings.crafting_rules,
                         packs,
                         terrain_before_spawn: session.terrain_before_spawn(),
                         level_identity: game_data.level_identity,
