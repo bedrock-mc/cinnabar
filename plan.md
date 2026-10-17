@@ -8279,6 +8279,13 @@ attributes and exits remain open. The 49-scenario, 1,112-tick Go differential ch
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
 
+Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
+a due packet. Known values and transport-admission retries are retained. Completed local
+sneak/sprint flags and the standard unscaled walking pose height reach a due sync before
+a server echo. Other models and poses retain their supplied sizes. Full correction-state,
+custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
+incomplete.
+
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
 Ready ledger requests now share one ItemStackRequest packet, retaining each request's
@@ -9918,3 +9925,11 @@ Incomplete parity: the installed native cutout material supports this offset,
 but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
+
+
+## Correction sync posture (incomplete)
+
+Correction-sync packets combine received actor metadata with the completed local
+sneak and sprint states. Undefined attributes retain their wire defaults and refused
+sends remain pending. Other locally predicted flags, bounding-box updates, history
+loss and exact send phase remain open; this does not close movement parity.
