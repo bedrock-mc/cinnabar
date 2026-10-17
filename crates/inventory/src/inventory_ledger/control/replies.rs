@@ -96,6 +96,7 @@ impl PlayerInventoryLedger {
                 ..window
             }
         } else {
+            self.note_unrouted_container();
             self.reject_window(window_id, open.window_type);
             return;
         };

@@ -140,7 +140,6 @@ impl PlayerInventoryLedger {
                     .is_some_and(|window| window.window_id == window_id)
             })
         {
-            self.note_unrouted_container();
             return;
         }
         let generation = self.next_open_generation;
