@@ -37,6 +37,8 @@ pub struct HudModel {
     pub tip: Option<Timed>,
     pub item_name: Option<Timed>,
     pub chat: Vec<Timed>,
+    /// Optional presentation color; parser inputs retain the original message bytes.
+    pub chat_color: Option<char>,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,

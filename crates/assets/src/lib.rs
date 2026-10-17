@@ -207,6 +207,7 @@ pub use icon::{
     MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES,
     MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog, compose_block_item_sheet,
     encode_icon_catalog, encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
+    encode_icon_catalog_with_sources,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,

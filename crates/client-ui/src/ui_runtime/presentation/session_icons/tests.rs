@@ -487,3 +487,31 @@ fn carried_sheets_keep_exact_variants_and_only_fall_back_to_zero() {
         }
     }
 }
+
+#[test]
+fn unshaded_session_cubes_keep_their_baked_thumbnail_and_held_sheet() {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let mut icons = SessionIcons {
+        icons: vec![sprite(0)],
+        block_sheets: vec![SessionIcon {
+            identifier: Arc::from("test:variant"),
+            metadata: 0,
+            width,
+            height,
+            rgba8: vec![255; (width * height * 4) as usize].into(),
+        }],
+        ..Default::default()
+    };
+    let packed = pack(&icons, 7).unwrap();
+    assert_eq!(block_cubes(&icons, &packed).len(), 1);
+    icons.block_material_flags.insert(
+        "test:variant".into(),
+        assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+    );
+    assert!(
+        block_cubes(&icons, &packed).is_empty(),
+        "a shaded mesh must not replace the unshaded icon"
+    );
+    assert!(packed.refs["test:variant"].contains_key(&0));
+    assert!(packed.sheets["test:variant"].contains_key(&0));
+}
