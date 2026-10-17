@@ -95,7 +95,6 @@ impl Plugin for FlyCameraPlugin {
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
-                    .after(crate::render_mode::RenderModeUpdateSet)
                     .before(FlyCameraUpdateSet),
                 (
                     presentation::collect_death_fov_inputs,

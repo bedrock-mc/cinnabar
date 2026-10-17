@@ -259,7 +259,7 @@ pub(super) fn hand_fixture() -> (
     render_model::ViewmodelGeometry,
     std::sync::Arc<assets::RuntimeEntityAssets>,
 ) {
-    use assets::{RuntimeEntityAssets, actor::RuntimeActorCatalog, encode_entity_blob};
+    use assets::{RuntimeActorCatalog, RuntimeEntityAssets, encode_entity_blob};
     let root = std::env::temp_dir().join(format!(
         "neutral-hand-fixture-{}-{}",
         std::process::id(),

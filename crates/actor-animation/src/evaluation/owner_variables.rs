@@ -30,12 +30,6 @@ impl<'a> ActorAnimationVariables<'a> {
         }
     }
 
-    /// Replaces script values while retaining the owner's clocks, movement and item context.
-    pub(crate) fn with_values(mut self, variables: &'a MolangVariables) -> Self {
-        self.variables = Some(variables);
-        self
-    }
-
     /// Equipment observes the same fixed-tick movement and swim blend as its owner.
     pub(crate) fn with_input(mut self, input: Option<ActorTickInput>) -> Self {
         self.input = input;

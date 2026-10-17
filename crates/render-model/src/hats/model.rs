@@ -128,7 +128,7 @@ pub(super) fn build(
     {
         return None;
     }
-    let pixels = image::imageops::resize(
+    let pixels: SkinRgba8 = image::imageops::resize(
         &image,
         crate::STANDARD_SKIN_SIDE as u32,
         crate::STANDARD_SKIN_SIDE as u32,
@@ -136,21 +136,27 @@ pub(super) fn build(
     )
     .into_raw()
     .into();
+    let world_pixels = item
+        .render_flags
+        .emissive
+        .then(|| emissive_raster(&pixels).into());
     let texture = CapeImage {
         width: image.width(),
         height: image.height(),
         rgba8: image.into_raw().into(),
     };
-    let playback = cosmetics_animation::Playback::build(
-        &mut definition,
-        &model
-            .bones
-            .iter()
-            .map(|bone| bone.name.as_ref())
-            .collect::<Vec<_>>(),
-        &mut original,
-        &mut parents,
+    let names: Vec<_> = model.bones.iter().map(|bone| bone.name.as_ref()).collect();
+    let emitters = emitters::build(
+        std::mem::take(&mut definition.particles),
+        &names,
+        item.assets
+            .animation
+            .as_ref()
+            .map(|asset| asset.sha256.as_str()),
+        (&texture, &item.assets.texture.sha256),
     )?;
+    let playback =
+        cosmetics_animation::Playback::build(&mut definition, &names, &mut original, &mut parents)?;
     while flex.len() < parents.len() {
         flex.push(flex[parents[flex.len()]?]);
     }
@@ -176,6 +182,8 @@ pub(super) fn build(
         rest_vertices: Arc::from([]),
         texture,
         pixels,
+        world_pixels,
+        emitters,
         wind: definition.wind,
     };
     let root = rig.geometry.bone_pivots[head];
@@ -214,4 +222,32 @@ pub(super) fn build(
         .collect::<Vec<_>>()
         .into();
     Some(rig)
+}
+
+/// Converts preview texels to the emissive-alpha world raster: opaque texels keep their colour
+/// with zero alpha, which the actor shader draws fullbright, and every other texel becomes the
+/// all-zero value it discards. Opaque black is lifted to the darkest colour that still draws.
+pub(super) fn emissive_raster(rgba8: &[u8]) -> Arc<[u8]> {
+    rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, a]| match a {
+            128.. if [r, g, b] == [0; 3] => [1, 1, 1, 0],
+            128.. => [r, g, b, 0],
+            _ => [0; 4],
+        })
+        .collect()
+}
+
+impl HatRig {
+    /// Whether the world draws this item fullbright from [`Self::world_pixels`].
+    pub fn emissive(&self) -> bool {
+        self.world_pixels.is_some()
+    }
+
+    /// The raster world submissions sample; previews and thumbnails keep [`Self::pixels`].
+    pub fn world_pixels(&self) -> &SkinRgba8 {
+        self.world_pixels.as_ref().unwrap_or(&self.pixels)
+    }
 }

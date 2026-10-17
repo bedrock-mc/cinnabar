@@ -1,28 +1,18 @@
 use super::resource_geometry::PreparedResourceGeometry;
-use super::texture_upload::build_carrier_texture_assets;
-#[cfg(feature = "enhanced")]
-use super::{authored_upload, authored_upload::AuthoredUpload};
-use crate::chunk::*;
-use bevy::color::ColorToPacked;
-#[cfg(feature = "enhanced")]
-use bevy::render::render_resource::TextureViewId;
 
 mod reload;
+use crate::chunk::*;
+use crate::queue_writes::ProfiledQueue as _;
+use bevy::color::ColorToPacked;
 pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
-#[cfg(feature = "enhanced")]
-use render_scene::EnhancedTextureAssets;
 use render_scene::{
     BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
     ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
-    TextureMipUploadPlan, TextureUploadPlanError, plan_texture_mip_uploads,
-    texture_asset_needs_rebuild,
+    TextureArrayLimits, TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
+    plan_texture_mip_uploads, plan_texture_page_bindings, texture_asset_needs_rebuild,
 };
 
-#[cfg(test)]
-use super::texture_upload::build_chunk_texture_assets;
-#[cfg(all(test, feature = "enhanced"))]
-mod carrier_tests;
 #[cfg(test)]
 mod water_tint_tests;
 
@@ -49,8 +39,6 @@ pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) atmosphere: BufferId,
     pub(in crate::chunk) biome_tint_table: ChunkBiomeTintResourceIdentity,
     pub(in crate::chunk) textures: ChunkTextureAssetIdentity,
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) enhanced_texture_refs: BufferId,
 }
 
 #[repr(C)]
@@ -139,6 +127,8 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
 pub(in crate::chunk) struct PreparedChunkBiomeTints {
     pub(in crate::chunk) identity: ChunkBiomeTintResourceIdentity,
     pub(in crate::chunk) buffer: Buffer,
+    /// The blend kernel's constant lookup tables; see `biome_lattice::query_table_words`.
+    pub(in crate::chunk) query_tables: Buffer,
 }
 
 #[derive(Resource, Default)]
@@ -189,15 +179,23 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         contents: bytemuck::cast_slice(&entries),
         usage: BufferUsages::STORAGE,
     });
+    let query_tables = match gpu.prepared.take() {
+        Some(prepared) => prepared.query_tables,
+        None => render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("packed chunk biome query tables"),
+            contents: bytemuck::cast_slice(&meshing::biome_lattice::query_table_words()),
+            usage: BufferUsages::UNIFORM,
+        }),
+    };
     gpu._retained_entries = Some(Arc::clone(&source.entries));
-    gpu.prepared = Some(PreparedChunkBiomeTints { identity, buffer });
+    gpu.prepared = Some(PreparedChunkBiomeTints {
+        identity,
+        buffer,
+        query_tables,
+    });
 }
 
-#[derive(Clone)]
 pub(in crate::chunk) struct PreparedChunkTextureAssets {
-    /// Retains the authored source represented by the current GPU bindings.
-    #[cfg(feature = "enhanced")]
-    pub(super) authored_source: Option<Arc<EnhancedTextureAssets>>,
     pub(in crate::chunk) identity: ChunkTextureAssetIdentity,
     pub(in crate::chunk) material_buffer: Buffer,
     pub(in crate::chunk) animation_buffer: Buffer,
@@ -205,25 +203,8 @@ pub(in crate::chunk) struct PreparedChunkTextureAssets {
     pub(in crate::chunk) model_template_buffer: Buffer,
     pub(in crate::chunk) _textures: [Texture; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) views: [TextureView; assets::MAX_TEXTURE_PAGES],
-    /// Neutral normal and MER pages that stand in for detached authored maps.
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) _pbr_textures: [Texture; 4],
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) pbr_views: [TextureView; 4],
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) _enhanced_textures: [Texture; 6],
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) enhanced_views: [TextureView; 6],
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) enhanced_texture_refs: Buffer,
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) authored_bytes: u64,
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) authored_upload_bytes: u64,
     pub(in crate::chunk) native_leaf_views: [TextureView; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) sampler: Sampler,
-    #[cfg(feature = "enhanced")]
-    pub(in crate::chunk) enhanced_sampler: Sampler,
     pub(in crate::chunk) native_leaf_sampler: Sampler,
 }
 
@@ -236,12 +217,9 @@ pub(in crate::chunk) fn init_chunk_gpu_animation_clock(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
 ) {
-    let words = crate::material_shader::world_uniform_words(bytemuck::cast_slice(
-        std::slice::from_ref(&ChunkAnimationClock::default()),
-    ));
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk clock and biome tables"),
-        contents: bytemuck::cast_slice(&words),
+        label: Some("global chunk animation clock"),
+        contents: bytemuck::bytes_of(&ChunkAnimationClock::default()),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
     commands.insert_resource(ChunkGpuAnimationClock { buffer });
@@ -274,30 +252,12 @@ struct StagedTextures {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct ChunkGpuTextureAssets {
+pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
     staged: Option<StagedTextures>,
-    #[cfg(feature = "enhanced")]
-    authored_pending: Option<AuthoredUpload>,
-}
-
-#[cfg(feature = "enhanced")]
-impl ChunkGpuTextureAssets {
-    /// Identifies the published color pages and references that determine shadow cutouts.
-    pub(crate) fn shadow_texture_key(&self) -> Option<([TextureViewId; 2], BufferId)> {
-        self.prepared.as_ref().map(|prepared| {
-            (
-                [
-                    prepared.enhanced_views[0].id(),
-                    prepared.enhanced_views[1].id(),
-                ],
-                prepared.enhanced_texture_refs.id(),
-            )
-        })
-    }
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -310,6 +270,251 @@ pub struct ChunkTextureUploadStats {
     pub queue_upload_bytes: u64,
 }
 
+/// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
+fn build_chunk_texture_assets(
+    assets: &ChunkTextureAssets,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
+    let _zone = bevy::log::info_span!("pack_apply.gpu_atlas").entered();
+    let identity = assets.identity();
+    let pages = assets.assets().texture_pages();
+    let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
+        bevy::log::error!(
+            page_count = pages.len(),
+            "chunk assets require one or {} texture pages",
+            assets::MAX_TEXTURE_PAGES
+        );
+        return None;
+    };
+    // A session with fewer pages than the format allows binds the remaining
+    // slots to the base carrier's layer zero, which the shaders never sample.
+    let diagnostic_fallback = match diagnostic_texture_page(&pages[0].texture) {
+        Ok(texture) => Some(texture),
+        Err(error) => {
+            bevy::log::error!(?error, "invalid diagnostic texture-page fallback");
+            return None;
+        }
+    };
+    let bound_pages = page_bindings.map(|binding| match binding {
+        TexturePageBinding::Asset(index) => &pages[index].texture,
+        TexturePageBinding::DiagnosticFallback => diagnostic_fallback
+            .as_ref()
+            .expect("binding plan includes a diagnostic fallback"),
+    });
+    let device_limits = render_device.limits();
+    if !crate::material_shader::chunk_atlas_views_fit(&device_limits) {
+        bevy::log::error!(
+            supported = device_limits.max_sampled_textures_per_shader_stage,
+            supported_group_entries = device_limits.max_bindings_per_bind_group,
+            required = crate::material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS,
+            "chunk renderer requires sRGB and native leaf views of each texture page"
+        );
+        return None;
+    }
+    let limits = TextureArrayLimits {
+        max_layers: device_limits.max_texture_array_layers,
+        max_dimension_2d: device_limits.max_texture_dimension_2d,
+    };
+    let mut upload_plans = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);
+    let mut terrain_pages = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);
+    for (binding, texture) in page_bindings.into_iter().zip(bound_pages) {
+        let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
+        if let Err(error) = limits.validate(texture.layers, tile_size) {
+            bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
+            return None;
+        }
+        let mips = bevy::log::info_span!("pack_apply.gpu_atlas_mips").entered();
+        let texture = match match binding {
+            TexturePageBinding::Asset(index) => assets.assets().terrain_texture_page(index),
+            TexturePageBinding::DiagnosticFallback => {
+                assets::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
+            }
+        } {
+            Ok(texture) => texture,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid terrain mip source");
+                return None;
+            }
+        };
+        drop(mips);
+        let plans = match plan_queue_texture_mips(&texture) {
+            Ok(plans) => plans,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid chunk texture-page upload layout");
+                return None;
+            }
+        };
+        upload_plans.push(plans);
+        terrain_pages.push(texture);
+    }
+
+    let material_words = assets
+        .assets()
+        .materials()
+        .iter()
+        .map(|material| MaterialGpu {
+            texture: gpu_texture_reference(assets.assets(), material.texture),
+            flags: material.flags,
+            animation: material.animation,
+            variation_start: material.variation_start,
+            variation_count: material.variation_count,
+            variation_weight: material.variation_weight,
+        })
+        .collect::<Vec<_>>();
+    let animation_words = assets
+        .assets()
+        .animations()
+        .iter()
+        .map(|animation| AnimationGpu {
+            frame_start: animation.frame_start,
+            frame_count: animation.frame_count,
+            ticks_per_frame: animation.ticks_per_frame,
+            flags: animation.flags,
+        })
+        .collect::<Vec<_>>();
+    let animation_frame_words = assets
+        .assets()
+        .animation_frames()
+        .iter()
+        .map(|&frame| gpu_texture_reference(assets.assets(), frame))
+        .collect::<Vec<_>>();
+    let model_template_words = encode_model_template_words(assets.assets());
+    let material_bytes = material_words
+        .len()
+        .saturating_mul(std::mem::size_of::<MaterialGpu>());
+    let animation_bytes = animation_words
+        .len()
+        .saturating_mul(std::mem::size_of::<AnimationGpu>());
+    let animation_frame_bytes = animation_frame_words
+        .len()
+        .saturating_mul(std::mem::size_of::<u32>());
+    let model_template_bytes = model_template_words
+        .len()
+        .saturating_mul(std::mem::size_of::<u32>());
+    for (label, bytes) in [
+        ("material", material_bytes),
+        ("animation", animation_bytes),
+        ("animation frame", animation_frame_bytes),
+        ("model template", model_template_bytes),
+    ] {
+        if !storage_table_fits(
+            bytes,
+            device_limits.max_buffer_size,
+            device_limits.max_storage_buffer_binding_size,
+        ) {
+            bevy::log::error!(label, bytes, "chunk asset table exceeds adapter limits");
+            return None;
+        }
+    }
+    let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk materials"),
+        contents: bytemuck::cast_slice(&material_words),
+        usage: BufferUsages::STORAGE,
+    });
+    let animation_sentinel = [AnimationGpu {
+        frame_start: 0,
+        frame_count: 1,
+        ticks_per_frame: 1,
+        flags: 0,
+    }];
+    let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animations"),
+        contents: if animation_words.is_empty() {
+            bytemuck::cast_slice(&animation_sentinel)
+        } else {
+            bytemuck::cast_slice(&animation_words)
+        },
+        usage: BufferUsages::STORAGE,
+    });
+    let animation_frame_sentinel = [TextureRef::DIAGNOSTIC.raw()];
+    let animation_frame_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animation frames"),
+        contents: bytemuck::cast_slice(if animation_frame_words.is_empty() {
+            &animation_frame_sentinel
+        } else {
+            &animation_frame_words
+        }),
+        usage: BufferUsages::STORAGE,
+    });
+    let model_template_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk model templates"),
+        contents: bytemuck::cast_slice(&model_template_words),
+        usage: BufferUsages::STORAGE,
+    });
+    let mut uploaded_bytes = 0u64;
+    let mut textures = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);
+    let mut views = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);
+    // Upload the mip-rebuilt pages the validator measured, not the raw sources.
+    for (index, (texture, plans)) in terrain_pages.iter().zip(upload_plans).enumerate() {
+        let (texture, view, uploaded) = upload_texture_page(
+            render_device,
+            render_queue,
+            texture,
+            &plans,
+            match index {
+                0 => "global chunk texture page 0",
+                1 => "global chunk texture page 1",
+                2 => "global chunk texture page 2",
+                3 => "global chunk texture page 3",
+                _ => "global chunk texture page 4",
+            },
+        );
+        uploaded_bytes = uploaded_bytes.saturating_add(uploaded);
+        textures.push(texture);
+        views.push(view);
+    }
+    // Current atlas upload retains RGBA8_UNORM.
+    // A view of each existing allocation preserves gamma-space filtering for
+    // world leaves without duplicating texture memory or changing other art.
+    let native_leaf_views = textures
+        .iter()
+        .map(|texture| {
+            texture.create_view(&TextureViewDescriptor {
+                label: Some("native world leaf atlas view"),
+                format: Some(TextureFormat::Rgba8Unorm),
+                dimension: Some(TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .expect("every physical page uploads a view");
+    let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
+    let native_leaf_sampler =
+        render_device.create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
+
+    let mut stats = ChunkTextureUploadStats {
+        upload_count: 1,
+        ..Default::default()
+    };
+    stats.material_bytes = material_bytes as u64;
+    stats.animation_bytes = animation_bytes as u64;
+    stats.animation_frame_bytes = animation_frame_bytes as u64;
+    stats.texture_bytes_including_mips = bound_pages
+        .iter()
+        .flat_map(|texture| texture.mips.iter())
+        .map(|mip| mip.rgba8.len() as u64)
+        .sum();
+    stats.queue_upload_bytes = uploaded_bytes;
+    let prepared = PreparedChunkTextureAssets {
+        identity,
+        material_buffer,
+        animation_buffer,
+        animation_frame_buffer,
+        model_template_buffer,
+        _textures: textures.try_into().expect("every physical page uploads"),
+        views: views
+            .try_into()
+            .expect("every physical page uploads a view"),
+        native_leaf_views,
+        native_leaf_sampler,
+        sampler,
+    };
+    Some((prepared, stats))
+}
+
+/// Array layers repeat atlas tiles without changing vanilla's texel or mip filtering.
 pub(in crate::chunk) fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {
     SamplerDescriptor {
         label: Some("global chunk repeat sampler"),
@@ -353,6 +558,62 @@ pub(in crate::chunk) fn storage_table_fits(
     max_binding_size: u64,
 ) -> bool {
     u64::try_from(bytes).is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= max_binding_size)
+}
+
+/// Uploads validated mip bytes directly, without application-side row padding.
+pub(in crate::chunk) fn upload_texture_page(
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    texture_array: &TextureArray,
+    upload_plans: &[TextureMipUploadPlan],
+    label: &'static str,
+) -> (Texture, TextureView, u64) {
+    let mip_level_count = u32::try_from(texture_array.mips.len())
+        .expect("validated texture pages have a bounded mip count");
+    let texture = render_device.create_texture(&TextureDescriptor {
+        label: Some(label),
+        // Pages may differ in layer size; server overlay pages keep source resolution.
+        size: Extent3d {
+            width: texture_array.mips.first().map_or(1, |mip| mip.size),
+            height: texture_array.mips.first().map_or(1, |mip| mip.size),
+            depth_or_array_layers: texture_array.layers,
+        },
+        mip_level_count,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::Rgba8UnormSrgb,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        view_formats: &[TextureFormat::Rgba8Unorm],
+    });
+    let queue_upload_bytes = write_texture_mips(texture_array, upload_plans, |plan, bytes| {
+        render_queue.profiled_write_texture(
+            TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: plan.mip_level,
+                origin: Origin3d::default(),
+                aspect: Default::default(),
+            },
+            bytes,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(plan.bytes_per_row),
+                rows_per_image: Some(plan.rows_per_image),
+            },
+            Extent3d {
+                width: plan.size,
+                height: plan.size,
+                depth_or_array_layers: texture_array.layers,
+            },
+        );
+    });
+    let view = texture.create_view(&TextureViewDescriptor {
+        label: Some(label),
+        dimension: Some(TextureViewDimension::D2Array),
+        mip_level_count: Some(mip_level_count),
+        array_layer_count: Some(texture_array.layers),
+        ..Default::default()
+    });
+    (texture, view, queue_upload_bytes)
 }
 
 pub(in crate::chunk) fn bind_group_needs_rebuild<K: PartialEq>(
@@ -409,8 +670,6 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         atmosphere: atmosphere.buffer.id(),
         biome_tint_table: biome_tints.identity,
         textures: texture_assets.identity,
-        #[cfg(feature = "enhanced")]
-        enhanced_texture_refs: texture_assets.enhanced_texture_refs.id(),
     };
     if !bind_group_needs_rebuild(
         arena.bind_group.is_some() && arena.transparent_bind_group.is_some(),
@@ -469,7 +728,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             resource: texture_assets.animation_frame_buffer.as_entire_binding(),
         },
         BindGroupEntry {
-            binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            binding: 11,
             resource: clock.buffer.as_entire_binding(),
         },
         BindGroupEntry {
@@ -492,45 +751,9 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
             resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
         },
-        #[cfg(feature = "enhanced")]
         BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[0],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[0]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[1],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[1]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_NORMAL_TEXTURE_BINDINGS[0],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[2]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_NORMAL_TEXTURE_BINDINGS[1],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[3]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_MER_TEXTURE_BINDINGS[0],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[4]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_MER_TEXTURE_BINDINGS[1],
-            resource: BindingResource::TextureView(&texture_assets.enhanced_views[5]),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_SAMPLER_BINDING,
-            resource: BindingResource::Sampler(&texture_assets.enhanced_sampler),
-        },
-        #[cfg(feature = "enhanced")]
-        BindGroupEntry {
-            binding: crate::material_shader::ENHANCED_TEXTURE_REF_BINDING,
-            resource: texture_assets.enhanced_texture_refs.as_entire_binding(),
+            binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            resource: biome_tints.query_tables.as_entire_binding(),
         },
     ];
     entries.extend(
@@ -571,10 +794,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
 }
 
 /// Adds runtime source dimensions when a layer's physical page uses another pixel scale.
-pub(super) fn gpu_texture_reference(
-    assets: &assets::RuntimeAssets,
-    reference: assets::TextureRef,
-) -> u32 {
+fn gpu_texture_reference(assets: &assets::RuntimeAssets, reference: assets::TextureRef) -> u32 {
     let page_size = assets.texture_pages()[reference.page() as usize]
         .texture
         .mips[0]
@@ -591,14 +811,14 @@ pub(super) fn gpu_texture_reference(
 }
 
 /// Validates tightly packed queue writes; encoder buffer copies still use aligned plans.
-pub(super) fn plan_queue_texture_mips(
+fn plan_queue_texture_mips(
     texture: &TextureArray,
 ) -> Result<Vec<TextureMipUploadPlan>, TextureUploadPlanError> {
     plan_texture_mip_uploads(texture, 1)
 }
 
 /// Sends each validated mip to the queue writer and counts the submitted bytes.
-pub(super) fn write_texture_mips(
+fn write_texture_mips(
     texture: &TextureArray,
     plans: &[TextureMipUploadPlan],
     mut write: impl FnMut(&TextureMipUploadPlan, &[u8]),

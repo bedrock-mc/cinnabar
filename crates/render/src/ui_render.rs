@@ -16,8 +16,8 @@ use bevy::{
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
     prelude::{
-        App, BevyError, Commands, Component, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res,
-        ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Component, Entity, FromWorld, Handle, Has, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,

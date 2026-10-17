@@ -46,18 +46,18 @@ fn pots_and_lanterns_keep_cutout_materials_after_carrier_roundtrip() {
     fs::write(root.join("textures/terrain_texture.json"), r#"{"texture_data":{"solid":{"textures":"textures/blocks/solid"},"model":{"textures":"textures/blocks/model"}}}"#).unwrap();
     fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
     RgbaImage::from_pixel(
-        assets::texture::TILE_SIZE,
-        assets::texture::TILE_SIZE,
+        assets::TILE_SIZE,
+        assets::TILE_SIZE,
         Rgba([90, 65, 40, 255]),
     )
     .save(root.join("textures/blocks/solid.png"))
     .unwrap();
     let mut sprite = RgbaImage::from_pixel(
-        assets::texture::TILE_SIZE,
-        assets::texture::TILE_SIZE,
+        assets::TILE_SIZE,
+        assets::TILE_SIZE,
         Rgba([180, 95, 40, 255]),
     );
-    for x in 0..assets::texture::TILE_SIZE {
+    for x in 0..assets::TILE_SIZE {
         sprite.put_pixel(x, 0, Rgba([0, 0, 0, 0]));
     }
     sprite.save(root.join("textures/blocks/model.png")).unwrap();

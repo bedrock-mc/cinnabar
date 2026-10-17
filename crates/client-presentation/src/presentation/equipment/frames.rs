@@ -11,7 +11,7 @@ use protocol::{PlayerSkin, WorldBootstrap};
 use render_model::ActorRigFrameBuilder;
 
 use super::frame_raster::{HEIGHT, Image, Target, WIDTH, bone_mat, draw_mesh, rows_to_mat};
-use crate::presentation::actors::{actor_rig_presentation, transform::rig_world_from_actor};
+use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
 use {
     super::display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone},
     render_model::equipment::{attach_to_bone, held_block_display, held_sprite_display},

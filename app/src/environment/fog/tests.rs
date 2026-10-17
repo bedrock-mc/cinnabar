@@ -27,14 +27,14 @@ fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
     });
     let bindings = FogBindings::for_profiles(
         &assets.biome_assets().rules,
-        &[assets::atmosphere::BiomeVisualProfile {
+        &[assets::BiomeVisualProfile {
             biome_identifier: "minecraft:hell".into(),
             fog_identifier: "test:fog".into(),
             atmosphere_identifier: "test:atmosphere".into(),
             lighting_identifier: "test:lighting".into(),
             sky_rgb8: None,
         }],
-        &[assets::atmosphere::FogProfile {
+        &[assets::FogProfile {
             identifier: "test:fog".into(),
             distances: Box::new([]),
         }],

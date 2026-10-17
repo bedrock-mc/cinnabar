@@ -1,7 +1,6 @@
 use assets::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
-    actor::{RuntimeActorCatalog, encode_actor_catalog},
-    encode_entity_blob,
+    RuntimeActorCatalog, encode_actor_catalog, encode_entity_blob,
 };
 use sha2::{Digest, Sha256};
 
@@ -53,7 +52,7 @@ fn item_sprite_plane_does_not_require_the_unused_box_uv_envelope() {
         [8.0, 8.0, 0.0],
         assets::EntityGeometryUv::Box([assets::EntityGeometryScalar::ZERO; 2]),
     );
-    assert!(assets::actor::neutral_actor_geometry_uvs_are_supported(
+    assert!(assets::neutral_actor_geometry_uvs_are_supported(
         &[geometry],
         0
     ));
@@ -75,7 +74,7 @@ fn fish_fins_validate_drawable_uvs_instead_of_the_unused_box_layout() {
         );
         model.texture_width = 32;
         model.texture_height = 32;
-        assert!(assets::actor::neutral_actor_geometry_uvs_are_supported(
+        assert!(assets::neutral_actor_geometry_uvs_are_supported(
             &[model],
             0
         ));
@@ -95,7 +94,7 @@ fn a_fish_fin_with_out_of_bounds_drawable_uvs_is_still_rejected() {
             size,
             EntityGeometryUv::Box(uv.map(|value| Scalar::new(value).unwrap())),
         );
-        assert!(!assets::actor::neutral_actor_geometry_uvs_are_supported(
+        assert!(!assets::neutral_actor_geometry_uvs_are_supported(
             &[model],
             0
         ));
@@ -119,7 +118,7 @@ fn inflated_fins_validate_faces_that_gained_area() {
         cubes[0].inflate = Scalar::new(0.1).unwrap();
         bones[0].cubes = cubes.into();
         model.bones = bones.into();
-        assert!(!assets::actor::neutral_actor_geometry_uvs_are_supported(
+        assert!(!assets::neutral_actor_geometry_uvs_are_supported(
             &[model],
             0
         ));
@@ -146,7 +145,7 @@ fn omitted_face_uv_size_uses_cube_dimensions_for_bounds() {
             down: None,
         }),
     );
-    assert!(!assets::actor::neutral_actor_geometry_uvs_are_supported(
+    assert!(!assets::neutral_actor_geometry_uvs_are_supported(
         &[geometry],
         0
     ));

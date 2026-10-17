@@ -90,8 +90,8 @@ fn equipment_texture_decode_checks_pixel_budget_before_reading_raster() {
     section.extend_from_slice(&1u32.to_le_bytes());
     section.extend_from_slice(&(identifier.len() as u16).to_le_bytes());
     section.extend_from_slice(identifier);
-    section.extend_from_slice(&crate::actor::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
-    section.extend_from_slice(&crate::actor::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
+    section.extend_from_slice(&crate::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
+    section.extend_from_slice(&crate::MAX_ACTOR_TEXTURE_SIDE.to_le_bytes());
     let error = decode_textures(&section).unwrap_err();
     assert!(error.to_string().contains("pixel budget"));
 }

@@ -4,7 +4,7 @@ use std::fs;
 
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
 pub(crate) fn barrels() -> (CompiledAssets, Vec<RegistryRecord>) {
-    barrels_with_size(assets::texture::TILE_SIZE)
+    barrels_with_size(assets::TILE_SIZE)
 }
 
 /// Compiles original sprites at the requested source resolution.

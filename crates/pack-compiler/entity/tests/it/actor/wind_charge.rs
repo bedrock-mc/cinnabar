@@ -44,7 +44,9 @@ fn native_wind_charge_raster_and_both_projectile_bindings_survive_actor_compilat
         assert!(layer.uv_anim.is_some());
         let texture = &runtime.textures()[binding.texture as usize];
         let source = &entities.sources[texture.source as usize];
-        assert!(assets::actor::native_actor_texture_preserves_fractional_alpha(source));
+        assert!(assets::native_actor_texture_preserves_fractional_alpha(
+            source
+        ));
         let raster = image::open(root.join(source.path.as_ref()))
             .unwrap()
             .into_rgba8()

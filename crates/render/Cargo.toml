@@ -20,9 +20,9 @@ reads = [
 alloc-stats = ["render-scene/alloc-stats"]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
-# Compiles the experimental Enhanced renderer; default builds keep it disabled.
-enhanced = ["render-model/enhanced", "render-scene/enhanced"]
-# Adds bounded capture controls to the experimental Enhanced build.
+# Compiles the hard-disabled Enhanced renderer.
+enhanced = []
+# Enables bounded development captures while the production switch stays disabled.
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
 
 [dependencies]
@@ -75,7 +75,7 @@ test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { workspace = true, features = ["wgsl-out"] }
+naga = { version = "30.0.1", features = ["wgsl-in", "wgsl-out"] }
 wesl = "0.6.0"
 tempfile = "3"
 

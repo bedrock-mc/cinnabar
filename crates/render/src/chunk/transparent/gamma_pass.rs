@@ -89,9 +89,6 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     if NAMETAGS_ONLY && !blur {
         return Ok(());
     }
-    if !NAMETAGS_ONLY && let Some(coverage) = &scene.water_coverage {
-        coverage.clear(render_context);
-    }
     let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transparent3d>>() else {
         return Ok(());
     };
@@ -102,7 +99,7 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
         return Ok(());
     }
     let gamma = admitted(camera.hdr, *msaa, enhanced.is_some());
-    let draws = (gamma || scene.water_coverage.is_some()).then(|| native_draws(world));
+    let draws = gamma.then(|| native_draws(world));
     let filtered = blur || smaa.is_some();
     let nametag = filtered
         .then(|| crate::nametag_render::draw_function(world))
@@ -112,14 +109,9 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     let ranges = move || {
         contiguous_ranges(phase.items.values(), move |item| {
             (
-                gamma
-                    && draws
-                        .as_ref()
-                        .is_some_and(|draws| draws.contains(item.draw_function())),
-                scene.water_coverage.is_some()
-                    && draws
-                        .as_ref()
-                        .is_some_and(|draws| draws.covers_water(item.draw_function())),
+                draws
+                    .as_ref()
+                    .is_some_and(|draws| draws.contains(&Some(item.draw_function()))),
                 crate::nametag_render::deferred_by_world_filter(
                     filtered,
                     nametag,
@@ -127,14 +119,14 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
                 ),
             )
         })
-        .filter(move |(_, (_, _, deferred))| *deferred == nametags_only)
-        .map(|(range, (gamma, water, _))| (range, gamma, water))
+        .filter(move |(_, (_, deferred))| *deferred == nametags_only)
+        .map(|(range, (gamma, _))| (range, gamma))
     };
     #[cfg(feature = "tracy")]
     if !nametags_only && let Some(client) = tracy_client::Client::running() {
         use tracy_client::plot_name;
         let mut counts = [0_usize; 3];
-        for (range, gamma, _) in ranges() {
+        for (range, gamma) in ranges() {
             counts[usize::from(gamma)] += range.len();
             counts[2] += 1;
         }
@@ -160,20 +152,11 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     );
     // Phase encoding holds the shared draw-functions lock, so worker ranges cannot draw
     // concurrently. Keep their ordered colour-space passes in one encoder without a worker wait.
-    for (range, gamma, water) in ranges() {
-        // Terrain ranges also write water identity for Enhanced underwater transport.
-        let coverage = water
-            .then(|| {
-                scene
-                    .water_coverage
-                    .as_ref()
-                    .map(|coverage| coverage.attachment())
-            })
-            .flatten();
-        let attachments = [Some(scene.color_attachment(target, gamma)), coverage];
+    for (range, gamma) in ranges() {
+        let attachments = [Some(scene.color_attachment(target, gamma))];
         let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("sorted ordinary transparent colour-space range"),
-            color_attachments: &attachments[..if water { 2 } else { 1 }],
+            color_attachments: &attachments,
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
@@ -201,48 +184,22 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     Ok(())
 }
 
-/// Native draw families share one inventory for blend-space and water-coverage selection.
-#[derive(Clone, Copy)]
-struct NativeDraws {
-    terrain: [Option<DrawFunctionId>; 5],
-    other: [Option<DrawFunctionId>; 3],
-}
-
-impl NativeDraws {
-    /// Selects all families whose ordinary colour blends in encoded space.
-    fn contains(&self, draw: DrawFunctionId) -> bool {
-        self.terrain
-            .iter()
-            .chain(&self.other)
-            .any(|id| *id == Some(draw))
-    }
-
-    /// Selects the shared terrain shader that writes water identity alongside colour.
-    fn covers_water(&self, draw: DrawFunctionId) -> bool {
-        self.terrain.contains(&Some(draw))
-    }
-}
-
-/// Reads the registered draw functions once without duplicating terrain ownership lists.
-fn native_draws(world: &World) -> NativeDraws {
+/// Native transparent families output encoded colour and blend through the compatible UNORM view.
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
     let primitives = crate::primitive_shapes::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
-    NativeDraws {
-        terrain: [
-            Some(draws.id::<DrawTransparentLiquidCommands>()),
-            Some(draws.id::<DrawTransparentLiquidDirectCommands>()),
-            Some(draws.id::<DrawTransparentLiquidIndirectCommands>()),
-            Some(draws.id::<DrawTransparentModelCommands>()),
-            Some(draws.id::<DrawMixedTerrainCommands>()),
-        ],
-        other: [
-            draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
-            nametags,
-            primitives,
-        ],
-    }
+    [
+        Some(draws.id::<DrawTransparentLiquidCommands>()),
+        Some(draws.id::<DrawTransparentLiquidDirectCommands>()),
+        Some(draws.id::<DrawTransparentLiquidIndirectCommands>()),
+        Some(draws.id::<DrawTransparentModelCommands>()),
+        Some(draws.id::<DrawMixedTerrainCommands>()),
+        draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
+        nametags,
+        primitives,
+    ]
 }
 
 /// Keeps sorted items contiguous without auxiliary per-item storage or crossing colour spaces.

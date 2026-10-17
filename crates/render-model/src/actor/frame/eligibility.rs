@@ -36,9 +36,7 @@ pub(super) fn validate_input(submission: &ActorRigSubmission) -> Result<(), Reje
     if submission.route == ActorRigRoute::NoDraw {
         return Err(Rejection::NoDraw);
     }
-    let diagnostic = submission.route == ActorRigRoute::Diagnostic
-        || (submission.route == ActorRigRoute::ShadowOnly
-            && submission.input.rig == DIAGNOSTIC_RIG_ID);
+    let diagnostic = submission.route == ActorRigRoute::Diagnostic;
     if (!submission.input.identity.is_exact() && !diagnostic)
         || submission.input.reset_generation == 0
     {
@@ -72,9 +70,7 @@ pub(super) fn geometry<'a>(
         return Err(Rejection::Capacity);
     }
     let id = match submission.route {
-        ActorRigRoute::Compiled | ActorRigRoute::StaticFallback | ActorRigRoute::ShadowOnly => {
-            Some(submission.input.rig)
-        }
+        ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => Some(submission.input.rig),
         ActorRigRoute::Diagnostic => Some(DIAGNOSTIC_RIG_ID),
         ActorRigRoute::NoDraw => None,
     };

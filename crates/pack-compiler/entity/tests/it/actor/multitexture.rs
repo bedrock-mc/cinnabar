@@ -37,8 +37,7 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     let mut witnessed = 0;
     let mut fractional = 0;
     for (source_index, source) in entities.sources.iter().enumerate() {
-        if !used.contains(&source_index)
-            || !assets::actor::native_actor_texture_uses_multitexture(source)
+        if !used.contains(&source_index) || !assets::native_actor_texture_uses_multitexture(source)
         {
             continue;
         }
@@ -71,7 +70,7 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     assert!(witnessed > 0 && fractional > 0);
     let mut rigs = 0;
     for (index, rig) in entities.rig_bindings.iter().enumerate() {
-        if !assets::actor::native_actor_uses_multitexture(&runtime_entities, index) {
+        if !assets::native_actor_uses_multitexture(&runtime_entities, index) {
             continue;
         }
         rigs += 1;

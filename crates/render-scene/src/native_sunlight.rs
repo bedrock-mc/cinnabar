@@ -14,10 +14,6 @@ const SUN_COLOUR_SUBTRACTION: f32 = 0.2;
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Default)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct AtmosphereViewInputs {
-    /// Exact world dimension; sky kind alone cannot identify custom dimensions.
-    pub dimension: i32,
-    /// Transport session; with `dimension` it identifies the world a view renders.
-    pub session_generation: u64,
     pub forward: [f32; 3],
     pub fog_weather_level: f32,
     /// Current simulation rain, not the frame's interpolated rain.

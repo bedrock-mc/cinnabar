@@ -74,25 +74,17 @@ fn nametag_draws_enter_the_encoded_phase_without_reordering() {
     let world = app.sub_app(RenderApp).world();
     let tag = crate::nametag_render::draw_function(world).unwrap();
     let families = native_draws(world);
-    assert!(families.contains(tag));
-    assert!(!families.covers_water(tag));
+    assert!(families.contains(&Some(tag)));
     let items = [tag, tag];
     assert_eq!(
-        contiguous_ranges(items.iter(), |id| families.contains(*id)).collect::<Vec<_>>(),
+        contiguous_ranges(items.iter(), |id| families.contains(&Some(*id))).collect::<Vec<_>>(),
         vec![(0..2, true)]
     );
     let liquid = world
         .resource::<DrawFunctions<Transparent3d>>()
         .read()
         .id::<DrawTransparentLiquidCommands>();
-    assert!(families.covers_water(liquid));
     let items = [liquid, tag, tag, liquid, tag];
-    let coverage =
-        contiguous_ranges(items.iter(), |draw| families.covers_water(*draw)).collect::<Vec<_>>();
-    assert_eq!(
-        coverage,
-        vec![(0..1, true), (1..3, false), (3..4, true), (4..5, false)]
-    );
     for enabled in [false, true] {
         for gamma in [false, true] {
             let ranges = contiguous_ranges(items.iter(), |draw| {
