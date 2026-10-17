@@ -33,9 +33,9 @@ fn wave() -> [Shipped; 10] {
         shipped!("knit_scarf", 0),
         shipped!("kitsune_mask", 0),
         shipped!("studio_headphones", 2),
-        shipped!("halo", 1),
+        shipped!("halo", 2),
         shipped!("ember_jetpack", 4),
-        shipped!("amethyst_orbit", 4),
+        shipped!("amethyst_orbit", 7),
     ]
 }
 

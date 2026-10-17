@@ -212,9 +212,9 @@
           "bytes": 959
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/4ad966e64f201b6b8087da9bb44773ef15b0ca2e16596e9bde1ed88660f0797b",
-          "sha256": "4ad966e64f201b6b8087da9bb44773ef15b0ca2e16596e9bde1ed88660f0797b",
-          "bytes": 4630
+          "url": "/v1/cosmetics/assets/5b5ccab18064ee0d59c234728f4f730fe495d7e6df55a682ceb333de14d80e79",
+          "sha256": "5b5ccab18064ee0d59c234728f4f730fe495d7e6df55a682ceb333de14d80e79",
+          "bytes": 4621
         }
       },
       "geometry_id": "geometry.cinnabar.fox_tail",
@@ -283,14 +283,14 @@
           "bytes": 2295
         },
         "texture": {
-          "url": "/v1/cosmetics/assets/4b47771722b4cbdfc7f962c3ec570a119bb314e565f4f35b9fa339abda109861",
-          "sha256": "4b47771722b4cbdfc7f962c3ec570a119bb314e565f4f35b9fa339abda109861",
-          "bytes": 557
+          "url": "/v1/cosmetics/assets/d5def0326f43b0e4749c6d53a58611ede0b482524e0c7f34e7e8a65c227e9751",
+          "sha256": "d5def0326f43b0e4749c6d53a58611ede0b482524e0c7f34e7e8a65c227e9751",
+          "bytes": 587
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/fd3821a92c26337abb176046321c37fba32eb64c0ffa3f33000e9f503d942897",
-          "sha256": "fd3821a92c26337abb176046321c37fba32eb64c0ffa3f33000e9f503d942897",
-          "bytes": 16202
+          "url": "/v1/cosmetics/assets/98993c203f6ff8a09339eb8b6f5d53af62060a7f31d3d67c934d013d2d0e942f",
+          "sha256": "98993c203f6ff8a09339eb8b6f5d53af62060a7f31d3d67c934d013d2d0e942f",
+          "bytes": 16199
         }
       },
       "geometry_id": "geometry.cinnabar.bee_buddy",
@@ -435,14 +435,14 @@
           "bytes": 1786
         },
         "texture": {
-          "url": "/v1/cosmetics/assets/9da7c09bb85c63bf8a7cc98319ec40bc7d98c92d201a2a9d359717747e58d7fd",
-          "sha256": "9da7c09bb85c63bf8a7cc98319ec40bc7d98c92d201a2a9d359717747e58d7fd",
-          "bytes": 392
+          "url": "/v1/cosmetics/assets/36797edb38af38d9082cab21a167af9105b31d863d99fac877920880af84c401",
+          "sha256": "36797edb38af38d9082cab21a167af9105b31d863d99fac877920880af84c401",
+          "bytes": 454
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/e82424742a7f794bf003ea72ec91fd8624d958b63fe112763dc32be45ea38971",
-          "sha256": "e82424742a7f794bf003ea72ec91fd8624d958b63fe112763dc32be45ea38971",
-          "bytes": 2266
+          "url": "/v1/cosmetics/assets/a4bd72c3d4a40c2ea268ff97964a4e1d812eeb4824458078a7b374ad4b190694",
+          "sha256": "a4bd72c3d4a40c2ea268ff97964a4e1d812eeb4824458078a7b374ad4b190694",
+          "bytes": 2272
         }
       },
       "geometry_id": "geometry.cinnabar.studio_headphones",
@@ -473,14 +473,14 @@
           "bytes": 2452
         },
         "texture": {
-          "url": "/v1/cosmetics/assets/397a173c40d53800776b49dac5b0fe498355fc1d1ef9893e11af87357e580576",
-          "sha256": "397a173c40d53800776b49dac5b0fe498355fc1d1ef9893e11af87357e580576",
-          "bytes": 188
+          "url": "/v1/cosmetics/assets/f006ec113482dd4c27e326b9bf1fc904bdaec80f571d5f5f70dc1bbf7fc2fc77",
+          "sha256": "f006ec113482dd4c27e326b9bf1fc904bdaec80f571d5f5f70dc1bbf7fc2fc77",
+          "bytes": 327
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/3789750ca133e48450561be954b3f165e63304fb61cf1d53563120bb06051f05",
-          "sha256": "3789750ca133e48450561be954b3f165e63304fb61cf1d53563120bb06051f05",
-          "bytes": 5141
+          "url": "/v1/cosmetics/assets/3fb10cbd70f514a8cefcb1f65498d4f4dcd702dea6cf8edee3d69ecd95967da8",
+          "sha256": "3fb10cbd70f514a8cefcb1f65498d4f4dcd702dea6cf8edee3d69ecd95967da8",
+          "bytes": 6013
         }
       },
       "geometry_id": "geometry.cinnabar.halo",
@@ -512,14 +512,14 @@
           "bytes": 3060
         },
         "texture": {
-          "url": "/v1/cosmetics/assets/03c3c26cda4eaa7d95340f4c1703c74aa1c30a882d30a72b1c117d800b998248",
-          "sha256": "03c3c26cda4eaa7d95340f4c1703c74aa1c30a882d30a72b1c117d800b998248",
-          "bytes": 1382
+          "url": "/v1/cosmetics/assets/2e62d30e2a4180f432d8713f2d6573c880923e47b3063f7054c2292cbddfbf32",
+          "sha256": "2e62d30e2a4180f432d8713f2d6573c880923e47b3063f7054c2292cbddfbf32",
+          "bytes": 1634
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/c78d0a10cbcf20381afde5599660745b7bb8ff36c185d9e5e4f2ba2434f559d2",
-          "sha256": "c78d0a10cbcf20381afde5599660745b7bb8ff36c185d9e5e4f2ba2434f559d2",
-          "bytes": 4590
+          "url": "/v1/cosmetics/assets/eee3b57f3568688eb85e168470385ef6799a58d788d230a7782b1f64ded8d452",
+          "sha256": "eee3b57f3568688eb85e168470385ef6799a58d788d230a7782b1f64ded8d452",
+          "bytes": 4912
         }
       },
       "geometry_id": "geometry.cinnabar.ember_jetpack",
@@ -550,14 +550,14 @@
           "bytes": 4155
         },
         "texture": {
-          "url": "/v1/cosmetics/assets/bbe184899203a576385929392fdc7b16ab0f563f183ad9b7388acddf1c0988c5",
-          "sha256": "bbe184899203a576385929392fdc7b16ab0f563f183ad9b7388acddf1c0988c5",
-          "bytes": 502
+          "url": "/v1/cosmetics/assets/a0072a47c3f5010ca34dfa3ae51f576d5d07cd125ce235b17d42b77e74679900",
+          "sha256": "a0072a47c3f5010ca34dfa3ae51f576d5d07cd125ce235b17d42b77e74679900",
+          "bytes": 628
         },
         "animation": {
-          "url": "/v1/cosmetics/assets/1b8c4f5346ad7e921ec964a5879e35a73c2f556edc3f6de76945775b420c408f",
-          "sha256": "1b8c4f5346ad7e921ec964a5879e35a73c2f556edc3f6de76945775b420c408f",
-          "bytes": 24283
+          "url": "/v1/cosmetics/assets/5d001daca3ab47b8d3110bd58662a064cf7e9c0d92fd1aa567685c6dfd29707a",
+          "sha256": "5d001daca3ab47b8d3110bd58662a064cf7e9c0d92fd1aa567685c6dfd29707a",
+          "bytes": 26838
         }
       },
       "geometry_id": "geometry.cinnabar.amethyst_orbit",
