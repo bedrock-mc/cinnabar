@@ -376,10 +376,12 @@ fn exhaustive_fan(ray: vec3<f32>) -> f32 {
         }],
     );
     assert!(
-        pixels.chunks_exact(4).all(|pixel| pixel[0] == 0),
+        pixels.as_chunks::<4>().0.iter().all(|pixel| pixel[0] == 0),
         "optimized fan changed pixels: {:?}",
         pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(_, pixel)| pixel[0] != 0)
             .take(12)

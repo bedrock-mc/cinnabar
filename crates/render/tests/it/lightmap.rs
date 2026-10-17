@@ -194,7 +194,11 @@ fn uploaded_native_lightmap_matches_gpu_quantization_at_byte_boundaries() {
         }],
     );
     assert!(
-        pixels.chunks_exact(4).all(|pixel| pixel[..3] == [0, 0, 0]),
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[..3] == [0, 0, 0]),
         "uploaded quantization changed a native sample"
     );
 }

@@ -1,5 +1,5 @@
-//! Occlusion for ordinary direct draws. Metal probes a bounded current-frame depth path for
-//! large views and keeps it active while it hides enough candidates. Other direct devices use
+//! Occlusion for ordinary direct draws. Opt-in Metal admission probes a bounded current-frame
+//! depth path for large views and keeps it active while it hides enough candidates. Devices use
 //! readbacks only for an unchanged view. Both paths test depth from static opaque terrain;
 //! asynchronous feedback admits work and never authorizes stale visibility after camera motion.
 
@@ -261,7 +261,7 @@ impl DirectOcclusion {
             same_frame: cfg!(target_os = "macos")
                 && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("1"),
             adaptive: cfg!(target_os = "macos")
-                && env_compat::var_os("CINNABAR_TERRAIN_VISIBILITY").is_none(),
+                && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("adaptive"),
             reset_masks: false,
             admission: default(),
             measured_candidates: std::array::from_fn(|_| Vec::new()),

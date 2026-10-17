@@ -1,4 +1,4 @@
-//! Finite pack skies compose before geometry; stock skies use the completed opaque depth.
+//! The ordered sky pass owns colour initialization before any world geometry.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
 use bevy::prelude::IntoScheduleConfigs;
@@ -17,7 +17,7 @@ use bevy::{
 #[derive(Resource)]
 struct SkyPassInstalled;
 
-/// Keeps finite pack composition early and depth-tests stock skies after all opaque terrain.
+/// Places all sky layers after prepasses and before ordinary or direct terrain.
 pub(super) fn install(world: &mut World) {
     if world.contains_resource::<SkyPassInstalled>() {
         return;
@@ -26,26 +26,13 @@ pub(super) fn install(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    atmosphere::<true>,
+                    atmosphere,
                     Some(render_scene::RuntimeStage::GpuSky),
-                    "FiniteSkyPass",
+                    "AtmospherePass",
                 )
                 .after(Core3dSystems::Prepass)
                 .before(Core3dSystems::MainPass),
             );
-            let stock = crate::gpu_timing::profiled(
-                atmosphere::<false>,
-                Some(render_scene::RuntimeStage::GpuSky),
-                "StockSkyPass",
-            )
-            .after(crate::scene_target::ScenePass::Opaque)
-            .after(crate::chunk::GpuCullLateLabel)
-            .after(crate::far_terrain::FarTerrainLabel)
-            .before(crate::scene_target::ScenePass::Transparent)
-            .in_set(Core3dSystems::MainPass);
-            #[cfg(feature = "enhanced")]
-            let stock = stock.before(crate::enhanced::snapshot::EnhancedSnapshotLabel);
-            schedule.add_systems(stock);
         })
         .is_ok()
     {
@@ -63,12 +50,8 @@ type AtmosphereQuery = (
     Option<&'static MainPassResolutionOverride>,
 );
 
-/// Draws each sky once, retaining early pack composition and late stock sample coverage.
-fn atmosphere<const FINITE: bool>(
-    world: &World,
-    query: ViewQuery<AtmosphereQuery>,
-    mut context: RenderContext,
-) {
+/// Draws the stock sky, stars and finite pack cube before world geometry can cover them.
+fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
     let (camera, target, scene, depth, offset, msaa, resolution) = query.into_inner();
     if world
         .get_resource::<render_scene::PanoramaScene>()
@@ -79,9 +62,6 @@ fn atmosphere<const FINITE: bool>(
     let Some(gpu) = world.get_resource::<AtmosphereGpu>() else {
         return;
     };
-    if gpu.skybox_active != FINITE {
-        return;
-    }
     let Some(bind_group) = gpu.bind_group.as_ref() else {
         return;
     };
@@ -107,11 +87,7 @@ fn atmosphere<const FINITE: bool>(
     let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
         .map(|viewport| crate::render_bounds::viewport(&viewport, extent));
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-        label: Some(if FINITE {
-            "finite sky before geometry"
-        } else {
-            "stock sky after opaque geometry"
-        }),
+        label: Some("sky before world geometry"),
         color_attachments: &[Some(colour)],
         depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(

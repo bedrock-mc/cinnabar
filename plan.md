@@ -2016,14 +2016,14 @@ not close a parity or visual acceptance gate.
   flags. Metal indirect draws remain disabled. Native raster fixtures cover page tails,
   camera changes and one-sample/2× MSAA output equality. Performance and presentation
   acceptance remain incomplete.
-- Metal now admits current-frame visibility for views with at least 64 candidates. An
-  inactive view probes once per 64 frames and remains active while completed feedback
+- Opt-in Metal admission (`CINNABAR_TERRAIN_VISIBILITY=adaptive`) probes current-frame
+  visibility for views with at least 64 candidates. An inactive view probes once per 64 frames and remains active while completed feedback
   hides at least half its candidates. Settled still views keep the cheaper readback path.
   Feedback only chooses whether to do fresh work;
   current depth supplies every visibility mask, including during motion. Falling back
-  clears masks before direct draws. `CINNABAR_TERRAIN_VISIBILITY=0` keeps the legacy path;
-  `1` forces the current-frame path. The admission thresholds are provisional and do not
-  close the hardware performance gate.
+  clears masks before direct draws. The default and `CINNABAR_TERRAIN_VISIBILITY=0` keep
+  the legacy path; `1` forces the current-frame path. The admission thresholds are
+  provisional and do not close the hardware performance gate.
 
 ## Video quality and repeated renderer work
 
@@ -2032,10 +2032,9 @@ not close a parity or visual acceptance gate.
   shared faces removed. Runtime changes rebuild resident meshes, cancel old work and
   invalidate resource-pack snapshots even after an A/B/A toggle. Existing defaults keep
   full-quality rendering.
-- Native lightmap bytes are prepared once per upload. Stock skies shade after opaque
-  terrain when no visible finite pack sky needs early composition; fan lookup uses a
-  bounded search while preserving rim-edge rounding. Uniform sky colour conversions
-  run at vertices. Actor readiness polls retained unique pipelines, and retained UI
+- Native lightmap bytes are prepared once per upload. Sky fan lookup uses a bounded
+  search while preserving rim-edge rounding and the existing draw order. Uniform sky
+  colour conversions run at vertices. Actor readiness polls retained unique pipelines, and retained UI
   layers reuse composite bindings across both scene ping-pong views.
 - Single-sample SMAA writes its filtered result directly into the shared scene, removing
   the extra restoration copy. The main scene transfer still preserves encoded material
