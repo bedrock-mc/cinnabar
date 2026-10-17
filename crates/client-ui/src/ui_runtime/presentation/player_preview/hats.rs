@@ -8,6 +8,7 @@ pub(in crate::ui_runtime::presentation) fn decode(
     thumbnail: bool,
 ) -> Option<(Vec<u8>, u32, u32)> {
     let model = render_model::hats::rig(hat);
+    render_model::hats::thumbnail::prepare_frame(hat);
     if !thumbnail {
         return Some((
             model.texture.rgba8.to_vec(),
@@ -15,8 +16,8 @@ pub(in crate::ui_runtime::presentation) fn decode(
             model.texture.height,
         ));
     }
-    let image =
-        render_model::hats::thumbnail::render(hat, super::PREVIEW_WIDTH, super::PREVIEW_HEIGHT)?;
+    let [width, height] = render_model::hats::thumbnail::SIZE;
+    let image = render_model::hats::thumbnail::render(hat, width, height)?;
     Some((image.rgba8.to_vec(), image.width, image.height))
 }
 

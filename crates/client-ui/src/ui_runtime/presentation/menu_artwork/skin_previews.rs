@@ -310,7 +310,39 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(items, vec![(equipped, false), (shown, true)]);
+            let mut expected = vec![(equipped, false)];
+            expected.push((shown, true));
+            if shown != equipped {
+                expected.push((shown, false));
+            }
+            assert_eq!(items, expected);
+        }
+    }
+
+    #[test]
+    fn cosmetic_gallery_keeps_every_visible_thumbnail_when_animation_textures_reach_the_budget() {
+        let gallery = render_model::hats::fixture::gallery();
+        let equipped = render_model::hats::fixture::crown();
+        let all = cosmetics::Item::all();
+        let visible: Vec<_> = gallery
+            .iter()
+            .map(|item| all.iter().position(|candidate| candidate == item).unwrap())
+            .collect();
+        let set = ArtworkSet {
+            cosmetics: super::super::cosmetic_requests::requested(&[equipped], &visible, true),
+            ..Default::default()
+        };
+        let admitted = sources(&set);
+        assert!(admitted.len() <= super::super::MAX_ARTWORKS);
+        assert!(matches!(admitted.first(), Some(Source::Item(item, false)) if *item == equipped));
+        for &item in gallery {
+            assert!(
+                admitted
+                    .iter()
+                    .any(|source| matches!(source, Source::Item(shown, true) if *shown == item)),
+                "missing visible thumbnail for {}",
+                item.id()
+            );
         }
     }
 
