@@ -22,6 +22,12 @@ use ui::IconRef;
 use ui_engine::pages::WHOLE_ART_PAGE;
 
 mod skin_previews;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "menu_artwork/native.rs"]
+mod worker;
+#[cfg(target_arch = "wasm32")]
+#[path = "menu_artwork/browser.rs"]
+mod worker;
 use skin_previews::SkinArtwork;
 pub(super) mod cosmetic_requests;
 use cosmetic_requests::CosmeticArtwork;
@@ -123,6 +129,7 @@ pub(super) struct Packed {
 /// stalls a frame; until an atlas arrives the previous one keeps drawing.
 pub(super) struct ArtworkLoader {
     requests: Sender<Request>,
+    pending_requests: Receiver<Request>,
     results: Receiver<Packed>,
     requested: u64,
     ready: Option<Packed>,
@@ -133,18 +140,12 @@ pub(super) struct ArtworkLoader {
 
 impl Default for ArtworkLoader {
     fn default() -> Self {
-        let (requests, jobs) = crossbeam_channel::unbounded();
-        let (done, results) = crossbeam_channel::unbounded();
-        let spawned = std::thread::Builder::new()
-            .name("menu-artwork".to_owned())
-            .spawn(move || serve(&jobs, &done));
-        if let Err(error) = spawned {
-            tracing::warn!("menu artwork worker unavailable: {error}");
-        }
+        let (requests, jobs, results) = worker::start();
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
         Self {
             requests,
+            pending_requests: jobs,
             results,
             requested: 0,
             relative: HashMap::new(),
@@ -165,10 +166,15 @@ impl ArtworkLoader {
         self.gallery = None;
         self.requested += 1;
         self.ready = None;
-        let _ = self.requests.send(Request {
+        let request = Request {
             id: self.requested,
             set,
-        });
+        };
+        if let Err(crossbeam_channel::TrySendError::Full(request)) = self.requests.try_send(request)
+        {
+            let _ = self.pending_requests.try_recv();
+            let _ = self.requests.try_send(request);
+        }
     }
 
     /// Whether an atlas for the latest request (or a partial one) is ready to install.
@@ -253,8 +259,10 @@ struct DecodeCache {
 const MAX_DECODED: usize = 160;
 const MAX_FAILED: usize = 256;
 /// Art decoded before the first partial atlas goes out, so visible rows fill early.
+#[cfg(not(target_arch = "wasm32"))]
 const FIRST_BATCH: usize = 8;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
     let mut cache = DecodeCache::default();
     while let Ok(mut request) = jobs.recv() {

@@ -211,6 +211,13 @@ resumption retains account intent and bearer expiry; play reconnects never repla
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+The Dressing Room has a session-only browser catalog, bounded file-picker admission and
+frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
+inputs use the native validators and content identities. Browser imports are lost when the
+page closes. Native catalogs keep their existing file persistence and worker threads.
+Incomplete: the playable browser host must connect the synchronous import gesture ticket
+and optional starter/cosmetic carriers. Durable browser imports and in-game browser captures
+remain pending; these changes do not close the browser release gate.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
