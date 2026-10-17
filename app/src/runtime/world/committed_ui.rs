@@ -105,13 +105,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 }
                 let npc_actor = if let protocol::ServerFormModel::NpcDialogue(npc) = &event.model {
                     let authority = client_world.stream.as_ref().unwrap().authority();
-                    let Some(actor) = authority.actor_by_unique_id(npc.npc_unique_id) else {
-                        continue;
-                    };
-                    let Some(lifetime) = authority.actor_lifetime(actor.runtime_id) else {
-                        continue;
-                    };
-                    Some(lifetime)
+                    authority
+                        .actor_by_unique_id(npc.npc_unique_id)
+                        .and_then(|actor| authority.actor_lifetime(actor.runtime_id))
                 } else {
                     None
                 };

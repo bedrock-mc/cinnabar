@@ -98,17 +98,24 @@ fn committed_npc_dialogue_binds_its_original_live_actor_for_replies() {
 }
 
 #[test]
-fn committed_npc_dialogue_without_an_actor_is_not_admitted() {
+fn committed_npc_dialogue_without_an_actor_cannot_send_a_reply() {
     let (mut app, _) = fixture_app();
     submit_npc_dialogue(&mut app, false);
     let mut schedule = Schedule::default();
     schedule.add_systems(drain_committed_ui_before_authority);
     schedule.run(app.world_mut());
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    runtime
+        .respond_to_server_form(identity, LocalFormAction::Dismiss)
+        .unwrap();
     assert!(
-        app.world()
-            .resource::<UiRuntimeResource>()
-            .server_forms()
-            .active()
-            .is_none()
+        !flush_form_response(
+            &mut runtime,
+            |_| true,
+            |_| panic!("an unresolved NPC must not receive a reply")
+        )
+        .unwrap()
     );
+    assert!(!runtime.server_forms().owns_input());
 }
