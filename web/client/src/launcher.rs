@@ -12,6 +12,23 @@ use ::launcher::menu::{
 use bridge::{Account, contract::ConnectTarget};
 use web_transport::session::{AccountOperation, ControlEvent};
 
+/// Distinguishes a lost connection from an operation the live relay refused.
+#[derive(Clone, Copy)]
+enum Failure {
+    Disconnected,
+    Refused(&'static str),
+}
+
+impl Failure {
+    /// Supplies a bounded user message without displaying relay-provided text.
+    fn message(self) -> &'static str {
+        match self {
+            Self::Disconnected => "The relay disconnected. Reconnect to continue.",
+            Self::Refused(message) => message,
+        }
+    }
+}
+
 /// A browser-local view of one relay account; the Session owns commands and reconnects.
 #[derive(Clone, Default)]
 pub struct RelayAccount {
@@ -20,14 +37,14 @@ pub struct RelayAccount {
     /// The Session or relay may retain this attempt until cancellation or completed sign-in.
     cancel_needed: bool,
     dismissed: bool,
-    refusal: Option<String>,
+    failure: Option<Failure>,
     progress: Option<JoinStage>,
 }
 
 impl RelayAccount {
     /// Replaces the outstanding account intent without an unbounded UI queue.
     pub fn request(&mut self, intent: AccountIntent) {
-        self.refusal = None;
+        self.failure = None;
         match intent {
             AccountIntent::SignIn => {
                 if self
@@ -86,8 +103,14 @@ impl RelayAccount {
             ControlEvent::Account(value) => {
                 let account: Account = serde_json::from_value(value.clone())
                     .map_err(|_| "Invalid relay account response.")?;
-                if self.account.as_ref() != Some(&account) {
-                    self.refusal = None;
+                let progressed = self.account.as_ref() != Some(&account)
+                    && matches!(
+                        account.state,
+                        bridge::contract::AuthState::AwaitingCode
+                            | bridge::contract::AuthState::SignedIn
+                    );
+                if matches!(self.failure, Some(Failure::Disconnected)) || progressed {
+                    self.failure = None;
                 }
                 match account.state {
                     bridge::contract::AuthState::SignedIn => self.cancel_needed = false,
@@ -99,14 +122,11 @@ impl RelayAccount {
                 self.account = Some(account);
             }
             ControlEvent::Error(reason) => {
-                self.refusal = Some(
-                    match reason.as_str() {
-                        "rate_limited" => "The relay is busy. Wait a moment, then try again.",
-                        "session_busy" => "Leave the server before signing in or out.",
-                        _ => "The relay refused the request. Try again.",
-                    }
-                    .into(),
-                );
+                self.failure = Some(Failure::Refused(match reason.as_str() {
+                    "rate_limited" => "The relay is busy. Wait a moment, then try again.",
+                    "session_busy" => "Leave the server before signing in or out.",
+                    _ => "The relay refused the request. Try again.",
+                }));
             }
             ControlEvent::Connect(value) => {
                 if value["stage"] == "" {
@@ -134,7 +154,7 @@ impl RelayAccount {
     pub fn disconnected(&mut self) {
         self.account = None;
         self.progress = None;
-        self.refusal = Some("The relay disconnected. Reconnect to continue.".into());
+        self.failure = Some(Failure::Disconnected);
     }
 
     /// Projects the current account into the game's existing sign-in prompt states.
@@ -146,8 +166,8 @@ impl RelayAccount {
         {
             return AuthState::Authenticated;
         }
-        if let Some(message) = &self.refusal {
-            return AuthState::Failed(message.clone());
+        if let Some(failure) = self.failure {
+            return AuthState::Failed(failure.message().into());
         }
         let Some(account) = &self.account else {
             return if self.cancel_needed {
@@ -184,7 +204,7 @@ impl RelayAccount {
 
     /// Reports refused operations separately from the confirmed authentication state.
     pub fn operation_error(&self) -> Option<&str> {
-        self.refusal.as_deref()
+        self.failure.map(Failure::message)
     }
 
     /// Supplies only the identity the relay actually reports, leaving service details unavailable.

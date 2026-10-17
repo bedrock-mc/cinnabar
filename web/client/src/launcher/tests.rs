@@ -70,6 +70,10 @@ fn launcher_disconnect_and_new_join_retire_old_presentation() {
     assert!(adapter.profile().gamertag.is_empty());
     account(&mut adapter, "signed_in");
     assert_eq!(adapter.state(), AuthState::Authenticated);
+    adapter.disconnected();
+    account(&mut adapter, "signed_out");
+    assert_eq!(adapter.state(), AuthState::SignedOut);
+    assert!(adapter.operation_error().is_none());
 }
 
 #[test]
@@ -160,6 +164,23 @@ fn launcher_coalesced_cancel_and_retry_keeps_the_unretired_prompt() {
     adapter.request(AccountIntent::SignIn);
     assert_eq!(adapter.take_operation(), Some(AccountOperation::SignIn));
     assert_eq!(adapter.state(), prompt);
+}
+
+#[test]
+fn launcher_retry_refusal_survives_a_delayed_cancellation_snapshot() {
+    let mut adapter = RelayAccount::default();
+    account(&mut adapter, "awaiting_code");
+    adapter.request(AccountIntent::Cancel);
+    adapter.take_operation();
+    adapter.request(AccountIntent::SignIn);
+    adapter.take_operation();
+    adapter
+        .observe(&ControlEvent::Error("rate_limited".into()))
+        .unwrap();
+    account(&mut adapter, "signed_out");
+    assert!(matches!(adapter.state(), AuthState::Failed(_)));
+    adapter.request(AccountIntent::SignIn);
+    assert_eq!(adapter.state(), AuthState::Checking);
 }
 
 #[test]
