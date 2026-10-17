@@ -39,6 +39,8 @@ const (
 	RelayControlBytes = 4096
 	// RelayPlayMessageBytes: Largest WebSocket play message and upload burst in bytes.
 	RelayPlayMessageBytes = 8388608
+	// RelayBidirectionalStreams: Concurrent browser streams for control, active play and retiring play.
+	RelayBidirectionalStreams = 3
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
 	// RelayTransportPath: WebTransport Extended CONNECT route.

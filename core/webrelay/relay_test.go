@@ -385,7 +385,8 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 	defer func() { stopServe(); <-done }()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	client := &webtransport.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} // Only the local test certificate is untrusted.
+	client := &webtransport.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // Only the local test certificate is untrusted.
+		Config: &webtransport.Config{MaxIncomingData: playMessageLimit}}
 	defer client.Close()
 	_, session, err := client.Dial(ctx, "https://"+listener.LocalAddr().String()+bridgecontract.RelayTransportPath, nil)
 	if err != nil {
@@ -411,9 +412,16 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 	if welcome.Resume == "" || account.Account == nil || account.Account.State != control.AuthSignedOut {
 		t.Fatal("missing control outcome")
 	}
-	stream, err := session.OpenStreamSync(ctx)
+	retiring, err := session.OpenStreamSync(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer retiring.CancelRead(0)
+	defer retiring.CancelWrite(0)
+	// Local cancellation need not have returned credit before the next join opens.
+	stream, err := session.OpenStream()
+	if err != nil {
+		t.Fatal("replacement play could not overlap a retiring stream", err)
 	}
 	play := &transportConn{Stream: stream, session: session}
 	if err = writeJSON(context.Background(), play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation}); err != nil {

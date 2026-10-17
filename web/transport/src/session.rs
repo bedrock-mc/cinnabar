@@ -251,16 +251,18 @@ impl<T: RelayTransport> Session<T> {
             }
         }
     }
-    /// Opens play once, writes the relay prefix, then returns the existing bounded bridge
-    /// reader/queue/writer. The host spawns the writer locally and drops it on cancellation.
-    pub async fn open_play<N: FnMut() -> Duration>(
+    /// Opens play and writes Hello within the host's deadline, then returns the bounded bridge
+    /// reader/queue/writer. Expiry closes the transport, cancelling stream-credit waits too.
+    /// The host spawns the writer locally and drops it on cancellation.
+    pub async fn open_play<N: FnMut() -> Duration, D: std::future::Future<Output = ()>>(
         &mut self,
         mut now: N,
+        expires: D,
     ) -> Result<
         (
             bridge::FramedReader<tokio::io::ReadHalf<T::Stream>>,
             bridge::FrameQueue,
-            impl std::future::Future<Output = ()> + use<T, N>,
+            impl std::future::Future<Output = ()> + use<T, N, D>,
         ),
         CloseReason,
     > {
@@ -269,28 +271,32 @@ impl<T: RelayTransport> Session<T> {
         };
         self.join = self.join.checked_add(1).ok_or(CloseReason::Protocol)?;
         self.state = State::Playing(generation);
-        let result = async {
-            let channel = Channel::Play { join: self.join };
-            let stream = self
-                .transport
-                .as_mut()
-                .ok_or(CloseReason::Transport)?
-                .open(channel)
-                .await?;
-            let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
-            let prefix = hello(channel, self.resume(now()), generation);
-            play.send(Bytes::from(prefix.to_string()))
-                .await
-                .map_err(|_| CloseReason::Transport)?;
-            let (read, write) = tokio::io::split(play.into_inner());
-            Ok(bridge::tasks::prepare_bounded_connection(
-                read,
-                write,
-                MAX_FRAME_LEN,
-                RELAY_PLAY_MESSAGE_BYTES,
-            ))
-        }
-        .await;
+        let result = bridge::tasks::until(
+            async {
+                let channel = Channel::Play { join: self.join };
+                let stream = self
+                    .transport
+                    .as_mut()
+                    .ok_or(CloseReason::Transport)?
+                    .open(channel)
+                    .await?;
+                let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
+                let prefix = hello(channel, self.resume(now()), generation);
+                play.send(Bytes::from(prefix.to_string()))
+                    .await
+                    .map_err(|_| CloseReason::Transport)?;
+                let (read, write) = tokio::io::split(play.into_inner());
+                Ok(bridge::tasks::prepare_bounded_connection(
+                    read,
+                    write,
+                    MAX_FRAME_LEN,
+                    RELAY_PLAY_MESSAGE_BYTES,
+                ))
+            },
+            expires,
+        )
+        .await
+        .unwrap_or(Err(CloseReason::Transport));
         if let Err(reason) = &result {
             self.close(*reason);
         }

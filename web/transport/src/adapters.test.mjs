@@ -49,6 +49,81 @@ class Quic {
 }
 globalThis.WebSocket = Socket; globalThis.WebTransport = Quic; globalThis.isSecureContext = true;
 
+/** Keeps retired streams charged until the test delivers replacement stream credit. */
+function delayStreamCredit(peer, available) {
+    const waiting = [];
+    let retired = 0;
+    /** Charges a distinct stream and records retirement only after both directions close. */
+    function stream() {
+        available--;
+        let closed = 0;
+        /** Retires credit after cancellation reaches both stream directions. */
+        const retire = async () => { if (++closed === 2) retired++; };
+        return {
+            readable: { getReader: () => ({ ...peer.stream.readable.getReader(), cancel: retire }) },
+            writable: { getWriter: () => ({ ...peer.stream.writable.getWriter(), abort: retire }) },
+        };
+    }
+    peer.createBidirectionalStream = async (options = {}) => {
+        if (available) return stream();
+        if (!options.waitUntilAvailable) throw new DOMException("stream credit exhausted", "QuotaExceededError");
+        return new Promise(resolve => waiting.push(resolve));
+    };
+    return {
+        get pending() { return waiting.length; },
+        /** Delivers credit separately from local stream cancellation. */
+        replenish() {
+            assert.ok(retired > 0); retired--; available++;
+            if (waiting.length) waiting.shift()(stream());
+        },
+    };
+}
+
+test("QUIC rejoin waits for delayed stream credit while retaining control", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    const peer = Quic.instances.at(-1), credit = delayStreamCredit(peer, 2);
+    try {
+        const control = await adapter.open(t, config.control);
+        await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
+        adapter.finishPlay(t);
+        const opening = adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
+        let settled = false; opening.then(() => { settled = true; }, () => { settled = true; });
+        await turns();
+        assert.equal(settled, false); assert.equal(credit.pending, 1);
+        assert.deepEqual(await adapter.read(control), new Uint8Array([1, 2]));
+        await adapter.write(control, new Uint8Array([3]));
+        credit.replenish();
+        const play = await opening;
+        assert.deepEqual(await adapter.read(play), new Uint8Array([1, 2]));
+        assert.equal(peer.closes, 0); assert.equal(control.failed, undefined);
+    } finally { adapter.close(t); }
+});
+
+test("cancelling a QUIC stream-credit wait rejects promptly and releases a late stream", async () => {
+    for (const closeTransport of [false, true]) {
+        const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+        const peer = Quic.instances.at(-1), credit = delayStreamCredit(peer, 2);
+        try {
+            const control = await adapter.open(t, config.control);
+            await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1");
+            adapter.finishPlay(t);
+            const opening = adapter.open(t, values.RELAY_CHANNEL_PLAY, "2");
+            const rejected = opening.then(() => assert.fail("cancelled open succeeded"), error => error);
+            await turns(); assert.equal(credit.pending, 1);
+            if (closeTransport) adapter.close(t); else adapter.finishPlay(t);
+            assert.match((await rejected).message, /relay closed/); await turns();
+            const released = peer.released;
+            credit.replenish(); await turns();
+            assert.equal(peer.released, released + 2);
+            assert.equal(t.channels.size, closeTransport ? 0 : 1);
+            if (!closeTransport) {
+                assert.deepEqual(await adapter.read(control), new Uint8Array([1, 2]));
+                assert.equal(peer.closes, 0);
+            }
+        } finally { adapter.close(t); }
+    }
+});
+
 test("both adapters preserve byte chunks and release their owned handles", async () => {
     assert.equal(adapter.available(), true);
     for (const quic of [true, false]) {

@@ -51,7 +51,7 @@ export async function open(t, name, join) {
         await wait(ch, t.connection.ready);
         if (t.closed || ch.failed) throw new Error("relay closed");
         // Own late-created streams too when cancellation wins the stream-creation race.
-        const creating = t.connection.createBidirectionalStream().then(stream => {
+        const creating = t.connection.createBidirectionalStream({ waitUntilAvailable: true }).then(stream => {
             ch.reader = stream.readable.getReader(); ch.writer = stream.writable.getWriter();
             if (ch.failed) {
                 ch.reader.cancel().catch(() => {}).finally(() => ch.reader.releaseLock());

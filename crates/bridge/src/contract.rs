@@ -56,6 +56,9 @@ pub const RELAY_CONTROL_BYTES: usize = 4096;
 /// Largest WebSocket play message and upload burst in bytes.
 pub const RELAY_PLAY_MESSAGE_BYTES: usize = 8388608;
 
+/// Concurrent browser streams for control, active play and retiring play.
+pub const RELAY_BIDIRECTIONAL_STREAMS: usize = 3;
+
 /// Interval between control keepalives.
 pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
 

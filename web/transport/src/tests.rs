@@ -2,7 +2,7 @@ use super::session::{AccountOperation, ControlEvent};
 use super::*;
 use bridge::{BridgeCodec, contract::*};
 use bytes::{Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -20,6 +20,7 @@ struct Fake {
     channels: VecDeque<Vec<u8>>,
     play_joins: Rc<RefCell<Vec<u64>>>,
     failed: bool,
+    pending_play: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
 }
@@ -70,6 +71,9 @@ impl RelayTransport for Fake {
         }
         if let Channel::Play { join } = channel {
             self.play_joins.borrow_mut().push(join);
+            if self.pending_play {
+                std::future::pending::<()>().await;
+            }
         }
         let input = self.channels.pop_front().unwrap_or_default();
         Ok(Stream {
@@ -109,6 +113,7 @@ fn fake(input: Vec<u8>, failed: bool) -> Fake {
         channels: [input, vec![0, 0, 0, 1, KIND_BATCH]].into(),
         play_joins: Rc::default(),
         failed,
+        pending_play: false,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
     }
@@ -191,9 +196,17 @@ async fn both_candidates_use_the_codec_and_generation_prefix() {
         )
         .await
         .unwrap();
-        let (mut read, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+        let (mut read, frames, writer) = session
+            .open_play(|| Duration::ZERO, std::future::pending())
+            .await
+            .unwrap();
         assert_eq!(read.next().await.unwrap().unwrap(), [KIND_BATCH][..]);
-        assert!(session.open_play(|| Duration::ZERO).await.is_err());
+        assert!(
+            session
+                .open_play(|| Duration::ZERO, std::future::pending())
+                .await
+                .is_err()
+        );
         let requests = sent(&output);
         let contract: Value =
             serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json"))
@@ -428,7 +441,10 @@ async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
     )
     .await
     .unwrap();
-    let (reader, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let (reader, frames, writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
     let first = session.play_join().unwrap();
     let packs = session.pack_stream();
     session.desire_account(AccountOperation::SignOut);
@@ -436,7 +452,10 @@ async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
     drop((reader, frames, writer));
     session.finish_play(first).unwrap();
     assert_eq!(session.state(), State::Ready(7));
-    let (_reader, _frames, _writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let (_reader, _frames, _writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
     let second = session.play_join().unwrap();
     assert!(second > first);
     assert_eq!(session.finish_play(first), Err(CloseReason::Protocol));
@@ -445,4 +464,28 @@ async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
     assert_eq!(requests[1]["join"], first);
     assert_eq!(requests[2]["join"], second);
     assert_eq!(*play_joins.borrow(), [first, second]);
+}
+
+#[tokio::test]
+async fn play_open_deadline_cancels_a_pending_stream_credit_wait() {
+    let mut transport = fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false);
+    transport.pending_play = true;
+    let closed = transport.closed.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    let result = session
+        .open_play(|| Duration::ZERO, std::future::ready(()))
+        .now_or_never();
+    assert!(matches!(result, Some(Err(CloseReason::Transport))));
+    assert!(closed.get());
+    assert_eq!(session.state(), State::Offline);
+    assert_eq!(session.play_join(), None);
 }

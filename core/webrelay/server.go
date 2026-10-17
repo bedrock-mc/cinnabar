@@ -279,7 +279,7 @@ func (relay *Relay) transportServer(tlsConfig *tls.Config, address string) *webt
 		Handler: mux, MaxHeaderBytes: bridgecontract.RelayControlBytes, QUICConfig: &quic.Config{
 			MaxIncomingStreams: 8, MaxIncomingUniStreams: 4, MaxStreamReceiveWindow: playMessageLimit, MaxConnectionReceiveWindow: 2 * playMessageLimit,
 			HandshakeIdleTimeout: helloTimeout, MaxIdleTimeout: 2 * keepAliveInterval}},
-		Config: &webtransport.Config{MaxIncomingStreams: 2, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
+		Config: &webtransport.Config{MaxIncomingStreams: bridgecontract.RelayBidirectionalStreams, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
 	mux.HandleFunc(bridgecontract.RelayTransportPath, func(w http.ResponseWriter, r *http.Request) { relay.serveTransport(w, r, wt) })
 	return wt
 }
