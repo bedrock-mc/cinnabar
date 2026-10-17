@@ -181,7 +181,7 @@ fn trailing_flex_moves_the_tips_but_preserves_the_rigid_mount() {
         let distance = point(model, &flexed, a).distance(point(&rigid, &unflexed, b));
         if a.position[0].abs() <= 7.0 / 16.0 {
             assert!(distance < 1e-6);
-        } else if a.position[0].abs() > 16.0 / 16.0 && distance > 0.02 {
+        } else if a.position[0].abs() > 1.0 && distance > 0.02 {
             moving_tips += 1;
         }
     }
