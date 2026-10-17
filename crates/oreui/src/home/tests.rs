@@ -40,7 +40,7 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
 }
 
 #[test]
-fn brand_sits_above_translucent_panels_and_footer_states_compatibility() {
+fn brand_sits_above_translucent_panels_and_footer_names_game_and_protocol() {
     let view = view();
     let (_, _, nodes) = paint(HashMap::new(), |c| {
         c.title_artwork = Some(IconRef {
@@ -89,8 +89,11 @@ fn brand_sits_above_translucent_panels_and_footer_states_compatibility() {
         launcher::PRODUCT_VERSION
     )));
     assert!(text.contains(protocol::GAME_VERSION));
-    assert!(text.contains("CompatiblewithBedrock"));
-    assert!(!text.contains("Protocol"));
+    assert!(text.contains(&format!(
+        "Minecraft{}/Protocol{}",
+        protocol::GAME_VERSION,
+        protocol::PROTOCOL_VERSION
+    )));
 }
 
 #[test]
