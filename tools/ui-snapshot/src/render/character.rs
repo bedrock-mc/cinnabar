@@ -40,7 +40,7 @@ pub(super) fn paint(bounds: [f32; 4], page: u16, frame: &mut PaintFrame<'_>) -> 
                 .map(|vertex| project(vertex.position)[2])
                 .sum::<f32>()
         };
-        depth(a).total_cmp(&depth(b))
+        depth(*a).total_cmp(&depth(*b))
     });
     let extent = source.iter().map(|vertex| project(vertex.position)).fold(
         [
