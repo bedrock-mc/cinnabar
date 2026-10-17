@@ -21,11 +21,13 @@ struct Fake {
     failed: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
+    read_time: Option<(Rc<Cell<Duration>>, Duration)>,
 }
 struct Stream {
     input: VecDeque<u8>,
     pending: bool,
     written: Rc<RefCell<Vec<u8>>>,
+    read_time: Option<(Rc<Cell<Duration>>, Duration)>,
 }
 impl AsyncRead for Stream {
     fn poll_read(
@@ -35,6 +37,9 @@ impl AsyncRead for Stream {
     ) -> Poll<io::Result<()>> {
         if self.pending && self.input.is_empty() {
             return Poll::Pending;
+        }
+        if let Some((clock, now)) = self.read_time.take() {
+            clock.set(now);
         }
         for _ in 0..out.remaining().min(self.input.len()).min(2) {
             let Some(byte) = self.input.pop_front() else {
@@ -72,16 +77,8 @@ impl RelayTransport for Fake {
             pending: input.is_empty(),
             input: input.into(),
             written: self.written.clone(),
+            read_time: self.read_time.take(),
         })
-    }
-    fn max_datagram_size(&self) -> Option<usize> {
-        None
-    }
-    async fn send_datagram(&mut self, _: &[u8]) -> Result<(), CloseReason> {
-        Err(CloseReason::Protocol)
-    }
-    async fn recv_datagram(&mut self) -> Result<Option<Vec<u8>>, CloseReason> {
-        Ok(None)
     }
     fn close(&mut self, _: CloseReason) {
         self.closed.set(true);
@@ -106,6 +103,7 @@ fn fake(input: Vec<u8>, failed: bool) -> Fake {
         failed,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
+        read_time: None,
     }
 }
 /// Decodes all complete client frames for behavioral assertions.
@@ -117,6 +115,67 @@ fn sent(output: &Rc<RefCell<Vec<u8>>>) -> Vec<Value> {
         frames.push(serde_json::from_slice(&frame).unwrap());
     }
     frames
+}
+
+#[tokio::test]
+async fn shared_control_fixtures_cover_both_channel_prefixes_and_events() {
+    let contract: Value =
+        serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json")).unwrap();
+    let fixtures = contract["relay"]["fixtures"].as_array().unwrap();
+    assert_eq!(fixtures.len(), 8);
+    let mut input = wire(fixtures[2].clone());
+    for event in &fixtures[5..] {
+        input.extend(wire(event.clone()));
+    }
+    let mut ping = fixtures[2].clone();
+    ping["type"] = json!(RELAY_EVENT_PING);
+    input.extend(wire(ping));
+    let transport = fake(input, false);
+    let output = transport.written.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    assert_eq!(session.state(), State::Ready(1));
+    assert_eq!(session.resume(Duration::from_secs(119)), "test-token");
+    assert_eq!(session.resume(Duration::from_secs(120)), "");
+    session.desire_account(AccountOperation::SignIn);
+    session.flush_account().await.unwrap();
+    assert_eq!(
+        session.next_event(|| Duration::ZERO).await.unwrap(),
+        ControlEvent::Account(fixtures[5]["account"].clone())
+    );
+    assert_eq!(
+        session.next_event(|| Duration::ZERO).await.unwrap(),
+        ControlEvent::Connect(fixtures[6]["connect"].clone())
+    );
+    assert_eq!(
+        session.next_event(|| Duration::ZERO).await.unwrap(),
+        ControlEvent::Error(fixtures[7]["error"].as_str().unwrap().into())
+    );
+    assert_eq!(
+        session.next_event(|| Duration::ZERO).await.unwrap(),
+        ControlEvent::Keepalive
+    );
+    let (_read, _frames, _writer) = session.open_play(|| Duration::ZERO).await.unwrap();
+    let requests = sent(&output);
+    assert_eq!(
+        requests[..3],
+        [
+            fixtures[0].clone(),
+            fixtures[3].clone(),
+            fixtures[4].clone()
+        ]
+    );
+    let mut play = fixtures[1].clone();
+    play["resume"] = fixtures[2]["resume"].clone();
+    assert_eq!(requests[3], play);
 }
 
 #[tokio::test]
@@ -338,27 +397,19 @@ fn reconnect_is_bounded_and_deliberate_close_is_terminal() {
 async fn received_capabilities_use_observation_time_and_closed_stays_terminal() {
     let mut input = wire(capability(RELAY_EVENT_WELCOME, "welcome", 120));
     input.extend(wire(capability(RELAY_EVENT_PING, "ping", 120)));
-    let transport = fake(input, false);
+    let clock = Rc::new(Cell::new(Duration::ZERO));
+    let mut transport = fake(input, false);
+    transport.read_time = Some((clock.clone(), Duration::from_secs(30)));
     let mut session = Session::new();
-    let calls = Cell::new(0);
     select(
         &mut session,
         None,
         || transport,
-        || {
-            let call = calls.get();
-            calls.set(call + 1);
-            Duration::from_secs(if call < 2 { 0 } else { 30 })
-        },
+        || clock.get(),
         std::future::pending,
     )
     .await
     .unwrap();
-    assert_eq!(
-        calls.get(),
-        3,
-        "sample admission, Hello and received Welcome separately"
-    );
     assert_eq!(session.resume(Duration::from_secs(149)), "welcome");
     assert_eq!(session.resume(Duration::from_secs(150)), "");
     assert_eq!(

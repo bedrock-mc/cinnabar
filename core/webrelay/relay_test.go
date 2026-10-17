@@ -25,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/quic-go/webtransport-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
@@ -197,6 +198,9 @@ func TestControlFramingAndContractConformance(t *testing.T) {
 		controlEvent{Type: bridgecontract.RelayEventWelcome, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 		controlRequest{Op: bridgecontract.RelayOpSignIn},
 		controlRequest{Op: bridgecontract.RelayOpPong, Resume: "test-token"},
+		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: "signed_out"}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 512, TotalBytes: 1024}},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: "resume_refused"},
 	}
 	if len(values) != len(manifest.Relay.Fixtures) {
 		t.Fatal("missing contract fixture")

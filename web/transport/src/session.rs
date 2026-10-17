@@ -11,7 +11,7 @@ use bridge::{
         MAX_FRAME_LEN, RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY, RELAY_CONTROL_BYTES,
         RELAY_EVENT_ACCOUNT, RELAY_EVENT_CONNECT, RELAY_EVENT_ERROR, RELAY_EVENT_PING,
         RELAY_EVENT_WELCOME, RELAY_OP_PONG, RELAY_OP_SIGN_IN, RELAY_OP_SIGN_OUT,
-        RELAY_PLAY_MESSAGE_BYTES, RELAY_VERSION,
+        RELAY_QUEUED_FRAME_BYTES, RELAY_VERSION,
     },
 };
 use bytes::Bytes;
@@ -273,7 +273,7 @@ impl<T: RelayTransport> Session<T> {
                 read,
                 write,
                 MAX_FRAME_LEN,
-                RELAY_PLAY_MESSAGE_BYTES,
+                RELAY_QUEUED_FRAME_BYTES,
             ))
         }
         .await;
@@ -346,7 +346,17 @@ impl<T: RelayTransport> Drop for Session<T> {
 }
 /// Builds both channel prefixes from the shared contract.
 fn hello(channel: Channel, resume: &str, generation: u64) -> Value {
-    json!({"version": RELAY_VERSION, "channel": channel.name(), "channels": [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY], "resume": resume, "generation": generation})
+    let mut value = json!({"version": RELAY_VERSION, "channel": channel.name()});
+    if matches!(channel, Channel::Control) {
+        value["channels"] = json!([RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY]);
+    }
+    if !resume.is_empty() {
+        value["resume"] = json!(resume);
+    }
+    if generation != 0 {
+        value["generation"] = json!(generation);
+    }
+    value
 }
 /// Admits an object with a typed event name; extension fields remain forward compatible.
 fn parse(frame: &[u8]) -> Result<Value, CloseReason> {
