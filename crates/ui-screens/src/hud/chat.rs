@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use json_ui::{Catalog, ControlRef, RawControl, ResolvedControl};
 use serde_json::Value;
 
+mod content;
+
 const ROOTS: [&str; 4] = ["java_chat", "chat_panel", "chat_grid_item", "chat_label"];
 /// Bounds factory templates followed from the HUD, as the runtime binder bounds its expansions.
 const MAX_FACTORY_EXPANSIONS: usize = 64;
@@ -23,7 +25,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     let overlay_ref = ControlRef::parse(reference, "hud");
     let message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
     let message_text = authored_content(catalog, builtin, "chat", "messages_text");
-    let dependencies = content_dependencies(
+    let dependencies = content::dependencies(
         catalog,
         message_row
             .as_ref()
@@ -146,72 +148,6 @@ fn authored_content(
     let base = builtin.lookup(namespace, name)?;
     (content.children != base.children || content.has_controls != base.has_controls)
         .then(|| content.clone())
-}
-
-/// Saves named templates reachable from retained content before placement suppression.
-fn content_dependencies<'a>(
-    catalog: &Catalog,
-    content: impl Iterator<Item = &'a RawControl>,
-) -> Vec<RawControl> {
-    /// Queues the bases, grids and factory templates used by one content subtree.
-    fn visit(control: &RawControl, pending: &mut Vec<ControlRef>) {
-        if let Some(base) = &control.base {
-            pending.push(ControlRef::parse(base, &control.owner_ns));
-        }
-        /// Queues literal templates declared by a factory.
-        fn factory(value: &Value, namespace: &str, pending: &mut Vec<ControlRef>) {
-            if let Some(name) = value.get("control_name").and_then(Value::as_str) {
-                pending.push(ControlRef::parse(name, namespace));
-            }
-            if let Some(ids) = value.get("control_ids").and_then(Value::as_object) {
-                pending.extend(
-                    ids.values()
-                        .filter_map(Value::as_str)
-                        .map(|name| ControlRef::parse(name, namespace)),
-                );
-            }
-        }
-        if let Some(template) = control
-            .props
-            .get("grid_item_template")
-            .and_then(Value::as_str)
-        {
-            pending.push(ControlRef::parse(template, &control.owner_ns));
-        }
-        if let Some(value) = control.props.get("factory") {
-            factory(value, &control.owner_ns, pending);
-        }
-        if control.props.get("type").and_then(Value::as_str) == Some("factory") {
-            factory(
-                &Value::Object(control.props.clone()),
-                &control.owner_ns,
-                pending,
-            );
-        }
-        for child in &control.children {
-            visit(child, pending);
-        }
-    }
-    let mut pending = Vec::new();
-    for control in content {
-        visit(control, &mut pending);
-    }
-    let mut seen = BTreeSet::new();
-    let mut dependencies = Vec::new();
-    while let Some(reference) = pending.pop() {
-        if !seen.insert(reference.clone())
-            || (reference.namespace == "hud"
-                && ROOTS.contains(&reference.name.as_str())
-                && reference.name != "chat_label")
-        {
-            continue;
-        }
-        if let Some(control) = catalog.lookup(&reference.namespace, &reference.name) {
-            visit(control, &mut pending);
-            dependencies.push(control.clone());
-        }
-    }
-    dependencies
 }
 
 /// Finds named templates inheriting the ordinary HUD chat label.

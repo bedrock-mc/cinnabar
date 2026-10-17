@@ -430,40 +430,40 @@ impl ChatScreen {
     }
 
     fn view_state(&self, selected: Option<usize>) -> ViewState {
-        let hovered = self
-            .pointer
-            .and_then(|point| {
-                self.hits
-                    .iter()
-                    .rev()
-                    .find(|(_, bounds, _)| bounds.contains(point))
+        let selected = selected.and_then(|selected| {
+            self.hits
+                .iter()
+                .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
+                .map(|(_, _, key)| key.clone())
+        });
+        let hovered = (!self.settings.open && self.pending_link.is_none())
+            .then(|| {
+                self.pointer.and_then(|point| {
+                    self.hover_hits
+                        .iter()
+                        .rev()
+                        .find(|(bounds, _)| bounds.contains(point))
+                        .map(|(_, key)| key.clone())
+                })
             })
+            .flatten()
             .or_else(|| {
-                // The keyboard-selected suggestion keeps its focus border over the editor.
-                let selected = selected?;
-                self.hits
-                    .iter()
-                    .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
+                self.pointer.and_then(|point| {
+                    self.hits
+                        .iter()
+                        .rev()
+                        .find(|(_, bounds, _)| bounds.contains(point))
+                        .map(|(_, _, key)| key.clone())
+                })
             })
-            .map(|(_, _, key)| key.clone())
-            .or_else(|| {
-                (!self.settings.open && self.pending_link.is_none())
-                    .then(|| {
-                        self.pointer.and_then(|point| {
-                            self.hover_hits
-                                .iter()
-                                .rev()
-                                .find(|(bounds, _)| bounds.contains(point))
-                                .map(|(_, key)| key.clone())
-                        })
-                    })
-                    .flatten()
-            });
+            .or_else(|| selected.clone());
         let mut view = ViewState {
             hovered,
             focused: self.edit_box.clone(),
             ..ViewState::default()
         };
+        // Keyboard completion keeps its hover look while the pointer follows message controls.
+        view.focus_memory.held = selected;
         // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
         // its maximum changes; otherwise it keeps `from_bottom`.
         if let Some((key, metrics)) = &self.scroll {

@@ -485,3 +485,62 @@ fn open_chat_grids_keep_caption_template_dependencies() {
         );
     }
 }
+
+#[test]
+fn scoped_message_dependencies_survive_suppression() {
+    for contents in [
+        json!({"$caption_template":"hud.caption","controls":[{"caption@$caption_template":{}}]}),
+        json!({"$caption_template":"hud.caption","controls":[{"grid":{"type":"grid",
+            "grid_dimensions":[1,1],"grid_item_template":"$caption_template"}}]}),
+        json!({"$caption_template":"hud.caption","controls":[],"factory":{"name":"captions",
+            "control_ids":{"caption":"$caption_template"}}}),
+        json!({"$caption_template":"hud.caption","controls":[],"factory":{"name":"captions",
+            "control_ids":{"caption":"chat.caption_host"},"factory_variables":["$caption_template"]}}),
+        json!({"$contents":[{"caption@hud.caption":{}}],"controls":"$contents"}),
+        json!({"$instance":"caption@hud.caption","controls":[{"$instance":{}}]}),
+    ] {
+        let builtin = builtin();
+        let mut pack = layered(
+            &builtin,
+            "ui/hud_screen.json",
+            json!({"namespace":"hud",
+                "caption@hud.chat_label":{"text":"Scoped caption"}
+            }),
+        );
+        pack.overlay_text(
+            "ui/chat_screen.json",
+            &json!({"namespace":"chat",
+                "messages_text":contents,
+                "caption_host":{"type":"panel","controls":[{"caption@$caption_template":{}}]}
+            })
+            .to_string(),
+        );
+        let retained = prefer_builtin(&mut pack, &builtin);
+        let mut chat = builtin;
+        for control in retained {
+            chat.insert(control);
+        }
+        for catalog in [&pack, &chat] {
+            let context = json_ui::Context::empty();
+            let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
+                .control
+                .unwrap();
+            let mut data = json_ui::DataSource::new();
+            data.set_factory("captions", vec![json_ui::FactoryItem::new("caption", 0.0)]);
+            let bound = json_ui::bind_screen(
+                &messages,
+                catalog,
+                &context,
+                &data,
+                &mut json_ui::BindState::new(),
+            );
+            assert!(
+                bound
+                    .find(&|control: &ResolvedControl| control.properties.get("text")
+                        == Some(&json!("Scoped caption")))
+                    .is_some(),
+                "scoped caption survives: {contents}"
+            );
+        }
+    }
+}
