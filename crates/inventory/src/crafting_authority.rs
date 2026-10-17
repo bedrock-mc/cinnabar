@@ -3,7 +3,7 @@ mod budget;
 mod observation;
 mod projection;
 
-use projection::{Observation, Queue, Record, RegistryOwner, StackOwner, personal_cell_index};
+use projection::{Observation, Queue, Record, RegistryOwner, StackOwner};
 use protocol::{InventoryAuthority, InventoryEvent, RecipeCatalog, VerifiedNetworkItemStack};
 use std::{num::NonZeroU64, sync::Arc};
 
@@ -49,7 +49,7 @@ pub(super) struct CraftingAuthority {
     /// Shared so presentation copies never deep-clone the recipe lists.
     catalog: Arc<RecipeCatalog>,
     catalog_lost: bool,
-    grid: [Option<Arc<StackOwner>>; 4],
+    grid: [Option<Arc<StackOwner>>; crate::inventory_ledger::PERSONAL_INPUT_COUNT],
     cursor: Option<Arc<StackOwner>>,
     queue: Option<Arc<Queue>>,
     revision: u64,
@@ -270,7 +270,24 @@ impl CraftingAuthority {
         observation::bootstrap(self.session, self.registry.is_some());
     }
 
+    /// Routes fixture events through the same authority owner used by real ingress.
+    #[cfg(test)]
     pub(super) fn observe(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
+        let mut ledger = crate::PlayerInventoryLedger::default();
+        if let InventoryAuthorityEvent::Inventory(event) = event {
+            ledger.apply(event);
+        }
+        self.observe_admitted(session, sequence, event, ledger.personal_updates());
+    }
+
+    /// Retains only authoritative personal writes admitted by the ledger at this FIFO receipt.
+    pub(super) fn observe_admitted(
+        &mut self,
+        session: u64,
+        sequence: u64,
+        event: &InventoryAuthorityEvent,
+        writes: crate::inventory_ledger::PersonalUpdates<'_>,
+    ) {
         if session != self.session || self.exhausted {
             return;
         }
@@ -292,69 +309,12 @@ impl CraftingAuthority {
             InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)) => {
                 Observation::Recipes(update.clone())
             }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) => {
-                let Some(index) = personal_cell_index(update.identity) else {
-                    return;
-                };
-                let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
+            _ if writes.iter().any(Option::is_some) => {
+                let Some(cells) = StackOwner::updates_with_credits(writes, &self.credits) else {
                     self.lose(sequence, 0);
                     return;
                 };
-                if index < 4 {
-                    Observation::Cell { index, stack }
-                } else {
-                    Observation::Cursor(stack)
-                }
-            }
-            InventoryAuthorityEvent::Inventory(event @ InventoryEvent::Transaction(_)) => {
-                let mut cells = std::array::from_fn(|_| None);
-                for update in event.slot_updates() {
-                    let Some(index) = personal_cell_index(update.identity) else {
-                        continue;
-                    };
-                    let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
-                        self.lose(sequence, 0);
-                        return;
-                    };
-                    cells[index] = Some(stack);
-                }
-                if cells.iter().all(Option::is_none) {
-                    return;
-                }
                 Observation::Cells(cells)
-            }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
-                if protocol::personal_craft_content_indices(
-                    &content.container,
-                    content.slots.len(),
-                )
-                .is_some() =>
-            {
-                let indices = protocol::personal_craft_content_indices(
-                    &content.container,
-                    content.slots.len(),
-                )
-                .expect("guarded content shape");
-                let Some(cells) = StackOwner::many_with_credits(
-                    [indices[0], indices[1], indices[2], indices[3], 0]
-                        .map(|index| &content.slots[index]),
-                    &self.credits,
-                ) else {
-                    self.lose(sequence, 0);
-                    return;
-                };
-                Observation::Cells(cells.map(Some))
-            }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
-                if content.slots.len() == 1
-                    && content.container.window_id.is_none()
-                    && content.container.slot_type == Some(protocol::CONTAINER_NAME_CURSOR) =>
-            {
-                let Some(stack) = StackOwner::with_credits(&content.slots[0], &self.credits) else {
-                    self.lose(sequence, 0);
-                    return;
-                };
-                Observation::Cursor(stack)
             }
             _ => return,
         };
@@ -378,7 +338,10 @@ impl CraftingAuthority {
         match replacement {
             Some(queue) => {
                 self.queue = Some(queue);
-                observation::stage(session, sequence, event);
+                let mask = writes.iter().enumerate().fold(0, |mask, (index, cell)| {
+                    mask | if cell.is_some() { 1 << index } else { 0 }
+                });
+                observation::stage(session, sequence, event, mask);
             }
             None => self.lose(sequence, domain),
         }
@@ -428,20 +391,6 @@ impl CraftingAuthority {
                     self.authority = Some(*authority)
                 }
                 Observation::Authority(_) => {}
-                Observation::Cell { index, stack }
-                    if record.sequence > self.epoch.max(self.authority_loss) =>
-                {
-                    self.grid[*index] = Some(Arc::clone(stack));
-                    self.changed_cells();
-                    observation::cells(self.session, record.sequence, self.epoch, 1 << *index);
-                }
-                Observation::Cursor(stack)
-                    if record.sequence > self.epoch.max(self.authority_loss) =>
-                {
-                    self.cursor = Some(Arc::clone(stack));
-                    self.changed_cells();
-                    observation::cells(self.session, record.sequence, self.epoch, 16);
-                }
                 Observation::Cells(cells)
                     if record.sequence > self.epoch.max(self.authority_loss) =>
                 {
@@ -459,7 +408,7 @@ impl CraftingAuthority {
                     self.changed_cells();
                     observation::cells(self.session, record.sequence, self.epoch, mask);
                 }
-                Observation::Cell { .. } | Observation::Cursor(_) | Observation::Cells(_) => {}
+                Observation::Cells(_) => {}
             }
             observation::discard(record.sequence);
         }

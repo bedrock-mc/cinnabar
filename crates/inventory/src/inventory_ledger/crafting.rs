@@ -34,10 +34,11 @@ impl CraftingGrid {
 
     /// The UI inventory slot of each grid cell in row-major order.
     pub fn slots(self) -> impl Iterator<Item = u8> {
-        let (first, count) = match self {
-            Self::Personal => (FIRST_CRAFT_SLOT, 4),
-            Self::Workbench => (FIRST_CRAFT_SLOT + 4, 9),
+        let first = match self {
+            Self::Personal => FIRST_CRAFT_SLOT,
+            Self::Workbench => FIRST_CRAFT_SLOT + super::PERSONAL_INPUT_COUNT as u8,
         };
+        let count = self.width().pow(2);
         first..first + count
     }
 }

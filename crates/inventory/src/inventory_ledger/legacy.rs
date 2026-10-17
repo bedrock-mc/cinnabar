@@ -30,10 +30,14 @@ impl PlayerInventoryLedger {
         self.invalidate_request_sources(cell, i32::MIN);
     }
 
+    /// Writes backing authority and records which personal observation cells changed.
     pub(super) fn set_authoritative_cell(&mut self, cell: Cell, held: Option<Held>) -> bool {
         self.prepare_authoritative_cell(cell);
         let written = self.confirmed.set(cell, held);
         if written {
+            if let Some(index) = cell.personal_index() {
+                self.personal_writes |= 1 << index;
+            }
             self.note_observed_gear(cell);
         }
         written

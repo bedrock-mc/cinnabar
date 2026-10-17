@@ -216,6 +216,7 @@ fn horse_chest_accepted_response_settles_after_full_content() {
                         protocol::StackResponseContainer {
                             container: ContainerIdentity {
                                 window_id: None,
+                                dynamic_id: None,
                                 ..identity
                             },
                             slots: Arc::from([correction(2, 0, 0)]),
@@ -237,7 +238,7 @@ fn horse_chest_accepted_response_settles_after_full_content() {
         assert!(ledger.storage_stack(2).is_none());
         assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 9001);
         assert!(matches!(action, StackRequestAction::Take { source, .. }
-            if source.container == StackRequestContainer::LevelEntity { dynamic_id }));
+            if source.container == StackRequestContainer::LevelEntity { dynamic_id: None }));
         assert!(ledger.begin_storage_click(3).is_ok());
     }
 }

@@ -138,20 +138,18 @@ fn server_menu_admits_its_window_ignoring_descriptor_names() {
 }
 
 #[test]
-fn server_menu_named_dynamic_identity_remains_exact_in_requests() {
+fn server_menu_ignores_ordinary_dynamic_descriptor_in_requests() {
     let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
     let container = descriptor(Some(CONTAINER_NAME_LEVEL_ENTITY), Some(91));
     ledger.apply(&content(container));
     ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 103));
     ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
-        panic!("taking the dynamically addressed item");
+        panic!("taking the ordinary window item");
     };
     assert_eq!(
         source.container,
-        StackRequestContainer::LevelEntity {
-            dynamic_id: Some(91)
-        }
+        StackRequestContainer::LevelEntity { dynamic_id: None }
     );
     assert_eq!(source.stack_network_id, 103);
 }

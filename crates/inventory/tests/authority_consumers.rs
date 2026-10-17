@@ -387,3 +387,77 @@ fn hotbar_flag_controls_numeric_selection_at_fifo_receipt() {
         assert_eq!(session.pending_hotbar_selection(), None);
     }
 }
+
+/// Crafting observes exactly the fixed registry writes admitted by the current screen.
+#[test]
+fn review_registry_observations_follow_ledger_admission() {
+    for screen in [false, true] {
+        for dynamic_id in [None, Some(9)] {
+            for full in [false, true] {
+                for occupied in [false, true] {
+                    let mut session = known_empty();
+                    if screen {
+                        assert!(session.ledger_mut().request_personal_open(42));
+                        assert!(session.ledger_mut().mark_transport_enqueued(0));
+                        commit(
+                            &mut session,
+                            4,
+                            InventoryEvent::Open(ContainerOpenEvent {
+                                container: ContainerIdentity::window(2),
+                                window_type:
+                                    inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                                position: [0, 64, 0],
+                                runtime_entity_id: -1,
+                            }),
+                        );
+                    }
+                    let before = if occupied {
+                        item()
+                    } else {
+                        NetworkItemStack::empty()
+                    };
+                    commit(
+                        &mut session,
+                        5,
+                        slot(UI_INVENTORY_WINDOW_ID, None, 0, before),
+                    );
+                    let incoming = if occupied {
+                        NetworkItemStack::empty()
+                    } else {
+                        item()
+                    };
+                    let container = ContainerIdentity {
+                        window_id: Some(DYNAMIC_STORAGE_WINDOW_ID),
+                        slot_type: Some(CONTAINER_NAME_CURSOR),
+                        dynamic_id,
+                    };
+                    let event = if full {
+                        InventoryEvent::Content(InventoryContentEvent {
+                            container,
+                            slots: vec![incoming].into(),
+                            storage_item: NetworkItemStack::empty(),
+                        })
+                    } else {
+                        InventoryEvent::Slot(InventorySlotEvent {
+                            identity: SlotIdentity { container, slot: 0 },
+                            stack: incoming,
+                            storage_item: None,
+                        })
+                    };
+                    commit(&mut session, 6, event);
+                    let empty = if screen && dynamic_id.is_none() {
+                        occupied
+                    } else {
+                        !occupied
+                    };
+                    assert_eq!(session.ledger().cursor_stack().is_none(), empty);
+                    assert_eq!(
+                        session.crafting_preview().is_some(),
+                        empty,
+                        "screen={screen} dynamic={dynamic_id:?} full={full} occupied={occupied}"
+                    );
+                }
+            }
+        }
+    }
+}

@@ -3,27 +3,29 @@ use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
-    /// Resolves a default descriptor only against the open legacy storage window.
-    /// Real named and dynamic containers retain their exact identities.
-    pub(super) fn storage_wire_identity(&self, identity: ContainerIdentity) -> ContainerIdentity {
-        if identity.has_legacy_default_descriptor()
-            && self.storage.as_ref().is_some_and(|storage| {
-                identity.window_id == Some(storage.window_id)
-                    && storage.window_id != protocol::DYNAMIC_STORAGE_WINDOW_ID
-                    && matches!(
-                        storage.kind.open_cells(),
-                        Some(protocol::OpenCells::Generic(_))
-                    )
-            })
-        {
-            ContainerIdentity {
-                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-                dynamic_id: None,
-                ..identity
-            }
-        } else {
-            identity
-        }
+    /// Uses the screen model's outbound address, independently of ignored packet descriptors.
+    pub(super) fn storage_request_identity(&self) -> Option<ContainerIdentity> {
+        let storage = self.storage.as_ref()?;
+        let (container, _) = protocol::open_cell_request(storage.kind, 0, None, None)?;
+        let name =
+            if protocol::open_name_first_cell(storage.kind, protocol::CONTAINER_NAME_LEVEL_ENTITY)
+                .is_some()
+            {
+                protocol::CONTAINER_NAME_LEVEL_ENTITY
+            } else {
+                match container {
+                    StackRequestContainer::LevelEntity { .. } => {
+                        protocol::CONTAINER_NAME_LEVEL_ENTITY
+                    }
+                    StackRequestContainer::OpenWindow { name, .. } => name,
+                    _ => return None,
+                }
+            };
+        Some(ContainerIdentity {
+            window_id: Some(storage.window_id),
+            slot_type: Some(name),
+            dynamic_id: None,
+        })
     }
 
     /// Even a predicted empty cell carries the owning request id in vanilla's

@@ -1960,7 +1960,7 @@ not close a parity or visual acceptance gate.
   within a bounded result scope. Placement checks are shared by gesture builders.
 - Incomplete: full crafting batches and remainders, enchanting prediction and availability,
   creative secondary actions, mode-dependent removal, all station membership rules,
-  complete registry/model coverage, legacy and alias-resolved item data, and complete live
+  complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.
 

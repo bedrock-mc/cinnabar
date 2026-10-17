@@ -85,6 +85,10 @@ use thiserror::Error;
 
 /// Player slots share the protocol request boundary.
 pub const PLAYER_INVENTORY_SLOT_COUNT: usize = protocol::PLAYER_INVENTORY_SLOTS as usize;
+pub(crate) use cells::{PERSONAL_INPUT_COUNT, PERSONAL_UPDATE_COUNT};
+/// `None` means unmodified; `Some(None)` is an admitted empty cell.
+pub(crate) type PersonalUpdates<'a> = [Option<Option<&'a NetworkItemStack>>; PERSONAL_UPDATE_COUNT];
+
 pub const INVENTORY_REQUEST_TIMEOUT_MILLIS: u64 = 1_500;
 /// The decoded generic-storage container name
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
@@ -175,6 +179,8 @@ pub struct PlayerInventoryLedger {
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
+    /// Personal cells written by the latest event, consumed by the FIFO observer.
+    personal_writes: u8,
     armor_known: [bool; cells::ARMOR_CELLS],
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
@@ -224,6 +230,7 @@ impl Default for PlayerInventoryLedger {
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
+            personal_writes: 0,
             armor_known: [false; cells::ARMOR_CELLS],
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
@@ -258,6 +265,17 @@ impl Default for PlayerInventoryLedger {
 }
 
 impl PlayerInventoryLedger {
+    /// Returns only personal cells authoritatively written by the latest inventory event.
+    pub(crate) fn personal_updates(&self) -> PersonalUpdates<'_> {
+        std::array::from_fn(|index| {
+            (self.personal_writes & (1 << index) != 0).then(|| {
+                self.confirmed
+                    .get(cells::personal_cell(index))
+                    .map(|held| &held.stack)
+            })
+        })
+    }
+
     pub fn begin_session(&mut self, session_generation: u64) {
         *self = Self {
             session_generation,

@@ -863,7 +863,7 @@ fn storage_identity_mismatch(
     identity: ContainerIdentity,
 ) -> bool {
     expected.is_none_or(|expected| {
-        // Legacy windows without a dynamic identity may be echoed with a zero-filled ID.
+        // Preserve the existing zero-filled legacy response alias.
         let legacy_zero = expected.dynamic_id.is_none()
             && expected
                 .window_id

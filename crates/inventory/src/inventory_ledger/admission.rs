@@ -19,6 +19,7 @@ use super::{
 
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
+        self.personal_writes = 0;
         for update in event.slot_updates() {
             tracing::debug!(target: "cinnabar::inventory_requests",
                 identity = ?update.identity, network_id = update.stack.network_id,

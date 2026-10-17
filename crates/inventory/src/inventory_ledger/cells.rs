@@ -33,7 +33,36 @@ pub(super) enum CellSurface {
     Crafting,
 }
 
+/// Personal crafting inputs and cursor share one admitted observation batch.
+pub(crate) const PERSONAL_INPUT_COUNT: usize =
+    (super::CraftingGrid::Personal.width() as usize).pow(2);
+pub(crate) const PERSONAL_UPDATE_COUNT: usize = PERSONAL_INPUT_COUNT + 1;
+const _: () = assert!(PERSONAL_UPDATE_COUNT <= u8::BITS as usize);
+
+/// The canonical cell at one personal observation index, with the cursor last.
+pub(super) fn personal_cell(index: usize) -> Cell {
+    if index == PERSONAL_INPUT_COUNT {
+        Cell::Cursor
+    } else {
+        Cell::Craft(*protocol::CRAFTING_INPUT_SLOTS.start() + index as u8)
+    }
+}
+
 impl Cell {
+    /// The personal observation index for a cursor or personal-grid write.
+    pub(super) fn personal_index(self) -> Option<usize> {
+        match self {
+            Self::Cursor => Some(PERSONAL_INPUT_COUNT),
+            Self::Craft(slot)
+                if (FIRST_CRAFT_SLOT..FIRST_CRAFT_SLOT + PERSONAL_INPUT_COUNT as u8)
+                    .contains(&slot) =>
+            {
+                Some(usize::from(slot - *protocol::CRAFTING_INPUT_SLOTS.start()))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) const fn surface(self) -> CellSurface {
         match self {
             Self::Inventory(_) => CellSurface::Player,

@@ -542,7 +542,7 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
         &mut runtime,
         take,
         GENERIC_STORAGE_SLOT_TYPE,
-        Some(STORAGE_DYNAMIC_ID),
+        None,
         3,
         correction(0, 1, 13, "", "", 0),
     );
@@ -557,7 +557,7 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
         &mut runtime,
         place,
         GENERIC_STORAGE_SLOT_TYPE,
-        Some(STORAGE_DYNAMIC_ID),
+        None,
         correction(3, 1, 77, "Stored Blade", "Stored Blade", 42),
     );
     assert_eq!(

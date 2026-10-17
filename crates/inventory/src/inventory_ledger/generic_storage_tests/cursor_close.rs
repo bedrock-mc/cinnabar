@@ -64,7 +64,7 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                 let take = ledger.begin_storage_click(2).unwrap();
                 assert!(ledger.mark_transport_enqueued(10));
                 if !take_pending {
-                    ledger.apply(&accepted_storage_take(take, 980));
+                    ledger.apply(&accepted_storage_take(take));
                 }
 
                 ledger.request_storage_close();
@@ -98,7 +98,7 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                     ledger.apply(&close_ack);
                 }
                 if take_pending {
-                    ledger.apply(&accepted_storage_take(take, 980));
+                    ledger.apply(&accepted_storage_take(take));
                 }
                 accept_return(&mut ledger, return_id, (!full).then_some(0));
                 if !close_first {
@@ -177,7 +177,7 @@ fn storage_close_returns_cursor_despite_inactive_input_identity() {
     ledger.apply(&player_content());
     let take = ledger.begin_storage_click(2).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
-    ledger.apply(&accepted_storage_take(take, 980));
+    ledger.apply(&accepted_storage_take(take));
     ledger.apply(&personal_input(0));
     ledger.request_storage_close();
     assert!(ledger.cursor_stack().is_none());
@@ -205,7 +205,7 @@ fn storage_close_keeps_inactive_input_without_blocking_later_gestures() {
         }));
         let take = ledger.begin_storage_click(2).unwrap();
         assert!(ledger.mark_transport_enqueued(10));
-        ledger.apply(&accepted_storage_take(take, 980));
+        ledger.apply(&accepted_storage_take(take));
         ledger.apply(&personal_input(92));
         ledger.request_storage_close();
         let cleanup = ledger.newest_request().unwrap().request_id;
@@ -239,7 +239,7 @@ fn close_ack_retires_screen_owned_response() {
     ledger.apply(&player_content());
     let take = ledger.begin_storage_click(2).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
-    ledger.apply(&accepted_storage_take(take, 980));
+    ledger.apply(&accepted_storage_take(take));
     ledger.request_storage_close();
     let returning = ledger.newest_request().unwrap().request_id;
     assert!(ledger.mark_transport_enqueued(20));
