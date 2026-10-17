@@ -250,6 +250,13 @@ impl MenuRuntime {
                 self.pressed = None;
                 self.focused = 0;
             }
+            Action::SetCosmeticCategory(category) => {
+                Arc::make_mut(&mut self.dressing_room).cosmetic_category = category;
+                self.field = None;
+                self.hovered = None;
+                self.pressed = None;
+                self.focused = 0;
+            }
             Action::Select(index) => self.queue_skin_job(Job::Select(index)),
             Action::Import => self.queue_skin_job(Job::Import(None)),
             Action::ImportCape => self.queue_skin_job(Job::ImportCape(None)),
@@ -315,6 +322,7 @@ impl MenuRuntime {
                 }
                 result.view.busy = worker.pending != 0;
                 result.view.section = self.dressing_room.section;
+                result.view.cosmetic_category = self.dressing_room.cosmetic_category;
                 if !result.completed_command {
                     result.view.editor = self.dressing_room.editor.clone();
                     result.view.message = self.dressing_room.message.clone();
@@ -459,10 +467,23 @@ impl MenuRuntime {
             return actions;
         }
         if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Cosmetics {
+            actions.extend(
+                launcher::dressing_room::CosmeticCategory::ALL
+                    .into_iter()
+                    .filter(|category| *category != self.dressing_room.cosmetic_category)
+                    .map(|category| {
+                        MenuAction::DressingRoom(Action::SetCosmeticCategory(category))
+                    }),
+            );
             actions.push(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
             actions.extend(
                 cosmetics::Item::all()
                     .iter()
+                    .filter(|item| {
+                        self.dressing_room
+                            .cosmetic_category
+                            .includes_slot(&item.descriptor().slot)
+                    })
                     .map(|hat| MenuAction::DressingRoom(Action::SelectCosmetic(Some(*hat)))),
             );
             return actions;

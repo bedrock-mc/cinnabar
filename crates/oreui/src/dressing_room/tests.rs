@@ -3,9 +3,100 @@ use std::{collections::HashMap, sync::Arc};
 use super::super::review_tests::paint;
 use crate::test_support::{add_capes, dressing_room_view as view};
 use launcher::dressing_room::{
-    DressingRoomSection, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode, SkinEditorTarget,
+    CosmeticCategory, DressingRoomSection, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode,
+    SkinEditorTarget,
 };
 use {super::*, launcher::menu::MenuAction};
+
+#[test]
+fn cosmetic_categories_filter_tiles_and_keep_original_thumbnail_indices() {
+    let head = render_model::hats::fixture::bunny();
+    let back = render_model::hats::fixture::dragon_wings();
+    for category in CosmeticCategory::ALL {
+        let mut view = view(STARTER_SKIN_NAMES.len());
+        let wardrobe = Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = DressingRoomSection::Cosmetics;
+        wardrobe.cosmetic_category = category;
+        let mut visible = Vec::new();
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            visible = draw(canvas, &view, [1280.0, 10_000.0])
+                .unwrap()
+                .visible_cosmetics;
+        });
+        for (item, included) in [
+            (head, category != CosmeticCategory::Back),
+            (back, category != CosmeticCategory::Head),
+        ] {
+            assert_eq!(
+                hits.iter()
+                    .any(|(action, _)| { *action == command(Action::SelectCosmetic(Some(item))) }),
+                included,
+                "{category:?} gallery: {}",
+                item.name(),
+            );
+        }
+        for candidate in CosmeticCategory::ALL {
+            assert_eq!(
+                hits.iter().any(|(action, _)| {
+                    *action == command(Action::SetCosmeticCategory(candidate))
+                }),
+                candidate != category,
+            );
+        }
+        if category == CosmeticCategory::Back {
+            let items = cosmetics::Item::all();
+            assert_eq!(
+                visible
+                    .iter()
+                    .map(|index| items[*index])
+                    .collect::<Vec<_>>(),
+                vec![back],
+                "filtered thumbnails retain their source catalog indices",
+            );
+        }
+    }
+}
+
+#[test]
+fn busy_cosmetics_block_category_changes() {
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    let wardrobe = Arc::make_mut(&mut view.dressing_room);
+    wardrobe.section = DressingRoomSection::Cosmetics;
+    wardrobe.busy = true;
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [1280.0, 720.0]).unwrap();
+    });
+    assert!(!hits.iter().any(|(action, _)| matches!(
+        action,
+        MenuAction::DressingRoom(Action::SetCosmeticCategory(_))
+    )));
+}
+
+#[test]
+fn switching_cosmetic_categories_keeps_the_filtered_collection_visible() {
+    render_model::hats::fixture::gallery();
+    let back = render_model::hats::fixture::dragon_wings();
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    Arc::make_mut(&mut view.dressing_room).section = DressingRoomSection::Cosmetics;
+    for size in [[1280.0, 720.0], [480.0, 1280.0]] {
+        Arc::make_mut(&mut view.dressing_room).cosmetic_category = CosmeticCategory::All;
+        let (scrolls, _, _) = paint(HashMap::new(), |canvas| {
+            draw(canvas, &view, size).unwrap();
+        });
+        let scroll = scrolls.iter().find(|scroll| scroll.max > 0.0).unwrap();
+        Arc::make_mut(&mut view.dressing_room).cosmetic_category = CosmeticCategory::Back;
+        let (_, hits, _) = paint(
+            HashMap::from([(scroll.key.clone(), scroll.max)]),
+            |canvas| {
+                draw(canvas, &view, size).unwrap();
+            },
+        );
+        assert!(
+            hits.iter()
+                .any(|(action, _)| { *action == command(Action::SelectCosmetic(Some(back))) })
+        );
+    }
+}
 
 #[test]
 fn cosmetic_viewport_reports_only_intersecting_gallery_tiles() {

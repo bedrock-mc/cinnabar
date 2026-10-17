@@ -7,7 +7,7 @@ use super::super::{
     widgets::{self, Variant},
 };
 use super::{PreviewArea, command, enabled};
-use launcher::dressing_room::{Action, DressingRoomSection};
+use launcher::dressing_room::{Action, CosmeticCategory, DressingRoomSection};
 use launcher::dressing_room::{cape_thumbnail_key, thumbnail_key};
 use launcher::menu::MenuView;
 use ui::IconRef;
@@ -88,6 +88,24 @@ pub(super) fn toolbar(
             .unwrap_or_default(),
     )?;
     y += canvas.r(6.2);
+    if view.dressing_room.section == DressingRoomSection::Cosmetics {
+        widgets::tabs(
+            canvas,
+            view,
+            [left, y, right, y + canvas.r(4.4)],
+            &CosmeticCategory::ALL.map(|category| {
+                (
+                    category.label(),
+                    enabled(view).then_some(command(Action::SetCosmeticCategory(category))),
+                )
+            }),
+            CosmeticCategory::ALL
+                .iter()
+                .position(|category| *category == view.dressing_room.cosmetic_category)
+                .unwrap_or_default(),
+        )?;
+        y += canvas.r(6.2);
+    }
     Ok(y)
 }
 

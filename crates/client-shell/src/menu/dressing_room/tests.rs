@@ -489,7 +489,7 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
 
 #[test]
 fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change() {
-    use launcher::dressing_room::DressingRoomSection;
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
     let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
     let mut local = menu.player_skin.clone();
     let mut world = None;
@@ -508,6 +508,9 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
             .contains(&MenuAction::DressingRoom(Action::Import))
     );
     let before = local.standard_skin();
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Head,
+    )));
     menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(Some(
         render_model::hats::fixture::bunny(),
     ))));
@@ -516,7 +519,30 @@ fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change()
     assert_eq!(menu.player_skin.cosmetics, local.cosmetics);
     assert_eq!(local.standard_skin(), before);
     assert!(menu.skin_packet_pending.is_none());
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Head);
+    let back = render_model::hats::fixture::dragon_wings();
+    menu.activate(MenuAction::DressingRoom(Action::SetCosmeticCategory(
+        CosmeticCategory::Back,
+    )));
+    let actions = menu.dressing_room_focus();
+    assert!(
+        actions.contains(&MenuAction::DressingRoom(Action::SetCosmeticCategory(
+            CosmeticCategory::All,
+        )))
+    );
+    assert!(
+        actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            back
+        ))))
+    );
+    assert!(
+        !actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            render_model::hats::fixture::bunny(),
+        ))))
+    );
+    assert_eq!(local.cosmetics, vec![render_model::hats::fixture::bunny()]);
     menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
     wait(&mut menu, &mut local, &mut world);
     assert!(local.cosmetics.is_empty());
+    assert_eq!(menu.dressing_room.cosmetic_category, CosmeticCategory::Back);
 }

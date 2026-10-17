@@ -10,6 +10,10 @@ Bounded rotation clips and continuous span flex animate wings alongside independ
 using shared immutable geometry and caller-owned looping time.
 Unknown, unsupported and unowned items render nothing.
 
+The Cosmetics gallery offers All, Head and Back categories. Filtering preserves equipped
+items, retains separate scroll positions and limits thumbnails and keyboard navigation
+to the selected category.
+
 Saved hat choices migrate into the head slot. Gallery requests include visible thumbnails
 and prioritize equipped textures. Cosmetic motion retains the hand rasters, and unchanged
 gallery requests compare the catalog generation without cloning its items. Attachments use
