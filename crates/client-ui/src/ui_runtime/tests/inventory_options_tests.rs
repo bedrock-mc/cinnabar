@@ -334,3 +334,33 @@ fn inventory_options_unsaved_choices_retire_on_close_without_a_flush() {
         InventoryOptions::default()
     );
 }
+
+#[test]
+fn inventory_options_search_focus_does_not_follow_into_a_book_reader() {
+    use crate::ui_runtime::book_screen::{BookSource, BookState};
+
+    for editable in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = crate::test_support::inventory_session(&mut player);
+        runtime.toggle_inventory(&mut player);
+        runtime.perform_pointer_action(
+            &mut player,
+            PointerAction::Click(InventoryCellHit::CreativeSearch),
+        );
+        assert!(runtime.screen_state().search_focused);
+        runtime.close_inventory(&mut player);
+        runtime.open_book(BookState::new(
+            BookSource::Held(0),
+            vec!["page".into()],
+            editable,
+            String::new(),
+            String::new(),
+        ));
+        runtime.observe_inventory_window(&player);
+        runtime.observe_inventory_search_focus(&player);
+        assert!(!runtime.screen_state().search_focused);
+        assert_eq!(runtime.screen_state().text_focused(), editable);
+        assert_eq!(runtime.screen_state().search, "");
+        assert!(runtime.take_client_packet().is_none());
+    }
+}

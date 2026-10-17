@@ -171,7 +171,9 @@ pub fn visible_creative_entries<'a>(
 impl UiRuntime {
     /// Releases the keyboard when the inventory search field cannot be shown.
     pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
-        if !super::presentation::forms::recipe_book_shown(player, self) {
+        if self.screen_state().book.is_some()
+            || !super::presentation::forms::recipe_book_shown(player, self)
+        {
             self.screen_state_mut().search_focused = false;
         }
     }
