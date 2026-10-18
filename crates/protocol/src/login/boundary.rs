@@ -48,6 +48,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             self.retain_server_disconnect(&packet) || self.retain_server_transfer(&packet);
         if retained && let Some(resolver) = self.blob_cache.as_mut() {
             reset_cache_for_immediate_boundary(resolver, name)?;
+            self.cache_status.lock().expect("cache status lock").reset();
         }
         Ok(retained)
     }
@@ -104,6 +105,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         };
         if let Some(resolver) = self.blob_cache.as_mut() {
             reset_cache_for_immediate_boundary(resolver, name)?;
+            self.cache_status.lock().expect("cache status lock").reset();
         }
         Ok(true)
     }
