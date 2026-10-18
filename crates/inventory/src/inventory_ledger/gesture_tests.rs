@@ -19,15 +19,15 @@ fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(value: Option<NetworkItemStack>) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([value.unwrap_or_default()]),
-        storage_item: NetworkItemStack::default(),
+        stack: value.unwrap_or_default(),
+        storage_item: None,
     })
 }
 
@@ -159,10 +159,7 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(take.cursor_stack().unwrap().count, 5);
     assert_eq!(take.cursor_stack().unwrap().stack_network_id, -3);
     assert_eq!(take.presented_slot_overlay(0), Some(&original_overlay));
-    assert_eq!(
-        take.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
-        Some(&original_overlay)
-    );
+    assert_eq!(take.presented_cursor_overlay(), Some(&original_overlay));
 
     let mut place = player_ledger(None, Some(original));
     place.set_confirmed_overlay(Cell::Cursor, original_overlay.clone());

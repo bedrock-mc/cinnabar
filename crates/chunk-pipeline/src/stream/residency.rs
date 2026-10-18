@@ -52,7 +52,7 @@ impl WorldStream {
         self.evict_columns(BTreeSet::from([key]));
     }
 
-    /// Retires authority in one pass, then releases packed column allocations off-thread.
+    /// Retires authority in one pass, then releases packed columns through the host executor.
     /// Work scales with the retired columns and their neighbours, not with the whole view.
     pub(super) fn evict_columns(&mut self, columns: BTreeSet<ChunkKey>) {
         if columns.is_empty() {
@@ -159,7 +159,7 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             #[cfg(feature = "tracy")]
             let _zone = tracing::info_span!("stream.retire_drop_dispatch").entered();
-            rayon::spawn(move || {
+            workers::retire(move || {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("stream.retired_drop").entered();
                 drop((retired, retired_indexes));

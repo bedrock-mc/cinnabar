@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use super::{decode_extra_nbt, read_i32_le, read_u8, read_u16_le, root_tag, skip_le_payload};
+use super::{
+    compound_field, decode_extra_nbt, read_i32_le, read_u8, read_u16_le, root_tag, skip_le_payload,
+};
 
 const TAG_SHORT: u8 = 2;
 const TAG_INT: u8 = 3;
@@ -15,9 +17,9 @@ const TAG_LIST: u8 = 9;
 const TAG_COMPOUND: u8 = 10;
 
 /// User data with no compound and empty `canPlaceOn` / `canBreak` lists.
-const EMPTY_USER_DATA: [u8; 10] = [0; 10];
+pub(super) const EMPTY_USER_DATA: [u8; 10] = [0; 10];
 
-/// The root tags an anvil changes. `None` leaves a tag as it is.
+/// Item tags changed by a local edit or accepted response. `None` leaves a tag as it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemNbtEdit {
     /// The root `Damage` int.
@@ -28,6 +30,8 @@ pub struct ItemNbtEdit {
     pub enchantments: Option<Vec<(i16, i16)>>,
     /// `display.Name`: `Some(None)` removes a custom name.
     pub custom_name: Option<Option<String>>,
+    /// `display.FilteredName`; a new unfiltered name removes the old filtered value.
+    pub filtered_custom_name: Option<Option<String>>,
 }
 
 /// Item properties used for anvil edits, without tooltip limits or level conversion.
@@ -40,13 +44,20 @@ pub struct ItemAnvilData {
 /// Reads the full custom name without tooltip limits, independently of enchantment support.
 #[must_use]
 pub fn item_custom_name(extra_data: &[u8]) -> Option<Arc<str>> {
+    display_string(extra_data, b"Name")
+}
+
+/// Reads the optional filtered custom name from the retained display compound.
+#[must_use]
+pub fn item_filtered_custom_name(extra_data: &[u8]) -> Option<Arc<str>> {
+    display_string(extra_data, b"FilteredName")
+}
+
+/// Borrows a display string before allocating only its returned text.
+fn display_string(extra_data: &[u8], name: &[u8]) -> Option<Arc<str>> {
     let mut nbt = decode_extra_nbt(extra_data)?;
-    let display = root_tag(&mut nbt, TAG_COMPOUND, b"display")?;
-    let (entries, _) = read_entries(display)?;
-    let entry = entries
-        .iter()
-        .find(|entry| entry.tag == TAG_STRING && entry.name == b"Name")?;
-    let mut text = entry.payload.as_slice();
+    let mut display = root_tag(&mut nbt, TAG_COMPOUND, b"display")?;
+    let mut text = compound_field(&mut display, TAG_STRING, name)?;
     let length = usize::from(read_u16_le(&mut text)?);
     Some(Arc::from(std::str::from_utf8(text.get(..length)?).ok()?))
 }
@@ -236,20 +247,31 @@ pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]
             .map(|payload| (TAG_LIST, payload));
         set_entry(&mut entries, b"ench", list);
     }
-    if let Some(name) = &edit.custom_name {
+    if edit.custom_name.is_some() || edit.filtered_custom_name.is_some() {
         let mut display = match entries.iter().find(|entry| entry.name == b"display") {
             Some(entry) if entry.tag == TAG_COMPOUND => read_entries(&entry.payload)?.0,
             _ => Vec::new(),
         };
-        let value = match name {
-            Some(name) => {
-                let mut payload = Vec::new();
-                write_string(&mut payload, name.as_bytes())?;
-                Some((TAG_STRING, payload))
-            }
-            None => None,
-        };
-        set_entry(&mut display, b"Name", value);
+        let remove_filtered = None;
+        let filtered_name = edit
+            .filtered_custom_name
+            .as_ref()
+            .or_else(|| edit.custom_name.as_ref().map(|_| &remove_filtered));
+        for (key, value) in [
+            (&b"Name"[..], edit.custom_name.as_ref()),
+            (&b"FilteredName"[..], filtered_name),
+        ] {
+            let Some(value) = value else { continue };
+            let value = match value {
+                Some(text) => {
+                    let mut payload = Vec::new();
+                    write_string(&mut payload, text.as_bytes())?;
+                    Some((TAG_STRING, payload))
+                }
+                None => None,
+            };
+            set_entry(&mut display, key, value);
+        }
         let payload = if display.is_empty() {
             None
         } else {
@@ -407,6 +429,7 @@ mod tests {
                 repair_cost: Some(3),
                 enchantments: Some(vec![(9, 4), (17, 1)]),
                 custom_name: Some(Some("New".into())),
+                ..Default::default()
             },
         )
         .unwrap();

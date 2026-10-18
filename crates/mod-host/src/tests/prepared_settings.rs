@@ -1,5 +1,30 @@
 use super::*;
 
+#[test]
+fn settings_snapshot_seeds_the_guest_without_rereading_the_companion() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("snapshot.wat");
+    let companion = settings_companion(&path);
+    let seed = "{\"retained\":true}";
+    std::fs::write(&companion, seed).unwrap();
+    let snapshot = SettingsSnapshot::read(&path, None).unwrap();
+    std::fs::write(&companion, [0xff]).unwrap();
+    let host = ModHost::prepare_snapshot_with_grants(
+        &path,
+        fixture("", "Hello").as_bytes(),
+        ModGrants {
+            settings: true,
+            ..Default::default()
+        },
+        Some((&snapshot.path, &snapshot.json)),
+    )
+    .unwrap();
+    assert_eq!(host.settings_seed(), Some(seed));
+    assert_eq!(host.settings_snapshot(), Some(seed));
+    drop(host);
+    assert_eq!(std::fs::read(companion).unwrap(), [0xff]);
+}
+
 fn settings_guest(init: &str, frame: &str) -> String {
     let source = include_str!("../../../mod-api/wit/extension.wit");
     let package = source

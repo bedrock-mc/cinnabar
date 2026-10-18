@@ -2,7 +2,8 @@
 //! an input produces and an idle frame. Skips without the gitignored carrier;
 //! `CINNABAR_MENU_LATENCY=1` prints the table.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use ui::DpiScale;
 

@@ -98,7 +98,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
             1.0,
         ];
     }
-    let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
     let mut failures = Vec::new();
     for (kind, shader, fragments) in [
         (

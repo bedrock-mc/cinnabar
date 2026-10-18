@@ -23,6 +23,7 @@ fn generation_changes_only_when_catalog_content_changes() {
         offset: [0.0; 3],
         render_flags: RenderFlags {
             double_sided: false,
+            emissive: false,
         },
     };
     let before = Item::generation();
@@ -74,4 +75,24 @@ fn slots_come_from_the_wire_schema() {
     );
     assert!(known_slot("head"));
     assert!(!known_slot("future:slot"));
+    assert_eq!(known_slots().len(), SLOT_COUNT);
+    for (index, slot) in known_slots().iter().enumerate() {
+        assert_eq!(slot_index(slot), Some(index));
+    }
+}
+#[test]
+fn emissive_flag_is_optional_and_omitted_when_disabled() {
+    let old: RenderFlags = serde_json::from_str(r#"{"double_sided":true}"#).unwrap();
+    assert!(!old.emissive);
+    assert_eq!(
+        serde_json::to_string(&old).unwrap(),
+        r#"{"double_sided":true}"#
+    );
+    let glowing: RenderFlags =
+        serde_json::from_str(r#"{"double_sided":false,"emissive":true}"#).unwrap();
+    assert!(glowing.emissive);
+    assert_eq!(
+        serde_json::from_str::<RenderFlags>(&serde_json::to_string(&glowing).unwrap()).unwrap(),
+        glowing
+    );
 }

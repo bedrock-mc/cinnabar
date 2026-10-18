@@ -159,3 +159,24 @@ fn inventory_options_bind_tab_identity_raw_filter_and_context_layout_availabilit
     assert!(!boolean(&data, "#is_creative_layout_button_visible"));
     assert!(boolean(&data, "#is_survival_layout"));
 }
+
+#[test]
+fn hidden_recipe_book_uses_survival_binding_and_retains_unknown_layouts() {
+    use inventory::{InventoryContext, InventoryController};
+    for context in [InventoryContext::Personal, InventoryContext::Workbench] {
+        for creative in [false, true] {
+            let options = protocol::InventoryOptions {
+                inventory_layout: InventoryLayout::Unknown(-1),
+                crafting_layout: InventoryLayout::Unknown(i32::MIN),
+                ..Default::default()
+            };
+            let controller = InventoryController::new(options, context, creative);
+            let mut data = DataSource::new();
+            option_bindings(&mut data, controller, creative, false);
+            assert!(boolean(&data, "#is_survival_layout"));
+            assert!(!boolean(&data, "#is_recipe_book_layout"));
+            assert!(!boolean(&data, "#is_creative_layout"));
+            assert_eq!(controller.options, options);
+        }
+    }
+}

@@ -60,7 +60,7 @@ pub use bind::{
     EmptyLibrary, FactoryItem, bind, bind_incremental, bind_reporting, bind_shared, bind_stateful,
     rebind, scoped_key,
 };
-pub use catalog::{Catalog, LoadError, RawControl};
+pub use catalog::{Catalog, ControlScope, LoadError, RawControl};
 pub use component::{
     ButtonEvent, ButtonInput, CARET_BLINK_SECONDS, CARET_GLYPH, Components, Dispatch, Dispatcher,
     EditMeta, PointerInput, ScreenEvent, SelectionWheelMeta, SliderMeta, SoundMeta, TextEdit,

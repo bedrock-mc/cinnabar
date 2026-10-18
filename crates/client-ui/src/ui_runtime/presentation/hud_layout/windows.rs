@@ -310,7 +310,11 @@ impl HudLayout<'_> {
             if let Some(icon) = frame.cursor_icon {
                 self.icon_gui(icon, [pointer[0] - 8.0, pointer[1] - 8.0])?;
             }
-            self.stack_decorations(stack, [pointer[0] - 8.0, pointer[1] - 8.0], None)?;
+            self.stack_decorations(
+                stack,
+                [pointer[0] - 8.0, pointer[1] - 8.0],
+                frame.cursor_durability,
+            )?;
         }
         Ok(())
     }
@@ -694,7 +698,7 @@ impl HudLayout<'_> {
         for tab in 0..TAB_COUNT {
             let at = tab_origin(tab);
             let position = [origin[0] + at[0], origin[1] + at[1]];
-            let shade = if tab == state.creative_tab() {
+            let shade = if tab == runtime.creative_tab(player_runtime) {
                 198
             } else {
                 139
@@ -711,7 +715,7 @@ impl HudLayout<'_> {
         }
         let title = frame.window_text.title.as_deref().unwrap_or_default();
         self.inventory_label(title, [origin[0] + 8.0, origin[1] + 6.0])?;
-        if state.creative_tab() == SEARCH_TAB {
+        if runtime.creative_tab(player_runtime) == SEARCH_TAB {
             let field = [origin[0] + 82.0, origin[1] + 5.0];
             self.solid_gui(field, [89.0, 12.0], [0, 0, 0, 255])?;
             let text = format!(
@@ -721,7 +725,7 @@ impl HudLayout<'_> {
             );
             self.ui_text(&text, [field[0] + 2.0, field[1] + 2.0], [255; 4], false)?;
         }
-        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), runtime);
+        let entries = visible_creative_entries(player_runtime, runtime);
         for slot in screens::creative_slots() {
             let position = [origin[0] + slot.pos[0], origin[1] + slot.pos[1]];
             self.slot_frame(position, SLOT_SIZE)?;

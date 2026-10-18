@@ -33,7 +33,36 @@ pub(super) enum CellSurface {
     Crafting,
 }
 
+/// Personal crafting inputs and cursor share one admitted observation batch.
+pub(crate) const PERSONAL_INPUT_COUNT: usize =
+    (super::CraftingGrid::Personal.width() as usize).pow(2);
+pub(crate) const PERSONAL_UPDATE_COUNT: usize = PERSONAL_INPUT_COUNT + 1;
+const _: () = assert!(PERSONAL_UPDATE_COUNT <= u8::BITS as usize);
+
+/// The canonical cell at one personal observation index, with the cursor last.
+pub(super) fn personal_cell(index: usize) -> Cell {
+    if index == PERSONAL_INPUT_COUNT {
+        Cell::Cursor
+    } else {
+        Cell::Craft(*protocol::CRAFTING_INPUT_SLOTS.start() + index as u8)
+    }
+}
+
 impl Cell {
+    /// The personal observation index for a cursor or personal-grid write.
+    pub(super) fn personal_index(self) -> Option<usize> {
+        match self {
+            Self::Cursor => Some(PERSONAL_INPUT_COUNT),
+            Self::Craft(slot)
+                if (FIRST_CRAFT_SLOT..FIRST_CRAFT_SLOT + PERSONAL_INPUT_COUNT as u8)
+                    .contains(&slot) =>
+            {
+                Some(usize::from(slot - *protocol::CRAFTING_INPUT_SLOTS.start()))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) const fn surface(self) -> CellSurface {
         match self {
             Self::Inventory(_) => CellSurface::Player,
@@ -68,11 +97,26 @@ impl Held {
             acknowledged_request_id: None,
         })
     }
+
+    /// Inherits materialized item data without changing count, wire identity or lineage.
+    /// Returns whether NBT, its digest or the response overlay changed.
+    pub(super) fn inherit_item_data(&mut self, source: &Self) -> bool {
+        if self.stack.extra_data == source.stack.extra_data
+            && self.stack.nbt_digest == source.stack.nbt_digest
+            && self.overlay == source.overlay
+        {
+            return false;
+        }
+        self.stack.extra_data = Arc::clone(&source.stack.extra_data);
+        self.stack.nbt_digest = source.stack.nbt_digest;
+        self.overlay = source.overlay.clone();
+        true
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct Cells {
-    player: Arc<[Option<Held>; PLAYER_INVENTORY_SLOT_COUNT]>,
+    player: Arc<Vec<Option<Held>>>,
     cursor: Option<Held>,
     storage: Arc<Vec<Option<Held>>>,
     armor: Arc<[Option<Held>; ARMOR_CELLS]>,
@@ -85,7 +129,7 @@ pub(super) struct Cells {
 impl Default for Cells {
     fn default() -> Self {
         Self {
-            player: Arc::new(std::array::from_fn(|_| None)),
+            player: Arc::new(vec![None; PLAYER_INVENTORY_SLOT_COUNT]),
             cursor: None,
             storage: Arc::default(),
             armor: Arc::new(std::array::from_fn(|_| None)),
@@ -124,7 +168,7 @@ impl Cells {
     /// Whether `cell` addresses a retained position at all.
     pub(super) fn contains(&self, cell: Cell) -> bool {
         match cell {
-            Cell::Inventory(slot) => usize::from(slot) < PLAYER_INVENTORY_SLOT_COUNT,
+            Cell::Inventory(slot) => usize::from(slot) < self.player.len(),
             Cell::Storage(slot) => usize::from(slot) < self.storage.len(),
             Cell::Armor(slot) => usize::from(slot) < ARMOR_CELLS,
             Cell::Craft(slot) => craft_index(slot).is_some(),
@@ -163,22 +207,14 @@ impl Cells {
         self.storage = Arc::new(slots.iter().map(Held::new).collect());
     }
 
-    /// Overwrites the run starting at `first`, growing the window up to `max_len`.
-    pub(super) fn write_storage(
-        &mut self,
-        first: usize,
-        slots: &[NetworkItemStack],
-        max_len: usize,
-    ) {
-        let end = first.saturating_add(slots.len()).min(max_len);
-        self.ensure_storage(end);
-        for (offset, stack) in slots.iter().enumerate() {
-            let index = first + offset;
-            if index >= end {
-                break;
-            }
-            Arc::make_mut(&mut self.storage)[index] = Held::new(stack);
-        }
+    /// Replaces the player container, including its authoritative extent.
+    pub(super) fn replace_player(&mut self, slots: &[NetworkItemStack]) {
+        self.player = Arc::new(slots.iter().map(Held::new).collect());
+    }
+
+    /// The currently retained player container extent.
+    pub(super) fn player_len(&self) -> usize {
+        self.player.len()
     }
 
     /// Grows the window to at least `len` empty cells.
@@ -194,6 +230,11 @@ impl Cells {
 
     pub(super) fn clear_storage(&mut self) {
         self.storage = Arc::default();
+    }
+
+    /// Discards the preview owned by a screen without changing actual ingredients.
+    pub(super) fn clear_result(&mut self) {
+        self.created_output = None;
     }
 
     /// Empties every screen input, grid cell and the created output.

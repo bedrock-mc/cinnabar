@@ -11,6 +11,80 @@ use super::super::containers::{ContainerAuthority, container_frame};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::HudFrame;
 
+#[test]
+fn prewarmed_recipe_rows_follow_saved_tab_before_controller_capture() {
+    use protocol::{CreativeCategory, CreativeGroup, InventoryOptions, InventoryTab};
+    for (tab, expected) in [(InventoryTab::Nature, 0), (InventoryTab::Construction, 1)] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = crate::test_support::inventory_session(&mut player);
+        player
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        player.inventory.set_inventory_options(InventoryOptions {
+            left_tab: tab,
+            ..Default::default()
+        });
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply(&protocol::InventoryEvent::Creative(CreativeContentEvent {
+                groups: Arc::from([CreativeGroup {
+                    category: CreativeCategory::Construction,
+                    name: "Building blocks".into(),
+                    icon: None,
+                }]),
+                items: (1..=2)
+                    .map(|id| protocol::CreativeItem {
+                        creative_network_id: id,
+                        stack: protocol::NetworkItemStack {
+                            network_id: id as i32,
+                            count: 1,
+                            ..protocol::NetworkItemStack::empty()
+                        },
+                        group: 0,
+                    })
+                    .collect(),
+                skipped: 0,
+            }));
+        assert!(runtime.screen_state().inventory.is_none());
+        let frame = HudFrame::default();
+        let mut cache = None;
+        book_data(
+            &ContainerAuthority::new(&player, &runtime),
+            &mut DataSource::new(),
+            &container_frame(&frame),
+            &mut Vec::new(),
+            true,
+            &mut cache,
+        );
+        runtime.toggle_inventory(&mut player, None);
+        assert_eq!(
+            runtime
+                .inventory_controller(&player)
+                .unwrap()
+                .options
+                .left_tab,
+            tab
+        );
+        book_data(
+            &ContainerAuthority::new(&player, &runtime),
+            &mut DataSource::new(),
+            &container_frame(&frame),
+            &mut Vec::new(),
+            true,
+            &mut cache,
+        );
+        assert_eq!(
+            cache.as_ref().unwrap().row_count(),
+            expected,
+            "saved tab {tab:?}"
+        );
+        assert_eq!(
+            crate::ui_runtime::inventory_actions::recipe_book_entries(&player, &runtime).len(),
+            expected,
+        );
+    }
+}
+
 /// Scroll and pointer changes reuse rows; tab, group, catalog and icon changes invalidate them.
 #[test]
 fn creative_rows_follow_their_inputs() {

@@ -342,3 +342,6 @@ fn malformed_count_id_pair_is_a_counted_skip_not_an_invented_stack() {
     assert_eq!(count(ledger.displayed_stack(0)), Some(4));
     assert_eq!(ledger.skipped_unknown_containers(), 1);
 }
+
+#[path = "sparse/response_scopes.rs"]
+mod response_scopes;

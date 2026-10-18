@@ -76,6 +76,7 @@ impl LocalPlayerFacts {
         {
             return;
         }
+        self.instabuild.replace(&update.layers);
         self.local_abilities.sequence = Some(sequence);
         self.local_abilities.update = Some(update);
     }

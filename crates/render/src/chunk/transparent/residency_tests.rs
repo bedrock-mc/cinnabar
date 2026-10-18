@@ -3,6 +3,80 @@ use super::*;
 use render_scene::ChunkTextureAssetIdentity;
 
 #[test]
+fn authored_attach_and_detach_retain_committed_transparent_snapshots() {
+    let assets = ChunkTextureAssets::default();
+    let array = assets::texture::TextureArray {
+        layers: 1,
+        mips: Box::new([assets::texture::TextureMip {
+            size: 1,
+            rgba8: Box::new([128; 4]),
+        }]),
+    };
+    let maps = render_scene::EnhancedTextureAssets::new(
+        [array.clone(), array.clone()],
+        [array.clone(), array.clone()],
+        [array.clone(), array],
+        vec![u32::MAX; render_scene::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
+            .into_boxed_slice(),
+    )
+    .unwrap();
+    let authored = assets.with_updated_enhanced(Some(Arc::new(maps)));
+    let detached = authored.with_updated_enhanced(None);
+    let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
+    let allocation =
+        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
+    let resident = resident_transparent_allocation(&allocation, tint_identity);
+    for (previous, selected) in [(&assets, &authored), (&authored, &detached)] {
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            vec![allocation.clone()],
+            previous.identity(),
+            tint_identity,
+        )
+        .unwrap();
+        let mut state = committed_transparent_state(
+            &key,
+            vec![PackedTransparentDrawRef::new(2, allocation.metadata_index)],
+        );
+        let committed = state.committed().unwrap().clone();
+        let addresses_are_resident = transparent_snapshot_addresses_are_resident(
+            state.committed().unwrap().key(),
+            [&resident],
+            std::iter::empty(),
+            selected.identity(),
+            tint_identity,
+        );
+        assert!(
+            addresses_are_resident,
+            "authored bindings do not change geometry addresses"
+        );
+        let next = ViewSortKey::try_new(
+            [1.0, 0.0, 0.0],
+            vec![allocation.clone()],
+            selected.identity(),
+            tint_identity,
+        )
+        .unwrap();
+        state.request_retaining_resident_snapshot(&next, addresses_are_resident, false);
+        let retained = state.committed().unwrap();
+        assert_eq!(retained.key(), committed.key());
+        assert_eq!(retained.refs(), committed.refs());
+        for replacement in [
+            ChunkTextureAssets::default(),
+            ChunkTextureAssets::with_revision(Arc::clone(assets.assets()), assets.revision + 1),
+        ] {
+            assert!(!transparent_snapshot_addresses_are_resident(
+                committed.key(),
+                [&resident],
+                std::iter::empty(),
+                replacement.identity(),
+                tint_identity,
+            ));
+        }
+    }
+}
+
+#[test]
 fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
     let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
     let tint_identity = ChunkBiomeTintIdentity::new(2, 2);

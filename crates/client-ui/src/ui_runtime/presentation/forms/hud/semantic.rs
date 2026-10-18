@@ -328,7 +328,10 @@ impl SemanticHud {
                 )
                 .filter(|(_, line)| !hidden && seconds(line.received_millis) > horizon)
         };
-        let mut changed = false;
+        let mut changed = replace(
+            &mut self.model.chat_color,
+            ui_screens::settings_chat::default_color(settings),
+        );
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())
@@ -340,7 +343,7 @@ impl SemanticHud {
                     self.chat_rows.push(id);
                     let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
-                        text: ui_screens::settings_chat::message_text(settings, text.as_ref()),
+                        text: bounded_visible_text(text.as_ref()).to_owned(),
                         born: seconds(born),
                     }
                 })

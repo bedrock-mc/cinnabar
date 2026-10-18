@@ -134,6 +134,14 @@ impl ScreenState {
         }
     }
 
+    /// Installs a preference snapshot with every inventory list at its first page.
+    pub(super) fn set_inventory_controller(&mut self, controller: inventory::InventoryController) {
+        self.inventory = Some(controller);
+        self.creative_row = 0;
+        self.book_page = 0;
+        self.container_scroll.clear();
+    }
+
     /// Selects a UI category and resets the list position and search focus.
     pub fn select_tab(&mut self, tab: u8) {
         if let Some(tab) = ui_screens::container_actions::inventory_tab(tab) {

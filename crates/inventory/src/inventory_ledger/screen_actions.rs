@@ -65,16 +65,43 @@ impl ScreenCraft {
     }
 }
 
-/// The UI input slots one screen consumes when its result is taken.
-const fn input_slots(kind: WindowKind) -> &'static [u8] {
-    match kind {
-        WindowKind::Anvil => &[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT],
-        WindowKind::Grindstone => &[16, 17],
-        WindowKind::Loom => &[9, 10, 11],
-        WindowKind::Stonecutter => &[3],
-        WindowKind::Smithing => &[51, 52, 53],
-        WindowKind::Cartography => &[12, 13],
-        _ => &[],
+/// Temporary inputs and the ordinary manager's distinct network projection.
+#[derive(Clone, Copy)]
+pub(super) struct ScreenInputs {
+    pub(super) slots: &'static [u8],
+    pub(super) ordinary_inputs: usize,
+    pub(super) ordinary_extent: usize,
+}
+
+/// Declares each screen's inputs once, including ignored ordinary network cells.
+pub(super) const fn input_layout(kind: WindowKind) -> Option<ScreenInputs> {
+    let (slots, preview, ignored_tail): (&'static [u8], bool, usize) = match kind {
+        WindowKind::Anvil => (&[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT], true, 0),
+        WindowKind::Grindstone => (&[16, 17], true, 0),
+        WindowKind::Loom => (&[9, 10, 11], true, 0),
+        WindowKind::Stonecutter => (&[3], true, 0),
+        // The template is returnable, but incoming ordinary traffic does not write it.
+        WindowKind::Smithing => (&[51, 52, 53], true, 1),
+        WindowKind::Cartography => (&[12, 13], true, 0),
+        WindowKind::Enchanting => (&[ENCHANT_INPUT_SLOT, ENCHANT_INPUT_SLOT + 1], false, 0),
+        WindowKind::Beacon => (&[BEACON_PAYMENT_SLOT], false, 0),
+        // Workbench cells use UI traffic; its ordinary manager has no writable cells.
+        WindowKind::Workbench => (&[], false, 0),
+        _ => return None,
+    };
+    let ordinary_inputs = slots.len() - ignored_tail;
+    Some(ScreenInputs {
+        slots,
+        ordinary_inputs,
+        ordinary_extent: ordinary_inputs + preview as usize,
+    })
+}
+
+/// The temporary UI input slots owned by one screen, excluding its crafting grid.
+pub(super) const fn input_slots(kind: WindowKind) -> &'static [u8] {
+    match input_layout(kind) {
+        Some(layout) => layout.slots,
+        None => &[],
     }
 }
 
@@ -90,8 +117,7 @@ const fn consume_amount(slot: u8, count: u16) -> u16 {
 }
 
 impl PlayerInventoryLedger {
-    /// Selects an offered enchanting option for the input item. The server
-    /// charges levels and lapis and restates the cells, so nothing is predicted.
+    /// Selects an offered enchanting option without predicting its item mutation.
     pub fn begin_enchant(&mut self, option_network_id: u32) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         if self.window_kind() != Some(WindowKind::Enchanting) {

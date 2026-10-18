@@ -247,7 +247,7 @@ mod tests {
         let charge = std::mem::size_of::<StackOwner>() + stack.extra_data.len() + 64;
         let held = credits.reserve(MAX_RETAINED_BYTES - charge * 3).unwrap();
         let before = Arc::strong_count(&stack.extra_data);
-        assert!(StackOwner::grid_with_credits([&stack; 4], &credits).is_none());
+        assert!(StackOwner::updates_with_credits([Some(Some(&stack)); 4], &credits).is_none());
         assert_eq!(
             Arc::strong_count(&stack.extra_data),
             before,
@@ -258,7 +258,7 @@ mod tests {
             MAX_RETAINED_BYTES - charge * 3
         );
         drop(held);
-        let grid = StackOwner::grid_with_credits([&stack; 4], &credits).unwrap();
+        let grid = StackOwner::updates_with_credits([Some(Some(&stack)); 4], &credits).unwrap();
         assert_eq!(credits.used.load(Ordering::Acquire), charge * 4);
         let old = grid.clone();
         drop(grid);
@@ -358,8 +358,8 @@ mod tests {
         assert_eq!(credits.used.load(Ordering::Acquire), charged);
         drop(clone);
         assert_eq!(credits.used.load(Ordering::Acquire), 0);
-        let stack =
-            StackOwner::with_credits(&protocol::NetworkItemStack::empty(), &credits).unwrap();
+        let [stack] = StackOwner::updates_with_credits([Some(None)], &credits).unwrap();
+        let stack = stack.unwrap();
         let clone = Arc::clone(&stack);
         drop(stack);
         assert!(credits.used.load(Ordering::Acquire) > 0);

@@ -19,6 +19,7 @@ fn offer(key: &Ed25519KeyPair) -> manifest::Offer {
             origins: BTreeSet::from(["https://example.org".into()]),
             memory_bytes: 0,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         packages: vec![manifest::PackageOffer {
             id: "example:cinema".into(),
@@ -108,7 +109,7 @@ fn ssrf_and_rate_limits_are_conservative() {
             "{address}"
         );
     }
-    let mut rate = wire::RateLimit::new(1000);
+    let mut rate = crate::rate_limit::RateLimit::new(1000);
     for _ in 0..policy::MAX_MESSAGES_PER_SECOND {
         rate.charge(1, 1000).unwrap();
     }
@@ -171,6 +172,7 @@ fn stale_and_partially_invalid_transactions_never_publish() {
             origins: BTreeSet::new(),
             memory_bytes: 0,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::new(),
         templates: BTreeSet::new(),
@@ -386,7 +388,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             )
             .unwrap();
         session
-            .choose(trust::Choice::Once, &mut settings, 0)
+            .choose(policy::Choice::Once, &mut settings, 0)
             .unwrap();
         let session::Control::Hello(hello) =
             serde_json::from_slice(&session.take_outbound().unwrap()).unwrap()
@@ -461,6 +463,7 @@ fn modal_texts_are_bounded_and_sequenced() {
             origins: BTreeSet::new(),
             memory_bytes: 0,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::new(),
         templates: BTreeSet::new(),

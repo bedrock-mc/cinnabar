@@ -220,6 +220,50 @@ fn capabilities_are_independent_and_denied_by_default() {
 }
 
 #[test]
+fn remote_session_preserves_independently_consented_player_poses_and_camera() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+
+    for players in [false, true] {
+        for camera in [false, true] {
+            let frame = format!(
+                "{} {} {}",
+                read(!players, true),
+                if players {
+                    "i32.const 188 i32.load i32.const 1 i32.ne if unreachable end \
+                     i32.const 184 i32.load i64.load i64.const 99 i64.ne if unreachable end"
+                } else {
+                    ""
+                },
+                rotate(0.1, 0.0, !camera),
+            );
+            let (_directory, mut host) = load(
+                "",
+                &frame,
+                ModGrants {
+                    players,
+                    camera,
+                    ..Default::default()
+                },
+            );
+            host.bind_drawing_session(DrawingSession {
+                connection: snapshot().session,
+                dimension: snapshot().dimension,
+                permissions: DrawingPermissions {
+                    world_draw: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            assert!(host.reload_if_changed().unwrap());
+            host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+            assert_eq!(host.take_camera_delta().is_some(), camera);
+            assert!(host.is_active());
+            assert!(!host.grants().entity_observe && !host.grants().render_through_walls);
+        }
+    }
+}
+
+#[test]
 fn init_and_frames_without_gameplay_cannot_rotate_or_read_stale_data() {
     let no_frame = format!("{} {}", read(false, false), rotate(0.1, 0.0, true));
     let (_dir, mut host) = load(&no_frame, &no_frame, grants());

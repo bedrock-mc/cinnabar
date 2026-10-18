@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 type row struct {

@@ -6,7 +6,7 @@ mod geometry;
 mod ids;
 mod locator;
 mod rig;
-pub use locator::{ActorEmitterTransform, sampled_locator_transform};
+pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
 mod skin;
 mod skin_poly_mesh;
 pub mod skin_portrait;

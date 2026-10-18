@@ -103,6 +103,7 @@ fn survival_press_and_repeat_record_stack_deltas_and_prediction_fields() {
         let id = -4 - index * 2;
         let next = held.less_one(id);
         let request = BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [0, 63, index],
             face: 3,
             selected_slot: 2,
@@ -162,6 +163,7 @@ fn survival_press_and_repeat_record_stack_deltas_and_prediction_fields() {
 #[test]
 fn failed_repeat_preserves_target_without_inventory_prediction() {
     let request = BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [0, 63, 2],
         face: 3,
         selected_slot: 2,

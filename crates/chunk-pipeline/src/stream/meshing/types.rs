@@ -1,6 +1,7 @@
 use super::super::*;
 
 pub(in crate::stream) struct MeshSnapshot {
+    pub(in crate::stream) rendering: ::meshing::MeshRenderSettings,
     pub(in crate::stream) center: Arc<SubChunk>,
     pub(in crate::stream) biomes: BiomeNeighbourhood,
     pub(in crate::stream) adjacent: [Option<Arc<SubChunk>>; 27],
@@ -102,6 +103,7 @@ impl MeshSnapshot {
             &self.neighbourhood(),
             &self.light_halo,
             ::meshing::MeshOptions {
+                rendering: self.rendering,
                 split_tinted_faces: biome.uniform_tint_index().is_none(),
             },
         )

@@ -17,6 +17,8 @@ pub mod lighting;
 pub mod liquid;
 mod palette_bits;
 mod publication;
+mod render_settings;
+pub use render_settings::MeshRenderSettings;
 mod types;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;

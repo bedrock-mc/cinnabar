@@ -61,7 +61,7 @@ pub(super) fn interaction_app(mut world: World) -> App {
     world.insert_resource(carrier);
     let mut app = App::new();
     std::mem::swap(app.world_mut(), &mut world);
-    crate::app::interaction::configure(&mut app);
+    crate::game_frame::interaction::configure(&mut app);
     app
 }
 
@@ -860,5 +860,86 @@ fn middle_click_requests_the_nearer_mob_and_respects_block_occlusion() {
             [protocol::encode(&expected).unwrap()],
             "actor z={actor_z}"
         );
+    }
+}
+
+#[test]
+fn browser_canvas_pick_binding_publishes_one_request_per_press() {
+    use crate::browser_input::{BrowserOptions, CanvasCapture, InputSource, sample_input};
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::{ButtonEdges, DeviceFrame, KeyboardMouseFrame, PhysicalControl};
+
+    for (actor_z, expected) in [
+        (7.5, protocol::actor_pick_request_packet(99, false)),
+        (5.5, protocol::block_pick_request_packet([4, 2, 6], false)),
+    ] {
+        for control in [
+            PhysicalControl::MouseButton(3),
+            PhysicalControl::KeyboardUsage(0x19),
+        ] {
+            let (mut world, mut captured) = fixture();
+            actor_use_tests::spawn(&mut world, actor_z);
+            world
+                .resource_mut::<client_state::PlayerRuntime>()
+                .facts
+                .publish_player_game_mode(PlayerGameMode::Creative);
+            buttons(&mut world, vec![]);
+            world.init_resource::<client_state::GameplayScreenControls>();
+            world.init_resource::<crate::semantic_controls::PendingDeviceFrame>();
+            let mut options = BrowserOptions::default();
+            assert!(
+                std::sync::Arc::make_mut(&mut options.0)
+                    .remap(BindingId::PickItem.row(false).unwrap(), control)
+            );
+            world.insert_resource(options);
+            world.init_resource::<CanvasCapture>();
+            for (pressed, held, focus_lost, ui_focused, count) in [
+                (true, true, false, false, 1),
+                (false, true, false, false, 0),
+                (false, false, false, false, 0),
+                (true, false, false, false, 1),
+                (true, true, true, false, 0),
+                (true, true, false, true, 0),
+            ] {
+                let mut keyboard = KeyboardMouseFrame::default();
+                match control {
+                    PhysicalControl::MouseButton(button) => {
+                        keyboard.mouse_buttons = held.then_some(button).into_iter().collect();
+                        keyboard.mouse_edges = ButtonEdges {
+                            pressed: pressed.then_some(button).into_iter().collect(),
+                            released: (!held).then_some(button).into_iter().collect(),
+                        };
+                    }
+                    PhysicalControl::KeyboardUsage(key) => {
+                        keyboard.keys = held.then_some(key).into_iter().collect();
+                        keyboard.key_edges.pressed = pressed.then_some(key).into_iter().collect();
+                    }
+                    _ => unreachable!(),
+                }
+                world.insert_non_send(InputSource(Box::new(move || DeviceFrame {
+                    keyboard_mouse: Some(keyboard.clone()),
+                    window_focus_lost: focus_lost,
+                    ..Default::default()
+                })));
+                world
+                    .resource_mut::<client_state::ScreenFocus>()
+                    .absorbs_input = ui_focused;
+                world.run_system_cached(sample_input).unwrap();
+                world
+                    .run_system_cached(crate::pick_block::produce_pick_block)
+                    .unwrap();
+                let picks: Vec<_> = captured
+                    .drain()
+                    .into_iter()
+                    .filter(|packet| packet.kind() == expected.kind())
+                    .map(|packet| protocol::encode(&packet).unwrap())
+                    .collect();
+                assert_eq!(
+                    picks,
+                    vec![protocol::encode(&expected).unwrap(); count],
+                    "control={control:?}, pressed={pressed}, held={held}, focus_lost={focus_lost}, ui={ui_focused}"
+                );
+            }
+        }
     }
 }
