@@ -15,6 +15,17 @@ tick. Sparse updates preserve the other posture flag; a completed local tick
 replaces the retained update. Regression coverage includes transport refusal and
 input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
 phase and live server acceptance remain incomplete.
+## Browser release verification
+
+Browser target checks and JavaScript edge suites are CI gates. Go and Rust consume
+shared control fixtures, and devtool builds a staged static bundle with the locked
+binding CLI and canonical carrier delivery index. Certificate renewal retains
+relay sessions and rejects invalid replacements while keeping the last good pair.
+The receive-buffer regression runs on the native test target.
+
+Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
+real-browser acceptance matrix follow gameplay composition. No supported-browser,
+release, parity, memory or hardware performance gate closes from these checks.
 
 ## Redstone dust item sprite
 
