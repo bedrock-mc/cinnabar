@@ -1,4 +1,4 @@
-//! Original texture-preserving elbows, wrists and lower torso for the breakdance mesh.
+//! Original texture-preserving elbows, wrists and lower torso for catalog clip playback.
 use super::*;
 
 /// Splits arm and torso cubes, preserving bind positions and recording their source bones.

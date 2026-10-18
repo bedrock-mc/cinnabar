@@ -22,44 +22,69 @@ struct AttachedPose<'a> {
     pose: &'a PosePair,
 }
 mod articulated;
-mod breakdance;
+mod catalog;
+mod floor;
 
-/// The single catalog identity shared by UI, persisted slots and playback.
+/// Stable playback identity for the built-in dance or an admitted catalog revision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CustomEmote {
     Twerk,
-    Breakdance,
+    Catalog(cosmetics::emotes::Item),
 }
 
 impl CustomEmote {
-    pub const ALL: &[Self] = &[Self::Twerk, Self::Breakdance];
-    pub const fn id(self) -> &'static str {
+    pub const ALL: &[Self] = &[Self::Twerk];
+    /// Lists supported emotes owned by this account; free catalog clips are universally owned.
+    pub fn available() -> Vec<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .chain(
+                cosmetics::emotes::Item::all()
+                    .into_iter()
+                    .filter(|item| item.descriptor().free)
+                    .map(Self::Catalog),
+            )
+            .collect()
+    }
+    pub fn id(self) -> &'static str {
         match self {
             Self::Twerk => "cinnabar:twerk",
-            Self::Breakdance => "cinnabar:breakdance",
+            Self::Catalog(item) => &item.descriptor().id,
         }
     }
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Twerk => "Twerk",
-            Self::Breakdance => "Breakdance",
+            Self::Catalog(item) => &item.descriptor().display_name,
         }
     }
-    pub const fn duration_seconds(self) -> f64 {
+    pub fn duration_seconds(self) -> f64 {
         match self {
             Self::Twerk => 0.45,
-            Self::Breakdance => 6.4,
+            Self::Catalog(item) => item.clip().duration,
         }
     }
-    pub const fn looping(self) -> bool {
-        true
+    pub fn looping(self) -> bool {
+        match self {
+            Self::Twerk => true,
+            Self::Catalog(item) => item.clip().looping,
+        }
     }
-    /// Owned clips may be shared with nearby Cinnabar clients through the account API.
-    pub const fn local_only(self) -> bool {
+    /// Catalog and built-in custom playback may be shared with nearby clients.
+    pub fn local_only(self) -> bool {
         false
     }
     pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|emote| emote.id() == id)
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|emote| emote.id() == id)
+            .or_else(|| cosmetics::emotes::Item::from_id(id).map(Self::Catalog))
+    }
+    /// The full articulation profile is shared by all catalog clips.
+    fn articulated(self) -> bool {
+        matches!(self, Self::Catalog(_))
     }
 }
 
@@ -141,15 +166,16 @@ pub fn sample_custom_emote(
     } else {
         (bones, names)
     };
+    let contacts = emote
+        .articulated()
+        .then(|| floor::contacts(rig, articulated_model.as_ref(), &names, leg_height));
     let body = pair(
         &bones,
         &names,
         emote,
         [previous_seconds, current_seconds],
         leg_height,
-        articulated_model
-            .as_ref()
-            .map(|model| model.bounds.as_ref()),
+        contacts.as_deref(),
         None,
     )?;
     let mut render = rig.render.to_vec();
@@ -166,7 +192,7 @@ pub fn sample_custom_emote(
     } else {
         None
     };
-    let attached = (emote == CustomEmote::Breakdance).then_some(AttachedPose {
+    let attached = emote.articulated().then_some(AttachedPose {
         names: &names,
         pose: &body,
     });
@@ -265,8 +291,8 @@ fn pair(
             }
         }
         let mut pose = compose_pose_with_targets(bones, &[], &targets)?;
-        let floor = if emote == CustomEmote::Breakdance && attached.is_none() {
-            breakdance::ground_pose(names, &mut pose, leg_height, bounds)
+        let floor = if emote.articulated() && attached.is_none() {
+            floor::ground_pose(&mut pose, bounds.unwrap_or(&[]))
         } else {
             attached.map_or(0.0, |attached| attached.pose.floor[endpoint])
         };
@@ -293,7 +319,7 @@ fn targets(
     emote: CustomEmote,
     seconds: f64,
     leg_height: f32,
-    bounds: Option<&[Option<articulated::BoneBounds>]>,
+    _bounds: Option<&[Option<articulated::BoneBounds>]>,
 ) -> Vec<Option<BoneTransform>> {
     if emote == CustomEmote::Twerk
         && let Some(joints) = ArticulatedJoints::resolve(names)
@@ -302,8 +328,8 @@ fn targets(
     }
     match emote {
         CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
-        CustomEmote::Breakdance => {
-            breakdance::targets(bones, names, rest, seconds, leg_height, bounds)
+        CustomEmote::Catalog(item) => {
+            catalog::targets(names, rest, item.clip(), seconds, leg_height)
         }
     }
 }

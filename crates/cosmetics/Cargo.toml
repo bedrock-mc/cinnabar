@@ -6,7 +6,10 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-reads = ["core/cinnabarapi/schema/v1.json"]
+reads = ["core/cinnabarapi/schema/v1.json", "core/cinnabarapi/schema/source.json", "core/cinnabarapi/schema/emote-clips.json"]
+
+[features]
+test-support = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

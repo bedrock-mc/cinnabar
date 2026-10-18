@@ -324,132 +324,6 @@ fn owned_custom_emote_skips_invalid_phases_and_mismatched_models() {
     assert!(sample_custom_emote(&rig, CustomEmote::Twerk, 0.0, 0.0).is_none());
 }
 
-#[test]
-fn breakdance_loops_continuously_and_freezes_upside_down() {
-    let f = Fixture::new();
-    let emote = CustomEmote::Breakdance;
-    let duration = emote.duration_seconds();
-    let looped = sample_custom_emote(&f.rig(), emote, 0.0, duration).unwrap();
-    assert_eq!(looped.previous, looped.current);
-    let seam = sample_custom_emote(&f.rig(), emote, duration - 1e-5, 1e-5).unwrap();
-    for (a, b) in seam.previous.iter().zip(seam.current.iter()) {
-        near(point(*a, [0.0; 3]), point(*b, [0.0; 3]));
-        near(
-            rotate_vector(a.rotation, [0.0, 1.0, 0.0]),
-            rotate_vector(b.rotation, [0.0, 1.0, 0.0]),
-        );
-    }
-    let freeze = sample_custom_emote(&f.rig(), emote, duration * 0.79, duration * 0.84).unwrap();
-    assert_eq!(
-        freeze.previous, freeze.current,
-        "hold the freeze long enough to read"
-    );
-    let up = rotate_vector(freeze.current[f.index("body")].rotation, [0.0, 1.0, 0.0]);
-    assert!(up[1] < -0.95, "the freeze must invert the torso");
-    let a = duration * 0.40;
-    let b = a + duration * (0.70 - 0.32) / 6.0;
-    let spin = sample_custom_emote(&f.rig(), emote, a, b).unwrap();
-    let direction = |pose: BoneTransform| rotate_vector(pose.rotation, [0.0, 1.0, 0.0]);
-    let left = direction(spin.previous[f.index("body")]);
-    let right = direction(spin.current[f.index("body")]);
-    let horizontal_length = |v: [f32; 3]| (v[0] * v[0] + v[2] * v[2]).sqrt();
-    assert!(
-        (left[0] * right[0] + left[2] * right[2])
-            / (horizontal_length(left) * horizontal_length(right))
-            < -0.99,
-        "windmill turns around the world vertical axis"
-    );
-}
-
-#[test]
-fn breakdance_windmill_pivots_on_the_upper_back_with_hips_clear_of_the_floor() {
-    let f = Fixture::new();
-    let duration = CustomEmote::Breakdance.duration_seconds();
-    let mut hips = Vec::new();
-    for step in 0..=96 {
-        let phase = 0.32 + (0.70 - 0.32) * f64::from(step) / 96.0;
-        let seconds = duration * phase;
-        let pose =
-            sample_custom_emote(&f.rig(), CustomEmote::Breakdance, seconds, seconds).unwrap();
-        let body = pose.current[f.index("body")];
-        let upper_back = point(body, [0.0, 0.0, 2.0]);
-        near(upper_back, [0.0; 3]);
-        assert!(
-            rotate_vector(body.rotation, [0.0, 0.0, 1.0])[1] < -0.7,
-            "the back must face the floor, rather than the belly"
-        );
-        let hip = point(body, [0.0, -12.0, 0.0]);
-        assert!(
-            hip[1] > 7.0,
-            "the pelvis must stay lifted during the windmill: {hip:?}"
-        );
-        hips.push(hip);
-        let head = pose.current[f.index("head")];
-        for x in [-4.0, 4.0] {
-            for y in [0.0, 8.0] {
-                for z in [-4.0, 4.0] {
-                    assert!(
-                        point(head, [x, y, z])[1] > 0.5,
-                        "tuck the head above the shoulder contact"
-                    );
-                }
-            }
-        }
-    }
-    assert!(
-        (hips[0][2] - hips[16][2]).abs() > 15.0,
-        "the raised hips must circle the shoulder support, rather than stay on the spin axis"
-    );
-}
-
-#[test]
-fn breakdance_preserves_joint_connections_clothing_and_source_rigs() {
-    let f = Fixture::new();
-    let mut flat = (*f.skin).clone();
-    for bone in &mut flat.bones {
-        if matches!(bone.name.as_ref(), "body" | "head" | "leftArm" | "rightArm") {
-            bone.parent = Some("root".into());
-        }
-    }
-    flat.bones.reverse();
-    let flat = Fixture::from_skin(flat);
-    for step in 0..=128 {
-        let seconds = CustomEmote::Breakdance.duration_seconds() * f64::from(step) / 128.0;
-        let pose =
-            sample_custom_emote(&f.rig(), CustomEmote::Breakdance, seconds, seconds).unwrap();
-        let other =
-            sample_custom_emote(&flat.rig(), CustomEmote::Breakdance, seconds, seconds).unwrap();
-        let body = pose.current[f.index("body")];
-        near(
-            point(body, [0.0; 3]),
-            point(pose.current[f.index("head")], [0.0; 3]),
-        );
-        near(
-            point(body, [0.0, -12.0, 0.0]),
-            point(pose.current[f.index("waist")], [0.0; 3]),
-        );
-        for (name, x) in [("leftarm", -5.0), ("rightarm", 5.0)] {
-            near(
-                point(body, [x, -2.0, 0.0]),
-                point(pose.current[f.index(name)], [0.0; 3]),
-            );
-        }
-        assert_eq!(body.rotation, pose.current[f.index("coat")].rotation);
-        for name in &f.names {
-            let a = pose.current[f.index(name)];
-            let b = other.current[flat.index(name)];
-            near(point(a, [0.0; 3]), point(b, [0.0; 3]));
-            assert!(
-                a.rotation
-                    .iter()
-                    .chain(&a.translation_scale)
-                    .all(|value| value.is_finite())
-            );
-        }
-    }
-    assert_eq!(f.rig().current, f.rest);
-}
-
 /// A parsed authored marker with cubeless legs must not imply generated companion joints.
 fn partial_marker_fixture() -> Fixture {
     Fixture::from_skin(
@@ -531,4 +405,13 @@ fn partial_authored_knee_markers_in_an_independent_skin_layer_are_safe() {
             .chain(&bone.rotation)
             .all(|value| value.is_finite())
     }));
+}
+
+/// Admits the stable synthetic clip independently of catalog activation.
+pub(super) fn catalog_emote() -> CustomEmote {
+    CustomEmote::Catalog(cosmetics::test_support::emote(
+        "fixture:articulated",
+        "Articulated fixture",
+        true,
+    ))
 }

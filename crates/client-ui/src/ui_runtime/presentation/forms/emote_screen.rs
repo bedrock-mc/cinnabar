@@ -43,13 +43,15 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
+        let slots = state.display_slots();
         self.screens.emote.paint(
             renderer,
             EmoteInput {
                 equipping: state.is_equipping(),
                 equipping_emote: state.equipping_emote(),
                 selected_slot: state.selected_slot(),
-                slots: state.slots(),
+                slots: &slots,
+                catalog_page: state.catalog_page(),
                 preview,
             },
             &mut paint_frame,

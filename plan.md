@@ -2666,15 +2666,14 @@ keep their existing easing after movement stops. Rendered acceptance and native
 player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
-The original Breakdance clip adds top rock, a scissoring windmill, an inverted
-freeze and a looping return. Fresh wheels equip it on the right; saved wheels
-can add it through Change Emotes. It uses the existing playback, cancellation
-and sharing paths. Windmills turn on the upper back with raised, orbiting hips
-and a tucked head. Classic cuboid skins now add elbows, wrists, knees, ankles
-and a waist joint with cropped skin UVs and attached clothing. Jointed footwork
-leads into the shoulder spin and a two-palm freeze; contact uses prepared mesh
-bounds, with fixed-length arms and head clearance. Floor contact is authored
-locally; unusual custom proportions and native/Marketplace emote parity remain incomplete.
+Catalog emote content is owned by the API repository. The client downloads,
+hash-checks and caches bounded version 1 clips, validates them against the pinned
+schema and shared conformance cases, and samples their articulated joint tracks.
+Change Emotes lists supported owned clips in pages before selecting a wheel slot.
+Classic cuboid skins retain elbows, wrists, knees, ankles and the lower torso,
+with cropped UVs, clothing, face layers and held-item anchors. Hidden body pieces
+do not contribute floor contacts. Generic contact correction is shared with
+attachments. Unusual custom proportions and native/Marketplace parity remain incomplete.
 The native four-slot JSON-UI wheel and remappable emote control select an original,
 owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the

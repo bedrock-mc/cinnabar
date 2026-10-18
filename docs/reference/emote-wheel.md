@@ -3,11 +3,12 @@
 Cinnabar opens the native JSON-UI wheel with the remappable `key.emote` control.
 The defaults are keyboard B and controller D-pad Left. Digits 1–4 choose its top, right, bottom and left
 slots; pointer selection uses the authored radial control's geometry and dead zone.
-The control is listed in Keyboard & Mouse and Controller settings. Change Emotes equips the
-original custom dance in a chosen slot and persists the complete slot array.
+The control is listed in Keyboard & Mouse and Controller settings. Change Emotes lists
+supported owned clips in pages of four; choose a clip, then its destination slot.
+C or controller Y opens the catalog. Tab, controller RB, or Next page advances it.
 Equipping an already equipped piece moves/swaps it rather than duplicating it.
-Fresh preferences equip Twerk at the top and Breakdance on the right. Change
-Emotes offers an unequipped clip first, so existing saved wheels can add Breakdance.
+Fresh preferences equip the built-in Twerk dance at the top. Catalog clip IDs are
+saved in the complete slot array and resolve again when the catalog refreshes.
 
 ## Vanilla rules
 
@@ -30,15 +31,27 @@ Emotes offers an unequipped clip first, so existing saved wheels can add Breakda
 
 ## Original custom emotes
 
-Breakdance is an original looping sequence with alternating top rock steps,
-a floor windmill with scissoring legs, an inverted freeze and a return to standing.
-The windmill anchors the upper back, raises the hips into an orbit around the
-shoulders, and tucks the head clear of the floor.
-Its period, label and identifier come from the shared catalog. Named body targets
-preserve attached clothing and independent skin hierarchies, retain the source
-rigid mesh, and ground the classic biped silhouette. Unusual custom proportions
-may need further ground-contact tuning. This clip makes no native or Marketplace
-animation parity claim.
+The API catalog owns emote content. Its optional `emotes` array names each clip,
+its display name, free ownership and its content-addressed asset. The existing
+cosmetics worker downloads only same-origin assets, bounds their byte counts,
+and verifies SHA-256 on download and every cache read. Invalid clips are skipped
+and counted. Free clips are owned by every account; unsupported and unowned
+entries stay out of Change Emotes.
+
+The pinned API schema defines version 1 clips: duration, loop metadata and local
+joint tracks with quaternion XYZW rotations and bind-relative offsets in leg-height
+units. The logical rig and all budgets come from that schema. Rotations use
+shortest-path normalized linear interpolation; offsets interpolate linearly.
+A single key is constant. Other tracks span zero through duration with strictly
+increasing times. Non-looping clips hold their final pose. Shared synthetic
+conformance cases check the API validator and client parser.
+
+Catalog playback retains the render-only elbows, wrists, knees, ankles and lower
+torso for supported classic skins. Cropped UVs, clothing, face layers and held-item
+anchors follow the articulated joints. Floor correction uses only visible body
+pieces and applies the same translation to attached layers. Different clips share
+the same prepared rig. Unsupported authored models retain their original mesh;
+unusual proportions and native/Marketplace animation parity remain incomplete.
 
 Twerk is an owned animation authored from observing the public
 [Lunar product preview](https://store.lunarclient.com/products/3720241/twerk).

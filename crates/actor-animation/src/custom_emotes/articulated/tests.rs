@@ -20,14 +20,14 @@ pub(super) fn fixture() -> Arc<SkinGeometry> {
 }
 
 #[test]
-fn breakdance_preserves_unsupported_partial_geometry() {
-    use crate::CustomEmote;
+fn catalog_preserves_unsupported_partial_geometry() {
     use crate::custom_emotes::{sample_custom_emote, tests::Fixture};
 
     let source = fixture();
     let f = Fixture::from_skin((*source).clone());
     let rig = f.rig();
-    let pose = sample_custom_emote(&rig, CustomEmote::Breakdance, 0.0, 2.0).unwrap();
+    let pose =
+        sample_custom_emote(&rig, crate::custom_emotes::tests::catalog_emote(), 0.0, 2.0).unwrap();
     assert!(pose.articulated.is_none());
     assert_eq!(pose.snapshot(rig).bone_names, rig.bone_names);
     assert_eq!(pose.current.len(), rig.current.len());
@@ -337,21 +337,21 @@ fn full_fixture() -> Arc<SkinGeometry> {
     }
     source.poly_meshes = vec![None; bones.len()].into();
     source.bones = bones.into();
-    source.digest = Sha256::digest(b"original full cuboid breakdance test fixture").into();
+    source.digest = Sha256::digest(b"original full cuboid catalog test fixture").into();
     Arc::new(source)
 }
 
 #[test]
-fn breakdance_bends_elbows_knees_and_spine_without_changing_native_geometry() {
+fn catalog_bends_elbows_knees_and_spine_without_changing_native_geometry() {
     use crate::custom_emotes::{sample_custom_emote, tests::Fixture};
     let source = full_fixture();
     let original = (*source).clone();
     let f = Fixture::from_skin((*source).clone());
     let pose = sample_custom_emote(
         &f.rig(),
-        CustomEmote::Breakdance,
+        crate::custom_emotes::tests::catalog_emote(),
         0.0,
-        0.24 * CustomEmote::Breakdance.duration_seconds(),
+        0.24 * crate::custom_emotes::tests::catalog_emote().duration_seconds(),
     )
     .unwrap();
     let rig = pose.snapshot(f.rig());
@@ -394,96 +394,12 @@ fn posed_vertices(
 }
 
 #[test]
-fn breakdance_preserves_joint_lengths_and_keeps_both_palms_planted_in_the_freeze() {
-    use crate::custom_emotes::{
-        sample_custom_emote,
-        tests::{Fixture, near, point},
-    };
+fn catalog_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
     let source = full_fixture();
-    let f = Fixture::from_skin((*source).clone());
-    let period = CustomEmote::Breakdance.duration_seconds();
-    for step in 0..=240 {
-        let time = period * f64::from(step) / 240.0;
-        let pose = sample_custom_emote(&f.rig(), CustomEmote::Breakdance, time, time).unwrap();
-        let rig = pose.snapshot(f.rig());
-        let mesh = rig.skin_mesh.unwrap();
-        let find = |name: &str| {
-            rig.bone_names
-                .iter()
-                .position(|part| part.as_ref() == name)
-                .unwrap()
-        };
-        let mut lowest = f32::INFINITY;
-        for index in 0..rig.current.len() {
-            for vertex in posed_vertices(mesh, rig.current, index) {
-                lowest = lowest.min(vertex[1]);
-            }
-        }
-        assert!(lowest.abs() < 0.0001, "floor contact at {time}: {lowest}");
-        for (a, b) in [
-            ("leftarm", "leftarm.cinnabar_elbow"),
-            ("leftarm.cinnabar_elbow", "leftarm.cinnabar_wrist"),
-            ("rightarm", "rightarm.cinnabar_elbow"),
-            ("rightarm.cinnabar_elbow", "rightarm.cinnabar_wrist"),
-            ("leftleg", "leftleg.cinnabar_knee"),
-            ("leftleg.cinnabar_knee", "leftleg.cinnabar_ankle"),
-            ("rightleg", "rightleg.cinnabar_knee"),
-            ("rightleg.cinnabar_knee", "rightleg.cinnabar_ankle"),
-            ("body", "body.cinnabar_spine"),
-            ("body.cinnabar_spine", "leftleg"),
-            ("body.cinnabar_spine", "rightleg"),
-        ] {
-            let (a, b) = (find(a), find(b));
-            let relative = std::array::from_fn(|axis| {
-                rig.rest[b].translation_scale[axis] - rig.rest[a].translation_scale[axis]
-            });
-            let expected = point(rig.current[a], relative);
-            near(
-                expected,
-                std::array::from_fn(|axis| rig.current[b].translation_scale[axis]),
-            );
-        }
-
-        if (0.32..0.70).contains(&(time / period)) {
-            let body = posed_vertices(mesh, rig.current, find("body"));
-            let min = body.iter().map(|v| v[1]).reduce(f32::min).unwrap();
-            assert!(
-                min < 0.6,
-                "upper back must keep supporting the windmill at {time}, y={min}"
-            );
-            assert!(rig.current[find("leftleg")].translation_scale[1] > 7.0);
-        }
-        if (0.79..=0.84).contains(&(time / period)) {
-            for wrist in ["leftarm.cinnabar_wrist", "rightarm.cinnabar_wrist"] {
-                let vertices = posed_vertices(mesh, rig.current, find(wrist));
-                let min = vertices.iter().map(|v| v[1]).reduce(f32::min).unwrap();
-                let clearance = if wrist.starts_with("left") { 0.25 } else { 0.0 };
-                assert!(
-                    (min - clearance).abs() < 0.001,
-                    "{wrist} must carry weight through its outer layer, y={min}"
-                );
-                let up =
-                    crate::pose::rotate_vector(rig.current[find(wrist)].rotation, [0.0, 1.0, 0.0]);
-                assert!(up[1] > 0.999, "palm must lie flat");
-            }
-            let head = posed_vertices(mesh, rig.current, find("head"));
-            assert!(
-                head.iter().all(|v| v[1] > 0.5),
-                "head must clear the ground"
-            );
-        }
-    }
-    let seam = sample_custom_emote(&f.rig(), CustomEmote::Breakdance, 0.0, period).unwrap();
-    assert_eq!(seam.previous, seam.current);
-}
-
-#[test]
-fn breakdance_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
-    let source = full_fixture();
-    let model = model(&source, CustomEmote::Breakdance).unwrap();
+    let model = model(&source, crate::custom_emotes::tests::catalog_emote()).unwrap();
     assert!(Arc::ptr_eq(
         &model.geometry,
-        &super::model(&source, CustomEmote::Breakdance)
+        &super::model(&source, crate::custom_emotes::tests::catalog_emote())
             .unwrap()
             .geometry
     ));
@@ -526,7 +442,9 @@ fn breakdance_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
     );
     let mut slim = (*source).clone();
     slim.bones[4].cubes[0].size[0] = Scalar::new(3.0).unwrap();
-    let slim = build(&slim, CustomEmote::Breakdance).unwrap().geometry;
+    let slim = build(&slim, crate::custom_emotes::tests::catalog_emote())
+        .unwrap()
+        .geometry;
     for name in [
         "leftarm",
         "leftarm.cinnabar_elbow",
@@ -546,7 +464,7 @@ fn breakdance_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
 }
 
 #[test]
-fn breakdance_keeps_head_only_face_layers_attached_to_the_body() {
+fn catalog_keeps_head_only_face_layers_attached_to_the_body() {
     use crate::custom_emotes::{
         sample_custom_emote,
         tests::{Fixture, near, point},
@@ -588,12 +506,17 @@ fn breakdance_keeps_head_only_face_layers_attached_to_the_body() {
         let f = Fixture::from_skin((*source).clone());
         let mut original = f.rig();
         original.skin_layers = &layers;
-        let period = CustomEmote::Breakdance.duration_seconds();
+        let period = crate::custom_emotes::tests::catalog_emote().duration_seconds();
         for step in 0..=64 {
             let previous = period * f64::from(step) / 64.0;
             let current = period * f64::from(step + 1) / 64.0;
-            let pose =
-                sample_custom_emote(&original, CustomEmote::Breakdance, previous, current).unwrap();
+            let pose = sample_custom_emote(
+                &original,
+                crate::custom_emotes::tests::catalog_emote(),
+                previous,
+                current,
+            )
+            .unwrap();
             let rig = pose.snapshot(original);
             let head = rig
                 .bone_names
@@ -622,7 +545,7 @@ fn breakdance_keeps_head_only_face_layers_attached_to_the_body() {
 }
 
 #[test]
-fn breakdance_item_anchors_follow_wrist_rotation_and_bind_offsets() {
+fn catalog_item_anchors_follow_wrist_rotation_and_bind_offsets() {
     use crate::custom_emotes::{
         sample_custom_emote,
         tests::{Fixture, near, point},
@@ -643,14 +566,19 @@ fn breakdance_item_anchors_follow_wrist_rotation_and_bind_offsets() {
     }
     source.poly_meshes = vec![None; bones.len()].into();
     source.bones = bones.into();
-    source.digest = Sha256::digest(b"breakdance item anchor fixture").into();
+    source.digest = Sha256::digest(b"catalog item anchor fixture").into();
     let f = Fixture::from_skin(source.clone());
-    let period = CustomEmote::Breakdance.duration_seconds();
+    let period = crate::custom_emotes::tests::catalog_emote().duration_seconds();
     for step in 0..=64 {
         let previous = period * f64::from(step) / 64.0;
         let current = period * f64::from(step + 1) / 64.0;
-        let pose =
-            sample_custom_emote(&f.rig(), CustomEmote::Breakdance, previous, current).unwrap();
+        let pose = sample_custom_emote(
+            &f.rig(),
+            crate::custom_emotes::tests::catalog_emote(),
+            previous,
+            current,
+        )
+        .unwrap();
         let rig = pose.snapshot(f.rig());
         let find = |name: &str| {
             rig.bone_names

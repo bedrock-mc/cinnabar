@@ -1,35 +1,32 @@
 use super::*;
 
 #[test]
-fn breakdance_is_playable_by_default_and_can_be_added_to_saved_slots() {
+fn change_emotes_lists_owned_catalog_clips_and_equips_the_chosen_entry() {
+    let _catalog = cosmetics::test_support::catalog_lock();
+    let free = cosmetics::test_support::emote("fixture:wheel", "Wheel fixture", true);
+    let paid = cosmetics::test_support::emote("fixture:unowned", "Unowned fixture", false);
+    cosmetics::emotes::activate(&[free.descriptor().id.clone(), paid.descriptor().id.clone()]);
     let mut state = EmoteState::default();
-    let slot = state
-        .slots()
-        .iter()
-        .position(|emote| *emote == Some(CustomEmote::Breakdance))
-        .unwrap();
-    state.open();
-    assert_eq!(
-        state.activate_slot(slot, 250),
-        Some(CustomEmote::Breakdance)
-    );
-    assert_eq!(state.playback().unwrap().elapsed(750), 0.5);
-
-    let saved = [Some(CustomEmote::Twerk.id().to_owned()), None, None, None];
-    state.apply_preferences(Some(&saved));
     state.open();
     state.change_emotes();
-    assert_eq!(state.equipping_emote(), Some(CustomEmote::Breakdance));
-    state.activate_slot(3, 800);
+    let choices = state.display_slots();
+    assert!(choices.contains(&Some(CustomEmote::Catalog(free))));
+    assert!(!choices.contains(&Some(CustomEmote::Catalog(paid))));
+    let index = choices
+        .iter()
+        .position(|value| *value == Some(CustomEmote::Catalog(free)))
+        .unwrap();
+    state.activate_slot(index, 0);
+    assert!(state.is_equipping());
+    state.activate_slot(3, 0);
     let saved = state.take_preferences().unwrap();
-    assert_eq!(saved[3].as_deref(), Some(CustomEmote::Breakdance.id()));
-    let mut restored = EmoteState::default();
-    restored.apply_preferences(Some(&saved));
-    restored.open();
+    assert_eq!(saved[3].as_deref(), Some(free.descriptor().id.as_str()));
+    state.open();
     assert_eq!(
-        restored.activate_slot(3, 900),
-        Some(CustomEmote::Breakdance)
+        state.activate_slot(3, 250),
+        Some(CustomEmote::Catalog(free))
     );
+    assert_eq!(state.playback().unwrap().elapsed(750), 0.5);
 }
 
 #[test]
@@ -54,6 +51,7 @@ fn change_emotes_moves_a_piece_instead_of_equipping_duplicates_and_persists() {
     let original = state.slots()[0].unwrap();
     state.open();
     state.change_emotes();
+    state.activate_slot(0, 100);
     assert!(state.activate_slot(2, 100).is_none());
     assert!(!state.is_equipping());
     assert!(state.is_open());
@@ -125,4 +123,55 @@ fn restarting_at_the_same_clock_value_has_a_new_broadcast_identity() {
     let second = state.playback().unwrap();
     assert_eq!(first.start_millis, second.start_millis);
     assert_ne!(first.revision, second.revision);
+}
+
+#[test]
+fn catalog_pages_cover_owned_clips_and_retire_removed_choices_and_playback() {
+    let _catalog = cosmetics::test_support::catalog_lock();
+    let clips: Vec<_> = (0..9)
+        .map(|index| {
+            cosmetics::test_support::emote(&format!("fixture:page_{index}"), "Page fixture", true)
+        })
+        .collect();
+    cosmetics::emotes::activate(
+        &clips
+            .iter()
+            .map(|clip| clip.descriptor().id.clone())
+            .collect::<Vec<_>>(),
+    );
+    let mut state = EmoteState::default();
+    state.open();
+    state.change_emotes();
+    let mut listed = Vec::new();
+    let pages = state.catalog_page().unwrap().1;
+    for _ in 0..pages {
+        listed.extend(state.display_slots().into_iter().flatten());
+        state.next_catalog_page();
+    }
+    assert_eq!(listed.len(), clips.len() + CustomEmote::ALL.len());
+    assert!(
+        clips
+            .iter()
+            .all(|clip| listed.contains(&CustomEmote::Catalog(*clip)))
+    );
+    state.activate_slot(1, 0);
+    state.activate_slot(3, 0);
+    state.activate_slot(3, 0);
+    assert!(state.playback().is_some());
+    state.open();
+    state.change_emotes();
+    state.activate_slot(1, 0);
+    assert!(state.is_equipping());
+    cosmetics::emotes::activate(&[]);
+    state.apply_preferences(None);
+    assert!(state.playback().is_none());
+    assert!(state.is_choosing());
+    assert_eq!(
+        state
+            .display_slots()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+        CustomEmote::ALL
+    );
 }

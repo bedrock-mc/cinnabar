@@ -36,6 +36,7 @@ pub struct EmoteScreen {
 /// The emote wheel or equip popup, as the client's emote state shows it.
 pub struct EmoteInput<'a> {
     pub equipping: bool,
+    pub catalog_page: Option<(usize, usize)>,
     pub equipping_emote: Option<CustomEmote>,
     pub selected_slot: Option<usize>,
     pub slots: &'a [Option<CustomEmote>],
@@ -81,10 +82,13 @@ impl EmoteScreen {
             ..Default::default()
         };
         let translate = frame.translate;
-        let data = emote_data(&input, input.preview.is_some(), self.input_mode, &|key| {
+        let mut data = emote_data(&input, input.preview.is_some(), self.input_mode, &|key| {
             translate(key).map(|text| text.to_string())
         });
-        let context = engine.context().clone();
+        let context = engine
+            .context()
+            .clone()
+            .with_flag(json_ui::vanilla::Variable::StoreDisabled.key(), false);
         let catalog = Arc::clone(engine.catalog());
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
@@ -98,8 +102,28 @@ impl EmoteScreen {
         } else {
             EMOTE_SCREEN
         };
+        let instructions = instructions(self.input_mode, input.catalog_page, input.equipping);
+        data.set_global(
+            "#emote_screen_instructions",
+            Scalar::Text(instructions.clone()),
+        );
+        let translate = |key: &str| {
+            if matches!(
+                key,
+                "emotes.instructions_keyboard" | "emotes.instructions_touch"
+            ) {
+                Some(Arc::<str>::from(instructions.as_str()))
+            } else if key == "emotes.change_emotes" && input.catalog_page.is_some() {
+                Some(Arc::<str>::from("Next page"))
+            } else {
+                translate(key)
+            }
+        };
+        let mut renderers = [];
+        let mut translated_frame = frame.with_renderers(&mut renderers);
+        translated_frame.translate = &translate;
         let screen = &mut self.screen;
-        self.frame = engine.draw(art, frame, |env, root| {
+        self.frame = engine.draw(art, &mut translated_frame, |env, root| {
             screen.render_with(
                 reference,
                 &catalog,
@@ -167,6 +191,27 @@ impl EmoteScreen {
     }
 }
 
+/// Names the controls available in the current wheel stage and input device.
+pub fn instructions(mode: InputMode, page: Option<(usize, usize)>, equipping: bool) -> String {
+    if let Some((page, count)) = page {
+        let next = match mode {
+            InputMode::Mouse => "Tab: next page",
+            InputMode::Gamepad => "RB: next page",
+            InputMode::Touch => "Next page: more",
+        };
+        format!("Choose emote ({}/{}). {next}", page + 1, count)
+    } else if equipping {
+        "Choose a wheel slot".to_owned()
+    } else {
+        match mode {
+            InputMode::Mouse => "1–4: play. C: Change Emotes",
+            InputMode::Gamepad => "D-pad: select. A: play. Y: Change Emotes",
+            InputMode::Touch => "Tap an emote or Change Emotes",
+        }
+        .to_owned()
+    }
+}
+
 fn emote_data(
     state: &EmoteInput<'_>,
     preview_ready: bool,
@@ -188,7 +233,9 @@ fn emote_data(
     ] {
         data.set_global(name, Scalar::Bool(value));
     }
-    let selected = state.selected_slot.and_then(|slot| state.slots[slot]);
+    let selected = state
+        .selected_slot
+        .and_then(|slot| state.slots.get(slot).copied().flatten());
     data.set_global(
         "#emote_name",
         Scalar::Text(selected.map_or(String::new(), |emote| emote.label().to_owned())),
@@ -207,6 +254,16 @@ fn emote_data(
         ("#emote_screen_exit", "controller.buttonTip.back"),
     ] {
         data.set_global(name, Scalar::Text(translate(key).unwrap_or_default()));
+    }
+    if let Some((page, count)) = state.catalog_page {
+        data.set_global(
+            "#emote_screen_instructions",
+            Scalar::Text(format!(
+                "Choose an emote ({}/{}). Tab / RB: next page",
+                page + 1,
+                count
+            )),
+        );
     }
     data.set_control_values(
         "emote_wheel",

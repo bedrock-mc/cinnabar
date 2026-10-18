@@ -51,7 +51,10 @@ fn assert_visibility(
 fn generated_body_pieces_keep_each_render_layers_source_visibility() {
     let source = full_fixture();
     let fixture = Fixture::from_skin((*source).clone());
-    for &emote in CustomEmote::ALL {
+    for emote in [
+        CustomEmote::Twerk,
+        crate::custom_emotes::tests::catalog_emote(),
+    ] {
         for hidden in std::iter::once(None).chain((0..source.bones.len()).map(Some)) {
             let hidden: Arc<[u32]> = hidden.map(|index| index as u32).into_iter().collect();
             let render = [body_layer(Arc::clone(&hidden)), body_layer(Arc::from([]))];
@@ -80,7 +83,10 @@ fn generated_skin_layer_pieces_keep_their_own_source_visibility() {
     layer_source.digest = Sha256::digest(b"reordered visibility layer").into();
     let layer_fixture = Fixture::from_skin(layer_source.clone());
     let layer_source = Arc::new(layer_source);
-    for &emote in CustomEmote::ALL {
+    for emote in [
+        CustomEmote::Twerk,
+        crate::custom_emotes::tests::catalog_emote(),
+    ] {
         for hidden in std::iter::once(None).chain((0..layer_source.bones.len()).map(Some)) {
             let hidden: Arc<[u32]> = hidden.map(|index| index as u32).into_iter().collect();
             let layer = SkinRenderLayer {
@@ -120,4 +126,73 @@ fn generated_skin_layer_pieces_keep_their_own_source_visibility() {
             ));
         }
     }
+}
+
+#[test]
+fn hidden_body_pieces_do_not_raise_visible_floor_contacts() {
+    let source = full_fixture();
+    let fixture = Fixture::from_skin((*source).clone());
+    let hidden = source
+        .bones
+        .iter()
+        .enumerate()
+        .filter_map(|(index, bone)| {
+            (!bone.name.eq_ignore_ascii_case("head")).then_some(index as u32)
+        })
+        .collect();
+    let render = [body_layer(hidden)];
+    let original = crate::ActorRigSnapshot {
+        render: &render,
+        ..fixture.rig()
+    };
+    let pose = sample_custom_emote(
+        &original,
+        crate::custom_emotes::tests::catalog_emote(),
+        0.0,
+        0.0,
+    )
+    .unwrap();
+    let sampled = pose.snapshot(original);
+    let head = sampled
+        .bone_names
+        .iter()
+        .position(|name| name.as_ref() == "head")
+        .unwrap();
+    let minimum = posed_vertices(sampled.skin_mesh.unwrap(), &pose.current, head)
+        .iter()
+        .map(|point| point[1])
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        minimum.abs() < 1e-4,
+        "only the visible head should contact the floor: {minimum}"
+    );
+}
+
+#[test]
+fn contacts_include_a_piece_visible_in_any_body_draw_and_allow_no_visible_bounds() {
+    let source = full_fixture();
+    let fixture = Fixture::from_skin((*source).clone());
+    let hidden: Arc<[u32]> = (0..source.bones.len() as u32).collect();
+    let model = model(&source, crate::custom_emotes::tests::catalog_emote()).unwrap();
+    let (_, names) = crate::geometry::skeleton(&model.geometry.bones).unwrap();
+    let render = [body_layer(Arc::clone(&hidden)), body_layer(Arc::from([]))];
+    let original = crate::ActorRigSnapshot {
+        render: &render,
+        ..fixture.rig()
+    };
+    let contacts = crate::custom_emotes::floor::contacts(&original, Some(&model), &names, 12.0);
+    assert!(contacts.iter().any(Option::is_some));
+    let render = [body_layer(hidden)];
+    let original = crate::ActorRigSnapshot {
+        render: &render,
+        ..fixture.rig()
+    };
+    let contacts = crate::custom_emotes::floor::contacts(&original, Some(&model), &names, 12.0);
+    assert!(contacts.iter().all(Option::is_none));
+    let mut pose = fixture.rest.clone();
+    assert_eq!(
+        crate::custom_emotes::floor::ground_pose(&mut pose, &contacts),
+        0.0
+    );
+    assert_eq!(pose, fixture.rest);
 }

@@ -65,7 +65,7 @@ fn contact_bounds(mesh: &render_model::ActorRigGeometry) -> Arc<[Option<BoneBoun
     bounds.into()
 }
 
-type Entry = ([u8; 32], CustomEmote, Option<Model>);
+type Entry = ([u8; 32], bool, Option<Model>);
 mod full_body;
 /// Covers every selected player and persona layer without an eight-skin cache thrashing during shared playback.
 const MAX_MODELS: usize =
@@ -87,7 +87,7 @@ pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Mo
     let mut cache = CACHE.get_or_init(Mutex::default).lock().ok()?;
     if let Some((_, _, model)) = cache
         .iter()
-        .find(|(digest, clip, _)| *digest == source.digest && *clip == emote)
+        .find(|(digest, clip, _)| *digest == source.digest && *clip == emote.articulated())
     {
         return model.clone();
     }
@@ -102,7 +102,7 @@ pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Mo
     {
         retained -= mesh_bytes(&cache.remove(0).2);
     }
-    cache.push((source.digest, emote, model.clone()));
+    cache.push((source.digest, emote.articulated(), model.clone()));
     model
 }
 
@@ -154,7 +154,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
             if cube.rotation.iter().any(|v| v.get() != 0.0) {
                 return None;
             }
-            let overlap = if emote == CustomEmote::Breakdance {
+            let overlap = if emote.articulated() {
                 height / 12.0
             } else {
                 0.0
@@ -206,13 +206,13 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
     }
     model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
-    if emote == CustomEmote::Breakdance {
+    if emote.articulated() {
         full_body::extend(source, &mut model, &mut sources)?;
     }
     let mut digest = Sha256::new();
     digest.update(source.digest);
     digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
-    if emote == CustomEmote::Breakdance {
+    if emote.articulated() {
         digest.update(b"cinnabar:elbows-wrists-spine:v2");
     }
     model.digest = digest.finalize().into();

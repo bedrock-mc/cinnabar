@@ -1,0 +1,1486 @@
+[
+  {
+    "name": "synthetic articulated clip",
+    "valid": true,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "version",
+    "valid": false,
+    "clip": {
+      "version": 2,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "zero duration",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 0,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "long duration",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 61,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "empty tracks",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": []
+    }
+  },
+  {
+    "name": "unknown joint",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "bad",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate joint",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "reversed keys",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            },
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing end",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 1,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "nonunit quaternion",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "offset bound",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                5,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown property",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ],
+      "script": "bad"
+    }
+  },
+  {
+    "name": "integer-valued version",
+    "valid": true,
+    "clip": {
+      "version": 1.0,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fractional version",
+    "valid": false,
+    "clip": {
+      "version": 1.5,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "precise offset overflow",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                4.00000001,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "precise quaternion overflow",
+    "valid": false,
+    "clip": {
+      "version": 1,
+      "duration": 2,
+      "loop": true,
+      "tracks": [
+        {
+          "joint": "body",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1.00000001
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0,
+                0,
+                1,
+                0
+              ],
+              "offset": [
+                0,
+                0.25,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "time": 2,
+              "rotation": [
+                0.70710678,
+                0,
+                0,
+                0.70710678
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "keys": [
+            {
+              "time": 0,
+              "rotation": [
+                0.38268343,
+                0,
+                0,
+                0.92387953
+              ],
+              "offset": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

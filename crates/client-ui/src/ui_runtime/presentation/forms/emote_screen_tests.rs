@@ -21,6 +21,9 @@ fn draw(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> Vec<Ui
 
 #[test]
 fn native_wheel_and_equip_popup_render_four_hit_slices_and_unique_catalog_label() {
+    let _catalog = cosmetics::test_support::catalog_lock();
+    let clip = cosmetics::test_support::emote("fixture:picker", "Arm bend", true);
+    cosmetics::emotes::activate(&[clip.descriptor().id.clone()]);
     let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
         return;
     };
@@ -124,7 +127,7 @@ fn occupied_native_image_routes_the_live_player_marker_without_fabricating_empty
 }
 
 #[test]
-fn equip_popup_names_the_unequipped_breakdance_from_saved_preferences() {
+fn catalog_wheel_names_owned_clips_from_saved_preferences() {
     let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
         return;
     };
@@ -141,7 +144,7 @@ fn equip_popup_names_the_unequipped_breakdance_from_saved_preferences() {
     assert!(
         super::super::pack_harness::drawn_texts(&nodes)
             .iter()
-            .any(|text| text == actor_animation::CustomEmote::Breakdance.label())
+            .any(|text| text == actor_animation::CustomEmote::Twerk.label())
     );
 }
 
@@ -152,14 +155,9 @@ fn native_wheel_instruction_controls_follow_the_last_active_device() {
     };
     let mut runtime = super::super::pack_harness::menu_runtime();
     runtime.emotes_mut().open();
-    let Some(keyboard) = runtime.translation("emotes.instructions_keyboard") else {
-        return;
-    };
-    let keyboard = keyboard.to_string();
-    let Some(gamepad) = runtime.translation("emote_wheel.gamepad_helper.select") else {
-        return;
-    };
-    let gamepad = gamepad.to_string();
+    let keyboard = ui_screens::emote_screen::instructions(InputMode::Mouse, None, false);
+    let gamepad = ui_screens::emote_screen::instructions(InputMode::Gamepad, None, false);
+    assert_ne!(keyboard, gamepad);
     presentation.set_emote_input_mode(InputMode::Mouse);
     let mouse_nodes = draw(&mut presentation, &runtime);
     assert!(super::super::pack_harness::drawn_texts(&mouse_nodes).contains(&keyboard));
@@ -170,4 +168,33 @@ fn native_wheel_instruction_controls_follow_the_last_active_device() {
     let texts = super::super::pack_harness::drawn_texts(&pad_nodes);
     assert!(!texts.contains(&keyboard));
     assert!(texts.contains(&gamepad));
+}
+
+#[test]
+fn catalog_button_is_clickable_without_the_marketplace() {
+    let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut runtime = super::super::pack_harness::menu_runtime();
+    runtime.emotes_mut().open();
+    draw(&mut presentation, &runtime);
+    let frame = presentation.emote_frame().unwrap();
+    let button = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("button.dressing_room"))
+        .unwrap();
+    assert!(
+        button.enabled,
+        "the local clip catalog is available without Marketplace"
+    );
+    let point = UiPoint::new(
+        frame.origin[0] + (button.rect.x + button.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (button.rect.y + button.rect.h / 2.0) as f32 * frame.scale,
+    )
+    .unwrap();
+    assert_eq!(
+        presentation.hit_test_emote(point),
+        Some(EmoteHit::ChangeEmotes)
+    );
 }
