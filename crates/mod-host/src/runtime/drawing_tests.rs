@@ -86,7 +86,7 @@ fn retained_mutation_and_import_budgets_reset_for_each_event() {
                 let state = store.data_mut();
                 // Each mesh fits one callback's byte budget; the pair exceeds it.
                 state.create_geometry(mesh(vertices))?.unwrap();
-                for _ in 1..render::MAX_RENDER_CALLS {
+                for _ in 1..mod_api::MAX_RENDER_CALLS {
                     state.capabilities()?;
                 }
                 Ok(())

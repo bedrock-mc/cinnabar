@@ -189,6 +189,17 @@ async fn drive(
                 frames: io.frames,
                 timers: timers(),
             },
+            io.join,
+            async move {
+                io.packs.await.map_err(|_| {
+                    protocol::ProtocolError::Bridge(
+                        bridge::BridgeError::InvalidSessionMessage {
+                            reason: "pack stream unavailable",
+                        }
+                        .into(),
+                    )
+                })
+            },
             address,
             Executor,
             Executor,

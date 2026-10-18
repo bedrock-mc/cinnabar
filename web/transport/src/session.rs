@@ -71,6 +71,7 @@ pub struct Session<T: RelayTransport> {
     resumed_account: bool,
     attempts: u32,
     retry_at: Duration,
+    join: u64,
     refusal: Option<RefusalCode>,
     pub unknown_events: u64,
 }
@@ -86,6 +87,7 @@ impl<T: RelayTransport> Session<T> {
             resumed_account: false,
             attempts: 0,
             retry_at: Duration::ZERO,
+            join: 0,
             refusal: None,
             unknown_events: 0,
         }
@@ -302,8 +304,9 @@ impl<T: RelayTransport> Session<T> {
             Event::Welcome { .. } => Err(CloseReason::Protocol),
         }
     }
-    /// Opens play once, writes the relay prefix, then returns the existing bounded bridge
-    /// reader/queue/writer. The host spawns the writer locally and drops it on cancellation.
+    /// Opens play and writes Hello within the host's deadline, then returns the bounded bridge
+    /// reader/queue/writer. Expiry closes the transport, cancelling stream-credit waits too.
+    /// The host spawns the writer locally and drops it on cancellation.
     pub async fn open_play<N: FnMut() -> Duration, D: std::future::Future<Output = ()>>(
         &mut self,
         mut now: N,
@@ -322,18 +325,20 @@ impl<T: RelayTransport> Session<T> {
         let State::Ready(generation) = self.state else {
             return Err(CloseReason::Protocol);
         };
+        self.join = self.join.checked_add(1).ok_or(CloseReason::Protocol)?;
         self.state = State::Playing(generation);
         let result = bridge::tasks::until(
             async {
+                let channel = Channel::Play { join: self.join };
                 let stream = self
                     .transport
                     .as_mut()
                     .ok_or(CloseReason::Transport)?
-                    .open(Channel::Play)
+                    .open(channel)
                     .await?;
                 let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
                 play.send(encode(&Hello::new(
-                    Channel::Play,
+                    channel,
                     self.resume(now()),
                     generation,
                 ))?)
@@ -361,13 +366,35 @@ impl<T: RelayTransport> Session<T> {
         }
         result
     }
-    /// Ends this join and reopens control before any fresh login, retaining the account bearer.
-    /// This gives every sequential join a new control generation and never replays play bytes.
-    pub fn finish_play(&mut self) -> Result<(), CloseReason> {
-        if !matches!(self.state, State::Playing(_)) {
+    /// Returns the identity expected in this play's pack stream and handoff.
+    pub fn play_join(&self) -> Option<u64> {
+        matches!(self.state, State::Playing(_)).then_some(self.join)
+    }
+
+    /// Obtains a receive future without borrowing control, so keepalives remain independent.
+    pub fn pack_stream(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<T::Stream>, CloseReason>> + use<T> {
+        let source = self
+            .transport
+            .as_ref()
+            .filter(|_| self.play_join().is_some())
+            .map(RelayTransport::accept_packs);
+        async move { source.ok_or(CloseReason::Protocol)?.await }
+    }
+
+    /// Ends exactly the current join; later joins never inherit archive handles or observations.
+    pub fn finish_play(&mut self, join: u64) -> Result<(), CloseReason> {
+        let State::Playing(generation) = self.state else {
+            return Err(CloseReason::Protocol);
+        };
+        if join != self.join {
             return Err(CloseReason::Protocol);
         }
-        self.close(CloseReason::Transport);
+        if let Some(transport) = &mut self.transport {
+            transport.finish_play();
+        }
+        self.state = State::Ready(generation);
         Ok(())
     }
 

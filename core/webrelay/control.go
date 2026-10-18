@@ -19,6 +19,7 @@ import (
 
 // hello identifies a reliable channel before any account or play operation.
 type hello struct {
+	Join       uint64   `json:"join,omitempty"`
 	Version    uint32   `json:"version"`
 	Channel    string   `json:"channel"`
 	Channels   []string `json:"channels,omitempty"`
@@ -248,7 +249,7 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 		return
 	}
 	defer func() { detach(time.Now()) }()
-	handler, err := session.beginPlay(ctx, controlCtx)
+	handler, err := session.beginPlay(ctx, controlCtx, request.Join)
 	if err != nil {
 		return
 	}
@@ -257,7 +258,25 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 	defer stop()
 	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, bridgecontract.RelayUploadBurstBytes)}
 	// Provider and server errors can contain private addresses; control receives only refusal codes.
-	_ = handler.ServeConn(ctx, limited)
+	if request.Join == 0 {
+		_ = handler.ServeConn(ctx, limited)
+		return
+	}
+	if !session.claimPackJoin(controlCtx, request.Join) {
+		return
+	}
+	delivery := proxy.SessionPackStream{Join: request.Join}
+	if transport, ok := conn.(*transportConn); ok {
+		delivery.Open = func(ctx context.Context) (io.WriteCloser, error) {
+			stream, err := transport.session.OpenUniStreamSync(ctx)
+			if err != nil {
+				return nil, err
+			}
+			context.AfterFunc(ctx, func() { stream.CancelWrite(0) })
+			return stream, nil
+		}
+	}
+	_ = handler.ServeConnWithPacks(ctx, limited, delivery)
 }
 
 // uploadLimitedConn applies upload pacing with the owning transport's cancellation context.

@@ -2,7 +2,6 @@
 
 use futures::{FutureExt, channel::oneshot};
 use std::{future::Future, pin::Pin};
-#[cfg(any(target_arch = "wasm32", test))]
 use web_transport::CloseReason;
 
 /// A request to open one play stream on the already authenticated control session.
@@ -20,9 +19,11 @@ pub struct Lease<S> {
 
 /// Prepared bridge I/O; the host owns writer execution and cancellation.
 pub struct Io<S> {
+    pub join: u64,
     pub reader: bridge::FramedReader<tokio::io::ReadHalf<S>>,
     pub frames: bridge::FrameQueue,
     pub writer: Pin<Box<dyn Future<Output = ()>>>,
+    pub packs: Pin<Box<dyn Future<Output = Result<Option<S>, CloseReason>>>>,
 }
 
 impl<S> Lease<S> {

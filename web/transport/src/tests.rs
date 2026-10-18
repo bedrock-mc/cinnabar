@@ -2,7 +2,7 @@ use super::session::{AccountOperation, ControlEvent, RequestRefusal};
 use super::*;
 use bridge::{BridgeCodec, contract::*};
 use bytes::{Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -18,8 +18,9 @@ use tokio_util::codec::{Decoder, Encoder};
 
 struct Fake {
     channels: VecDeque<Vec<u8>>,
+    play_joins: Rc<RefCell<Vec<u64>>>,
     failed: bool,
-    stall_play: bool,
+    pending_play: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
     read_time: Option<(Rc<Cell<Duration>>, Duration)>,
@@ -70,8 +71,11 @@ impl AsyncWrite for Stream {
 impl RelayTransport for Fake {
     type Stream = Stream;
     async fn open(&mut self, channel: Channel) -> Result<Stream, CloseReason> {
-        if self.stall_play && matches!(channel, Channel::Play) {
-            return std::future::pending().await;
+        if let Channel::Play { join } = channel {
+            self.play_joins.borrow_mut().push(join);
+            if self.pending_play {
+                return std::future::pending().await;
+            }
         }
         if self.failed {
             return Err(CloseReason::Transport);
@@ -104,8 +108,9 @@ fn capability(kind: &str, token: &str, seconds: u64) -> Value {
 fn fake(input: Vec<u8>, failed: bool) -> Fake {
     Fake {
         channels: [input, vec![0, 0, 0, 1, KIND_BATCH]].into(),
+        play_joins: Rc::default(),
         failed,
-        stall_play: false,
+        pending_play: false,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
         read_time: None,
@@ -217,6 +222,7 @@ async fn shared_control_fixtures_cover_both_channel_prefixes_and_events() {
         .unwrap()
         .clone();
     play["resume"] = welcome["resume"].clone();
+    play["join"] = json!(session.play_join().unwrap());
     expected_requests.push(play);
     assert_eq!(sent(&output), expected_requests);
 }
@@ -532,7 +538,7 @@ async fn early_retry_reports_due_time_and_a_play_open_deadline_ends_only_that_jo
         wire(capability(RELAY_EVENT_WELCOME, "retained", 120)),
         false,
     );
-    transport.stall_play = true;
+    transport.pending_play = true;
     let mut session = Session::new();
     select(
         &mut session,
@@ -570,7 +576,7 @@ async fn early_retry_reports_due_time_and_a_play_open_deadline_ends_only_that_jo
 }
 
 #[tokio::test]
-async fn sequential_joins_reopen_control_with_the_retained_account() {
+async fn play_completion_then_transport_loss_reopens_control_with_the_retained_account() {
     let transport = fake(
         wire(capability(RELAY_EVENT_WELCOME, "retained", 120)),
         false,
@@ -591,7 +597,9 @@ async fn sequential_joins_reopen_control_with_the_retained_account() {
         .await
         .unwrap();
     drop((reader, frames, writer));
-    session.finish_play().unwrap();
+    session.finish_play(session.play_join().unwrap()).unwrap();
+    assert_eq!(session.state(), State::Ready(7));
+    session.close(CloseReason::Transport);
     assert_eq!(session.state(), State::Offline);
     let mut welcome = capability(RELAY_EVENT_WELCOME, "rotated", 120);
     welcome["generation"] = json!(8);
@@ -747,4 +755,70 @@ async fn request_refusals_keep_control_ready_and_identify_the_retry_action() {
         assert_eq!(written[1]["op"], RELAY_OP_SIGN_IN);
         assert_eq!(written[2]["op"], RELAY_OP_SIGN_IN);
     }
+}
+
+#[tokio::test]
+async fn sequential_play_joins_keep_control_and_discard_old_pack_identity() {
+    let transport = fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false);
+    let output = transport.written.clone();
+    let play_joins = transport.play_joins.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    let (reader, frames, writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
+    let first = session.play_join().unwrap();
+    let packs = session.pack_stream();
+    session.desire_account(AccountOperation::SignOut);
+    assert!(packs.await.unwrap().is_none());
+    drop((reader, frames, writer));
+    session.finish_play(first).unwrap();
+    assert_eq!(session.state(), State::Ready(7));
+    let (_reader, _frames, _writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
+    let second = session.play_join().unwrap();
+    assert!(second > first);
+    assert_eq!(session.finish_play(first), Err(CloseReason::Protocol));
+    assert_eq!(session.play_join(), Some(second));
+    let requests = sent(&output);
+    assert_eq!(requests[1]["join"], first);
+    assert_eq!(requests[2]["join"], second);
+    assert_eq!(*play_joins.borrow(), [first, second]);
+}
+
+#[tokio::test]
+async fn play_open_deadline_cancels_a_pending_stream_credit_wait() {
+    let mut transport = fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false);
+    transport.pending_play = true;
+    let closed = transport.closed.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    let result = session
+        .open_play(|| Duration::ZERO, std::future::ready(()))
+        .now_or_never();
+    assert!(matches!(result, Some(Err(CloseReason::Transport))));
+    assert!(closed.get());
+    assert_eq!(session.state(), State::Offline);
+    assert_eq!(session.play_join(), None);
 }

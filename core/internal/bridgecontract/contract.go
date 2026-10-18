@@ -21,6 +21,12 @@ const (
 	SessionKindTransfer = 5
 	// SessionKindDisconnect: Terminal core disconnect message.
 	SessionKindDisconnect = 6
+	// MaxSelectedPacks: Most selected server pack archives admitted for one join.
+	MaxSelectedPacks = 32
+	// MaxPackArchiveBytes: Largest admitted server pack archive in bytes.
+	MaxPackArchiveBytes = 67108864
+	// MaxSelectedPackBytes: Largest total selected server pack archives in bytes.
+	MaxSelectedPackBytes = 134217728
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
 	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.
@@ -39,6 +45,8 @@ const (
 	RelayQueuedFrameBytes = 8388608
 	// RelayUploadBurstBytes: Upload rate limiter burst, independent of message and queue limits.
 	RelayUploadBurstBytes = 8388608
+	// RelayBidirectionalStreams: Concurrent browser streams for control, active play and retiring play.
+	RelayBidirectionalStreams = 3
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
 	// RelayControlRefillMillis: Time to replenish one relay control request; busy sign-out retries wait at least this long.

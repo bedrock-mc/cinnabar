@@ -69,9 +69,11 @@ impl Host {
     }
 
     /// Creates one shared login and pump; the page must run it alongside the I/O writer.
-    pub fn connect<R, E, J>(
+    pub fn connect<R, E, J, A>(
         &mut self,
         io: protocol::SessionIo<R>,
+        join: u64,
+        packs: impl Future<Output = Result<Option<A>, protocol::ProtocolError>> + 'static,
         address: String,
         executor: E,
         jobs: J,
@@ -80,6 +82,7 @@ impl Host {
         R: client_session::SessionRead + 'static,
         E: client_session::NetworkExecutor + 'static,
         J: protocol::JoinPreparation + 'static,
+        A: tokio::io::AsyncRead + Unpin + 'static,
     {
         let mut mailbox = self.mailbox.borrow_mut();
         let generation = mailbox
@@ -98,7 +101,7 @@ impl Host {
                     memory_tier,
                     ..Default::default()
                 };
-                protocol::LoginSequence::connect_prepared(
+                protocol::LoginSequence::connect_web_prepared(
                     io,
                     protocol::SessionLogin {
                         display_name: launcher::PRODUCT_NAME,
@@ -109,6 +112,8 @@ impl Host {
                         tap: None,
                         target: Some(bridge::ConnectTarget::RakNet(address)),
                     },
+                    join,
+                    packs,
                     &jobs,
                     move |handoff, data| {
                         let prepared = preparation.run(handoff, &data, &|| *cancelled.borrow());

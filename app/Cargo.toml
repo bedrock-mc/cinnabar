@@ -55,6 +55,7 @@ reports = []
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+tokio.workspace = true
 image.workspace = true
 server-experience = { path = "../crates/server-experience", default-features = false, features = ["data"] }
 sha2.workspace = true
@@ -143,7 +144,6 @@ server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-tokio.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 

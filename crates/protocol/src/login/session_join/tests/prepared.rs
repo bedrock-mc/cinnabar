@@ -25,7 +25,10 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
     let writer = tokio::spawn(writer);
     let jobs = Rc::new(Cell::new(0));
     let preparation = LocalPreparation(Rc::clone(&jobs));
-    let settings = LoginSettings::default();
+    let settings = LoginSettings {
+        view_distance_chunks: 23,
+        ..Default::default()
+    };
     let target = bridge::ConnectTarget::RakNet("game.example.test:19132".into());
     let join = LoginSequence::connect_prepared(
         SessionIo {
@@ -58,10 +61,11 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
         ))
         .await;
         assert!(
-            core.receive_packets()
-                .await
-                .iter()
-                .any(|packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(_)))
+            core.receive_packets().await.iter().any(
+                |packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(request)
+                    if request.chunk_radius.0 == i32::from(settings.view_distance_chunks))
+            ),
+            "prepared login retains the selected view distance"
         );
         core.send(batch_frame(&spawn_prerequisites())).await;
         core
@@ -98,3 +102,5 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
     drop(session);
     writer.await.unwrap();
 }
+
+mod web;

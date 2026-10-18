@@ -184,10 +184,15 @@ fn play_lease_uses_the_account_session_and_retires_before_the_next_join() {
     let (reply, response) = oneshot::channel();
     joins.try_send(play::Request { reply }).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
-    let lease = response.now_or_never().unwrap().unwrap().unwrap();
+    let mut lease = response.now_or_never().unwrap().unwrap().unwrap();
     assert_eq!(host.opens.get(), 2);
     let hello = requests(&host);
     assert_eq!(hello[1]["channel"], bridge::contract::RELAY_CHANNEL_PLAY);
+    assert_eq!(hello[1]["join"], lease.io.join);
+    assert!(matches!(
+        lease.io.packs.as_mut().now_or_never(),
+        Some(Ok(None))
+    ));
     assert_eq!(hello[1]["resume"], "retained");
     assert_eq!(hello[1]["generation"], 1);
     let (reply, response) = oneshot::channel();

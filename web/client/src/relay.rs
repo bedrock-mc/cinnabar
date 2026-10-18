@@ -203,9 +203,11 @@ pub(crate) async fn run<H: Host>(
                             });
                             let _ = request.reply.send(Ok(play::Lease {
                                 io: play::Io {
+                                    join: session.play_join().expect("opened play has a join"),
                                     reader,
                                     frames,
                                     writer,
+                                    packs: Box::pin(session.pack_stream()),
                                 },
                                 ended,
                                 cancelled,
@@ -378,7 +380,7 @@ pub(crate) async fn run<H: Host>(
             }
             Action::PlayEnded => {
                 playing = None;
-                let _ = session.finish_play();
+                session.close(CloseReason::Transport);
             }
             Action::Lifecycle => {
                 while changed.try_recv().is_ok() {}

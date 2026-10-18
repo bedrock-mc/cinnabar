@@ -110,6 +110,8 @@ pub const MAX_LOADED_MODS: usize = 4;
 
 /// Render capability budgets, per instance or per committed callback.
 pub const MAX_RENDER_PASSES: usize = 8;
+/// Render and retained drawing imports allowed in one callback, including denied calls.
+pub const MAX_RENDER_CALLS: usize = 32;
 /// Shader validations allowed in one frame callback; `init` may compile every pass.
 pub const MAX_PASS_COMPILES_PER_FRAME: u32 = 1;
 pub const MAX_PASS_NAME_BYTES: usize = 32;
@@ -205,3 +207,5 @@ pub const MAX_DRAW_INDICES: usize = 196_608;
 pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
 pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
+/// Largest linear RGBA component admitted by retained unlit drawing.
+pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;
