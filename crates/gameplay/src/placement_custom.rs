@@ -108,7 +108,8 @@ pub(crate) fn predict(
     let index = placement_index(definition, held_state, position, context)?;
     // Unresolved permutation physics must not silently use a different state's bounds.
     if !definition.visual.permutations.is_empty()
-        && definition.state_physics.len() != definition.state_count as usize
+        && (!definition.state_physics_complete
+            || definition.state_physics.len() != definition.state_count as usize)
         && definition.visual.permutations.iter().any(|permutation| {
             permutation.physical != protocol::CustomPhysicalComponents::default()
         })

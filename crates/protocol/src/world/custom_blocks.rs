@@ -49,6 +49,8 @@ pub struct CustomBlock {
     pub player_interact: bool,
     /// Resolved palette-order component sets; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
+    /// Every physical permutation was parsed and evaluated for every state.
+    pub state_physics_complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -454,6 +456,7 @@ impl CustomBlocks {
                         friction: definition.friction,
                         player_interact: definition.player_interact,
                         visual: Arc::new(definition.visual),
+                        state_physics_complete: false,
                         state_physics: Arc::default(),
                     });
                 }

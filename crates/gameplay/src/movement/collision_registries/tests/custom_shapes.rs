@@ -566,6 +566,7 @@ fn face_facing() -> protocol::CustomBlocks {
                 state_identity_incomplete: false,
                 materialization_disabled: false,
             }),
+            state_physics_complete: false,
             state_physics: physics.into(),
         }]),
         vanilla_blocks: Arc::default(),

@@ -231,6 +231,33 @@ fn custom_filters_and_unresolved_permutation_physics_defer_to_authority() {
                 .is_none()
             );
         }
+        // A full array may still contain fallback bounds after a condition was skipped.
+        let mut partial = block();
+        let physics = partial.base_physics();
+        partial.state_physics = vec![physics].into();
+        Arc::make_mut(&mut partial.visual).permutations = vec![protocol::CustomPermutation {
+            condition: "query.unsupported()".into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                collision: Some(protocol::CustomCollision {
+                    enabled: false,
+                    boxes: None,
+                }),
+                ..Default::default()
+            },
+        }]
+        .into();
+        let (registry, held) = admit(partial, mode, 0);
+        assert!(
+            custom_predict(
+                &registry,
+                held,
+                mode,
+                &store(mode),
+                &context(&surroundings())
+            )
+            .is_none()
+        );
     }
 }
 
@@ -262,7 +289,20 @@ fn custom_placement_checks_chosen_state_bounds_and_world_admission() {
             }]
             .into(),
         );
+        Arc::make_mut(&mut definition.visual).permutations = vec![protocol::CustomPermutation {
+            condition: "q.block_state('minecraft:vertical_half') == 'top'".into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                collision: Some(protocol::CustomCollision {
+                    enabled: true,
+                    boxes: upper.collision_boxes.clone(),
+                }),
+                ..Default::default()
+            },
+        }]
+        .into();
         definition.state_physics = vec![lower, upper].into();
+        definition.state_physics_complete = true;
         let (registry, held) = admit(definition, mode, 1);
         let mut around = surroundings();
         around.actor_boxes.push(([8.1, 9.6, 8.1], [8.9, 9.9, 8.9]));
