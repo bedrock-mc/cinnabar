@@ -49,10 +49,10 @@ pub use texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub mod textures;
 pub use textures::{
     ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND, AnimationFrameSample, ChunkAnimationClock,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, TextureArrayLimits, TextureLimitError,
-    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
-    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
-    select_animation_frames, texture_asset_needs_rebuild,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureBindingIdentity, TextureArrayLimits,
+    TextureLimitError, TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError,
+    diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 pub mod queue;
 pub use queue::{
