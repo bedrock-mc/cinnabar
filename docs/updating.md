@@ -11,7 +11,7 @@ When the download is ready, a compact card in the home screen's top-right corner
 release version and **Restart and update** button. The card stays outside the Play panel, and
 installation only starts when you choose the button. An update required to connect uses stronger
 wording. Periodic checks continue, and a newer release replaces the waiting one. In
-**Settings → General → Updates**, you can select a channel, turn off automatic checks, or enable
+**Settings → Updates**, you can select a channel, turn off automatic checks, or enable
 **Install updates when I quit**. The section shows the installed version and build, the current check
 or download status, and a **Check now** button. Check now always fetches fresh release metadata, even
 when automatic checks are off. It is available from the home menu while no check is running.

@@ -359,3 +359,19 @@ fn account_is_followed_by_resources_without_an_empty_category_row() {
             .collect::<Vec<_>>()
     );
 }
+
+/// The update controls can be reached through their own settings sidebar action.
+#[test]
+fn updates_has_a_distinct_sidebar_destination() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
+    });
+    let updates = SettingSection::Updates.definition().index;
+    assert_ne!(updates, SettingSection::General.definition().index);
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::SettingsSection(updates))
+    );
+}

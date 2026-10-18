@@ -59,6 +59,7 @@ sections! {
     Touch => "touch_forced_index", 16, None, Some("menu.touch.tab.title"), None;
     Party => "party_forced_index", 17, None, Some("options.party"), None;
     General => "general_forced_index", 18, Some("options.generalTitle"), Some("menu.general.tab.title"), None;
+    Updates => "cinnabar_updates_index", 45, Some("Updates"), Some("Updates"), None;
     Video => "video_forced_index", 21, Some("options.videoTitle"), Some("menu.video.tab.title"), Some(SettingsGroup::Video);
     Sound => "sound_forced_index", 23, Some("options.sounds.title"), Some("menu.audio.tab.title"), Some(SettingsGroup::Audio);
     Account => "account_forced_index", 19, Some("options.accountTitle"), Some("menu.account.tab.title"), None;

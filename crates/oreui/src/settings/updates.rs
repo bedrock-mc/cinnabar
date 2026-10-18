@@ -1,4 +1,4 @@
-//! App update preferences and worker status share one General settings section.
+//! App update preferences and worker status have their own settings tab.
 
 use super::{Content, services};
 use launcher::menu::{
@@ -11,14 +11,17 @@ use ui_engine::engine::screen::PaintError;
 /// Presents the installed version, channel policy and one explicit fresh-check action.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
-    if !view.updates.active {
-        return Ok(());
-    }
     content.heading(
         "Updates",
         "Beta gets regular releases. Nightly gets the newest changes and may have bugs.",
     )?;
-    for option in SettingPanel::GeneralUpdates.options() {
+    if !view.updates.active {
+        return content.label(
+            &installed_version(),
+            "Update controls are unavailable in this window.",
+        );
+    }
+    for option in SettingPanel::Updates.options() {
         content.option(option.id)?;
     }
     let mut status = view.updates.status_text();

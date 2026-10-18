@@ -97,7 +97,7 @@ pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
 /// Focuses the update check row with anonymous version and worker status data.
 pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
     let mut view = super::settings(
-        launcher::menu::settings_sections::SettingSection::General
+        launcher::menu::settings_sections::SettingSection::Updates
             .definition()
             .name,
     );

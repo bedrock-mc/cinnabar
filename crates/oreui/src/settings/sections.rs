@@ -30,6 +30,7 @@ pub(super) fn draw(
         SettingSection::KeyboardAndMouse => keyboard(content),
         SettingSection::ControllerAndSwitch => controller(content),
         SettingSection::General => general(content),
+        SettingSection::Updates => super::updates::draw(content),
         SettingSection::Creator => creator(content),
         _ => Ok(()),
     }
@@ -479,7 +480,6 @@ fn binding(
 fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.general.tab.title", "menu.general.tab.description")?;
     options(content, SettingPanel::General)?;
-    super::updates::draw(content)?;
     content.heading(
         "menu.general.tab.pause.title",
         "menu.general.tab.pause.description",
