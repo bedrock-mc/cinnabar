@@ -158,7 +158,11 @@ mod tests {
                 })
                 .unwrap();
         }
-        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
         drop(commands);
         let (control, _control_rx) = mpsc::channel(4);
         let (world, _world_rx) = mpsc::channel(4);

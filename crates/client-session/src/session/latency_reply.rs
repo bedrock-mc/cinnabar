@@ -59,7 +59,7 @@ impl<P> NetworkHandle<P> {
             physics_reanchor: None,
             interaction: None,
         });
-        frame.flush();
+        frame.flush(&self.commands);
         Ok(())
     }
 }
@@ -143,7 +143,9 @@ mod tests {
         assert_probe(&mut receiver, 2);
         assert!(matches!(
             receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
+            NetworkCommand::FlushFrame {
+                cache_opportunity: false
+            }
         ));
         handle.flush_latency_reply().unwrap();
         assert!(matches!(
@@ -153,7 +155,9 @@ mod tests {
         assert_probe(&mut receiver, 3);
         assert!(matches!(
             receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
+            NetworkCommand::FlushFrame {
+                cache_opportunity: false
+            }
         ));
         handle
             .send_packet(protocol::network_stack_latency_reply(4))

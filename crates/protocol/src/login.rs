@@ -16,6 +16,7 @@ use crate::{
 
 mod blob_prefetch;
 mod boundary;
+mod cache_status;
 #[cfg(test)]
 mod cache_status_ingress_tests;
 mod client_data;
@@ -62,17 +63,12 @@ pub struct PlaySession<R = bridge::FramedReader> {
     transfer_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
-    pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
+    pending_blob_cache_events: VecDeque<WorldEvent>,
+    cache_status: cache_status::SharedCacheStatus,
     pending_blob_prefetch: Option<(Packet, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
     ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
-}
-
-struct PendingBlobCacheDelivery {
-    status_packets: VecDeque<Packet>,
-    status_send_in_flight: bool,
-    events: VecDeque<WorldEvent>,
 }
 
 enum WorldIngress {
@@ -135,7 +131,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             transfer_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
-            pending_blob_cache_delivery: None,
+            pending_blob_cache_events: VecDeque::new(),
+            cache_status: Default::default(),
             pending_blob_prefetch: None,
             server_disconnect: None,
             server_transfer: None,
@@ -417,8 +414,9 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         if let Some(resolver) = self.blob_cache.as_mut() {
             resolver.reset_pending();
         }
-        self.pending_blob_cache_delivery = None;
+        self.pending_blob_cache_events.clear();
         self.pending_blob_prefetch = None;
+        self.cache_status.lock().expect("cache status lock").reset();
     }
 
     /// Arms a one-shot selective transaction rotation for the next raw
@@ -434,21 +432,6 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         current_dimension: i32,
     ) -> Result<WorldIngress, ProtocolError> {
         loop {
-            if self
-                .pending_blob_cache_delivery
-                .as_ref()
-                .is_some_and(|delivery| delivery.status_send_in_flight)
-            {
-                if let Err(error) = self.transport.drain_send().await {
-                    self.reset_blob_cache_pending();
-                    return Err(error);
-                }
-                self.pending_blob_cache_delivery
-                    .as_mut()
-                    .expect("pending cache delivery survives a successful drain")
-                    .status_send_in_flight = false;
-                continue;
-            }
             if let Some(recovery) = self
                 .blob_cache
                 .as_mut()
@@ -459,37 +442,11 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 self.ingress_position = (0, 0);
                 return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
-            if let Some(status_packet) = self
-                .pending_blob_cache_delivery
-                .as_mut()
-                .and_then(|delivery| delivery.status_packets.pop_front())
-            {
-                self.pending_blob_cache_delivery
-                    .as_mut()
-                    .expect("the status packet came from a pending cache delivery")
-                    .status_send_in_flight = true;
-                // SessionTransport retains an accepted frame until that exact frame flushes.
-                // Transfer ownership before awaiting so cancellation cannot logically resend it.
-                if let Err(error) = self.send(status_packet).await {
-                    self.reset_blob_cache_pending();
-                    return Err(error);
-                }
-                self.pending_blob_cache_delivery
-                    .as_mut()
-                    .expect("pending cache delivery survives a successful send")
-                    .status_send_in_flight = false;
-                continue;
-            }
-            if let Some(event) = self
-                .pending_blob_cache_delivery
-                .as_mut()
-                .and_then(|delivery| delivery.events.pop_front())
-            {
+            if let Some(event) = self.pending_blob_cache_events.pop_front() {
                 // Delivery events come from the prefetched packet, read last.
                 self.ingress_position = self.delivered_position();
                 return Ok(WorldIngress::Event(event));
             }
-            self.pending_blob_cache_delivery = None;
             if let Some(ready) = self
                 .blob_cache
                 .as_mut()
@@ -552,6 +509,17 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             }
 
             if self.pending_blob_prefetch.is_some() {
+                let status = self.cache_status.clone();
+                blob_prefetch::prefetch_while_reading(
+                    std::future::poll_fn(|cx| {
+                        status.lock().expect("cache status lock").poll_capacity(cx)
+                    }),
+                    |cx| {
+                        self.transport
+                            .poll_read_ahead_one(crate::session_transport::MAX_READ_AHEAD_BYTES, cx)
+                    },
+                )
+                .await;
                 self.finish_blob_prefetch().await?;
                 continue;
             }
@@ -615,16 +583,20 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         .blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver");
-                    resolver.reset_pending_for_fast_transfer_candidate()?;
+                    if resolver.reset_pending_for_fast_transfer_candidate()? {
+                        self.cache_status.lock().expect("cache status lock").reset();
+                    }
                     resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
                     continue;
                 }
-                reset_blob_cache_for_decoded_candidate(
+                if reset_blob_cache_for_decoded_candidate(
                     self.blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver"),
                     &packet,
-                )?;
+                )? {
+                    self.cache_status.lock().expect("cache status lock").reset();
+                }
                 if let packets::Packet::ClientCacheMissResponse(response) = *packet.data {
                     match self
                         .blob_cache
