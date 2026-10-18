@@ -8,7 +8,7 @@ use bedrock_protocol_1_26_51::enums::{
 use bedrock_protocol_1_26_51::packets::{
     self, ChunkRadiusUpdated, ClientCacheBlobStatus, ClientCacheMissResponse, ClientCacheStatus,
     Disconnect, ItemRegistry, LevelChunk, NetworkStackLatency, PacketId, PlayStatus,
-    RequestChunkRadius, ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
+    ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
 };
 use bedrock_protocol_1_26_51::types::{
     ActorRuntimeID, ChunkPos, DimensionType, DisconnectMessages, ItemData, MissingBlobData,
@@ -276,24 +276,20 @@ async fn run_core(
     }
 
     let spawn_request = core.receive_packets().await?;
-    assert!(
-        matches!(
-            wire_packets(&spawn_request).as_slice(),
-            [
-                packets::Packet::RequestChunkRadius(RequestChunkRadius {
-                    chunk_radius: wire::ZigZag32(16),
-                    max_chunk_radius: wire::U8(16),
-                }),
-                packets::Packet::ServerboundLoadingScreen(ServerboundLoadingScreen {
-                    loading_screen_packet_type: ServerboundLoadingScreenType::Startloadingscreen,
-                    ..
-                }),
-            ]
-        ),
-        "the client requests its radius and starts loading after StartGame: {spawn_request:?}"
+    let requested_radius = protocol::LoginSettings::default().view_distance_chunks;
+    assert_eq!(
+        spawn_request,
+        [
+            protocol::request_chunk_radius_packet(
+                requested_radius,
+                render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
+            ),
+            protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, None),
+        ],
+        "the client requests its radius and starts loading after StartGame"
     );
     let radius = Packet::new(ChunkRadiusUpdated {
-        chunk_radius: wire::ZigZag32(16),
+        chunk_radius: wire::ZigZag32(i32::from(requested_radius)),
     });
     let spawn = Packet::new(PlayStatus {
         status: PlayStatusType::Playerspawn,

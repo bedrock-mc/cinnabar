@@ -79,7 +79,7 @@ fn scenario(
             storage_item: NetworkItemStack::empty(),
         }));
     }
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let ledger = runtime.inventory_ledger_mut(&mut player);
     assert!(ledger.mark_transport_enqueued(0));
     ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {

@@ -355,13 +355,18 @@ impl PlayerInventoryLedger {
             self.apply_personal_open(open);
             return;
         }
-        if matches!(
-            self.personal,
-            Some(super::PersonalWindow::Open { .. } | super::PersonalWindow::Closing { .. })
-        ) {
-            if let Some(window_id) = open.container.window_id {
-                self.reject_window(window_id, open.window_type);
-            }
+        let Some(window_id) = open.container.window_id else {
+            self.note_unrouted_container();
+            return;
+        };
+        let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
+            .filter(|_| valid_storage_window_id(window_id))
+        else {
+            self.note_unrouted_container();
+            return;
+        };
+        self.settle_open_request();
+        if matches!(self.personal, Some(super::PersonalWindow::Open { .. })) {
             return;
         }
         // Servers may repeat an open without sending the already-known chest contents again.
@@ -381,21 +386,10 @@ impl PlayerInventoryLedger {
                 (self.pending_open_warnings + 1).min(super::MAX_PENDING_REQUESTS);
             return;
         }
-        self.abandon_requests(|pending| pending.storage_generation.is_some());
-        let Some(window_id) = open.container.window_id else {
-            return;
-        };
+        self.retire_replaced_windows(None);
         self.confirmed.clear_result();
-        let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
-            .filter(|_| valid_storage_window_id(window_id))
-        else {
-            self.reject_window(window_id, open.window_type);
-            self.storage = None;
-            self.confirmed.clear_storage();
-            return;
-        };
-        // Storage opens are authoritative events, not client inventory control requests.
-        self.supersede_pending_personal_open();
+        self.controls.personal.desired_open = false;
+        self.controls.personal.confirmed = None;
         self.enchant_options = None;
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
