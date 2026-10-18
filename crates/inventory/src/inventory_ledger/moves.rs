@@ -102,13 +102,13 @@ impl PlayerInventoryLedger {
         // The hotbar stack lands in the hovered cell, which may be equipment.
         let equipment_limit = to
             .as_ref()
-            .and_then(|to| self.equipment_capacity(source, &to.stack));
+            .and_then(|to| self.placement_capacity(source, &to.stack));
         if equipment_limit == Some(0) {
-            return Err(InventoryGestureError::EquipmentRefused);
+            return Err(super::validation::placement_refused(source));
         }
         let built = match (from, to) {
             (Some(_), Some(to)) if equipment_limit.is_some_and(|limit| to.stack.count > limit) => {
-                return Err(InventoryGestureError::EquipmentRefused);
+                return Err(super::validation::placement_refused(source));
             }
             (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
             (Some(from), None) => place(source, destination, &from, identity)?,

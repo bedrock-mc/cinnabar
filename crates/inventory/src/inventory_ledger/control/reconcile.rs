@@ -84,6 +84,8 @@ impl PlayerInventoryLedger {
                 if !matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
                     let generation = self.next_open_generation;
                     self.next_open_generation = generation.wrapping_add(1).max(1);
+                    self.confirmed.clear_result();
+                    self.refold();
                     self.personal = Some(PersonalWindow::Opening {
                         generation,
                         admitted: false,

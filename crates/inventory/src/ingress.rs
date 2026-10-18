@@ -128,11 +128,6 @@ impl InventorySession {
     /// Apply exactly one FIFO event before the caller updates its UI and evidence projections.
     pub fn apply_next(&mut self) -> Option<SequencedInventoryEvent> {
         let sequenced = self.pending_inventory.pop_front()?;
-        self.crafting_authority.observe(
-            sequenced.session_generation,
-            sequenced.fifo_sequence,
-            &sequenced.event,
-        );
         match &sequenced.event {
             InventoryAuthorityEvent::Registry(registry) => {
                 self.ledger_mut().apply_registry(registry)
@@ -152,6 +147,18 @@ impl InventorySession {
                 }
             }
         }
+        let writes = match sequenced.event {
+            InventoryAuthorityEvent::Inventory(_) => self.inventory_ledger.personal_updates(),
+            InventoryAuthorityEvent::Registry(_) => {
+                [None; crate::inventory_ledger::PERSONAL_UPDATE_COUNT]
+            }
+        };
+        self.crafting_authority.observe_admitted(
+            sequenced.session_generation,
+            sequenced.fifo_sequence,
+            &sequenced.event,
+            writes,
+        );
         Some(sequenced)
     }
 

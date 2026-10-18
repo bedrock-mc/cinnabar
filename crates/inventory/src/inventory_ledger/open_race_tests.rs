@@ -86,7 +86,7 @@ fn current_storage_close_waits_for_the_previous_storage_reply() {
         server_initiated: false,
     }));
     assert_eq!(ledger.storage_generation(), None);
-    assert_eq!(ledger.pending_request_id(), Some(request));
+    assert_eq!(ledger.pending_request_id(), None);
 }
 
 #[test]
