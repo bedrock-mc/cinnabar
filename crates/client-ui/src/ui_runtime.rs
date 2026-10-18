@@ -135,6 +135,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
+    #[cfg(not(target_arch = "wasm32"))]
     pub experiences: crate::experience_session::ExperienceSession,
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
@@ -232,6 +233,7 @@ impl UiRuntime {
         Self {
             item_fuel_catalog: None,
             session_id,
+            #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
             player_roster: Default::default(),
             last_fifo_sequence: None,
@@ -638,6 +640,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
         self.session_icons = None;

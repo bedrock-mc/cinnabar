@@ -18,7 +18,7 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::{queue::SHARED_CAPACITY, tests::with_log};
+    use crate::console::native::{queue::SHARED_CAPACITY, tests::with_log};
     use std::sync::mpsc;
 
     /// Holds terminal output until the test releases it, independently of file writes.

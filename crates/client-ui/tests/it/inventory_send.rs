@@ -114,10 +114,7 @@ fn assert_creative_drop(
 ) {
     let mut expected_ledger = runtime.inventory_ledger(player).clone();
     expected_ledger
-        .begin_creative_take(
-            creative_id,
-            CreativeDestination::Drop { whole_stack: false },
-        )
+        .begin_creative_take(creative_id, CreativeDestination::Drop, Some(1))
         .unwrap();
     client_ui::ui_runtime::interaction::dispatch_inventory_key(
         player,

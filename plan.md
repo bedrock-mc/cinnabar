@@ -266,6 +266,31 @@ finishing a join resets its play and pack channels while retaining control.
 A valid resume replaces the prior relay controller and cancels its channels even during
 transport teardown. New play waits for the old handler to finish while retaining the account.
 
+The browser entry accepts verified memory carriers and an optional bundled font, then builds
+shared world, actor, movement and HUD owners on the page canvas. A server-address field opens
+one relay play lease through the existing login and packet pump. Disconnect retires gameplay
+authority; bounded server transfers open fresh play generations. Canvas input enters the same
+semantic router. Native pacing, processes, signing, disk caches and menu services remain native.
+Renderer, geometry, UI preparation and retired snapshots use bounded browser job slots.
+Pending cloud windows yield until their exact geometry is ready. WebGPU reports allocation
+errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
+
+The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
+The existing decoder and mixer feed Web Audio. Headless Chrome with Metal WebGPU fetches
+encoded ranges, plays nonzero game samples after a canvas gesture, suspends on cached
+navigation, resumes on another gesture and closes its stream once on final disposal.
+Native owner checks and a wasm artifact pass. The host boots, renders an offline world's
+terrain and HUD, and moves its player. WebSocket transfer, disconnect and rejoin pass.
+Incomplete: interactive inventory/chat/forms controls, initial terrain latency, shader output
+comparisons, audio parity and indivisible job costs remain unverified. Cached navigation retains
+page resources and restores relay controls with an unexpired capability. No browser release
+or parity gate closes here.
+
+The browser account adapter projects device-code prompts, refusals and identity into the shared
+menu. External services expose account intents and preference changes without native helper
+launches. Browser preferences bound saved servers and GUI scale; storage failures are reported.
+The sign-in gesture bridge validates links and removes listeners on teardown. Wiring these
+menu, gesture and persistence handoffs into the running browser host remains incomplete.
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
@@ -2093,13 +2118,17 @@ not close a parity or visual acceptance gate.
   and HUD/crafting observers follow the admitted packet and backing state.
   Enchant selection leaves item mutation unpredicted until its complete result pipeline
   is implemented; it does not keep an unchanged input as a predicted result.
-- Manual crafting can fill a compatible occupied destination and selects fitting work
-  within a bounded result scope. Placement checks are shared by gesture builders.
+- Manual crafting fills compatible destinations through repeated bounded result scopes.
+  Each scope declares its per-craft output once. Explicit counts remain atomic when they
+  do not fit; craft-all stops at available destination space.
+- Secondary creative catalog clicks create one item with an empty cursor and destroy one
+  with a held selection. Typed item locks apply to ordinary player removal, storage and
+  station placement, drops, destruction and consumption.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
-- Incomplete: full crafting batches and remainders, enchanting prediction and availability,
-  creative secondary actions, mode-dependent removal, all station membership rules,
+- Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
+  effective ability and mode-dependent removal, all station membership rules,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.
