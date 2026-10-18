@@ -10078,6 +10078,16 @@ Open timeouts release local admission without closing a guessed window ID.
 Item requests and admitted user closes retain their window generations for settlement.
 Full mount container, vehicle input and platform-specific inventory-opening guards
 remain incomplete.
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass, including a join selection above the advertised byte. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
 
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
