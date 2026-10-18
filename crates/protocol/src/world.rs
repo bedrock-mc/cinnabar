@@ -77,15 +77,22 @@ use self::game_rules::{
     daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
 };
 pub(crate) use self::level_chunk::normalize_level_chunk_payload;
-pub use self::requests::request_sub_chunk_column;
+pub use self::requests::{
+    SubChunkRequestMember, SubChunkRequestReceipt, request_sub_chunk_column, request_sub_chunks,
+    sub_chunk_request_offset,
+};
 
 use protocol_ids::LevelEvent;
 
 /// Client safety limit for block storage layers in update packets.
 pub const MAX_BLOCK_LAYERS: usize = 16;
 
-/// Maximum Y offsets emitted in one column SubChunkRequest.
-pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
+/// Maximum positions in one SubChunkRequest packet.
+pub const MAX_SUB_CHUNK_REQUESTS: usize = 8192;
+/// Maximum absolute displacement admitted on each request axis.
+pub const MAX_SUB_CHUNK_REQUEST_OFFSET: i32 = 127;
+/// Local height bound for one queued column intent.
+pub const MAX_SUB_CHUNK_COLUMN_HEIGHT: usize = 128;
 
 /// Maximum dimension definitions retained from one server packet or session.
 pub const MAX_DIMENSION_DEFINITIONS: usize = 64;
@@ -244,6 +251,12 @@ pub enum WorldPacketError {
 
     #[error("SubChunkRequest base Y {base_y} plus offset {offset} overflows i32")]
     SubChunkRequestYOverflow { base_y: i32, offset: usize },
+
+    #[error("SubChunkRequest position {position:?} is outside the offsets from {center:?}")]
+    SubChunkRequestOutOfRange {
+        center: [i32; 3],
+        position: [i32; 3],
+    },
 }
 
 impl From<ActorPacketError> for WorldPacketError {

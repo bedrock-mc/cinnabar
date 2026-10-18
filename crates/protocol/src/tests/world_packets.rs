@@ -27,7 +27,7 @@ use bedrock_protocol_1_26_51::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
+    MAX_SUB_CHUNK_COLUMN_HEIGHT, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
     WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
     into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
@@ -452,7 +452,7 @@ fn rejects_malformed_or_cached_level_chunks() {
 
     let over_request_bound = LevelChunk {
         dimension_id: DimensionType(0),
-        sub_chunks_count: wire::VarUInt((MAX_SUB_CHUNK_REQUESTS + 1) as u32),
+        sub_chunks_count: wire::VarUInt((MAX_SUB_CHUNK_COLUMN_HEIGHT + 1) as u32),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) =
@@ -465,7 +465,7 @@ fn rejects_malformed_or_cached_level_chunks() {
     assert_eq!(
         event.mode,
         LevelChunkMode::Inline {
-            count: MAX_SUB_CHUNK_REQUESTS + 1
+            count: MAX_SUB_CHUNK_COLUMN_HEIGHT + 1
         }
     );
 }
@@ -893,7 +893,7 @@ fn builds_bounded_column_sub_chunk_requests() {
         panic!("expected SubchunkRequest packet")
     };
     assert_eq!(request.dimension_type.0, 0);
-    assert_eq!(request.center_pos, sub_chunk_pos(12, -4, -8));
+    assert_eq!(request.center_pos, sub_chunk_pos(12, 0, -8));
     assert_eq!(request.sub_chunk_position_offset_list.len(), 3);
     assert_eq!(
         request
@@ -905,14 +905,14 @@ fn builds_bounded_column_sub_chunk_requests() {
                 offset.subchunk_offset_z.0
             ])
             .collect::<Vec<_>>(),
-        vec![[0, 0, 0], [0, 1, 0], [0, 2, 0]]
+        vec![[0, -4, 0], [0, -3, 0], [0, -2, 0]]
     );
 
     assert_eq!(
-        request_sub_chunk_column(0, 0, 0, 0, 129),
+        request_sub_chunk_column(0, 0, 0, 0, MAX_SUB_CHUNK_COLUMN_HEIGHT + 1),
         Err(WorldPacketError::TooManySubChunkRequests {
-            count: 129,
-            max: 128,
+            count: MAX_SUB_CHUNK_COLUMN_HEIGHT + 1,
+            max: MAX_SUB_CHUNK_COLUMN_HEIGHT,
         })
     );
     assert_eq!(
@@ -923,3 +923,5 @@ fn builds_bounded_column_sub_chunk_requests() {
         })
     );
 }
+
+mod sub_chunk_requests;

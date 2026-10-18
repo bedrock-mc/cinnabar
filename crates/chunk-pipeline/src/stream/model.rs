@@ -2,6 +2,10 @@ use {super::*, render_api::PublicationPermit};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct PendingSubChunk {
+    pub(super) demand: u64,
+    /// Packet identities separate early responses from later retry writes.
+    pub(super) latest_transport_packet: u64,
+    pub(super) answered_transport_packet: u64,
     pub(super) retry_attempts: u8,
     pub(super) pending_transport_attempts: u8,
     pub(super) confirmed_attempts: u8,
@@ -22,6 +26,8 @@ pub(super) struct SubChunkRecovery {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct CorrelatedSubChunkAttempts {
+    pub(super) demand: u64,
+    pub(super) answered_transport_packet: u64,
     pub(super) pending_transport_attempts: u8,
     pub(super) confirmed_attempts: u8,
 }
@@ -182,15 +188,51 @@ pub(super) fn split_block_update(
     ))
 }
 
-/// One SubChunkRequest packet plus the normalized range used to build it.
-/// The metadata lets the app and tests inspect the request without depending
-/// on generated protocol packet internals.
+/// One column's admitted request intent; encoding waits for the current camera.
+#[derive(Debug, Clone, Copy)]
 pub struct PendingSubChunkRequest {
-    pub packet: Packet,
-    pub dimension: i32,
     pub chunk: ChunkKey,
     pub base_sub_chunk_y: i32,
     pub count: usize,
+    pub(super) demand: u64,
+}
+
+impl PendingSubChunkRequest {
+    /// Checks the bounded column range before it enters the demand queue.
+    pub(super) fn new(
+        chunk: ChunkKey,
+        base_sub_chunk_y: i32,
+        count: usize,
+        demand: u64,
+    ) -> Option<Self> {
+        if count == 0 || count > MAX_SUB_CHUNK_COLUMN_HEIGHT {
+            return None;
+        }
+        base_sub_chunk_y.checked_add(i32::try_from(count - 1).ok()?)?;
+        Some(Self {
+            chunk,
+            base_sub_chunk_y,
+            count,
+            demand,
+        })
+    }
+
+    /// Visits each absolute slot in the admitted range without allocating.
+    pub(super) fn keys(self) -> impl Iterator<Item = SubChunkKey> {
+        (0..self.count).filter_map(move |offset| {
+            let y = self
+                .base_sub_chunk_y
+                .checked_add(i32::try_from(offset).ok()?)?;
+            Some(SubChunkKey::from_chunk(self.chunk, y))
+        })
+    }
+}
+
+/// One packet's exact membership and the column intents restored on failed admission.
+#[derive(Debug)]
+pub struct SubChunkRequestBatch {
+    pub receipt: SubChunkRequestReceipt,
+    pub(super) intents: Vec<PendingSubChunkRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

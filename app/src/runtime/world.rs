@@ -30,6 +30,7 @@ mod sub_chunk_requests;
 mod terrain_generation;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
+pub(crate) use sub_chunk_requests::sub_chunk_request_center;
 pub(crate) use terrain_generation::synchronize_terrain_generation;
 
 #[cfg(feature = "acceptance")]
@@ -801,12 +802,20 @@ pub(crate) fn drive_world_stream(
     });
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
+        let actor_position = local_physics
+            .network_position()
+            .unwrap_or(stream.resolved_server_position().position);
+        let center = sub_chunk_request_center(
+            stream,
+            camera_publication.as_deref(),
+            clock.session_generation(),
+            actor_position,
+        )?;
         flush_sub_chunk_requests(
             stream,
             OUTBOUND_SEND_BUDGET_PER_FRAME,
-            |chunk, base_sub_chunk_y, count, packet| {
-                network.send_sub_chunk_request(chunk, base_sub_chunk_y, count, packet)
-            },
+            center,
+            |receipt, packet| network.send_sub_chunk_request(receipt, packet),
         )
         .err()
     });

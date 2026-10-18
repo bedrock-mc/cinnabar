@@ -17,7 +17,6 @@ use protocol::{
     PlayerGameMode, ServerDisconnectEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
-use world::ChunkKey;
 
 use crate::SessionTrace;
 use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
@@ -104,9 +103,7 @@ pub enum NetworkControlEvent<P = ()> {
         level_identity: Option<u64>,
     },
     SubChunkRequestSent {
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
+        receipt: protocol::SubChunkRequestReceipt,
         sent_at: Instant,
     },
     ChatPacketSent {
@@ -300,19 +297,12 @@ enum NetworkCommand {
     FlushFrame,
     Send {
         packet: Packet,
-        sub_chunk: Option<SubChunkRequestSend>,
+        sub_chunk: Option<protocol::SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
         interaction: Option<InteractionPacketGuard>,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SubChunkRequestSend {
-    chunk: ChunkKey,
-    base_sub_chunk_y: i32,
-    count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -549,31 +539,19 @@ impl<P> NetworkHandle<P> {
         )
     }
 
+    /// Queues one terrain request with the membership echoed after its successful write.
     pub fn send_sub_chunk_request(
         &self,
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
+        receipt: protocol::SubChunkRequestReceipt,
         packet: Packet,
     ) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(
-            packet,
-            Some(SubChunkRequestSend {
-                chunk,
-                base_sub_chunk_y,
-                count,
-            }),
-            None,
-            None,
-            None,
-            None,
-        )
+        self.send_packet_with_confirmation(packet, Some(receipt), None, None, None, None)
     }
 
     fn send_packet_with_confirmation(
         &self,
         packet: Packet,
-        sub_chunk: Option<SubChunkRequestSend>,
+        sub_chunk: Option<protocol::SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,

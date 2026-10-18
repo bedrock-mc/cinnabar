@@ -22,8 +22,10 @@ use assets::{
 use client_world::ingestion::vanilla_dimension_range;
 use client_world::ingestion::{
     BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
-    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
-    SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    LevelChunkMode, MAX_SUB_CHUNK_COLUMN_HEIGHT, MAX_SUB_CHUNK_REQUESTS, Packet,
+    SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SubChunkRequestMember, SubChunkRequestReceipt,
+    SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunks,
+    sub_chunk_request_offset,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use thiserror::Error;
@@ -348,8 +350,8 @@ pub use block_cracks::{
 };
 pub use model::{
     CohortProgress, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
-    ViewCohortStatus, WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats,
-    WorldStreamPoll, WorldStreamStats,
+    SubChunkRequestBatch, ViewCohortStatus, WorldMeshChange, WorldStreamFatalError,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.

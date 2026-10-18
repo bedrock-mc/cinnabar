@@ -43,14 +43,9 @@ pub(super) fn apply(
         NetworkControlEvent::Bootstrap { .. } => {
             unreachable!("bootstrap is applied before control routing")
         }
-        NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y,
-            count,
-            sent_at,
-        } => {
+        NetworkControlEvent::SubChunkRequestSent { receipt, sent_at } => {
             if let Some(stream) = client_world.stream.as_mut() {
-                stream.acknowledge_sub_chunk_request_sent(chunk, base_sub_chunk_y, count, sent_at);
+                stream.acknowledge_sub_chunk_request_sent(&receipt, sent_at);
             }
             return None;
         }
