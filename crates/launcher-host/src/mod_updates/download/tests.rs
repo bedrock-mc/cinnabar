@@ -60,7 +60,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let mut request = [0; 2048];
-        stream.read(&mut request).unwrap();
+        assert!(stream.read(&mut request).unwrap() > 0);
         // Close-delimited framing exercises the streaming bound without Content-Length.
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
