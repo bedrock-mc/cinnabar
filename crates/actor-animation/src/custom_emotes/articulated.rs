@@ -193,7 +193,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
     digest.update(source.digest);
     digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
     if emote == CustomEmote::Breakdance {
-        digest.update(b"cinnabar:elbows-wrists-spine:v1");
+        digest.update(b"cinnabar:elbows-wrists-spine:v2");
     }
     model.digest = digest.finalize().into();
     Some(model)

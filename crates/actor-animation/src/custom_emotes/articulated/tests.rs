@@ -542,3 +542,144 @@ fn breakdance_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
         );
     }
 }
+
+#[test]
+fn breakdance_keeps_head_only_face_layers_attached_to_the_body() {
+    use crate::custom_emotes::{
+        sample_custom_emote,
+        tests::{Fixture, near, point},
+    };
+    for (source, offset) in [
+        (fixture(), [0.0; 3]),
+        (full_fixture(), [0.0; 3]),
+        (full_fixture(), [0.25, 0.5, 0.75]),
+    ] {
+        let mut face = (*source).clone();
+        let mut head = face.bones[3].clone();
+        head.parent = None;
+        head.pivot = Some(std::array::from_fn(|axis| {
+            Scalar::new(head.pivot.unwrap()[axis].get() + offset[axis]).unwrap()
+        }));
+        face.bones = vec![head].into();
+        face.poly_meshes = vec![None].into();
+        face.digest = Sha256::digest(source.digest).into();
+        let face = Arc::new(face);
+        let (bones, _) = crate::geometry::skeleton(&face.bones).unwrap();
+        let rest: Arc<[_]> = crate::pose::compose_pose(&bones, &[]).unwrap().into();
+        let layers = [crate::SkinRenderLayer {
+            image: render_api::SkinAnimation {
+                kind: render_api::SkinAnimationKind::Face,
+                width: 16,
+                height: 16,
+                rgba8: Arc::from([]),
+                frames: 1,
+                blinking: false,
+            },
+            geometry: Arc::clone(&face),
+            mesh: None,
+            previous: Arc::clone(&rest),
+            current: Arc::clone(&rest),
+            rest: Arc::clone(&rest),
+            hidden_bones: Arc::from([]),
+            uv_anim: [0.0, 0.0, 1.0, 1.0],
+        }];
+        let f = Fixture::from_skin((*source).clone());
+        let mut original = f.rig();
+        original.skin_layers = &layers;
+        let period = CustomEmote::Breakdance.duration_seconds();
+        for step in 0..=64 {
+            let previous = period * f64::from(step) / 64.0;
+            let current = period * f64::from(step + 1) / 64.0;
+            let pose =
+                sample_custom_emote(&original, CustomEmote::Breakdance, previous, current).unwrap();
+            let rig = pose.snapshot(original);
+            let head = rig
+                .bone_names
+                .iter()
+                .position(|name| name.as_ref() == "head")
+                .unwrap();
+            for (body, layer) in [
+                (pose.previous[head], pose.skin_layers[0].previous[0]),
+                (pose.current[head], pose.skin_layers[0].current[0]),
+            ] {
+                let offset = std::array::from_fn(|axis| {
+                    rest[0].translation_scale[axis] - rig.rest[head].translation_scale[axis]
+                });
+                near(point(body, offset), point(layer, [0.0; 3]));
+                for axis in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+                    near(
+                        crate::pose::rotate_vector(body.rotation, axis),
+                        crate::pose::rotate_vector(layer.rotation, axis),
+                    );
+                }
+            }
+        }
+        assert!(Arc::ptr_eq(&layers[0].geometry, &face));
+        assert_eq!(layers[0].current, rest);
+    }
+}
+
+#[test]
+fn breakdance_item_anchors_follow_wrist_rotation_and_bind_offsets() {
+    use crate::custom_emotes::{
+        sample_custom_emote,
+        tests::{Fixture, near, point},
+    };
+    let mut source = (*full_fixture()).clone();
+    let mut bones = source.bones.to_vec();
+    for (root, name) in [(4, "leftItem"), (5, "rightItem")] {
+        let mut anchor = bones[root].clone();
+        anchor.name = name.into();
+        anchor.parent = Some(bones[root].name.clone());
+        anchor.pivot = Some([
+            bones[root].pivot.unwrap()[0],
+            Scalar::new(12.0).unwrap(),
+            Scalar::new(1.0).unwrap(),
+        ]);
+        anchor.cubes = Box::new([]);
+        bones.push(anchor);
+    }
+    source.poly_meshes = vec![None; bones.len()].into();
+    source.bones = bones.into();
+    source.digest = Sha256::digest(b"breakdance item anchor fixture").into();
+    let f = Fixture::from_skin(source.clone());
+    let period = CustomEmote::Breakdance.duration_seconds();
+    for step in 0..=64 {
+        let previous = period * f64::from(step) / 64.0;
+        let current = period * f64::from(step + 1) / 64.0;
+        let pose =
+            sample_custom_emote(&f.rig(), CustomEmote::Breakdance, previous, current).unwrap();
+        let rig = pose.snapshot(f.rig());
+        let find = |name: &str| {
+            rig.bone_names
+                .iter()
+                .position(|part| part.as_ref() == name)
+                .unwrap()
+        };
+        for (anchor, wrist) in [
+            ("leftitem", "leftarm.cinnabar_wrist"),
+            ("rightitem", "rightarm.cinnabar_wrist"),
+        ] {
+            let (anchor, wrist) = (find(anchor), find(wrist));
+            let offset = std::array::from_fn(|axis| {
+                rig.rest[anchor].translation_scale[axis] - rig.rest[wrist].translation_scale[axis]
+            });
+            for endpoint in [&pose.previous, &pose.current] {
+                near(
+                    point(endpoint[anchor], [0.0; 3]),
+                    point(endpoint[wrist], offset),
+                );
+                for axis in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+                    near(
+                        crate::pose::rotate_vector(endpoint[anchor].rotation, axis),
+                        crate::pose::rotate_vector(endpoint[wrist].rotation, axis),
+                    );
+                }
+            }
+        }
+        for (name, rest) in f.rig().bone_names.iter().zip(&f.rest) {
+            assert_eq!(rig.rest[find(name)], *rest, "preserve the source bind pose");
+        }
+    }
+    assert_eq!(*f.rig().skin_geometry.unwrap().as_ref(), source);
+}

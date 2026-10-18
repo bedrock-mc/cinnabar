@@ -42,6 +42,12 @@ pub(super) fn extend(source: &SkinGeometry, model: &mut SkinGeometry) -> Option<
             .filter(|(index, _)| descendant(source, *index, root))
         {
             if bone.cubes.is_empty() {
+                if bone.name.eq_ignore_ascii_case("leftitem")
+                    || bone.name.eq_ignore_ascii_case("rightitem")
+                {
+                    bones[index].parent =
+                        Some(format!("{}.cinnabar_wrist", source.bones[root].name).into());
+                }
                 continue;
             }
             let overlap = length / 12.0;

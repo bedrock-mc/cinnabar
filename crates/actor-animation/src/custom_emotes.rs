@@ -8,7 +8,19 @@ use super::{
 };
 use std::sync::Arc;
 
-type PosePair = (Arc<[BoneTransform]>, Arc<[BoneTransform]>);
+/// Composed endpoints and the body's shared model-space floor translations.
+struct PosePair {
+    rest: Arc<[BoneTransform]>,
+    previous: Arc<[BoneTransform]>,
+    current: Arc<[BoneTransform]>,
+    floor: [f32; 2],
+}
+
+/// The sampled body drives matching joints in attached geometries.
+struct AttachedPose<'a> {
+    names: &'a [Box<str>],
+    pose: &'a PosePair,
+}
 mod articulated;
 mod breakdance;
 
@@ -69,7 +81,6 @@ pub(super) struct CustomEmoteRig {
     pub mesh: render_model::ActorRigGeometry,
     pub names: Arc<[Box<str>]>,
     pub rest: Arc<[BoneTransform]>,
-    bounds: Arc<[Option<articulated::BoneBounds>]>,
 }
 
 impl CustomEmotePose {
@@ -130,42 +141,47 @@ pub fn sample_custom_emote(
     } else {
         (bones, names)
     };
+    let body = pair(
+        &bones,
+        &names,
+        emote,
+        [previous_seconds, current_seconds],
+        leg_height,
+        articulated_model
+            .as_ref()
+            .map(|model| model.bounds.as_ref()),
+        None,
+    )?;
     let articulated = if let Some(model) = articulated_model {
         Some(CustomEmoteRig {
             geometry: model.geometry,
             mesh: model.mesh,
-            bounds: model.bounds,
             names: names.clone().into(),
-            rest: compose_pose(&bones, &[])?.into(),
+            rest: Arc::clone(&body.rest),
         })
     } else {
         None
     };
-    let (previous, current) = pair(
-        &bones,
-        &names,
-        emote,
-        previous_seconds,
-        current_seconds,
-        leg_height,
-        articulated.as_ref().map(|rig| rig.bounds.as_ref()),
-    )?;
+    let attached = (emote == CustomEmote::Breakdance).then_some(AttachedPose {
+        names: &names,
+        pose: &body,
+    });
     let mut render = rig.render.to_vec();
     for layer in &mut render {
         if let Some(index) = layer.geometry {
             let (assets, _) = catalog?;
             let (bones, names) = geometry::resolve_bones(assets, index as usize)?;
-            let (previous, current) = pair(
+            let pose = pair(
                 &bones,
                 &names,
                 emote,
-                previous_seconds,
-                current_seconds,
+                [previous_seconds, current_seconds],
                 leg_height,
                 None,
+                attached.as_ref(),
             )?;
-            layer.previous_pose = previous;
-            layer.pose = current;
+            layer.previous_pose = pose.previous;
+            layer.pose = pose.current;
         }
     }
     let mut skin_layers = rig.skin_layers.to_vec();
@@ -178,53 +194,93 @@ pub fn sample_custom_emote(
             None
         };
         let (bones, names) = geometry::skeleton(&layer.geometry.bones)?;
-        let (previous, current) = pair(
+        let pose = pair(
             &bones,
             &names,
             emote,
-            previous_seconds,
-            current_seconds,
+            [previous_seconds, current_seconds],
             leg_height,
             bounds.as_deref(),
+            attached.as_ref(),
         )?;
-        layer.rest = compose_pose(&bones, &[])?.into();
-        layer.previous = previous;
-        layer.current = current;
+        layer.rest = pose.rest;
+        layer.previous = pose.previous;
+        layer.current = pose.current;
     }
     Some(CustomEmotePose {
-        previous,
-        current,
+        previous: body.previous,
+        current: body.current,
         render,
         skin_layers,
         articulated,
     })
 }
 
+/// Samples a body or attached geometry, sharing the body's contacts and named joint motion.
 fn pair(
     bones: &[RuntimeBone],
     names: &[Box<str>],
     emote: CustomEmote,
-    previous: f64,
-    current: f64,
+    [previous, current]: [f64; 2],
     leg_height: f32,
     bounds: Option<&[Option<articulated::BoneBounds>]>,
+    attached: Option<&AttachedPose<'_>>,
 ) -> Option<PosePair> {
-    let rest = compose_pose(bones, &[])?;
-    let sample = |seconds| {
-        let targets = targets(bones, names, &rest, emote, seconds, leg_height, bounds);
-        let mut pose = compose_pose_with_targets(bones, &[], &targets)?;
-        if emote == CustomEmote::Breakdance {
-            breakdance::ground_pose(names, &mut pose, leg_height, bounds);
+    let rest: Arc<[_]> = compose_pose(bones, &[])?.into();
+    let sample = |seconds, endpoint: usize| {
+        let mut targets = targets(bones, names, &rest, emote, seconds, leg_height, bounds);
+        if let Some(attached) = attached {
+            for target in targets.iter_mut().flatten() {
+                target.translation_scale[1] += attached.pose.floor[endpoint];
+            }
+            let body = [&attached.pose.previous, &attached.pose.current][endpoint];
+            for ((name, rest), target) in names.iter().zip(rest.iter()).zip(&mut targets) {
+                let Some(index) = attached.names.iter().position(|body| body == name) else {
+                    continue;
+                };
+                let bind = attached.pose.rest[index];
+                let inverse = [
+                    -bind.rotation[0],
+                    -bind.rotation[1],
+                    -bind.rotation[2],
+                    bind.rotation[3],
+                ];
+                let rotation = quat_multiply(body[index].rotation, inverse);
+                let offset = rotate_vector(
+                    rotation,
+                    std::array::from_fn(|axis| {
+                        rest.translation_scale[axis] - bind.translation_scale[axis]
+                    }),
+                );
+                let mut shared = *rest;
+                shared.rotation = quat_multiply(rotation, rest.rotation);
+                for axis in 0..3 {
+                    shared.translation_scale[axis] =
+                        body[index].translation_scale[axis] + offset[axis];
+                }
+                *target = Some(shared);
+            }
         }
-        Some(Arc::<[BoneTransform]>::from(pose))
+        let mut pose = compose_pose_with_targets(bones, &[], &targets)?;
+        let floor = if emote == CustomEmote::Breakdance && attached.is_none() {
+            breakdance::ground_pose(names, &mut pose, leg_height, bounds)
+        } else {
+            attached.map_or(0.0, |attached| attached.pose.floor[endpoint])
+        };
+        Some((Arc::<[BoneTransform]>::from(pose), floor))
     };
-    let previous_pose = sample(previous)?;
-    let current_pose = if previous == current {
-        Arc::clone(&previous_pose)
+    let (previous_pose, previous_floor) = sample(previous, 0)?;
+    let (current_pose, current_floor) = if previous == current {
+        (Arc::clone(&previous_pose), previous_floor)
     } else {
-        sample(current)?
+        sample(current, 1)?
     };
-    Some((previous_pose, current_pose))
+    Some(PosePair {
+        rest,
+        previous: previous_pose,
+        current: current_pose,
+        floor: [previous_floor, current_floor],
+    })
 }
 
 fn targets(

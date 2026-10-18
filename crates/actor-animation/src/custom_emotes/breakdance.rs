@@ -222,13 +222,13 @@ pub(super) fn targets(
     targets
 }
 
-/// Places the composed silhouette on the floor, including every articulated segment.
+/// Grounds the body silhouette and returns the translation shared by attached geometries.
 pub(super) fn ground_pose(
     names: &[Box<str>],
     pose: &mut [BoneTransform],
     height: f32,
     bounds: Option<&[Option<articulated::BoneBounds>]>,
-) {
+) -> f32 {
     let lowest = names
         .iter()
         .zip(pose.iter())
@@ -270,5 +270,8 @@ pub(super) fn ground_pose(
         for target in pose {
             target.translation_scale[1] -= lowest;
         }
+        -lowest
+    } else {
+        0.0
     }
 }
