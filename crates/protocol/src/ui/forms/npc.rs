@@ -24,7 +24,8 @@ const BUTTON_MODE: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcDialogueForm {
-    pub npc_runtime_id: u64,
+    /// Persistent ID from the dialogue; replies resolve its live actor.
+    pub npc_unique_id: i64,
     pub scene_name: Arc<str>,
     pub npc_name: Arc<str>,
     pub dialogue: Arc<str>,
@@ -71,7 +72,7 @@ pub(crate) fn normalize_npc_dialogue(packet: NpcDialogue) -> Result<UiEvent, UiP
     } else {
         match buttons(&action_json) {
             Ok(buttons) => ServerFormModel::NpcDialogue(NpcDialogueForm {
-                npc_runtime_id: packet.npc_id_raw_id.0,
+                npc_unique_id: packet.npc_id_raw_id.0 as i64,
                 scene_name: Arc::from(&*scene_name),
                 npc_name: Arc::from(&*npc_name),
                 dialogue: Arc::from(&*dialogue),

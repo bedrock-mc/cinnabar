@@ -76,43 +76,107 @@ impl InventorySession {
     pub const fn pending_hotbar_selection(&self) -> Option<u8> {
         self.pending_hotbar_selection
     }
-    /// Builds the pending selection from current authority without consuming it.
-    /// Only an unknown cell waits; the caller clears the slot once transport accepts the packet.
+    /// Builds a pending slot-selection command without consuming it.
     pub fn pending_hotbar_packet(
         &self,
         game_mode: Option<PlayerGameMode>,
     ) -> Result<Option<(u8, protocol::Packet)>, protocol::InventoryPacketError> {
-        let Some(target) = self.pending_hotbar_selection() else {
+        if self.pending_hotbar_selection.is_none() {
             return Ok(None);
-        };
+        }
+        self.changed_held_equipment_packet(game_mode)
+    }
+
+    /// Builds changed held equipment for a local tick without consuming it.
+    /// Unknown cells wait; accepted sends commit the slot and stack together.
+    pub fn changed_held_equipment_packet(
+        &self,
+        game_mode: Option<PlayerGameMode>,
+    ) -> Result<Option<(u8, protocol::Packet)>, protocol::InventoryPacketError> {
         let Some(runtime_id) = self.local_runtime_id() else {
             return Ok(None);
         };
         let Some(snapshot) = self.selected_stack_snapshot(game_mode) else {
             return Ok(None);
         };
-        if snapshot.slot != target {
+        let target = snapshot.slot;
+        if self
+            .pending_hotbar_selection
+            .is_some_and(|pending| pending != target)
+        {
             return Ok(None);
         }
-        let packet = match snapshot.state {
+        let empty = protocol::NetworkItemStack::empty();
+        let stack = match snapshot.state {
             PlayerInventorySlot::Unknown => return Ok(None),
-            PlayerInventorySlot::Empty => protocol::select_hotbar_slot_packet(
-                runtime_id,
-                target,
-                &protocol::NetworkItemStack::empty(),
-            ),
-            // The packet carries no stack network id, so a predicted id needs no answer first.
-            PlayerInventorySlot::Present(stack) => {
-                protocol::select_hotbar_slot_packet(runtime_id, target, stack)
-            }
-        }?;
+            PlayerInventorySlot::Empty => &empty,
+            PlayerInventorySlot::Present(stack) => stack,
+        };
+        let (announced_slot, announced_stack) = &self.announced_hotbar;
+        if self.pending_hotbar_selection.is_none()
+            && *announced_slot == target
+            && announced_stack.count == stack.count
+            && protocol::held_items_match(announced_stack, stack)
+        {
+            return Ok(None);
+        }
+        let packet = protocol::select_hotbar_slot_packet(runtime_id, target, stack)?;
         Ok(Some((target, packet)))
     }
-    /// Clear the pending command only if it is still the slot just sent.
+    /// Builds a changed known offhand stack without consuming its pending announcement.
+    pub fn changed_offhand_equipment_packet(
+        &self,
+    ) -> Result<Option<protocol::Packet>, protocol::InventoryPacketError> {
+        let Some(runtime_id) = self.local_runtime_id() else {
+            return Ok(None);
+        };
+        let Some(stack) = self.known_offhand_stack() else {
+            return Ok(None);
+        };
+        if self.announced_offhand.count == stack.count
+            && protocol::held_items_match(&self.announced_offhand, &stack)
+        {
+            return Ok(None);
+        }
+        protocol::offhand_equipment_packet(runtime_id, &stack).map(Some)
+    }
+
+    /// Commits the offhand stack only after transport accepts its announcement.
+    pub fn acknowledge_offhand_equipment(&mut self) {
+        if let Some(stack) = self.known_offhand_stack() {
+            self.announced_offhand = stack;
+        }
+    }
+
+    /// Resolves offhand authority, preserving unknown separately from known empty.
+    fn known_offhand_stack(&self) -> Option<protocol::NetworkItemStack> {
+        match self
+            .inventory_ledger
+            .gear_slot_state(crate::inventory_ledger::InventoryTarget::Offhand)?
+        {
+            PlayerInventorySlot::Unknown => None,
+            PlayerInventorySlot::Empty => Some(protocol::NetworkItemStack::empty()),
+            PlayerInventorySlot::Present(stack) => Some(stack.clone()),
+        }
+    }
+
+    /// Commits known held equipment after acceptance, preserving newer pending selections.
     pub fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
-        if self.pending_hotbar_selection != Some(slot) {
+        if self
+            .pending_hotbar_selection
+            .is_some_and(|pending| pending != slot)
+            || self
+                .selected_hotbar_slot(None)
+                .is_some_and(|selected| selected != slot)
+        {
             return false;
         }
+        let stack = match self.hotbar_slot_state(slot) {
+            None | Some(PlayerInventorySlot::Unknown) => return false,
+            Some(PlayerInventorySlot::Empty) => protocol::NetworkItemStack::empty(),
+            Some(PlayerInventorySlot::Present(stack)) => stack.clone(),
+        };
+        self.announced_hotbar = (slot, stack);
         self.pending_hotbar_selection = None;
         true
     }
@@ -143,6 +207,12 @@ impl InventorySession {
         game_mode: Option<protocol::PlayerGameMode>,
     ) -> Option<SelectedStackSnapshot<'_>> {
         let slot = self.selected_hotbar_slot(game_mode)?;
+        let state = self.hotbar_slot_state(slot)?;
+        Some(SelectedStackSnapshot { slot, state })
+    }
+
+    /// Resolves a physical hotbar cell, using its equipment echo only while authority is unknown.
+    fn hotbar_slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
         let ledger_state = self.inventory_ledger.slot_state(slot)?;
         let state = match ledger_state {
             PlayerInventorySlot::Unknown => self
@@ -158,7 +228,7 @@ impl InventorySession {
                 }),
             known => known,
         };
-        Some(SelectedStackSnapshot { slot, state })
+        Some(state)
     }
 
     /// Returns the present selected stack, preserving the existing optional API.
@@ -228,6 +298,284 @@ impl InventorySession {
 mod tests {
     use super::*;
     use protocol::{ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent};
+
+    #[test]
+    fn offhand_equipment_tracks_count_identity_clear_and_session_reset() {
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        assert!(
+            session
+                .changed_offhand_equipment_packet()
+                .unwrap()
+                .is_none()
+        );
+        let mut stack = protocol::NetworkItemStack {
+            network_id: 7,
+            stack_network_id: 13,
+            count: 4,
+            ..protocol::NetworkItemStack::empty()
+        };
+        for count in [4, 3, 0] {
+            stack.count = count;
+            replace_offhand_stack(&mut session, stack.clone());
+            let packet = session.changed_offhand_equipment_packet().unwrap().unwrap();
+            assert_eq!(
+                protocol::test_support::packets::equipment(&packet)
+                    .unwrap()
+                    .count,
+                count
+            );
+            assert_eq!(
+                protocol::encode(&packet).unwrap(),
+                protocol::encode(&session.changed_offhand_equipment_packet().unwrap().unwrap())
+                    .unwrap()
+            );
+            session.acknowledge_offhand_equipment();
+            assert!(
+                session
+                    .changed_offhand_equipment_packet()
+                    .unwrap()
+                    .is_none()
+            );
+            if count != 0 {
+                stack.stack_network_id = -3;
+                replace_offhand_stack(&mut session, stack.clone());
+                assert!(
+                    session
+                        .changed_offhand_equipment_packet()
+                        .unwrap()
+                        .is_none()
+                );
+            }
+        }
+        stack.count = 1;
+        replace_offhand_stack(&mut session, stack.clone());
+        session.acknowledge_offhand_equipment();
+        stack.metadata = 3;
+        replace_offhand_stack(&mut session, stack.clone());
+        assert!(
+            session
+                .changed_offhand_equipment_packet()
+                .unwrap()
+                .is_some()
+        );
+        session.acknowledge_offhand_equipment();
+        session.begin_session(2);
+        session.publish_local_runtime_id(2, 99).unwrap();
+        assert!(
+            session
+                .changed_offhand_equipment_packet()
+                .unwrap()
+                .is_none()
+        );
+        replace_offhand_stack(&mut session, stack);
+        assert!(
+            session
+                .changed_offhand_equipment_packet()
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    /// Replaces known offhand authority without changing hotbar selection.
+    fn replace_offhand_stack(session: &mut InventorySession, stack: protocol::NetworkItemStack) {
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                    slot: 0,
+                },
+                stack,
+                storage_item: None,
+            }));
+    }
+
+    /// Replaces one known hotbar cell without changing the selected slot.
+    fn replace_held_stack(session: &mut InventorySession, stack: protocol::NetworkItemStack) {
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 2,
+                },
+                stack,
+                storage_item: None,
+            }));
+    }
+
+    /// Builds original item data with the same fields in either compound order.
+    fn held_compound(reverse: bool, damage: i32) -> std::sync::Arc<[u8]> {
+        let mut extra = vec![0xff, 0xff, 1, 10, 0, 0];
+        let mut fields = [("Damage", damage), ("RepairCost", 3)];
+        if reverse {
+            fields.reverse();
+        }
+        for (name, value) in fields {
+            extra.push(3);
+            extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            extra.extend_from_slice(name.as_bytes());
+            extra.extend_from_slice(&value.to_le_bytes());
+        }
+        extra.push(0);
+        extra.extend_from_slice(&[0; 8]);
+        extra.into()
+    }
+
+    #[test]
+    fn held_equipment_ignores_compound_order_but_keeps_value_changes() {
+        use sha2::{Digest, Sha256};
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        let mode = Some(PlayerGameMode::Survival);
+        let mut stack = protocol::NetworkItemStack {
+            network_id: 7,
+            count: 1,
+            extra_data: held_compound(false, 2),
+            ..protocol::NetworkItemStack::empty()
+        };
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack.clone());
+        session.queue_local_hotbar_selection(2, mode);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+        assert!(session.clear_pending_hotbar_selection(2));
+        stack.extra_data = held_compound(true, 2);
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack.clone());
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+        stack.extra_data = held_compound(true, 4);
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        replace_held_stack(&mut session, stack);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn held_equipment_resends_same_slot_count_changes_and_depletion() {
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        let mode = Some(PlayerGameMode::Survival);
+        let mut stack = protocol::NetworkItemStack {
+            network_id: 7,
+            stack_network_id: 13,
+            count: 4,
+            ..protocol::NetworkItemStack::empty()
+        };
+        replace_held_stack(&mut session, stack.clone());
+        session.queue_local_hotbar_selection(2, mode);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+        assert!(session.clear_pending_hotbar_selection(2));
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+
+        stack.stack_network_id = -3;
+        replace_held_stack(&mut session, stack.clone());
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+
+        stack.count = 3;
+        replace_held_stack(&mut session, stack.clone());
+        let (slot, packet) = session
+            .changed_held_equipment_packet(mode)
+            .unwrap()
+            .expect("count change must update held equipment");
+        assert_eq!(slot, 2);
+        assert_eq!(
+            protocol::test_support::packets::equipment(&packet)
+                .unwrap()
+                .count,
+            3
+        );
+        let (_, retry) = session
+            .changed_held_equipment_packet(mode)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            protocol::encode(&packet).unwrap(),
+            protocol::encode(&retry).unwrap()
+        );
+        assert!(session.clear_pending_hotbar_selection(slot));
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+
+        stack.metadata = 5;
+        replace_held_stack(&mut session, stack);
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+        assert!(session.clear_pending_hotbar_selection(2));
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+
+        replace_held_stack(&mut session, protocol::NetworkItemStack::empty());
+        let (slot, packet) = session
+            .changed_held_equipment_packet(mode)
+            .unwrap()
+            .expect("depletion must clear held equipment");
+        assert_eq!(
+            protocol::test_support::packets::equipment(&packet)
+                .unwrap()
+                .count,
+            0
+        );
+        assert!(session.clear_pending_hotbar_selection(slot));
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+
+        session.begin_session(2);
+        session.publish_local_runtime_id(2, 99).unwrap();
+        session.set_local_selected_slot(2);
+        replace_held_stack(&mut session, protocol::NetworkItemStack::empty());
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_some()
+        );
+    }
 
     /// A slot whose stack still carries a predicted request id sends at once.
     #[test]

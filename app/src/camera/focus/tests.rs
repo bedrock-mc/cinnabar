@@ -262,6 +262,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     assert_released(&app, window);
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |_| Ok(()),
     )
     .unwrap();
