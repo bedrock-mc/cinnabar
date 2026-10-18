@@ -9835,6 +9835,13 @@ and custom base-item coverage is incomplete. Optional Java animation name routin
 remains a separate incomplete admission path. This does not close the complete
 equipment parity gate. `make assets` rebuilds carriers that lack these records.
 
+Canonical empty component data preserves the compiled native item grip even when
+an item registry marks the item component based. Explicit hand flags still override it;
+malformed, missing nonempty definitions and unknown versions remain unresolved.
+Original regressions cover upright and mirrored art plus retained equipment refresh.
+A local fishing-rod check restores the upright grip and first-person art direction.
+Incomplete: a third-person rod rotation difference remains against native Bedrock.
+
 ## Spawner display actors
 
 Spawner displays now use client-owned actor lifetimes and the ordinary actor
