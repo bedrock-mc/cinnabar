@@ -19,8 +19,8 @@ pub(super) fn reveal(
     let fixed = *action == MenuAction::AddBack
         || (view.screen == launcher::menu::MenuScreen::AddServer
             && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
-        || (*action == MenuAction::SettingsScalePicker && view.settings_scale_picker)
-        || matches!(action, MenuAction::SettingsDropdown(index) if view.settings_dropdown == Some(*index));
+        || (*action == MenuAction::SettingsScalePicker && view.settings.scale_picker)
+        || matches!(action, MenuAction::SettingsDropdown(index) if view.settings.dropdown == Some(*index));
     let centre = (bounds.min().x() + bounds.max().x()) * 0.5;
     let area = canvas
         .scrolls

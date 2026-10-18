@@ -79,15 +79,15 @@ fn settings_from_pause_keep_mods_and_command_macro_editors() {
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = SettingSection::Mods.definition().index;
-    view.focused_action = Some(MenuAction::SettingsSection(view.settings_section));
+    view.settings.section = SettingSection::Mods.definition().index;
+    view.focused_action = Some(MenuAction::SettingsSection(view.settings.section));
     view.navigation_focus_visible = true;
     let (words, actions) = paint(&mut presentation, view.clone());
     assert!(!words.contains("JSON settings fallback"));
     assert!(actions.contains(&MenuAction::SettingsSection(
         SettingSection::Mods.definition().index
     )));
-    view.settings_section = SettingSection::KeyboardAndMouse.definition().index;
+    view.settings.section = SettingSection::KeyboardAndMouse.definition().index;
     view.focused_action = Some(MenuAction::SettingsMacroCommand(0));
     let (words, actions) = paint(&mut presentation, view.clone());
     assert!(!words.contains("JSON settings fallback"));

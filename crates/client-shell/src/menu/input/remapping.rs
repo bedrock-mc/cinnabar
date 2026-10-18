@@ -42,7 +42,7 @@ pub(super) fn capture(
     mouse: &mut ButtonInput<MouseButton>,
     gamepads: &Query<&Gamepad>,
 ) {
-    let pending = menu.key_remap.map(usize::from);
+    let pending = menu.settings.key_remap.map(usize::from);
     let macro_slot = pending.and_then(macro_row);
     // Macro slots bind only desktop controls; the selected modifier applies at runtime.
     let gamepad = pending.is_some_and(|index| index >= GAMEPAD_OFFSET) && macro_slot.is_none();
@@ -59,7 +59,7 @@ pub(super) fn capture(
             break;
         }
     }
-    if gamepad && menu.key_remap.is_some() {
+    if gamepad && menu.settings.key_remap.is_some() {
         for pad in gamepads {
             let button = TRANSLATED_GAMEPAD_BUTTONS
                 .iter()
@@ -80,7 +80,7 @@ pub(super) fn capture(
                 break;
             }
         }
-    } else if menu.key_remap.is_some()
+    } else if menu.settings.key_remap.is_some()
         && let Some(code) = mouse
             .get_just_pressed()
             .find_map(|button| mouse_button_code(*button))
@@ -111,7 +111,7 @@ mod tests {
         mut mouse: ResMut<ButtonInput<MouseButton>>,
         gamepads: Query<&Gamepad>,
     ) {
-        if menu.key_remap.is_some() {
+        if menu.settings.key_remap.is_some() {
             capture(&mut menu, &mut messages, &mut keys, &mut mouse, &gamepads);
         } else {
             messages.clear();
@@ -141,7 +141,10 @@ mod tests {
             .iter()
             .position(|(action, _)| *action == Action::Hotbar1)
             .unwrap();
-        app.world_mut().resource_mut::<MenuRuntime>().key_remap = Some(row as u16);
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .settings
+            .key_remap = Some(row as u16);
         row
     }
 
@@ -253,7 +256,7 @@ mod tests {
             .position(|(action, _)| *action == Action::Hotbar1)
             .unwrap();
         let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
-        menu.key_remap = Some(row as u16);
+        menu.settings.key_remap = Some(row as u16);
         let mut app = App::new();
         app.insert_resource(menu)
             .add_message::<KeyboardInput>()
@@ -354,7 +357,10 @@ mod tests {
             if key_code == KeyCode::Escape {
                 continue;
             }
-            app.world_mut().resource_mut::<MenuRuntime>().key_remap = Some(row as u16);
+            app.world_mut()
+                .resource_mut::<MenuRuntime>()
+                .settings
+                .key_remap = Some(row as u16);
             app.world_mut().write_message(KeyboardInput {
                 key_code,
                 logical_key: Key::Unidentified(NativeKey::Unidentified),
@@ -365,7 +371,7 @@ mod tests {
             });
             app.update();
             let menu = app.world().resource::<MenuRuntime>();
-            assert_eq!(menu.key_remap, None, "{key_code:?}");
+            assert_eq!(menu.settings.key_remap, None, "{key_code:?}");
             assert!(menu.settings_dirty && menu.settings_apply);
             menu.settings_options.save(&path).unwrap();
             let loaded = SettingsOptions::load(&path);
@@ -456,7 +462,7 @@ mod tests {
         });
         app.update();
         let menu = app.world().resource::<MenuRuntime>();
-        assert_eq!(menu.key_remap, None);
+        assert_eq!(menu.settings.key_remap, None);
         assert_eq!(menu.screen(), launcher::menu::MenuScreen::Settings);
         assert!(menu.settings_dirty && menu.settings_apply);
         assert_eq!(menu.settings_options.key_control(sneak), None);
@@ -527,7 +533,7 @@ mod tests {
             });
             app.update();
             let menu = app.world().resource::<MenuRuntime>();
-            assert_eq!(menu.key_remap, None);
+            assert_eq!(menu.settings.key_remap, None);
             assert_eq!(menu.settings_options, original);
             assert_eq!((menu.settings_dirty, menu.settings_apply), original_flags);
         }

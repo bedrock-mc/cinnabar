@@ -44,6 +44,7 @@ pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 #[derive(Resource)]
 pub(crate) struct ModRuntime {
     hosts: ModHosts,
+    /// One entry per host, kept in host order by the lifecycle methods.
     metadata: Vec<registration::HostMetadata>,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
@@ -56,6 +57,55 @@ pub(crate) struct ModRuntime {
 }
 
 impl ModRuntime {
+    /// Starts a runtime with one host and its stable presentation metadata.
+    fn new(host: ModHost, metadata: registration::HostMetadata) -> Self {
+        Self {
+            hosts: ModHosts::new(host, Vec::new()),
+            metadata: vec![metadata],
+            render_sources: Vec::new(),
+            render_merge: Default::default(),
+            controls: mod_host::empty_controls(),
+            suspended: false,
+            hud_editor_owner: None,
+            screens: Default::default(),
+        }
+    }
+
+    /// Appends a guest with its metadata and invalidates the merged render output.
+    fn push_host(&mut self, host: ModHost, metadata: registration::HostMetadata) {
+        self.hosts.push(host);
+        self.metadata.push(metadata);
+        self.render_sources.clear();
+    }
+
+    /// Replaces an environment guest and its presentation resources, retiring its input state.
+    fn replace_host(
+        &mut self,
+        index: usize,
+        mut prepared: admission::PreparedMod,
+        presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) -> ModHost {
+        self.screens.replace_host(index);
+        if self
+            .hud_editor_owner
+            .is_some_and(|owner| owner.host == index)
+        {
+            hud_editor::cancel(self, presentation, false);
+        }
+        prepared
+            .host
+            .activate_settings(Some(self.hosts.host_mut(index)));
+        let retired = std::mem::replace(self.hosts.host_mut(index), prepared.host);
+        let metadata = &mut self.metadata[index];
+        metadata.font = prepared.font;
+        metadata.branding = prepared.branding;
+        presentation
+            .mod_ui_mut()
+            .set_prepared_panel_ui(metadata.owner, prepared.panel_ui);
+        self.render_sources.clear();
+        retired
+    }
+
     /// The first active local mod may select ordinary input modes for this frame.
     pub(crate) fn movement_toggles(&self) -> Option<&mod_host::MovementToggles> {
         if self.suspended {
@@ -63,6 +113,7 @@ impl ModRuntime {
         }
         (0..self.hosts.host_count()).find_map(|index| self.hosts.host(index).movement_toggles())
     }
+
     /// Moves metadata, guest and index-based input ownership together without a restart.
     fn swap_hosts(&mut self, left: usize, right: usize) {
         self.hosts.swap(left, right);
@@ -79,6 +130,7 @@ impl ModRuntime {
     }
     /// Removes one guest and adjusts the surviving input and presentation owners together.
     fn remove_host(&mut self, index: usize) -> ModHost {
+        let host = self.hosts.remove(index);
         self.metadata.remove(index);
         self.screens.remove_host(index);
         if let Some(owner) = self.hud_editor_owner.as_mut() {
@@ -90,7 +142,7 @@ impl ModRuntime {
         }
         self.render_sources.clear();
         self.controls = mod_host::empty_controls();
-        self.hosts.remove(index)
+        host
     }
     /// Maps a publishing host's runtime index to its stable panel catalog owner.
     fn panel_ui_owner(&self, host: usize) -> mod_ui::PanelUiOwner {
@@ -238,65 +290,65 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
                 None
             }
         });
-    let mut fonts = Vec::new();
-    let mut brands = Vec::new();
-    hosts.retain(|host| {
-        let result = if host.grants().controls {
-            if let Some(font) = &override_font {
-                Ok(Some(font.clone()))
+    let hosts: Vec<_> = hosts
+        .into_iter()
+        .filter_map(|host| {
+            let result = if host.grants().controls {
+                if let Some(font) = &override_font {
+                    Ok(Some(font.clone()))
+                } else {
+                    host.panel_font_source()
+                        .map(font::rasterize)
+                        .transpose()
+                        .map(|font| font.map(std::sync::Arc::new))
+                }
             } else {
-                host.panel_font_source()
-                    .map(font::rasterize)
-                    .transpose()
-                    .map(|font| font.map(std::sync::Arc::new))
-            }
-        } else {
-            Ok(None)
-        };
-        match result {
-            Ok(font) => match admission::prepare_branding(host) {
-                Ok(branding) => {
-                    fonts.push(font);
-                    brands.push(branding);
-                    true
-                }
+                Ok(None)
+            };
+            match result {
+                Ok(font) => match admission::prepare_branding(&host) {
+                    Ok(branding) => Some((host, font, branding)),
+                    Err(error) => {
+                        warn!("Embedded menu branding rejected; component disabled: {error}");
+                        None
+                    }
+                },
                 Err(error) => {
-                    warn!("Embedded menu branding rejected; component disabled: {error}");
-                    false
+                    warn!("Embedded personal-panel font rejected; component disabled: {error}");
+                    None
                 }
-            },
-            Err(error) => {
-                warn!("Embedded personal-panel font rejected; component disabled: {error}");
-                false
             }
-        }
-    });
-    for (index, host) in hosts.iter().enumerate() {
+        })
+        .enumerate()
+        .map(|(index, (host, font, branding))| {
+            let mut metadata = registration::HostMetadata::environment(index);
+            metadata.font = font;
+            metadata.branding = branding;
+            (host, metadata)
+        })
+        .collect();
+    for (host, metadata) in &hosts {
         if let Some(bundle) = host.panel_bundle() {
             match mod_ui::PreparedPanelUi::prepare(bundle) {
                 Ok(prepared) => {
                     if let Some(mut presentation) =
                         app.world_mut().get_resource_mut::<UiPresentationResource>()
                     {
-                        presentation.mod_ui_mut().set_prepared_panel_ui(
-                            mod_ui::PanelUiOwner::Environment(index),
-                            Some(prepared),
-                        );
+                        presentation
+                            .mod_ui_mut()
+                            .set_prepared_panel_ui(metadata.owner, Some(prepared));
                     }
                 }
                 Err(error) => warn!("Optional personal-panel preparation unavailable: {error}"),
             }
         }
     }
-    let first_controls = hosts.iter().position(|host| host.grants().controls);
+    let first_controls = hosts.iter().position(|(host, _)| host.grants().controls);
     let sources = hosts
         .iter()
         .enumerate()
-        .map(|(index, host)| {
-            let mut source = environment_loader::Source::from_host(
-                mod_ui::PanelUiOwner::Environment(index),
-                host,
-            );
+        .map(|(index, (host, metadata))| {
+            let mut source = environment_loader::Source::from_host(metadata.owner, host);
             source.font = std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from);
             source.ui = (Some(index) == first_controls)
                 .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
@@ -314,30 +366,16 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
         }
     }
     let mut hosts = hosts.into_iter();
-    let Some(host) = hosts.next() else { return };
+    let Some((host, metadata)) = hosts.next() else {
+        return;
+    };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
-    let companions: Vec<_> = hosts.map(|host| multi::Companion { host }).collect();
-    app.insert_resource(VisualTimeOverride(host.time_override()))
-        .insert_resource(ModRuntime {
-            metadata: fonts
-                .into_iter()
-                .zip(brands)
-                .enumerate()
-                .map(|(index, (font, branding))| {
-                    let mut metadata = registration::HostMetadata::environment(index);
-                    metadata.font = font;
-                    metadata.branding = branding;
-                    metadata
-                })
-                .collect(),
-            hosts: ModHosts::new(host, companions),
-            render_sources: Vec::new(),
-            render_merge: Default::default(),
-            controls: mod_host::empty_controls(),
-            suspended: false,
-            hud_editor_owner: None,
-            screens: screens::ScreenState::default(),
-        })
+    app.insert_resource(VisualTimeOverride(host.time_override()));
+    let mut runtime = ModRuntime::new(host, metadata);
+    for (host, metadata) in hosts {
+        runtime.push_host(host, metadata);
+    }
+    app.insert_resource(runtime)
         .init_resource::<interaction::ModInteraction>();
     registration::presentation::refresh_presentation(app.world_mut());
     configure_systems(app, false);

@@ -9,8 +9,8 @@ use bevy::{
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::menu::{
-        MenuRuntime,
-        input::{MenuClipboard, MenuInputMode, drive_menu_input},
+        MenuClipboard, MenuRuntime,
+        input::{MenuInputMode, drive_menu_input},
     },
     launcher::menu::{MenuAction, MenuScreen},
 };

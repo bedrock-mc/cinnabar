@@ -1,6 +1,6 @@
 //! Environment-selected component reloads prepare guests, fonts and UI together off-frame.
 
-use super::{ModRuntime, RELOAD_INTERVAL, admission, hud_editor};
+use super::{ModRuntime, RELOAD_INTERVAL, admission};
 use bevy::prelude::*;
 use client_extensions::modding::font;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -248,7 +248,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
     let Some(index) = index else {
         return update.result.ok().map(|prepared| prepared.host);
     };
-    let mut prepared = match update.result {
+    let prepared = match update.result {
         Ok(prepared) => prepared,
         Err(error) => {
             warn!(
@@ -271,24 +271,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
     };
     let retired = {
         let mut runtime = world.resource_mut::<ModRuntime>();
-        runtime.screens.replace_host(index);
-        if runtime
-            .hud_editor_owner
-            .is_some_and(|owner| owner.host == index)
-        {
-            hud_editor::cancel(&mut runtime, &mut presentation, false);
-        }
-        prepared
-            .host
-            .activate_settings(Some(runtime.hosts.host_mut(index)));
-        let retired = std::mem::replace(runtime.hosts.host_mut(index), prepared.host);
-        runtime.metadata[index].font = prepared.font;
-        runtime.metadata[index].branding = prepared.branding;
-        presentation
-            .mod_ui_mut()
-            .set_prepared_panel_ui(update.source.owner, prepared.panel_ui);
-        runtime.render_sources.clear();
-        retired
+        runtime.replace_host(index, prepared, &mut presentation)
     };
     world.insert_resource(presentation);
     if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {

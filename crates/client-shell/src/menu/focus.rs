@@ -13,6 +13,14 @@ use {
 mod settings;
 pub(super) use settings::SettingsFocusGeometry;
 
+/// Focus targets and pointer capture owned by the live settings input loop.
+#[derive(Debug, Default)]
+pub(super) struct SettingsInput {
+    pub(super) actions: Vec<MenuAction>,
+    pub(super) geometry: SettingsFocusGeometry,
+    pub(super) slider_drag: Option<u16>,
+}
+
 impl MenuRuntime {
     pub(super) fn focus_pointer(&mut self, action: MenuAction) {
         let action = match action {
@@ -21,7 +29,7 @@ impl MenuRuntime {
             action => action,
         };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
-            if self.settings_dropdown.is_some() || self.settings_scale_picker {
+            if self.settings.dropdown.is_some() || self.settings.scale_picker {
                 *candidate == action
             } else {
                 same_control(*candidate, action)
@@ -29,8 +37,8 @@ impl MenuRuntime {
         }) {
             self.focused = index;
             self.navigation_focus.record_input(Some(action));
-            self.settings_focus_geometry.reset_anchor();
-            self.settings_focus_geometry.remember(action);
+            self.settings_input.geometry.reset_anchor();
+            self.settings_input.geometry.remember(action);
             self.retain_settings_slider_selection();
         }
     }
@@ -49,7 +57,7 @@ impl MenuRuntime {
         }
         self.navigation_focus
             .record_input(Some(actions[self.focused]));
-        self.settings_focus_geometry.remember(actions[self.focused]);
+        self.settings_input.geometry.remember(actions[self.focused]);
         self.retain_settings_slider_selection();
     }
 
@@ -62,8 +70,8 @@ impl MenuRuntime {
         };
         if self.screen == MenuScreen::Settings
             && self.dialog.is_none()
-            && self.settings_dropdown.is_none()
-            && !self.settings_scale_picker
+            && self.settings.dropdown.is_none()
+            && !self.settings.scale_picker
             && let MenuAction::SettingsOption(index, _) = action
         {
             match SETTINGS_OPTIONS
@@ -71,8 +79,8 @@ impl MenuRuntime {
                 .map(|option| option.kind)
             {
                 Some(SettingKind::Slider) => {
-                    self.settings_slider_selected =
-                        (self.settings_slider_selected != Some(index)).then_some(index);
+                    self.settings.slider_selected =
+                        (self.settings.slider_selected != Some(index)).then_some(index);
                     return;
                 }
                 Some(SettingKind::Toggle) => {
@@ -106,13 +114,13 @@ impl MenuRuntime {
             || self.dialog.is_some()
             || self.sign_in_focus().is_some()
         {
-            self.settings_focus.clear();
-            self.settings_slider_selected = None;
-            self.settings_focus_geometry = SettingsFocusGeometry::default();
+            self.settings_input.actions.clear();
+            self.settings.slider_selected = None;
+            self.settings_input.geometry = SettingsFocusGeometry::default();
             return;
         }
         let previous = self.focus_actions().get(self.focused).copied();
-        let picker = self.settings_dropdown.is_some() || self.settings_scale_picker;
+        let picker = self.settings.dropdown.is_some() || self.settings.scale_picker;
         let mut visible = Vec::new();
         for action in actions {
             let action = match action {
@@ -145,9 +153,9 @@ impl MenuRuntime {
             }
         }
         if visible.is_empty() {
-            self.settings_focus.clear();
+            self.settings_input.actions.clear();
             self.focused = 0;
-            self.settings_slider_selected = None;
+            self.settings.slider_selected = None;
             return;
         }
         self.focused = previous
@@ -164,7 +172,7 @@ impl MenuRuntime {
                 previous.and_then(|action| self.responsive_settings_focus(action, &visible))
             })
             .unwrap_or(self.focused.min(visible.len() - 1));
-        self.settings_focus = visible;
+        self.settings_input.actions = visible;
         self.retain_settings_slider_selection();
     }
 
@@ -185,7 +193,7 @@ impl MenuRuntime {
         if axis == SettingsFocusAxis::Horizontal
             && self.screen == MenuScreen::Settings
             && self.dialog.is_none()
-            && let Some(index) = self.settings_slider_selected
+            && let Some(index) = self.settings.slider_selected
             && let Some(option) = SETTINGS_OPTIONS.get(usize::from(index))
         {
             let value = self.settings_options.get(usize::from(index));
@@ -200,22 +208,24 @@ impl MenuRuntime {
         }
         if self.screen != MenuScreen::Settings
             || self.dialog.is_some()
-            || !self.settings_focus_geometry.native
+            || !self.settings_input.geometry.native
         {
             self.move_focus(direction);
             return;
         }
-        let Some(current) = self.settings_focus.get(self.focused).copied() else {
+        let Some(current) = self.settings_input.actions.get(self.focused).copied() else {
             return;
         };
         let Some(next) = self
-            .settings_focus_geometry
+            .settings_input
+            .geometry
             .directional(current, axis, direction)
         else {
             return;
         };
         if let Some(index) = self
-            .settings_focus
+            .settings_input
+            .actions
             .iter()
             .position(|action| same_control(*action, next))
         {
@@ -225,25 +235,25 @@ impl MenuRuntime {
                 None => self.field = None,
             }
             self.navigation_focus.record_input(Some(next));
-            self.settings_focus_geometry.remember(next);
+            self.settings_input.geometry.remember(next);
             self.retain_settings_slider_selection();
         }
     }
 
     pub(super) fn clear_settings_slider_selection(&mut self) -> bool {
-        self.settings_slider_selected.take().is_some()
+        self.settings.slider_selected.take().is_some()
     }
 
     fn retain_settings_slider_selection(&mut self) {
         let retained = self.screen == MenuScreen::Settings
             && self.dialog.is_none()
-            && self.settings_dropdown.is_none()
-            && !self.settings_scale_picker
-            && self.settings_slider_selected.is_some_and(|selected| {
+            && self.settings.dropdown.is_none()
+            && !self.settings.scale_picker
+            && self.settings.slider_selected.is_some_and(|selected| {
                 matches!(self.focus_actions().get(self.focused), Some(MenuAction::SettingsOption(index, _)) if *index == selected)
             });
         if !retained {
-            self.settings_slider_selected = None;
+            self.settings.slider_selected = None;
         }
     }
 
@@ -271,11 +281,11 @@ impl MenuRuntime {
         targets: &[SettingsFocusTarget],
         landmarks: &[SettingsFocusLandmark],
     ) {
-        if landmarks.is_empty() && !self.settings_focus_geometry.native {
+        if landmarks.is_empty() && !self.settings_input.geometry.native {
             return;
         }
         let previous = self.focus_actions().get(self.focused).copied();
-        let had_native_focus = self.settings_focus_geometry.native;
+        let had_native_focus = self.settings_input.geometry.native;
         self.refresh_settings_focus(targets.iter().map(|target| target.action));
         if self.screen != MenuScreen::Settings
             || self.dialog.is_some()
@@ -283,23 +293,25 @@ impl MenuRuntime {
         {
             return;
         }
-        self.settings_focus_geometry.update(targets, landmarks);
+        self.settings_input.geometry.update(targets, landmarks);
         let previous_valid = previous
-            .is_some_and(|previous| self.settings_focus_geometry.target(previous).is_some());
-        let responsive = previous
-            .and_then(|previous| self.responsive_settings_focus(previous, &self.settings_focus));
+            .is_some_and(|previous| self.settings_input.geometry.target(previous).is_some());
+        let responsive = previous.and_then(|previous| {
+            self.responsive_settings_focus(previous, &self.settings_input.actions)
+        });
         if (!had_native_focus || !previous_valid)
             && responsive.is_none()
-            && let Some(entry) = self.settings_focus_geometry.entry()
+            && let Some(entry) = self.settings_input.geometry.entry()
             && let Some(index) = self
-                .settings_focus
+                .settings_input
+                .actions
                 .iter()
                 .position(|action| same_control(*action, entry))
         {
             self.focused = index;
         }
-        if let Some(action) = self.settings_focus.get(self.focused).copied() {
-            self.settings_focus_geometry.remember(action);
+        if let Some(action) = self.settings_input.actions.get(self.focused).copied() {
+            self.settings_input.geometry.remember(action);
         }
         self.retain_settings_slider_selection();
     }
@@ -527,12 +539,13 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Settings if self.global_resources.settings.is_some() => {
-                self.settings_focus.clone()
+                self.settings_input.actions.clone()
             }
             MenuScreen::Settings
-                if self.settings_focus_geometry.native || !self.settings_focus.is_empty() =>
+                if self.settings_input.geometry.native
+                    || !self.settings_input.actions.is_empty() =>
             {
-                self.settings_focus.clone()
+                self.settings_input.actions.clone()
             }
             MenuScreen::Settings => {
                 let mut actions = nav();

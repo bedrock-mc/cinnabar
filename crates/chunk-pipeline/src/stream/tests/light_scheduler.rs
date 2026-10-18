@@ -262,9 +262,13 @@ fn synthetic_light_completion(
 
 mod air_fixed_point;
 mod boundary_dominance;
-mod cases_01;
-mod cases_02;
+mod column_propagation;
+mod convergence;
+mod dependency_lifecycle;
 mod filter_dominance;
+mod mesh_light_dependencies;
+mod provenance;
+mod scheduling_priority;
 mod sky_boundary;
 mod worker_caps;
 

@@ -17,7 +17,6 @@ use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInt
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
 use candidate::Candidate;
-use client_extensions::modding::multi::ModHosts;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModHost, SettingsSnapshot};

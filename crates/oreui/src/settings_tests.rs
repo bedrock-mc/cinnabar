@@ -293,7 +293,7 @@ fn settings_long_choice_picker_owns_pointer_input_and_scroll_views() {
     let SettingKind::Dropdown(choices) = SETTINGS_OPTIONS[index].kind else {
         panic!("graphics mode choices");
     };
-    view.settings_dropdown = Some(index as u16);
+    view.settings.dropdown = Some(index as u16);
     let translate = |key: &str| {
         choices.iter().any(|choice| choice.label == key).then(|| {
             std::sync::Arc::<str>::from(
@@ -335,7 +335,7 @@ fn settings_scale_picker_owns_input_and_keeps_each_modifier_action() {
     view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
         .choices()
         .collect();
-    view.settings_scale_picker = true;
+    view.settings.scale_picker = true;
     let frame = paint(&view, [640.0, 720.0], HashMap::new());
     assert_eq!(frame.areas.len(), 1);
     assert!(frame.hits.iter().all(|(action, _)| matches!(
@@ -492,7 +492,7 @@ fn settings_choice_rows_select_their_own_values() {
             panic!("dropdown option");
         };
         let offsets = centered_option(&view, index, size);
-        view.settings_dropdown = Some(index as u16);
+        view.settings.dropdown = Some(index as u16);
         let frame = paint(&view, size, offsets);
         for choice in 0..choices.len() {
             let action = MenuAction::SettingsOption(index as u16, choice as i32);
@@ -519,7 +519,7 @@ fn native_video_settings_exposes_motion_blur_and_edits_all_presets() {
         );
         let offsets = centered_option(&view, index, size);
         for preset in ui::MotionBlurQuality::ALL {
-            view.settings_dropdown = None;
+            view.settings.dropdown = None;
             let mut frame = paint(&view, size, offsets.clone());
             let dropdown = MenuAction::SettingsDropdown(index as u16);
             if let Some(bounds) = frame
@@ -528,7 +528,7 @@ fn native_video_settings_exposes_motion_blur_and_edits_all_presets() {
                 .find_map(|(action, bounds)| (*action == dropdown).then_some(*bounds))
             {
                 assert_eq!(hit(&frame.hits, centre(bounds)), Some(dropdown));
-                view.settings_dropdown = Some(index as u16);
+                view.settings.dropdown = Some(index as u16);
                 frame = paint(&view, size, offsets.clone());
             }
             let expected = MenuAction::SettingsOption(index as u16, preset.index());
@@ -571,7 +571,7 @@ fn settings_sliders_reach_both_limits_and_choose_the_nearest_stop() {
         ("accessibility_forced_index", "texttospeech_volume"),
     ] {
         let mut view = settings_view(section);
-        view.settings_advanced_graphics = section == "video_forced_index";
+        view.settings.advanced_graphics = section == "video_forced_index";
         let index = option_index(name);
         let option = &SETTINGS_OPTIONS[index];
         assert!(matches!(option.kind, SettingKind::Slider));

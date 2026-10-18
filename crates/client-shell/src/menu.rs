@@ -56,8 +56,9 @@ use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
 use core_process::{auth_cache_path, core_executable};
+pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, MenuClipboard, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -122,8 +123,6 @@ pub struct MenuRuntime {
     fullscreen: bool,
     fullscreen_change: Option<bool>,
     video_settings_writer: Option<launcher_host::video_settings::writer::Writer>,
-    settings_focus: Vec<MenuAction>,
-    settings_focus_geometry: focus::SettingsFocusGeometry,
     last_saved_video_settings: launcher_host::video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
@@ -158,7 +157,6 @@ pub struct MenuRuntime {
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
     editing: Option<usize>,
-    settings_section: u8,
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
@@ -192,10 +190,10 @@ pub struct MenuRuntime {
     pub mods: std::sync::Arc<launcher::mods::Snapshot>,
     minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
     minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
+    settings: launcher::menu::view::SettingsInteraction,
+    settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
-    settings_dropdown: Option<u16>,
-    settings_scale_picker: bool,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -208,16 +206,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    settings_slider_drag: Option<u16>,
-    settings_slider_pointer: Option<launcher::menu::view::SettingsSliderPointer>,
-    settings_slider_hovered: Option<u16>,
-    settings_slider_selected: Option<u16>,
-    settings_control_activation: Option<(MenuAction, u64)>,
-    settings_control_activation_navigation: bool,
-    settings_input_revision: u64,
     input_mode: input::MenuInputMode,
-    key_remap: Option<u16>,
-    settings_advanced_graphics: bool,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -315,9 +304,9 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
-            self.settings_slider_selected = None;
-            self.settings_slider_pointer = None;
-            self.settings_slider_hovered = None;
+            self.settings.slider_selected = None;
+            self.settings.slider_pointer = None;
+            self.settings.slider_hovered = None;
             self.dialog = None;
         }
     }
@@ -475,9 +464,7 @@ impl MenuRuntime {
 
     fn activate_control_input(&mut self, action: MenuAction, navigation: bool) {
         if self.screen == MenuScreen::Settings {
-            self.settings_input_revision = self.settings_input_revision.wrapping_add(1);
-            self.settings_control_activation = Some((action, self.settings_input_revision));
-            self.settings_control_activation_navigation = navigation;
+            self.settings.record_activation(action, navigation);
         }
         self.activate(action);
     }
@@ -790,7 +777,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
-                    self.settings_section = launcher::menu::settings_sections::SettingSection::Mods
+                    self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index;
                     self.enter(MenuScreen::Settings);

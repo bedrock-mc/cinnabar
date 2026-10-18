@@ -49,7 +49,7 @@ fn compact_font_snapshots() {
     ] {
         view.screen = screen;
         if screen == MenuScreen::Settings {
-            view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+            view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
                 .iter()
                 .find_map(|(name, index)| (*name == "language_forced_index").then_some(*index))
                 .unwrap();

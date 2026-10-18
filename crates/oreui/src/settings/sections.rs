@@ -172,6 +172,7 @@ fn draw_macro_binding(content: &mut Content<'_, '_>, slot: usize) -> Result<(), 
     let control = content.view.settings_options.macro_control(slot);
     let capturing = content
         .view
+        .settings
         .key_remap
         .is_some_and(|index| macro_row(usize::from(index)) == Some(slot));
     let title = content.word(&macro_title(slot));
@@ -383,7 +384,7 @@ fn binding(
     key: &str,
 ) -> Result<(), PaintError> {
     let action = MenuAction::SettingsKey(index as u16);
-    let capturing = content.view.key_remap == Some(index as u16);
+    let capturing = content.view.settings.key_remap == Some(index as u16);
     let control = content.view.settings_options.key_control(index);
     let changed = control != defaults.key_control(index);
     let title = content.word(key);

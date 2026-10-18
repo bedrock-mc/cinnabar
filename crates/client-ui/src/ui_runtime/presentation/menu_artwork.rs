@@ -674,7 +674,7 @@ fn view_images(
             .collect();
     }
     if view.screen == MenuScreen::Settings
-        && view.settings_section
+        && view.settings.section
             == launcher::menu::settings_sections::SettingSection::Mods
                 .definition()
                 .index

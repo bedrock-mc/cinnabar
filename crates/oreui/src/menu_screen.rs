@@ -229,8 +229,8 @@ impl Screen for OreUiScreen {
         canvas.focus_targets.clear();
         canvas.focus_landmarks.clear();
         self.transitions.begin_frame(
-            view.settings_control_activation,
-            view.settings_control_activation_navigation,
+            view.settings.control_activation,
+            view.settings.control_activation_navigation,
             seconds,
         );
         canvas.transitions = Some(&mut self.transitions);
@@ -336,7 +336,7 @@ impl Screen for OreUiScreen {
                     focus = Some(focus_actions(&canvas));
                 }
                 MenuScreen::Settings => {
-                    let section = SettingSection::from_index(view.settings_section)
+                    let section = SettingSection::from_index(view.settings.section)
                         .unwrap_or(SettingSection::Accessibility);
                     canvas
                         .transitions

@@ -153,6 +153,81 @@ fn a_set_loads_every_valid_component_in_order_and_skips_broken_ones() {
     assert!(runtime.reserved_keys().is_empty());
 }
 
+/// Loads three distinct panel publishers so selection can be followed through order changes.
+fn panel_hosts(directory: &Path) -> ModHosts {
+    let mut runtime = load_set(
+        ["first.wat", "second.wat", "third.wat"]
+            .into_iter()
+            .map(|name| {
+                (
+                    component(directory, name),
+                    ModGrants {
+                        controls: true,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+    );
+    for (index, key) in ["KeyA", "KeyB", "KeyC"].into_iter().enumerate() {
+        let bundle = serde_json::json!({
+            "panel": {"title":key, "toggle_key":key, "dark":true, "controls":[]},
+            "surfaces":{}
+        });
+        runtime
+            .host_mut(index)
+            .set_panel_bundle(&bundle.to_string())
+            .unwrap();
+    }
+    runtime
+}
+
+#[test]
+fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
+    let directory = tempfile::tempdir().unwrap();
+    for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
+        let mut runtime = panel_hosts(directory.path());
+        runtime.select_panel(&[key.into()]);
+        let removed = runtime.remove(0);
+        assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
+        assert_eq!(runtime.host_count(), 2);
+        assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyB");
+        assert_eq!(runtime.host(1).panel().unwrap().toggle_key, "KeyC");
+        assert_eq!(runtime.panel_owner(), selected);
+    }
+}
+
+#[test]
+fn reordering_hosts_keeps_panel_selection_on_its_instance() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = panel_hosts(directory.path());
+    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    runtime.swap(0, 2);
+    assert_eq!(runtime.panel_owner(), 0);
+    assert!(runtime.host(0).panel_open());
+    runtime.swap(1, 0);
+    assert_eq!(runtime.panel_owner(), 1);
+    assert!(runtime.host(1).panel_open());
+    runtime.remove(2);
+    assert_eq!(runtime.panel_owner(), 1);
+    runtime.remove(0);
+    assert_eq!(runtime.panel_owner(), 0);
+    assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyC");
+    assert!(runtime.host(0).panel_open());
+}
+
+#[test]
+#[should_panic(expected = "a mod host collection must stay nonempty")]
+fn removing_the_last_host_is_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = load_set(vec![(
+        component(directory.path(), "only.wat"),
+        ModGrants::default(),
+    )]);
+    runtime.remove(0);
+}
+
 /// A guest that labels, sets time, a rig and a command, emits a cue, and checks polled cues.
 struct Probe {
     label: &'static str,
@@ -440,10 +515,7 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
             .collect(),
     )
     .into_iter();
-    ModHosts::new(
-        hosts.next().unwrap(),
-        hosts.map(|host| Companion { host }).collect(),
-    )
+    ModHosts::new(hosts.next().unwrap(), hosts.collect())
 }
 
 #[test]
@@ -578,9 +650,7 @@ fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
         let lower = serde_json::json!({"cards":lower_cards}).to_string();
         let runtime = ModHosts::new(
             hud_host(directory.path(), "a.wat", &higher),
-            vec![Companion {
-                host: hud_host(directory.path(), "b.wat", &lower),
-            }],
+            vec![hud_host(directory.path(), "b.wat", &lower)],
         );
         for index in 0..runtime.host_count() {
             runtime.host(index).hud().unwrap().validate().unwrap();
@@ -620,12 +690,8 @@ fn merged_huds_keep_the_aggregate_compass_budget() {
     let runtime = ModHosts::new(
         hud_host(directory.path(), "higher.wat", &higher.to_string()),
         vec![
-            Companion {
-                host: hud_host(directory.path(), "lower.wat", &lower.to_string()),
-            },
-            Companion {
-                host: hud_host(directory.path(), "last.wat", &last.to_string()),
-            },
+            hud_host(directory.path(), "lower.wat", &lower.to_string()),
+            hud_host(directory.path(), "last.wat", &last.to_string()),
         ],
     );
     for index in 0..runtime.host_count() {

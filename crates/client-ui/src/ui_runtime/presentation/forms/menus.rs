@@ -76,7 +76,7 @@ impl UiPresentationRuntime {
         let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
-            shown.screen, shown.server_tab, shown.profile_tab, shown.settings_section
+            shown.screen, shown.server_tab, shown.profile_tab, shown.settings.section
         ));
         self.menu_scrolls.clear_areas();
         let drawn = if shown.visible {

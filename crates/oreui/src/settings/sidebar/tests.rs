@@ -143,7 +143,7 @@ fn category_bevels_follow_selection_hover_and_press() {
         ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
-        view.settings_section = section_index(TABS[if selected { 7 } else { 5 }].section);
+        view.settings.section = section_index(TABS[if selected { 7 } else { 5 }].section);
         view.hovered = hovered.then_some(action);
         view.pressed = pressed.then_some(action);
         let mut edge = 0.0;
@@ -253,7 +253,7 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
     let action = MenuAction::SettingsSection(section_index("global_texture_pack_forced_index"));
     for (selected, hovered) in [(true, false), (false, false), (false, true)] {
         let mut view = MenuView::new(true, "Player".into());
-        view.settings_section = if selected {
+        view.settings.section = if selected {
             section_index("global_texture_pack_forced_index")
         } else {
             section_index(TABS[0].section)
@@ -297,7 +297,7 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
 
     let action = MenuAction::SettingsSection(section_index(TABS[2].section));
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_section = section_index(TABS[2].section);
+    view.settings.section = section_index(TABS[2].section);
     view.focused_action = Some(action);
     let bounds = [20.0, 20.0, 420.0, 300.0];
     let (scrolls, hits, _) = paint(HashMap::new(), |canvas| {

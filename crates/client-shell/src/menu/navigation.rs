@@ -100,9 +100,9 @@ impl MenuRuntime {
         if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {
             std::sync::Arc::make_mut(&mut self.dressing_room).editor = None;
         }
-        self.settings_focus_geometry = super::focus::SettingsFocusGeometry::default();
-        self.settings_slider_selected = None;
-        self.settings_focus.clear();
+        self.settings_input.geometry = super::focus::SettingsFocusGeometry::default();
+        self.settings.slider_selected = None;
+        self.settings_input.actions.clear();
         if screen == MenuScreen::Profile {
             self.feeds.profile_refresh_requested = true;
         }
@@ -170,12 +170,12 @@ impl MenuRuntime {
             self.dismiss_disconnect();
             return;
         }
-        if self.screen == MenuScreen::Settings && self.settings_scale_picker {
+        if self.screen == MenuScreen::Settings && self.settings.scale_picker {
             self.activate(MenuAction::SettingsScalePicker);
             return;
         }
         if self.screen == MenuScreen::Settings
-            && let Some(index) = self.settings_dropdown
+            && let Some(index) = self.settings.dropdown
         {
             self.activate(MenuAction::SettingsDropdown(index));
             return;

@@ -12,7 +12,7 @@ use launcher::menu::{MenuAction, MenuView};
 pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&str) -> String) {
     bind_values(
         &view.settings_options,
-        view.settings_dropdown,
+        view.settings.dropdown,
         data,
         translate,
     );
@@ -115,7 +115,7 @@ fn bind_visibility(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
     }
     data.set_global(
         "#advanced_graphics_options_grid_visible",
-        Scalar::Bool(view.settings_advanced_graphics),
+        Scalar::Bool(view.settings.advanced_graphics),
     );
     // controls_section.json binds these captions separately from the toggle values.
     for (binding, label) in [

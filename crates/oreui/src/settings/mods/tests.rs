@@ -378,7 +378,7 @@ fn each_active_card_exposes_its_own_reload_permissions_and_reorder_direction() {
 #[test]
 fn selecting_the_registered_mods_section_opens_its_controls() {
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_section = launcher::menu::settings_sections::SettingSection::Mods
+    view.settings.section = launcher::menu::settings_sections::SettingSection::Mods
         .definition()
         .index;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {

@@ -1,6 +1,9 @@
 //! The menu's presented data: saved servers, catalog cards, and the per-frame
 //! view the renderers draw from.
 
+mod settings;
+pub use settings::SettingsInteraction;
+
 use crate::download::DownloadTracker;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -461,7 +464,6 @@ pub struct MenuView {
     /// Interactive sign-in may show waiting and recovery prompts over the current route.
     pub sign_in_requested: bool,
     pub connecting: bool,
-    pub settings_section: u8,
     pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
     pub player_skin: Option<render_api::StandardSkin>,
     pub player_skin_model: crate::dressing_room::SkinModel,
@@ -477,19 +479,9 @@ pub struct MenuView {
     pub local_worlds: MenuList<LocalWorldCard>,
     /// The local-world create, edit and template screens and their modals.
     pub local: crate::local_worlds::WorldsView,
+    pub settings: SettingsInteraction,
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
     pub storage: std::sync::Arc<super::settings_storage::StorageView>,
-    pub settings_dropdown: Option<u16>,
-    pub settings_scale_picker: bool,
-    /// Last interactive settings activation and its monotonic input revision.
-    pub settings_control_activation: Option<(MenuAction, u64)>,
-    pub settings_control_activation_navigation: bool,
-    /// Continuous pointer position remains independent of the persisted slider step.
-    pub settings_slider_pointer: Option<SettingsSliderPointer>,
-    pub settings_slider_hovered: Option<u16>,
-    pub settings_slider_selected: Option<u16>,
-    pub key_remap: Option<u16>,
-    pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
@@ -717,7 +709,6 @@ impl MenuView {
             sign_in_browser: Default::default(),
             sign_in_requested: false,
             connecting: false,
-            settings_section: 0,
             dressing_room: Default::default(),
             player_skin: None,
             player_skin_model: Default::default(),
@@ -729,17 +720,9 @@ impl MenuView {
             editing: None,
             local_worlds: MenuList::default(),
             local: Default::default(),
+            settings: SettingsInteraction::default(),
             settings_options: Default::default(),
             storage: Default::default(),
-            settings_dropdown: None,
-            settings_scale_picker: false,
-            settings_control_activation: None,
-            settings_control_activation_navigation: false,
-            settings_slider_pointer: None,
-            settings_slider_hovered: None,
-            settings_slider_selected: None,
-            key_remap: None,
-            settings_advanced_graphics: false,
             language_choices: Default::default(),
             feeds: Default::default(),
             hosting: false,

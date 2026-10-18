@@ -160,7 +160,7 @@ fn dark_mode_setting_has_a_label_description_and_reachable_toggle() {
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();

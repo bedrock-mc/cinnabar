@@ -378,7 +378,7 @@ impl MenuRuntime {
         self.hovered = None;
         self.pressed = None;
         self.pointer_down = false;
-        self.key_remap = None;
+        self.settings.key_remap = None;
         self.clear_settings_slider_selection();
     }
 

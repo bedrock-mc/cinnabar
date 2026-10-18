@@ -1,5 +1,6 @@
 use launcher::menu::settings_options::SettingId;
 mod cancel;
+pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
@@ -9,6 +10,7 @@ mod remapping;
 mod server_list;
 mod settings_pointer;
 
+use clipboard::MenuClipboard;
 use context::MenuInputContext;
 use settings_pointer::{native_release_action, update_slider};
 
@@ -21,16 +23,13 @@ use bevy::{
         mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
         touch::Touches,
     },
-    prelude::{
-        ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Resource, Single,
-        With,
-    },
+    prelude::{ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Single, With},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatClipboard, ChatEditor, ToastPress, UiPoint};
+use ui::{ChatEditor, ToastPress, UiPoint};
 
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use launcher::menu::view::MenuCaret;
 use {super::MenuRuntime, launcher::menu::MenuField};
 
@@ -39,62 +38,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F1, SettingId::HideHud),
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
-
-#[derive(Resource)]
-pub struct MenuClipboard(
-    Box<dyn FnMut(usize) -> Option<String> + Send + Sync + 'static>,
-    Box<dyn FnMut(String) + Send + Sync + 'static>,
-);
-
-impl MenuClipboard {
-    pub fn with_access(
-        reader: impl FnMut(usize) -> Option<String> + Send + Sync + 'static,
-        writer: impl FnMut(String) + Send + Sync + 'static,
-    ) -> Self {
-        Self(Box::new(reader), Box::new(writer))
-    }
-
-    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Option<String> {
-        (self.0)(maximum_bytes)
-    }
-
-    pub fn write_text(&mut self, text: String) {
-        (self.1)(text);
-    }
-}
-
-impl Default for MenuClipboard {
-    fn default() -> Self {
-        let mut reader = PlatformClipboard;
-        let mut writer = PlatformClipboard;
-        Self::with_access(
-            move |maximum_bytes| {
-                reader
-                    .read_text_bounded(maximum_bytes)
-                    .ok()
-                    .flatten()
-                    .map(|text| text.to_string())
-            },
-            move |text| {
-                let _ = writer.write_text(text);
-            },
-        )
-    }
-}
-
-impl ChatClipboard for MenuClipboard {
-    type Error = std::convert::Infallible;
-
-    fn read_text_bounded(
-        &mut self,
-        maximum_bytes: usize,
-    ) -> Result<Option<std::sync::Arc<str>>, Self::Error> {
-        Ok(self
-            .read_text_bounded(maximum_bytes)
-            .filter(|text| text.len() <= maximum_bytes)
-            .map(std::sync::Arc::from))
-    }
-}
 
 #[derive(Default)]
 pub struct MenuModifiers(u8);
@@ -393,13 +336,13 @@ pub fn drive_menu_input(
     if let Some(time) = time {
         menu.advance_death_controls(time.delta_secs_f64());
     }
-    menu.settings_slider_hovered = None;
+    menu.settings.slider_hovered = None;
     if consent.is_some_and(|consent| consent.0) {
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
-        menu.settings_slider_pointer = None;
-        menu.settings_slider_drag = None;
+        menu.settings.slider_pointer = None;
+        menu.settings_input.slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -461,8 +404,8 @@ pub fn drive_menu_input(
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
-        menu.settings_slider_pointer = None;
-        menu.settings_slider_drag = None;
+        menu.settings.slider_pointer = None;
+        menu.settings_input.slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -478,8 +421,8 @@ pub fn drive_menu_input(
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
-        menu.settings_slider_pointer = None;
-        menu.settings_slider_drag = None;
+        menu.settings.slider_pointer = None;
+        menu.settings_input.slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -523,8 +466,8 @@ pub fn drive_menu_input(
         presentation.cancel_menu_player_preview_input();
         presentation.cancel_menu_server_list_input();
         gui_scale_drag.preview_touch = None;
-        menu.settings_slider_pointer = None;
-        menu.settings_slider_drag = None;
+        menu.settings.slider_pointer = None;
+        menu.settings_input.slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -564,7 +507,7 @@ pub fn drive_menu_input(
         return;
     }
 
-    if menu.key_remap.is_some() {
+    if menu.settings.key_remap.is_some() {
         remapping::capture(
             &mut menu,
             &mut keyboard_messages,
@@ -591,10 +534,10 @@ pub fn drive_menu_input(
     let pointer_moved = cursor_position != gui_scale_drag.previous_pointer;
     gui_scale_drag.previous_pointer = cursor_position;
     menu.hovered = pointer.and_then(|position| presentation.hit_test_menu(position));
-    menu.settings_slider_hovered = native_settings
+    menu.settings.slider_hovered = native_settings
         .then(|| pointer.and_then(|point| presentation.settings_slider_thumb_hit_test(point)))
         .flatten();
-    let slider_hovered = menu.settings_slider_hovered;
+    let slider_hovered = menu.settings.slider_hovered;
     let pointer_can_focus = |action| {
         !native_settings
             || match action {
@@ -735,7 +678,8 @@ pub fn drive_menu_input(
         && let Some(action) = menu.hovered
     {
         if native_settings {
-            gui_scale_drag.pending_press = menu.settings_slider_drag.is_none().then_some(action);
+            gui_scale_drag.pending_press =
+                menu.settings_input.slider_drag.is_none().then_some(action);
             menu.pressed = Some(action);
             if pointer_can_focus(action) {
                 menu.focus_pointer(action);
@@ -813,7 +757,7 @@ pub fn drive_menu_input(
             {
                 menu.input_mode = MenuInputMode::Touch;
                 menu.set_option(index, value);
-                menu.settings_slider_pointer = Some(launcher::menu::view::SettingsSliderPointer {
+                menu.settings.slider_pointer = Some(launcher::menu::view::SettingsSliderPointer {
                     option: index,
                     fraction,
                     mouse_input: false,
@@ -822,7 +766,7 @@ pub fn drive_menu_input(
             }
         } else {
             gui_scale_drag.touch_slider = None;
-            menu.settings_slider_pointer = None;
+            menu.settings.slider_pointer = None;
         }
     }
     if let Some((id, action)) = gui_scale_drag.touch_press {
@@ -980,7 +924,7 @@ pub fn drive_menu_input(
     // the camera's recapture-on-click path from turning a menu click into a
     // gameplay attack or mouse grab.
     let mouse_input = menu.input_mode.mouse();
-    if let Some(pointer) = menu.settings_slider_pointer.as_mut() {
+    if let Some(pointer) = menu.settings.slider_pointer.as_mut() {
         pointer.mouse_input = mouse_input;
     }
     keys.reset_all();

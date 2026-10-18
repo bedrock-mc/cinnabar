@@ -9,11 +9,11 @@ pub(super) fn update_slider(
     native_settings: bool,
 ) {
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
-        menu.settings_slider_drag = None;
-        menu.settings_slider_pointer = None;
+        menu.settings_input.slider_drag = None;
+        menu.settings.slider_pointer = None;
     }
     if pointer_just_pressed {
-        menu.settings_slider_drag = match menu.hovered {
+        menu.settings_input.slider_drag = match menu.hovered {
             Some(launcher::menu::MenuAction::SettingsOption(index, _))
                 if matches!(
                     launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(index)].kind,
@@ -29,7 +29,7 @@ pub(super) fn update_slider(
         };
     }
     if pointer_pressed
-        && let Some(index) = menu.settings_slider_drag
+        && let Some(index) = menu.settings_input.slider_drag
         && let Some(action @ launcher::menu::MenuAction::SettingsOption(_, value)) =
             pointer.and_then(|point| presentation.settings_slider_drag_action(index, point))
     {
@@ -38,7 +38,7 @@ pub(super) fn update_slider(
         if !pointer_just_pressed {
             menu.set_option(index, value);
         }
-        menu.settings_slider_pointer = pointer.and_then(|point| {
+        menu.settings.slider_pointer = pointer.and_then(|point| {
             presentation
                 .settings_slider_drag_fraction(index, point)
                 .map(|fraction| launcher::menu::view::SettingsSliderPointer {

@@ -529,6 +529,10 @@ pub(super) fn publish(host: &ModHost, presentation: &mut UiPresentationRuntime) 
 mod input_tests;
 
 #[cfg(test)]
+#[path = "screens/lifecycle_tests.rs"]
+mod lifecycle_tests;
+
+#[cfg(test)]
 mod tests {
     use {
         super::*,

@@ -311,7 +311,7 @@ fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
         menu.input_mode = mode;
         for screen in [MenuScreen::Home, MenuScreen::Settings] {
             menu.screen = screen;
-            menu.settings_focus = vec![MenuAction::Navigate(MenuScreen::Home)];
+            menu.settings_input.actions = vec![MenuAction::Navigate(MenuScreen::Home)];
             let bounds = ui::UiRect::new(
                 ui::UiPoint::new(0.0, 0.0).unwrap(),
                 ui::UiPoint::new(100.0, 100.0).unwrap(),
@@ -564,11 +564,11 @@ fn death_cancels_a_pending_settings_key_capture() {
     menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    menu.key_remap = Some(0);
+    menu.settings.key_remap = Some(0);
     menu.open_death();
     assert_eq!(menu.screen(), MenuScreen::Death);
     assert!(
-        menu.key_remap.is_none(),
+        menu.settings.key_remap.is_none(),
         "death input cannot change a hidden binding"
     );
 }

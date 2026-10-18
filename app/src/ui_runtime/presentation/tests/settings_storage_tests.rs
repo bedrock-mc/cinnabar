@@ -22,7 +22,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     .unwrap();
     let mut view = settings();
     Arc::make_mut(&mut view.settings_options).set(SettingId::ScreenAnimations.index(), 0);
-    view.settings_section = launcher::menu::settings_storage::SECTION_INDEX;
+    view.settings.section = launcher::menu::settings_storage::SECTION_INDEX;
     view.storage = Arc::new(launcher_host::settings_storage::read_storage(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
     let actions = draw(&player_runtime, &mut presentation, &view);
@@ -91,7 +91,7 @@ fn settings_storage() {
     view.language_choices =
         launcher::menu::settings_options::SettingsOptions::language_choices(&local);
     view.screen = launcher::menu::MenuScreen::Settings;
-    view.settings_section = launcher::menu::settings_storage::SECTION_INDEX;
+    view.settings.section = launcher::menu::settings_storage::SECTION_INDEX;
     client_ui::test_support::snapshot_menu(
         &player_runtime,
         &view,

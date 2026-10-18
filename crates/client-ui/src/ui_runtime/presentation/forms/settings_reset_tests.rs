@@ -22,7 +22,7 @@ fn authored_section_reset_buttons_route_to_their_own_group() {
     ] {
         let mut view = MenuView::new(true, "Steve".into());
         view.screen = MenuScreen::Settings;
-        view.settings_section = SETTINGS_SECTIONS
+        view.settings.section = SETTINGS_SECTIONS
             .iter()
             .find_map(|(name, index)| (*name == section).then_some(*index))
             .unwrap();

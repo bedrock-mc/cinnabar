@@ -30,7 +30,7 @@ fn frame(
 ) -> Vec<[u16; 4]> {
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = section;
+    view.settings.section = section;
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let (mut nodes, mut next) = (Vec::new(), 1);
     runtime.menu_seconds = seconds;
