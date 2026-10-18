@@ -100,7 +100,7 @@ fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
         let (conditions, skipped) = conditions(block);
         blocks.skipped += skipped;
         if conditions.is_empty() {
-            block.state_physics_complete = skipped == 0;
+            block.state_physics_complete = !block.visual.components_incomplete && skipped == 0;
             continue;
         }
         if block.visual.state_identity_incomplete || block.state_count as usize > remaining {
@@ -117,7 +117,8 @@ fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
         if let Some(resolved) = resolved {
             remaining -= resolved.len();
             block.state_physics = resolved.into();
-            block.state_physics_complete = skipped == 0 && evaluated;
+            block.state_physics_complete =
+                !block.visual.components_incomplete && skipped == 0 && evaluated;
         } else {
             blocks.skipped += 1;
         }

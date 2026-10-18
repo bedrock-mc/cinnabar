@@ -557,6 +557,7 @@ fn face_facing() -> protocol::CustomBlocks {
                 base: protocol::CustomVisualComponents::default(),
                 item_visual: None,
                 permutations: Box::default(),
+                components_incomplete: false,
                 state_axes: Box::new([CustomStateAxis {
                     name: Arc::from("minecraft:block_face"),
                     values: ["down", "up", "north", "south", "west", "east"]

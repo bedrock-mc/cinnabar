@@ -88,6 +88,8 @@ pub struct CustomBlockVisuals {
     pub item_visual: Option<CustomVisualComponents>,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
+    /// Physical components or permutations were discarded while parsing the definition.
+    pub components_incomplete: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -627,17 +629,21 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         })
         .collect();
     let (tags, tag_skips) = block_tags(root);
+    let physical_skips = collision_skips
+        + friction_skips
+        + usize::from(
+            components
+                .and_then(|set| set.field("minecraft:random_offset"))
+                .is_some_and(|value| random_offset_component(value).is_none()),
+        )
+        + usize::from(
+            components
+                .and_then(|set| set.field("minecraft:transformation"))
+                .is_some_and(|_| transformation_component(components).is_none()),
+        );
     Some(Definition {
         tags,
-        skipped: tag_skips
-            + collision_skips
-            + friction_skips
-            + permutation_skips
-            + usize::from(
-                components
-                    .and_then(|set| set.field("minecraft:random_offset"))
-                    .is_some_and(|value| random_offset_component(value).is_none()),
-            ),
+        skipped: tag_skips + physical_skips + permutation_skips,
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_boxes,
@@ -658,6 +664,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                     )
                 }),
             permutations,
+            components_incomplete: physical_skips > 0 || permutation_skips > 0,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,

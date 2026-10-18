@@ -163,6 +163,34 @@ fn unsupported_physical_conditions_are_counted_and_keep_base_components() {
 }
 
 #[test]
+fn discarded_wire_permutations_keep_physics_incomplete() {
+    let mut encoded = named(10, "");
+    encoded.extend(named(9, "permutations"));
+    encoded.push(10);
+    let count = 4096_u32;
+    let mut length = count << 1;
+    while length >= 128 {
+        encoded.push(length as u8 | 128);
+        length >>= 7;
+    }
+    encoded.push(length as u8);
+    for _ in 0..count {
+        encoded.extend(named(8, "condition"));
+        encoded.extend(text("1"));
+        encoded.extend(named(10, "components"));
+        encoded.extend(named(1, "minecraft:collision_box"));
+        encoded.extend([0, 0, 0]);
+    }
+    encoded.push(0);
+    let mut blocks = CustomBlocks::from_definitions([("test:oversized", encoded.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1);
+    assert!(blocks.skipped > 0);
+    resolve(&mut blocks);
+    assert_eq!(blocks.blocks[0].state_physics.len(), 1);
+    assert!(!blocks.blocks[0].state_physics_complete);
+}
+
+#[test]
 fn physical_completeness_rejects_partial_arrays_and_failed_evaluations() {
     for unsupported in [
         "q.unsupported()",

@@ -52,6 +52,43 @@ fn permutation_placing_overrides_apply_to_the_block_type() {
 }
 
 #[test]
+fn omitted_permutations_and_physical_components_are_marked_incomplete() {
+    for permutations in [
+        (0..=super::super::MAX_PERMUTATIONS)
+            .map(|_| compound([("condition", Nbt::String("1".into()))]))
+            .collect(),
+        vec![compound([])],
+        vec![compound([
+            ("condition", Nbt::String("1".into())),
+            (
+                "components",
+                compound([(
+                    "minecraft:collision_box",
+                    compound([("boxes", Nbt::Byte(0))]),
+                )]),
+            ),
+        ])],
+    ] {
+        let definition =
+            parse_definition(&compound([("permutations", Nbt::List(permutations))])).unwrap();
+        assert!(definition.visual.components_incomplete);
+        assert!(definition.skipped > 0);
+    }
+    for component in ["minecraft:collision_box", "minecraft:transformation"] {
+        let value = if component == "minecraft:collision_box" {
+            compound([("boxes", Nbt::Byte(0))])
+        } else {
+            compound([("SX", Nbt::Float(f64::INFINITY))])
+        };
+        let definition =
+            parse_definition(&compound([("components", compound([(component, value)]))])).unwrap();
+        assert!(definition.visual.components_incomplete);
+    }
+    let complete = parse_definition(&compound([])).unwrap();
+    assert!(!complete.visual.components_incomplete);
+}
+
+#[test]
 fn placement_traits_retain_offset_and_exclude_authored_properties() {
     for (offset, expected) in [(0.0, 0.0), (89.0, 90.0), (-91.0, 270.0), (0.1, 0.1)] {
         let trait_ = compound([

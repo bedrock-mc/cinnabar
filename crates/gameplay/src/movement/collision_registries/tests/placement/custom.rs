@@ -218,7 +218,9 @@ fn custom_filters_and_unresolved_permutation_physics_defer_to_authority() {
         .into();
         let mut incomplete = block();
         incomplete.state_count = 2;
-        for definition in [filtered, unresolved, incomplete] {
+        let mut omitted = block();
+        Arc::make_mut(&mut omitted.visual).components_incomplete = true;
+        for definition in [filtered, unresolved, incomplete, omitted] {
             let (registry, held) = admit(definition, mode, 0);
             assert!(
                 custom_predict(

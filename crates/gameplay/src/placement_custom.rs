@@ -84,7 +84,11 @@ pub(crate) fn predict(
     context: &PlacementContext<'_>,
 ) -> Option<PredictedPlacement> {
     let placement = definition.visual.placement;
-    if context.input.face > 5 || placement.server_placing || placement.has_placement_filter {
+    if context.input.face > 5
+        || placement.server_placing
+        || placement.has_placement_filter
+        || definition.visual.components_incomplete
+    {
         return None;
     }
     let clicked = world.primary_runtime_id(context.clicked).ok()?;
