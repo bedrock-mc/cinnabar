@@ -51,7 +51,7 @@ fn fallback_layout(workbench: bool, layout: InventoryLayout) -> image::RgbaImage
     }
     runtime.drain_pending_inventory(&mut player);
     if !workbench {
-        runtime.toggle_inventory(&mut player);
+        runtime.toggle_inventory(&mut player, None);
     }
     assert!(runtime.inventory_open());
     assert_eq!(
