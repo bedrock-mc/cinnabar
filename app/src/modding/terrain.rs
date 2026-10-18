@@ -101,14 +101,7 @@ impl TerrainSampling {
             sampler: &mut self.sampler,
             descriptors: &mut self.descriptors,
         };
-        let mut hosts: Vec<&mut mod_host::ModHost> = std::iter::once(&mut hosts.host)
-            .chain(
-                hosts
-                    .companions
-                    .iter_mut()
-                    .map(|companion| &mut companion.host),
-            )
-            .collect();
+        let mut hosts: Vec<_> = hosts.iter_mut().collect();
         self.scheduler
             .refresh(&mut hosts, mod_api::MAX_TERRAIN_FRAME_CELLS, &mut source);
     }

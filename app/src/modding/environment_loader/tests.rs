@@ -1,6 +1,5 @@
 use super::super::registration::HostMetadata;
 use super::*;
-use client_extensions::modding::multi::ModHosts;
 
 /// Writes a complete package with a verified component and no external resources.
 fn package(directory: &std::path::Path) {
@@ -143,16 +142,7 @@ fn world(prepared: admission::PreparedMod) -> World {
         )
         .unwrap(),
     ));
-    world.insert_resource(ModRuntime {
-        hosts: ModHosts::new(prepared.host, Vec::new()),
-        metadata: vec![metadata],
-        render_sources: Vec::new(),
-        render_merge: Default::default(),
-        controls: mod_host::empty_controls(),
-        suspended: false,
-        hud_editor_owner: None,
-        screens: Default::default(),
-    });
+    world.insert_resource(ModRuntime::new(prepared.host, metadata));
     world
 }
 

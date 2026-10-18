@@ -975,7 +975,7 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     app.update();
     send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
     assert!(matches!(
-            app.world().resource::<ModRuntime>().hosts.host.screens().data.values.get("#key"),
+            app.world().resource::<ModRuntime>().hosts.host(0).screens().data.values.get("#key"),
             Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
     ));
     send(
@@ -986,9 +986,15 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
         None,
     );
     let runtime = app.world().resource::<ModRuntime>();
-    assert!(runtime.hosts.host.screens().view.is_none());
+    assert!(runtime.hosts.host(0).screens().view.is_none());
     assert_eq!(
-        runtime.hosts.host.screens().data.values.get("#view_closed"),
+        runtime
+            .hosts
+            .host(0)
+            .screens()
+            .data
+            .values
+            .get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }
@@ -1089,22 +1095,28 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     );
     let runtime = app.world().resource::<ModRuntime>();
     assert!(
-        matches!(runtime.hosts.host.screens().data.values.get("#action"),
+        matches!(runtime.hosts.host(0).screens().data.values.get("#action"),
         Some(server_experience::screen::Value::Text(action)) if action == "probe.view:None:Ok(())")
     );
     assert!(
-        runtime.hosts.host.screens().view.is_none(),
+        runtime.hosts.host(0).screens().view.is_none(),
         "a queued pointer action reopened the escaped view"
     );
     // Closure is immediate; its guest notification waits for the next event allowance.
     app.update();
     let runtime = app.world().resource::<ModRuntime>();
     assert!(
-        runtime.hosts.host.screens().view.is_none(),
+        runtime.hosts.host(0).screens().view.is_none(),
         "deferred callbacks must keep the escaped view closed"
     );
     assert_eq!(
-        runtime.hosts.host.screens().data.values.get("#view_closed"),
+        runtime
+            .hosts
+            .host(0)
+            .screens()
+            .data
+            .values
+            .get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }
