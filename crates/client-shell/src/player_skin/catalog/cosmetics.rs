@@ -31,6 +31,19 @@ pub(super) fn load(layout: &InstallLayout) {
         }
     }
     cosmetics::activate(&admitted);
+    let mut emotes = Vec::new();
+    for item in catalog.emotes {
+        let Some(bytes) = launcher_host::cosmetics::read_asset(&root, &item.clip) else {
+            cosmetics::emotes::reject();
+            continue;
+        };
+        if let Some(item) = cosmetics::emotes::Item::admit(item, &bytes) {
+            emotes.push(item);
+        } else {
+            bevy::log::warn!("malformed catalog emote skipped");
+        }
+    }
+    cosmetics::emotes::activate(&emotes);
 }
 
 /// Refreshes catalog files on the wardrobe worker, retaining usable cached content during outages.

@@ -2666,44 +2666,23 @@ keep their existing easing after movement stops. Rendered acceptance and native
 player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
-the native four-slot JSON-UI wheel and remappable emote control select an original,
-owned Twerk dance with a faster user-requested loop. The owned clip preserves skin
-hierarchy and clothing; render-time body and player-preview sampling leave the
-native first-person hand and remote actor animations intact. Slot preferences
-persist through Change Emotes, and gameplay input cancels playback. Identified
-native references, the public product visual reference, and remaining parity
-limits are recorded in [docs/reference/emote-wheel.md](docs/reference/emote-wheel.md).
-Exact Lunar keyframes/assets and full native animation parity are not verified.
-The revised clip follows the reference video's deeper squat and hip pulse,
-retargets both native and independent skin joints, and anchors foot centers.
-The pelvis rocks under steady shoulders/head, avoiding a whole-body jumping
-pulse; stance compensation keeps foot centers fixed on all three axes.
-The user rejected that first steady-head revision as still looking like a crouch.
-The next local revision increases the hip thrust, reduces the base torso lean,
-adds alternating torso twist and brings the hands closer to the thighs. It
-retains rigid legs on unsupported custom models. The latest local revision adds
-temporary thigh/shin joints to classic cuboid skins only during playback, crops
-their existing UVs, and bends the knees with a planted-foot two-segment solve.
-Stopping playback restores the original mesh/pose; native hand, remote actors
-and simulation skeletons remain unchanged. Eleven animation tests pass;
-exact Lunar/native parity remains incomplete.
-The user accepted the installed knee revision; the next local adjustment speeds
-up playback and increases vertical pelvis travel while keeping shoulders/head
-steady and foot centers planted. The user accepted the installed faster motion.
-The accompanying foot correction adds emote-only ankle joints, keeps the entire
-sole level, and anchors all four sole corners rather than only the foot center.
-The user reported an exposed ankle seam. The next local mesh correction embeds
-the ankle inside overlapping, original-textured foot/shin volumes; the timing
-and pelvis motion remain unchanged. The user accepted the installed correction on Windows.
-Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, eleven
-animation tests, eleven emote UI tests and twenty-five app emote checks. The
-1280x720 software-rendered wheel/equip frames were inspected for readable text
-and geometry. The user accepted the installed wheel and knee revision; the
-latest ankle-seam correction is user-accepted on Windows. The animation
-revision is being integrated with current dev for the requested direct push.
-Strict affected-package clippy passes. Required affected verification reaches
-the existing ice/water liquid-face test failure after formatting, architecture
-and compilation pass; that meshing regression is outside this change.
+All emote choreography and reproducible exports, including Twerk and Breakdance,
+are owned by the API catalog. The client retains generic articulated clip playback,
+not a built-in emote list or procedural dances. Fresh profiles equip supported
+owned clips in catalog order; missing catalog content leaves empty slots. Saved
+IDs and current ownership resolve against exact admitted catalog revisions.
+The four-slot JSON-UI wheel supports paging, remapped keyboard/controller controls,
+and configured controller button swaps. Gameplay actions cancel playback.
+Classic cuboid skins retain render-only elbows, wrists, knees, ankles and a lower
+torso with cropped UVs, clothing, face layers and held-item anchors. Visible-body
+contact correction is shared with attachments without removing authored root lift.
+Native first-person hands and actors without shared playback keep their normal
+poses. Synthetic fixtures cover parser, catalog revision/defaults, input and pose
+ownership. The API validates its production exports independently. Unusual custom
+proportions, native Dressing Room navigation, Marketplace ownership/playback and
+exact native/Lunar animation parity remain incomplete. See
+[docs/reference/emote-wheel.md](docs/reference/emote-wheel.md).
+
 2026-10-04 F3 diagnostics (user-accepted developer feature): the supplied Java
 19w05a screenshot is the requested styling reference. F3 is available by default,
 hidden at startup, and the window title contains only the shared product name.
