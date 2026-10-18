@@ -13,6 +13,7 @@ a { color: #a9dad2; }
 <p>This preview verifies assets and connects account controls. Gameplay is not available yet.</p>
 <label>Relay origin <input id="relay" type="url" placeholder="Uses this page's HTTPS origin"></label>
 <button id="connect">Connect relay</button>
+<button id="fresh">New session</button>
 <button id="sign-in">Sign in</button> <button id="sign-out">Sign out</button>
 <p id="device" hidden>Open <a id="verification" target="_blank" rel="noopener noreferrer">the verification page</a> and enter <strong id="code"></strong>.</p>
 <label>Asset directory <input id="assets" type="url" placeholder="HTTPS directory ending in /"></label>
@@ -63,13 +64,16 @@ async function prepare() {
 try {
   await init();
   let page;
+  let pageOrigin;
   element("connect").onclick = () => {
     try {
       const relay = new URL(element("relay").value || location.origin);
       if (relay.protocol !== "https:") throw new Error("Relay requires HTTPS");
-      page?.free(); page = new Page(relay.origin, observe);
+      if (page && pageOrigin === relay.origin) page.reconnect();
+      else { page?.free(); page = new Page(relay.origin, observe); pageOrigin = relay.origin; }
     } catch (error) { status.textContent = error.message; }
   };
+  element("fresh").onclick = () => page?.fresh_session();
   element("sign-in").onclick = () => { try { page?.sign_in(); } catch (error) { status.textContent = error.message; } };
   element("sign-out").onclick = () => { try { page?.sign_out(); } catch (error) { status.textContent = error.message; } };
   element("prepare").onclick = async () => {
