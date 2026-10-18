@@ -18,6 +18,134 @@ fn panel() -> String {
     r#"{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}"#.into()
 }
 
+/// Publishes one bounded native text field through the same admission path as a guest.
+fn text_panel(state: &mut State) {
+    state.set_content(r#"{"title":"Text","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":1,"max_chars":8}]}"#.into()).unwrap().unwrap();
+    state.controls.commit();
+}
+
+/// Native text stays exact across reads and deferred preparation, and revocation removes it.
+#[test]
+fn native_text_input_is_granted_bounded_and_stable_until_execution() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    super::queue_text_events(
+        &mut state,
+        vec![ui::mod_panel::TextEvent {
+            id: "name".into(),
+            value: "é🙂".into(),
+        }],
+    )
+    .unwrap();
+    state.controls.begin_frame();
+    assert!(state.read_text_events().unwrap().unwrap().is_empty());
+    state.controls.begin_text_frame();
+    let first = state.read_text_events().unwrap().unwrap();
+    assert_eq!(first[0].value, "é🙂");
+    assert_eq!(state.read_text_events().unwrap().unwrap(), first);
+    assert!(
+        matches!(&state.controls.panel.as_ref().unwrap().controls[0],ui::mod_panel::Control::Text {value,..} if value=="é🙂")
+    );
+    state.grants.controls = false;
+    assert!(state.read_text_events().unwrap().is_err());
+    state.controls.revoke();
+    assert!(state.controls.text_events.is_empty());
+}
+
+/// One invalid native edit rejects the whole batch without partially changing retained values.
+#[test]
+fn native_text_input_rejects_invalid_batches_transactionally() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    for (id, value) in [
+        ("name", ""),
+        ("name", "123456789"),
+        ("name", "a\nb"),
+        ("missing", "Name"),
+    ] {
+        let edits = vec![
+            ui::mod_panel::TextEvent {
+                id: "name".into(),
+                value: "Changed".into(),
+            },
+            ui::mod_panel::TextEvent {
+                id: id.into(),
+                value: value.into(),
+            },
+        ];
+        assert!(super::queue_text_events(&mut state, edits).is_err());
+        assert!(state.controls.text_events.is_empty());
+        assert!(
+            matches!(&state.controls.panel.as_ref().unwrap().controls[0],ui::mod_panel::Control::Text {value,..} if value=="Main")
+        );
+    }
+    assert!(
+        super::queue_text_events(
+            &mut state,
+            vec![
+                ui::mod_panel::TextEvent {
+                    id: "name".into(),
+                    value: "Name".into()
+                };
+                ui::mod_panel::MAX_PANEL_EVENTS + 1
+            ]
+        )
+        .is_err()
+    );
+}
+
+/// A deferred frame keeps committed text, and the next executed frame consumes it exactly once.
+#[test]
+fn native_text_input_survives_callback_deferral() {
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true);
+    let engine = Engine::new(&config).unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+        None,
+    )
+    .unwrap();
+    text_panel(instance.store.data_mut());
+    instance
+        .queue_text_events(vec![ui::mod_panel::TextEvent {
+            id: "name".into(),
+            value: "PvP".into(),
+        }])
+        .unwrap();
+    let budget = crate::CallbackBudget::new(0);
+    instance.callback_budget = Some(budget.clone());
+    instance
+        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
+        .unwrap();
+    instance.frame(crate::CallbackOutcome::Executed).unwrap();
+    assert_eq!(instance.store.data().controls.text_events[0].value, "PvP");
+    budget.reset(FRAME_FUEL);
+    instance
+        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
+        .unwrap();
+    instance.frame(crate::CallbackOutcome::Executed).unwrap();
+    assert!(instance.store.data().controls.text_events.is_empty());
+    assert!(instance.is_active());
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,

@@ -28,11 +28,14 @@ name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
+assets = { path = "../assets" }
 experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
+render-api = { path = "../render-api" }
 ui = { path = "../ui" }
 anyhow.workspace = true
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 png = "0.18"
 sha2 = { workspace = true }
 serde = { version = "=1.0.228", features = ["derive"] }

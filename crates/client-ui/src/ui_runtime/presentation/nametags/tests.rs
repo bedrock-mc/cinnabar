@@ -1,4 +1,5 @@
 use super::*;
+mod counter;
 use protocol_ids::ActorFlag;
 
 mod badges;
@@ -107,6 +108,7 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
+        counter: None,
     }
 }
 

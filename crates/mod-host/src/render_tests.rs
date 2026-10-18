@@ -252,3 +252,84 @@ fn legacy_post_imports_cannot_bypass_remote_policy() {
     state.render.commit();
     assert!(state.render.output().passes.is_empty());
 }
+
+/// Native overlays share the ribbon budget and revocation invalidates even native-only output.
+#[test]
+fn native_lines_respect_existing_budget_and_revoke_their_generation() {
+    let mut state = RenderState::new();
+    let ribbon = mod_render::Ribbon {
+        pattern: mod_render::LinePattern::Solid,
+        taper: false,
+        points: vec![[0.; 3], [1., 0., 0.]],
+        width: 1.,
+        color: [1.; 4],
+    };
+    state.staged_primitives.ribbons = vec![ribbon.clone(); mod_api::MAX_RENDER_RIBBONS];
+    state.commit();
+    state.native_lines(vec![ribbon.clone()]);
+    assert_eq!(
+        state.output().primitives.ribbons.len(),
+        mod_api::MAX_RENDER_RIBBONS
+    );
+    state.begin_frame();
+    state.commit();
+    state.native_lines(vec![ribbon]);
+    assert_eq!(state.output().primitives.ribbons.len(), 1);
+    let generation = state.generation();
+    state.revoke();
+    assert!(state.output().primitives.is_empty());
+    assert_ne!(state.generation(), generation);
+}
+
+/// Native outlines preserve retained commits and entity removals, and revoke with them.
+#[test]
+fn native_lines_reconcile_retained_output_and_revoke_both() {
+    let mut render = RenderState::new();
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    render.retained.bind_session(1, 0);
+    render.update_entities(vec![actor], &[]).unwrap();
+    let entity = render.retained.observe_entities().unwrap()[0].0;
+    let material = render
+        .retained
+        .create_material(
+            mod_render::material::BUILTIN,
+            mod_api::drawing::DrawingPermissions::ALL,
+        )
+        .unwrap();
+    render.commit_retained();
+    render.native_lines(vec![mod_render::Ribbon {
+        pattern: mod_render::LinePattern::Solid,
+        taper: false,
+        points: vec![[0.; 3], [1., 0., 0.]],
+        width: 1.,
+        color: [1.; 4],
+    }]);
+    render.begin_callback();
+    render.retained.remove(material).unwrap();
+    render.commit_retained();
+    assert!(render.output().retained.is_empty());
+    let material = render
+        .retained
+        .create_material(
+            mod_render::material::BUILTIN,
+            mod_api::drawing::DrawingPermissions::ALL,
+        )
+        .unwrap();
+    render.commit_retained();
+    assert!(
+        render.output().retained[0]
+            .materials
+            .contains_key(&material)
+    );
+    assert!(render.output().retained[0].entities.contains_key(&entity));
+    render.update_entities(Vec::new(), &[actor]).unwrap();
+    assert!(render.output().retained[0].entities.is_empty());
+    assert_eq!(render.output().primitives.ribbons.len(), 1);
+    render.revoke();
+    assert_eq!(render.output(), &RenderOutput::default());
+}

@@ -2,6 +2,34 @@ use super::*;
 use crate::ModGrants;
 use cinnabar::extension::{events::Host as _, gameplay::Host as _};
 
+/// Input modes require a grant and focus, commit atomically, and expire each frame.
+#[test]
+fn movement_toggles_are_granted_focused_and_frame_scoped() {
+    let policy = cinnabar::extension::gameplay::MovementToggles {
+        toggle_sprint: true,
+        toggle_sneak: false,
+        always_sprint: false,
+    };
+    let mut denied = state(ModGrants::default());
+    assert!(denied.set_movement_toggles(Some(policy)).unwrap().is_err());
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    assert!(state.set_movement_toggles(Some(policy)).unwrap().is_err());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_movement_toggles(Some(policy)).unwrap().unwrap();
+    assert!(state.world.movement_toggles.is_none());
+    state.world.commit();
+    assert!(state.world.movement_toggles.as_ref().unwrap().toggle_sprint);
+    state.world.begin_frame();
+    assert!(state.world.movement_toggles.is_none());
+    state.controls.frame.focused = false;
+    assert!(state.set_movement_toggles(Some(policy)).unwrap().is_err());
+    state.set_movement_toggles(None).unwrap().unwrap();
+}
+
 fn vector(x: f32, y: f32, z: f32) -> GameplayVector3 {
     GameplayVector3 { x, y, z }
 }

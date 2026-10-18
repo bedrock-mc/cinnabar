@@ -21,18 +21,24 @@ fn level_gap(
         })
         .expect("visible level label");
     let bar = named(nodes, "empty_progress_bar")[0];
-    let green: Vec<_> = input
-        .vertices
-        .as_chunks::<4>()
-        .0
+    let quads: Vec<_> = input
+        .batches
+        .iter()
+        .flat_map(|batch| {
+            input.indices
+                [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
+                .as_chunks::<6>()
+                .0
+        })
+        .filter(|indices| indices[0] == indices[3] && indices[2] == indices[4])
+        .map(|indices| [0, 1, 2, 5].map(|corner| input.vertices[indices[corner] as usize]))
+        .collect();
+    let green: Vec<_> = quads
         .iter()
         .filter(|quad| quad.iter().all(|vertex| vertex.color == color))
         .collect();
     assert!(!green.is_empty(), "the level must paint visible glyphs");
-    let bottom = input
-        .vertices
-        .as_chunks::<4>()
-        .0
+    let bottom = quads
         .iter()
         .filter(|quad| {
             green.iter().any(|glyph| {

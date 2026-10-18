@@ -19,6 +19,7 @@ use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
 use ui_screens::text::bounded_text;
 
 use super::nametag_atlas::{GlyphPage, NametagAtlas};
+mod counter;
 
 #[cfg(test)]
 pub(super) mod tests;
@@ -68,9 +69,14 @@ pub struct NametagAnchor {
     /// Camera depth gained by one block of world-Y lift.
     pub(super) camera_forward_y: f32,
     pub(super) cinnabar_badge: bool,
+    pub(super) counter: Option<Arc<ui::mod_hud::CounterAnnotation>>,
 }
 
 impl NametagAnchor {
+    /// Attaches native literal counter runs only after the actor passed ordinary nametag eligibility.
+    pub fn set_counter_annotation(&mut self, counter: Option<Arc<ui::mod_hud::CounterAnnotation>>) {
+        self.counter = counter;
+    }
     /// Native actor identity for presentation filters against retained world facts.
     pub const fn runtime_id(&self) -> u64 {
         self.runtime_id
@@ -330,6 +336,7 @@ fn nametag_with_lines(
         view_depth,
         camera_forward_y: view.camera_forward.y,
         cinnabar_badge: false,
+        counter: None,
     })
 }
 
@@ -461,12 +468,21 @@ pub fn build_nametag_scene<'p>(
     atlas.begin_frame(ordered.iter().flat_map(|anchor| {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let badge_records = usize::from(anchor.cinnabar_badge) * (records_per_line - 1);
-        let count = anchor
-            .lines
-            .len()
-            .min(available_records.saturating_sub(badge_records) / records_per_line);
-        available_records -= count * records_per_line + usize::from(count != 0) * badge_records;
-        anchor.lines.iter().take(count)
+        let counter_records = anchor.counter.as_ref().map_or(0, |counter| {
+            counter::record_budget(counter, anchor.depth_tested)
+        });
+        let count = anchor.lines.len().min(
+            available_records.saturating_sub(badge_records + counter_records) / records_per_line,
+        );
+        available_records -=
+            count * records_per_line + usize::from(count != 0) * (badge_records + counter_records);
+        anchor.lines.iter().take(count).chain(
+            anchor
+                .counter
+                .as_ref()
+                .into_iter()
+                .flat_map(|counter| counter::texts(counter)),
+        )
     }));
     let badge = ordered
         .iter()
@@ -483,8 +499,12 @@ pub fn build_nametag_scene<'p>(
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let badge = badge.filter(|_| anchor.cinnabar_badge);
         let badge_records = usize::from(badge.is_some()) * (records_per_line - 1);
-        let remaining_lines =
-            (MAX_NAMETAG_RECORDS - records.len()).saturating_sub(badge_records) / records_per_line;
+        let counter_records = anchor.counter.as_ref().map_or(0, |counter| {
+            counter::record_budget(counter, anchor.depth_tested)
+        });
+        let remaining_lines = (MAX_NAMETAG_RECORDS - records.len())
+            .saturating_sub(badge_records + counter_records)
+            / records_per_line;
         placed.clear();
         let mut name_placed = false;
         placed.extend(
@@ -502,6 +522,18 @@ pub fn build_nametag_scene<'p>(
         if placed.is_empty() {
             continue;
         }
+        let counter = anchor
+            .counter
+            .as_ref()
+            .and_then(|policy| counter::Layout::measure(policy, atlas, font, layouts, pages));
+        let separate = counter.as_ref().is_some_and(|counter| counter.separate());
+        let before = counter.as_ref().is_some_and(|counter| counter.before());
+        let counter_width = counter.as_ref().map_or(0., |counter| counter.width());
+        let inline_width = counter
+            .as_ref()
+            .filter(|_| !separate)
+            .map_or(0., |counter| counter.width() + counter.gap);
+        let name_line_start = usize::from(separate && before);
         let [ink_top, ink_bottom] = placed[0].ink_y_px;
         let badge_size = ink_bottom - ink_top;
         let badge = badge.filter(|_| name_placed && badge_size > 0.0);
@@ -512,17 +544,26 @@ pub fn build_nametag_scene<'p>(
         };
         let common = NametagRecord {
             anchor: anchor.position.to_array(),
-            line_lift: EXTRA_LINE_LIFT * placed.len().saturating_sub(1) as f32,
+            line_lift: EXTRA_LINE_LIFT
+                * (placed.len() + usize::from(separate)).saturating_sub(1) as f32,
             depth_tested: u32::from(anchor.depth_tested),
             ..NametagRecord::default()
         };
         let first = records.len();
         records.extend(
-            java_nametag_line_backgrounds(
-                placed.iter().enumerate().map(|(index, line)| {
-                    line.width_px + if index == 0 { extra_width } else { 0.0 }
-                }),
-            )
+            java_nametag_line_backgrounds((0..placed.len() + usize::from(separate)).map(|line| {
+                if separate && line == if before { 0 } else { placed.len() } {
+                    counter_width
+                } else {
+                    let index = line - name_line_start;
+                    placed[index].width_px
+                        + if index == 0 {
+                            extra_width + inline_width
+                        } else {
+                            0.
+                        }
+                }
+            }))
             .map(|rect| NametagRecord {
                 rect,
                 uv: [0.0, 0.0, -1.0, -1.0],
@@ -533,12 +574,14 @@ pub fn build_nametag_scene<'p>(
         let first_glyph = records.len();
         for (index, line) in placed.iter().enumerate() {
             let left = if index == 0 {
-                nametag_line_left(line.width_px + extra_width) + extra_width
+                nametag_line_left(line.width_px + extra_width + inline_width)
+                    + extra_width
+                    + if before { inline_width } else { 0. }
             } else {
                 nametag_line_left(line.width_px)
             };
             let [x, y, width, height] = line.cell.map(|value| value as f32);
-            let top = NAMETAG_LINE_PITCH_PX * index as f32 + line.top_px;
+            let top = NAMETAG_LINE_PITCH_PX * (index + name_line_start) as f32 + line.top_px;
             records.push(NametagRecord {
                 text: 1,
                 rect: [left, top, left + width / texels, top + height / texels],
@@ -547,12 +590,41 @@ pub fn build_nametag_scene<'p>(
                 ..common
             });
         }
+        if let Some(counter) = &counter {
+            let (left, line) = if separate {
+                (
+                    nametag_line_left(counter.width()),
+                    if before { 0 } else { placed.len() },
+                )
+            } else {
+                let left = nametag_line_left(placed[0].width_px + extra_width + inline_width);
+                (
+                    if before {
+                        left
+                    } else {
+                        left + extra_width + placed[0].width_px + counter.gap
+                    },
+                    0,
+                )
+            };
+            counter.append(&mut records, common, left, line, anchor.text_alpha);
+        }
         if let Some(badge) = badge {
-            let left = nametag_line_left(placed[0].width_px + extra_width);
+            let left = nametag_line_left(placed[0].width_px + extra_width + inline_width)
+                + if before && !separate {
+                    inline_width
+                } else {
+                    0.
+                };
             let [x, y, width, height] = badge.cell.map(|value| value as f32);
             records.push(NametagRecord {
                 text: 1,
-                rect: [left, ink_top, left + badge_size, ink_bottom],
+                rect: [
+                    left,
+                    ink_top + NAMETAG_LINE_PITCH_PX * name_line_start as f32,
+                    left + badge_size,
+                    ink_bottom + NAMETAG_LINE_PITCH_PX * name_line_start as f32,
+                ],
                 uv: [x / side, y / side, (x + width) / side, (y + height) / side],
                 color: [1.0, 1.0, 1.0, anchor.text_alpha],
                 ..common

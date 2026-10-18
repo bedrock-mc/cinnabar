@@ -36,6 +36,9 @@ pub(super) struct RenderState {
     calls: usize,
     mask_calls: u32,
     compiles_left: u32,
+    native_ribbons: Vec<mod_render::Ribbon>,
+    native_generation: u64,
+    combined: Option<RenderOutput>,
 }
 
 impl RenderState {
@@ -50,11 +53,14 @@ impl RenderState {
             calls: 0,
             mask_calls: 0,
             compiles_left: MAX_RENDER_PASSES as u32,
+            native_ribbons: Vec::new(),
+            native_generation: 0,
+            combined: None,
         }
     }
 
     pub fn output(&self) -> &RenderOutput {
-        &self.committed
+        self.combined.as_ref().unwrap_or(&self.committed)
     }
 
     /// Changes whenever the committed output does, including across reloads.
@@ -92,6 +98,7 @@ impl RenderState {
         }
         if changed {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
     }
 
@@ -107,6 +114,7 @@ impl RenderState {
         }
         if changed {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
     }
 
@@ -119,6 +127,7 @@ impl RenderState {
         self.retained.reconcile_entities(candidates, despawned)?;
         if self.publish_retained() {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
         Ok(())
     }
@@ -144,14 +153,48 @@ impl RenderState {
     }
 
     pub fn revoke(&mut self) {
+        self.native_ribbons.clear();
+        let native = self.combined.take().is_some();
         self.masks.revoke();
         self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
-        if self.committed != RenderOutput::default() {
+        if native || self.committed != RenderOutput::default() {
             self.committed = RenderOutput::default();
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
+    }
+
+    /// Merges validated native outlines within the guest's existing shared primitive limits.
+    pub(super) fn native_lines(&mut self, ribbons: Vec<mod_render::Ribbon>) {
+        if ribbons == self.native_ribbons && self.native_generation == self.generation {
+            return;
+        }
+        if ribbons != self.native_ribbons {
+            self.native_ribbons = ribbons;
+            self.generation = next_revision();
+        }
+        self.refresh_native_lines();
+    }
+
+    /// Rebuilds the overlay from the current retained and immediate renderer output.
+    fn refresh_native_lines(&mut self) {
+        if self.native_ribbons.is_empty() {
+            self.combined = None;
+        } else {
+            let mut primitives = (*self.committed.primitives).clone();
+            for ribbon in &self.native_ribbons {
+                let _ = primitives.append_checked(Primitives {
+                    ribbons: vec![ribbon.clone()],
+                    ..Default::default()
+                });
+            }
+            let mut combined = self.committed.clone();
+            combined.primitives = Arc::new(primitives);
+            self.combined = Some(combined);
+        }
+        self.native_generation = self.generation;
     }
 
     pub(super) fn budget(&mut self) -> Result<()> {

@@ -42,6 +42,7 @@ fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
         );
     }
     panel.surface = Some(Surface {
+        collections: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"pane":{
@@ -81,30 +82,35 @@ fn frame_at(presentation: &mut UiPresentationRuntime, millis: u64) -> UiRenderIn
         .unwrap()
 }
 
-/// Each backdrop batch's paint and the physical bounds of its geometry, in draw order.
+/// Each consecutive backdrop paint and its physical bounds, independent of batch coalescing.
 fn backdrops(input: &UiRenderInput) -> Vec<(UiBackdropPaint, [f32; 4])> {
-    input
+    let mut paints: Vec<(UiBackdropPaint, [f32; 4])> = Vec::new();
+    for batch in input
         .batches
         .iter()
         .filter(|batch| batch.blend_mode == UI_BLEND_BACKDROP)
-        .map(|batch| {
-            let indices = &input.indices
-                [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
-            let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
-            for &index in indices {
+    {
+        let indices = &input.indices
+            [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
+        for triangle in indices.as_chunks::<3>().0 {
+            let paint =
+                UiBackdropPaint::from_overlay(input.vertices[triangle[0] as usize].overlay_color);
+            if paints.last().is_none_or(|(previous, _)| *previous != paint) {
+                paints.push((paint, [f32::MAX, f32::MAX, f32::MIN, f32::MIN]));
+            }
+            let bounds = &mut paints.last_mut().unwrap().1;
+            for &index in triangle {
                 let [x, y] = input.vertices[index as usize].position;
-                bounds = [
+                *bounds = [
                     bounds[0].min(x),
                     bounds[1].min(y),
                     bounds[2].max(x),
                     bounds[3].max(y),
                 ];
             }
-            let paint =
-                UiBackdropPaint::from_overlay(input.vertices[indices[0] as usize].overlay_color);
-            (paint, bounds)
-        })
-        .collect()
+        }
+    }
+    paints
 }
 
 /// Physical pixels per GUI pixel in the open panel.

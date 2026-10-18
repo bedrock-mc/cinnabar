@@ -6,6 +6,7 @@ use super::widgets::Palette;
 
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
+    data.set_global(super::edit::FIELD_TEXT, Scalar::Text(String::new()));
     let palette = Palette::for_panel(panel);
     for (index, control) in panel.controls.iter().enumerate() {
         let value = match control {
@@ -23,6 +24,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 }
             }
             Control::Choice { index, options, .. } => options[*index as usize].clone(),
+            Control::Text { value, .. } => value.clone(),
         };
         data.set_global(
             format!("#row_{index}_label"),
@@ -38,9 +40,18 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 Scalar::Num(f64::from((value - min) / (max - min))),
             ),
             Control::Toggle { value, .. } => {
+                data.set_global(format!("#row_{index}_toggle_enabled"), Scalar::Bool(*value));
+                data.set_global(
+                    format!("#row_{index}_toggle_disabled"),
+                    Scalar::Bool(!*value),
+                );
                 data.set_global(
                     format!("#row_{index}_toggle_progress"),
                     Scalar::Num(f64::from(u8::from(*value))),
+                );
+                data.set_global(
+                    format!("#row_{index}_toggle_inverse_progress"),
+                    Scalar::Num(f64::from(u8::from(!*value))),
                 );
                 data.set_global(
                     format!("#row_{index}_toggle_color"),
@@ -73,6 +84,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
     if let Some(surface) = &panel.surface {
         super::surface::bind(surface, &mut data);
     }
+    super::surface::collections(panel, &mut data);
     data
 }
 

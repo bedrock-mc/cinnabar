@@ -28,6 +28,7 @@ pub struct CameraSettingsAuthority {
     rig: Option<CameraRig>,
     preserve_teleport_rotation: bool,
     view_scale: [f32; 2],
+    hurt_style: Option<render_api::HurtCameraStyle>,
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -95,6 +96,7 @@ impl Default for CameraSettingsAuthority {
             rig: None,
             preserve_teleport_rotation: false,
             view_scale: [1.0, 1.0],
+            hurt_style: None,
         }
     }
 }
@@ -243,6 +245,19 @@ impl CameraSettingsAuthority {
         self.view_scale[1]
     }
 
+    /// Applies a validated local damage effect without changing saved preferences or aim.
+    pub fn set_hurt_camera_style(&mut self, style: Option<render_api::HurtCameraStyle>) {
+        self.hurt_style = style;
+    }
+
+    /// Current damage styling, falling back to the latest sanitized player preference.
+    pub fn hurt_camera_style(&self) -> render_api::HurtCameraStyle {
+        self.hurt_style.unwrap_or_else(|| {
+            render_api::HurtCameraStyle::new(self.feel.damage_bob, false)
+                .expect("camera preferences sanitize damage shake")
+        })
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -276,6 +291,7 @@ impl CameraSettingsAuthority {
         self.death_rotation = None;
         self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];
+        self.hurt_style = None;
     }
 }
 

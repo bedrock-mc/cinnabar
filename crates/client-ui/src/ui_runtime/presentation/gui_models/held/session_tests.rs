@@ -597,7 +597,7 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
                 texture_page: 0,
                 index_range: 0..3,
                 blend: UiBlendMode::Alpha,
-                depth_test: false,
+                depth_test: true,
                 depth_write: false,
                 alpha_cutoff: None,
             }]),

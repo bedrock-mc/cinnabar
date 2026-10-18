@@ -182,3 +182,15 @@ fn hurt_strength_scales_the_angle_but_never_death_and_direction_rotates_the_axis
     assert!(front.z.abs() > 0.01 && (front.z + back.z).abs() < 1e-6);
     assert_eq!(legacy_hurt_matrix(5, 0.0, None, 0.5, 0.0), Mat4::IDENTITY);
 }
+
+/// The module's full intensity range scales hurt alone, without amplifying death rotation.
+#[test]
+fn double_hurt_intensity_preserves_death_and_doubles_the_damage_angle() {
+    let ordinary = legacy_hurt_matrix(5, 0.0, None, 0.5, 1.0);
+    let doubled = legacy_hurt_matrix(5, 0.0, None, 0.5, render_api::MAX_HURT_CAMERA_INTENSITY);
+    assert!(doubled.abs_diff_eq(ordinary * ordinary, 1e-5));
+    assert!(!doubled.abs_diff_eq(ordinary, 1e-5));
+    let death = legacy_hurt_matrix(0, 0.0, Some(12.0), 0.5, 1.0);
+    assert_eq!(legacy_hurt_matrix(0, 0.0, Some(12.0), 0.5, 2.0), death);
+    assert!(legacy_hurt_matrix(5, 0.0, Some(12.0), 0.5, 2.0).abs_diff_eq(death * doubled, 1e-5));
+}
