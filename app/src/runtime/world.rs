@@ -14,6 +14,7 @@ use {
     acceptance::model_witness::ModelWitnessFileSource,
     acceptance::mutation::deterministic_mutation_coordinate, diagnostics::write_stdout_marker,
 };
+pub(crate) mod camera_environment;
 pub(super) mod committed_ui;
 mod control_apply;
 mod dimension;
@@ -30,6 +31,7 @@ mod sub_chunk_requests;
 mod terrain_generation;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
+pub(crate) use sub_chunk_requests::sub_chunk_request_center;
 pub(crate) use terrain_generation::synchronize_terrain_generation;
 
 #[cfg(feature = "acceptance")]
@@ -44,10 +46,7 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
     log::info,
-    prelude::{
-        DetectChangesMut, Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform,
-        Vec3, With,
-    },
+    prelude::{DetectChangesMut, Local, MessageWriter, Res, ResMut, Resource, Time, Vec3},
     time::{Real, Virtual},
 };
 use chunk_pipeline::{
@@ -58,7 +57,6 @@ use client_world::CommittedControlEvent;
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use client_ui::block_cracks::reconcile_world_block_cracks;
-use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -69,7 +67,7 @@ use render_scene::{
 use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::{
-        environment::{self, WeatherState, WorldClock, apply_environment_control},
+        environment::{WeatherState, WorldClock, apply_environment_control},
         runtime::{
             shutdown::{FatalError, record_fatal_error},
             visibility::{CaveVisibilityCache, DiagnosticQuads},
@@ -80,7 +78,7 @@ use {
         MovementTicker, PhysicsCollisionRegistries,
     },
     client_presentation::{
-        camera::{CameraSettingsAuthority, FlyCamera},
+        camera::CameraSettingsAuthority,
         local_player::{
             InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
             LocalViewPose,
@@ -220,58 +218,6 @@ pub(crate) fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBi
     let resolved = stream.resolved_biome_tints_snapshot();
     *active = ChunkBiomeTints::from_resolved_with_identity(&resolved, identity);
     true
-}
-
-pub(crate) fn update_camera_medium(
-    client_world: Res<ClientWorld>,
-    camera: Query<&Transform, With<FlyCamera>>,
-    mut medium: ResMut<environment::CameraMediumState>,
-    mut context: ResMut<environment::EnvironmentContext>,
-    mut fog_bindings: ResMut<environment::FogBindings>,
-    atmosphere: Res<render_scene::AtmosphereTextureAssets>,
-    mut arena_hint: ResMut<render_scene::chunk::capacity::ChunkArenaCapacityHint>,
-) {
-    let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
-        arena_hint.sections = 0;
-        medium.0 = CameraMedium::Air;
-        *context = environment::EnvironmentContext::default();
-        return;
-    };
-    *arena_hint = render_scene::chunk::capacity::ChunkArenaCapacityHint::for_view(
-        (stream.render_distance_blocks() / 16.0) as usize,
-        stream
-            .dimension_range(stream.current_dimension())
-            .map_or(0, |range| range.sub_chunk_count),
-    );
-    let position = camera.translation.to_array();
-    fog_bindings.refresh(
-        stream.authority().resolved_biome_tints(),
-        stream.biome_tint_identity(),
-        Some(&atmosphere),
-    );
-    let raw_id = stream.camera_biome_id(position);
-    let (camera_profile, profile_route, camera_fog) =
-        fog_bindings.camera(raw_id, stream.current_dimension());
-    medium.0 = stream.camera_medium(position);
-    let camera_biome =
-        raw_id.and_then(|raw_id| stream.authority().resolved_biome_tints().biome(raw_id));
-    *context = environment::EnvironmentContext {
-        dimension: stream.current_dimension(),
-        fog_registry_generation: fog_bindings.atmosphere_generation,
-        fog_biomes: Some(environment::fog_biome_samples(
-            stream,
-            position,
-            &fog_bindings,
-        )),
-        camera_profile,
-        camera_fog,
-        profile_route,
-        default_fog: fog_bindings.default_fog,
-        precipitation_sample_count: environment::fog_precipitation_count(stream, position),
-        camera_biome_identifier: fog_bindings.identifier(raw_id),
-        camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
-        render_distance_blocks: Some(stream.render_distance_blocks()),
-    };
 }
 
 /// Computes startup readiness from required columns and full diagnostics only when enabled.
@@ -812,12 +758,20 @@ pub(crate) fn drive_world_stream(
     });
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
+        let actor_position = local_physics
+            .network_position()
+            .unwrap_or(stream.resolved_server_position().position);
+        let center = sub_chunk_request_center(
+            stream,
+            camera_publication.as_deref(),
+            clock.session_generation(),
+            actor_position,
+        )?;
         flush_sub_chunk_requests(
             stream,
             OUTBOUND_SEND_BUDGET_PER_FRAME,
-            |chunk, base_sub_chunk_y, count, packet| {
-                network.send_sub_chunk_request(chunk, base_sub_chunk_y, count, packet)
-            },
+            center,
+            |receipt, packet| network.send_sub_chunk_request(receipt, packet),
         )
         .err()
     });

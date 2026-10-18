@@ -8586,6 +8586,26 @@ scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
 
+### Sub-chunk request batching (incomplete serverbound parity)
+
+Sub-chunk dispatch now groups the stable admitted intent prefix into one request.
+It samples the current published render camera when its session, stream and dimension
+owners match, otherwise the current actor position. Horizontal coordinates floor to
+16-block cells; the vertical origin stays zero. Absolute member positions keep their
+admitted order, including sparse negative heights and multiple columns. Each axis
+admits offsets from -127 through 127, and one packet holds at most 8,192 members.
+The per-frame budget still counts column intents and bounds the flattening work.
+Wrong-dimension and unencodable demands retire without declaring terrain loaded.
+Transport refusal restores current intents in order; successful writes confirm one
+immutable packet membership and arm response deadlines only for its current demands.
+
+This implements the bounded 26.30 request origin, ordering and grouping contract.
+The existing timeout, retry, recovery and queue capacities remain local policy and
+are explicitly incomplete for native parity. Global request discovery, the complete
+camera writer phase, broader native retry policy, later client versions, and live
+streaming and join acceptance remain open. Regression coverage is authored;
+final verification and independent review are pending.
+
 ### Between-frames world servicing (incomplete native acceptance)
 
 The production client lends `WorldStream` to a `stream-service` thread after each frame's
@@ -8626,12 +8646,20 @@ and explicit membership survives ordinary catalog clears while a new session
 resets it. Unsupported crafting shapes and furnace-family identities remain
 addressable. Duplicate names across eligible tags are conservatively unresolved;
 exact tag priority and synthesized multi-recipe identities remain incomplete.
-This foundation does not gate existing manual or book consumers. Game-rule
-consumers, category masks, toast presentation, exact player lifecycle and stable
-live acceptance remain incomplete.
+Startup and later crafting rules now reach the committed inventory frontier.
+Manual results check exact recipe discovery when both recipe unlocking and
+limited crafting are enabled. The book distinguishes absent discovery state
+from an empty component, and nonempty search can show locked recipes
+when limited crafting is off. Their selection remains guarded. Book actions recheck the current recipe handle
+and discovery; rule and unlock changes invalidate retained output previews.
+Book rows aggregate ingredient availability across same-output variants separately
+from the candidate's discovery permission, and selection rechecks that permission.
+Initial discovery-state absence is provisional; player creation, respawn and
+listener ordering still require verification. Category masks, toast presentation,
+complete book variant ranking and stable live acceptance remain incomplete.
 
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
-limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+complete recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
 
