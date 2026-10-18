@@ -912,6 +912,91 @@ fn shift_reaches_the_open_bundle_when_it_changes() {
     assert!(!live.shift_changed(true));
 }
 
+/// A recoverable callback failure replaces the guest, which must learn that Shift is still held.
+#[test]
+fn held_shift_is_delivered_again_after_a_failed_callback() {
+    let mut live = opened();
+    assert!(live.shift_changed(true));
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .fail = true;
+    assert!(live.press("bundle0.pick", None));
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    assert!(instance.stopped.is_none());
+    assert_eq!(instance.strikes.len(), 1);
+    instance.helper.as_mut().unwrap().fail = false;
+
+    assert!(
+        live.shift_changed(true),
+        "the replacement guest needs held Shift"
+    );
+    assert!(!live.shift_changed(true));
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        [
+            Event::Shift { held: true },
+            Event::Action {
+                id: "bundle0.pick".into(),
+                index: None,
+            },
+            Event::Shift { held: true },
+        ]
+    );
+}
+
+/// A Shift transition already queued for the replacement guest needs no duplicate notification.
+#[test]
+fn queued_shift_survives_a_failed_callback_without_a_duplicate() {
+    let mut live = opened();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .fail = true;
+    assert!(live.press("bundle0.pick", None));
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    assert!(live.shift_changed(true));
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .fail = false;
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+
+    assert!(!live.shift_changed(true));
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        [
+            Event::Action {
+                id: "bundle0.pick".into(),
+                index: None,
+            },
+            Event::Shift { held: true },
+        ]
+    );
+}
+
 /// Closing while held queues release, so reopening can deliver a fresh press.
 #[test]
 fn closing_a_held_modal_releases_shift_before_reopening() {

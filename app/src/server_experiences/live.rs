@@ -46,7 +46,7 @@ struct Instance<H> {
     callback: &'static str,
     /// The revision of the session's items its helper last received.
     items_sent: Option<u64>,
-    /// Whether Shift was held when the guest was last told.
+    /// The Shift state already delivered or queued for the current guest.
     shift: bool,
 }
 
@@ -573,6 +573,11 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {
+        // The replacement guest starts released; queued transitions still reach it.
+        instance.shift = instance
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Shift { held: true }));
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");
