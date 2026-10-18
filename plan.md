@@ -10119,6 +10119,14 @@ The focused startup and join suites, saved-setting checks and both owner checks
 pass, including a join selection above the advertised byte. Platform-specific
 scaling, duplicate update timing and full startup packet parity remain incomplete.
 
+### Latency reply batching
+
+Ordinary latency echoes retain FIFO admission and join the current outbound frame.
+A full command queue retains the echo and submits the reserved frame delimiter,
+then retries the echo without allowing later packets to pass it. Exact async
+receive/present phase, compression representation and transport jitter remain
+incomplete.
+
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
 with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
