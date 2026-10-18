@@ -594,3 +594,55 @@ fn unchanged_updates_stage_nothing_and_keep_the_snapshot() {
     store.commit();
     assert!(Arc::ptr_eq(&before, store.snapshot()));
 }
+
+#[test]
+fn entity_observations_commit_without_geometry_or_instance_edits() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let observed = store.observe_entities().unwrap();
+    assert!(store.snapshot().entities.is_empty());
+    store.commit();
+    assert_eq!(
+        store.snapshot().entities.get(&observed[0].0),
+        Some(&actor(1))
+    );
+
+    let previous = Arc::clone(store.snapshot());
+    store.begin();
+    assert_eq!(store.observe_entities().unwrap(), observed);
+    store.commit();
+    assert!(Arc::ptr_eq(&previous, store.snapshot()));
+
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.anchor = Anchor::Entity(EntityAnchor {
+        entity: observed[0].0,
+        body_rotation: false,
+    });
+    store.create(instance, DrawingPermissions::ALL).unwrap();
+}
+
+#[test]
+fn entity_reference_release_commits_without_geometry_or_instance_edits() {
+    let mut store = Store::default();
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let observed = store.observe_entities().unwrap();
+    store.create_geometry(mesh()).unwrap();
+    store.commit();
+    let previous = Arc::clone(store.snapshot());
+    store.begin();
+    store.remove(observed[0].0).unwrap();
+    store.rollback();
+    assert!(Arc::ptr_eq(&previous, store.snapshot()));
+    store.begin();
+    store.remove(observed[0].0).unwrap();
+    store.commit();
+    assert!(store.snapshot().entities.is_empty());
+    assert_eq!(
+        store.remove(observed[0].0).unwrap_err().code,
+        ErrorCode::StaleHandle
+    );
+    store.begin();
+    assert_ne!(store.observe_entities().unwrap()[0].0, observed[0].0);
+}

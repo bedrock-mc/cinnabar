@@ -10331,12 +10331,6 @@ step timing, and complete current-version callback parity remain open.
 ### Retained mod drawing
 
 Drawing permissions and connection fences cover legacy post effects, block highlights and
-unfiltered world observations. The retained drawing ABI is versioned separately. Retained indexed meshes, polylines, shared instances and callback groups are admitted
-transactionally with per-owner quotas. The shared unlit renderer reuses meshes and updates view-relative instances.
-Entity root anchors use exact owner-issued spawn references and the actor renderer
-publication; missing roots hide, while confirmed despawns release their instances. Bone
-anchors, native output captures and hardware budgets remain incomplete; no rendering parity or performance
-gate is closed by these contracts.
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained
 indexed meshes, polylines, shared instances and callback groups are admitted transactionally
 with per-owner quotas. The shared unlit renderer reuses meshes and updates view-relative
@@ -10344,8 +10338,10 @@ instances. Geometry admission validates each vertex once and caches box and sphe
 payload bytes and expanded vertex counts. Instance validation uses only cached facts;
 nonuniform scales use conservative extent bounds. Callbacks without resource changes
 preserve snapshots without allocating; revisions and snapshot identity determine retained
-publication. Entity anchors, native output captures and hardware budgets remain incomplete;
-no rendering parity or performance gate is closed by these contracts.
+publication. Entity root anchors use exact owner-issued spawn references and the actor
+renderer publication. Missing roots hide, while confirmed despawns release their instances.
+Bone anchors, native output captures and hardware budgets remain incomplete; no rendering
+parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
 vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and

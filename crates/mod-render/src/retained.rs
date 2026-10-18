@@ -171,6 +171,7 @@ pub struct Resources {
     pub instances: BTreeMap<Handle, Instance>,
     groups: BTreeMap<String, Vec<Handle>>,
     pub geometry_revision: u64,
+    /// Changes when placements or their entity references change.
     pub instance_revision: u64,
 }
 
@@ -369,6 +370,7 @@ impl Store {
             if resources.entities.contains_key(&handle) {
                 if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
                 resources.entities.remove(&handle);
+                resources.instance_revision += 1;
                 return Ok(());
             }
 

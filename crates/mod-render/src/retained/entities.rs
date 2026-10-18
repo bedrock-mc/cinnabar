@@ -35,12 +35,9 @@ impl Store {
         resources
             .entities
             .retain(|handle, _| !removed.contains(handle));
-        let previous = resources.instances.len();
         resources.instances.retain(|_, instance| !matches!(instance.anchor, Anchor::Entity(anchor) if removed.contains(&anchor.entity)));
         if resources != *self.committed {
-            if resources.instances.len() != previous {
-                resources.instance_revision += 1;
-            }
+            resources.instance_revision += 1;
             self.committed = Arc::new(resources);
         }
         self.staged = None;
@@ -64,11 +61,15 @@ impl Store {
         self.edit(
             result.len() * std::mem::size_of::<EntityKey>(),
             |resources| {
+                let previous = resources.entities.len();
                 for (handle, key) in &result {
                     resources.entities.insert(*handle, *key);
                 }
                 if resources.entities.len() > mod_api::MAX_DRAW_ENTITIES {
                     return Err(error(ErrorCode::BudgetExceeded, "entity handles"));
+                }
+                if resources.entities.len() != previous {
+                    resources.instance_revision += 1;
                 }
                 Ok(())
             },
