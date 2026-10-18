@@ -1282,6 +1282,13 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Held block placement
 
+- Eligible custom blocks predict their admitted state in both palette modes. Enabled
+  placement traits apply the click face, vertical half, body-facing direction and yaw
+  offset while preserving authored property values. Server placing handlers retain
+  authority. Prediction checks the selected state's collision bounds and session IDs.
+  Incomplete: custom placement filters, unrepresented traits and unresolved permutation
+  physics still defer to the server; complete placement parity remains open.
+
 - A steep downward look past a ledge can acquire nearby support before a placement
   line exists. Use and selection share the downward support and preserve its click
   point; mining keeps the direct ray. The support selection shape is outlined.

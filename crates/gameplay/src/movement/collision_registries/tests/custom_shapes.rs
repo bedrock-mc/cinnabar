@@ -553,6 +553,7 @@ fn face_facing() -> protocol::CustomBlocks {
             friction: None,
             player_interact: false,
             visual: Arc::new(protocol::CustomBlockVisuals {
+                placement: Default::default(),
                 base: protocol::CustomVisualComponents::default(),
                 item_visual: None,
                 permutations: Box::default(),
