@@ -123,6 +123,18 @@ objects and canvas listeners. Returning reopens relay control with any unexpired
 capability; sign in again if it expired. Audio resumes on the next canvas click. A final
 navigation frees the page, input and listeners and closes audio.
 
+Server resource packs use one server-initiated reliable WebTransport stream per join. The play
+Hello supplies a fresh nonzero `join`; the handoff's `pack_stream` names that join and declares
+each archive's size and SHA-256. The stream begins with the join as a big-endian u64, followed
+by ordinary length-framed PackData messages with their handoff indices. FIN completes the
+archive barrier. The receiver admits the whole selection before reading archive bytes and
+rejects incomplete, corrupt, extra or misassociated data. Cancellation resets the stream.
+
+WebSocket sends verified archives serially on the play connection. This is a fallback transport
+limitation: bulk bytes can delay later play bytes on that TCP connection. Control cancellation
+still has its own connection. A third socket would need another authenticated lifecycle and
+admission path; the fallback keeps the existing two connections.
+
 ## Browser support and known limits
 
 Use a secure context with WebAssembly, fetch and readable/writable streams. Transport

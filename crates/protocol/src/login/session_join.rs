@@ -57,46 +57,41 @@ impl LoginSequence {
     /// Joins over prepared play I/O using the existing handoff and spawn sequence. Dropping
     /// this future ends this join; the host must also cancel its writer and startup jobs.
     pub async fn connect_prepared<R: FrameRead, P: Send + 'static>(
-        io: SessionIo<R>,
+        mut io: SessionIo<R>,
         login: SessionLogin<'_>,
         preparation: &impl JoinPreparation,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession<R>, P), ProtocolError> {
+        send_connect(&io.frames, &login).await?;
+        let (handoff, archives) = receive_handoff(
+            &mut io.reader,
+            login.settings.resource_pack_cache_dir.as_deref(),
+            preparation,
+        )
+        .await?;
+        Self::continue_handoff(io, login, preparation, prepare, handoff, archives).await
+    }
+
+    /// Runs the shared spawn and preparation sequence after the transport verifies its packs.
+    pub(super) async fn continue_handoff<R: FrameRead, P: Send + 'static>(
+        io: SessionIo<R>,
+        login: SessionLogin<'_>,
+        preparation: &impl JoinPreparation,
+        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
+        handoff: SessionHandoff,
+        archives: Vec<Vec<u8>>,
+    ) -> Result<(PlaySession<R>, P), ProtocolError> {
         let SessionIo {
-            mut reader,
+            reader,
             frames,
             timers,
         } = io;
         let SessionLogin {
-            display_name,
-            client_random_id,
             cache,
-            skin,
             settings,
             tap,
-            target,
+            ..
         } = login;
-        let request = ConnectRequest {
-            protocol: PROTOCOL_VERSION,
-            target,
-            client_cache: cache.is_some(),
-            client_data: super::client_data::login_client_data(
-                display_name,
-                client_random_id,
-                skin.as_ref(),
-                settings,
-            ),
-        };
-        frames
-            .send(crate::session_wire::encode_connect(&request).map_err(bridge_error)?)
-            .await
-            .map_err(bridge_error)?;
-        let (handoff, archives) = receive_handoff(
-            &mut reader,
-            settings.resource_pack_cache_dir.as_deref(),
-            preparation,
-        )
-        .await?;
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
@@ -142,6 +137,28 @@ impl LoginSequence {
     }
 }
 
+/// Sends the same login request through native or injected web play I/O.
+pub(super) async fn send_connect(
+    frames: &FrameQueue,
+    login: &SessionLogin<'_>,
+) -> Result<(), ProtocolError> {
+    let request = ConnectRequest {
+        protocol: PROTOCOL_VERSION,
+        target: login.target.clone(),
+        client_cache: login.cache.is_some(),
+        client_data: super::client_data::login_client_data(
+            login.display_name,
+            login.client_random_id,
+            login.skin.as_ref(),
+            login.settings,
+        ),
+    };
+    frames
+        .send(crate::session_wire::encode_connect(&request).map_err(bridge_error)?)
+        .await
+        .map_err(bridge_error)
+}
+
 /// Reads the handoff and every archive it announces; a terminal message ends the join instead.
 async fn receive_handoff<R: FrameRead>(
     reader: &mut R,
@@ -172,7 +189,11 @@ async fn receive_handoff<R: FrameRead>(
     Ok((handoff, archives))
 }
 
-async fn next_message<R: FrameRead>(reader: &mut R) -> Result<CoreMessage, ProtocolError> {
+/// Decodes the next bridge frame without choosing a transport implementation.
+pub(super) async fn next_message<S>(reader: &mut S) -> Result<CoreMessage, ProtocolError>
+where
+    S: futures::Stream<Item = Result<bytes::Bytes, BridgeError>> + Unpin,
+{
     match reader.next().await {
         Some(Ok(frame)) => crate::session_wire::decode_core_message(frame).map_err(bridge_error),
         Some(Err(error)) => Err(bridge_error(error)),
@@ -181,7 +202,7 @@ async fn next_message<R: FrameRead>(reader: &mut R) -> Result<CoreMessage, Proto
 }
 
 /// The error a message other than the next setup step ends the join with, as a login ended before.
-fn join_ended(message: CoreMessage) -> ProtocolError {
+pub(super) fn join_ended(message: CoreMessage) -> ProtocolError {
     match message {
         CoreMessage::Disconnect(disconnect) => join_disconnect(
             "login",
@@ -210,7 +231,8 @@ fn unexpected(reason: &'static str) -> ProtocolError {
     bridge_error(BridgeError::InvalidSessionMessage { reason })
 }
 
-fn bridge_error(error: BridgeError) -> ProtocolError {
+/// Preserves bridge failures as the protocol owner's public error.
+pub(super) fn bridge_error(error: BridgeError) -> ProtocolError {
     ProtocolError::Bridge(error.into())
 }
 

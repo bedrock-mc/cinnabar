@@ -2,15 +2,13 @@
 
 use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
-use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_PASSES};
+use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
 
-/// Render imports per callback; drawing and per-pass updates need more than other capabilities.
-const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -21,10 +19,11 @@ fn next_revision() -> u64 {
 
 pub(super) struct RenderState {
     committed: RenderOutput,
+    pub(super) retained: mod_render::retained::Store,
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
-    calls: u32,
+    calls: usize,
     compiles_left: u32,
 }
 
@@ -32,6 +31,7 @@ impl RenderState {
     pub fn new() -> Self {
         Self {
             committed: RenderOutput::default(),
+            retained: Default::default(),
             generation: next_revision(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
@@ -49,13 +49,41 @@ impl RenderState {
         self.generation
     }
 
-    pub fn begin_frame(&mut self) {
+    /// Starts a resource transaction and restores the shared render import allowance.
+    pub fn begin_callback(&mut self) {
+        self.retained.begin();
         self.calls = 0;
+    }
+
+    /// Discards earlier immediate output and restores the frame's shader compile allowance.
+    pub fn begin_frame(&mut self) {
+        self.begin_callback();
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
     }
 
+    /// Publishes retained resources without replacing the frame's immediate output.
+    pub fn commit_retained(&mut self) {
+        self.retained.commit();
+        let snapshot = self.retained.snapshot();
+        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+            if self.committed.retained.is_empty() {
+                return;
+            }
+            self.committed.retained.clear();
+        } else {
+            if matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+            {
+                return;
+            }
+            self.committed.retained.clear();
+            self.committed.retained.push(Arc::clone(snapshot));
+        }
+        self.generation = next_revision();
+    }
+
+    /// Publishes immediate primitives and post effects after a successful frame.
     pub fn commit(&mut self) {
         let primitives = std::mem::take(&mut self.staged_primitives);
         let mut changed = false;
@@ -75,6 +103,7 @@ impl RenderState {
     }
 
     pub fn revoke(&mut self) {
+        self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
         if self.committed != RenderOutput::default() {
@@ -83,7 +112,7 @@ impl RenderState {
         }
     }
 
-    fn budget(&mut self) -> Result<()> {
+    pub(super) fn budget(&mut self) -> Result<()> {
         self.calls += 1;
         if self.calls > MAX_RENDER_CALLS {
             bail!("render import budget exhausted");

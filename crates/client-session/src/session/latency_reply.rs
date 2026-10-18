@@ -146,7 +146,9 @@ mod tests {
         assert_probe(&mut receiver, 3);
         assert!(matches!(
             receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
+            NetworkCommand::FlushFrame {
+                cache_opportunity: false
+            }
         ));
         handle
             .send_packet(protocol::network_stack_latency_reply(4))
@@ -168,14 +170,18 @@ mod tests {
         assert_probe(&mut receiver, 1);
         assert!(matches!(
             receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
+            NetworkCommand::FlushFrame {
+                cache_opportunity: false
+            }
         ));
         handle.flush_frame();
         assert!(!handle.has_pending_latency_reply());
         assert_probe(&mut receiver, 2);
         assert!(matches!(
             receiver.try_recv().unwrap(),
-            NetworkCommand::FlushFrame
+            NetworkCommand::FlushFrame {
+                cache_opportunity: false
+            }
         ));
         assert_eq!(handle.pending_command_count(), 0);
     }

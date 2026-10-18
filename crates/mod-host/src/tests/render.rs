@@ -294,7 +294,12 @@ fn render_call_budget_traps() {
     let mut calls = Calls::new();
     let init = calls.register("grade", 0, GRADE, false, false);
     let frame = calls.update("grade", true, &[1.0], false) + " ";
-    let (_dir, mut host) = load(&calls, &init, &frame.repeat(33), granted());
+    let (_dir, mut host) = load(
+        &calls,
+        &init,
+        &frame.repeat(mod_api::MAX_RENDER_CALLS + 1),
+        granted(),
+    );
     let error = host.frame(false).unwrap_err();
     assert!(format!("{error:#}").contains("render import budget exhausted"));
     assert!(host.render().0.passes.is_empty());
