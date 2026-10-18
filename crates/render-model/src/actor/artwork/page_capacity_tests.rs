@@ -56,8 +56,10 @@ fn recompiled_actor_pages_share_pixels_and_release_them_after_the_last_owner() {
         rgba8: Arc::from([73; 16]),
     };
     let first = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
-    let mut base = ActorArtworkPages::default();
-    base.identity = [19; 32];
+    let base = ActorArtworkPages {
+        identity: [19; 32],
+        ..Default::default()
+    };
     let second = base.with_pack_artwork(&[texture], &[]);
     let pixels = Arc::downgrade(&first.pages()[0].rgba8);
     assert!(Arc::ptr_eq(
