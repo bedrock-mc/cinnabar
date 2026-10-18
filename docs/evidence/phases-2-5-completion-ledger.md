@@ -12,6 +12,13 @@ incomplete. This adds no completed parity or browser-release gate.
 transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
 delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
 browser-release gate.
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers read the separate animation state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last
