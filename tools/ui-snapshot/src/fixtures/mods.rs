@@ -41,6 +41,7 @@ fn view(metadata: bool) -> Fixture {
                         licenses: Some("MIT OR Apache-2.0".into()),
                         icon: Some(icon()),
                         update_repository: None,
+                        update_url: None,
                     },
                 ),
                 card(

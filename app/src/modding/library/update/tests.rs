@@ -26,6 +26,7 @@ fn component(version: &str, source: &str, valid: bool) -> Vec<u8> {
 
 /// Appends a custom section without depending on a second production encoder.
 fn section(bytes: &mut Vec<u8>, name: &str, data: &[u8]) {
+    /// Encodes an unsigned LEB128 section length.
     fn length(mut value: usize, bytes: &mut Vec<u8>) {
         loop {
             let byte = (value & 127) as u8;
