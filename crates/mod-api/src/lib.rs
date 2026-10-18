@@ -158,6 +158,7 @@ pub mod bindings {
             "wit",
         ],
         world: "cinnabar:extension/extension@0.1.0",
+        generate_all,
         pub_export_macro: true,
     });
 }

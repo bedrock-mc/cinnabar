@@ -169,7 +169,7 @@ impl Default for Store {
     fn default() -> Self {
         Self {
             owner: NEXT_OWNER
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                     owner.checked_add(1)
                 })
                 .expect("drawing owners exhausted"),
@@ -332,10 +332,10 @@ impl Store {
             resources.geometry_revision += 1;
             Ok(())
         })?;
-        if let Some(geometry) = retired {
-            if !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry)) {
-                self.retired.push(geometry);
-            }
+        if let Some(geometry) = retired
+            && !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry))
+        {
+            self.retired.push(geometry);
         }
         Ok(())
     }
