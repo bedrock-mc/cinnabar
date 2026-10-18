@@ -332,6 +332,51 @@ fn linked_spawn(unique_id: i64, runtime_id: u64, links: Arc<[ActorLinkEvent]>) -
 }
 
 #[test]
+fn embedded_links_publish_one_final_local_mount_and_actor_removal_dismounts() {
+    let mut stream = riding_stream();
+    stream
+        .submit(
+            1,
+            linked_spawn(
+                50,
+                50,
+                Arc::from([
+                    actor_link(1, 40, ActorLinkType::Rider),
+                    actor_link(1, 50, ActorLinkType::Passenger),
+                    actor_link(1, 60, ActorLinkType::Unknown(9)),
+                ]),
+            ),
+        )
+        .unwrap();
+    assert_eq!(stream.authority.ridden_unique_id(1), Some(50));
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 1,
+            ridden_unique_id: Some(50),
+        }]
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Remove(ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 50,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.authority.ridden_unique_id(1), None);
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 2,
+            ridden_unique_id: None,
+        }]
+    );
+}
+
+#[test]
 fn world_stream_retains_remote_link_before_spawn_without_local_ui() {
     let mut stream = riding_stream();
     stream
