@@ -8607,6 +8607,16 @@ Rendered survival/creative selected-name geometry is inspected at the owner's
 Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
 local evidence paths and verification state.
 
+Recipe unlock packets now have a retained authority foundation: exact names and
+contexts survive recipe admission, additions resolve against the ordered catalog,
+and explicit membership survives ordinary catalog clears while a new session
+resets it. Unsupported crafting shapes and furnace-family identities remain
+addressable. Duplicate names across eligible tags are conservatively unresolved;
+exact tag priority and synthesized multi-recipe identities remain incomplete.
+This foundation does not gate existing manual or book consumers. Game-rule
+consumers, category masks, toast presentation, exact player lifecycle and stable
+live acceptance remain incomplete.
+
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
@@ -10369,13 +10379,15 @@ instances. Geometry admission validates each vertex once and caches box and sphe
 payload bytes and expanded vertex counts. Instance validation uses only cached facts;
 nonuniform scales use conservative extent bounds. Callbacks without resource changes
 preserve snapshots without allocating; separate geometry, material and instance revisions
-and snapshot identity determine retained publication.
+and snapshot identity determine retained publication. Entity root anchors use exact
+owner-issued spawn references and the actor renderer publication. Missing roots hide,
+while confirmed despawns release their instances.
 
 Procedural materials add fixed per-instance parameters, a wrapped real-time session clock,
 SDK presets and owner-scoped fragment-only WGSL with compile and cost bounds. World
 emission participates in enabled HDR bloom; render-mode-independent halos require the
 separate mask path. Deterministic lifecycle, shader and animation capture tests cover these
-contracts. Entity anchors, in-world native output captures and hardware budgets remain
+contracts. Bone anchors, in-world native output captures and hardware budgets remain
 incomplete; no rendering parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and

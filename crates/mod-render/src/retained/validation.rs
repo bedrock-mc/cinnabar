@@ -143,8 +143,10 @@ pub(super) fn instance(
     {
         return Err(error(ErrorCode::Denied, "drawing authority"));
     }
-    if matches!(instance.anchor, Anchor::Entity(_)) {
-        return Err(error(ErrorCode::Unsupported, "entity anchors"));
+    if let Anchor::Entity(anchor) = instance.anchor
+        && !resources.entities.contains_key(&anchor.entity)
+    {
+        return Err(error(ErrorCode::StaleHandle, "entity"));
     }
     if let Some(material) = instance.material
         && !resources.materials.contains_key(&material)

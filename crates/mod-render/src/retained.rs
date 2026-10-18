@@ -9,8 +9,10 @@ use std::{
     },
 };
 
+mod entities;
 mod materials;
 pub mod mesh;
+pub use entities::EntityKey;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -167,12 +169,14 @@ pub struct DrawError {
 pub struct Resources {
     pub connection: u64,
     pub dimension: i32,
+    pub entities: BTreeMap<Handle, EntityKey>,
     pub geometry: BTreeMap<Handle, Arc<Geometry>>,
     pub instances: BTreeMap<Handle, Instance>,
     pub materials: BTreeMap<Handle, Arc<crate::material::Material>>,
     groups: BTreeMap<String, Vec<Handle>>,
     pub geometry_revision: u64,
     pub material_revision: u64,
+    /// Changes when placements or their entity references change.
     pub instance_revision: u64,
 }
 
@@ -188,6 +192,7 @@ pub struct Store {
     retired: Vec<Arc<Geometry>>,
     retired_materials: Vec<Arc<crate::material::Material>>,
     material_compiles: u32,
+    entity_candidates: Vec<EntityKey>,
 }
 
 impl Default for Store {
@@ -207,6 +212,7 @@ impl Default for Store {
             retired: Vec::new(),
             retired_materials: Vec::new(),
             material_compiles: 0,
+            entity_candidates: Vec::new(),
         }
     }
 }
@@ -271,6 +277,7 @@ impl Store {
         self.retired.clear();
         self.retired_materials.clear();
         self.material_compiles = 0;
+        self.entity_candidates.clear();
     }
 
     /// Validates and retains an immutable mesh, charging live and retiring resources.
@@ -376,6 +383,13 @@ impl Store {
         let mut retired = None;
         let mut retired_material = None;
         self.edit(0, |resources| {
+            if resources.entities.contains_key(&handle) {
+                if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
+                resources.entities.remove(&handle);
+                resources.instance_revision += 1;
+                return Ok(());
+            }
+
             if resources.instances.remove(&handle).is_some() {
                 resources.instance_revision += 1;
                 return Ok(());
