@@ -682,6 +682,7 @@ fn expected_destroy_input(bytes: &'static [u8]) -> protocol::Packet {
     transaction.trigger_type = ItemUseInventoryTransactionTriggerType::Unknown;
     transaction.click_position = [0.0; 3].into();
     transaction.target_block_id = wire::VarUInt(0);
+    transaction.item.net_id_variant = None;
     packet
 }
 

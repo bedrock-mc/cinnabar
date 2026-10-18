@@ -7908,6 +7908,12 @@ the interaction parity gate.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Selected transaction descriptors omit the optional stack network ID for actor use,
+block use/destroy, air use, item-directed attack and release, including the shared
+embedded movement payload. Serialization regressions preserve item contents and
+inventory action identities. Admission, dynamic actions, NBT rewriting and combined
+runtime acceptance remain incomplete; this bounded correction closes no parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid
@@ -10391,6 +10397,14 @@ sneak and sprint states. Undefined attributes retain their wire defaults and ref
 sends remain pending. Other locally predicted flags, bounding-box updates, history
 loss and exact send phase remain open; this does not close movement parity.
 
+## Local actor presentation flags (incomplete)
+
+Local animation flags are retained separately from received gameplay metadata.
+Visual held-item use and locomotion poses cannot change correction-sync flags.
+Nametags, player previews, hands and the paperdoll read the rendering state.
+
+Accepted local held-use and glide/swim/crawl projection, replay authority and exact
+send phase remain incomplete. This separation does not close movement parity.
 ## Sign text line breaks
 
 Sign edits retain existing trailing blank lines and line breaks entered before closing.

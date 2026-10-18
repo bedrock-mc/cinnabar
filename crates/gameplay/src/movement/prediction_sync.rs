@@ -2,6 +2,8 @@
 
 use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 mod countdown;
+#[cfg(test)]
+mod presentation_tests;
 
 pub(super) use countdown::PredictionSyncCountdown;
 
@@ -255,7 +257,8 @@ mod tests {
         );
     }
 
-    struct LocalActor(client_world::ActorSnapshot);
+    /// Exposes one authority snapshot through the gameplay world query boundary.
+    pub(super) struct LocalActor(pub(super) client_world::ActorSnapshot);
 
     impl crate::GameplayWorld for LocalActor {
         fn canonical_item_stack(
@@ -349,7 +352,8 @@ mod tests {
         LocalActor(authority.actor(7).expect("spawn committed").clone())
     }
 
-    fn due_physics() -> LocalPhysicsController {
+    /// Advances the correction countdown without completing a movement sample.
+    pub(super) fn due_physics() -> LocalPhysicsController {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
         physics.prediction_sync.arm();

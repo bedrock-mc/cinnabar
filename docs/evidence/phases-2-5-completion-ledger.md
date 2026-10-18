@@ -12,6 +12,13 @@ incomplete. This adds no completed parity or browser-release gate.
 transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
 delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
 browser-release gate.
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers read the separate animation state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last
@@ -419,6 +426,11 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 | Final status | Open |
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
+
+Selected transaction descriptor regressions cover optional stack-ID omission while
+preserving item contents, inventory action IDs and legacy requests. The shared
+embedded movement payload uses the same conversion. Admission, dynamic actions,
+NBT rewriting and combined runtime acceptance remain incomplete.
 
 Block and actor rays share float normalization. Block traversal and clipping use
 rounded float segments; placement bounds and click coordinates stay in float
