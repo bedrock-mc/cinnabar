@@ -13,6 +13,9 @@ use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
+/// Height of one group label, excluding its divider.
+const GROUP_HEIGHT: f32 = 4.8;
+
 /// One sidebar category; installed `art` is drawn when present, else the pixel `fill` and
 /// `glyph`.
 struct Tab {
@@ -69,7 +72,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Glyph::Grid,
             Some("options.general"),
         ),
-        Updates => (None, [64, 113, 78], Glyph::Download, None),
+        Updates => (None, [64, 113, 78], Glyph::Download, Some("Application")),
         Video => (
             Some(SETTINGS_ICONS[6]),
             [193, 142, 62],
@@ -176,7 +179,8 @@ pub(super) fn draw(
                 .map(|height| canvas.r(4.8).max(height + canvas.r(1.6)))
         })
         .collect::<Result<_, _>>()?;
-    let content = heights.iter().sum::<f32>() + canvas.r(1.6 + 3.0 * (4.8 + EDGE));
+    let groups = TABS.iter().filter(|tab| tab.group.is_some()).count() as f32;
+    let content = heights.iter().sum::<f32>() + canvas.r(1.6 + groups * (GROUP_HEIGHT + EDGE));
     let max = (content - (viewport[3] - viewport[1])).max(0.0);
     let key = "oreui_settings_sidebar";
     if let Some(offset) = canvas.offsets.get_mut(key) {
@@ -253,7 +257,7 @@ fn group_label(
     span: [f32; 2],
     top: f32,
 ) -> Result<f32, PaintError> {
-    let bottom = top + canvas.r(4.8);
+    let bottom = top + canvas.r(GROUP_HEIGHT);
     let edge = canvas.r(EDGE);
     let pad = canvas.r(1.6);
     canvas.text_line(

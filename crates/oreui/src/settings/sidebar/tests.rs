@@ -375,3 +375,43 @@ fn updates_has_a_distinct_sidebar_destination() {
             .any(|(action, _)| *action == MenuAction::SettingsSection(updates))
     );
 }
+
+/// The last application tab remains fully clickable after scrolling to the sidebar's end.
+#[test]
+fn application_updates_remains_reachable_at_the_bottom() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let updates = MenuAction::SettingsSection(SettingSection::Updates.definition().index);
+    let mut row_height = 0.0;
+    let (scrolls, hits, nodes) = crate::review_tests::paint(
+        HashMap::from([("oreui_settings_sidebar".into(), 1_000_000.0)]),
+        |canvas| {
+            row_height = canvas.r(4.8);
+            draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
+        },
+    );
+    let row = hits
+        .iter()
+        .find(|(action, _)| *action == updates)
+        .expect("Updates must be reachable at the end of the sidebar")
+        .1;
+    assert_eq!(hits.last().unwrap().0, updates);
+    let viewport = scrolls[0].viewport;
+    assert!(row.min().y() >= viewport.min().y());
+    assert!(row.max().y() <= viewport.max().y());
+    assert!(row.max().y() - row.min().y() >= row_height);
+    let labels = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(labels.iter().any(|label| label == "Application"));
+}

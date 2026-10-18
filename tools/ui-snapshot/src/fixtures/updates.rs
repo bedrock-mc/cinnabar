@@ -94,22 +94,11 @@ pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
     Fixture::Menu(view)
 }
 
-/// Focuses the update check row with anonymous version and worker status data.
+/// Shows update status with the selected sidebar tab scrolled into view.
 pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
-    let mut view = super::settings(
-        launcher::menu::settings_sections::SettingSection::Updates
-            .definition()
-            .name,
-    );
+    let section = launcher::menu::settings_sections::SettingSection::Updates.definition();
+    let mut view = super::settings(section.name);
     view.updates.status = status;
-    // A busy button has no focus target, so use a nearby preference in that case.
-    view.focused_action = Some(if status.is_busy() {
-        launcher::menu::MenuAction::SettingsOption(
-            launcher::menu::settings_options::SettingId::InstallUpdatesOnQuit.index() as u16,
-            1,
-        )
-    } else {
-        launcher::menu::MenuAction::Update(launcher::menu::updates::Action::CheckNow)
-    });
+    view.focused_action = Some(launcher::menu::MenuAction::SettingsSection(section.index));
     Fixture::Menu(Box::new(view))
 }
