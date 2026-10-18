@@ -110,15 +110,17 @@ fn body_glyph_height(input: &render_model::UiRenderInput) -> f32 {
         .map_or(0.0, |(bits, _)| f32::from_bits(bits))
 }
 
+/// Measures a complete visible toggle, rather than a fragment clipped by the scroll viewport.
 fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
     let presentation = app.world().resource::<UiPresentationResource>();
     let (action, bounds) = client_ui::test_support::menu_hit_targets(presentation)
         .iter()
-        .find(|(action, _)| {
+        .filter(|(action, _)| {
             matches!(action, MenuAction::SettingsOption(index, _)
             if matches!(launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
                 launcher::menu::settings_options::SettingKind::Toggle))
         })
+        .max_by(|(_, left), (_, right)| left.height().total_cmp(&right.height()))
         .expect("the initial native Settings category renders a toggle");
     let physical_centre = [
         (bounds.min().x() + bounds.max().x()) / 2.0 * dpi.get(),
@@ -134,14 +136,7 @@ fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
 
 #[test]
 fn gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer() {
-    let Some(presentation) = engine_presentation() else {
-        eprintln!(
-            "skipping gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
     let mut app = settings_app(true, None);
-    app.insert_resource(UiPresentationResource(presentation));
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::Navigate(MenuScreen::Settings));
@@ -337,7 +332,11 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
     }
 }
 
+/// Checks the physical size and pixel alignment of the cursor nearest the viewport center.
 fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2], scale: u8) {
+    let size = assets::HudTextureRole::Crosshair
+        .expected_size()
+        .map(|side| side as f32 * f32::from(scale));
     let crosshair = input
         .vertices
         .as_chunks::<4>()
@@ -362,13 +361,15 @@ fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2]
             )
         })
         .find(|bounds| {
-            (bounds[0] + bounds[2]) / 2.0 == physical[0] as f32 / 2.0
-                && (bounds[1] + bounds[3]) / 2.0 == physical[1] as f32 / 2.0
+            bounds[2] - bounds[0] == size[0]
+                && bounds[3] - bounds[1] == size[1]
+                && ((bounds[0] + bounds[2]) / 2.0 - physical[0] as f32 / 2.0).abs() <= 0.5
+                && ((bounds[1] + bounds[3]) / 2.0 - physical[1] as f32 / 2.0).abs() <= 0.5
         })
         .expect("the engine HUD renders its crosshair");
-    let size = assets::HudTextureRole::Crosshair.expected_size();
-    assert_eq!(crosshair[2] - crosshair[0], size[0] as f32 * scale as f32);
-    assert_eq!(crosshair[3] - crosshair[1], size[1] as f32 * scale as f32);
+    for edge in crosshair {
+        assert_eq!(edge, edge.round(), "the crosshair stays on physical pixels");
+    }
 }
 
 #[test]

@@ -89,3 +89,23 @@ fn invalid_hotbar_stack_shape_fails_instead_of_sending_air() {
         InventoryPacketError::InvalidItemNetworkId(stack.network_id)
     );
 }
+
+#[test]
+fn offhand_update_round_trips_its_equipment_address_and_clear() {
+    for stack in [selected_stack(), NetworkItemStack::empty()] {
+        let packet = offhand_equipment_packet(4242, &stack).unwrap();
+        let mut decoded = crate::decode_batch(crate::encode(&packet).unwrap()).unwrap();
+        let packets::Packet::MobEquipment(packet) = *decoded.remove(0).data else {
+            panic!("offhand update must build equipment");
+        };
+        assert_eq!(packet.target_runtime_id.0, 4242);
+        assert_eq!(packet.slot.0, 1);
+        assert_eq!(packet.selected_slot.0, 0);
+        assert_eq!(i32::from(packet.container_id.0), crate::OFFHAND_WINDOW_ID);
+        let mut expected = stack;
+        expected.stack_network_id = -1;
+        let event = normalize_equipment(packet).unwrap();
+        assert_eq!(event.handedness, Some(ActorHandedness::Left));
+        assert_eq!(event.stack, expected);
+    }
+}

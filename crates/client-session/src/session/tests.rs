@@ -1,4 +1,5 @@
 use protocol::identity::FifoSequence;
+use render_api::sub_chunk_requests::{SubChunkRequestMember, SubChunkRequestReceipt};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{
     collections::VecDeque,
@@ -49,6 +50,26 @@ mod transfer_tests;
 
 fn test_packet() -> protocol::Packet {
     protocol::request_sub_chunk_column(0, 0, 0, -4, 1).unwrap()
+}
+
+/// Gives transport tests an immutable identity with sparse, cross-column membership.
+fn test_sub_chunk_receipt(x: i32, z: i32) -> SubChunkRequestReceipt {
+    SubChunkRequestReceipt {
+        owner: (7, 2),
+        id: x as u64,
+        dimension: 0,
+        members: vec![
+            SubChunkRequestMember {
+                position: [x, -4, z],
+                demand: 11,
+            },
+            SubChunkRequestMember {
+                position: [x + 1, -2, z],
+                demand: 12,
+            },
+        ]
+        .into(),
+    }
 }
 
 #[test]
@@ -227,7 +248,11 @@ impl<E: Send + 'static> PacketOutbound<E> {
 impl<E: std::fmt::Display + Send + 'static> OutboundSession for PacketOutbound<E> {
     type Error = E;
 
-    async fn send_batch(&mut self, packets: Vec<protocol::Packet>) -> Result<(), E> {
+    async fn send_batch(
+        &mut self,
+        packets: Vec<protocol::Packet>,
+        _: Option<simulation_clock::Moment>,
+    ) -> Result<(), E> {
         for packet in packets {
             (self.write)(packet).await?;
         }
@@ -516,27 +541,28 @@ async fn final_cache_telemetry_flushes_after_shutdown_is_already_set() {
     worker.await.expect("network pump stops after final flush");
 }
 
-#[tokio::test]
-async fn final_cache_telemetry_flush_is_bounded_when_control_queue_stays_full() {
+#[test]
+fn final_cache_telemetry_flush_uses_the_host_deadline_when_control_queue_stays_full() {
     let session = CachedInboundSession {
         inbound: None,
         stats: BlobCacheStats::default(),
     };
     let (events, _event_rx) = mpsc::channel(1);
     events
-        .send(NetworkControlEvent::Stopped {
+        .try_send(NetworkControlEvent::Stopped {
             decode_error_count: 0,
         })
-        .await
-        .expect("fill control queue");
-    let delivered = tokio::time::timeout(
-        Duration::from_secs(1),
-        send_final_blob_cache_telemetry(&session, &events),
-    )
-    .await
-    .expect("final telemetry flush must have a fixed deadline");
-
-    assert!(!delivered);
+        .unwrap();
+    let timers = bridge::tasks::Timers(|duration| {
+        assert_eq!(duration, super::FINAL_CONTROL_FLUSH_TIMEOUT);
+        Box::pin(std::future::ready(()))
+    });
+    let mut delivered = std::pin::pin!(send_final_blob_cache_telemetry(&session, &events, timers));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert_eq!(
+        delivered.as_mut().poll(&mut context),
+        std::task::Poll::Ready(false)
+    );
 }
 
 #[tokio::test]
@@ -589,9 +615,7 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
             &control_events,
             &mut shutdown_rx,
             NetworkControlEvent::SubChunkRequestSent {
-                chunk: world::ChunkKey::new(0, 4, -3),
-                base_sub_chunk_y: -4,
-                count: 24,
+                receipt: test_sub_chunk_receipt(4, -3),
                 sent_at,
             },
         )
@@ -601,11 +625,8 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
     assert!(matches!(
         control_event_rx.try_recv(),
         Ok(NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y: -4,
-            count: 24,
-            sent_at: observed,
-        }) if chunk == world::ChunkKey::new(0, 4, -3) && observed == sent_at
+            receipt, sent_at: observed,
+        }) if receipt == test_sub_chunk_receipt(4, -3) && observed == sent_at
     ));
     assert!(matches!(
             world_event_rx.try_recv(),
@@ -637,7 +658,11 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: None,
@@ -682,11 +707,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
         commands
             .try_send(NetworkCommand::Send {
                 packet: test_packet(),
-                sub_chunk: Some(super::SubChunkRequestSend {
-                    chunk: world::ChunkKey::new(0, index as i32, 0),
-                    base_sub_chunk_y: -4,
-                    count: 1,
-                }),
+                sub_chunk: Some(test_sub_chunk_receipt(index as i32, 0)),
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
@@ -699,7 +720,11 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     let (control_event_tx, mut control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
     let inbound_selected = Arc::new(AtomicBool::new(false));
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: Some(WorldEvent::ChunkRadiusUpdated(99)),
@@ -723,11 +748,8 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     assert!(matches!(
         acknowledgement,
         NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y: -4,
-            count: 1,
-            ..
-        } if chunk == world::ChunkKey::new(0, 0, 0)
+            receipt, ..
+        } if receipt == test_sub_chunk_receipt(0, 0)
     ));
     assert!(commands.capacity() > 0, "the worker must consume a command");
     assert_eq!(
@@ -782,6 +804,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             death_rules: protocol::DeathRules::default(),
+            crafting_rules: Default::default(),
             packs: (),
             terrain_before_spawn: true,
             level_identity: None,

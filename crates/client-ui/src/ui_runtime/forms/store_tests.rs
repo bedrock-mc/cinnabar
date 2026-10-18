@@ -28,10 +28,14 @@ fn admit(model: ServerFormModel, kind: FormKind) -> UiRuntime {
 
 fn sent(runtime: &mut UiRuntime) -> Vec<Packet> {
     let mut packets = Vec::new();
-    while flush_form_response(runtime, |packet| {
-        packets.push(packet);
-        Ok(())
-    })
+    while flush_form_response(
+        runtime,
+        |_| false,
+        |packet| {
+            packets.push(packet);
+            Ok(())
+        },
+    )
     .unwrap()
     {}
     packets

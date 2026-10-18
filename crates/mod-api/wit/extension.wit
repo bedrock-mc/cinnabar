@@ -475,6 +475,7 @@ interface terrain {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import cinnabar:world-draw/masks@0.1.0;
     import terrain;
     import player-state;
     import item-use;
@@ -487,6 +488,7 @@ world extension {
     import panel;
     import settings;
     import render;
+    import cinnabar:world-draw/drawing@0.1.0;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.

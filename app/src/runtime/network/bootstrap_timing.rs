@@ -1,7 +1,8 @@
 //! Per-phase wall time of one StartGame bootstrap, logged once so a join hitch inside
 //! `network_ingestion` names the phase that spent it.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Phases of the bootstrap in the order it runs them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

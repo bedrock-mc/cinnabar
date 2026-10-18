@@ -2,11 +2,34 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use mod_api::MAX_BLOCK_HIGHLIGHTS;
 use mod_render::{RenderOutput, block_highlights, geometry::ModVertex, position_box};
 use std::sync::Arc;
+
+/// Publishes incarnation keys and the admitted body/equipment cost without model or pose data.
+pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::MaskEntity, u64)> {
+    let mut targets = std::collections::BTreeMap::<_, u64>::new();
+    for (entry, instance) in frame.rig.manifest.iter().zip(frame.rig.instances.iter()) {
+        let key = mod_api::drawing::MaskEntity {
+            connection: entry.identity.session_id,
+            dimension: entry.identity.dimension,
+            runtime_id: entry.identity.runtime_id,
+            spawn_revision: entry.identity.spawn_revision,
+        };
+        let vertices = frame
+            .rig
+            .geometry_spans
+            .get(instance.geometry_id as usize)
+            .map_or(0, |span| u64::from(span.vertex_count));
+        let total = targets.entry(key).or_default();
+        *total = total.saturating_add(vertices);
+    }
+    targets.into_iter().collect()
+}
 /// The current mod's render output, extracted whenever the mod commits a change.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct ModRenderScene {
     generation: u64,
     pub passes: Vec<mod_render::Pass>,
+    pub retained: Vec<Arc<mod_render::retained::Resources>>,
+    pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
     pub marker_vertices: Arc<[ModVertex]>,
@@ -32,6 +55,8 @@ impl ModRenderScene {
         }
         self.generation = generation;
         self.passes.clone_from(&output.passes);
+        self.retained.clone_from(&output.retained);
+        self.masks = Arc::clone(&output.masks);
         if !Arc::ptr_eq(&self.primitives, &output.primitives) {
             self.primitives = Arc::clone(&output.primitives);
             self.vertices = mod_render::geometry::build(&output.primitives).into();
@@ -72,7 +97,11 @@ impl ModRenderScene {
 
     /// Drops every pass and primitive, as when a mod traps, reloads or is revoked.
     pub fn clear(&mut self) {
-        if self.generation != 0 || !self.passes.is_empty() || self.vertex_count() != 0 {
+        if self.generation != 0
+            || !self.passes.is_empty()
+            || !self.masks.is_empty()
+            || self.vertex_count() != 0
+        {
             *self = Self::default();
         }
     }
@@ -94,3 +123,6 @@ impl ModRenderScene {
 mod block_highlights_tests;
 #[cfg(test)]
 mod position_box_tests;
+
+/// Same-frame placement and GPU inputs for retained world drawing.
+pub mod retained;

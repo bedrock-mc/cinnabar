@@ -17,6 +17,8 @@ use {
 
 use gameplay::item_use::fixtures::classify;
 
+mod backing;
+
 const BOW: i32 = 300;
 
 fn selected_stack(slot: u8, network_id: i32, count: u16) -> FrozenMiningSelection {
@@ -240,6 +242,32 @@ fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
             .render_input(&player_runtime, &stream, &ui, 40, 0.0)
             .hand_charged
     );
+}
+
+#[test]
+fn world_backing_item_classification_survives_a_screen_prediction() {
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let (stream, mut ui) = fixture(&mut player, "minecraft:crossbow");
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let ledger = ui.inventory_ledger_mut(&mut player);
+    ledger.apply(&InventoryEvent::Authority(
+        protocol::InventoryAuthority::Server,
+    ));
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.begin_click(2).unwrap();
+    assert!(ledger.displayed_stack(2).is_none());
+    assert!(matches!(
+        selected_air_use(&player, &stream),
+        Some(AirUse::Hold { .. })
+    ));
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let started = runtime.step(&use_frame(&player, &stream, &ui, 10));
+    assert!(started.started);
+    assert_eq!(kinds(&started), ["use"]);
 }
 
 #[test]

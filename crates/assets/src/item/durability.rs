@@ -11,10 +11,31 @@ pub const ITEM_DURABILITY_SOURCE_BYTES: &[u8] =
 pub enum ItemDurability {
     Unresolved,
     NotDamageable,
-    Maximum { maximum: u32 },
+    /// An admitted maximum, including zero for a component that remains damageable.
+    Maximum {
+        maximum: u32,
+    },
 }
 
 impl ItemDurability {
+    /// Interprets a parsed maximum: component zero remains damageable, while a legacy
+    /// zero or missing maximum remains unresolved.
+    pub const fn from_declared_maximum(maximum: Option<u32>, component_item: bool) -> Self {
+        match maximum {
+            Some(maximum) if component_item || maximum > 0 => Self::Maximum { maximum },
+            _ => Self::Unresolved,
+        }
+    }
+
+    /// Reports admitted damageability independently of a positive display or repair maximum.
+    pub const fn damageable(self) -> Option<bool> {
+        match self {
+            Self::Unresolved => None,
+            Self::NotDamageable => Some(false),
+            Self::Maximum { .. } => Some(true),
+        }
+    }
+
     /// Returns a positive admitted maximum; unresolved and nondamageable items have no bar.
     pub const fn maximum(self) -> Option<u32> {
         match self {

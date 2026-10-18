@@ -223,7 +223,7 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
     let replacement = gpu.preparation().unwrap();
     test_time::eventually("current pack GPU preparation", || {
         render::settle_publication_noop_frame(&mut app);
-        gpu.status(replacement.assets().identity()) == Some(Ok(()))
+        gpu.status(replacement.assets().binding_identity()) == Some(Ok(()))
     });
     assert!(
         !gpu.finish(&obsolete, true),

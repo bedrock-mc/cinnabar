@@ -65,8 +65,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "web-client"
 path = "web/client"
-allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input"]
-forbidden_dependencies = ["cinnabar", "launcher-host", "bevy", "wgpu"]
+allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "app", "launcher", "protocol", "client-session", "client-audio"]
+forbidden_dependencies = ["launcher-host", "bevy", "wgpu"]
 
 [[crates]]
 name = "web-transport"
@@ -197,7 +197,7 @@ name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support", "runtime-profile", "benchmark-mimalloc"]
 allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "far-terrain", "meshing", "assets", "world", "render-api", "test-time", "protocol-ids"]
-# Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
+# Protocol is permitted only in fixtures; production consumes admitted world and publication contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -225,7 +225,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "render-api", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -430,7 +430,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api"]
+allowed_dependencies = ["mod-api", "test-alloc"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
@@ -1343,7 +1343,15 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-baselines = []
+# The provisional PBR texture-name table must move to a generated mapping (plan.md).
+baselines = [
+    { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
+]
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/web.rs"
+literal = "web"
+reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
@@ -1741,6 +1749,36 @@ literal = "crafting_table"
 reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
 
 [[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "cartography_table"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "smithing_table"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "stonecutter"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "campfire"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "soul_campfire"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/identity.rs"
+literal = "deprecated"
+reason = "Recipe unlock tag vocabulary is normalized at the protocol boundary and exercised by wire fixtures."
+
+[[identifier_literal_exceptions]]
 path = "crates/protocol/src/item/attack.rs"
 literal = "minecraft:is_spear"
 reason = "Authored component tag vocabulary parsed at the assets-free protocol boundary and checked against the pinned tag fixture."
@@ -1980,3 +2018,8 @@ name = "cosmetics"
 path = "crates/cosmetics"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[identifier_literal_exceptions]]
+path = "app/src/runtime/network/item_icons/tints.rs"
+literal = "grass_carried"
+reason = "Terrain-atlas carried-grass colour source; this selects authored inventory tint metadata, not a block identity."

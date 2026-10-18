@@ -53,7 +53,7 @@ impl UiRuntime {
             })
             .map_or(CreativeDestination::Cursor, CreativeDestination::Player);
         self.inventory_ledger_mut(player_runtime)
-            .begin_creative_take_count(id, destination, Some(count))
+            .begin_creative_take(id, destination, Some(count))
     }
 
     /// Crafts crafting recipe `network_id` once from inventory ingredients onto the cursor, as
@@ -72,7 +72,6 @@ impl UiRuntime {
                     .cloned()
             })
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        self.inventory_ledger_mut(player_runtime)
-            .begin_auto_craft(&recipe)
+        player_runtime.inventory.begin_book_craft(&recipe)
     }
 }

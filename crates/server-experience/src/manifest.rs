@@ -9,6 +9,8 @@ pub struct Scope {
     pub origins: BTreeSet<String>,
     pub memory_bytes: u64,
     pub gpu_bytes: u64,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub personal_mods: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -70,6 +72,12 @@ pub enum Permission {
     Scene,
     Media,
     Items,
+    WorldDraw,
+    EntityObserve,
+    EntityHighlight,
+    RenderThroughWalls,
+    RenderMaterial,
+    RenderPost,
 }
 
 /// Restricts identifiers to the shared portable namespace.
@@ -87,6 +95,12 @@ pub fn implemented_permissions() -> BTreeSet<Permission> {
         Permission::ModalUi,
         Permission::Input,
         Permission::Messaging,
+        Permission::WorldDraw,
+        Permission::EntityObserve,
+        Permission::EntityHighlight,
+        Permission::RenderThroughWalls,
+        Permission::RenderMaterial,
+        Permission::RenderPost,
     ])
 }
 // END GENERATED EXTENSION CONTRACT
@@ -106,6 +120,13 @@ impl Scope {
         );
         ensure!(self.gpu_bytes <= MAX_GPU_BYTES, "GPU grant too large");
         ensure!(self.origins.len() <= MAX_ORIGINS, "too many origins");
+        ensure!(
+            self.personal_mods.len() <= MAX_BUNDLES,
+            "too many personal mod grants"
+        );
+        for digest in &self.personal_mods {
+            fixed_hex::<32>(digest)?;
+        }
         for origin in &self.origins {
             let url = crate::fetch::approved_url(origin, &self.origins)?;
             ensure!(
@@ -176,7 +197,10 @@ impl Manifest {
     pub fn validate_screens(&self) -> Result<()> {
         ensure!(self.templates.len() <= MAX_TEMPLATES, "too many templates");
         for template in &self.templates {
-            ensure!(template_root(template).is_some(), "invalid template path");
+            ensure!(
+                crate::screen::template_root(template).is_some(),
+                "invalid template path"
+            );
             ensure!(
                 self.files
                     .iter()
@@ -202,17 +226,6 @@ impl Manifest {
 
 /// Where a bundle keeps the images its screens may draw.
 pub const TEXTURE_DIR: &str = "textures/";
-
-/// The control a template file opens as: `ui/terminal.json` opens `terminal` of the bundle's
-/// namespace. `None` for a path that is not one `ui/` file with a JSON-UI name.
-pub fn template_root(path: &str) -> Option<&str> {
-    let name = path.strip_prefix("ui/")?.strip_suffix(".json")?;
-    (!name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
-    .then_some(name)
-}
 
 /// The JSON-UI namespace every template of bundle `id` declares: the id with each character a
 /// JSON-UI name cannot hold replaced by `_`.

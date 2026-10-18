@@ -10,11 +10,12 @@ pub fn resolve_item_durability(
         return ItemDurability::Unresolved;
     }
     if let Some(components) = &entry.components {
-        if let Some(maximum) = components.max_durability.filter(|value| *value > 0) {
-            return ItemDurability::Maximum { maximum };
-        }
-        if components.durability_declared {
-            return ItemDurability::Unresolved;
+        let durability = ItemDurability::from_declared_maximum(
+            components.max_durability,
+            entry.component_based || matches!(entry.version, ItemRegistryVersion::DataDriven),
+        );
+        if durability.damageable() == Some(true) || components.durability_declared {
+            return durability;
         }
         if entry.component_based {
             return ItemDurability::NotDamageable;
@@ -79,6 +80,28 @@ mod tests {
         assert_eq!(store.item_durability(10_001), ItemDurability::Unresolved);
         assert_eq!(store.item_durability(10_002), ItemDurability::Unresolved);
     }
+    /// A valid zero component maximum remains damageable without a positive display maximum.
+    #[test]
+    fn zero_component_durability_survives_world_registry_admission() {
+        let mut entry = protocol::vanilla_item_registry()[0].clone();
+        entry.identifier = "fixture:zero_durability".into();
+        entry.network_id = 10_001;
+        entry.component_based = true;
+        entry.version = ItemRegistryVersion::DataDriven;
+        entry.components = Some(Arc::new(protocol::ItemComponents {
+            durability_declared: true,
+            max_durability: Some(0),
+            ..Default::default()
+        }));
+        let mut store = super::super::ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: vec![entry].into()
+        }));
+        let durability = store.item_durability(10_001);
+        assert_eq!(durability.damageable(), Some(true));
+        assert_eq!(durability.maximum(), None);
+    }
+
     #[test]
     fn durability_support_distinguishes_known_absence_from_missing_payload_and_versions() {
         let mut entry = protocol::vanilla_item_registry()[0].clone();

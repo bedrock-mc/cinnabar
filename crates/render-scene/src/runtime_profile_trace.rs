@@ -15,8 +15,9 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{JoinHandle, ThreadId},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 const TRACE_CAPACITY: usize = 131_072;
 const MAX_TRACE_CAPACITY: usize = 2_097_152;

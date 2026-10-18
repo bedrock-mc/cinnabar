@@ -90,6 +90,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     let packages = (0..count)
         .map(|i| PackageOffer {
@@ -347,6 +348,30 @@ fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     assert_eq!(sends[0].bundle, "bundle0");
     assert_eq!(sends[1].bundle, "bundle1");
     assert_eq!(live.pending_send_bytes, 0);
+}
+
+/// Outbound guest messages consume shared rate credit and resume when the caller advances time.
+#[test]
+fn outbound_sends_enforce_the_shared_rate_limit() {
+    let mut live = fixture(1);
+    for sequence in 1..=MAX_MESSAGES_PER_SECOND {
+        complete(&mut live, "bundle0");
+        let packets = live.poll(1, 0).unwrap();
+        let send: Envelope = serde_json::from_slice(packets.last().unwrap()).unwrap();
+        assert_eq!(send.sequence, sequence);
+    }
+
+    complete(&mut live, "bundle0");
+    assert_eq!(
+        live.poll(1, 0).unwrap_err().to_string(),
+        "channel rate exceeded"
+    );
+
+    complete(&mut live, "bundle0");
+    let packets = live.poll(1, 1000).unwrap();
+    assert_eq!(packets.len(), 1);
+    let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();
+    assert_eq!(send.payload, vec![Scalar::Bool(true)]);
 }
 
 #[test]

@@ -12,6 +12,13 @@ pub const COMPONENT: &str = "mod.wasm";
 #[serde(rename_all = "snake_case")]
 pub enum ModPermission {
     Screen,
+    WorldDraw,
+    EntityObserve,
+    EntityHighlight,
+    RenderThroughWalls,
+    RenderMaterial,
+    RenderPost,
+
     Items,
     Recipes,
     Keys,

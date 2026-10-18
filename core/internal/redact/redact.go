@@ -195,8 +195,8 @@ func (set *ruleSet) apply(rule rule, text string) string {
 	return out.String()
 }
 
-// sourceLocations preserves file locations with a path separator or column and complete ISO
-// timestamps, whose colons and digits do not name servers.
+// sourceLocations preserves file locations with a path separator or column, ISO timestamps
+// and line-leading log times, whose colons and digits do not name servers.
 func (set *ruleSet) sourceLocations(text string) [][]int {
 	var spans [][]int
 	for _, match := range set.sourceLocation.FindAllStringSubmatchIndex(text, -1) {

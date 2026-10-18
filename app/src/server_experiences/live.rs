@@ -8,11 +8,12 @@ use server_experience::{
     manifest::{Manifest, Permission, developer_permissions},
     negotiation::Grant,
     policy::*,
+    rate_limit::RateLimit,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
     screen::{self, GuiSize},
     session::Control,
     session_data::{SessionData, SessionItems},
-    wire::{self, Envelope, Ingress, RateLimit},
+    wire::{self, Envelope, Ingress},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},

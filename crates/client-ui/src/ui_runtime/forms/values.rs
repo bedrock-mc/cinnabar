@@ -43,7 +43,7 @@ pub struct FormEngineState {
     /// A touch pan on this scroll view key, with the pointer's last position.
     pub scroll_touch: Option<(String, [f64; 2])>,
     /// When scroll dynamics last stepped.
-    pub scroll_clock: Option<std::time::Instant>,
+    pub scroll_clock: Option<web_time::Instant>,
     /// The template's input components (mappings, hover, slider tracks).
     pub dispatcher: json_ui::Dispatcher,
     /// App-clock seconds at the last input frame, for caret blinks.
