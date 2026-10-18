@@ -33,12 +33,46 @@ pub(crate) fn capture(
     }
 }
 
+/// Rebuilt target, reach, actor lifetime and terrain evidence for one admission.
+#[derive(PartialEq)]
+struct AttackInputs {
+    target: crosshair::ResolvedTarget,
+    lifetime: Option<actor_animation::ActorLifetimeId>,
+    world: Option<sim::WorldCollisionIdentity>,
+}
+
+impl AttackInputs {
+    /// Resolves the original published geometry against current policy and world authority.
+    fn observe(
+        player: &client_state::PlayerRuntime,
+        context: &MeleeContext,
+        source: &CapturedAttack,
+        input: &crate::ordered_interactions::InteractionInput,
+    ) -> Option<Self> {
+        let (target, world) = crosshair::resolve_captured(player, context, &source.inputs, input)?;
+        let lifetime = match target.crosshair {
+            Crosshair::Actor(hit) => Some(
+                context
+                    .client_world
+                    .stream
+                    .as_ref()?
+                    .authority()
+                    .actor_lifetime(hit.runtime_id)?,
+            ),
+            _ => None,
+        };
+        Some(Self {
+            target,
+            lifetime,
+            world,
+        })
+    }
+}
+
 /// One press has one selected descriptor and one first-attempt pose even if the queue is full.
 pub(crate) struct AttackAttempt {
     source: CapturedAttack,
-    picked: Option<crosshair::ResolvedTarget>,
-    obstruction: Option<sim::WorldCollisionIdentity>,
-    lifetime: Option<actor_animation::ActorLifetimeId>,
+    picked: Option<AttackInputs>,
     initialized: bool,
     selection: Option<client_interaction::mining::SelectionObservation>,
     press: Option<PressContext>,
@@ -52,8 +86,6 @@ impl AttackAttempt {
         Self {
             source,
             picked: None,
-            obstruction: None,
-            lifetime: None,
             initialized: false,
             selection: None,
             press: None,
@@ -78,53 +110,23 @@ pub(crate) fn step(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) -> Step<AttackAttempt> {
-    if attempt.picked.is_none() {
+    if !attempt.initialized || runtime.press_pending() {
         if hand_interaction_selection(&player).is_none() {
             return Step::new(attempt, Progress::Pending);
         }
-        if let Some((picked, obstruction)) =
-            crosshair::resolve_captured(&player, &context, &attempt.source.inputs, &input)
+        let current = AttackInputs::observe(&player, &context, &attempt.source, &input);
+        if let Some(original) = &attempt.picked
+            && (current.as_ref() != Some(original)
+                || (attempt.press.is_some() && original.world.is_none()))
         {
-            attempt.picked = Some(picked);
-            attempt.obstruction = obstruction;
-        }
-        attempt.lifetime = attempt.picked.and_then(|picked| match picked.crosshair {
-            Crosshair::Actor(hit) => context
-                .client_world
-                .stream
-                .as_ref()?
-                .authority()
-                .actor_lifetime(hit.runtime_id),
-            _ => None,
-        });
-    }
-    let Some(mut picked) = attempt.picked else {
-        return Step::new(attempt, Progress::Pending);
-    };
-    if let Some(lifetime) = attempt.lifetime {
-        let valid = context.client_world.stream.as_ref().is_some_and(|stream| {
-            stream.authority().actor_lifetime(lifetime.runtime_id) == Some(lifetime)
-                && stream
-                    .authority()
-                    .actor(lifetime.runtime_id)
-                    .is_some_and(|actor| !actor.status.dead)
-        }) && picked.reach
-            == crosshair::attack_reach(&player, &context, input.context.mode)
-            && attempt.obstruction.as_ref().map_or_else(
-                || attempt.press.is_none(),
-                |identity| {
-                    crate::interaction_authority::world_identity_current(
-                        &context.client_world,
-                        &context.collisions,
-                        identity,
-                    )
-                },
-            );
-        if !valid {
             runtime.cancel();
             return Step::new(attempt, Progress::Complete);
         }
+        attempt.picked = current;
     }
+    let Some(mut picked) = attempt.picked.as_ref().map(|inputs| inputs.target) else {
+        return Step::new(attempt, Progress::Pending);
+    };
     if !attempt.initialized {
         runtime.synchronize(movement.interaction_authority_identity());
         runtime.observe_input(true, false);
@@ -153,7 +155,6 @@ pub(crate) fn step(
             picked.crosshair,
             timing.is_some_and(|timing| timing.piercing_weapon),
         );
-        attempt.picked = Some(picked);
         let sample = runtime.between_ticks_press(&movement).or_else(|| {
             runtime.press_sample(
                 picked.crosshair,
@@ -194,17 +195,6 @@ pub(crate) fn step(
                     cooldown: timing.attack_cooldown.clone(),
                 }),
         });
-        if picked.crosshair == Crosshair::Block && mining_active {
-            attempt.destroy = crate::survival_mining::observe_destroy_target(
-                &player,
-                &context,
-                &input.context.origin,
-                caps,
-                input.context.mode,
-                input.context.identity,
-                movement.interaction_authority_identity().1,
-            );
-        }
     } else if runtime.press_pending()
         && !attempt
             .selection
@@ -216,9 +206,7 @@ pub(crate) fn step(
         return Step::new(attempt, Progress::Complete);
     }
     if runtime.press_pending() {
-        if !mining_active {
-            attempt.destroy = None;
-        } else if attempt.destroy.as_ref().is_some_and(|observation| {
+        if attempt.destroy.as_ref().is_some_and(|observation| {
             !crate::interaction_authority::world_identity_current(
                 &context.client_world,
                 &context.collisions,
@@ -228,6 +216,24 @@ pub(crate) fn step(
             runtime.cancel();
             return Step::new(attempt, Progress::Complete);
         }
+        let timing = selected_attack_timing(&player, &context.client_world);
+        picked.crosshair = runtime.observe_attack_target(
+            picked.crosshair,
+            timing.is_some_and(|timing| timing.piercing_weapon),
+        );
+        attempt.destroy = (picked.crosshair == Crosshair::Block && mining_active)
+            .then(|| {
+                crate::survival_mining::observe_destroy_target(
+                    &player,
+                    &context,
+                    &input.context.origin,
+                    caps,
+                    input.context.mode,
+                    input.context.identity,
+                    movement.interaction_authority_identity().1,
+                )
+            })
+            .flatten();
     }
     let authority = player
         .facts

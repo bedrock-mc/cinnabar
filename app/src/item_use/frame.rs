@@ -2,7 +2,7 @@
 use super::*;
 use client_presentation::local_player::LocalViewPose;
 
-/// One edge's verified facts stay fixed while transport is full.
+/// Current item-use facts paired with the action's movement pose.
 #[derive(Clone)]
 pub(crate) struct FrozenAirUse {
     pub frame: UseFrame,
@@ -13,6 +13,8 @@ pub(crate) struct FrozenAirUse {
 
 /// Input policy supplied once by the edge or held-use caller.
 pub(super) struct FramePolicy {
+    /// Retains an ordered edge's pose while its admission facts are rebuilt.
+    pub sample: Option<gameplay::movement::InteractionSample>,
     pub held: bool,
     pub before_flush: bool,
     pub delay_fix_enabled: bool,
@@ -30,6 +32,7 @@ pub(super) fn observe(
     policy: FramePolicy,
 ) -> Option<FrozenAirUse> {
     let FramePolicy {
+        sample,
         held,
         before_flush,
         delay_fix_enabled,
@@ -93,14 +96,16 @@ pub(super) fn observe(
     if movement.has_held_release() {
         return None;
     }
-    let sample = if before_flush {
-        movement
-            .newest_unsent_sample()
-            .map(Into::into)
-            .or_else(|| movement.between_ticks_sample())
-    } else {
-        runtime.frame_sample(movement, held, true)
-    };
+    let sample = sample.or_else(|| {
+        if before_flush {
+            movement
+                .newest_unsent_sample()
+                .map(Into::into)
+                .or_else(|| movement.between_ticks_sample())
+        } else {
+            runtime.frame_sample(movement, held, true)
+        }
+    });
     let sample = sample?;
     // Pending presses suppress new starts while accepted uses keep advancing.
     let press_pending = context.block_use.press_pending()

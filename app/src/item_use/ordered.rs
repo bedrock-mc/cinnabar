@@ -1,4 +1,4 @@
-//! One item-use edge uses a frozen proposal; held-use clocks remain frame-owned.
+//! One item-use edge refreshes its admission facts; held-use clocks remain frame-owned.
 
 use super::*;
 use crate::ordered_interactions::{Progress, Step};
@@ -11,7 +11,7 @@ pub(crate) struct AirAttempt {
     pending: Option<gameplay::item_use::PendingUseInput>,
     finished: bool,
     selection: Option<client_interaction::mining::SelectionObservation>,
-    frozen: Option<frame::FrozenAirUse>,
+    sample: Option<gameplay::movement::InteractionSample>,
     fence: Option<gameplay::movement::InteractionFence>,
 }
 
@@ -86,7 +86,7 @@ pub(crate) fn step(
         if !runtime.has_work(held) {
             return Step::new(attempt, Progress::Complete);
         }
-        if attempt.frozen.is_none() {
+        let frozen = {
             let scope = context.client_world.stream.as_ref().map(|stream| {
                 (
                     stream.authority().actor_session_id(),
@@ -97,6 +97,7 @@ pub(crate) fn step(
                 .riptide_release_facing()
                 .unwrap_or_else(|| riptide::release_facing(input.context.aim, &input.context.view));
             let policy = frame::FramePolicy {
+                sample: attempt.sample,
                 held,
                 before_flush: release_facing.assisted && runtime.is_releasing(held),
                 delay_fix_enabled: scope.is_some()
@@ -107,12 +108,15 @@ pub(crate) fn step(
                 aim_rotation: input.context.aim,
                 release_facing,
             };
-            attempt.frozen =
-                frame::observe(&player, &context, runtime, &movement, &mut view, policy);
-        }
-        let Some(frozen) = attempt.frozen.as_ref() else {
+            frame::observe(&player, &context, runtime, &movement, &mut view, policy)
+        };
+        let Some(frozen) = frozen else {
             return Step::new(attempt, Progress::Pending);
         };
+        attempt.sample = Some(gameplay::movement::InteractionSample {
+            tick: frozen.frame.tick,
+            position: frozen.frame.position,
+        });
         if attempt.fence.is_none() {
             attempt.fence = Some(movement.reserve_interaction_before(frozen.frame.tick));
         }
@@ -123,7 +127,7 @@ pub(crate) fn step(
             &mut movement,
             &mut swings,
             &mut view,
-            frozen,
+            &frozen,
         );
         if !runtime.pending_edge() {
             attempt.fence = None;

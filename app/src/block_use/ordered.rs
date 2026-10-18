@@ -161,8 +161,8 @@ pub(crate) fn step(
     }
     let done = match attempt.proposal.as_mut().expect("prepared build proposal") {
         Proposal::Actor(actor) => {
-            attempt.cancelled = !actor.current(&player, &context);
-            actor_use::advance(&context, &player, &mut runtime, actor)
+            attempt.cancelled = !actor.current(&context);
+            actor_use::advance(&context, &mut runtime, actor)
         }
         Proposal::Block(build) => build::advance(
             &mut player,

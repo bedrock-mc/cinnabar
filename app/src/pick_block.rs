@@ -11,7 +11,7 @@ use protocol::PlayerGameMode;
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
-    crate::{interaction_authority::observe_block_ray, runtime::world::ClientWorld},
+    crate::{interaction_authority::observe_block_ray_using, runtime::world::ClientWorld},
     client_interaction::{
         mining::hand_interaction_selection, movement::PhysicsCollisionRegistries,
     },
@@ -33,11 +33,11 @@ pub(crate) struct PickBlockContext<'w, 's> {
 }
 
 /// A pick request retains its original target while waiting for transport.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct PickAttempt {
     packet: protocol::Packet,
     lifetime: Option<actor_animation::ActorLifetimeId>,
-    world: Option<sim::WorldCollisionIdentity>,
+    world: sim::WorldCollisionIdentity,
 }
 
 /// Resolves a pick with the same binding, screen, range and actor competition as ordinary input.
@@ -70,19 +70,23 @@ fn observe(
     } else {
         survival_reach(input_mode)
     };
-    let Ok(observed) = observe_block_ray(
+    let Ok(observed) = observe_block_ray_using(
         origin,
         ui,
         &context.client_world,
         &context.collisions,
         selection,
         player_runtime.facts.player_game_mode(),
+        false,
         (
             input_mode,
             reach,
             identity,
             simulation_clock::identity::PositionAuthorityGeneration::new(0),
         ),
+        |world, origin, direction, reach| {
+            world.block_interaction_ray_current(origin, direction, reach)
+        },
     ) else {
         return None;
     };
@@ -92,7 +96,10 @@ fn observe(
             ray.origin().to_array(),
             ray.direction().to_array(),
             reach,
-            observed.as_ref().map(|observed| observed.hit_distance()),
+            observed
+                .value
+                .as_ref()
+                .map(|observed| observed.hit_distance()),
             ui.gameplay_hud().mount_unique_id(),
         )
     {
@@ -103,14 +110,14 @@ fn observe(
                 .remote_actors()
                 .find(|actor| actor.unique_id == unique_id)
                 .and_then(|actor| stream.authority().actor_lifetime(actor.runtime_id)),
-            world: observed.as_ref().map(|hit| hit.target.identity.clone()),
+            world: observed.identity,
         });
     }
-    let observed = observed?;
+    let hit = observed.value?;
     Some(PickAttempt {
-        packet: protocol::block_pick_request_packet(observed.target.position, false),
+        packet: protocol::block_pick_request_packet(hit.target.position, false),
         lifetime: None,
-        world: Some(observed.target.identity),
+        world: observed.identity,
     })
 }
 
@@ -158,37 +165,22 @@ pub(crate) fn step_ordered_pick(
     ui: ResMut<UiRuntimeResource>,
 ) -> crate::ordered_interactions::Step<Option<PickAttempt>> {
     use crate::ordered_interactions::{Progress, Step};
-    if attempt.is_none() {
-        attempt = observe(
-            &player,
-            &context,
-            &ui,
-            input.edge.pressed,
-            input.context.mode,
-            input.context.identity,
-            &input.context.origin,
-        );
+    let current = observe(
+        &player,
+        &context,
+        &ui,
+        input.edge.pressed,
+        input.context.mode,
+        input.context.identity,
+        &input.context.origin,
+    );
+    if attempt.is_some() && attempt != current {
+        return Step::new(attempt, Progress::Complete);
     }
+    attempt = current;
     let Some(pick) = attempt.as_ref() else {
         return Step::new(attempt, Progress::Complete);
     };
-    if pick.world.as_ref().is_some_and(|identity| {
-        !crate::interaction_authority::world_identity_current(
-            &context.client_world,
-            &context.collisions,
-            identity,
-        )
-    }) {
-        return Step::new(attempt, Progress::Complete);
-    }
-    if let Some(lifetime) = pick.lifetime {
-        let valid = context.client_world.stream.as_ref().is_some_and(|stream| {
-            stream.authority().actor_lifetime(lifetime.runtime_id) == Some(lifetime)
-        });
-        if !valid {
-            return Step::new(attempt, Progress::Complete);
-        }
-    }
     let progress = match context.network.send_inventory_packet(pick.packet.clone()) {
         Err(client_session::PacketSendError::Full(_)) => Progress::Pending,
         _ => Progress::Complete,

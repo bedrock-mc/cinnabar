@@ -19,7 +19,6 @@ pub(crate) struct FrozenBuild {
 
 /// A proposal freezes selection, placement and inventory effects before its first send.
 struct BuildPlan {
-    permissions: UsePermissions,
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
@@ -46,10 +45,10 @@ impl FrozenBuild {
             &context.client_world,
             &context.collisions,
             identity,
-        ) && self.plan.as_ref().is_none_or(|plan| {
-            UsePermissions::capture(player).as_ref() == Some(&plan.value.permissions)
-                && self.placement_current(player, context, &plan.value)
-        })
+        ) && self
+            .plan
+            .as_ref()
+            .is_none_or(|plan| self.placement_current(player, context, &plan.value))
     }
 
     /// Checks the original placement against current actor boxes without replacing its proposal.
@@ -241,7 +240,6 @@ fn prepare(
     Some(sim::CollisionQuery {
         identity,
         value: BuildPlan {
-            permissions: UsePermissions::capture(player_runtime)?,
             server_selection,
             inventory_revision,
             local_use,

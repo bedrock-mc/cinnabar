@@ -67,6 +67,24 @@ struct CapturedFrame {
     pick: Option<FramePick>,
     attack: crate::melee::ordered::CapturedAttack,
     selection_authority: inventory::SelectionAuthority,
+    policy: AdmissionPolicy,
+}
+
+/// Every unadmitted action shares the same current mode and capability check.
+#[derive(PartialEq)]
+struct AdmissionPolicy {
+    mode: Option<protocol::PlayerGameMode>,
+    capabilities: Option<client_world::game_mode_capabilities::GameModeCapabilities>,
+}
+
+impl AdmissionPolicy {
+    /// Rebuilds admission policy from the authoritative player facts.
+    fn observe(player: &client_state::PlayerRuntime) -> Self {
+        Self {
+            mode: player.facts.player_game_mode(),
+            capabilities: player.facts.game_mode_capabilities(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -167,6 +185,7 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> Arc<CapturedFrame> {
             .resource::<client_state::PlayerRuntime>()
             .inventory
             .selection_authority(),
+        policy: AdmissionPolicy::observe(world.resource::<client_state::PlayerRuntime>()),
     })
 }
 
@@ -334,15 +353,14 @@ pub(crate) fn drain(world: &mut World) {
             runtime.queue.restore_front(entry);
             break;
         }
-        if !entry.admitted
-            && entry.value.source.selection_authority
-                != world
-                    .resource::<client_state::PlayerRuntime>()
-                    .inventory
-                    .selection_authority()
-        {
-            cancel_pending_owners(world);
-            continue;
+        if !entry.admitted {
+            let player = world.resource::<client_state::PlayerRuntime>();
+            if entry.value.source.selection_authority != player.inventory.selection_authority()
+                || entry.value.source.policy != AdmissionPolicy::observe(player)
+            {
+                cancel_pending_owners(world);
+                continue;
+            }
         }
         let Event { edge, source, work } = entry.value;
         let input = InteractionInput {

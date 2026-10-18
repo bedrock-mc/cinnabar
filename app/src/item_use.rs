@@ -203,6 +203,7 @@ fn produce_use(
         return;
     }
     let policy = frame::FramePolicy {
+        sample: None,
         held,
         before_flush,
         delay_fix_enabled,

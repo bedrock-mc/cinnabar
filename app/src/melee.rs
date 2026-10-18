@@ -156,6 +156,14 @@ pub(crate) fn prepare_melee(
     }
     if ordered.is_some() {
         target.attack = picked;
+        if !crate::ordered_interactions::is_blocked(context.ordered.as_deref())
+            && let Some(picked) = picked
+        {
+            runtime.observe_attack_target(
+                picked.crosshair,
+                item_timing.is_some_and(|timing| timing.piercing_weapon),
+            );
+        }
         return;
     }
     let pending = runtime.observe_input(attack.pressed, attack.held);

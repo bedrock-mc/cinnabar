@@ -108,7 +108,7 @@ impl FrameInputs {
 }
 
 /// One frame's resolved press and its action-facing decision travel together.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) struct ResolvedTarget {
     pub(crate) crosshair: Crosshair,
     pub(crate) hover: Option<gameplay::entity_hover::HoveredActor>,

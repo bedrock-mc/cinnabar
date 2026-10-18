@@ -9,7 +9,6 @@ use {
 
 /// A resolved actor use retains the actor lifetime, selected descriptor and packet across Full.
 pub(crate) struct ActorUseAttempt {
-    permissions: UsePermissions,
     packet: protocol::Packet,
     lifetime: actor_animation::ActorLifetimeId,
     obstruction: Option<sim::WorldCollisionIdentity>,
@@ -104,7 +103,6 @@ pub(super) fn prepare(
             LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
         });
     Some(ActorUseAttempt {
-        permissions: UsePermissions::capture(player)?,
         packet,
         lifetime: stream.authority().actor_lifetime(hit.runtime_id)?,
         obstruction: obstruction.map(|(_, identity)| identity),
@@ -118,36 +116,29 @@ pub(super) fn prepare(
 
 impl ActorUseAttempt {
     /// Verifies the retained actor lifetime and terrain without resolving a replacement target.
-    pub(super) fn current(
-        &self,
-        player: &client_state::PlayerRuntime,
-        context: &BlockUseContext,
-    ) -> bool {
-        UsePermissions::capture(player).as_ref() == Some(&self.permissions)
-            && context.client_world.stream.as_ref().is_some_and(|stream| {
-                stream.authority().actor_lifetime(self.lifetime.runtime_id) == Some(self.lifetime)
-            })
-            && self.obstruction.as_ref().map_or_else(
-                || !self.attempted,
-                |identity| {
-                    crate::interaction_authority::world_identity_current(
-                        &context.client_world,
-                        &context.collisions,
-                        identity,
-                    )
-                },
-            )
+    pub(super) fn current(&self, context: &BlockUseContext) -> bool {
+        context.client_world.stream.as_ref().is_some_and(|stream| {
+            stream.authority().actor_lifetime(self.lifetime.runtime_id) == Some(self.lifetime)
+        }) && self.obstruction.as_ref().map_or_else(
+            || !self.attempted,
+            |identity| {
+                crate::interaction_authority::world_identity_current(
+                    &context.client_world,
+                    &context.collisions,
+                    identity,
+                )
+            },
+        )
     }
 }
 
 /// Commits an actor use once, rejecting a reused actor ID instead of redirecting a retry.
 pub(crate) fn advance(
     context: &BlockUseContext,
-    player: &client_state::PlayerRuntime,
     runtime: &mut BlockUseRuntime,
     attempt: &mut ActorUseAttempt,
 ) -> bool {
-    if !attempt.current(player, context) {
+    if !attempt.current(context) {
         runtime.clear_press();
         return true;
     }
@@ -203,7 +194,7 @@ pub(super) fn produce(
         return false;
     };
     if trigger != ItemUseTrigger::SimulationTick {
-        advance(context, player, runtime, &mut attempt);
+        advance(context, runtime, &mut attempt);
     }
     true
 }
