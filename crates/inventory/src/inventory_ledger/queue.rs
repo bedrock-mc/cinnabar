@@ -540,7 +540,6 @@ impl PlayerInventoryLedger {
             .and_then(|prediction| prediction.held.as_ref())
             .or_else(|| request.mining.as_ref()?.current_source(&self.confirmed))
             .cloned();
-        self.note_authoritative_write(cell);
         if count == 0 {
             held = None;
         } else if let Some(held) = &mut held {
@@ -558,6 +557,7 @@ impl PlayerInventoryLedger {
         } else if !matches!(cell, Cell::Craft(_) | Cell::CreatedOutput) {
             self.mark_cell_recovery(cell);
         }
+        self.note_authoritative_write(cell);
         self.publish_request_cell(request, cell, from.as_ref(), held, false);
     }
 

@@ -44,10 +44,14 @@ fn bytes(packet: protocol::Packet) -> Vec<u8> {
 /// Flushes every form response accepted by the fixture transport.
 fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
     let mut packets = Vec::new();
-    while flush_form_response(runtime, |packet| {
-        packets.push(bytes(packet));
-        Ok(())
-    })
+    while flush_form_response(
+        runtime,
+        |_| false,
+        |packet| {
+            packets.push(bytes(packet));
+            Ok(())
+        },
+    )
     .unwrap()
     {}
     packets
@@ -150,10 +154,14 @@ fn every_queued_busy_reply_leaves_in_one_flush() {
     assert_eq!(runtime.server_forms().queued_busy_count(), 3);
     let mut packets = Vec::new();
     assert!(
-        flush_form_response(&mut runtime, |packet| {
-            packets.push(bytes(packet));
-            Ok(())
-        })
+        flush_form_response(
+            &mut runtime,
+            |_| false,
+            |packet| {
+                packets.push(bytes(packet));
+                Ok(())
+            }
+        )
         .unwrap()
     );
     assert_eq!(
@@ -176,7 +184,7 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         .respond_to_server_form(old, LocalFormAction::SubmitButton(1))
         .unwrap();
     assert_eq!(
-        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
     runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
@@ -207,7 +215,7 @@ fn same_id_busy_reissue_removes_all_unsent_old_rejections() {
     runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
     runtime.apply(&mut player_runtime, retained(2, 2)).unwrap();
     assert_eq!(
-        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
     runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
@@ -249,14 +257,18 @@ fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
     // The transport accepts the local answer and refuses the busy reply behind it.
     let mut accepted = 0;
     assert_eq!(
-        flush_form_response(&mut runtime, |_| {
-            accepted += 1;
-            if accepted == 1 {
-                Ok(())
-            } else {
-                Err(FormTransportError::Full)
+        flush_form_response(
+            &mut runtime,
+            |_| false,
+            |_| {
+                accepted += 1;
+                if accepted == 1 {
+                    Ok(())
+                } else {
+                    Err(FormTransportError::Full)
+                }
             }
-        }),
+        ),
         Err(FormTransportError::Full)
     );
     assert_eq!(runtime.server_forms().queued_busy_count(), 1);
@@ -292,7 +304,7 @@ fn single_flight_index_validation_and_closed_transport_fail_closed() {
         "Full pending answers still own input"
     );
     assert_eq!(
-        flush_form_response(&mut runtime, |_| Err(FormTransportError::Closed)),
+        flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Closed)),
         Err(FormTransportError::Closed)
     );
     assert!(drain(&mut runtime).is_empty());
@@ -383,7 +395,7 @@ fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
         .respond_to_server_form(old, LocalFormAction::Dismiss)
         .unwrap();
     assert_eq!(
-        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
     runtime.server_forms_mut().synchronize_epoch(1, 0);
@@ -408,4 +420,268 @@ fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
         runtime.server_forms().active().is_none(),
         "session replacement fences the same token"
     );
+}
+
+/// Normalizes a dialogue and binds its admitted actor lifetime.
+fn active_npc_dialogue(unique_id: i64) -> UiRuntime {
+    // NPCDialogue: header 169, fixed-width unique ID, Open, then four strings.
+    let mut packet = vec![0xa9, 1];
+    packet.extend_from_slice(&unique_id.to_le_bytes());
+    packet.push(0);
+    for text in [
+        "Choose",
+        "shop",
+        "Trader",
+        r#"[{"button_name":"Buy","mode":0}]"#,
+    ] {
+        assert!(text.len() < 128);
+        packet.push(text.len() as u8);
+        packet.extend_from_slice(text.as_bytes());
+    }
+    assert!(packet.len() < 128);
+    let mut batch = vec![0xfe, packet.len() as u8];
+    batch.extend_from_slice(&packet);
+    let packet = protocol::decode_batch(batch.into()).unwrap().pop().unwrap();
+    let Some(protocol::WorldEvent::Ui(event)) = protocol::into_world_event(packet, 0).unwrap()
+    else {
+        panic!("dialogue must normalize to a UI event");
+    };
+    let UiEvent::Form(form) = &event else {
+        panic!("NPC form")
+    };
+    let ServerFormModel::NpcDialogue(npc) = &form.model else {
+        panic!("NPC dialogue")
+    };
+    assert_eq!(npc.npc_unique_id, unique_id);
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(&mut player, envelope(1, 1, event)).unwrap();
+    let identity = identity(&runtime);
+    runtime
+        .server_forms_mut()
+        .bind_npc_actor(identity, npc_actor());
+    runtime
+}
+
+/// Retains one user response against the admitted dialogue.
+fn pending_npc_response(unique_id: i64, action: LocalFormAction) -> UiRuntime {
+    let mut runtime = active_npc_dialogue(unique_id);
+    let identity = identity(&runtime);
+    runtime.respond_to_server_form(identity, action).unwrap();
+    runtime
+}
+
+/// Supplies the authoritative actor bound when this dialogue was admitted.
+fn npc_actor() -> actor_animation::ActorLifetimeId {
+    actor_animation::ActorLifetimeId {
+        session_id: 1,
+        dimension: 0,
+        runtime_id: 99,
+        spawn_revision: 7,
+    }
+}
+
+#[test]
+fn npc_replies_use_the_live_runtime_id_instead_of_the_dialogue_unique_id() {
+    for (action, request) in [
+        (
+            LocalFormAction::Dismiss,
+            protocol::NpcRequestKind::ExecuteClosingCommands,
+        ),
+        (
+            LocalFormAction::SubmitButton(0),
+            protocol::NpcRequestKind::ExecuteAction(0),
+        ),
+    ] {
+        let mut runtime = pending_npc_response(-77, action);
+        let mut packets = Vec::new();
+        assert!(
+            flush_form_response(
+                &mut runtime,
+                |actor| actor == npc_actor(),
+                |packet| {
+                    packets.push(bytes(packet));
+                    Ok(())
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            packets,
+            [bytes(protocol::npc_request_packet(99, "shop", request))]
+        );
+    }
+}
+
+#[test]
+fn npc_reply_retries_revalidate_the_original_actor_lifetime() {
+    let mut runtime = pending_npc_response(-77, LocalFormAction::Dismiss);
+    assert_eq!(
+        flush_form_response(
+            &mut runtime,
+            |actor| actor == npc_actor(),
+            |_| Err(FormTransportError::Full)
+        ),
+        Err(FormTransportError::Full)
+    );
+    assert!(runtime.server_forms().owns_input());
+    // A new actor with reused numeric IDs does not own the original weak lifetime.
+    let replacement = actor_animation::ActorLifetimeId {
+        spawn_revision: 8,
+        ..npc_actor()
+    };
+    assert!(
+        !flush_form_response(
+            &mut runtime,
+            |actor| actor == replacement,
+            |_| panic!("an actor replacement must retire the unsent reply")
+        )
+        .unwrap()
+    );
+    assert!(!runtime.server_forms().owns_input());
+    assert!(
+        !flush_form_response(
+            &mut runtime,
+            |_| true,
+            |_| panic!("a retired reply must not return")
+        )
+        .unwrap()
+    );
+
+    let mut runtime = pending_npc_response(-77, LocalFormAction::SubmitButton(0));
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| true, |_| Err(FormTransportError::Full)),
+        Err(FormTransportError::Full)
+    );
+    let mut packets = Vec::new();
+    assert!(
+        flush_form_response(
+            &mut runtime,
+            |actor| actor == npc_actor(),
+            |packet| {
+                packets.push(bytes(packet));
+                Ok(())
+            }
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        packets,
+        [bytes(protocol::npc_request_packet(
+            99,
+            "shop",
+            protocol::NpcRequestKind::ExecuteAction(0)
+        ))]
+    );
+    assert!(
+        !flush_form_response(
+            &mut runtime,
+            |_| true,
+            |_| panic!("accepted reply repeated")
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn npc_reply_after_despawn_is_consumed_without_sending() {
+    let mut runtime = pending_npc_response(-77, LocalFormAction::Dismiss);
+    assert!(
+        !flush_form_response(
+            &mut runtime,
+            |_| false,
+            |_| panic!("a despawned NPC cannot receive a reply")
+        )
+        .unwrap()
+    );
+    assert!(!runtime.server_forms().owns_input());
+}
+
+/// A menu takeover closes the dialogue through its actor protocol, including retries.
+#[test]
+fn npc_menu_takeover_keeps_its_closing_reply_and_actor_lifetime() {
+    for actor_alive in [true, false] {
+        let mut runtime = active_npc_dialogue(-77);
+        runtime.server_forms_mut().reject_active_busy();
+        runtime.server_forms_mut().reject_active_busy();
+        assert_eq!(
+            flush_form_response(&mut runtime, |_| true, |_| Err(FormTransportError::Full)),
+            Err(FormTransportError::Full)
+        );
+        let mut packets = Vec::new();
+        let sent = flush_form_response(
+            &mut runtime,
+            |actor| actor_alive && actor == npc_actor(),
+            |packet| {
+                packets.push(bytes(packet));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(sent, actor_alive);
+        let expected = if actor_alive {
+            vec![bytes(protocol::npc_request_packet(
+                99,
+                "shop",
+                protocol::NpcRequestKind::ExecuteClosingCommands,
+            ))]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(packets, expected);
+        assert!(
+            !flush_form_response(
+                &mut runtime,
+                |_| true,
+                |_| panic!("duplicate closing reply")
+            )
+            .unwrap()
+        );
+    }
+}
+
+/// Unsupported NPC content has no valid modal-form identity to cancel or reject.
+#[test]
+fn npc_unsupported_dismissal_and_menu_takeover_send_no_modal_response() {
+    for menu_takeover in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(
+                &mut player,
+                envelope(
+                    1,
+                    1,
+                    UiEvent::Form(FormRequestEvent {
+                        form_id: protocol::NPC_DIALOGUE_FORM_ID,
+                        kind: FormKind::NpcDialogue,
+                        title: None,
+                        json: Arc::from("{}"),
+                        model: ServerFormModel::Unsupported(UnsupportedForm::Controls),
+                    }),
+                ),
+            )
+            .unwrap();
+        if menu_takeover {
+            runtime.server_forms_mut().reject_active_busy();
+        } else {
+            let identity = identity(&runtime);
+            runtime
+                .respond_to_server_form(identity, LocalFormAction::Dismiss)
+                .unwrap();
+        }
+        assert!(
+            runtime.server_forms().owns_input(),
+            "local retirement captures input until the response phase"
+        );
+        assert!(
+            !flush_form_response(
+                &mut runtime,
+                |_| true,
+                |_| panic!("NPC emitted a modal-form response")
+            )
+            .unwrap()
+        );
+        assert!(!runtime.server_forms().owns_input());
+    }
 }

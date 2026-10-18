@@ -59,6 +59,11 @@ pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalCo
                 components
                     .and_then(|set| set.field("minecraft:random_offset"))
                     .is_some_and(|value| random_offset_component(value).is_none()),
+            )
+            + usize::from(
+                components
+                    .and_then(|set| set.field("minecraft:transformation"))
+                    .is_some_and(|_| transformation_component(components).is_none()),
             ),
     )
 }

@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+	"github.com/cinnabar-mc/protocolgen/generated/data/registry"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 	"github.com/segmentio/fasthash/fnv1"

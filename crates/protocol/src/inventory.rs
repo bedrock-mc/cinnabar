@@ -23,6 +23,12 @@ pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
+mod furnace_options;
+pub(crate) use furnace_options::normalize_furnace_options;
+pub use furnace_options::{
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
+};
 mod client_packets;
 mod legacy;
 pub use legacy::{
@@ -239,6 +245,7 @@ pub enum InventoryEvent {
     RegistryCleanup(Arc<[ContainerIdentity]>),
     Data(ContainerDataEvent),
     EnchantOptions(EnchantOptionsEvent),
+    FurnaceOptions(FurnaceOptionsEvent),
     Creative(CreativeContentEvent),
 }
 

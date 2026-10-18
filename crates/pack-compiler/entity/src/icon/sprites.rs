@@ -10,6 +10,7 @@ pub(super) struct SpriteBaker {
     by_source: BTreeMap<u32, Option<u32>>,
     pub(super) animation_strips: usize,
     pub(super) skipped_oversized: usize,
+    pub(super) sources: BTreeMap<Box<str>, u32>,
 }
 
 impl SpriteBaker {
@@ -26,6 +27,9 @@ impl SpriteBaker {
         }
         let source = &compiled.sources[source_index as usize];
         let mut decoded = sprite_source(root, source)?;
+        let raw = assets::facts::pack::leather_sprite(&source.path)
+            .then(|| bounded_sprite(decoded.clone()).map(|(sprite, _)| sprite))
+            .flatten();
         if assets::facts::pack::leather_sprite(&source.path) {
             let dye = assets::DEFAULT_LEATHER_RGB;
             let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
@@ -45,6 +49,16 @@ impl SpriteBaker {
                 detail: "icon sprite count exceeds platform".into(),
             })?;
         sprites.push(sprite);
+        let raw_index = match raw {
+            Some(raw) => {
+                let raw_index = sprites.len() as u32;
+                sprites.push(raw);
+                raw_index
+            }
+            None => index,
+        };
+        self.sources
+            .insert(source.path.to_ascii_lowercase().into(), raw_index);
         self.by_source.insert(source_index, Some(index));
         Ok(Some(index))
     }
