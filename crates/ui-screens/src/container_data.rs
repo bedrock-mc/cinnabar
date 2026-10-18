@@ -756,8 +756,11 @@ mod banner_tests {
                 crafter_powered: None,
                 furnace_book_open: false,
                 furnace_tab: None,
-                creative_tab: 0,
-                creative_wide: false,
+                inventory: inventory::InventoryController::new(
+                    Default::default(),
+                    inventory::InventoryContext::Personal,
+                    false,
+                ),
                 creative_expanded: &EXPANDED,
                 search: "",
                 container_scroll: &SCROLL,

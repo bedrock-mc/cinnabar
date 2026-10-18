@@ -26,6 +26,7 @@ pub mod inventory_ingress;
 
 mod food;
 mod furnace_options;
+mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
@@ -777,6 +778,12 @@ impl UiRuntime {
                     ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
         }
+        self.screen.inventory = None;
+        if self.inventory_open {
+            self.observe_inventory_window(player_runtime);
+        } else {
+            self.screen.search_focused = false;
+        }
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: if self.inventory_open {
@@ -792,6 +799,8 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
+        self.screen.inventory = None;
+        self.screen.search_focused = false;
         player_runtime
             .inventory
             .ledger_mut()

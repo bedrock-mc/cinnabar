@@ -21,6 +21,7 @@ mod furnace_options;
 mod held_placement_packets;
 mod hud_state_packets;
 mod interaction_packets;
+mod inventory_options;
 mod inventory_packets;
 mod item_registry_capacity;
 mod item_stack_requests;
