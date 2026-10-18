@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_ties() {
+fn request_dispatch_keeps_fifo_order_across_prefetch_visible_and_player_retries() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -62,14 +62,14 @@ fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_t
     let second = stream.pop_next_request().unwrap();
     let third = stream.pop_next_request().unwrap();
     let fourth = stream.pop_next_request().unwrap();
-    assert_eq!((first.chunk, first.base_sub_chunk_y), (player, -4));
-    assert_eq!((second.chunk, second.base_sub_chunk_y), (player, -3));
-    assert_eq!(third.chunk, visible);
-    assert_eq!(fourth.chunk, prefetch);
+    assert_eq!(first.chunk, prefetch);
+    assert_eq!(second.chunk, visible);
+    assert_eq!((third.chunk, third.base_sub_chunk_y), (player, -4));
+    assert_eq!((fourth.chunk, fourth.base_sub_chunk_y), (player, -3));
 }
 
 #[test]
-fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance() {
+fn request_dispatch_keeps_fifo_order_across_player_polls_and_horizontal_distances() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -99,8 +99,8 @@ fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance
     stream.publisher.required_columns =
         BTreeSet::from([ChunkKey::new(0, 4, 0), ChunkKey::new(0, 2, 0)]);
 
-    assert_eq!(stream.pop_next_request().unwrap().chunk.x, 2);
     assert_eq!(stream.pop_next_request().unwrap().chunk.x, 4);
+    assert_eq!(stream.pop_next_request().unwrap().chunk.x, 2);
 }
 
 #[test]

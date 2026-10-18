@@ -14,8 +14,8 @@ fn observe_damage(ui: Res<UiRuntimeResource>, mut damage: ResMut<DamageAtUiPrepa
 #[test]
 fn actor_damage_publication_advances_before_ui_and_clears_with_the_stream() {
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
-    crate::app::configure_actor_render_systems(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
         observe_damage.in_set(client_state::ClientFrameSet::UiPreparation),

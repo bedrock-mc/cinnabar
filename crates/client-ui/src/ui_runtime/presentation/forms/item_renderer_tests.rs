@@ -202,10 +202,14 @@ fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
         }
         let mut sent = Vec::new();
         assert!(
-            flush_form_response(&mut runtime, |packet| {
-                sent.push(packet);
-                Ok(())
-            })
+            flush_form_response(
+                &mut runtime,
+                |_| false,
+                |packet| {
+                    sent.push(packet);
+                    Ok(())
+                }
+            )
             .unwrap()
         );
         let expected = response.map_or_else(

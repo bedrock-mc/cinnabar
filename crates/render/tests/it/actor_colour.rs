@@ -585,7 +585,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
         let glint = glint_view(gpu, case.glint_texel, false);
         let item_glint = glint_view(gpu, case.item_glint_texel, case.foil_pattern);
         let table = table(case);
-        let lightmap = gpu.buffer(&table, wgpu::BufferUsages::UNIFORM);
+        let lightmap = gpu.lightmap(&table);
         let material = gpu.buffer(
             &case.material.map(f32::from_bits),
             wgpu::BufferUsages::UNIFORM,

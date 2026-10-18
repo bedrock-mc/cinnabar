@@ -12,6 +12,7 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+pub mod sub_chunk_requests;
 mod ui_backdrop;
 mod ui_coverage_paint;
 mod vrr;

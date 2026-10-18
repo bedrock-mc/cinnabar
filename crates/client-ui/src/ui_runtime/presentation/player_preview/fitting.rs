@@ -84,6 +84,18 @@ impl OrbitBounds {
         self
     }
 
+    /// Includes all corners of an attachment's worker-prepared motion envelope.
+    pub(super) fn with_box(mut self, [min, max]: [[f32; 3]; 2]) -> Self {
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
+                for z in [min[2], max[2]] {
+                    self.include([x, y, z]);
+                }
+            }
+        }
+        self
+    }
+
     pub(super) fn frame(self, control: [f32; 4], tilt: f32) -> [f32; 4] {
         let (sin, cos) = tilt.to_radians().sin_cos();
         let radius = self.radius * PLAYER_MODEL_SCALE;

@@ -237,6 +237,9 @@ impl MenuRuntime {
     }
 
     pub fn poll_accounts(&mut self) {
+        if self.external.is_some() {
+            return;
+        }
         if let Some(receiver) = &self.accounts.work {
             match receiver.try_recv() {
                 Ok((success, signed_out)) => {

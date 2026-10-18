@@ -290,7 +290,7 @@ pub fn install_exit_hooks(flush_logs: fn()) {
             stop_all(Duration::ZERO);
         }
     }));
-    let installed = ctrlc::try_set_handler(move || {
+    let installed = ctrlc::set_handler(move || {
         crate::renderer_startup::termination::cancel_on_termination();
         stop_all(EXIT_GRACE);
         flush_logs();

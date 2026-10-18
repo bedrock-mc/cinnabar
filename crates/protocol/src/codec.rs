@@ -28,6 +28,10 @@ pub enum ProtocolError {
     #[error("the server ended the current play session")]
     SessionBoundary,
 
+    /// Play exceeded the bounded read-ahead queue while web archives were pending.
+    #[error("play read-ahead limit exceeded during pack delivery")]
+    HandoffReadAheadOverflow,
+
     #[error("invalid raw batch header: expected 0xfe, got {actual:?}")]
     InvalidBatchHeader { actual: Option<u8> },
 

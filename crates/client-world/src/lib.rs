@@ -1,6 +1,8 @@
 mod action;
 mod actor_store;
 mod block_entity_visuals;
+#[cfg(any(target_arch = "wasm32", test))]
+pub mod browser_jobs;
 pub mod game_mode_capabilities;
 pub mod ingestion;
 mod item;

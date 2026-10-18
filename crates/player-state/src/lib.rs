@@ -25,6 +25,20 @@ impl PlayerState {
         self.facts.begin_session(session);
     }
 
+    /// Refreshes command permissions from current facts before exposing the mutable ledger.
+    pub fn inventory_commands(&mut self) -> &mut inventory::PlayerInventoryLedger {
+        let permissions = inventory::inventory_ledger::InventoryPermissions {
+            creative: self
+                .facts
+                .game_mode_capabilities()
+                .is_some_and(|caps| caps.creative_inventory),
+            instabuild: self.facts.instabuild(),
+        };
+        let ledger = self.inventory.ledger_mut();
+        ledger.set_permissions(permissions);
+        ledger
+    }
+
     /// The selected hotbar slot under the current game mode.
     pub fn selected_hotbar_slot(&self) -> Option<u8> {
         self.inventory
@@ -40,6 +54,24 @@ impl PlayerState {
     /// The selected stack, when one is present.
     pub fn selected_stack(&self) -> Option<&NetworkItemStack> {
         self.inventory.selected_stack(self.facts.player_game_mode())
+    }
+
+    /// Borrows the selected backing item once local backing mutations have entered transport.
+    pub fn selected_backing_stack(&self) -> Option<&NetworkItemStack> {
+        let selected = self
+            .inventory
+            .selected_backing_stack_snapshot(self.facts.player_game_mode())?;
+        if self
+            .inventory
+            .ledger()
+            .slot_backing_transport_pending(selected.slot)
+        {
+            return None;
+        }
+        match selected.state {
+            inventory::PlayerInventorySlot::Present(stack) => Some(stack),
+            _ => None,
+        }
     }
 
     /// The custom name the selected hotbar cell presents, following the predicted stack.

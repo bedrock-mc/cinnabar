@@ -446,12 +446,21 @@ fn predicted_rejection_and_server_durability_corrections_restore_the_projection(
     ));
     let (_, calls) = capture(&mut cache, input(&ledger), 0);
     assert_eq!(calls.bars, [1]);
-    assert!(calls.icons.is_empty());
+    // Accepted damage also changes retained item data, so artwork must observe it.
+    assert_eq!(calls.icons, [1]);
+    assert_eq!(
+        protocol::item_extra_damage_integer(&cache.player[0].stack.as_ref().unwrap().extra_data),
+        Some(7)
+    );
     assert_eq!(cache.durability.player[0], Some(0.07));
     write(&mut ledger, 0, 0, stack(1, 5));
     let (_, calls) = capture(&mut cache, input(&ledger), 0);
     assert_eq!(calls.bars, [1]);
+    assert_eq!(calls.icons, [1]);
     assert_eq!(cache.durability.player[0], Some(0.05));
+    let (_, calls) = capture(&mut cache, input(&ledger), 0);
+    assert!(calls.bars.is_empty());
+    assert!(calls.icons.is_empty());
 }
 
 #[test]

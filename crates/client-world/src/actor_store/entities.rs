@@ -92,13 +92,13 @@ impl ActorStore {
         partial_tick: f32,
         candidates: &mut Vec<BlockEntityCandidate>,
     ) {
-        self.block_entity_candidates_at_into(partial_tick, std::time::Instant::now(), candidates);
+        self.block_entity_candidates_at_into(partial_tick, web_time::Instant::now(), candidates);
     }
 
     fn block_entity_candidates_at_into(
         &self,
         partial_tick: f32,
-        now: std::time::Instant,
+        now: web_time::Instant,
         candidates: &mut Vec<BlockEntityCandidate>,
     ) {
         let alpha = partial_tick.clamp(0.0, 1.0);
@@ -123,7 +123,7 @@ impl ActorStore {
     pub(super) fn block_entity_candidates_at(
         &self,
         partial_tick: f32,
-        now: std::time::Instant,
+        now: web_time::Instant,
     ) -> Vec<BlockEntityCandidate> {
         let mut candidates = Vec::new();
         self.block_entity_candidates_at_into(partial_tick, now, &mut candidates);
@@ -132,13 +132,13 @@ impl ActorStore {
 
     /// Falling blocks and primed TNT with interpolated centres.
     pub(crate) fn block_entities(&self, partial_tick: f32) -> Vec<BlockEntityView> {
-        self.block_entities_at(partial_tick, std::time::Instant::now())
+        self.block_entities_at(partial_tick, web_time::Instant::now())
     }
 
     pub(super) fn block_entities_at(
         &self,
         partial_tick: f32,
-        now: std::time::Instant,
+        now: web_time::Instant,
     ) -> Vec<BlockEntityView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         self.effect_members

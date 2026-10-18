@@ -53,10 +53,11 @@ impl<'a> CreativeEntries<'a> {
 }
 
 impl ScreenState {
-    /// Reuses filtered indexes while catalog identity and search inputs match.
+    /// Reuses filtered indexes while the resolved tab, catalog and search inputs match.
     pub(crate) fn matching_creative_entries<'a>(
         &self,
         ledger: &'a PlayerInventoryLedger,
+        tab: u8,
         name_generation: u64,
         name_of: impl Fn(&CreativeItem) -> Option<String>,
     ) -> CreativeEntries<'a> {
@@ -74,7 +75,7 @@ impl ScreenState {
         let reusable = cache.as_ref().is_some_and(|cached| {
             Arc::ptr_eq(&cached.catalog.items, &catalog.items)
                 && Arc::ptr_eq(&cached.catalog.groups, &catalog.groups)
-                && cached.tab == self.creative_tab
+                && cached.tab == tab
                 && cached.search == self.search
                 && cached.name_generation == name_generation
                 && match (cached.registry.as_ref(), registry) {
@@ -87,11 +88,10 @@ impl ScreenState {
             *cache = Some(CreativeFilterCache {
                 catalog: catalog.clone(),
                 registry: registry.cloned(),
-                tab: self.creative_tab,
+                tab,
                 name_generation,
                 search: self.search.clone(),
-                indexes: creative_entry_indexes(catalog, self.creative_tab, &self.search, name_of)
-                    .into(),
+                indexes: creative_entry_indexes(catalog, tab, &self.search, name_of).into(),
             });
         }
         CreativeEntries {
@@ -158,6 +158,7 @@ mod tests {
         CreativeCategory, CreativeGroup, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
     };
     use std::cell::Cell;
+    use ui_screens::container_actions::SEARCH_TAB;
     use {super::*, inventory::inventory_ledger::PlayerInventoryLedger};
 
     #[test]
@@ -178,7 +179,6 @@ mod tests {
         };
         ledger.apply(&InventoryEvent::Creative(catalog.clone()));
         let mut state = ScreenState {
-            creative_tab: ui_screens::container_actions::SEARCH_TAB,
             search: "stone".into(),
             ..Default::default()
         };
@@ -187,11 +187,11 @@ mod tests {
             scans.set(scans.get() + 1);
             Some("Stone".into())
         };
-        let retained = state.matching_creative_entries(&ledger, 0, name);
+        let retained = state.matching_creative_entries(&ledger, SEARCH_TAB, 0, name);
         assert_eq!(retained.len(), 1);
         for _ in 0..3 {
             let (repeated, allocations) =
-                test_alloc::count(|| state.matching_creative_entries(&ledger, 0, name));
+                test_alloc::count(|| state.matching_creative_entries(&ledger, SEARCH_TAB, 0, name));
             assert_eq!(allocations, 0);
             assert_eq!(repeated.len(), 1);
             assert!(Arc::ptr_eq(
@@ -201,18 +201,30 @@ mod tests {
         }
         assert_eq!(scans.get(), 1);
         state.search = "dirt".into();
-        assert!(state.matching_creative_entries(&ledger, 0, name).is_empty());
+        assert!(
+            state
+                .matching_creative_entries(&ledger, SEARCH_TAB, 0, name)
+                .is_empty()
+        );
         assert_eq!(scans.get(), 2);
         ledger.apply_registry(&ItemRegistryEvent {
             entries: Arc::from([]),
         });
-        assert!(state.matching_creative_entries(&ledger, 0, name).is_empty());
+        assert!(
+            state
+                .matching_creative_entries(&ledger, SEARCH_TAB, 0, name)
+                .is_empty()
+        );
         assert_eq!(scans.get(), 3);
         ledger.apply(&InventoryEvent::Creative(CreativeContentEvent {
             items: catalog.items.to_vec().into(),
             ..catalog
         }));
-        assert!(state.matching_creative_entries(&ledger, 0, name).is_empty());
+        assert!(
+            state
+                .matching_creative_entries(&ledger, SEARCH_TAB, 0, name)
+                .is_empty()
+        );
         assert_eq!(scans.get(), 4);
     }
 }
@@ -226,7 +238,7 @@ mod display_name_tests {
     use protocol::{CreativeGroup, InventoryEvent, ItemRegistryEvent, NetworkItemStack};
 
     /// Gives search a custom item and a vanilla item with an independently retained registry.
-    fn catalog() -> PlayerInventoryLedger {
+    fn catalog() -> player_state::PlayerState {
         let mut ledger = PlayerInventoryLedger::default();
         ledger.apply_registry(&ItemRegistryEvent {
             entries: Arc::from([(1, "custom:blade"), (2, "minecraft:stone")].map(
@@ -260,7 +272,9 @@ mod display_name_tests {
             })),
             skipped: 0,
         }));
-        ledger
+        let mut player = player_state::PlayerState::new(1);
+        *player.inventory.ledger_mut() = ledger;
+        player
     }
 
     /// Publishes a single component display-name projection without changing catalog identity.
@@ -286,36 +300,40 @@ mod display_name_tests {
 
     #[test]
     fn custom_display_names_and_component_reload_change_search_results() {
-        let ledger = catalog();
+        let player = catalog();
         let mut runtime = UiRuntime::new(1);
-        runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+        runtime
+            .screen_state_mut()
+            .select_tab(ui_screens::container_actions::SEARCH_TAB);
         runtime.screen_state_mut().search = "crystal".into();
         display_name(&mut runtime, "Crystal Blade");
         assert_eq!(
-            visible_creative_entries(&ledger, &runtime)
+            visible_creative_entries(&player, &runtime)
                 .get(0)
                 .unwrap()
                 .stack
                 .network_id,
             1
         );
-        let (_, allocations) = test_alloc::count(|| visible_creative_entries(&ledger, &runtime));
+        let (_, allocations) = test_alloc::count(|| visible_creative_entries(&player, &runtime));
         assert_eq!(allocations, 0);
         display_name(&mut runtime, "Ruby Blade");
-        assert!(visible_creative_entries(&ledger, &runtime).is_empty());
+        assert!(visible_creative_entries(&player, &runtime).is_empty());
         runtime.screen_state_mut().search = "ruby".into();
-        assert_eq!(visible_creative_entries(&ledger, &runtime).len(), 1);
+        assert_eq!(visible_creative_entries(&player, &runtime).len(), 1);
     }
 
     #[test]
     fn active_language_and_component_translation_invalidate_cached_names() {
-        let ledger = catalog();
+        let player = catalog();
         let mut runtime = UiRuntime::new(1);
-        runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+        runtime
+            .screen_state_mut()
+            .select_tab(ui_screens::container_actions::SEARCH_TAB);
         runtime.screen_state_mut().search = "pierre".into();
         runtime.set_active_language(Some(language("tile.stone.name", "Pierre")));
         assert_eq!(
-            visible_creative_entries(&ledger, &runtime)
+            visible_creative_entries(&player, &runtime)
                 .get(0)
                 .unwrap()
                 .stack
@@ -323,12 +341,12 @@ mod display_name_tests {
             2
         );
         runtime.set_active_language(Some(language("tile.stone.name", "Stein")));
-        assert!(visible_creative_entries(&ledger, &runtime).is_empty());
+        assert!(visible_creative_entries(&player, &runtime).is_empty());
         runtime.screen_state_mut().search = "kristall".into();
         display_name(&mut runtime, "custom.blade.name");
         runtime.set_active_language(Some(language("custom.blade.name", "Kristallklinge")));
         assert_eq!(
-            visible_creative_entries(&ledger, &runtime)
+            visible_creative_entries(&player, &runtime)
                 .get(0)
                 .unwrap()
                 .stack

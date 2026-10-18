@@ -149,11 +149,8 @@ pub fn dispatch_inventory_key(
         && presentation::inventory_pointer::InventoryScreen::of_runtime(player_runtime, runtime)
             == presentation::inventory_pointer::InventoryScreen::Creative
     {
-        let total = super::inventory_actions::visible_creative_entries(
-            runtime.inventory_ledger(player_runtime),
-            runtime,
-        )
-        .len();
+        let total =
+            super::inventory_actions::visible_creative_entries(player_runtime, runtime).len();
         runtime.screen_state_mut().scroll_creative(rows, total);
         return None;
     }

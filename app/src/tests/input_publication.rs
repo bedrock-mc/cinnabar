@@ -1,10 +1,11 @@
 //! Packet latency across the production preparation/publication boundary.
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use bevy::prelude::{App, IntoScheduleConfigs, ResMut, Resource, Update};
 use sha2::{Digest, Sha256};
 
-use {crate::app::configure_client_frame_schedule, client_state::ClientFrameSet};
+use {crate::game_frame::configure_client_frame_schedule, client_state::ClientFrameSet};
 
 #[derive(Resource)]
 struct SendTrace {

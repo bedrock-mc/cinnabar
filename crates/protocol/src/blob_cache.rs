@@ -5,10 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{
-    self, ClientCacheBlobStatus, ClientCacheMissResponse, LevelChunk, SubChunk,
-};
+use bedrock_protocol_1_26_51::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
 use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+#[cfg(test)]
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 

@@ -1,5 +1,7 @@
 //! Presentation resources shared by actor preparation and publication.
-use crate::actor_publication::{ActorFramePartialTick, ActorFrameState, PreparedActorPublication};
+use crate::actor_publication::{
+    ActorFramePartialTick, ActorFrameState, CosmeticEmitterPlacements, PreparedActorPublication,
+};
 use bevy::prelude::{App, Plugin};
 
 /// Installs retained actor presentation state; the host sets frame ordering explicitly.
@@ -10,6 +12,7 @@ impl Plugin for ClientPresentationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActorFrameState>()
             .init_resource::<ActorFramePartialTick>()
-            .init_resource::<PreparedActorPublication>();
+            .init_resource::<PreparedActorPublication>()
+            .init_resource::<CosmeticEmitterPlacements>();
     }
 }

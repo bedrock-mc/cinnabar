@@ -3,7 +3,6 @@ package webrelay
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -32,18 +31,11 @@ func (relay *Relay) Serve(ctx context.Context, cfg ListenConfig) error {
 	if cfg.Hostname == "" || cfg.UDPAddress == "" || cfg.TCPAddress == "" {
 		return errors.New("webrelay: hostname and both listen addresses are required")
 	}
-	certificate, err := tls.LoadX509KeyPair(cfg.CertificateFile, cfg.KeyFile)
+	certificates, err := newCertificateReloader(cfg, time.Now())
 	if err != nil {
 		return err
 	}
-	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
-	if err != nil {
-		return err
-	}
-	if err = leaf.VerifyHostname(cfg.Hostname); err != nil {
-		return err
-	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certificates.getCertificate}
 	wt := relay.transportServer(tlsConfig, cfg.UDPAddress)
 	tcp := relay.socketServer(tlsConfig, cfg.TCPAddress)
 	tcpListener, err := net.Listen("tcp", cfg.TCPAddress)
@@ -64,11 +56,23 @@ func (relay *Relay) Serve(ctx context.Context, cfg ListenConfig) error {
 	go func() { errs <- relay.serveQUIC(ctx, udpListener, wt) }()
 	var result error
 	received := 0
-	select {
-	case result = <-errs:
-		received++
-	case <-ctx.Done():
-	case <-relay.ctx.Done():
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+listening:
+	for {
+		select {
+		case result = <-errs:
+			received++
+			break listening
+		case <-ctx.Done():
+			break listening
+		case <-relay.ctx.Done():
+			break listening
+		case now := <-ticker.C:
+			if err := certificates.reload(now); err != nil {
+				relay.logger.Warn("relay certificate reload failed; retaining previous certificate")
+			}
+		}
 	}
 	cancel()
 	_ = tcp.Close()
@@ -140,13 +144,15 @@ func (relay *Relay) serveSocket(w http.ResponseWriter, r *http.Request, channel 
 		relay.runPlay(ctx, conn, client, nil, request)
 		return
 	}
-	session, detach, err := relay.openControl(client, request.Resume, time.Now())
+	controller, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
 		_ = writeJSON(ctx, conn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
-	relay.runControl(ctx, conn, client, session)
+	stopController := context.AfterFunc(controller.ctx, cancel)
+	defer stopController()
+	relay.runControl(ctx, conn, client, controller)
 }
 
 // newSocketConn preserves the reliable byte stream while bounding incoming and outgoing messages.
@@ -216,18 +222,20 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 	if err != nil {
 		return
 	}
-	session, detach, err := relay.openControl(client, request.Resume, time.Now())
+	controller, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
 		_ = writeJSON(ctx, controlConn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
+	stopController := context.AfterFunc(controller.ctx, cancel)
+	defer stopController()
 	if !admission.establish() {
 		return
 	}
 	var workers sync.WaitGroup
 	defer func() { cancel(); _ = transport.CloseWithError(0, ""); workers.Wait() }()
-	workers.Go(func() { relay.runControl(ctx, controlConn, client, session); cancel() })
+	workers.Go(func() { relay.runControl(ctx, controlConn, client, controller); cancel() })
 	// Older peers may not negotiate session stream limits. Reject uni streams explicitly too.
 	workers.Go(func() {
 		for {
@@ -238,26 +246,19 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 			stream.CancelRead(0)
 		}
 	})
-	playing := make(chan struct{}, 1)
 	for {
 		stream, err := transport.AcceptStream(ctx)
 		if err != nil {
 			return
 		}
 		conn := &transportConn{Stream: stream, session: transport}
-		select {
-		case playing <- struct{}{}:
-		default:
-			conn.abort()
-			continue
-		}
 		request, err := readHello(conn, bridgecontract.RelayChannelPlay)
 		if err != nil {
-			<-playing
 			conn.abort()
 			continue
 		}
-		workers.Go(func() { defer func() { <-playing }(); relay.runPlay(ctx, conn, client, session, request) })
+		// Leave replacement streams in QUIC's bounded accept queue until teardown completes.
+		relay.runPlay(ctx, conn, client, controller, request)
 	}
 }
 
@@ -286,7 +287,7 @@ func (relay *Relay) transportServer(tlsConfig *tls.Config, address string) *webt
 		Handler: mux, MaxHeaderBytes: bridgecontract.RelayControlBytes, QUICConfig: &quic.Config{
 			MaxIncomingStreams: 8, MaxIncomingUniStreams: 4, MaxStreamReceiveWindow: playMessageLimit, MaxConnectionReceiveWindow: 2 * playMessageLimit,
 			HandshakeIdleTimeout: helloTimeout, MaxIdleTimeout: 2 * keepAliveInterval}},
-		Config: &webtransport.Config{MaxIncomingStreams: 2, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
+		Config: &webtransport.Config{MaxIncomingStreams: bridgecontract.RelayBidirectionalStreams, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
 	mux.HandleFunc(bridgecontract.RelayTransportPath, func(w http.ResponseWriter, r *http.Request) { relay.serveTransport(w, r, wt) })
 	return wt
 }

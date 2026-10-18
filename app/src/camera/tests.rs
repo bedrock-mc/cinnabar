@@ -16,13 +16,13 @@ use sim::{
 };
 use ui::UserSettings;
 use world::ChunkKey;
-use {crate::app::configure_client_frame_schedule, client_state::ClientFrameSet};
 use {
     crate::camera::{self, FlyCameraPlugin},
     client_presentation::camera::{
         AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
     },
 };
+use {crate::game_frame::configure_client_frame_schedule, client_state::ClientFrameSet};
 use {
     crate::semantic_controls::{
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
