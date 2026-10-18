@@ -128,10 +128,10 @@ fn production_java_torso_joins_physics_history_after_same_frame_admission() {
                 );
             }
         }
-        for (physical_millis, actor_millis, physical_ticks, yaw, expected) in [
-            (75, 0, 1, 0.0, 0.0),
-            (50, 250, 1, 30.0, 9.0),
-            (200, 0, 4, 30.0, final_heading),
+        for (physical_millis, actor_millis, physical_ticks, actor_ticks, yaw, expected) in [
+            (75, 0, 1, 0, 0.0, 0.0),
+            (50, 250, 1, 2, 30.0, 9.0),
+            (200, 0, 4, 0, 30.0, final_heading),
         ] {
             physics(&mut world, physical_millis, yaw);
             world
@@ -149,7 +149,13 @@ fn production_java_torso_joins_physics_history_after_same_frame_admission() {
             schedule.run(&mut world);
             let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
             let rig = stream.authority().actor_rig(1).unwrap();
-            assert_eq!(rig.completed_tick, actor_tick + physical_ticks);
+            assert_eq!(rig.completed_tick, actor_tick + actor_ticks);
+            assert_eq!(
+                world
+                    .resource::<client_interaction::movement::LocalMovementEffectTimeline>()
+                    .recent_tick_count(),
+                physical_ticks
+            );
             assert!(
                 (rig.java.body_yaw[1] - expected).abs() < 1e-4,
                 "duration {duration}: {:?}",
