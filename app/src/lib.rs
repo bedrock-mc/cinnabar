@@ -95,6 +95,9 @@ mod shell_tests;
 
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "browser/input.rs"]
+mod browser_input;
 
 mod host_memory;
 

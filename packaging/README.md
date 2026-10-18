@@ -128,9 +128,9 @@ existing payload downloads public; the signature authenticates the update manife
 Linux users can install the latest Beta release without root:
 
 ```sh
-curl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/cinnabar-mc/cinnabar/releases/latest/download/install.sh | sh
 # or, without curl:
-wget -qO- https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
+wget -qO- https://github.com/cinnabar-mc/cinnabar/releases/latest/download/install.sh | sh
 ```
 
 The installer resolves a concrete release tag, verifies the AppImage against its release checksum,

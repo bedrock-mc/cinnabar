@@ -596,7 +596,16 @@ impl UiPresentationRuntime {
                 })
             };
             let base = held(metadata).or_else(|| held(0));
-            let model = if base.is_none_or(held::HeldModel::is_sprite)
+            let model = if let Some((source, vertices)) =
+                self.session_icons.held_block(identifier, metadata)
+            {
+                player_preview::PreviewHeldModel {
+                    source,
+                    vertices,
+                    hand_pivots: self.gui_models.hand_pivots?,
+                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
+                }
+            } else if base.is_none_or(held::HeldModel::is_sprite)
                 && self.session_item_icon(identifier, metadata).is_some()
             {
                 let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;

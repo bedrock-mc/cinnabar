@@ -6,19 +6,7 @@ use crate::{
 use bevy::prelude::*;
 use client_state::ClientFrameSet;
 
-/// Canvas observations owned by the DOM edge, sampled once per game update.
-pub(super) struct InputSource(pub Box<dyn FnMut() -> semantic_input::DeviceFrame>);
-
-/// Samples the browser canvas without also collecting the native physical input source.
-fn sample_input(
-    mut source: NonSendMut<InputSource>,
-    mut pending: ResMut<semantic_controls::PendingDeviceFrame>,
-    world: Res<world::ClientWorld>,
-) {
-    let mut frame = (source.0)();
-    frame.window_focus_lost |= world.stream.is_none();
-    pending.replace(frame);
-}
+use crate::browser_input::sample_input;
 
 /// Publishes game UI ownership for the shared semantic router and camera.
 fn screen_focus(

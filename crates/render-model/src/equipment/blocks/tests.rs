@@ -704,3 +704,88 @@ fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
         assert!(!collect(&world, &entities).models.contains_key(&visual));
     }
 }
+
+#[test]
+fn custom_content_template_sheet_retains_authored_non_cube_geometry() {
+    let mut source = overlay(BlockFlags::empty(), 0, 16);
+    source.visuals[0].kind = VisualKind::Model;
+    source.visuals[0].model_template = 0;
+    source.model_templates.push(assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    });
+    source.model_quads.push(assets::ModelQuad {
+        positions: [[96, 0, 96], [96, 256, 96], [160, 256, 96], [160, 0, 96]],
+        uvs: [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
+        material: 1,
+        flags: 0,
+    });
+    let (sheet, vertices) = overlay_item(&source, 0, None, &|_| None).expect("exact template");
+    assert_eq!([sheet.width, sheet.height], assets::BLOCK_ITEM_SHEET_SIZE);
+    let vertices = vertices.unwrap();
+    assert_eq!(vertices.len(), 6);
+    assert!(vertices.iter().all(|v| v.position[2] == -0.125));
+    assert!(vertices.iter().all(|v| v.position[0].abs() == 0.125));
+    assert!(vertices.iter().all(|v| v.position[1].abs() == 0.5));
+    source.model_quads[0].uvs[0][0] = 8192;
+    assert!(overlay_item(&source, 0, None, &|_| None).is_none());
+}
+
+#[test]
+fn custom_content_dropped_models_keep_held_shape_and_sheet_uvs() {
+    let mut vertices = crate::textured_cube_vertices(face_rects([0.0, 0.0, 1.0, 1.0]));
+    for vertex in &mut vertices {
+        vertex.position[0] *= 0.25;
+        vertex.position[2] *= 0.25;
+    }
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let sheet = crate::DroppedItemSprite {
+        width,
+        height,
+        rgba8: vec![255; (width * height * 4) as usize].into(),
+    };
+    let model = dropped_model(sheet, &vertices).unwrap();
+    assert_eq!(model.quads.len(), 6);
+    assert_eq!(model.materials.len(), assets::BlockFace::ALL.len());
+    let dropped = crate::dropped_item::block_mesh(&model, 1, 64).unwrap();
+    assert_eq!(vertices.len(), dropped.len());
+    for held in &vertices {
+        assert!(dropped.iter().any(|dropped| {
+            held.position == dropped.position
+                && held.normal == dropped.normal
+                && (0..2).all(|axis| {
+                    let tile = [width, height][axis] as f32
+                        / f32::from(assets::BLOCK_ITEM_SHEET_GRID[axis]);
+                    let local = (held.uv[axis] - held.glint_origin[axis])
+                        * f32::from(assets::BLOCK_ITEM_SHEET_GRID[axis]);
+                    let expected = local * tile / 64.0;
+                    let glint = crate::ActorGlint::item(0.0, [1.0; 2]).uv_scale[axis];
+                    (dropped.uv[axis] - expected).abs() < 0.0002
+                        && (dropped.uv[axis] * dropped.glint_scale[axis] - local * glint).abs()
+                            < 0.001
+                })
+        }));
+    }
+    assert!(dropped_model(model.materials[0].0.clone(), &vertices[..5]).is_none());
+}
+
+#[test]
+fn custom_content_carried_tints_are_baked_without_changing_alpha() {
+    let source = overlay(
+        BlockFlags::CUBE_GEOMETRY,
+        assets::MATERIAL_FLAG_GRASS_TINT,
+        16,
+    );
+    assert!(overlay_item(&source, 0, None, &|_| None).is_none());
+    let (sheet, model) = overlay_item(&source, 0, None, &|_| Some([255, 128, 0])).unwrap();
+    assert!(model.is_none());
+    assert!(
+        sheet
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [40, 40, 0, 128])
+    );
+}

@@ -22,10 +22,8 @@ use render_scene::{
     WeatherTextureAssets,
 };
 
-use super::{
-    BrowserOptions,
-    session::{Host, HostCommands},
-};
+use super::session::{Host, HostCommands};
+use crate::browser_input::BrowserOptions;
 use crate::{
     environment,
     runtime::{network, world::ClientWorld},

@@ -53,7 +53,7 @@ pub(crate) struct ActorObservations<'w> {
     #[cfg(not(target_arch = "wasm32"))]
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     #[cfg(target_arch = "wasm32")]
-    options: Res<'w, crate::browser::BrowserOptions>,
+    options: Res<'w, crate::browser_input::BrowserOptions>,
     ui_presentation: Option<Res<'w, UiPresentationResource>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,

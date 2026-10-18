@@ -3,7 +3,7 @@
 use assets::carriers::startup::delivery::StartupCarriers;
 use bevy::{
     anti_alias::AntiAliasPlugin,
-    prelude::{App, DefaultPlugins, PluginGroup, Resource, Window, default},
+    prelude::{App, DefaultPlugins, PluginGroup, Window, default},
     render::{RenderPlugin, settings::RenderCreation},
     window::WindowPlugin,
 };
@@ -54,7 +54,7 @@ pub fn run(
             .disable::<AntiAliasPlugin>(),
     );
     app.insert_non_send(commands)
-        .insert_non_send(frame::InputSource(input))
+        .insert_non_send(crate::browser_input::InputSource(input))
         .add_plugins((
             render::ActorRenderPlugin,
             render::AtmospherePlugin,
@@ -85,12 +85,6 @@ pub fn run(
     anyhow::ensure!(!exit.is_error(), "browser client stopped with an error");
     Ok(host)
 }
-
-/// In-memory settings used by gameplay until a menu host replaces them.
-#[derive(Resource, Default)]
-pub(crate) struct BrowserOptions(
-    pub(crate) std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
-);
 
 /// Formats a protocol-validated transfer through the shared session address owner.
 pub fn transfer_address(host: &str, port: u16) -> String {

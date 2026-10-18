@@ -27,7 +27,6 @@ fn now() -> Duration {
 struct BrowserHost {
     origin: String,
     observe: Function,
-    ready: Rc<Cell<bool>>,
     account: Rc<RefCell<crate::launcher::RelayAccount>>,
 }
 impl Host for BrowserHost {
@@ -48,13 +47,6 @@ impl Host for BrowserHost {
         ))
     }
     fn observe(&self, value: serde_json::Value) {
-        if let Some(state) = value.get("state").and_then(serde_json::Value::as_str) {
-            if state == "connected" {
-                self.ready.set(true);
-            } else if matches!(state, "disconnected" | "refused" | "retry_exhausted") {
-                self.ready.set(false);
-            }
-        }
         emit(&self.observe, value);
     }
     fn account(&self) -> &RefCell<crate::launcher::RelayAccount> {
@@ -93,7 +85,6 @@ impl Page {
             BrowserHost {
                 origin: origin.to_owned(),
                 observe: observe.clone(),
-                ready: Rc::clone(&ready),
                 account: Rc::clone(&account),
             },
             pending,

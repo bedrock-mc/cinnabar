@@ -298,3 +298,144 @@ fn sign_out_keeps_control_until_confirmation_after_the_game_releases_play() {
     assert_eq!(host.closes.get(), 1);
     assert_eq!(host.opens.get(), 2, "sign-out must not retry control");
 }
+
+#[test]
+fn play_readiness_is_gated_while_opening_and_retiring_a_cancelled_request() {
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let intent = Rc::new(Intent {
+        ready: Rc::clone(&host.ready),
+        ..Intent::default()
+    });
+    let (_commands, pending) = mpsc::channel(4);
+    let (mut joins, join_requests) = mpsc::channel(1);
+    let (_lifecycle, changed) = mpsc::channel(1);
+    let (_cancel, cancelled) = oneshot::channel();
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&intent),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(intent.ready.get());
+    host.hold_writes.set(true);
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        !intent.ready.get(),
+        "opening play must gate replacement joins"
+    );
+    drop(response);
+    host.hold_writes.set(false);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        !intent.ready.get(),
+        "cancelled play must retire before joining again"
+    );
+    host.now.set(Duration::from_millis(1250));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(intent.ready.get());
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(matches!(response.now_or_never(), Some(Ok(Ok(_)))));
+}
+
+#[test]
+fn busy_sign_out_waits_for_the_control_request_refill() {
+    let intent = Rc::new(Intent::default());
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let (_joins, join_requests) = mpsc::channel(1);
+    let (_lifecycle, changed) = mpsc::channel(1);
+    let (_cancel, cancelled) = oneshot::channel();
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&intent),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(intent.account(AccountOperation::SignOut))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let refill = Duration::from_millis(bridge::contract::RELAY_CONTROL_REFILL_MILLIS as u64);
+    for attempt in 0..8 {
+        deliver(&host, json!({"type":"error", "error":"session_busy"}));
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        let sent = requests(&host).len();
+        host.now
+            .set(refill * (attempt + 1) - Duration::from_millis(1));
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(
+            requests(&host).len(),
+            sent,
+            "retry spent an unrefilled token"
+        );
+        host.now.set(refill * (attempt + 1));
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(requests(&host).len(), sent + 1);
+    }
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"signed_out"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(
+        host.account.borrow().state(),
+        ::launcher::menu::auth::AuthState::SignedOut
+    );
+    assert_eq!(host.closes.get(), 0);
+}
+
+#[test]
+fn browser_sign_out_confirmation_restores_offline_play_readiness() {
+    let intent = Rc::new(Intent::default());
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let (mut joins, join_requests) = mpsc::channel(1);
+    let (_lifecycle, changed) = mpsc::channel(1);
+    let (_cancel, cancelled) = oneshot::channel();
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&intent),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    commands
+        .try_send(intent.account(AccountOperation::SignOut))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(!intent.ready.get(), "pending sign-out must gate joins");
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"signed_out"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        intent.ready.get(),
+        "confirmed sign-out must admit offline play"
+    );
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(matches!(response.now_or_never(), Some(Ok(Ok(_)))));
+}

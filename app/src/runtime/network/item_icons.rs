@@ -21,7 +21,7 @@ use resource_pack::LayeredPackView;
 
 use assets::texture::policy::MAX_SUBSCRIBER_BYTES;
 use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
-use render_model::equipment::blocks::overlay_sheet;
+use render_model::equipment::blocks::overlay_item;
 
 /// One icon per registry item, the most a session can name.
 const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -38,6 +38,7 @@ pub(super) fn compile_session_icons(
         icons: block_icons,
         block_sheets,
         block_material_flags,
+        block_models,
         misses: block_misses,
     } = block_icons;
     let block_rendered = block_icons
@@ -124,8 +125,16 @@ pub(super) fn compile_session_icons(
     (!icons.is_empty() || !block_sheets.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,
-            block_sheets,
             block_material_flags,
+            block_models: block_models
+                .into_iter()
+                .filter(|(identifier, _)| {
+                    block_sheets
+                        .iter()
+                        .any(|sheet| sheet.identifier == *identifier)
+                })
+                .collect(),
+            block_sheets,
             misses,
         })
     })
@@ -148,11 +157,12 @@ fn append_block_icons(
     }
 }
 
-/// Custom block item thumbnails and cube sheets, and why a block item has no thumbnail.
+/// Custom block item thumbnails, held models and material sheets, and why a block item has no thumbnail.
 #[derive(Default)]
 pub(super) struct BlockIcons {
     pub(super) icons: Vec<SessionIcon>,
     pub(super) block_sheets: Vec<SessionIcon>,
+    pub(super) block_models: BTreeMap<Arc<str>, Arc<[render_model::ActorRigVertex]>>,
     pub(super) block_material_flags: BTreeMap<Arc<str>, u32>,
     pub(super) misses: Vec<(Arc<str>, Box<str>)>,
 }
@@ -207,20 +217,53 @@ pub(super) fn custom_block_icons_with_tint(
         rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
     };
     let mut result = BlockIcons::default();
+    let mut model_bytes = 0usize;
     for (identifier, block) in block_items.iter().take(MAX_SESSION_ICONS) {
         let visual = first_state.get(block).copied();
         if let Some(visual) = visual
-            && let Some(sheet) = overlay_sheet(overlay, visual, base)
-        {
-            let material_flags = overlay.visuals[visual]
-                .faces
-                .iter()
-                .fold(0, |flags, material| {
-                    flags | overlay.materials[*material as usize].flags
+            && let Some((sheet, model)) = overlay_item(overlay, visual, base, &|flags| {
+                (flags & assets::MATERIAL_FLAG_TINT_MASK == assets::MATERIAL_FLAG_GRASS_TINT)
+                    .then_some(grass)
+                    .flatten()
+            })
+            .filter(|(_, model)| {
+                let bytes = model.as_ref().map_or(0, |model| {
+                    model
+                        .len()
+                        .saturating_mul(std::mem::size_of::<render_model::ActorRigVertex>())
                 });
+                if bytes > MAX_SUBSCRIBER_BYTES.saturating_sub(model_bytes) {
+                    return false;
+                }
+                model_bytes += bytes;
+                true
+            })
+        {
+            let block = overlay.visuals[visual];
+            let mut material_flags = block.faces.iter().fold(0, |flags, material| {
+                flags | overlay.materials[*material as usize].flags
+            });
+            if model.is_some() {
+                for part in
+                    assets::model_template_parts(&overlay.model_templates, block.model_template)
+                        .into_iter()
+                        .flatten()
+                {
+                    for quad in
+                        &overlay.model_quads[part.quad_start as usize..][..part.quad_count as usize]
+                    {
+                        material_flags |= overlay.materials[quad.material as usize].flags;
+                    }
+                }
+            }
             result
                 .block_material_flags
                 .insert(Arc::clone(identifier), material_flags);
+            if let Some(model) = model {
+                result
+                    .block_models
+                    .insert(Arc::clone(identifier), model.into());
+            }
             result.block_sheets.push(session_icon(identifier, sheet));
         }
         match visual.and_then(|visual| {

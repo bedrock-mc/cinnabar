@@ -19,8 +19,9 @@ use web_transport::{
 /// Bounds control opening and account writes with the same host-owned deadline.
 const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Leaves relay play teardown time to progress between busy sign-out refusals.
-const SIGN_OUT_RETRY_DELAY: Duration = Duration::from_millis(100);
+/// Lets the relay replenish a control request between busy sign-out refusals.
+const SIGN_OUT_RETRY_DELAY: Duration =
+    Duration::from_millis(bridge::contract::RELAY_CONTROL_REFILL_MILLIS as u64);
 
 use crate::play;
 
@@ -108,6 +109,14 @@ pub(crate) async fn run<H: Host>(
     let mut sign_out_retry_at = None;
     let mut generation = 0;
     loop {
+        intent.ready.set(
+            matches!(session.state(), State::Ready(_))
+                && requested.is_none()
+                && playing.is_none()
+                && !paused.get()
+                && sign_out_deadline.get().is_none()
+                && generation == intent.generation.get(),
+        );
         let ready = matches!(session.state(), State::Ready(_) | State::Playing(_));
         let writing = ready && session.has_account_intent();
         let opening = requested.is_some();
@@ -386,6 +395,7 @@ pub(crate) async fn run<H: Host>(
             }
         }
     }
+    intent.ready.set(false);
     session.close(CloseReason::Cancelled);
     host.account().borrow_mut().disconnected();
 }

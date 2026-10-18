@@ -160,9 +160,6 @@ impl Host for FakeHost {
         Ok((None, Transport(Rc::clone(&self.0))))
     }
     fn observe(&self, event: Value) {
-        if event["state"] == "connected" {
-            self.0.ready.set(true);
-        }
         self.0.events.borrow_mut().push(event);
     }
     fn account(&self) -> &RefCell<RelayAccount> {

@@ -489,6 +489,13 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(50));
+        {
+            use gameplay::movement::MovementEffectSource;
+            let mut effects =
+                world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+            effects.begin_frame();
+            effects.commit_successful_tick();
+        }
         schedule.run(&mut world);
         assert_eq!(
             world.resource::<SwingAdmission>().0,

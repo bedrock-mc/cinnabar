@@ -53,8 +53,10 @@ pub struct SessionIcon {
 #[derive(Debug, Default)]
 pub struct SessionIcons {
     pub icons: Vec<SessionIcon>,
-    /// Six-face sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom held cubes.
+    /// Material sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom block items.
     pub block_sheets: Vec<SessionIcon>,
+    /// Exact held models with UVs relative to the item's matching material sheet.
+    pub block_models: BTreeMap<Arc<str>, Arc<[render_model::ActorRigVertex]>>,
     /// Admitted face material flags for each custom block item's sheet.
     pub block_material_flags: BTreeMap<Arc<str>, u32>,
     /// Why an item's icon key did not resolve to an image, for diagnostics.
@@ -125,6 +127,18 @@ impl SessionIconPage {
         };
         let vertices: Arc<[render_model::ActorRigVertex]> = vertices.into();
         cache.insert(icon_key(source), Arc::clone(&vertices))?;
+        Some((source, vertices))
+    }
+
+    /// Shares exact block geometry with the admitted material sheet for player previews.
+    pub(super) fn held_block(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
+        let source = self.sheets.get(identifier)?;
+        let source = *source.get(&metadata).or_else(|| source.get(&0))?;
+        let vertices = self.source.as_ref()?.block_models.get(identifier)?.clone();
         Some((source, vertices))
     }
 
@@ -417,6 +431,9 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
         ) else {
             continue;
         };
+        if icons.block_models.contains_key(&sheet.identifier) {
+            continue;
+        }
         if icons
             .block_material_flags
             .get(&sheet.identifier)

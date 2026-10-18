@@ -58,12 +58,15 @@ impl BrowserInput {
     /// Converts DOM buttons to the input pipeline's left/right/middle ordering.
     pub fn mouse(&mut self, button: u8, down: bool) {
         let state = &mut *self.shared.borrow_mut();
+        let Some(button) = button.checked_add(1) else {
+            return;
+        };
         let button = match button {
-            1 => 2,
-            2 => 1,
+            2 => 3,
+            3 => 2,
             other => other,
         };
-        if usize::from(button) < MAX_MOUSE_BUTTONS {
+        if usize::from(button) <= MAX_MOUSE_BUTTONS {
             update(
                 &mut state.frame.mouse_buttons,
                 &mut state.frame.mouse_edges,
@@ -202,6 +205,43 @@ mod tests {
     }
 
     #[test]
+    fn browser_dom_mouse_codes_match_persisted_gameplay_bindings() {
+        use ::launcher::menu::settings_options::{BindingId, SettingsOptions};
+        use semantic_input::PhysicalControl;
+        let pick = SettingsOptions::default().named_key_control(BindingId::PickItem);
+        for (dom, expected) in [(0, 1), (1, 3), (2, 2), (3, 4), (4, 5), (7, 8)] {
+            let mut input = BrowserInput::new();
+            input.focus(true);
+            input.mouse(dom, true);
+            let device = input.take_device();
+            semantic_input::SemanticInputRouter::default()
+                .route(device.clone())
+                .unwrap();
+            let keyboard = device.keyboard_mouse.unwrap();
+            assert_eq!(keyboard.mouse_edges.pressed, [expected], "DOM button {dom}");
+            assert_eq!(keyboard.mouse_buttons, [expected]);
+            assert_eq!(
+                pick == Some(PhysicalControl::MouseButton(expected)),
+                dom == 1
+            );
+            assert!(
+                input
+                    .take_device()
+                    .keyboard_mouse
+                    .unwrap()
+                    .mouse_edges
+                    .pressed
+                    .is_empty()
+            );
+        }
+        let mut input = BrowserInput::new();
+        for invalid in [8, u8::MAX] {
+            input.mouse(invalid, true);
+        }
+        assert!(input.take().mouse_buttons.is_empty());
+    }
+
+    #[test]
     fn taps_repeat_blur_and_frame_consumption() {
         let mut input = BrowserInput::default();
         input.key("KeyW", true);
@@ -217,7 +257,7 @@ mod tests {
         assert_eq!(frame.key_edges.pressed.len(), 1);
         assert_eq!(frame.key_edges.released.len(), 2);
         assert!(!frame.modifiers.shift);
-        assert_eq!(frame.mouse_edges.pressed, vec![1]);
+        assert_eq!(frame.mouse_edges.pressed, vec![2]);
         assert!(input.take().key_edges.pressed.is_empty());
     }
 }

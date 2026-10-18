@@ -42,10 +42,7 @@ type controlEvent struct {
 	Error          string                 `json:"error,omitempty"`
 }
 
-const (
-	controlRequestsPerSecond = 1
-	controlRequestBurst      = 4
-)
+const controlRequestBurst = 4
 
 // readJSON admits a nonzero u32 big-endian JSON payload before allocating it.
 func readJSON(conn net.Conn, value any) error {
@@ -133,7 +130,7 @@ func (relay *Relay) runControl(transportCtx context.Context, conn net.Conn, clie
 	go func() {
 		defer close(readerDone)
 		defer cancel()
-		requests := rate.NewLimiter(controlRequestsPerSecond, controlRequestBurst)
+		requests := rate.NewLimiter(rate.Every(time.Duration(bridgecontract.RelayControlRefillMillis)*time.Millisecond), controlRequestBurst)
 		for {
 			if ctx.Err() != nil {
 				return

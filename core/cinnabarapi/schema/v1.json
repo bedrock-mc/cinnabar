@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/bedrock-mc/cinnabar-api/main/schema/v1.json",
+  "$id": "https://raw.githubusercontent.com/cinnabar-mc/cinnabar-api/main/schema/v1.json",
   "title": "Cinnabar API v1",
   "description": "HTTP bodies and WebSocket messages of the Cinnabar API. Receivers ignore unknown fields and, after authentication, unknown message types.",
   "x-protocol": 1,
@@ -25,6 +25,9 @@
     },
     {
       "$ref": "#/$defs/CosmeticsCatalog"
+    },
+    {
+      "$ref": "#/$defs/OnlineCountResponse"
     }
   ],
   "$defs": {
@@ -609,7 +612,8 @@
         "geometry_id",
         "attachment_bone",
         "offset",
-        "render_flags"
+        "render_flags",
+        "license"
       ],
       "properties": {
         "id": {
@@ -681,9 +685,15 @@
             },
             "emissive": {
               "type": "boolean",
-              "description": "Draws every opaque texel fullbright in the world."
+              "description": "Draws every opaque texel fullbright in the world; galleries and previews are unchanged. Clients that predate it draw the item normally lit."
             }
           }
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://",
+          "description": "License terms supplied with the original asset."
         }
       }
     },
@@ -705,6 +715,19 @@
           }
         }
       }
+    },
+    "OnlineCountResponse": {
+      "description": "GET /v1/presence/count: unique visible accounts with an open authenticated socket; excludes retained offline presence.",
+      "type": "object",
+      "required": [
+        "online"
+      ],
+      "properties": {
+        "online": {
+          "$ref": "#/$defs/U32"
+        }
+      },
+      "additionalProperties": true
     }
   }
 }

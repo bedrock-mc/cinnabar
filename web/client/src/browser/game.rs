@@ -155,7 +155,7 @@ async fn drive(
     loop {
         let started = super::now();
         // Control recovery belongs to the relay driver; play waits without replaying login bytes.
-        while !ready.get() {
+        while !ready.replace(false) {
             if super::now().saturating_sub(started) >= Duration::from_secs(60) {
                 emit(
                     &observe,
@@ -183,7 +183,6 @@ async fn drive(
                 return;
             }
         };
-        ready.set(false);
         let (io, mut guard) = lease.into_parts();
         let work = host.borrow_mut().connect(
             protocol::SessionIo {

@@ -189,7 +189,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(not(target_arch = "wasm32"))]
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     #[cfg(target_arch = "wasm32")]
-    options: Res<'w, crate::browser::BrowserOptions>,
+    options: Res<'w, crate::browser_input::BrowserOptions>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }

@@ -35,6 +35,8 @@ const (
 	RelayPlayMessageBytes = 8388608
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
+	// RelayControlRefillMillis: Time to replenish one relay control request; busy sign-out retries wait at least this long.
+	RelayControlRefillMillis = 1000
 	// RelayTransportPath: WebTransport Extended CONNECT route.
 	RelayTransportPath = "/v2/transport"
 	// RelayControlPath: WebSocket control route.

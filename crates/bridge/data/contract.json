@@ -17,6 +17,7 @@
     {"rust_name": "RELAY_CONTROL_BYTES", "go_name": "RelayControlBytes", "value": 4096, "rust_type": "usize", "doc": "Largest relay Hello or control JSON payload in bytes."},
     {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message and upload burst in bytes."},
     {"rust_name": "RELAY_KEEPALIVE_SECONDS", "go_name": "RelayKeepAliveSeconds", "value": 30, "rust_type": "u32", "doc": "Interval between control keepalives."},
+    {"rust_name": "RELAY_CONTROL_REFILL_MILLIS", "go_name": "RelayControlRefillMillis", "value": 1000, "rust_type": "u32", "doc": "Time to replenish one relay control request; busy sign-out retries wait at least this long."},
     {"rust_name": "RELAY_TRANSPORT_PATH", "go_name": "RelayTransportPath", "value": "/v2/transport", "rust_type": "str", "doc": "WebTransport Extended CONNECT route."},
     {"rust_name": "RELAY_CONTROL_PATH", "go_name": "RelayControlPath", "value": "/v2/control", "rust_type": "str", "doc": "WebSocket control route."},
     {"rust_name": "RELAY_PLAY_PATH", "go_name": "RelayPlayPath", "value": "/v2/play", "rust_type": "str", "doc": "WebSocket play route."},

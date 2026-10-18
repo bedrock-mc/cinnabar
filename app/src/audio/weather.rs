@@ -20,7 +20,7 @@ pub(super) fn drive_rain_audio(
     clock: Res<WorldClock>,
     world: Res<ClientWorld>,
     #[cfg(not(target_arch = "wasm32"))] menu: Option<Res<client_shell::menu::MenuRuntime>>,
-    #[cfg(target_arch = "wasm32")] options: Res<crate::browser::BrowserOptions>,
+    #[cfg(target_arch = "wasm32")] options: Res<crate::browser_input::BrowserOptions>,
     view: Res<LocalViewPose>,
     camera: Query<&Transform, With<FlyCamera>>,
     server_camera: Option<Res<ServerCameraView>>,

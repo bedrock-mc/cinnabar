@@ -45,7 +45,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     #[cfg(not(target_arch = "wasm32"))]
     menu_runtime: Res<'w, client_shell::menu::MenuRuntime>,
     #[cfg(target_arch = "wasm32")]
-    options: Res<'w, crate::browser::BrowserOptions>,
+    options: Res<'w, crate::browser_input::BrowserOptions>,
     #[cfg(target_arch = "wasm32")]
     skin: Res<'w, client_shell::player_skin::LocalPlayerSkin>,
     hand_rig: Res<'w, client_presentation::actor_publication::ActorFrameState>,
