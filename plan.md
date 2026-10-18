@@ -771,6 +771,9 @@ which misreports the builtin vertex index under nonzero base vertices.
 The Go core, local server, and fixture generator share a reviewed transport revision with
 corrected handshake addresses and probe cadence, connected control framing, reliability
 and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+The consumers now also include the merged fresh-entropy GUID, offline reply validation,
+final MTU selection, retry deadline, and split-memory fixes. A wire regression exercises
+the effective dependency, and manifest checks keep the three Go module pins together.
 
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
@@ -842,6 +845,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Login names omit the legacy ThirdPartyNameOnly marker while preserving ThirdPartyName.
+  Complete claim presence, ordering and platform lifecycle parity remain incomplete.
 - Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
   image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
@@ -10080,6 +10085,16 @@ Open timeouts release local admission without closing a guessed window ID.
 Item requests and admitted user closes retain their window generations for settlement.
 Full mount container, vehicle input and platform-specific inventory-opening guards
 remain incomplete.
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass, including a join selection above the advertised byte. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
 
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
@@ -10134,3 +10149,9 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
+renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.
