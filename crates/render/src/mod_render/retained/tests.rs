@@ -9,6 +9,9 @@ use std::sync::Arc;
 #[path = "raster_tests.rs"]
 mod raster;
 
+#[path = "timing_tests.rs"]
+mod timing;
+
 #[test]
 fn unlit_shader_layout_and_stages_match_native_storage() {
     let source = crate::shader_source::standalone(include_str!("drawing.wesl"), &[]);
