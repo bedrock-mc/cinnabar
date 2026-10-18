@@ -677,7 +677,7 @@ fn auth_state(account: &Account) -> Option<AuthState> {
 fn join_stage(progress: &ConnectProgress) -> JoinStage {
     match progress.stage {
         ConnectStage::Realm => JoinStage::Realm,
-        ConnectStage::Connecting => JoinStage::Connecting,
+        ConnectStage::Idle | ConnectStage::Connecting => JoinStage::Connecting,
         ConnectStage::Packs => JoinStage::Packs {
             done: progress.packs_done,
             total: progress.packs_total,

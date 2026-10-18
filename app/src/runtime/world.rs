@@ -329,6 +329,8 @@ type WorldPollInputs<'w, 's> = (
     Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
     ResMut<'w, client_interaction::movement::LocomotionState>,
     ResMut<'w, client_presentation::camera::look::LookSmoother>,
+    Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    Option<ResMut<'w, ChunkRenderQueue>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -357,6 +359,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut item_use,
         mut locomotion,
         mut look_smoother,
+        menu,
+        mut render_queue,
     ): WorldPollInputs<'_, '_>,
 ) {
     let _timer = profiler
@@ -391,6 +395,21 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     };
     stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
+    let rendering = menu
+        .as_ref()
+        .map_or_else(meshing::MeshRenderSettings::default, |menu| {
+            let options = menu.settings_snapshot().0;
+            use launcher::menu::settings_options::SettingId;
+            meshing::MeshRenderSettings {
+                smooth_lighting: options.value(SettingId::SmoothLighting) != 0,
+                transparent_leaves: options.value(SettingId::TransparentLeaves) != 0,
+            }
+        });
+    if stream.set_mesh_render_settings(rendering, std::time::Instant::now())
+        && let Some(queue) = render_queue.as_mut()
+    {
+        queue.discard_resource_work();
+    }
     // Adds to the between-frames service's work already recorded for this frame.
     frame_poll.report.accumulate(stream.poll(
         view.eye_translation().to_array(),
@@ -431,11 +450,23 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
     movement.set_control_fence_pending(false);
+    respawn.synchronize_session(Some(clock.session_generation()));
     let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let Err(error) = respawn.queue_completion(|packet| match network.as_ref() {
+            Some(network) => network.send_dimension_packet(packet),
+            None => Err(client_session::PacketSendError::Full(packet)),
+        }) {
+            if error.is_closed() {
+                record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
+            }
+            movement.set_control_fence_pending(true);
+            stream.restore_committed_controls(std::iter::once(control).chain(controls));
+            return;
+        }
         if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
             input_locks::apply_committed_input_locks(
                 clock.session_generation(),

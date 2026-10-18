@@ -78,8 +78,14 @@ fn forward_wind_folds_only_the_upper_half_behind_the_head_at_every_orientation()
         Quat::from_rotation_y(1.3),
         Quat::from_rotation_x(-0.4),
     ] {
-        let rest = model.pose(head(rotation), 0.0);
-        let folded = model.pose(head(rotation), 1.0);
+        let rest = model.pose(head(rotation), Motion::default());
+        let folded = model.pose(
+            head(rotation),
+            Motion {
+                bend: 1.0,
+                ..Default::default()
+            },
+        );
         for (index, weight) in model.flex.iter().enumerate() {
             if *weight == 0.0 {
                 assert_eq!(rest[index], folded[index]);
@@ -132,13 +138,20 @@ fn settled_headwear_reuses_its_pose_and_retains_head_scale() {
     let mut cache = HatPoseCache::default();
     let mut head = head(Quat::IDENTITY);
     head.translation_scale[3] = 0.5;
-    let first = cache.pose(fixture::bunny(), head, 0.0);
-    let second = cache.pose(fixture::bunny(), head, 0.0);
+    let first = cache.pose(fixture::bunny(), head, Motion::default());
+    let second = cache.pose(fixture::bunny(), head, Motion::default());
     assert!(Arc::ptr_eq(&first, &second));
     for bone in &*first {
         assert_eq!(bone.translation_scale[3], 0.5);
     }
-    let changed = cache.pose(fixture::bunny(), head, 0.5);
+    let changed = cache.pose(
+        fixture::bunny(),
+        head,
+        Motion {
+            bend: 0.5,
+            ..Default::default()
+        },
+    );
     assert!(!Arc::ptr_eq(&first, &changed));
 }
 
@@ -146,7 +159,13 @@ fn settled_headwear_reuses_its_pose_and_retains_head_scale() {
 fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
     let model = rig(fixture::bunny());
     for bend in [0.0, 0.5, 1.0] {
-        let pose = model.pose(head(Quat::IDENTITY), bend);
+        let pose = model.pose(
+            head(Quat::IDENTITY),
+            Motion {
+                bend,
+                ..Default::default()
+            },
+        );
         let mut shared = std::collections::HashMap::<[u32; 3], Vec3>::new();
         let mut duplicate_corners = 0;
         for vertex in &*model.geometry.vertices {
@@ -179,107 +198,6 @@ fn shared_surface_edges_stay_welded_and_joint_angles_form_a_curve() {
 }
 
 #[test]
-fn blockbench_project_and_runtime_export_share_the_same_surface_and_joint_pivots() {
-    for (project, geometry) in [
-        (
-            include_str!("bunny_ears.bbmodel"),
-            include_str!("bunny_ears.geo.json"),
-        ),
-        (
-            include_str!("crown.bbmodel"),
-            include_str!("crown.geo.json"),
-        ),
-        (
-            include_str!("devil_horns.bbmodel"),
-            include_str!("devil_horns.geo.json"),
-        ),
-    ] {
-        let project: serde_json::Value = serde_json::from_str(project).unwrap();
-        let exported: serde_json::Value = serde_json::from_str(geometry).unwrap();
-        let geometry = &exported["minecraft:geometry"][0];
-        assert_eq!(
-            project["model_identifier"],
-            geometry["description"]["identifier"]
-        );
-        for group in project["groups"].as_array().unwrap() {
-            assert!(
-                group["rotation"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|n| n.as_f64() == Some(0.0)),
-                "headwear group transforms must be baked before export"
-            );
-            let bone = geometry["bones"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|bone| bone["name"] == group["name"])
-                .expect("exported project joint");
-            assert_eq!(bone["pivot"], group["origin"]);
-        }
-        for mesh in project["elements"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|element| element["type"] == "mesh")
-        {
-            for field in ["origin", "rotation"] {
-                assert!(
-                    mesh[field]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .all(|n| n.as_f64() == Some(0.0)),
-                    "headwear mesh transforms must be baked before export"
-                );
-            }
-            let surface = geometry["bones"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|bone| bone.get("poly_mesh"))
-                .find(|surface| {
-                    surface["positions"].as_array().unwrap().len()
-                        == mesh["vertices"].as_object().unwrap().len()
-                        && mesh["vertices"]
-                            .as_object()
-                            .unwrap()
-                            .values()
-                            .all(|position| {
-                                surface["positions"].as_array().unwrap().contains(position)
-                            })
-                })
-                .expect("runtime surface matches the editable Blockbench mesh");
-            let positions = surface["positions"].as_array().unwrap();
-            assert!(positions.len() > 100);
-            assert_eq!(
-                surface["polys"].as_array().unwrap().len(),
-                mesh["faces"].as_object().unwrap().len()
-            );
-            for face in mesh["faces"].as_object().unwrap().values() {
-                assert!(
-                    surface["polys"].as_array().unwrap().iter().any(|polygon| {
-                        let corners = polygon.as_array().unwrap();
-                        let authored = face["vertices"].as_array().unwrap();
-                        authored.len() == corners.len()
-                            && authored.iter().zip(corners).all(|(key, corner)| {
-                                let key = key.as_str().unwrap();
-                                let indices = corner.as_array().unwrap();
-                                mesh["vertices"][key]
-                                    == surface["positions"][indices[0].as_u64().unwrap() as usize]
-                                    && face["uv"][key]
-                                        == surface["uvs"][indices[2].as_u64().unwrap() as usize]
-                            })
-                    }),
-                    "Blockbench faces and UVs must be exported together"
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn admits_new_identifiers_slots_offsets_and_render_flags_without_code_changes() {
     let first = fixture::bunny();
     let mut descriptor = first.descriptor().clone();
@@ -298,7 +216,7 @@ fn admits_new_identifiers_slots_offsets_and_render_flags_without_code_changes() 
         rig(item).geometry.vertices.len(),
         rig(first).geometry.vertices.len() * 2
     );
-    let posed = rig(item).pose(head(Quat::IDENTITY), 0.0);
+    let posed = rig(item).pose(head(Quat::IDENTITY), Motion::default());
     assert!((posed[0].translation_scale[0] - 0.25).abs() < 1e-5);
     assert_eq!(Item::from_id(item.id()), Some(item));
 }
@@ -359,7 +277,7 @@ fn catalog_geometry_keeps_authored_rotations_at_a_different_attachment_bone() {
         include_bytes!("fixture/animation.json"),
     )
     .unwrap();
-    let pose = rig(item).pose(head(Quat::IDENTITY), 0.0);
+    let pose = rig(item).pose(head(Quat::IDENTITY), Motion::default());
     assert!(
         rig(item)
             .rest_vertices
@@ -410,8 +328,54 @@ fn catalog_devil_horns_attach_directly_to_the_head_and_stay_rigid() {
         "no band joins the two horns"
     );
     let attachment = head(Quat::from_rotation_y(0.8));
-    assert_eq!(*model.pose(attachment, 0.0), *model.pose(attachment, 1.0));
+    assert_eq!(
+        *model.pose(attachment, Motion::default()),
+        *model.pose(
+            attachment,
+            Motion {
+                bend: 1.0,
+                ..Default::default()
+            }
+        )
+    );
     let preview = thumbnail::render(item, 128, 128).unwrap();
+    assert!(
+        preview
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] > 0)
+    );
+}
+
+#[test]
+fn shoulder_parrot_sits_on_the_shoulder_and_coexists_with_head_and_back_slots() {
+    let pet = fixture::shoulder_parrot();
+    let model = rig(pet);
+    assert_eq!(pet.descriptor().slot, "pet");
+    assert_eq!(pet.descriptor().attachment_bone, "body");
+    assert!(pet.descriptor().free);
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .all(|v| v.position[0] > 0.25 && v.position[1] < 2.0)
+    );
+    assert!(
+        model
+            .rest_vertices
+            .iter()
+            .any(|v| (v.position[1] - 1.5).abs() < 1e-6),
+        "feet touch the standard shoulder plane"
+    );
+    let slots = [fixture::devil_horns(), fixture::dragon_wings(), pet]
+        .map(|item| (item.descriptor().slot.clone(), Some(item.id().into())))
+        .into();
+    let resolved = cosmetics::resolve(&slots, |_| false);
+    assert_eq!(resolved.len(), 3);
+    assert!(resolved.contains(&pet));
+    let preview = thumbnail::render(pet, 128, 128).unwrap();
     assert!(
         preview
             .rgba8

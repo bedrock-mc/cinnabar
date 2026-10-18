@@ -7,6 +7,7 @@ use protocol::{
 };
 
 use super::cells::{Cell, CellSurface, Cells, Held};
+use super::consumption::SubsequentConsumption;
 use super::overlay::DeltaGroup;
 use super::response::apply_response_item_data;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
@@ -14,6 +15,9 @@ use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger}
 /// Retained predictions awaiting answers. New gestures are refused rather than evicting work
 /// the server may still apply.
 pub const MAX_PENDING_REQUESTS: usize = 256;
+
+mod rebase;
+mod retirement;
 
 #[derive(Debug, Clone)]
 pub(super) struct PendingRequest {
@@ -45,13 +49,14 @@ pub(super) struct PendingRequest {
     pub(super) mining: Option<MiningPrediction>,
     /// A drop key press with no window open, which leaves as a normal transaction.
     pub(super) world_drop: Option<WorldDrop>,
+    /// Gameplay decrements admitted after this request's packet for each retained item.
+    pub(super) consumed_after: Vec<SubsequentConsumption>,
 }
 
-/// A reserved transaction identity and the admitted gameplay consumption after its drop.
+/// A reserved normal-transaction identity.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct WorldDrop {
     pub(super) legacy_request_id: i32,
-    pub(super) consumed_after: u16,
 }
 
 /// The native sparse cell and its historic request snapshot. A later local
@@ -61,6 +66,8 @@ pub(super) struct WorldDrop {
 pub(super) struct CellPrediction {
     pub(super) cell: Cell,
     pub(super) before: Option<Held>,
+    /// Authority of the rollback value, including an empty value.
+    pub(super) rollback: RollbackAuthority,
     pub(super) held: Option<Held>,
     pub(super) active: bool,
     /// No later authoritative write has invalidated this rollback source.
@@ -69,13 +76,67 @@ pub(super) struct CellPrediction {
     pub(super) owns_empty_backing: bool,
 }
 
+/// Whether a retained rollback can still name usable backing.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum RollbackAuthority {
+    /// Usable backing or a resolved cell, including an admitted local transaction.
+    Known,
+    /// The value depends on an unresolved sparse prediction owner.
+    Pending(i32),
+    /// An accepted predecessor's wire name remains valid for already queued transport.
+    /// Its snapshot still needs recovery if restored into backing without a settled ID.
+    AcceptedAlias(i32),
+    /// Historical data remains, but restoring it requires authoritative recovery.
+    Unknown,
+}
+
 /// The durability a mine-block request predicts for one hotbar slot.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(super) struct MiningPrediction {
     pub(super) slot: u8,
     pub(super) damage: i32,
-    /// The backing item used by the mine-block action in this request's HUD scope.
-    pub(super) source: Option<Held>,
+    /// Identifies the selected item; accepted metadata stays in backing truth.
+    source: Option<MiningSource>,
+}
+
+/// Stable item lineage for a HUD request, independent of mutable NBT and wire IDs.
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct MiningSource {
+    source_stack_id: i32,
+    source_origin: Option<Cell>,
+    network_id: i32,
+    metadata: u32,
+    block_runtime_id: i32,
+}
+
+impl MiningSource {
+    /// Retains only the identity needed to reject responses for replacement items.
+    fn new(held: &Held) -> Option<Self> {
+        Some(Self {
+            source_stack_id: held.source_stack_id?,
+            source_origin: held.source_origin,
+            network_id: held.stack.network_id,
+            metadata: held.stack.metadata,
+            block_runtime_id: held.stack.block_runtime_id,
+        })
+    }
+}
+
+impl MiningPrediction {
+    /// Resolves this request's still-current item from authoritative backing, never history.
+    fn current_source<'a>(&self, cells: &'a Cells) -> Option<&'a Held> {
+        let held = cells.get(Cell::Inventory(self.slot))?;
+        (MiningSource::new(held).as_ref()? == self.source.as_ref()?).then_some(held)
+    }
+}
+
+impl MiningPrediction {
+    /// Matches retained mining lineage without restoring mutable item data from history.
+    pub(super) fn retains_source_item(&self, held: &Held) -> bool {
+        MiningSource::new(held)
+            .as_ref()
+            .is_some_and(|source| Some(source) == self.source.as_ref())
+    }
 }
 
 /// Bounds outstanding mining predictions; the oldest is forgotten first.
@@ -164,6 +225,10 @@ impl PlayerInventoryLedger {
                 unique.push(cell);
             }
         }
+        let rollback = unique
+            .iter()
+            .map(|cell| self.rollback_authority(*cell, before.get(*cell)))
+            .collect::<Vec<_>>();
         for previous in self
             .queue
             .iter_mut()
@@ -175,16 +240,17 @@ impl PlayerInventoryLedger {
         }
         request.predicted = unique
             .into_iter()
-            .map(|cell| {
+            .zip(rollback)
+            .map(|(cell, rollback)| {
                 let mut held = predicted.get(cell).cloned();
                 if server_authoritative && let Some(held) = &mut held {
                     // Stamp each changed prediction with the request that owns it.
-                    held.source_stack_id.get_or_insert(request.request_id);
-                    held.stack.stack_network_id = request.request_id;
+                    held.bind_prediction(request.request_id, cell);
                 }
                 CellPrediction {
                     cell,
                     before: before.get(cell).cloned(),
+                    rollback,
                     held,
                     active: true,
                     current: true,
@@ -198,7 +264,7 @@ impl PlayerInventoryLedger {
                 .iter()
                 .position(PendingRequest::locally_committed)
         {
-            self.queue.remove(index);
+            self.discard_request(index);
         }
         self.queue.push_back(request);
         self.refold();
@@ -221,7 +287,15 @@ impl PlayerInventoryLedger {
             && !protocol::is_legacy_request_id(id)
             && !(id < -1
                 && id & 1 != 0
-                && self.queue.iter().any(|request| request.request_id == id))
+                && self.queue.iter().any(|request| {
+                    request.request_id == id
+                        && request.predicted.iter().any(|prediction| {
+                            prediction
+                                .held
+                                .as_ref()
+                                .is_some_and(|held| held.stack.stack_network_id == id)
+                        })
+                }))
     }
 
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {
@@ -243,12 +317,6 @@ impl PlayerInventoryLedger {
         }) && request
             .storage_identity
             .is_none_or(|expected| current.and_then(|storage| storage.identity) == Some(expected))
-    }
-
-    /// Forgets a destroyed screen's predictions without committing them or locking shared cells.
-    pub(super) fn retire_screen_requests(&mut self, owns: impl Fn(&PendingRequest) -> bool) {
-        self.queue
-            .retain(|request| request.mining.is_some() || !owns(request));
     }
 
     pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
@@ -273,23 +341,30 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Invalidates rollback sources older than this write, retiring completed local history.
+    /// Invalidates older rollback sources and use offsets, retiring completed local history.
     pub(super) fn invalidate_request_sources(&mut self, cell: Cell, newer: i32) {
-        for prediction in self
+        for request in self
             .queue
             .iter_mut()
             .filter(|request| request.request_id > newer)
-            .flat_map(|request| &mut request.predicted)
-            .filter(|prediction| prediction.cell == cell)
         {
-            prediction.current = false;
+            request
+                .consumed_after
+                .retain(|consumed| consumed.cell != cell);
+            for prediction in request
+                .predicted
+                .iter_mut()
+                .filter(|prediction| prediction.cell == cell)
+            {
+                prediction.current = false;
+            }
         }
-        self.queue.retain(|request| {
-            request.request_id <= newer || !request.locally_committed() || !request.touches(cell)
+        self.discard_requests(|request| {
+            request.request_id > newer && request.locally_committed() && request.touches(cell)
         });
     }
 
-    /// Publishes a settled cell without overwriting a newer admitted transaction.
+    /// Publishes a settled cell without overwriting a newer backing owner.
     fn publish_request_cell(
         &mut self,
         request: &PendingRequest,
@@ -298,16 +373,39 @@ impl PlayerInventoryLedger {
         to: Option<Held>,
         rejected: bool,
     ) {
+        let rollback = if rejected {
+            request
+                .predicted
+                .iter()
+                .find(|prediction| prediction.cell == cell)
+                .map_or(RollbackAuthority::Unknown, |prediction| prediction.rollback)
+        } else {
+            RollbackAuthority::Known
+        };
         let newer = self.queue.iter().any(|later| {
             later.request_id < request.request_id
-                && later.locally_committed()
-                && later.touches(cell)
+                && ((later.locally_committed() && later.touches(cell))
+                    || later.predicted.iter().any(|prediction| {
+                        prediction.cell == cell
+                            && prediction.current
+                            && self.request_owns_backing(later, cell, prediction.held.as_ref())
+                    }))
         });
         if !newer && (!rejected || self.request_owns_backing(request, cell, from)) {
             if !rejected {
                 self.invalidate_request_sources(cell, request.request_id);
             }
-            if self.confirmed.set(cell, to.clone()) && !rejected && cell == Cell::Offhand {
+            let mut backing = to.clone();
+            if matches!(
+                rollback,
+                RollbackAuthority::Unknown | RollbackAuthority::AcceptedAlias(_)
+            ) {
+                if let Some(held) = &mut backing {
+                    held.stack.stack_network_id = 0;
+                }
+                self.require_rollback_recovery(cell);
+            }
+            if self.confirmed.set(cell, backing) && !rejected && cell == Cell::Offhand {
                 self.offhand_written = true;
             }
             if rejected
@@ -322,7 +420,7 @@ impl PlayerInventoryLedger {
                 prediction.owns_empty_backing = true;
             }
         }
-        self.rebase_predictions(request.request_id, cell, from, to);
+        self.rebase_predictions(request.request_id, cell, from, to, rollback);
     }
 
     /// Empty backing needs an admitted transaction or an explicit rollback restoring its owner.
@@ -341,97 +439,26 @@ impl PlayerInventoryLedger {
             && same_name(self.confirmed.get(cell), predicted)
     }
 
-    /// Rebases all later rollback sources and replays only requests not yet transported.
-    pub(super) fn rebase_predictions(
-        &mut self,
-        predecessor: i32,
-        cell: Cell,
-        from: Option<&Held>,
-        to: Option<Held>,
-    ) {
-        let mut replacements = vec![(cell, from.cloned(), to)];
-        let mut queue = std::mem::take(&mut self.queue);
-        let mut invalid = None;
-        'requests: for request in queue
-            .iter_mut()
-            .filter(|request| request.request_id < predecessor)
-        {
-            let mut changed = false;
-            for prediction in request
-                .predicted
-                .iter_mut()
-                .filter(|prediction| prediction.current)
-            {
-                if let Some((_, _, replacement)) =
-                    replacements.iter().rev().find(|(cell, old, _)| {
-                        *cell == prediction.cell
-                            && same_name(prediction.before.as_ref(), old.as_ref())
+    /// Whether a later current rollback still names this nonempty result and source item.
+    fn prediction_has_rollback_successor(
+        &self,
+        request_id: i32,
+        prediction: &CellPrediction,
+    ) -> bool {
+        let Some(held) = prediction.held.as_ref() else {
+            return false;
+        };
+        self.queue
+            .iter()
+            .filter(|later| later.request_id < request_id)
+            .flat_map(|later| &later.predicted)
+            .any(|later| {
+                later.cell == prediction.cell
+                    && later.current
+                    && later.before.as_ref().is_some_and(|before| {
+                        same_name(Some(before), Some(held)) && before.same_source_item(held)
                     })
-                {
-                    let same_item = match (prediction.before.as_ref(), replacement.as_ref()) {
-                        (Some(before), Some(after)) => {
-                            Self::same_item(&before.stack, &after.stack)
-                                || (before.source_stack_id.is_some()
-                                    && before.source_stack_id == after.source_stack_id
-                                    && before.stack.network_id == after.stack.network_id
-                                    && before.stack.metadata == after.stack.metadata
-                                    && before.stack.block_runtime_id
-                                        == after.stack.block_runtime_id)
-                        }
-                        (None, None) => true,
-                        _ => false,
-                    };
-                    if request.state == InventoryPendingState::AwaitingTransport && !same_item {
-                        invalid = Some(request.request_id);
-                        break 'requests;
-                    }
-                    prediction.before = replacement.clone();
-                    changed = true;
-                }
-            }
-            if changed && request.state == InventoryPendingState::AwaitingTransport {
-                let mut cells = self.confirmed.clone();
-                for prediction in &request.predicted {
-                    cells.set(prediction.cell, prediction.before.clone());
-                }
-                for slot in request
-                    .actions
-                    .iter_mut()
-                    .flat_map(super::helpers::action_slots_mut)
-                {
-                    if slot.stack_network_id == request.request_id {
-                        continue;
-                    }
-                    if let Some(cell) = self.request_cell(*slot) {
-                        slot.stack_network_id = cells
-                            .get(cell)
-                            .map_or(0, |held| held.stack.stack_network_id);
-                    }
-                }
-                if !request.groups.iter_mut().all(|group| {
-                    group.rebind(&cells);
-                    self.validate_group(&cells, group, &request.actions).is_ok()
-                        && group.apply(&mut cells)
-                }) {
-                    invalid = Some(request.request_id);
-                    break;
-                }
-                for prediction in &mut request.predicted {
-                    let old = prediction.held.take();
-                    prediction.held = cells.get(prediction.cell).cloned();
-                    if self.authority == Some(protocol::InventoryAuthority::Server)
-                        && let Some(held) = &mut prediction.held
-                    {
-                        held.stack.stack_network_id = request.request_id;
-                    }
-                    replacements.push((prediction.cell, old, prediction.held.clone()));
-                }
-            }
-        }
-        self.queue = queue;
-        if let Some(id) = invalid {
-            self.abandon_requests(|request| request.request_id == id);
-        }
+            })
     }
 
     /// Applies accepted corrections from the request's retained cell snapshots.
@@ -469,16 +496,11 @@ impl PlayerInventoryLedger {
                     continue;
                 };
                 // HUD mining owns a separate sparse scope from front-screen predictions.
-                let owned = request.mining.as_ref().is_some_and(|mining| {
-                    self.confirmed.get(requested).is_none_or(|held| {
-                        held.source_stack_id
-                            != mining
-                                .source
-                                .as_ref()
-                                .and_then(|source| source.source_stack_id)
-                    })
-                });
-                if !owned {
+                let stale_mining = request
+                    .mining
+                    .as_ref()
+                    .is_some_and(|mining| mining.current_source(&self.confirmed).is_none());
+                if !stale_mining {
                     self.apply_correction(request, requested, cell, correction);
                 }
             }
@@ -527,20 +549,25 @@ impl PlayerInventoryLedger {
         if let Some(prediction) = prediction
             && !prediction.active
             && !(prediction.current
-                && self.request_owns_backing(request, cell, prediction.held.as_ref()))
+                && (self.request_owns_backing(request, cell, prediction.held.as_ref())
+                    || (cell == requested
+                        && self.prediction_has_rollback_successor(request.request_id, prediction))))
             && !self
                 .queue
                 .iter()
                 .flat_map(|pending| &pending.predicted)
                 .any(|prediction| prediction.cell == requested && prediction.active)
         {
-            // Vanilla treats this as a missing prediction, not a historic one,
-            // after a newer owner was removed.
+            // No backing owner or retained rollback can reconcile this historic result.
             self.note_unrouted_container();
             return;
         }
+        let consumed = request
+            .consumed_after
+            .iter()
+            .find(|consumed| consumed.cell == requested);
         let count = u16::from(correction.count)
-            .saturating_sub(request.world_drop.map_or(0, |drop| drop.consumed_after));
+            .saturating_sub(consumed.map_or(0, |consumed| consumed.amount));
         let mut held = prediction
             .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
             .or_else(|| {
@@ -548,7 +575,7 @@ impl PlayerInventoryLedger {
                     .mining
                     .as_ref()
                     .filter(|mining| requested == Cell::Inventory(mining.slot))
-                    .and_then(|mining| mining.source.as_ref())
+                    .and_then(|mining| mining.current_source(&self.confirmed))
             })
             .cloned();
         if held.as_ref().is_some_and(|held| {
@@ -559,16 +586,17 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         }
-        self.note_authoritative_write(cell);
+        let from = prediction
+            .and_then(|prediction| prediction.held.as_ref())
+            .or_else(|| request.mining.as_ref()?.current_source(&self.confirmed))
+            .cloned();
         if count == 0 {
             held = None;
         } else if let Some(held) = &mut held {
             held.stack.count = count;
-            held.stack.stack_network_id = request
-                .world_drop
-                .filter(|drop| drop.consumed_after != 0)
-                .and_then(|_| prediction.and_then(|prediction| prediction.held.as_ref()))
-                .map_or(correction.item_stack_id, |held| held.stack.stack_network_id);
+            held.stack.stack_network_id = consumed.map_or(correction.item_stack_id, |consumed| {
+                consumed.stack_network_id
+            });
             held.acknowledged_request_id = Some(request.request_id);
             if apply_response_item_data(held, correction).is_none() {
                 self.note_unrouted_container();
@@ -577,13 +605,8 @@ impl PlayerInventoryLedger {
         } else if !matches!(cell, Cell::Craft(_) | Cell::CreatedOutput) {
             self.mark_cell_recovery(cell);
         }
-        self.publish_request_cell(
-            request,
-            cell,
-            prediction.and_then(|prediction| prediction.held.as_ref()),
-            held,
-            false,
-        );
+        self.note_authoritative_write(cell);
+        self.publish_request_cell(request, cell, from.as_ref(), held, false);
     }
 
     fn split_is_distinct(&self, request: &PendingRequest) -> bool {
@@ -691,8 +714,15 @@ impl PlayerInventoryLedger {
         while index < self.queue.len() {
             let request = &self.queue[index];
             let unsent = request.state == InventoryPendingState::AwaitingTransport;
-            if (unsent && rolling_back) || matches(request) {
-                let request = self.queue.remove(index).expect("index is in range");
+            if (unsent
+                && (rolling_back
+                    || request
+                        .predicted
+                        .iter()
+                        .any(|prediction| prediction.rollback == RollbackAuthority::Unknown)))
+                || matches(request)
+            {
+                let request = self.discard_request(index);
                 if unsent {
                     rolling_back = true;
                 } else if !request.locally_committed() {
@@ -702,20 +732,7 @@ impl PlayerInventoryLedger {
             }
             index += 1;
         }
-        if self.authority == Some(protocol::InventoryAuthority::Client) {
-            let mut owned = Vec::new();
-            for prediction in self
-                .queue
-                .iter_mut()
-                .rev()
-                .flat_map(|request| request.predicted.iter_mut().rev())
-            {
-                prediction.active = !owned.contains(&prediction.cell);
-                if prediction.active {
-                    owned.push(prediction.cell);
-                }
-            }
-        }
+        self.restore_local_prediction_owners();
         self.refold();
     }
 
@@ -781,15 +798,13 @@ impl PlayerInventoryLedger {
             abandoned.recovering.retain(|owned| *owned != surface);
             !abandoned.touched.is_empty()
         });
-        let mut retired = false;
-        self.queue.retain_mut(|request| {
+        for request in &mut self.queue {
             request
                 .awaiting_refresh
                 .retain(|pending| *pending != surface);
-            let done = request.timed_out && request.awaiting_refresh.is_empty();
-            retired |= done;
-            !done
-        });
+        }
+        let retired = self
+            .discard_requests(|request| request.timed_out && request.awaiting_refresh.is_empty());
         if retired {
             self.refold();
         }
@@ -847,9 +862,13 @@ impl PlayerInventoryLedger {
                 mining: Some(MiningPrediction {
                     slot,
                     damage,
-                    source: self.confirmed.get(Cell::Inventory(slot)).cloned(),
+                    source: self
+                        .confirmed
+                        .get(Cell::Inventory(slot))
+                        .and_then(MiningSource::new),
                 }),
                 world_drop: None,
+                consumed_after: Vec::new(),
             },
         );
         Some(request_id)

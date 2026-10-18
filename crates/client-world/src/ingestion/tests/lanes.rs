@@ -127,6 +127,26 @@ fn commit_within(state: &mut OrderedCommitState, budget: CommitBudget) -> Option
 }
 
 #[test]
+fn skin_updates_keep_wire_order_with_control_events() {
+    let skin = WorldEvent::Actor(ActorEvent::Skin {
+        uuid: [0; 16],
+        skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
+    });
+    let clock = WorldEvent::SetTime(protocol::SetTimeEvent { time: 6000 });
+    for events in [[clock.clone(), skin.clone()], [skin, clock]] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, 1, events[0].clone(), false);
+        admit(&mut state, 2, events[1].clone(), true);
+        assert!(state.next_commit().is_none());
+        state
+            .insert_ready(1, PreparedWorldEvent::Immediate(events[0].clone()))
+            .unwrap();
+        assert_eq!(commit_one(&mut state), Some(1));
+        assert_eq!(commit_one(&mut state), Some(2));
+    }
+}
+
+#[test]
 fn latency_reply_waits_for_actor_movement_and_blocks_later_movement() {
     let mut state = OrderedCommitState::new(1);
     admit(&mut state, 1, actor_move(9), false);

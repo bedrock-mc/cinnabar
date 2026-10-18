@@ -96,7 +96,10 @@ pub fn data(
     for (name, value) in [
         ("#is_survival_layout", !shown),
         ("#is_recipe_book_layout", shown),
-        ("#is_left_tab_inventory", !shown),
+        (
+            "#is_left_tab_inventory",
+            tab == protocol::FurnaceTab::Inventory.index(),
+        ),
         ("#is_left_tab_food", tab == 1),
         ("#is_left_tab_items", tab == 2),
         ("#is_left_tab_blocks", tab == 3),
@@ -121,7 +124,9 @@ pub fn data(
         data.set_global(name, Scalar::Json(serde_json::json!([-25 * missing, 0])));
     }
     data.select_radio("layout_toggle", if shown { 2 } else { 1 });
-    data.select_radio("navigation_tab", usize::from(tab));
+    if let Ok(tab) = usize::try_from(tab) {
+        data.select_radio("navigation_tab", tab);
+    }
     let label = match tab {
         1 => "furnaceScreen.tab.food",
         2 => "furnaceScreen.tab.items",

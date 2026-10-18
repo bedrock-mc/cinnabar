@@ -117,6 +117,7 @@ impl BlobCacheResolver {
     }
 
     /// Clears stale cached work at a confirmed fast-transfer data boundary.
+    /// Returns whether an armed rotation was consumed, even when no transactions remained.
     ///
     /// A response from the prior backend is no longer relevant to this session. Exact recovery
     /// rolls back scheduler admissions before the replacement backend's chunk stream proceeds.
@@ -129,7 +130,7 @@ impl BlobCacheResolver {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
             self.recover_retained_cached_transactions()?;
         }
-        Ok(removed)
+        Ok(true)
     }
 
     pub fn accept_cached_packet(

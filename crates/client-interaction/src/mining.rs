@@ -26,6 +26,7 @@ pub fn verified_selection(
 /// selected slot resolves to an empty hand, matching vanilla (assume empty
 /// until restated), so hand actions work before the inventory arrives. Block
 /// placement must not use this — it stays fail-closed via `verified_selection`.
+/// Unsent backing mutations and hotbar announcements defer hand actions.
 pub fn hand_interaction_selection(
     player_runtime: &client_state::PlayerRuntime,
 ) -> Option<FrozenMiningSelection> {
@@ -34,8 +35,12 @@ pub fn hand_interaction_selection(
         .selected_backing_stack_snapshot(player_runtime.facts.player_game_mode())?;
     if player_runtime
         .inventory
-        .ledger()
-        .slot_backing_transport_pending(selected.slot)
+        .pending_hotbar_selection()
+        .is_some()
+        || player_runtime
+            .inventory
+            .ledger()
+            .slot_backing_transport_pending(selected.slot)
     {
         return None;
     }

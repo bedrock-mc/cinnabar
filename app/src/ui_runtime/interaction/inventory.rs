@@ -171,10 +171,7 @@ pub(super) fn apply_inventory_pointer(
         .collect();
     // Resolve inventory pointer edges before clearing the buttons for gameplay.
     mouse_buttons.reset_all();
-    let generation = runtime
-        .inventory_ledger(player_runtime)
-        .storage_generation();
-    runtime.screen_state_mut().observe_window(generation);
+    runtime.observe_inventory_window(player_runtime);
     let screen = InventoryScreen::of_runtime(player_runtime, runtime);
     runtime.observe_inventory_search_focus(player_runtime);
     let Some(position) = window.cursor_position() else {

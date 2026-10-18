@@ -384,6 +384,8 @@ impl LocalPhysicsController {
             flags.sprinting.unwrap_or(self.modes.sprinting()),
             flags.sneaking.unwrap_or(self.modes.sneaking()),
         );
+        self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
+        self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
         let pending = self.server_control_flags.get_or_insert_default();
         pending.sprinting = flags.sprinting.or(pending.sprinting);
         pending.sneaking = flags.sneaking.or(pending.sneaking);

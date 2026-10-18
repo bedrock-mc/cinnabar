@@ -10,6 +10,54 @@ fn body(packets: &[Packet]) -> Bytes {
     batch_frame(packets).unwrap().slice(1..)
 }
 
+/// A live reader with no incoming frames; only the host can end its drain deadline.
+struct IdleFrames;
+
+impl futures::Stream for IdleFrames {
+    type Item = Result<Bytes, bridge::BridgeError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::task::Poll::Pending
+    }
+}
+
+impl bridge::FrameRead for IdleFrames {
+    fn trace_conn(&self) -> u64 {
+        0
+    }
+    fn set_trace_conn(&self, _: u64) {}
+}
+
+#[test]
+fn startup_write_failure_uses_the_host_deadline_without_a_runtime() {
+    use std::future::Future;
+    let (_, frames, _writer) = bridge::tasks::prepare_connection(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        bridge::MAX_FRAME_LEN,
+    );
+    let timers = bridge::tasks::Timers(|duration| {
+        assert_eq!(duration, super::super::WRITE_FAILURE_DRAIN);
+        Box::pin(std::future::ready(()))
+    });
+    let mut transport = SessionTransport::with_timers(IdleFrames, frames, &[], timers);
+    let mut drain = std::pin::pin!(startup_write_failure(
+        &mut transport,
+        SessionFailure::ConnectionClosed.into(),
+        super::super::WRITE_FAILURE_DRAIN,
+    ));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(matches!(
+        drain.as_mut().poll(&mut context),
+        std::task::Poll::Ready(ProtocolError::Session(SessionError(
+            SessionFailure::ConnectionClosed
+        )))
+    ));
+}
+
 /// A deferred packet no longer shares its batch, and the queue refuses more than its byte bound.
 #[test]
 fn deferred_packets_are_detached_and_bounded() {
@@ -148,9 +196,11 @@ mod session {
         )
         .await;
         let mut first = None;
-        let spawned = await_spawn(transport, |_, registry| first = Some(registry))
-            .await
-            .expect("repeats stay nonfatal");
+        let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, registry| {
+            first = Some(registry)
+        })
+        .await
+        .expect("repeats stay nonfatal");
         assert_eq!(spawned.runtime_id, RUNTIME_ID);
         let first = first.expect("the startup facts were delivered");
         assert_eq!(first.item_data.len(), 1);
@@ -164,7 +214,7 @@ mod session {
             transport, peer, ..
         } = &mut handed_off("early-facts", &[vec![registry("minecraft:shield", 355)]]).await;
         let (delivered, facts) = tokio::sync::oneshot::channel();
-        let spawn = await_spawn(transport, move |start, _| {
+        let spawn = await_spawn(transport, DEFAULT_CHUNK_RADIUS, move |start, _| {
             let _ = delivered.send(start.runtime_id.0);
         });
         let core = async {
@@ -195,7 +245,9 @@ mod session {
         ]);
         let first = (0..half).map(|time| set_time(time as i32)).collect();
         let Pair { transport, .. } = &mut handed_off("fifo", &[first, second]).await;
-        await_spawn(transport, |_, _| {}).await.expect("spawn");
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .expect("spawn");
         for expected in 0..=MAX_RAW_BATCH_PACKETS {
             assert_eq!(next_time(transport).await, expected as i32);
         }
@@ -224,7 +276,9 @@ mod session {
                 player_spawn(),
             ]);
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let spawned = await_spawn(transport, |_, _| {}).await.expect("spawn");
+            let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+                .await
+                .expect("spawn");
             assert_eq!(spawned.terrain_before_spawn, expected);
         }
     }
@@ -245,11 +299,16 @@ mod session {
             ]],
         )
         .await;
-        await_spawn(transport, |_, _| {}).await.expect("spawn");
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .expect("spawn");
         let length = peer.read_u32().await.unwrap();
         let mut frame = vec![0; length as usize];
         peer.read_exact(&mut frame).await.unwrap();
-        assert_eq!(frame, batch_frame(&loading_started()).unwrap());
+        assert_eq!(
+            frame,
+            batch_frame(&loading_started(DEFAULT_CHUNK_RADIUS)).unwrap()
+        );
         let more = tokio::time::timeout(Duration::from_millis(100), peer.read_u8()).await;
         assert!(more.is_err(), "the radius request is sent once");
     }
@@ -269,7 +328,7 @@ mod session {
             ),
         ] {
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let error = match await_spawn(transport, |_, _| {}).await {
+            let error = match await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
                 Ok(_) => panic!("{name} spawned"),
                 Err(error) => error,
             };
@@ -300,7 +359,10 @@ mod session {
             ];
             write_frame(peer, &batch_frame(&rest).unwrap()).await;
         };
-        let (spawned, ()) = tokio::join!(await_spawn(transport, |_, _| {}), core);
+        let (spawned, ()) = tokio::join!(
+            await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}),
+            core
+        );
         assert!(matches!(
             spawned,
             Err(ProtocolError::Session(SessionError(
@@ -332,10 +394,11 @@ mod session {
                 let batch = [transfer(""), transfer("next.example.test")];
                 write_frame(&mut pair.peer, &batch_frame(&batch).unwrap()).await;
             }
-            let target = match await_spawn(&mut pair.transport, |_, _| {}).await {
-                Ok(_) => panic!("a startup transfer spawned"),
-                Err(error) => error.server_transfer().expect("a server transfer"),
-            };
+            let target =
+                match await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
+                    Ok(_) => panic!("a startup transfer spawned"),
+                    Err(error) => error.server_transfer().expect("a server transfer"),
+                };
             assert_eq!(
                 (target.host.as_str(), target.port),
                 ("next.example.test", 19133)
@@ -353,10 +416,11 @@ mod session {
                 r#"{{"reason":25,"message":"full","filtered_message":"","hide_screen":{hide_screen}}}"#
             );
             write_frame(&mut pair.peer, &terminal(6, &json)).await;
-            let disconnect = match await_spawn(&mut pair.transport, |_, _| {}).await {
-                Ok(_) => panic!("a startup disconnect spawned"),
-                Err(error) => error.server_disconnect().expect("a server disconnect"),
-            };
+            let disconnect =
+                match await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
+                    Ok(_) => panic!("a startup disconnect spawned"),
+                    Err(error) => error.server_disconnect().expect("a server disconnect"),
+                };
             assert_eq!(disconnect.reason, "Serverfull");
             let expected = (!hide_screen).then_some("full");
             assert_eq!(disconnect.message.as_deref(), expected);
@@ -369,7 +433,7 @@ mod session {
         let Pair { transport, .. } = &mut handed_off("cancellable", &[]).await;
         let wait = tokio::time::timeout(
             Duration::from_millis(100),
-            await_spawn(transport, |_, _| {}),
+            await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}),
         )
         .await;
         assert!(wait.is_err(), "the wait ended without spawn prerequisites");

@@ -223,6 +223,7 @@ impl UiRuntime {
             if self.inventory_open {
                 self.chat_focused = false;
             }
+            self.observe_inventory_window(player_runtime);
             self.gameplay_hud
                 .apply_inventory(&event, player_runtime.inventory.ledger());
             self.observe_use_on_identity(

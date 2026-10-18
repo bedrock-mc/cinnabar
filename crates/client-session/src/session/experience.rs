@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use server_experience::wire::RateLimit;
+use server_experience::rate_limit::RateLimit;
 
 use super::{InboundWorldEvent, NetworkHandle, WorldEvent};
 
@@ -158,7 +158,11 @@ mod tests {
                 })
                 .unwrap();
         }
-        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
         drop(commands);
         let (control, _control_rx) = mpsc::channel(4);
         let (world, _world_rx) = mpsc::channel(4);

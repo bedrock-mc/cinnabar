@@ -62,6 +62,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;
         if let Some(sprinting) = self.server_sprinting {
             modes.restore_controls(sprinting, modes.sneaking());

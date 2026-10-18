@@ -96,6 +96,7 @@ pub(super) fn fixture_world() -> World {
     world.init_resource::<WorldClock>();
     world.init_resource::<WeatherState>();
     world.init_resource::<ItemUseRuntime>();
+    world.init_resource::<client_interaction::melee::MeleeRuntime>();
     world.init_resource::<MovementTicker>();
     world.spawn((Window::default(), PrimaryWindow));
     let camera = world

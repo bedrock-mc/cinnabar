@@ -209,7 +209,7 @@ fn prepare_atmosphere_uniform(
     let mask = assets
         .skybox(crate::pack_skybox::dimension(*frame))
         .map_or(0, assets::PackSkybox::face_mask);
-    gpu.skybox_active = mask != 0;
+    gpu.skybox_active = mask != 0 && settings.visible;
     let skybox = crate::pack_skybox::SkyboxUniform::new(*frame, *settings, mask);
     let (frame_changed, skybox_changed) = gpu.uploaded.as_ref().map_or((true, true), |old| {
         (

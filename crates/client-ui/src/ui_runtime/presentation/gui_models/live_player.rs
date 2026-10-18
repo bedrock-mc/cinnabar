@@ -16,7 +16,7 @@ pub(super) struct LivePlayer {
     pub(super) cape_vertices: Vec<ActorVertex>,
     pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
     hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
-    pub(super) hat_bends: std::collections::HashMap<cosmetics::Item, f32>,
+    pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
     bones: Vec<RenderBoneTransform>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
@@ -26,11 +26,14 @@ pub(super) struct LivePlayer {
 }
 
 impl UiPresentationRuntime {
-    /// Shares the actor frame's wind angle without advancing a second animation clock.
-    pub fn set_cosmetic_bends(&mut self, bends: &[(cosmetics::Item, f32)]) {
-        let bends: std::collections::HashMap<_, _> = bends.iter().copied().collect();
-        if self.gui_models.live_player.hat_bends != bends {
-            self.gui_models.live_player.hat_bends = bends;
+    /// Shares the actor frame's evaluated motion without advancing a second animation clock.
+    pub fn set_cosmetic_motion(
+        &mut self,
+        motion: &[(cosmetics::Item, render_model::hats::Motion)],
+    ) {
+        let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
+        if self.gui_models.live_player.hat_motion != motion {
+            self.gui_models.live_player.hat_motion = motion;
             self.last_frame = None;
         }
     }
@@ -164,7 +167,7 @@ impl UiPresentationRuntime {
             let pose = live.hat_pose.entry(hat).or_default().pose(
                 hat,
                 *head,
-                live.hat_bends.get(&hat).copied().unwrap_or(0.0),
+                live.hat_motion.get(&hat).copied().unwrap_or_default(),
             );
             let vertices = live.hat_vertices.entry(hat).or_default();
             project_vertices(

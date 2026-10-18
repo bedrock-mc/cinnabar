@@ -13,4 +13,5 @@ mod inventory_transaction;
 mod leniency;
 mod localized_text;
 mod mining_mode;
+mod mod_inventory;
 mod support;

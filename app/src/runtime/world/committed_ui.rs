@@ -70,6 +70,7 @@ pub(crate) fn drain_committed_ui_before_authority(
         ui_runtime
             .player_roster
             .set_entries(stream.authority().player_list_roster());
+        refresh_roster_skins(stream, &mut ui_runtime);
     }
     for committed in committed_ui {
         let result = match committed {
@@ -102,6 +103,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                 if event_epoch != dimension_epoch {
                     continue;
                 }
+                // Authority may already include actors spawned after this form.
+                let npc_actor = if let protocol::ServerFormModel::NpcDialogue(npc) = &event.model {
+                    let authority = client_world.stream.as_ref().unwrap().authority();
+                    authority
+                        .actor_by_unique_id(npc.npc_unique_id)
+                        .and_then(|actor| authority.actor_lifetime(actor.runtime_id))
+                        .filter(|actor| actor.spawn_revision <= sequence)
+                } else {
+                    None
+                };
                 ui_runtime
                     .apply(
                         &mut player_runtime,
@@ -113,7 +124,17 @@ pub(crate) fn drain_committed_ui_before_authority(
                             event: protocol::UiEvent::Form(event),
                         },
                     )
-                    .map(|_| ())
+                    .map(|_| {
+                        let store = ui_runtime.server_forms_mut();
+                        if let Some(actor) = npc_actor
+                            && let Some(entry) = store
+                                .active()
+                                .filter(|entry| entry.fifo_sequence() == sequence)
+                        {
+                            let identity = entry.identity;
+                            store.bind_npc_actor(identity, actor);
+                        }
+                    })
             }
             // A generic UI entry must never bypass the form lifetime fence.
             CommittedUiEvent::Ui {
@@ -274,6 +295,17 @@ pub(super) fn refresh_player_list_cache_for_controls(
     ui_runtime
         .player_roster
         .set_entries(stream.authority().player_list_roster());
+    refresh_roster_skins(stream, ui_runtime);
+}
+
+/// Copies admitted skin handles from the roster, without requiring a spawned actor.
+fn refresh_roster_skins(stream: &WorldStream, ui_runtime: &mut UiRuntime) {
+    ui_runtime
+        .player_roster
+        .set_skins(|uuid| match stream.authority().player_list_skin(uuid) {
+            Some(protocol::PlayerSkin::Standard(skin)) => Some(skin.clone()),
+            _ => None,
+        });
 }
 
 #[cfg(test)]

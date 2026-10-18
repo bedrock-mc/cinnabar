@@ -54,6 +54,11 @@ class RenderTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE / path, target)
         (self.repository / "packaging/release-assets.json").write_text(json.dumps(self.config))
+        contract = self.repository / "crates/bridge/data/contract.json"
+        contract.parent.mkdir(parents=True, exist_ok=True)
+        contract.write_text(json.dumps({"constants": [{
+            "rust_name": "CINNABAR_API_BASE_URL", "value": "https://fixture-api.invalid/",
+        }]}))
 
     def config_from_output(self):
         script = (self.output / "downloads.js").read_text()
@@ -62,6 +67,7 @@ class RenderTests(unittest.TestCase):
     def test_build_requires_only_artwork_and_manifest_and_redirects_to_release_assets(self):
         RENDER.build(self.repository, self.output)
         config = self.config_from_output()
+        self.assertEqual(config["online_count_url"], "https://fixture-api.invalid/v1/presence/count")
         self.assertEqual(config["assets"], self.config["assets"])
         release = urlsplit(config["release_url"])
         self.assertEqual(release.scheme, "https")
@@ -74,7 +80,7 @@ class RenderTests(unittest.TestCase):
                          f'https://github.com/{self.config["repository"]}/releases/download/nightly/')
         self.assertEqual(config["nightly_install_command"], config["install_command"] + " -s -- --channel nightly")
         self.assertEqual({path.name for path in self.output.iterdir()}, {
-            "index.html", "downloads.js", "app.js", "title.png", "texture.svg",
+            "index.html", "downloads.js", "app.js", "presence.js", "title.png", "texture.svg",
         })
         self.assertFalse((self.output / self.config["install_script"]).exists())
 
@@ -86,7 +92,7 @@ class RenderTests(unittest.TestCase):
         page.feed(html)
         config = self.config_from_output()
         self.assertEqual(page.repository + "/releases/latest", config["release_url"])
-        self.assertEqual([script["src"] for script in page.scripts], ["/downloads.js", "/app.js"])
+        self.assertEqual([script["src"] for script in page.scripts], ["/downloads.js", "/app.js", "/presence.js"])
         for script in page.scripts:
             self.assertIn("defer", script)
             self.assertTrue((self.output / script["src"].lstrip("/")).is_file())

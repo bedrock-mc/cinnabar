@@ -8,7 +8,7 @@ use bedrock_protocol_1_26_51::enums::{
 use bedrock_protocol_1_26_51::packets::{
     self, ChunkRadiusUpdated, ClientCacheBlobStatus, ClientCacheMissResponse, ClientCacheStatus,
     Disconnect, ItemRegistry, LevelChunk, NetworkStackLatency, PacketId, PlayStatus,
-    RequestChunkRadius, ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
+    ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
 };
 use bedrock_protocol_1_26_51::types::{
     ActorRuntimeID, ChunkPos, DimensionType, DisconnectMessages, ItemData, MissingBlobData,
@@ -43,6 +43,7 @@ use disconnect_reason::{
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
 const SCRIPTED_PLAY_END_TIME: i32 = 34_567; // The last SetTime of the default play traffic.
+const CACHE_CLASSIFIED_TIME: i32 = 67_890;
 const CORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy)]
@@ -276,24 +277,20 @@ async fn run_core(
     }
 
     let spawn_request = core.receive_packets().await?;
-    assert!(
-        matches!(
-            wire_packets(&spawn_request).as_slice(),
-            [
-                packets::Packet::RequestChunkRadius(RequestChunkRadius {
-                    chunk_radius: wire::ZigZag32(16),
-                    max_chunk_radius: wire::U8(16),
-                }),
-                packets::Packet::ServerboundLoadingScreen(ServerboundLoadingScreen {
-                    loading_screen_packet_type: ServerboundLoadingScreenType::Startloadingscreen,
-                    ..
-                }),
-            ]
-        ),
-        "the client requests its radius and starts loading after StartGame: {spawn_request:?}"
+    let requested_radius = protocol::LoginSettings::default().view_distance_chunks;
+    assert_eq!(
+        spawn_request,
+        [
+            protocol::request_chunk_radius_packet(
+                requested_radius,
+                render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
+            ),
+            protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, None),
+        ],
+        "the client requests its radius and starts loading after StartGame"
     );
     let radius = Packet::new(ChunkRadiusUpdated {
-        chunk_radius: wire::ZigZag32(16),
+        chunk_radius: wire::ZigZag32(i32::from(requested_radius)),
     });
     let spawn = Packet::new(PlayStatus {
         status: PlayStatusType::Playerspawn,
@@ -385,12 +382,10 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
             }
             CachePlayScript::InvalidMissResponseThenTraffic => {
                 let hash = protocol::client_blob_hash(b"semantic-response-wanted");
-                frames.push(batch(&[Packet::new(cached_level_chunk(
-                    31,
-                    -47,
-                    vec![hash],
-                    b"",
-                ))]));
+                frames.push(batch(&[
+                    Packet::new(cached_level_chunk(31, -47, vec![hash], b"")),
+                    set_time(CACHE_CLASSIFIED_TIME),
+                ]));
             }
             CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk => {
                 unreachable!("wire failures are scripted above")
@@ -694,6 +689,15 @@ async fn expect_cached_prelude(session: &mut PlaySession) {
     }
 }
 
+/// Supplies the simulation opportunity that the app normally sends after physics.
+async fn cache_status_opportunity(session: &mut PlaySession) {
+    let mut outbound = session.outbound().unwrap();
+    outbound
+        .send_batch(Vec::new(), Some(simulation_clock::Moment::default()))
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn play_keeps_normal_output_moving_while_a_cached_chunk_resolves() {
     let (mut session, core) = joined(Script {
@@ -721,6 +725,7 @@ async fn play_keeps_normal_output_moving_while_a_cached_chunk_resolves() {
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
 
+    cache_status_opportunity(&mut session).await;
     let (chunk, payload) = session
         .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
         .await
@@ -764,6 +769,13 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
     })
     .await;
     expect_cached_prelude(&mut semantic_session).await;
+    assert_eq!(
+        semantic_session.recv_world_event(0).await.unwrap(),
+        WorldEvent::SetTime(protocol::SetTimeEvent {
+            time: CACHE_CLASSIFIED_TIME
+        })
+    );
+    cache_status_opportunity(&mut semantic_session).await;
     assert_eq!(
         semantic_session
             .recv_world_event(0)

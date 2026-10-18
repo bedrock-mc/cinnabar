@@ -953,14 +953,13 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         ingress(
             &mut app,
             2,
-            InventoryEvent::Content(protocol::InventoryContentEvent {
-                container: ContainerIdentity {
-                    window_id: Some(-1),
-                    slot_type: Some(59),
-                    dynamic_id: None,
+            InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot: 0,
                 },
-                slots: std::sync::Arc::from([stack(33, 33)]),
-                storage_item: NetworkItemStack::empty(),
+                stack: stack(33, 33),
+                storage_item: None,
             }),
         );
         app.update();
