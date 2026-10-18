@@ -450,11 +450,23 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
     movement.set_control_fence_pending(false);
+    respawn.synchronize_session(Some(clock.session_generation()));
     let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let Err(error) = respawn.queue_completion(|packet| match network.as_ref() {
+            Some(network) => network.send_dimension_packet(packet),
+            None => Err(client_session::PacketSendError::Full(packet)),
+        }) {
+            if error.is_closed() {
+                record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
+            }
+            movement.set_control_fence_pending(true);
+            stream.restore_committed_controls(std::iter::once(control).chain(controls));
+            return;
+        }
         if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
             input_locks::apply_committed_input_locks(
                 clock.session_generation(),
