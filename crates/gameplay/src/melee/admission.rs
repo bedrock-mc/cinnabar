@@ -190,6 +190,9 @@ fn admit(
                 {
                     break;
                 }
+                if !maintain && let Some(pending) = runtime.queue.front_pending_mut() {
+                    pending.retained_tick.get_or_insert(press.tick);
+                }
                 attempted = true;
                 let mut accepted = false;
                 let mut rotates = false;

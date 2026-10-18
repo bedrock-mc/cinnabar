@@ -177,42 +177,50 @@ fn fresh_press_still_obeys_the_half_swing_guard_after_the_tick() {
 fn refused_block_press_keeps_admission_after_publication_advances() {
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
-    let press = press(100);
+    let mut mining = crate::survival_mining::SurvivalMiningRuntime::default();
+    let mut movement = crate::test_support::survival_mining::ticker_with_ticks(3);
+    let press = press(101);
     runtime.observe_input(true, false);
-    resolve_and_send(
-        &mut runtime,
-        &mut swings,
-        Crosshair::Block,
-        &press,
-        1_000,
-        |_| Err(BatchSendError::Full),
-    );
-    assert!(runtime.press_pending());
-    swings.published_progress(102);
     let mut attempts = 0;
-    for full in [true, false] {
-        resolve_and_send(
+    for (now, full) in [(1_000, true), (1_001, true), (1_002, false)] {
+        if now > 1_000 {
+            swings.published_progress(movement.completed_tick());
+        }
+        let outcome = admit_attack_press(
             &mut runtime,
+            &mut mining,
             &mut swings,
-            Crosshair::Block,
-            &press,
-            1_001,
-            |_| {
-                attempts += 1;
-                if full {
-                    Err(BatchSendError::Full)
-                } else {
-                    Ok(())
-                }
+            &mut movement,
+            AttackFrame {
+                attack: Some((Crosshair::Block, press.clone())),
+                mining_target: None,
+                attack_held: false,
+                authority: crate::survival_mining::BlockBreakingAuthority::Server,
+                now_millis: now,
+                local_runtime_id: press.local_runtime_id,
+            },
+            AttackEffects {
+                send: |_| {
+                    attempts += 1;
+                    if full {
+                        Err(BatchSendError::Full)
+                    } else {
+                        Ok(())
+                    }
+                },
+                swing_duration: |_| press.swing_duration,
+                request_id: |_, _| None,
+                predict_break: |_| panic!("a swing without a mining target cannot break terrain"),
             },
         );
         assert_eq!(runtime.press_pending(), full);
+        assert_eq!(outcome.admitted.is_some(), !full);
     }
-    assert_eq!(attempts, 2, "only the refused press owns this old tick");
-    assert!(matches!(
-        runtime.queue.entries.front().unwrap().work,
-        queue::Work::Block { tick: 100 }
-    ));
+    assert_eq!(
+        attempts, 3,
+        "the refused ordered press keeps its original tick"
+    );
+    assert!(!runtime.has_queued_work());
     runtime = MeleeRuntime::default();
     runtime.observe_input(true, false);
     resolve_and_send(
@@ -220,7 +228,7 @@ fn refused_block_press_keeps_admission_after_publication_advances() {
         &mut swings,
         Crosshair::Block,
         &press,
-        1_002,
+        1_003,
         |_| panic!("a fresh press cannot reuse another press's published tick"),
     );
 }

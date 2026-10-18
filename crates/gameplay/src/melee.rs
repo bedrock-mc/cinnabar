@@ -338,13 +338,12 @@ pub fn resolve_and_send(
     now_millis: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
-    if runtime.queue.front_pending().is_some()
+    if let Some(pending) = runtime.queue.front_pending()
         && swings.tick_is_published(press.tick)
-        && runtime
-            .queue
-            .front_pending()
-            .and_then(|pending| pending.rejected_tick)
-            != Some(press.tick)
+        && (pending.rejected_tick != Some(press.tick)
+            || (crosshair == Crosshair::Block
+                && !swings.tick_is_current_publication(press.tick)
+                && pending.retained_tick != Some(press.tick)))
     {
         runtime.observe_attack_target(crosshair, press.item_attack.is_some());
         runtime.defer(now_millis);
