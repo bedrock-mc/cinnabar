@@ -20,6 +20,7 @@ pub struct NetworkHandle<P: Send + Sync + 'static> {
     inner: client_session::NetworkHandle<P>,
     pending_world_ingress: VecDeque<client_session::WorldIngress>,
     core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
+    join_profile: bridge::join_profile::JoinProfile,
 }
 
 impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for NetworkHandle<P> {
@@ -28,6 +29,7 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
             inner,
             pending_world_ingress: VecDeque::new(),
             core_socket_dir: None,
+            join_profile: bridge::join_profile::JoinProfile::current(),
         }
     }
 }
@@ -55,11 +57,14 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
 
     /// Adopts the domain queues and the endpoint used by this live session.
     pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
-        Self {
-            inner,
-            pending_world_ingress: VecDeque::new(),
-            core_socket_dir: Some(socket_dir),
-        }
+        let mut handle = Self::from(inner);
+        handle.core_socket_dir = Some(socket_dir);
+        handle
+    }
+
+    /// Binds event processing to this session's captured diagnostic attempt.
+    pub fn enter_join_profile(&self) -> bridge::join_profile::Binding {
+        self.join_profile.enter()
     }
 
     /// Returns the control endpoint only while this handle belongs to a live session.

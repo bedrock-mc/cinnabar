@@ -68,6 +68,7 @@ pub(crate) fn receive_network_events(
     mut local_player: NetworkLocalPlayerState,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _join_profile = network.enter_join_profile();
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::NetworkIngestion));
