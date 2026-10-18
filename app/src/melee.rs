@@ -37,6 +37,7 @@ use gameplay::melee::{PressContext, press_admission, swing_duration};
 #[derive(Resource, Default)]
 pub(crate) struct MeleeTarget {
     frames: crosshair::FrameInputs,
+    /// Input identity of the last successfully resolved frame.
     prepared: Option<(
         semantic_input::identity::InputAuthorityGeneration,
         semantic_input::identity::InputSequence,
@@ -99,7 +100,6 @@ pub(crate) fn prepare_melee(
     if ordered.is_some() && target.prepared == identity {
         return;
     }
-    target.prepared = identity;
     target.attack = None;
     target.hover = None;
     target
@@ -111,6 +111,7 @@ pub(crate) fn prepare_melee(
         &target.frames,
         movement.interaction_authority_identity().1,
     );
+    target.prepared = picked.and(identity);
     if let Some(picked) = picked {
         // Earlier queued movement must drain before this frame's first local tick.
         let first_tick = movement

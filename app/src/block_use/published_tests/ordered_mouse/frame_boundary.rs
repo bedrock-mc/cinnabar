@@ -21,6 +21,50 @@ fn hold_button(world: &mut World, button: MouseButton) {
 }
 
 #[test]
+fn ordered_frame_boundary_empty_early_capture_refreshes_held_attack_competition() {
+    for actor in [true, false] {
+        let (mut app, mut captured) = app_fixture(16);
+        if !actor {
+            remove_actor(app.world_mut());
+        }
+        app.world_mut()
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        app.world_mut()
+            .resource_mut::<MovementTicker>()
+            .reset(7, 101, [4.5, 2.620_01, 8.5]);
+        let origin = app.world().resource::<InteractionOriginSnapshot>().clone();
+        app.world_mut()
+            .insert_resource(InteractionOriginSnapshot::default());
+        hold_button(app.world_mut(), MouseButton::Left);
+        before_physics(&mut app);
+        assert!(captured.drain().is_empty(), "the early press has no ray");
+
+        app.world_mut().insert_resource(origin);
+        attack_progress_tests::ticks(app.world_mut(), 102, 103);
+        after_physics(&mut app);
+        let packets = captured.drain();
+        assert_eq!(
+            packets
+                .iter()
+                .filter_map(observe_transaction)
+                .filter(|transaction| transaction.actor_use().is_some())
+                .count(),
+            0,
+            "the unavailable early press must not replay"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            usize::from(!actor),
+            "held mining must respect the refreshed actor pick"
+        );
+    }
+}
+
+#[test]
 fn ordered_frame_boundary_delivered_mining_allows_the_next_frames_selection() {
     let (mut app, mut captured) = app_fixture(16);
     remove_actor(app.world_mut());
