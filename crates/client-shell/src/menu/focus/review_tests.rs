@@ -138,18 +138,18 @@ fn native_slider_selection_exits_on_back_focus_loss_and_empty_layout() {
     ];
     native_rows(&mut menu, &rows);
     menu.activate_focused();
-    assert_eq!(menu.settings_slider_selected, Some(index));
-    assert_eq!(menu.settings_control_activation, None);
+    assert_eq!(menu.settings.slider_selected, Some(index));
+    assert_eq!(menu.settings.control_activation, None);
     assert!(menu.clear_settings_slider_selection());
     assert_eq!(menu.settings_options.get(usize::from(index)), value);
     menu.activate_focused();
     menu.move_directional_focus(SettingsFocusAxis::Vertical, 1);
-    assert_eq!(menu.settings_slider_selected, None);
+    assert_eq!(menu.settings.slider_selected, None);
     assert_eq!(menu.focus_actions()[menu.focused], MenuAction::AddBack);
     menu.focus_pointer(MenuAction::SettingsOption(index, value));
     menu.activate_focused();
     menu.refresh_settings_focus_geometry(&[], &[]);
-    assert_eq!(menu.settings_slider_selected, None);
+    assert_eq!(menu.settings.slider_selected, None);
     assert!(menu.focus_actions().is_empty());
     menu.move_horizontal_focus(1);
     menu.activate_focused();
@@ -195,7 +195,7 @@ fn gui_scale_picker_commits_once_and_keeps_focus_through_responsive_layouts() {
             .choices()
             .collect(),
     );
-    menu.settings_focus = vec![MenuAction::SettingsScale(0)];
+    menu.settings_input.actions = vec![MenuAction::SettingsScale(0)];
     menu.refresh_settings_focus([MenuAction::AddBack, MenuAction::SettingsScalePicker]);
     assert_eq!(
         menu.focus_actions()[menu.focused],
@@ -212,7 +212,7 @@ fn gui_scale_picker_commits_once_and_keeps_focus_through_responsive_layouts() {
     assert_eq!(menu.gui_scale_offset(), 0);
     menu.activate_focused();
     assert_eq!(menu.gui_scale_offset(), -1);
-    assert!(!menu.settings_scale_picker);
+    assert!(!menu.settings.scale_picker);
     menu.refresh_settings_focus([MenuAction::AddBack, MenuAction::SettingsScalePicker]);
     assert_eq!(
         menu.focus_actions()[menu.focused],
@@ -230,7 +230,7 @@ fn gui_scale_picker_commits_once_and_keeps_focus_through_responsive_layouts() {
     );
     menu.activate(MenuAction::SettingsScalePicker);
     menu.go_back();
-    assert!(!menu.settings_scale_picker);
+    assert!(!menu.settings.scale_picker);
     assert_eq!(menu.gui_scale_offset(), -1);
     assert_eq!(menu.screen, MenuScreen::Settings);
 }
@@ -243,8 +243,8 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
         .position(|option| option.id == SettingId::Gamma)
         .unwrap();
     let value = menu.settings_options.value(SettingId::Gamma);
-    menu.settings_focus = vec![MenuAction::SettingsOption(gamma as u16, value)];
-    assert_eq!(menu.focus_actions(), menu.settings_focus);
+    menu.settings_input.actions = vec![MenuAction::SettingsOption(gamma as u16, value)];
+    assert_eq!(menu.focus_actions(), menu.settings_input.actions);
     menu.refresh_settings_focus([
         MenuAction::SettingsOption(gamma as u16, 0),
         MenuAction::SettingsOption(gamma as u16, 100),
@@ -261,9 +261,9 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
         "an unselected slider does not adjust"
     );
     menu.activate_focused();
-    assert_eq!(menu.settings_slider_selected, Some(gamma as u16));
+    assert_eq!(menu.settings.slider_selected, Some(gamma as u16));
     assert_eq!(
-        menu.settings_control_activation, None,
+        menu.settings.control_activation, None,
         "selecting adjustment mode does not commit a value"
     );
     menu.move_horizontal_focus(1);
@@ -293,7 +293,7 @@ fn settings_picker_retains_choices_and_commits_only_when_activated() {
         menu.settings_options.get(usize::from(index)),
         (original + 1) % 3
     );
-    assert_eq!(menu.settings_dropdown, None);
+    assert_eq!(menu.settings.dropdown, None);
     menu.refresh_settings_focus([MenuAction::AddBack, MenuAction::SettingsDropdown(index)]);
     assert_eq!(
         menu.focus_actions()[menu.focused],
@@ -313,7 +313,7 @@ fn settings_picker_back_keeps_the_settings_page_and_value() {
     menu.activate(MenuAction::SettingsDropdown(index));
     menu.go_back();
     assert_eq!(menu.screen, MenuScreen::Settings);
-    assert_eq!(menu.settings_dropdown, None);
+    assert_eq!(menu.settings.dropdown, None);
     assert_eq!(menu.settings_options.get(usize::from(index)), value);
 }
 
@@ -326,7 +326,7 @@ fn settings_pack_overlay_with_no_controls_keeps_background_input_closed() {
         .position(|option| option.id == SettingId::Gamma)
         .unwrap() as u16;
     let value = menu.settings_options.get(usize::from(index));
-    menu.settings_focus = vec![MenuAction::SettingsOption(index, value)];
+    menu.settings_input.actions = vec![MenuAction::SettingsOption(index, value)];
     std::sync::Arc::make_mut(&mut menu.global_resources).settings = Some(0);
     menu.refresh_settings_focus([]);
     menu.move_horizontal_focus(1);
@@ -358,7 +358,7 @@ fn settings_dropdown_focus_reaches_and_activates_each_radio_choice() {
         );
         menu.focused = 0;
         menu.activate_focused();
-        assert_eq!(menu.settings_dropdown, Some(index));
+        assert_eq!(menu.settings.dropdown, Some(index));
         menu.refresh_settings_focus(actions);
         menu.focus_pointer(actions[1]);
         assert_eq!(menu.focus_actions()[menu.focused], actions[1]);
@@ -368,13 +368,13 @@ fn settings_dropdown_focus_reaches_and_activates_each_radio_choice() {
         assert_eq!(menu.focus_actions()[menu.focused], actions[2]);
         menu.activate_focused();
         assert_eq!(menu.settings_options.value(name), 1);
-        assert_eq!(menu.settings_dropdown, None);
+        assert_eq!(menu.settings.dropdown, None);
         menu.focused = 0;
         menu.activate_focused();
         menu.refresh_settings_focus(actions);
         menu.focus_pointer(actions[1]);
         menu.activate_focused();
         assert_eq!(menu.settings_options.value(name), 0);
-        assert_eq!(menu.settings_dropdown, None);
+        assert_eq!(menu.settings.dropdown, None);
     }
 }

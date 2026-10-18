@@ -77,7 +77,7 @@ pub(super) fn draw(
         bottom,
     ];
     let section =
-        SettingSection::from_index(view.settings_section).unwrap_or(SettingSection::Accessibility);
+        SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
     let selector = section.definition().name;
     let key = format!("oreui_settings/{selector}");
     let tab = focus::tab(section.definition().index);

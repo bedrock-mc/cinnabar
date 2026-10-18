@@ -68,7 +68,7 @@ pub(super) fn toggle_control(
     let knob = canvas.transitions.as_deref_mut().map_or(
         super::super::transitions::switch_target(on),
         |transitions| {
-            transitions.switch(action, on, view.settings_control_activation, canvas.seconds)
+            transitions.switch(action, on, view.settings.control_activation, canvas.seconds)
         },
     );
     let state = canvas.switch_interaction(view, Some(action));
@@ -186,7 +186,8 @@ pub(super) fn slider(
         _ => None,
     };
     let pointer = view
-        .settings_slider_pointer
+        .settings
+        .slider_pointer
         .filter(|pointer| Some(pointer.option) == index && pointer.fraction.is_finite());
     let target = pointer.map_or(selected_fraction, |pointer| {
         pointer.fraction.clamp(0.0, 1.0)
@@ -272,10 +273,10 @@ pub(super) fn slider(
         thumb_bounds,
         Interaction {
             action: actions.get(selected).copied(),
-            hovered: (view.settings_slider_pointer.is_none()
-                && index.is_some_and(|index| view.settings_slider_hovered == Some(index)))
+            hovered: (view.settings.slider_pointer.is_none()
+                && index.is_some_and(|index| view.settings.slider_hovered == Some(index)))
                 || pointer.is_some()
-                || index.is_some_and(|index| view.settings_slider_selected == Some(index)),
+                || index.is_some_and(|index| view.settings.slider_selected == Some(index)),
             pressed: false,
             focused: view.navigation_focus_visible && same(view.focused_action),
         },

@@ -45,7 +45,7 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
     };
     let mut view = launcher::menu::MenuView::new(true, "Steve".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = 24;
+    view.settings.section = 24;
     let pack = fixture();
     let mut state = Snapshot {
         active: vec![pack.clone()],

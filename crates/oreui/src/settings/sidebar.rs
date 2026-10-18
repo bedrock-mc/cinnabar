@@ -148,10 +148,10 @@ pub(super) fn draw(
         true,
     )?;
     canvas.focus_delegate(
-        Some(MenuAction::SettingsSection(if view.settings_section == 0 {
+        Some(MenuAction::SettingsSection(if view.settings.section == 0 {
             section_index(TABS[0].section)
         } else {
-            view.settings_section
+            view.settings.section
         })),
         None,
     );
@@ -195,8 +195,8 @@ pub(super) fn draw(
         let action = MenuAction::SettingsSection(section_index(selector));
         let mut state = canvas.interaction(view, Some(action));
         state.pressed &= state.hovered;
-        let selected = view.settings_section == section_index(selector)
-            || view.settings_section == 0 && index == 0;
+        let selected = view.settings.section == section_index(selector)
+            || view.settings.section == 0 && index == 0;
         let row = [viewport[0], y, right, y + heights[index]];
         let motion = canvas.feedback(state, true, selected, Kind::Surface);
         row_background(canvas, row, motion)?;

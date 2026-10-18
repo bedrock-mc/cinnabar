@@ -78,7 +78,7 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut launcher::m
         launcher::menu::settings_options::SettingsOptions::language_choices(&local);
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == variable).then_some(*index))
         .expect("known settings section");
@@ -113,7 +113,7 @@ fn settings_video_graphics_mode_open() {
     section_with(
         "video_forced_index",
         "settings-video-graphics-open",
-        |view| view.settings_dropdown = Some(index as u16),
+        |view| view.settings.dropdown = Some(index as u16),
     );
 }
 
@@ -135,11 +135,11 @@ fn open_graphics_mode_rows_select_their_own_choice() {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, at)| (*name == "video_forced_index").then_some(*at))
         .unwrap();
-    view.settings_dropdown = Some(index);
+    view.settings.dropdown = Some(index);
     presentation.set_menu_view(Some(view));
     presentation
         .build(
@@ -174,12 +174,12 @@ fn settings_video_graphics_options_pack_before() {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
     simple_graphics(&mut view);
-    view.settings_advanced_graphics = true;
+    view.settings.advanced_graphics = true;
     super::play_flow_snapshots::snapshot_vanilla(
         &player_runtime,
         &view,
@@ -191,7 +191,7 @@ fn settings_video_graphics_options_pack_before() {
 fn settings_video_graphics_options_expanded() {
     section_with("video_forced_index", "settings-video-expanded", |view| {
         simple_graphics(view);
-        view.settings_advanced_graphics = true;
+        view.settings.advanced_graphics = true;
     });
 }
 
@@ -220,12 +220,12 @@ fn graphics_options_expander_uses_full_settings_button_height() {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
     for expanded in [false, true, false] {
-        view.settings_advanced_graphics = expanded;
+        view.settings.advanced_graphics = expanded;
         let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
         let rendered = json_ui::render_screen(
             screen.reference,
@@ -271,7 +271,7 @@ fn video_toggles_admit_pointer_and_keyboard_focus() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -324,7 +324,7 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
     view.over_world = true;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -342,7 +342,7 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
     };
     let dropdown = MenuAction::SettingsDropdown(index);
     for (size, picker) in [([1280, 720], false), ([200, 720], true)] {
-        view.settings_dropdown = None;
+        view.settings.dropdown = None;
         view.focused_action = None;
         draw(&mut presentation, &view, size);
         if picker {
@@ -364,7 +364,7 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
             )
             .unwrap();
             assert_eq!(presentation.hit_test_menu(center), Some(dropdown));
-            view.settings_dropdown = Some(index);
+            view.settings.dropdown = Some(index);
         }
         for choice in ANIMATIONS_OPTION.min..=ANIMATIONS_OPTION.max {
             let action = MenuAction::SettingsOption(index, choice);
@@ -414,7 +414,7 @@ fn settings_vrr_choices_snapshot() {
             |view| {
                 std::sync::Arc::make_mut(&mut view.settings_options).set(index, choice as i32);
                 view.focused_action = Some(MenuAction::SettingsOption(index as u16, choice as i32));
-                view.settings_advanced_graphics = true;
+                view.settings.advanced_graphics = true;
             },
         );
     }
@@ -438,7 +438,7 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
         .position(|o| o.name == NATIVE_SKYBOX_OFFSET_OPTION.name)
         .unwrap() as u16;
     let mut view = crate::test_support::settings_view();
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();

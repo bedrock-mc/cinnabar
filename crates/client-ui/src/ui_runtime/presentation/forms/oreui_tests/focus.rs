@@ -10,7 +10,7 @@ use ui_engine::text_metrics::TextMetrics;
 fn view(section: &str) -> MenuView {
     let mut view = MenuView::new(true, "Player".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = SETTINGS_SECTIONS
+    view.settings.section = SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == section).then_some(*index))
         .unwrap();
@@ -66,7 +66,7 @@ fn focus_retains_offscreen_controls_and_explicit_group_delegation() {
         .find(|landmark| Some(landmark.id) == screen.delegate_landmark)
         .expect("the screen delegates initial entry into its settings content");
     assert!(delegated.remember);
-    let selected = MenuAction::SettingsSection(view.settings_section);
+    let selected = MenuAction::SettingsSection(view.settings.section);
     let sidebar = landmarks
         .iter()
         .find(|landmark| landmark.delegate == Some(selected))
@@ -130,7 +130,7 @@ fn native_picker_isolates_focus_and_slider_capture_and_delegates_selected_value(
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = view("video_forced_index");
     let camera = setting("third_person");
-    view.settings_dropdown = Some(camera);
+    view.settings.dropdown = Some(camera);
     paint(&mut presentation, &view, [600.0, 420.0]);
     let (targets, landmarks) = presentation.settings_focus_geometry();
     let trap = landmarks
@@ -156,7 +156,7 @@ fn native_picker_isolates_focus_and_slider_capture_and_delegates_selected_value(
         presentation.projections.oreui_slider_tracks.is_empty(),
         "the modal owns input even where an underlying animated thumb is painted"
     );
-    view.settings_dropdown = None;
+    view.settings.dropdown = None;
     paint(&mut presentation, &view, [600.0, 420.0]);
     assert!(
         !presentation

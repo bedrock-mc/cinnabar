@@ -9,10 +9,10 @@ pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> 
     if region.pressed.as_deref() != Some("button.reset_settings") {
         return None;
     }
-    let section = if view.settings_section == 0 {
+    let section = if view.settings.section == 0 {
         SettingSection::Video
     } else {
-        SettingSection::from_index(view.settings_section)?
+        SettingSection::from_index(view.settings.section)?
     };
     let group = section.definition().reset_group?;
     Some(MenuAction::SettingsResetGroup(group))

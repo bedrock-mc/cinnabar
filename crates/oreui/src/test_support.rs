@@ -150,7 +150,7 @@ pub fn account_manager_view() -> MenuView {
 pub fn settings_view(section: &str) -> MenuView {
     let mut view = MenuView::new(true, "Player".into());
     view.screen = launcher::menu::MenuScreen::Settings;
-    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == section).then_some(*index))
         .expect("known settings section");

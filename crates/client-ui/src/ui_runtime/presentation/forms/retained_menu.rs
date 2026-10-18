@@ -33,11 +33,11 @@ impl UiPresentationRuntime {
             && !(view.screen == MenuScreen::Servers && oreui::animated_server_details(view))
             && !view.popup_open()
             && view.field.is_none()
-            && view.key_remap.is_none()
+            && view.settings.key_remap.is_none()
             && !view.connecting
             && view.local.progress.is_none()
             && !(view.screen == MenuScreen::Settings
-                && view.settings_section
+                && view.settings.section
                     == launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index
@@ -137,7 +137,7 @@ mod mod_update_tests {
         let runtime = UiRuntime::new(0);
         let mut view = MenuView::new(true, "Fixture".into());
         view.screen = MenuScreen::Settings;
-        view.settings_section = SettingSection::Mods.definition().index;
+        view.settings.section = SettingSection::Mods.definition().index;
         Arc::make_mut(&mut view.mods).library.update_progress =
             vec![UpdateProgress::stage(1, UpdatePhase::Reloading)];
         presentation.set_menu_view(Some(view.clone()));
@@ -145,13 +145,13 @@ mod mod_update_tests {
             presentation.retainable_menu(&runtime).is_none(),
             "the activity indicator must keep animating while reloading"
         );
-        view.settings_section = SettingSection::General.definition().index;
+        view.settings.section = SettingSection::General.definition().index;
         presentation.set_menu_view(Some(view.clone()));
         assert!(
             presentation.retainable_menu(&runtime).is_some(),
             "hidden progress does not animate another settings page"
         );
-        view.settings_section = SettingSection::Mods.definition().index;
+        view.settings.section = SettingSection::Mods.definition().index;
         Arc::make_mut(&mut view.mods)
             .library
             .update_progress

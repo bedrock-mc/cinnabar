@@ -54,6 +54,6 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
     menu.activate(MenuAction::LocalWorld(LocalWorldAction::Back));
     menu.sync_local_worlds(&mut worlds, false);
     assert_eq!(menu.view().screen, MenuScreen::Settings);
-    assert_eq!(menu.view().settings_section, SECTION_INDEX);
+    assert_eq!(menu.view().settings.section, SECTION_INDEX);
     std::fs::remove_dir_all(layout.user_data_root.parent().unwrap()).unwrap();
 }

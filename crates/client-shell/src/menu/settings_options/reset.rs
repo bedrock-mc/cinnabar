@@ -42,8 +42,8 @@ impl MenuRuntime {
                 ));
             }
         }
-        self.settings_dropdown = None;
-        self.settings_scale_picker = false;
+        self.settings.dropdown = None;
+        self.settings.scale_picker = false;
     }
 }
 

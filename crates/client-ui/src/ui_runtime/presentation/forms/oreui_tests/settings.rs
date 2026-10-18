@@ -101,7 +101,7 @@ fn settings_route_draws_oreui_and_publishes_navigation_hits() {
     assert!(!nodes.is_empty(), "settings must publish a visible screen");
     for action in [
         MenuAction::AddBack,
-        MenuAction::SettingsSection(view.settings_section),
+        MenuAction::SettingsSection(view.settings.section),
     ] {
         let target = presentation
             .menu_hit_targets
@@ -254,13 +254,13 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
     view.focused_action = Some(MenuAction::AddBack);
     present(&mut presentation, &view, size);
     assert_eq!(presentation.menu_scrolls.offsets(), &offsets);
-    view.focused_action = Some(MenuAction::SettingsSection(view.settings_section));
+    view.focused_action = Some(MenuAction::SettingsSection(view.settings.section));
     present(&mut presentation, &view, size);
     assert!(
         presentation
             .menu_hit_targets
             .iter()
-            .any(|(action, _)| { *action == MenuAction::SettingsSection(view.settings_section) }),
+            .any(|(action, _)| { *action == MenuAction::SettingsSection(view.settings.section) }),
         "returning from the header must reveal the first category"
     );
 }
@@ -271,7 +271,7 @@ fn settings_picker_close_focus_preserves_the_scrolled_choice_list() {
     let mut view = settings_view("creator_forced_index");
     let index = option_index("content_log_gui_level");
     let option = &SETTINGS_OPTIONS[index];
-    view.settings_dropdown = Some(index as u16);
+    view.settings.dropdown = Some(index as u16);
     view.focused_action = Some(MenuAction::SettingsOption(index as u16, option.max));
     let size = [640.0, 120.0];
     present(&mut presentation, &view, size);

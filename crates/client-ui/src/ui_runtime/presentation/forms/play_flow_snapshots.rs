@@ -558,7 +558,7 @@ fn snapshot_update_ready_notice() {
     });
     snapshot(&player, &view, "updater-home-ready");
     view.screen = MenuScreen::Settings;
-    view.settings_section =
+    view.settings.section =
         super::test_support::settings_section_index("general_forced_index").unwrap();
     snapshot(&player, &view, "updater-settings-ready");
 }

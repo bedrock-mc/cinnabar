@@ -221,7 +221,7 @@ fn configured_debug_keys_and_mouse_toggle_once_and_refresh_the_hint() {
         let mut menu = app
             .world_mut()
             .resource_mut::<client_shell::menu::MenuRuntime>();
-        let section = menu.view().settings_section;
+        let section = menu.view().settings.section;
         menu.activate(MenuAction::SettingsSection(section));
         menu.activate(MenuAction::SettingsResetKey(debug as u16));
     }

@@ -424,14 +424,14 @@ fn settings_first_frame_publishes_navigation_and_edit_controls() {
             bench.frame();
         }
         bench.view.screen = MenuScreen::Settings;
-        bench.view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        bench.view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
             .iter()
             .find_map(|(name, index)| (*name == "accessibility_forced_index").then_some(*index))
             .expect("registered accessibility section");
         bench.frame();
         let actions = bench.hits();
         assert!(actions.contains(&MenuAction::AddBack));
-        assert!(actions.contains(&MenuAction::SettingsSection(bench.view.settings_section)));
+        assert!(actions.contains(&MenuAction::SettingsSection(bench.view.settings.section)));
         assert!(
             actions
                 .iter()

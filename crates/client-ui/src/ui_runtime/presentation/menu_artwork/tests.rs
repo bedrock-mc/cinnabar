@@ -423,7 +423,7 @@ fn mod_icons_are_packed_from_memory_on_the_mods_tab() {
     };
     let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = SettingSection::Mods.definition().index;
+    view.settings.section = SettingSection::Mods.definition().index;
     view.mods = Arc::new(Snapshot {
         library: Library {
             installed: vec![icon(1), icon(2)],
@@ -436,6 +436,6 @@ fn mod_icons_are_packed_from_memory_on_the_mods_tab() {
         .map(|(key, _)| key)
         .collect();
     assert_eq!(keys, [icon(1).icon_key().unwrap()]);
-    view.settings_section = SettingSection::Video.definition().index;
+    view.settings.section = SettingSection::Video.definition().index;
     assert!(view_images(&view, &[]).is_empty());
 }

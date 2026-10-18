@@ -26,10 +26,10 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
-    if view.settings_scale_picker {
+    if view.settings.scale_picker {
         return gui_scale::draw_picker(canvas, view, size, translate);
     }
-    let Some(index) = view.settings_dropdown else {
+    let Some(index) = view.settings.dropdown else {
         return Ok(());
     };
     let Some(option) = SETTINGS_OPTIONS.get(usize::from(index)) else {

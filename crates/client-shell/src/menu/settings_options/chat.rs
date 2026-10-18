@@ -8,7 +8,7 @@ use launcher::menu::settings_options::{SettingsGroup, SettingsOptions};
 impl MenuRuntime {
     /// Supplies a cheap settings snapshot even while the launcher menu is hidden.
     pub fn settings_snapshot(&self) -> (Arc<SettingsOptions>, Option<u16>) {
-        (Arc::clone(&self.settings_options), self.settings_dropdown)
+        (Arc::clone(&self.settings_options), self.settings.dropdown)
     }
 
     /// Restores the chat popup's registered options without changing other sections.

@@ -43,7 +43,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
                     .map(str::to_owned)
                     .unwrap_or_else(|| translate(label));
                 let control = view.settings_options.key_control(index);
-                let capturing = view.key_remap == Some(index as u16);
+                let capturing = view.settings.key_remap == Some(index as u16);
                 let key = if capturing {
                     "...".to_owned()
                 } else if offset == 0 {

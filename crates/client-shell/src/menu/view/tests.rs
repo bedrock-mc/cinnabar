@@ -78,6 +78,34 @@ fn repeated_views_reuse_every_list_while_interaction_state_changes() {
 }
 
 #[test]
+fn settings_views_retain_interactions_without_including_live_pointer_capture() {
+    let mut menu = menu();
+    menu.enter(launcher::menu::MenuScreen::Settings);
+    let original = menu.view();
+    menu.settings_input.slider_drag =
+        Some(launcher::menu::settings_options::SettingId::Gamma.index() as u16);
+    assert_eq!(original, menu.view());
+
+    menu.activate_from_navigation(MenuAction::SettingsAdvancedGraphics);
+    let changed = menu.view();
+    assert!(!original.settings.advanced_graphics);
+    assert!(changed.settings.advanced_graphics);
+    assert!(changed.settings.control_activation_navigation);
+    assert_ne!(original, changed);
+    assert_shared(&original, &changed);
+    assert!(std::sync::Arc::ptr_eq(
+        &original.settings_options,
+        &changed.settings_options,
+    ));
+
+    let mut detached = changed.clone();
+    detached.settings.advanced_graphics = false;
+    detached.settings.key_remap = Some(0);
+    assert_eq!(changed, menu.view());
+    assert_ne!(detached, menu.view());
+}
+
+#[test]
 fn saved_server_actions_publish_only_the_changed_list_and_retain_prior_views() {
     let mut menu = menu();
     let original = menu.view();
