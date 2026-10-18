@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 fn panel() -> Panel {
     Panel {
@@ -79,6 +80,56 @@ fn route_schemas_switch_atomically_and_keep_repeated_values() {
         .unwrap()
         .resize(super::MAX_PANEL_CONTROLS + 1, changed.controls[0].clone());
     assert!(invalid.validate().is_err());
+}
+
+/// Selecting or repeating a route preserves capture until a patch explicitly changes it.
+#[test]
+fn bundled_routes_keep_sparse_capture_updates() {
+    for initial_capture in [false, true] {
+        let mut initial = panel();
+        initial.capture_key = initial_capture;
+        let bundle = PanelBundle {
+            panel: initial,
+            surfaces: BTreeMap::from([
+                ("main".into(), surface("mod.control:0")),
+                ("options".into(), surface("mod.close")),
+            ]),
+            control_schemas: BTreeMap::from([(
+                "options".into(),
+                vec![Control::Toggle {
+                    id: "enabled".into(),
+                    label: "Enabled".into(),
+                    value: false,
+                }],
+            )]),
+        };
+        bundle.validate().unwrap();
+        let patch = serde_json::json!({"capture_key": !initial_capture}).to_string();
+        let mut current = PanelPatch::parse(&patch)
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+        for route in ["main", "main", "options", "options", "main"] {
+            let patch = serde_json::json!({"surface": route}).to_string();
+            current = PanelPatch::parse(&patch)
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(current.capture_key, !initial_capture, "route {route}");
+            assert_eq!(current.surface.as_ref(), Some(&bundle.surfaces[route]));
+            assert!(bundle.matches_schema(&current));
+            current.validate().unwrap();
+        }
+        for route in ["main", "options"] {
+            let patch =
+                serde_json::json!({"surface": route, "capture_key": initial_capture}).to_string();
+            let changed = PanelPatch::parse(&patch)
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(changed.capture_key, initial_capture, "route {route}");
+        }
+    }
 }
 
 /// Compact scalar edits keep the exact kinds, ranges and transaction rules of named edits.

@@ -183,29 +183,23 @@ struct ControlPatch {
 }
 
 impl PanelPatch {
-    /// Selects an admitted route schema before checking its sparse control changes.
+    /// Selects admitted controls without resetting panel metadata, then applies sparse changes.
     pub fn apply_bundle(self, current: &Panel, bundle: &PanelBundle) -> Result<Panel, String> {
-        let mut selected;
-        let current = if let Some(id) = &self.surface {
-            selected = bundle
-                .route_panel(id)
-                .ok_or("panel update names an unknown surface")?;
-            // Repeated updates retain values not mentioned in the patch.
-            if bundle.matches_controls(&selected.controls, current) {
-                selected.controls.clone_from(&current.controls);
-            }
-            // Retained scalar bindings belong to the component, across all routes.
-            if let (Some(source), Some(target)) = (&current.surface, &mut selected.surface) {
-                if source.same_definition(target) {
-                    target.collections.clone_from(&source.collections);
-                }
-                target.bindings.clone_from(&source.bindings);
-            }
-            &selected
-        } else {
-            current
+        let Some(id) = &self.surface else {
+            return self.apply(current, &bundle.surfaces);
         };
-        self.apply(current, &bundle.surfaces)
+        if !bundle.surfaces.contains_key(id) {
+            return Err("panel update names an unknown surface".into());
+        }
+        let mut selected = current.clone();
+        let controls = bundle
+            .control_schemas
+            .get(id)
+            .unwrap_or(&bundle.panel.controls);
+        if !bundle.matches_controls(controls, current) {
+            selected.controls.clone_from(controls);
+        }
+        self.apply(&selected, &bundle.surfaces)
     }
 
     /// Reads a bounded patch without resolving any retained screen definition.
