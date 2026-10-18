@@ -287,7 +287,11 @@ mod tests {
         );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
         commands.try_send(NetworkCommand::FinishLoading).unwrap();
-        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
         pump.await;
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(matches!(

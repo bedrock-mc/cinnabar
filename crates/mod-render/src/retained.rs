@@ -43,6 +43,8 @@ pub struct Geometry {
     pub distances: Arc<[f32]>,
     pub closed: bool,
     pub polyline: bool,
+    /// Absolute position bounds computed at admission for constant-cost instance checks.
+    max_position: [f32; 3],
 }
 
 /// An actor reference includes both the drawing owner and the actor's spawn generation.
@@ -197,8 +199,15 @@ impl Store {
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
     pub fn commit(&mut self) {
-        let staged = self.staged.take().unwrap_or_else(|| self.base());
-        if staged != *self.committed {
+        let staged = match self.staged.take() {
+            Some(staged) => Some(staged),
+            None if self.committed.groups.is_empty() => None,
+            None => Some(self.base()),
+        };
+        if let Some(staged) = staged
+            && (staged.geometry_revision != self.committed.geometry_revision
+                || staged.instance_revision != self.committed.instance_revision)
+        {
             self.committed = Arc::new(staged);
         }
         self.retired
@@ -259,6 +268,16 @@ impl Store {
         permissions: DrawingPermissions,
     ) -> Result<(), DrawError> {
         self.check(handle)?;
+        // An unchanged resubmission must not clone the resource maps every frame.
+        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let expiring = self.staged.is_none()
+            && current
+                .groups
+                .values()
+                .any(|handles| handles.contains(&handle));
+        if !expiring && current.instances.get(&handle) == Some(&instance) {
+            return validation::instance(&instance, current, permissions);
+        }
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));
