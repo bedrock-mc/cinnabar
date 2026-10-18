@@ -70,42 +70,10 @@ pub fn import(
     let mut files = Vec::new();
     let result = (|| {
         for input in entries {
-            let mut skin = decode_png_with_model(
-                &input.png,
-                alpha_model(input.model, input.geometry.as_deref()),
-            )?;
-            skin.geometry = match input.geometry {
-                Some(geometry) => Some(geometry),
-                None => geometry_for_view(layout, view, input.model)?,
-            };
-            let mut hash = Sha256::new();
-            hash.update(&input.png);
-            if input.model == SkinModel::Custom {
-                let geometry = skin
-                    .geometry
-                    .as_ref()
-                    .ok_or("The custom skin is missing its model.")?;
-                validate_source(geometry)?;
-                for bytes in [
-                    geometry.resource_patch.as_bytes(),
-                    geometry.geometry_data.as_bytes(),
-                    input.engine_version.as_bytes(),
-                ] {
-                    hash.update((bytes.len() as u64).to_le_bytes());
-                    hash.update(bytes);
-                }
-            }
-            if input.model == SkinModel::Slim {
-                hash.update(SkinModel::Slim.geometry().as_bytes());
-            }
-            if input.model != SkinModel::Custom
-                && input.engine_version.as_ref() != render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
-            {
-                hash.update((input.engine_version.len() as u64).to_le_bytes());
-                hash.update(input.engine_version.as_bytes());
-            }
-            let digest = format!("{:x}", hash.finalize());
-            let id = format!("imported:{digest}");
+            let PreparedSkin { png, mut entry } =
+                prepare_entry(input, |model| geometry_for_view(layout, view, model))?;
+            let digest = entry.path.strip_suffix(".png").unwrap().to_owned();
+            let id = entry.id.clone();
             if let Some(index) = next.skins.iter().position(|entry| entry.id == id) {
                 next.selected = Some(index);
                 continue;
@@ -117,9 +85,9 @@ pub fn import(
             }
             fs::create_dir_all(layout.dressing_room_dir()).map_err(|error| error.to_string())?;
             let path = layout.dressing_room_dir().join(format!("{digest}.png"));
-            write_new(&path, &input.png, &mut files)?;
-            if input.model == SkinModel::Custom {
-                let geometry = skin.geometry.as_ref().unwrap();
+            write_new(&path, &png, &mut files)?;
+            if entry.model == SkinModel::Custom {
+                let geometry = entry.skin.geometry.as_ref().unwrap();
                 write_new(
                     &path.with_extension("json"),
                     geometry.geometry_data.as_bytes(),
@@ -127,15 +95,8 @@ pub fn import(
                 )?;
             }
             let mut skins = next.skins.to_vec();
-            skins.push(DressingRoomSkin {
-                id,
-                name: edits::valid_name(&input.name)?.to_owned(),
-                path: path.to_string_lossy().into_owned(),
-                imported: true,
-                model: input.model,
-                skin,
-                engine_version: input.engine_version,
-            });
+            entry.path = path.to_string_lossy().into_owned();
+            skins.push(entry);
             next.selected = Some(skins.len() - 1);
             next.skins = skins.into();
         }
@@ -236,4 +197,91 @@ pub(super) fn valid_engine_version(value: &str) -> bool {
                 && part.bytes().all(|byte| byte.is_ascii_digit())
                 && part.parse::<u16>().is_ok()
         })
+}
+
+/// A validated import retains encoded bytes only until the catalog accepts it.
+pub(super) struct PreparedSkin {
+    pub(super) png: Vec<u8>,
+    pub(super) entry: DressingRoomSkin,
+}
+
+impl PreparedSkin {
+    /// Checks drawable custom geometry separately from bounded image decoding.
+    pub(super) fn validate_model(&self) -> Result<(), String> {
+        if self.entry.model == SkinModel::Custom {
+            validate_source(
+                self.entry
+                    .skin
+                    .geometry
+                    .as_deref()
+                    .ok_or("The custom skin is missing its model.")?,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Completes every import stage on the native catalog thread before writing any files.
+pub(super) fn prepare_entry(
+    input: SkinPackEntry,
+    geometry: impl FnOnce(SkinModel) -> Result<Option<Arc<render_api::SkinGeometrySource>>, String>,
+) -> Result<PreparedSkin, String> {
+    let prepared = decode_entry(input, geometry)?;
+    prepared.validate_model()?;
+    Ok(prepared)
+}
+
+/// Decodes bounded image bytes and derives the shared native content identity.
+pub(super) fn decode_entry(
+    input: SkinPackEntry,
+    geometry: impl FnOnce(SkinModel) -> Result<Option<Arc<render_api::SkinGeometrySource>>, String>,
+) -> Result<PreparedSkin, String> {
+    let mut skin = decode_png_with_model(
+        &input.png,
+        alpha_model(input.model, input.geometry.as_deref()),
+    )?;
+    skin.geometry = match input.geometry {
+        Some(geometry) => Some(geometry),
+        None => geometry(input.model)?,
+    };
+    let mut hash = Sha256::new();
+    hash.update(&input.png);
+    if input.model == SkinModel::Custom {
+        let geometry = skin
+            .geometry
+            .as_ref()
+            .ok_or("The custom skin is missing its model.")?;
+        for bytes in [
+            geometry.resource_patch.as_bytes(),
+            geometry.geometry_data.as_bytes(),
+            input.engine_version.as_bytes(),
+        ] {
+            hash.update((bytes.len() as u64).to_le_bytes());
+            hash.update(bytes);
+        }
+    }
+    if input.model == SkinModel::Slim {
+        hash.update(SkinModel::Slim.geometry().as_bytes());
+    }
+    if input.model != SkinModel::Custom
+        && input.engine_version.as_ref() != render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
+    {
+        hash.update((input.engine_version.len() as u64).to_le_bytes());
+        hash.update(input.engine_version.as_bytes());
+    }
+    let digest = format!("{:x}", hash.finalize());
+    let id = format!("imported:{digest}");
+
+    Ok(PreparedSkin {
+        entry: DressingRoomSkin {
+            id,
+            name: edits::valid_name(&input.name)?.to_owned(),
+            path: format!("{digest}.png"),
+            imported: true,
+            model: input.model,
+            skin,
+            engine_version: input.engine_version,
+        },
+        png: input.png,
+    })
 }

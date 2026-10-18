@@ -264,6 +264,14 @@ transport teardown. New play waits for the old handler to finish while retaining
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+Browser Dressing Room adapters provide a session-only catalog, bounded file-picker admission and
+frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
+inputs use the native validators and content identities. Browser imports are lost when the
+page closes. Native catalogs keep their existing file persistence and worker threads.
+Incomplete: the playable browser host must connect the synchronous import gesture ticket
+and optional starter/cosmetic carriers. Durable browser imports and in-game browser captures
+remain pending; these changes do not close the browser release gate.
+
 The browser account adapter projects checking, device-code prompts, refusals and identity
 into the shared menu. External menu services expose account intents and preference changes
 without native helper launches. Browser preference documents bound saved addressed servers
