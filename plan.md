@@ -2159,7 +2159,8 @@ not close a parity or visual acceptance gate.
 - Loom banner inputs check the admitted item identity and typed root Type. Grindstone inputs
   require an enchantment List or admitted damageability without a true Unbreakable Byte.
   Valid durability components retain a zero Int maximum as damageable, without a durability bar
-  or positive repair maximum. Registry changes retire placements or fallback routes whose
+  or positive repair maximum. Inventory and world registry admission share that maximum rule.
+  Registry changes retire placements or fallback routes whose
   admission changes. Cancelling unsent gestures restores the sparse owners they replaced,
   including empty cursor ownership; server rejection keeps its separate response behavior.
   Registry-dependent malformed component loading and remaining station membership checks

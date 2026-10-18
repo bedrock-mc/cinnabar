@@ -18,6 +18,15 @@ pub enum ItemDurability {
 }
 
 impl ItemDurability {
+    /// Interprets a parsed maximum: component zero remains damageable, while a legacy
+    /// zero or missing maximum remains unresolved.
+    pub const fn from_declared_maximum(maximum: Option<u32>, component_item: bool) -> Self {
+        match maximum {
+            Some(maximum) if component_item || maximum > 0 => Self::Maximum { maximum },
+            _ => Self::Unresolved,
+        }
+    }
+
     /// Reports admitted damageability independently of a positive display or repair maximum.
     pub const fn damageable(self) -> Option<bool> {
         match self {
