@@ -9806,6 +9806,7 @@ dependencies = [
  "semantic-input",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "url",
  "wasm-bindgen",

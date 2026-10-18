@@ -44,6 +44,12 @@ fn delivery_carriers() -> impl Iterator<Item = &'static Carrier> {
 }
 
 impl DeliveryManifest {
+    /// Resolves indexed carriers through the same canonical table used for admission.
+    pub fn carriers(&self) -> impl Iterator<Item = &'static Carrier> + '_ {
+        delivery_carriers()
+            .filter(|carrier| self.entries.iter().any(|entry| entry.name == carrier.name))
+    }
+
     /// Checks the required set, supported optional carriers, unique names and byte bounds.
     pub fn validate(&self) -> Result<(), DeliveryError> {
         if self.version != DELIVERY_VERSION {
@@ -96,12 +102,11 @@ impl DeliveryManifest {
 
     /// Generates the index from locally compiled carriers; no game bytes enter the index.
     pub fn from_directory(directory: &Path) -> Result<Self, DeliveryError> {
-        let entries = startup_carriers()
-            .chain(
-                [&carriers::FONT, &carriers::AUDIO]
-                    .into_iter()
-                    .filter(|carrier| directory.join(carrier.output).is_file()),
-            )
+        let entries = delivery_carriers()
+            .filter(|carrier| {
+                startup_carriers().any(|required| required.name == carrier.name)
+                    || directory.join(carrier.output).is_file()
+            })
             .map(|carrier| {
                 let path = directory.join(carrier.output);
                 let length = std::fs::metadata(&path)
@@ -147,12 +152,7 @@ impl MemoryCarriers {
 
     /// Resolves only indexed carrier names to canonical filenames before host downloads.
     pub fn entries(&self) -> impl Iterator<Item = &'static Carrier> + '_ {
-        delivery_carriers().filter(|carrier| {
-            self.manifest
-                .entries
-                .iter()
-                .any(|entry| entry.name == carrier.name)
-        })
+        self.manifest.carriers()
     }
 
     /// Decodes the optional bundled font; an absent or unusable font keeps diagnostic text.
