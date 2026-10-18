@@ -12,8 +12,9 @@ pub const FONT_ENV: &str = "CINNABAR_MOD_FONT";
 /// Upper bound on the local font source read by the registration worker.
 pub const MAX_SOURCE_BYTES: usize = mod_api::MAX_PANEL_FONT_BYTES;
 const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
-const FONT_EM: f32 = 18.0;
+const FONT_EM: f32 = mod_api::PANEL_FONT_EM_GUI_PIXELS * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
 const RASTER_SCALE: u32 = 2;
+const ICON_RASTER_SCALE: u32 = RASTER_SCALE * 4;
 
 /// Reads and rasterizes a bounded local source on the registration worker.
 pub fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
@@ -34,11 +35,33 @@ pub fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
 fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, String> {
     let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
         .map_err(str::to_owned)?;
+    let icons: Vec<_> = (mod_api::PANEL_ICON_GLYPH_START
+        ..mod_api::PANEL_ICON_GLYPH_START + mod_api::MAX_PANEL_ICON_GLYPHS)
+        .filter_map(char::from_u32)
+        .filter(|codepoint| font.lookup_glyph_index(*codepoint) != 0)
+        .collect();
+    let side = if icons.is_empty() {
+        ATLAS_SIDE
+    } else {
+        render_model::UI_LOCAL_ICON_FONT_PAGE_SIDE
+    };
     let mut cells = Vec::new();
-    let characters = (0x20..=0x7e).filter_map(char::from_u32).chain([
-        '\u{b7}', '\u{d7}', '\u{2014}', '\u{2022}', '\u{2039}', '\u{203a}', '\u{2212}', '\u{fffd}',
-    ]);
+    let characters = (0x20..=0x7e)
+        .filter_map(char::from_u32)
+        .chain([
+            '\u{b7}', '\u{d7}', '\u{2014}', '\u{2022}', '\u{2039}', '\u{203a}', '\u{2212}',
+            '\u{fffd}',
+        ])
+        .chain(icons);
     for codepoint in characters {
+        let is_icon = (mod_api::PANEL_ICON_GLYPH_START
+            ..mod_api::PANEL_ICON_GLYPH_START + mod_api::MAX_PANEL_ICON_GLYPHS)
+            .contains(&u32::from(codepoint));
+        let raster_scale = if is_icon {
+            ICON_RASTER_SCALE
+        } else {
+            raster_scale
+        };
         let source = if font.lookup_glyph_index(codepoint) == 0 {
             '?'
         } else {
@@ -90,7 +113,14 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             rgba8: rgba8.into(),
             bearing: [
                 metrics.xmin as i16,
-                -(metrics.ymin + metrics.height as i32) as i16,
+                -(metrics.ymin + metrics.height as i32) as i16
+                    + if is_icon {
+                        ((ui::TEXT_LINE_HEIGHT_64 as f32 / 64.0 + FONT_EM) * 0.5
+                            - ui::TEXT_BASELINE_64 as f32 / 64.0)
+                            .round() as i16
+                    } else {
+                        0
+                    },
             ],
             advance_64: (metrics.advance_width * 64.0)
                 .round()
@@ -98,7 +128,7 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             draw_size_64: logical_size.map(|value| value * 64),
         });
     }
-    let atlas = pack_cells(&cells, 0, ATLAS_SIDE, 1);
+    let atlas = pack_cells(&cells, 0, side, 1);
     if atlas.glyphs.len() != cells.len() || atlas.pages.len() != 1 {
         return Err("font exceeds local atlas bounds".into());
     }
@@ -106,27 +136,37 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
     let pages = atlas
         .pages
         .into_iter()
-        .map(|pixels| FontTexturePage {
-            source_path: "font/personal-panel.png".into(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: source_hash,
-            pixels_sha256: Sha256::digest(&pixels).into(),
-            width: ATLAS_SIDE,
-            height: ATLAS_SIDE,
-            pixels: FontPixels::Rgba8(pixels.into()),
+        .map(|rgba| {
+            let pixels: Vec<_> = rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| pixel[3])
+                .collect();
+            FontTexturePage {
+                source_path: "font/personal-panel.png".into(),
+                source_bytes: bytes.len() as u32,
+                source_sha256: source_hash,
+                pixels_sha256: Sha256::digest(&pixels).into(),
+                width: side,
+                height: side,
+                pixels: FontPixels::Coverage(pixels.into()),
+            }
         })
         .collect::<Vec<_>>();
-    let glyphs = atlas
+    let mut glyphs = atlas
         .glyphs
         .iter()
         .map(|glyph| glyph.metrics)
         .collect::<Vec<_>>();
+    glyphs.sort_unstable_by_key(|glyph| glyph.codepoint);
     let encoded =
         encode_font_catalog(source_hash, &glyphs, &pages).map_err(|error| error.to_string())?;
     RuntimeFontCatalog::decode(&encoded, source_hash)
         .map(|font| {
             font.with_glyphs(&atlas.glyphs, |_| true)
                 .with_linear_sampling()
+                .with_rendering(assets::FontRendering::OutlineCoverage)
         })
         .map_err(|error| error.to_string())
 }
@@ -168,10 +208,9 @@ mod tests {
         let font = load(Path::new(&path)).unwrap();
         assert!(font.linear_sampling());
         assert_eq!(font.pages().len(), 1);
-        assert_eq!(
-            [font.pages()[0].width, font.pages()[0].height],
-            [ATLAS_SIDE; 2]
-        );
+        let page = &font.pages()[0];
+        assert!(matches!(page.pixels, FontPixels::Coverage(_)));
+        assert!(page.pixels.bytes().len() <= (ATLAS_SIDE * ATLAS_SIDE * 4) as usize);
         assert!(font.glyph('A').is_some_and(|glyph| glyph.advance_64 > 0));
         let space = font.glyph(' ').unwrap();
         assert!(space.advance_64 > 0);
@@ -179,8 +218,8 @@ mod tests {
             [space.uv[2] - space.uv[0], space.uv[3] - space.uv[1]],
             [1; 2]
         );
-        let texel = (usize::from(space.uv[1]) * ATLAS_SIDE as usize + usize::from(space.uv[0])) * 4;
-        assert_eq!(font.pages()[0].pixels.bytes()[texel + 3], 0);
+        let texel = usize::from(space.uv[1]) * page.width as usize + usize::from(space.uv[0]);
+        assert_eq!(page.pixels.bytes()[texel], 0);
         let attached = font
             .with_named_font(ui::mod_panel::FONT_NAME, &font)
             .unwrap();
@@ -197,10 +236,8 @@ mod tests {
             font.pages()[0]
                 .pixels
                 .bytes()
-                .as_chunks::<4>()
-                .0
                 .iter()
-                .any(|pixel| (1..255).contains(&pixel[3]))
+                .any(|alpha| (1..255).contains(alpha))
         );
     }
 
@@ -250,6 +287,51 @@ mod tests {
                 assert_eq!(native.bounds_64, dense.bounds_64);
             }
             assert!(!Arc::ptr_eq(&native_layout, &dense_layout));
+        }
+    }
+
+    /// Real icon outlines retain tint and use a bounded dense atlas with unchanged text metrics.
+    #[test]
+    fn supplied_icon_font_has_dense_coverage_and_bounded_logical_metrics() {
+        let Some(path) = std::env::var_os(FONT_ENV) else {
+            eprintln!(
+                "skipping supplied_icon_font_has_dense_coverage_and_bounded_logical_metrics: fixture unavailable; set CINNABAR_MOD_FONT to an icon outline font"
+            );
+            return;
+        };
+        let bytes = std::fs::read(path).unwrap();
+        let source =
+            fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default()).unwrap();
+        let codepoints: Vec<_> = (mod_api::PANEL_ICON_GLYPH_START
+            ..mod_api::PANEL_ICON_GLYPH_START + mod_api::MAX_PANEL_ICON_GLYPHS)
+            .filter_map(char::from_u32)
+            .filter(|c| source.lookup_glyph_index(*c) != 0)
+            .collect();
+        if codepoints.is_empty() {
+            eprintln!(
+                "skipping supplied_icon_font_has_dense_coverage_and_bounded_logical_metrics: reserved icon glyph fixture unavailable; CINNABAR_MOD_FONT contains no reserved icons"
+            );
+            return;
+        }
+        let font = rasterize(&bytes).unwrap();
+        assert_eq!(font.rendering(), assets::FontRendering::OutlineCoverage);
+        assert!(font.linear_sampling());
+        assert_eq!(
+            font.pages()[0].width,
+            render_model::UI_LOCAL_ICON_FONT_PAGE_SIDE
+        );
+        for codepoint in codepoints {
+            let glyph = font.glyph(codepoint).unwrap();
+            let size = font.draw_size_64(codepoint).unwrap();
+            assert!(size[0] > 0 && size[1] > 0);
+            assert_eq!(
+                u32::from(glyph.uv[2] - glyph.uv[0]) * 64,
+                size[0] * ICON_RASTER_SCALE
+            );
+            assert_eq!(
+                u32::from(glyph.uv[3] - glyph.uv[1]) * 64,
+                size[1] * ICON_RASTER_SCALE
+            );
         }
     }
 }

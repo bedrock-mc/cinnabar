@@ -42,7 +42,7 @@ mod terrain;
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 
 #[derive(Resource)]
-struct ModRuntime {
+pub(crate) struct ModRuntime {
     hosts: ModHosts,
     /// One entry per host, kept in host order by the lifecycle methods.
     metadata: Vec<registration::HostMetadata>,
@@ -104,6 +104,14 @@ impl ModRuntime {
             .set_prepared_panel_ui(metadata.owner, prepared.panel_ui);
         self.render_sources.clear();
         retired
+    }
+
+    /// The first active local mod may select ordinary input modes for this frame.
+    pub(crate) fn movement_toggles(&self) -> Option<&mod_host::MovementToggles> {
+        if self.suspended {
+            return None;
+        }
+        (0..self.hosts.host_count()).find_map(|index| self.hosts.host(index).movement_toggles())
     }
 
     /// Moves metadata, guest and index-based input ownership together without a restart.
@@ -174,6 +182,9 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
                 "reserved_keys": host.reserved_keys(),
                 "movement_granted": host.grants().movement,
                 "refused_outputs": host.refused_outputs(),
+                "last_fuel_used": host.last_fuel_used(),
+                "hud_cards": host.hud().map_or(0, |hud| hud.cards.len()),
+                "hud": host.hud(),
                 "panel": host.panel(),
             })
         })
@@ -656,6 +667,7 @@ fn drive_mod(
         camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
+        camera.set_hurt_camera_style(merged.hurt_style);
     }
     if let Some(mut policy) = item_use {
         policy.scope = merged.item_use_delay_fix;

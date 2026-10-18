@@ -603,6 +603,7 @@ fn hud_host(root: &Path, name: &str, json: &str) -> ModHost {
         &path,
         ModGrants {
             hud: true,
+            player_state: true,
             ..Default::default()
         },
     )
@@ -664,4 +665,50 @@ fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
         assert_eq!(merged.cards.last().unwrap().id, "small");
         assert_eq!(merged.cards.len(), total / per_card + 1);
     }
+}
+
+/// Compass admission preserves precedence and still admits unrelated cards after overflow.
+#[test]
+fn merged_huds_keep_the_aggregate_compass_budget() {
+    use ui::mod_hud::MAX_HUD_COMPASSES;
+
+    let directory = tempfile::tempdir().unwrap();
+    let compass = |id: String| {
+        serde_json::json!({
+            "id": id, "rows": [], "width": ui::mod_hud::COMPASS_MIN_WIDTH, "compass": {}
+        })
+    };
+    let higher = serde_json::json!({"cards": (0..MAX_HUD_COMPASSES - 1)
+        .map(|index| compass(format!("higher_{index}"))).collect::<Vec<_>>()});
+    let lower = serde_json::json!({"cards": [
+        compass("higher_0".into()), compass("last_compass".into()),
+        compass("excess_compass".into()), {"id": "ordinary", "rows": []}
+    ]});
+    let last = serde_json::json!({"cards": [
+        compass("also_excess".into()), {"id": "last_ordinary", "rows": []}
+    ]});
+    let runtime = ModHosts::new(
+        hud_host(directory.path(), "higher.wat", &higher.to_string()),
+        vec![
+            hud_host(directory.path(), "lower.wat", &lower.to_string()),
+            hud_host(directory.path(), "last.wat", &last.to_string()),
+        ],
+    );
+    for index in 0..runtime.host_count() {
+        runtime.host(index).hud().unwrap().validate().unwrap();
+    }
+    let merged = runtime.merged_hud().unwrap();
+    merged.validate().unwrap();
+    let mut expected = (0..MAX_HUD_COMPASSES - 1)
+        .map(|index| format!("higher_{index}"))
+        .collect::<Vec<_>>();
+    expected.extend(["last_compass", "ordinary", "last_ordinary"].map(str::to_owned));
+    assert_eq!(
+        merged
+            .cards
+            .iter()
+            .map(|card| card.id.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
 }

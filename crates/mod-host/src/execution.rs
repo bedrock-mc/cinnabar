@@ -30,7 +30,7 @@ pub(crate) fn engine() -> Result<(Engine, EpochTicker)> {
         .wasm_component_model(true)
         .consume_fuel(true)
         .epoch_interruption(true)
-        .wasm_backtrace(false)
+        .wasm_backtrace(std::env::var_os("CINNABAR_MOD_BACKTRACE").is_some())
         .wasm_memory64(false)
         .wasm_multi_memory(false)
         .wasm_relaxed_simd(false)

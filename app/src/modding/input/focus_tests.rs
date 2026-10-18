@@ -9,6 +9,18 @@ fn fixture() -> String {
 
 /// Builds the same controls component with optional guest-owned keyboard capture.
 fn fixture_with_capture(capture_key: bool) -> String {
+    let panel = format!(
+        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
+    );
+    fixture_with_panel(&panel)
+}
+
+/// Builds a granted controls component around a supplied native panel.
+fn fixture_with_panel(panel: &str) -> String {
+    serde_json::from_str::<ui::mod_panel::Panel>(panel)
+        .expect("valid native fixture panel")
+        .validate()
+        .unwrap();
     let package = include_str!("../../../../crates/mod-api/wit/extension.wit")
         .lines()
         .next()
@@ -16,9 +28,6 @@ fn fixture_with_capture(capture_key: bool) -> String {
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    let panel = format!(
-        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
-    );
     include_str!("../../../../crates/mod-host/src/tests/guest.wat")
         .replace("(component", &format!("(component (import \"{name}/panel@{version}\" (instance $panel (export \"set-content\" (func (param \"json\" string) (result (result (error string))))))) (alias export $panel \"set-content\" (func $set-panel))"))
         .replace("$HUD", &format!("{name}/hud@{version}"))
@@ -175,13 +184,208 @@ fn hud_editor_app() -> (App, Entity) {
     personal_panel_app(true, false)
 }
 
+/// Text-only keyboard messages edit native fields without becoming held gameplay controls.
+#[test]
+fn text_without_a_physical_key_reaches_the_native_editor() {
+    let (mut app, window) = personal_panel_app(false, false);
+    let directory = tempfile::tempdir().unwrap();
+    let other = mod_host::ModHost::load_snapshot_with_grants(
+        &directory.path().join("other.wat"),
+        fixture().replace("ShiftRight", "TextInput").as_bytes(),
+        mod_host::ModGrants {
+            controls: true,
+            hud: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    {
+        let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
+        runtime.push_host(
+            other,
+            super::super::registration::HostMetadata::environment(1),
+        );
+    }
+    open_rendered_field(&mut app);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+        logical_key: Key::Character("42".into()),
+        state: ButtonState::Pressed,
+        text: Some("42".into()),
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert_eq!(
+        app.world().resource::<ModRuntime>().hosts.panel_owner(),
+        0,
+        "text input cannot act as another component's physical toggle key"
+    );
+    assert!(
+        app.world()
+            .resource::<ModRuntime>()
+            .controls
+            .keys_held
+            .is_empty()
+    );
+    assert!(
+        app.world()
+            .resource::<ModRuntime>()
+            .controls
+            .keys_pressed
+            .is_empty()
+    );
+    // The panel clears shared key state each frame; the physical modifier must survive that.
+    for (key_code, text) in [
+        (KeyCode::SuperLeft, None),
+        (KeyCode::KeyA, None),
+        (
+            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+            Some("57"),
+        ),
+    ] {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            state: ButtonState::Pressed,
+            text: text.map(Into::into),
+            repeat: false,
+            window,
+        });
+        app.update();
+    }
+    for (key_code, state, text) in [
+        (KeyCode::KeyA, ButtonState::Pressed, None),
+        (KeyCode::SuperLeft, ButtonState::Released, None),
+        (
+            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+            ButtonState::Pressed,
+            Some("73"),
+        ),
+    ] {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            state,
+            text: text.map(Into::into),
+            repeat: false,
+            window,
+        });
+    }
+    app.update();
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .mod_ui_mut()
+            .mod_panel_key("Enter", None),
+        vec![ui::mod_panel::Event {
+            id: "strength".into(),
+            value: 73.
+        }]
+    );
+}
+
+/// Focuses the first native editor through rendered pointer routing.
+fn open_rendered_field(app: &mut App) {
+    let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
+    let frame = presentation
+        .mod_ui()
+        .mod_panel_state()
+        .unwrap()
+        .frame
+        .expect("native panel rendered");
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("mod.edit:0"))
+        .or_else(|| {
+            frame
+                .hits
+                .iter()
+                .find(|hit| hit.pressed.as_deref() == Some("mod.control:0"))
+        })
+        .expect("native field has a rendered action");
+    let point = [
+        (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale + frame.origin[0],
+        (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
+    ];
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(point, true, true);
+    assert!(presentation.mod_ui().mod_panel_editing());
+}
+
+#[test]
+fn native_text_clipboard_shortcuts_do_not_insert_command_letters() {
+    use std::sync::{Arc, Mutex};
+    for modifier in [KeyCode::SuperLeft, KeyCode::ControlLeft] {
+        let component = fixture_with_panel(
+            r#"{"title":"Text controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":0,"max_chars":24}]}"#,
+        );
+        let (mut app, window) = personal_panel_app_with_fixture(false, &component);
+        let clipboard = Arc::new(Mutex::new("#7F00FF00".to_owned()));
+        let reader = clipboard.clone();
+        let writer = clipboard.clone();
+        app.insert_resource(client_shell::menu::MenuClipboard::with_access(
+            move |_| Some(reader.lock().unwrap().clone()),
+            move |text| *writer.lock().unwrap() = text,
+        ));
+        open_rendered_field(&mut app);
+        for (key_code, text) in [
+            (modifier, None),
+            (KeyCode::KeyC, Some("c")),
+            (KeyCode::KeyX, Some("x")),
+            (KeyCode::KeyV, Some("v")),
+            (KeyCode::KeyB, Some("b")),
+            (KeyCode::Digit1, Some("1")),
+        ] {
+            if key_code == KeyCode::KeyV {
+                *clipboard.lock().unwrap() = "#7F00FF00".to_owned();
+            }
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+                state: ButtonState::Pressed,
+                text: text.map(Into::into),
+                repeat: false,
+                window,
+            });
+            app.update();
+            if key_code == KeyCode::KeyC || key_code == KeyCode::KeyX {
+                assert_eq!(*clipboard.lock().unwrap(), "Main");
+            }
+        }
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
+        assert!(
+            presentation
+                .mod_ui_mut()
+                .mod_panel_key("Enter", None)
+                .is_empty()
+        );
+        assert_eq!(
+            presentation
+                .mod_ui_mut()
+                .take_mod_panel_text_events(PanelUiOwner::Environment(0)),
+            vec![ui::mod_panel::TextEvent {
+                id: "name".into(),
+                value: "#7F00FF00".into()
+            }]
+        );
+    }
+}
+
 /// Opens either a native HUD editor or a guest keyboard-capturing personal panel.
 fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
+    personal_panel_app_with_fixture(hud_editor, &fixture_with_capture(capture_key))
+}
+
+/// Creates an app whose personal panel comes from the supplied component fixture.
+fn personal_panel_app_with_fixture(hud_editor: bool, component: &str) -> (App, Entity) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("hud-editor.component.wat");
     let mut host = mod_host::ModHost::load_snapshot_with_grants(
         &path,
-        fixture_with_capture(capture_key).as_bytes(),
+        component.as_bytes(),
         mod_host::ModGrants {
             hud: true,
             controls: true,
@@ -189,6 +393,7 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
         },
     )
     .unwrap();
+    assert!(host.panel().is_some(), "fixture panel was not admitted");
     host.set_panel_open(true);
     let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let ui = UiRuntime::new(1);
@@ -236,6 +441,67 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
         .spawn((window, CursorOptions::default(), PrimaryWindow))
         .id();
     (app, entity)
+}
+
+/// A modifier binding and the native fallback both open and close the selected panel without repeat toggles.
+#[test]
+fn personal_panel_opens_with_right_shift_or_f10_without_text_input() {
+    for (key_code, logical_key) in [(KeyCode::ShiftRight, Key::Shift), (KeyCode::F10, Key::F10)] {
+        let (mut app, window) = personal_panel_app(false, false);
+        app.world_mut()
+            .resource_mut::<ModRuntime>()
+            .hosts
+            .host_mut(0)
+            .set_panel_open(false);
+        app.world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .mod_ui_mut()
+            .set_mod_panel_open(false);
+        let event = KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        };
+        app.world_mut().write_message(event.clone());
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ModRuntime>()
+                .hosts
+                .host(0)
+                .panel_open(),
+            "{key_code:?}"
+        );
+        app.world_mut().write_message(KeyboardInput {
+            repeat: true,
+            ..event.clone()
+        });
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ModRuntime>()
+                .hosts
+                .host(0)
+                .panel_open()
+        );
+        app.world_mut().write_message(KeyboardInput {
+            state: ButtonState::Released,
+            ..event.clone()
+        });
+        app.update();
+        app.world_mut().write_message(event);
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<ModRuntime>()
+                .hosts
+                .host(0)
+                .panel_open()
+        );
+    }
 }
 
 #[test]

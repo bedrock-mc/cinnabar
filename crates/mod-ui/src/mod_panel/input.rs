@@ -105,7 +105,9 @@ impl ModPanel {
                 .and_then(|action| action.strip_prefix("mod.edit:"))
                 .and_then(|index| index.parse::<usize>().ok())
             {
-                if !self.panel.capture_key {
+                if !self.panel.capture_key
+                    || matches!(self.panel.controls.get(index), Some(Control::Text { .. }))
+                {
                     let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
                     if let Some(rect) = rect {
                         self.open_editor(index, rect);
@@ -116,9 +118,14 @@ impl ModPanel {
             if let Some(index) = action
                 .and_then(|action| action.strip_prefix("mod.control:"))
                 .and_then(|index| index.parse::<usize>().ok())
-                && matches!(self.panel.controls.get(index), Some(Control::Choice { .. }))
+                && matches!(
+                    self.panel.controls.get(index),
+                    Some(Control::Choice { .. } | Control::Text { .. })
+                )
             {
-                if !self.panel.capture_key {
+                if !self.panel.capture_key
+                    || matches!(self.panel.controls.get(index), Some(Control::Text { .. }))
+                {
                     let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
                     if let Some(rect) = rect {
                         self.open_editor(index, rect);

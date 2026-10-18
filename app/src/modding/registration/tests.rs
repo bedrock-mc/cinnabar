@@ -300,12 +300,15 @@ fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
     let mut world = World::new();
     let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     let fov = camera.horizontal_fov_degrees();
+    let hurt_style = camera.hurt_camera_style();
     camera.set_view_scale(0.25, 0.25);
+    camera.set_hurt_camera_style(Some(render_api::HurtCameraStyle::new(2.0, true).unwrap()));
     world.insert_resource(camera);
     presentation::clear_presentation(&mut world);
     let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
     assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
     assert_eq!(camera.horizontal_fov_degrees(), fov);
+    assert_eq!(camera.hurt_camera_style(), hurt_style);
 }
 
 #[test]

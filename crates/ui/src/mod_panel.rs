@@ -4,10 +4,13 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+mod control;
+pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};
 mod surface;
 mod update;
 pub use surface::{
-    MAX_TRANSITION_SECONDS, Surface, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
+    CollectionArt, CollectionDefinition, CollectionItem, MAX_TRANSITION_SECONDS, Surface,
+    SurfaceCollection, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
 };
 pub use update::{
     MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
@@ -23,6 +26,8 @@ pub const MAX_PANEL_CHOICES: usize = 8;
 pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
+/// Opens the selected personal panel when its authored hotkey is unavailable on a keyboard.
+pub const FALLBACK_TOGGLE_KEY: &str = "F10";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,71 +96,11 @@ pub struct Section {
     pub controls: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Control {
-    Toggle {
-        id: String,
-        label: String,
-        value: bool,
-    },
-    Slider {
-        id: String,
-        label: String,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-    },
-    Button {
-        id: String,
-        label: String,
-    },
-    Keybind {
-        id: String,
-        label: String,
-        key: String,
-        #[serde(default)]
-        capturing: bool,
-    },
-    Choice {
-        id: String,
-        label: String,
-        index: u32,
-        options: Vec<String>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Event {
-    pub id: String,
-    pub value: f32,
-}
-
-impl Control {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Toggle { id, .. }
-            | Self::Slider { id, .. }
-            | Self::Button { id, .. }
-            | Self::Keybind { id, .. }
-            | Self::Choice { id, .. } => id,
-        }
-    }
-
-    pub fn label(&self) -> &str {
-        match self {
-            Self::Toggle { label, .. }
-            | Self::Slider { label, .. }
-            | Self::Button { label, .. }
-            | Self::Keybind { label, .. }
-            | Self::Choice { label, .. } => label,
-        }
-    }
-}
-
 impl Panel {
+    /// Accepts the authored binding or the native keyboard-independent fallback.
+    pub fn is_toggle_key(&self, key: &str) -> bool {
+        key == self.toggle_key || key == FALLBACK_TOGGLE_KEY
+    }
     /// Validates before retaining any guest-controlled text or input geometry.
     pub fn validate(&self) -> Result<(), String> {
         self.validate_inner(true)
@@ -219,7 +164,10 @@ impl Panel {
                     })
                 } else if let Some(index) = action.strip_prefix("mod.edit:") {
                     index.parse::<usize>().ok().is_some_and(|index| {
-                        matches!(self.controls.get(index), Some(Control::Slider { .. }))
+                        matches!(
+                            self.controls.get(index),
+                            Some(Control::Slider { .. } | Control::Text { .. })
+                        )
                     })
                 } else {
                     false
@@ -255,6 +203,12 @@ impl Panel {
             }
             text(control.label(), "control label")?;
             match control {
+                Control::Text {
+                    value,
+                    min_chars,
+                    max_chars,
+                    ..
+                } => validate_text_value(value, *min_chars, *max_chars)?,
                 Control::Keybind { key, .. } => {
                     if key.len() > MAX_PANEL_ID_BYTES || key.chars().any(char::is_control) {
                         return Err("panel keybind requires a bounded key label".into());

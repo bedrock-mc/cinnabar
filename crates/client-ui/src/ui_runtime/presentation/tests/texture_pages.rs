@@ -551,6 +551,7 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
+        counter: None,
     }]);
     let before = presentation.nametag_scene();
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
