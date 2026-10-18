@@ -2,6 +2,65 @@ use super::*;
 use protocol::{ContainerIdentity, InventorySlotEvent, NetworkItemStack, SlotIdentity};
 
 #[test]
+fn item_data_committed_preview_accepts_a_named_ordinary_ingredient() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    use sha2::{Digest, Sha256};
+    let mut recipe = RecipeFixture::shaped(
+        "test:item_data",
+        1,
+        1,
+        vec![IngredientFixture::named("minecraft:oak_log", 0)],
+        vec![OutputFixture::new(6, 1)],
+    );
+    recipe.net_id = 17;
+    let mut state = CraftingAuthority::new(1);
+    state.bootstrap(
+        Some(&named_registry("minecraft:oak_log", 64)),
+        InventoryAuthority::Server,
+    );
+    state.observe(
+        1,
+        1,
+        &InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(
+            CraftingDataFixture::clearing(vec![recipe]).update(),
+        )),
+    );
+    let mut input = NetworkItemStack {
+        network_id: 6,
+        count: 2,
+        stack_network_id: 101,
+        ..NetworkItemStack::empty()
+    };
+    input.extra_data = protocol::edit_item_extra(
+        &[0; 10],
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some("Craft ingredient".to_owned())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    input.nbt_digest = Sha256::digest(&input.extra_data).into();
+    state.observe(
+        1,
+        2,
+        &contextual_content([
+            input,
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+        ]),
+    );
+    state.synchronize(Some((1, 0, Some(2))));
+    state.advance();
+    assert!(matches!(
+        state.preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+}
+
+#[test]
 fn normal_transaction_commits_crafting_and_cursor_as_one_fifo_revision() {
     let mut state = CraftingAuthority::new(1);
     let update = |slot, id| InventorySlotEvent {

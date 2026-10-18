@@ -8,6 +8,7 @@ mod furnace_recipes;
 mod ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;
+mod item_permissions;
 mod manual_craft;
 mod matching;
 mod screen_recipes;

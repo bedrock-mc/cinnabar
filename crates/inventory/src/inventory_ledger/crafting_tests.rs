@@ -17,6 +17,7 @@ mod action_scopes;
 mod auto_allocation;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
+mod item_data;
 
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;
