@@ -2118,13 +2118,17 @@ not close a parity or visual acceptance gate.
   and HUD/crafting observers follow the admitted packet and backing state.
   Enchant selection leaves item mutation unpredicted until its complete result pipeline
   is implemented; it does not keep an unchanged input as a predicted result.
-- Manual crafting can fill a compatible occupied destination and selects fitting work
-  within a bounded result scope. Placement checks are shared by gesture builders.
+- Manual crafting fills compatible destinations through repeated bounded result scopes.
+  Each scope declares its per-craft output once. Explicit counts remain atomic when they
+  do not fit; craft-all stops at available destination space.
+- Secondary creative catalog clicks create one item with an empty cursor and destroy one
+  with a held selection. Typed item locks apply to ordinary player removal, storage and
+  station placement, drops, destruction and consumption.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
-- Incomplete: full crafting batches and remainders, enchanting prediction and availability,
-  creative secondary actions, mode-dependent removal, all station membership rules,
+- Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
+  effective ability and mode-dependent removal, all station membership rules,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.
