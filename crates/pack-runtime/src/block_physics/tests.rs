@@ -482,3 +482,79 @@ fn a_later_permutation_without_a_transform_inherits_the_earlier_turn() {
         )
     );
 }
+
+// Fence collision permutations resolve per connection state once the trait
+// supplies the four boolean axes: the isolated post keeps its base box while
+// a connected state takes the matching arm box.
+#[test]
+fn connection_states_select_per_state_collision() {
+    use protocol::{
+        CustomBlockVisuals, CustomPermutation, CustomPhysicalComponents, CustomStateAxis,
+        CustomStateValue, CustomVisualComponents,
+    };
+    let post = protocol::CustomBox {
+        min: [0.375, 0.0, 0.375],
+        max: [0.625, 1.5, 0.625],
+    };
+    let arm = |direction: &str, boxes: protocol::CustomBox| CustomPermutation {
+        physical: CustomPhysicalComponents {
+            collision: Some(protocol::CustomCollision {
+                enabled: true,
+                boxes: Some(Arc::from([boxes])),
+            }),
+            selection: Some(CustomSelection::Box(boxes)),
+            ..CustomPhysicalComponents::default()
+        },
+        condition: format!("q.block_state('minecraft:connection_{direction}')").into(),
+        components: CustomVisualComponents::default(),
+    };
+    let block = CustomBlock {
+        state_physics_complete: false,
+        state_physics: Default::default(),
+        player_interact: false,
+        name: "test:fence".into(),
+        tags: Default::default(),
+        state_count: 16,
+        collides: true,
+        collision_boxes: Some(Arc::from([post])),
+        selection: CustomSelection::Box(post),
+        friction: None,
+        visual: Arc::new(CustomBlockVisuals {
+            permutations: Box::new([
+                arm(
+                    "north",
+                    protocol::CustomBox {
+                        min: [0.375, 0.0, 0.0],
+                        max: [0.625, 1.5, 0.625],
+                    },
+                ),
+                arm(
+                    "south",
+                    protocol::CustomBox {
+                        min: [0.375, 0.0, 0.375],
+                        max: [0.625, 1.5, 1.0],
+                    },
+                ),
+            ]),
+            state_axes: ["north", "east", "south", "west"]
+                .map(|direction| CustomStateAxis {
+                    name: format!("minecraft:connection_{direction}").into(),
+                    values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+                })
+                .into(),
+            ..CustomBlockVisuals::default()
+        }),
+    };
+    // North varies fastest: state 1 connects north, state 4 connects south.
+    let (collides, collision, selection) = state_physics(&block, 0);
+    assert!(collides);
+    assert_eq!(collision.as_deref(), Some([post].as_slice()));
+    assert_eq!(selection, CustomSelection::Box(post));
+    let north = protocol::CustomBox {
+        min: [0.375, 0.0, 0.0],
+        max: [0.625, 1.5, 0.625],
+    };
+    let (_, collision, selection) = state_physics(&block, 1);
+    assert_eq!(collision.as_deref(), Some([north].as_slice()));
+    assert_eq!(selection, CustomSelection::Box(north));
+}
