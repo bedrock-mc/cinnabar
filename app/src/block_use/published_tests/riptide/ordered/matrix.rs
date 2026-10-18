@@ -21,6 +21,7 @@ enum Edge {
 
 #[derive(Clone, Copy, Debug)]
 enum Boundary {
+    DeferredPick,
     EarlyCapture,
     PostCamera,
     PendingTransport,
@@ -141,6 +142,7 @@ fn interaction(packet: &protocol::Packet) -> bool {
 #[test]
 fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
     for boundary in [
+        Boundary::DeferredPick,
         Boundary::EarlyCapture,
         Boundary::PostCamera,
         Boundary::PendingTransport,
@@ -328,7 +330,10 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                 );
             }
             if matches!(edge, Edge::ConsumedRelease)
-                && matches!(boundary, Boundary::EarlyCapture | Boundary::PostCamera)
+                && matches!(
+                    boundary,
+                    Boundary::DeferredPick | Boundary::EarlyCapture | Boundary::PostCamera
+                )
             {
                 assert!(
                     world
