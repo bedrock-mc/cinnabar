@@ -8432,6 +8432,10 @@ sneak/sprint flags and the standard unscaled walking pose height reach a due syn
 a server echo. Other models and poses retain their supplied sizes. Full correction-state,
 custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
 incomplete.
+Alternate locomotion now uses the same ground-contact rule as ordinary movement: a vertical
+collision grounds only a downward request; without that collision, prior ground survives only
+an exact zero vertical request. Tiny positive or negative requests clear it. Complete locomotion
+and packet-timing parity remain incomplete.
 
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
