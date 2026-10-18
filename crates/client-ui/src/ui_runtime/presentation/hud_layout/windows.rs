@@ -310,7 +310,11 @@ impl HudLayout<'_> {
             if let Some(icon) = frame.cursor_icon {
                 self.icon_gui(icon, [pointer[0] - 8.0, pointer[1] - 8.0])?;
             }
-            self.stack_decorations(stack, [pointer[0] - 8.0, pointer[1] - 8.0], None)?;
+            self.stack_decorations(
+                stack,
+                [pointer[0] - 8.0, pointer[1] - 8.0],
+                frame.cursor_durability,
+            )?;
         }
         Ok(())
     }

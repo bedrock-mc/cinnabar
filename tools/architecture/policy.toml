@@ -65,7 +65,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "web-client"
 path = "web/client"
-allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input"]
+allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "launcher"]
 forbidden_dependencies = ["cinnabar", "launcher-host", "bevy", "wgpu"]
 
 [[crates]]
@@ -430,7 +430,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api"]
+allowed_dependencies = ["mod-api", "test-alloc"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
@@ -576,7 +576,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["cosmetics", "assets", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -1346,6 +1346,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = []
 
 [[identifier_literal_exceptions]]
+path = "tools/devtool/src/web.rs"
+literal = "web"
+reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
+
+[[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
@@ -1980,3 +1985,8 @@ name = "cosmetics"
 path = "crates/cosmetics"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[identifier_literal_exceptions]]
+path = "app/src/runtime/network/item_icons/tints.rs"
+literal = "grass_carried"
+reason = "Terrain-atlas carried-grass colour source; this selects authored inventory tint metadata, not a block identity."

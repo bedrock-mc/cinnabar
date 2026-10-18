@@ -203,6 +203,10 @@ fn mod_card(
         face,
         |content| {
             let available = interactive && !library.busy;
+            let update = library.updates.iter().find(|update| update.id == item.id);
+            if let Some(update) = update {
+                caption(content, &format!("Update available · {}", update.version))?;
+            }
             let toggle = if active {
                 (
                     "Disable",
@@ -217,6 +221,13 @@ fn mod_card(
                 )
             };
             let mut buttons = vec![toggle];
+            if update.is_some() {
+                buttons.push((
+                    "View release",
+                    Variant::Secondary,
+                    available.then_some(command(Action::OpenUpdate(item.id))),
+                ));
+            }
             if active {
                 buttons.push((
                     "Reload",

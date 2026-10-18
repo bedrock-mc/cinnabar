@@ -18,12 +18,34 @@ pub(super) struct ResolvedMotion {
     pub support: Option<[i32; 3]>,
 }
 
+/// Resolves terrain clipping, or translates directly when collision is bypassed.
 pub(super) fn resolve_motion(
     world: &impl CollisionWorld,
     start: Aabb,
     velocity: Vec3,
     was_on_ground: bool,
+    no_clip: bool,
 ) -> Result<ResolvedMotion, WorldQueryError> {
+    if no_clip {
+        let aabb = start.translated(velocity);
+        return Ok(ResolvedMotion {
+            aabb,
+            resolved: velocity,
+            position: Vec3::new(
+                (aabb.min.x + aabb.max.x) * 0.5,
+                aabb.min.y,
+                (aabb.min.z + aabb.max.z) * 0.5,
+            )
+            .rounded(),
+            collisions: AxisCollisions::default(),
+            identity: WorldCollisionIdentity {
+                registry: world.registry_identity(),
+                chunks: Box::default(),
+            },
+            stepped: false,
+            support: None,
+        });
+    }
     let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
     let mut identity = colliders.identity;
     let (normal_box, normal) = resolve_axes_reverse(start, velocity, &colliders.value);

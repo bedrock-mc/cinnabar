@@ -4,7 +4,14 @@ use cosmetics::Item;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui_runtime::presentation) struct CosmeticArtwork {
     pub(super) item: Item,
-    pub(super) thumbnail: bool,
+    pub(super) kind: Kind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    EquippedTexture,
+    Thumbnail,
+    GalleryTexture,
 }
 
 /// Requests equipped textures and only the thumbnails exposed by the current gallery viewport.
@@ -18,7 +25,7 @@ pub(in crate::ui_runtime::presentation) fn requested(
         .take(cosmetics::SLOT_COUNT)
         .map(|&item| CosmeticArtwork {
             item,
-            thumbnail: false,
+            kind: Kind::EquippedTexture,
         })
         .collect();
     if gallery {
@@ -27,8 +34,18 @@ pub(in crate::ui_runtime::presentation) fn requested(
             if let Some(&item) = items.get(index) {
                 let source = CosmeticArtwork {
                     item,
-                    thumbnail: true,
+                    kind: Kind::Thumbnail,
                 };
+                let texture = CosmeticArtwork {
+                    item,
+                    kind: Kind::GalleryTexture,
+                };
+                if !result
+                    .iter()
+                    .any(|source| source.item == item && source.kind != Kind::Thumbnail)
+                {
+                    result.push(texture);
+                }
                 if !result.contains(&source) {
                     result.push(source);
                 }

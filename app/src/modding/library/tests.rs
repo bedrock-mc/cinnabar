@@ -463,7 +463,7 @@ fn removal_waits_for_pending_settings_before_deleting_files() {
     };
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Remove(id)).unwrap();
+    commands.send(Command::Action(Action::Remove(id))).unwrap();
     drop(commands);
     run(
         &mods,
@@ -597,8 +597,8 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     let directory = tempfile::tempdir().unwrap();
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Import).unwrap();
-    commands.send(Action::Import).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
     drop(commands);
     run(
         &directory.path().join("mods"),

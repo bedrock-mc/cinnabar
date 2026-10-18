@@ -167,7 +167,7 @@ fn keyboard_overlay_rows_show_readable_bindings_and_reset_controls() {
 }
 
 #[test]
-fn passive_clients_have_no_update_settings_actions() {
+fn passive_clients_keep_mod_checks_without_app_update_controls() {
     use launcher::menu::settings_options::{
         AUTO_UPDATE_OPTION, INSTALL_ON_QUIT_OPTION, UPDATE_CHANNEL_OPTION,
     };
@@ -203,7 +203,12 @@ fn passive_clients_have_no_update_settings_actions() {
             _ => false,
         }
     }));
-    assert!(!hits.is_empty());
+    for setting in [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate] {
+        assert!(hits.iter().any(|(action, _)| matches!(action,
+            MenuAction::SettingsOption(index, 0)
+                if usize::from(*index) == setting.index()
+        )));
+    }
 }
 
 /// General ends with an Advanced heading holding both diagnostics toggles, off by default,

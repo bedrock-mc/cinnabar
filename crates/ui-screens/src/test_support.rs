@@ -1,5 +1,7 @@
 //! Layout fixtures for tests that lay screens out without a carrier's fonts or atlas.
 
+pub mod hover_chat;
+
 /// Measures text at six px per character and nine px tall.
 pub struct FixedText;
 impl json_ui::TextMeasure for FixedText {

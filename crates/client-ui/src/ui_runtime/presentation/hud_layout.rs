@@ -64,6 +64,8 @@ pub struct HudFrame {
     pub durability: Durability,
     pub window_text: WindowText,
     pub cursor_icon: Option<IconRef>,
+    /// Remaining durability of the presented cursor stack, including server corrections.
+    pub cursor_durability: Option<f32>,
     pub armor_icons: [Option<IconRef>; 4],
     pub armor_durability: [Option<f32>; 4],
     pub offhand_icon: Option<IconRef>,

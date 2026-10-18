@@ -71,7 +71,7 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
     });
     let texture_view = texture.create_view(&Default::default());
     let sampler = gpu.device.create_sampler(&Default::default());
-    let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let source = source();
     let blend = wgpu::BlendState {
         color: wgpu::BlendComponent {
