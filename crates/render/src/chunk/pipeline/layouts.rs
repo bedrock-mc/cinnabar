@@ -459,7 +459,7 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 11,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,

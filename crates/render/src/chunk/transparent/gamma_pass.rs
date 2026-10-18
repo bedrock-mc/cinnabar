@@ -191,10 +191,14 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
 }
 
 /// Native transparent families output encoded colour and blend through the compatible UNORM view.
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 9] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
     let primitives = crate::primitive_shapes::draw_function(world);
+    let clouds = world
+        .get_resource::<render_scene::AtmosphereFrame>()
+        .filter(|frame| frame.java_world_visuals())
+        .and_then(|_| crate::cloud_render::draw_function(world));
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
         Some(draws.id::<DrawTransparentLiquidCommands>()),
@@ -205,6 +209,7 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
         draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
         nametags,
         primitives,
+        clouds,
     ]
 }
 

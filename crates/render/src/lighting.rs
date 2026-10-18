@@ -22,12 +22,15 @@ use bevy::{
 use render_model::{LightmapInputs, LightmapUniform};
 use render_scene::{WorldFullbright, WorldLighting};
 
+mod java_water;
+
 #[derive(Resource)]
 pub(crate) struct LightmapGpu {
     buffer: Buffer,
     pub(crate) bind_group: BindGroup,
     inputs: Option<LightmapInputs>,
     atmosphere: Buffer,
+    water: java_water::JavaWaterGpu,
 }
 
 /// Describes group one shared by every ordinary lit world pipeline.
@@ -47,12 +50,44 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 1,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: BufferSize::new(std::mem::size_of::<
                         render_scene::AtmosphereFrame,
+                    >() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: bevy::render::render_resource::TextureSampleType::Float {
+                        filterable: true,
+                    },
+                    view_dimension: bevy::render::render_resource::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(
+                    bevy::render::render_resource::SamplerBindingType::Filtering,
+                ),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<
+                        [[u32; 4]; assets::java_world::WATER_TEXTURE_PATHS.len()],
                     >() as u64),
                 },
                 count: None,
@@ -107,7 +142,11 @@ pub(crate) fn install(app: &mut App) {
 /// Rebuilds the small table only when an environment input changes.
 fn prepare(
     mut commands: Commands,
-    (input, fullbright): (Res<WorldLighting>, Res<WorldFullbright>),
+    (input, fullbright, java): (
+        Res<WorldLighting>,
+        Res<WorldFullbright>,
+        Option<Res<render_scene::JavaWorldVisuals>>,
+    ),
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -116,6 +155,7 @@ fn prepare(
 ) {
     let inputs = (!fullbright.0).then_some(input.0);
     if let Some(mut gpu) = gpu {
+        let water_changed = gpu.water.prepare(&device, &queue, java.as_deref());
         if gpu.inputs != inputs {
             queue.profiled_write_buffer(
                 &gpu.buffer,
@@ -124,11 +164,18 @@ fn prepare(
             );
             gpu.inputs = inputs;
         }
-        if let Some(atmosphere) = atmosphere.as_deref()
-            && gpu.atmosphere.id() != atmosphere.buffer.id()
-        {
-            gpu.atmosphere = atmosphere.buffer.clone();
-            gpu.bind_group = bind_group(&device, &cache, &gpu.buffer, &gpu.atmosphere);
+        let atmosphere_changed = atmosphere
+            .as_deref()
+            .is_some_and(|atmosphere| gpu.atmosphere.id() != atmosphere.buffer.id());
+        if atmosphere_changed {
+            gpu.atmosphere = atmosphere
+                .as_deref()
+                .expect("changed atmosphere")
+                .buffer
+                .clone();
+        }
+        if water_changed || atmosphere_changed {
+            gpu.bind_group = bind_group(&device, &cache, &gpu.buffer, &gpu.atmosphere, &gpu.water);
         }
         return;
     }
@@ -144,12 +191,15 @@ fn prepare(
             usage: BufferUsages::UNIFORM,
         })
     });
-    let bind_group = bind_group(&device, &cache, &buffer, &atmosphere);
+    let mut water = java_water::JavaWaterGpu::new(&device, &queue);
+    water.prepare(&device, &queue, java.as_deref());
+    let bind_group = bind_group(&device, &cache, &buffer, &atmosphere, &water);
     commands.insert_resource(LightmapGpu {
         buffer,
         bind_group,
         inputs,
         atmosphere,
+        water,
     });
 }
 
@@ -164,6 +214,7 @@ fn bind_group(
     cache: &PipelineCache,
     light: &Buffer,
     atmosphere: &Buffer,
+    water: &java_water::JavaWaterGpu,
 ) -> BindGroup {
     device.create_bind_group(
         "world lighting and fog",
@@ -176,6 +227,18 @@ fn bind_group(
             BindGroupEntry {
                 binding: 1,
                 resource: atmosphere.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: bevy::render::render_resource::BindingResource::TextureView(&water.view),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: bevy::render::render_resource::BindingResource::Sampler(&water.sampler),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: water.parameters.as_entire_binding(),
             },
         ],
     )

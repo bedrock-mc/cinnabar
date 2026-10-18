@@ -220,8 +220,8 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
-    let mut source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions)
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+    let mut source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions);
+    source = shader_source::bind_lighting(&source);
     if reference {
         let start = source
             .find("fn ordinary_world_model_gamma_colour(")
@@ -336,6 +336,17 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
 
 #[test]
 fn model_tint_pixels_match_fragment_biome_reference() {
+    let shaders = [&[][..], &["NATIVE_GAMMA_BLEND"][..]].map(|definitions| {
+        let reference = fixture_source(definitions, true);
+        let candidate = fixture_source(definitions, false);
+        for source in [&reference, &candidate] {
+            shader_source::assert_single_bind_group(
+                source,
+                &["raster_model_vertex", "fragment", "fragment_blend"],
+            );
+        }
+        (definitions, reference, candidate)
+    });
     let Some(gpu) = Gpu::for_fixture("model tint raster") else {
         return;
     };
@@ -387,7 +398,7 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     );
     let templates = gpu.words(&template_words(), storage);
     let geometry = gpu.words(&geometry_words(), storage);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[16..19].copy_from_slice(&[0.24, 0.31, 0.47]);
     atmosphere[19] = 4.0;
     atmosphere[20] = 180.0;
@@ -397,6 +408,12 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     ));
     let atlas = atlas(&gpu);
     let sampler = gpu.device.create_sampler(&Default::default());
+    let water_info = gpu.water_info();
+    let lighting = gpu_snapshot::WorldLighting::new(&gpu, &lightmap, Some(&atmosphere)).with_water(
+        &atlas,
+        &sampler,
+        &water_info,
+    );
     let bindings = [
         (0, view.as_entire_binding()),
         (2, origins.as_entire_binding()),
@@ -438,12 +455,13 @@ fn model_tint_pixels_match_fragment_biome_reference() {
             crate::material_shader::BIOME_QUERY_TABLES_BINDING,
             query_tables.as_entire_binding(),
         ),
-        (27, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
-    for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
-        let reference = fixture_source(definitions, true);
-        let candidate = fixture_source(definitions, false);
+    let bindings = bindings
+        .into_iter()
+        .chain(lighting.flat_bindings())
+        .collect::<Vec<_>>();
+    for (definitions, reference, candidate) in shaders {
         for clock_words in [[1, 0.25_f32.to_bits(), 0, 0], [2, 0, 0, 0]] {
             gpu.queue
                 .write_buffer(&clock, 0, bytemuck::cast_slice(&clock_words));

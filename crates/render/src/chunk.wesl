@@ -1,10 +1,11 @@
+import render::lighting::WorldAtmosphere;
 import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, sample_ao, sample_emits, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour, distance_fog_weight};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -32,16 +33,7 @@ struct AnimationClockGpu {
     padding_1: u32,
 }
 
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>,
-    moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>,
-    sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>,
-    fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>,
-    sky_extra: vec4<f32>,
-}
+alias AtmosphereUniform = WorldAtmosphere;
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
@@ -366,8 +358,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.biome_record = u32(chunk_origin.value.w);
     out.next_texture = animation_sample.next_texture;
     out.world_position = world_position;
-    let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
-    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let ao = material_ambient_occlusion(light_ao_factor(sample_ao(light_sample)), material.flags);
+    let dimming = material_face_shade(out.normal, sample_emits(light_sample), material.flags);
     out.lighting = light_colour(light_sample) * ao * dimming;
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
@@ -379,7 +371,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
-    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.native_ao_face = select(material_leaf_shade(ao * dimming, material.flags), ao * dimming, atmosphere.java_fog.x > 0.0);
     @if(!ENHANCED)
     out.uniform_tint_gamma = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
@@ -555,13 +547,8 @@ fn sample_material_texture_ref(
 }
 
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
-    let distance_to_camera = distance(world_position, view.world_position);
-    return clamp(
-        (distance_to_camera - atmosphere.fog_color_start.w)
-            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
-        0.0,
-        1.0,
-    );
+    return distance_fog_weight(world_position - view.world_position,
+        atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, atmosphere.java_fog);
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {

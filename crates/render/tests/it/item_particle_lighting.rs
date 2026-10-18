@@ -35,7 +35,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
         &gpu_snapshot::view(bevy::math::Mat4::IDENTITY, bevy::math::Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

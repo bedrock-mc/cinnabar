@@ -6,8 +6,6 @@ use {assets::NetworkIdMode, gpu_snapshot::Draw, gpu_snapshot::Gpu};
 
 use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source};
 
-const LIGHTMAP_BINDING: u32 = material_shader::BIOME_QUERY_TABLES_BINDING + 1;
-
 /// Reads the active registry and a requested original-art capture carrier.
 pub(crate) fn fixture(
     variable: &str,
@@ -251,7 +249,7 @@ pub(crate) fn render_at(
         &render_model::LightmapInputs::default().build(),
     ));
     let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);
@@ -278,7 +276,6 @@ pub(crate) fn render_at(
             material_shader::BIOME_QUERY_TABLES_BINDING,
             query.as_entire_binding(),
         ),
-        (LIGHTMAP_BINDING, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource })
     .to_vec();
@@ -288,6 +285,8 @@ pub(crate) fn render_at(
             resource: wgpu::BindingResource::TextureView(&atlas),
         }),
     );
+    let lighting = crate::gpu_snapshot::WorldLighting::new(gpu, &lightmap, Some(&atmosphere));
+    bindings.extend(lighting.flat_bindings());
     let mut cube_bindings = bindings
         .iter()
         .filter(|entry| entry.binding != 12 && entry.binding != 13)
@@ -305,10 +304,10 @@ pub(crate) fn render_at(
     ]);
     let source = format!(
         "{}\n{}",
-        shader_source::standalone(include_str!("../../../src/model.wesl"), &[]).replace(
-            "@group(1) @binding(0)",
-            &format!("@group(0) @binding({LIGHTMAP_BINDING})")
-        ),
+        shader_source::bind_lighting(&shader_source::standalone(
+            include_str!("../../../src/model.wesl"),
+            &[]
+        )),
         VERTEX.replace(
             "INDICES",
             &chunk_constants::STATIC_QUAD_INDICES
@@ -318,10 +317,10 @@ pub(crate) fn render_at(
     );
     let cube_source = format!(
         "{}\n{}",
-        shader_source::standalone(include_str!("../../../src/chunk.wesl"), &[]).replace(
-            "@group(1) @binding(0)",
-            &format!("@group(0) @binding({LIGHTMAP_BINDING})")
-        ),
+        shader_source::bind_lighting(&shader_source::standalone(
+            include_str!("../../../src/chunk.wesl"),
+            &[]
+        )),
         CUBE_VERTEX.replace(
             "INDICES",
             &chunk_constants::STATIC_QUAD_INDICES

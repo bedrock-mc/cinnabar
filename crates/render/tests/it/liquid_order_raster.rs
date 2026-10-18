@@ -67,13 +67,18 @@ fn render(
     let sampler = gpu.device.create_sampler(&Default::default());
     let frame = render_scene::AtmosphereFrame::default();
     let atmosphere = gpu.buffer(
-        bytemuck::cast_slice(std::slice::from_ref(&frame)),
+        &crate::gpu_snapshot::atmosphere_words(&frame),
         wgpu::BufferUsages::UNIFORM,
     );
     let table = render_model::LightmapInputs::default()
         .build()
         .map(|_| [1.0_f32; 4]);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
+    let clock = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
+    let water_info = gpu.water_info();
+    let lighting_resources = gpu_snapshot::WorldLighting::new(gpu, &lightmap, Some(&atmosphere))
+        .with_water(&atlas, &sampler, &water_info);
+    let lighting = lighting_resources.bindings().collect::<Vec<_>>();
     let eye = Vec3::new(2.0, 3.0, -4.0);
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         std::f32::consts::FRAC_PI_3,
@@ -149,8 +154,8 @@ fn render(
             resource: wgpu::BindingResource::TextureView(&atlas),
         },
         wgpu::BindGroupEntry {
-            binding: 27,
-            resource: lightmap.as_entire_binding(),
+            binding: 11,
+            resource: clock.as_entire_binding(),
         },
         wgpu::BindGroupEntry {
             binding: 28,
@@ -158,7 +163,7 @@ fn render(
         },
     ];
     let quads = records.len() as u32;
-    gpu.render_with_state(
+    gpu.render_with_bind_groups(
         source,
         "order_witness",
         &[Draw {
@@ -177,6 +182,7 @@ fn render(
             write_mask: wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE,
             ..Default::default()
         },
+        &[&lighting],
     )
 }
 
@@ -195,7 +201,6 @@ fn witness_source() -> String {
             &["NATIVE_GAMMA_BLEND"]
         )
     )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
 }
 
 /// The water chunk's metadata index, which its records name.

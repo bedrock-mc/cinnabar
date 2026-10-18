@@ -187,11 +187,12 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct AtmospherePreferences<'w> {
     #[cfg(not(target_arch = "wasm32"))]
-    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    menu: Option<ResMut<'w, client_shell::menu::MenuRuntime>>,
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
+    java: Option<ResMut<'w, render_scene::JavaWorldVisuals>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -212,10 +213,14 @@ pub(crate) fn update_atmosphere_frame(
     outputs: AtmosphereOutputs,
     settings: Res<client_state::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
-    mut renderer_clock: Local<super::renderer_clock::RendererClock>,
+    renderer_state: (
+        Local<super::renderer_clock::RendererClock>,
+        Local<Option<render_model::java_world::JavaVisualState>>,
+    ),
     preferences: AtmospherePreferences,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
+    let (mut renderer_clock, mut java_state) = renderer_state;
     let vision = vision
         .1
         .as_deref()
@@ -227,15 +232,22 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
+    let mut java = preferences.java;
     #[cfg(not(target_arch = "wasm32"))]
-    let options = preferences
-        .menu
-        .as_ref()
-        .map(|menu| menu.settings_snapshot().0);
+    let options = preferences.menu.map(|mut menu| {
+        menu.sync_java_world_visuals_available(java.as_ref().is_some_and(|java| java.available()));
+        menu.settings_snapshot().0
+    });
     #[cfg(target_arch = "wasm32")]
     let options = Some(std::sync::Arc::clone(&preferences.options.0));
     let clouds = preferences.clouds;
     let skybox = preferences.skybox;
+    if let Some(java) = java.as_mut() {
+        java.set_enabled(options.as_ref().map_or_else(
+            || settings.user_settings_update().1.video.java_world_visuals,
+            |options| options.value(SettingId::JavaWorldVisuals) != 0,
+        ));
+    }
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
@@ -330,7 +342,84 @@ pub(crate) fn update_atmosphere_frame(
         ),
         ..Default::default()
     };
+    let java_assets = java.as_ref().and_then(|java| java.assets());
+    let java_state = active_java_state(&mut java_state, java_assets.is_some());
+    if let Some((java, java_state)) = java_assets.zip(java_state) {
+        let identifier = context.camera_biome_identifier.as_deref();
+        let environment = java.environment(
+            context.dimension,
+            identifier,
+            visual_world_time(clock, elapsed),
+        );
+        let now_tick = boss_bars
+            .estimated_server_tick(u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
+        let fire_resistance = boss_bars.gameplay_hud().effects().iter().any(|effect| {
+            assets::effect_descriptor(effect.effect_id)
+                .is_some_and(|descriptor| descriptor.identifier == "minecraft:fire_resistance")
+                && effect.visible_at_tick(now_tick)
+        });
+        let requested_distance = f32::from(
+            settings
+                .user_settings_update()
+                .1
+                .video
+                .render_distance_chunks,
+        ) * 16.0;
+        let confirmed_distance = frame.cloud_fade_distance();
+        let camera = render_model::java_world::JavaCameraInputs {
+            render_distance: if confirmed_distance > 0.0 {
+                requested_distance.min(confirmed_distance)
+            } else {
+                requested_distance
+            },
+            forward: view_inputs.forward,
+            rain: shown.rain_level,
+            thunder: shown.lightning_level,
+            water: medium.0 == CameraMedium::Water,
+            lava: medium.0 == CameraMedium::Lava,
+            spectator: context.spectator,
+            fire_resistance,
+            brightness: lighting.0.brightness,
+            night_vision: vision.night_vision,
+            blindness: vision.blindness,
+            fog_darkness: vision.darkness,
+            darkness: vision.darkness * darkness_scale,
+            darkness_pulse: lighting.0.darkness_pulse,
+            sky_exposure: context
+                .camera_sky_light
+                .map_or(1.0, |sky| ((f32::from(sky) - 8.0) / 7.0).clamp(0.0, 1.0)),
+            precipitation: identifier
+                .and_then(|identifier| java.biomes.get(identifier))
+                .is_none_or(|biome| biome.precipitation),
+        };
+        let visual = java_state.evaluate(
+            clock.session_generation(),
+            renderer_ticks,
+            environment,
+            camera,
+        );
+        lighting.0.java = Some(visual.lightmap);
+        *frame = frame.with_java_world(
+            visual,
+            renderer_ticks,
+            java.atmosphere_texture(assets::AtmosphereRole::Clouds)
+                .width,
+        );
+    }
     *route = next_route;
+}
+
+/// Starts adaptation when the preset is active and discards state while it is disabled.
+fn active_java_state(
+    state: &mut Option<render_model::java_world::JavaVisualState>,
+    enabled: bool,
+) -> Option<&mut render_model::java_world::JavaVisualState> {
+    if enabled {
+        Some(state.get_or_insert_default())
+    } else {
+        *state = None;
+        None
+    }
 }
 
 /// Explicit environment requests retained by active boss bars.
@@ -374,6 +463,64 @@ pub(crate) fn apply_boss_environment(
     match medium {
         CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
         CameraMedium::Water | CameraMedium::Lava => frame,
+    }
+}
+
+#[cfg(test)]
+mod java_state_tests {
+    use super::active_java_state;
+    use assets::java_world::JavaEnvironment;
+    use render_model::java_world::JavaCameraInputs;
+
+    #[test]
+    fn disabled_preset_time_cannot_become_underwater_adaptation() {
+        let environment = JavaEnvironment::default();
+        let mut camera = JavaCameraInputs {
+            render_distance: 256.0,
+            forward: [0.0, 0.0, 1.0],
+            rain: 0.0,
+            thunder: 0.0,
+            water: false,
+            lava: false,
+            spectator: false,
+            fire_resistance: false,
+            brightness: 0.0,
+            night_vision: 0.0,
+            blindness: 0.0,
+            fog_darkness: 0.0,
+            darkness: 0.0,
+            darkness_pulse: 0.0,
+            sky_exposure: 1.0,
+            precipitation: true,
+        };
+        let mut state = None;
+        active_java_state(&mut state, true)
+            .unwrap()
+            .evaluate(1, 0.0, environment, camera);
+        assert!(active_java_state(&mut state, false).is_none());
+
+        camera.water = true;
+        let resumed =
+            active_java_state(&mut state, true)
+                .unwrap()
+                .evaluate(1, 600.0, environment, camera);
+        assert_eq!(resumed.water_vision, 0.0);
+        let adapting =
+            active_java_state(&mut state, true)
+                .unwrap()
+                .evaluate(1, 601.0, environment, camera);
+        assert!((adapting.water_vision - 0.006).abs() < 1.0e-6);
+        let adapted =
+            active_java_state(&mut state, true)
+                .unwrap()
+                .evaluate(1, 1200.0, environment, camera);
+        assert!((adapted.water_vision - 1.0).abs() < f32::EPSILON);
+        assert!(active_java_state(&mut state, false).is_none());
+        let restarted =
+            active_java_state(&mut state, true)
+                .unwrap()
+                .evaluate(1, 1200.0, environment, camera);
+        assert_eq!(restarted.water_vision, 0.0);
     }
 }
 

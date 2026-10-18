@@ -446,6 +446,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
+    let java_world = crate::environment::java_world::load(
+        &loaded_assets.selected_path,
+        &atmosphere_runtime,
+        &loaded_assets.runtime,
+    );
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
@@ -735,6 +740,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ),
     )
     .insert_resource(atmosphere_assets)
+    .insert_resource(java_world)
     .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
     .insert_resource(authored_texture_loading)

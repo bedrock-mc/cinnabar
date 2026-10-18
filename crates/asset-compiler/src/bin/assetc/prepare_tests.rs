@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 use assets::carriers::{
@@ -9,7 +10,7 @@ use assets::carriers::{
     WEATHER, WORLD,
 };
 
-use super::{Command, Queue, Reporter, command, execute, take_ready};
+use super::{Command, Queue, Reporter, command, execute, record, take_ready};
 use crate::prepare_plan::{
     Context, Entry, Plan, Scope, Stamp, kit_files, plan, read_stamp, write_stamp,
 };
@@ -202,6 +203,70 @@ fn a_failed_optional_carrier_waits_for_new_inputs() {
     fs::remove_file(out.join(WEATHER.output)).unwrap();
     assert!(stale(dir.path(), COMPILER).is_empty());
     assert!(stale(dir.path(), "compiler-b").contains(&WEATHER.name));
+}
+
+#[test]
+fn explicit_preparation_retries_optional_failures_until_success() {
+    let dir = checkout();
+    build_all(dir.path());
+    let context = context(dir.path());
+    for carrier in CARRIERS.iter().filter(|carrier| !carrier.required) {
+        let only = [carrier.name.to_owned()];
+        let initial = plan_for(dir.path(), COMPILER, &only);
+        assert!(initial.stale.is_empty());
+        let stamp = Mutex::new(read_stamp(&context.out));
+        let failure = Err("temporary resource failure".to_owned());
+        for _ in 0..2 {
+            record(&context, &stamp, &initial, carrier, &failure).unwrap();
+            assert!(carrier.outputs(&context.out).all(|path| !path.exists()));
+            assert!(stale(dir.path(), COMPILER).is_empty());
+            let retry = plan_for(dir.path(), COMPILER, &only);
+            assert_eq!(retry.fingerprints, initial.fingerprints);
+            assert_eq!(
+                retry
+                    .stale
+                    .iter()
+                    .map(|carrier| carrier.name)
+                    .collect::<Vec<_>>(),
+                [carrier.name],
+                "explicit preparation must retry {} after a failure",
+                carrier.name,
+            );
+        }
+        for path in carrier.outputs(&context.out) {
+            fs::write(path, b"recovered carrier").unwrap();
+        }
+        record(&context, &stamp, &initial, carrier, &Ok(())).unwrap();
+        assert!(!read_stamp(&context.out).carriers[carrier.name].failed);
+        assert!(plan_for(dir.path(), COMPILER, &only).stale.is_empty());
+        assert!(stale(dir.path(), COMPILER).is_empty());
+    }
+}
+
+#[test]
+fn explicit_preparation_retries_a_failed_optional_dependency() {
+    let dir = checkout();
+    build_all(dir.path());
+    let context = context(dir.path());
+    let initial = plan_for(dir.path(), COMPILER, &[AUDIO.name.to_owned()]);
+    let stamp = Mutex::new(read_stamp(&context.out));
+    record(
+        &context,
+        &stamp,
+        &initial,
+        &AUDIO,
+        &Err("temporary resource failure".to_owned()),
+    )
+    .unwrap();
+    let retry = plan_for(dir.path(), COMPILER, &[AUDIO_PCM.name.to_owned()]);
+    assert_eq!(
+        retry
+            .stale
+            .iter()
+            .map(|carrier| carrier.name)
+            .collect::<Vec<_>>(),
+        [AUDIO.name]
+    );
 }
 
 #[test]

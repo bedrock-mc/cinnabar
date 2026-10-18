@@ -186,22 +186,24 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
 #[test]
 fn world_bindings_are_visible_to_the_stages_that_use_them() {
     let layout = opaque_chunk_bind_group_layout();
+    let lighting = crate::lighting::layout();
     for source in [
         include_str!("../../chunk.wesl"),
         include_str!("../../model.wesl"),
         include_str!("../../liquid.wesl"),
     ] {
-        crate::shader_test_support::assert_binding_visibility(
-            &crate::shader_source::standalone(source, &[]),
-            0,
-            &layout,
-        );
+        let source = crate::shader_source::standalone(source, &[]);
+        crate::shader_test_support::assert_binding_visibility(&source, 0, &layout);
+        crate::shader_test_support::assert_binding_visibility(&source, 1, &lighting);
     }
+    let transparent =
+        crate::shader_source::composed(include_str!("../../transparent_terrain.wesl"), &[]);
     crate::shader_test_support::assert_binding_visibility(
-        &crate::shader_source::composed(include_str!("../../transparent_terrain.wesl"), &[]),
+        &transparent,
         0,
         &chunk_bind_group_layout(),
     );
+    crate::shader_test_support::assert_binding_visibility(&transparent, 1, &lighting);
 }
 
 /// Whether `function` or anything it calls can discard.

@@ -25,10 +25,13 @@ struct Fixture {
     group: wgpu::BindGroup,
     layout: wgpu::BindGroupLayout,
     indices: wgpu::Buffer,
+    lighting: wgpu::BindGroup,
+    lighting_layout: wgpu::BindGroupLayout,
 }
 
 impl Fixture {
-    fn new(gpu: &Gpu) -> Self {
+    /// Builds water and model records, with distinct still and flowing Java textures.
+    fn new(gpu: &Gpu, java: bool) -> Self {
         let storage = wgpu::BufferUsages::STORAGE;
         let uniform = wgpu::BufferUsages::UNIFORM;
         // Liquid records, then model draw refs, model refs and lighting records.
@@ -41,7 +44,14 @@ impl Fixture {
         // Material 0 textures water, material 1 the models; neither animates.
         let materials = gpu.words(
             &[
-                [0, 0, assets::NO_ANIMATION, 0, 0, 0],
+                [
+                    0,
+                    assets::MATERIAL_FLAG_WATER_TINT,
+                    assets::NO_ANIMATION,
+                    0,
+                    0,
+                    0,
+                ],
                 [
                     0,
                     assets::MATERIAL_FLAG_ISOTROPIC,
@@ -64,7 +74,7 @@ impl Fixture {
                     [255; 4],
                     0,
                     0,
-                    [0, 0],
+                    [quad as i8, 0],
                     false,
                 )
                 .unwrap()
@@ -137,8 +147,17 @@ impl Fixture {
         let animations = gpu.words(&[0; 8], storage);
         let frames = gpu.words(&[0; 4], storage);
         let clock = gpu.words(&[0; 4], uniform);
-        let frame = render_scene::AtmosphereFrame::default();
-        let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
+        let mut frame = render_scene::AtmosphereFrame::default();
+        let values: &mut [f32] = bytemuck::cast_slice_mut(std::slice::from_mut(&mut frame));
+        values[36] = f32::from(u8::from(java));
+        values[37] = 1000.0;
+        values[38] = 2000.0;
+        assert_eq!(
+            frame.java_world_visuals(),
+            java,
+            "the fixture must select the requested world style"
+        );
+        let atmosphere = gpu.buffer(&crate::gpu_snapshot::atmosphere_words(&frame), uniform);
         let lightmap = gpu.lightmap(bytemuck::cast_slice(
             &render_model::LightmapInputs::default().build(),
         ));
@@ -151,6 +170,15 @@ impl Fixture {
         let view = gpu.buffer(&gpu_snapshot::view(clip_from_world, eye), uniform);
         let atlas = solid_terrain_raster::pattern_texture(gpu);
         let sampler = gpu.device.create_sampler(&Default::default());
+        let water_atlas = gpu.colour_texture_array(&[[32, 192, 224, 255], [224, 96, 32, 255]]);
+        let water_info = gpu.words(
+            &assets::java_world::WATER_TEXTURE_PATHS
+                .iter()
+                .enumerate()
+                .flat_map(|(index, _)| [index as u32, 1, 1, 1])
+                .collect::<Vec<_>>(),
+            uniform,
+        );
 
         let buffer = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
@@ -212,7 +240,6 @@ impl Fixture {
                         material_shader::BIOME_QUERY_TABLES_BINDING,
                         wgpu::BufferBindingType::Uniform,
                     ),
-                    buffer(27, wgpu::BufferBindingType::Uniform),
                 ],
             });
         let entries = [
@@ -262,7 +289,6 @@ impl Fixture {
                 material_shader::BIOME_QUERY_TABLES_BINDING,
                 query_tables.as_entire_binding(),
             ),
-            (27, lightmap.as_entire_binding()),
         ]
         .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
         let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -270,9 +296,23 @@ impl Fixture {
             layout: &layout,
             entries: &entries,
         });
+        let lighting_resources = gpu_snapshot::WorldLighting::new(
+            gpu,
+            &lightmap,
+            Some(&atmosphere),
+        )
+        .with_water(&water_atlas, &sampler, &water_info);
+        let lighting_layout = lighting_resources.layout(gpu);
+        let lighting = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &lighting_layout,
+            entries: &lighting_resources.bindings().collect::<Vec<_>>(),
+        });
         Self {
             group,
             layout,
+            lighting,
+            lighting_layout,
             indices: gpu.words(
                 &chunk_constants::STATIC_QUAD_INDICES,
                 wgpu::BufferUsages::INDEX,
@@ -298,7 +338,7 @@ impl Fixture {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[Some(&self.layout)],
+                bind_group_layouts: &[Some(&self.layout), Some(&self.lighting_layout)],
                 immediate_size: 0,
             });
         gpu.device
@@ -407,6 +447,7 @@ impl Fixture {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.group, &[]);
+            pass.set_bind_group(1, &self.lighting, &[]);
             pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
             for &quad in quads {
                 let (pipeline, base_vertex, first_instance) = select(quad);
@@ -460,6 +501,16 @@ fn mismatches(a: &[u8], b: &[u8]) -> usize {
 
 #[test]
 fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines() {
+    assert_shared_transparent(false);
+}
+
+#[test]
+fn shared_transparent_pipeline_preserves_java_still_and_flowing_water() {
+    assert_shared_transparent(true);
+}
+
+/// Compares mixed sorted and direct draws with the two independent material pipelines.
+fn assert_shared_transparent(java: bool) {
     // Both programs' storage buffers together exceed the default per-stage limit, which the
     // renderer raises to the shared layout's count.
     let Some(gpu) = Gpu::for_fixture_with_limits(
@@ -472,23 +523,18 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
     ) else {
         return;
     };
-    let fixture = Fixture::new(&gpu);
-    let lightmap =
-        |source: String| source.replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+    let fixture = Fixture::new(&gpu, java);
     let defs = ["NATIVE_GAMMA_BLEND"];
     // Each family's own program, as its dedicated pipeline ran it before the merge.
-    let liquid = lightmap(format!(
+    let liquid = format!(
         "{}\n{LIQUID_REFERENCE}",
         shader_source::standalone(include_str!("../../src/liquid.wesl"), &defs)
-    ));
-    let model = lightmap(format!(
+    );
+    let model = format!(
         "{}\n{MODEL_REFERENCE}",
         shader_source::standalone(include_str!("../../src/model.wesl"), &defs)
-    ));
-    let shared = lightmap(shader_source::composed(
-        include_str!("../../src/transparent_terrain.wesl"),
-        &defs,
-    ));
+    );
+    let shared = shader_source::composed(include_str!("../../src/transparent_terrain.wesl"), &defs);
     let liquid = fixture.pipeline(
         &gpu,
         &liquid,
@@ -530,9 +576,10 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
         Quad::Model(index) => (&shared, 0, MODEL_INSTANCE_BASE + index),
     });
     let models_only = fixture.render(&gpu, &order[..1], |_| (&model, 0, MODEL_INSTANCE_BASE));
-    gpu_snapshot::save("transparent_terrain_expected", &expected);
-    gpu_snapshot::save("transparent_terrain_actual", &actual);
-    gpu_snapshot::save("transparent_terrain_direct", &direct);
+    let style = if java { "java" } else { "native" };
+    gpu_snapshot::save(&format!("transparent_terrain_{style}_expected"), &expected);
+    gpu_snapshot::save(&format!("transparent_terrain_{style}_actual"), &actual);
+    gpu_snapshot::save(&format!("transparent_terrain_{style}_direct"), &direct);
     let background = &expected[..4];
     assert!(
         expected

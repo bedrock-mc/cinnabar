@@ -25,6 +25,8 @@ impl LightmapUniform {
 /// Inputs to the classic light texture builder, before material color conversion.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightmapInputs {
+    /// Present only for the optional Java world preset.
+    pub java: Option<crate::java_world::JavaLightmapInputs>,
     pub ramp: [f32; 16],
     pub sky_darken: f32,
     pub sunrise: [f32; 4],
@@ -40,6 +42,7 @@ pub struct LightmapInputs {
 impl Default for LightmapInputs {
     fn default() -> Self {
         Self {
+            java: None,
             // The ordinary zero-ambient light ramp follows this curve.
             // This curve matches its table apart from a few f32 ULPs.
             ramp: std::array::from_fn(|level| level as f32 / (60 - 3 * level) as f32),
@@ -59,6 +62,9 @@ impl Default for LightmapInputs {
 impl LightmapInputs {
     /// Builds all sky/block pairs once for every ordinary world material.
     pub fn build(self) -> [[f32; 4]; 256] {
+        if let Some(java) = self.java {
+            return java.build();
+        }
         std::array::from_fn(|index| {
             let rgb = self.colour(self.ramp[index & 15], self.ramp[index >> 4]);
             [rgb[0], rgb[1], rgb[2], 1.0]

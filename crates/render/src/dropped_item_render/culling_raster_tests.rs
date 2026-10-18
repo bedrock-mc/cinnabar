@@ -77,7 +77,7 @@ fn raster(gpu: &Gpu, model: &DroppedItemModel, eye: Vec3, samples: u32, cull: bo
     );
     let light = gpu.lightmap(&[1.0; 256 * 4]);
     // Keep the nearby witness outside the distance-fog interval so its colour proves visibility.
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[19] = 1000.0;
     atmosphere[20] = 1001.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

@@ -1,5 +1,5 @@
 
-import render::lighting::lit_colour;
+import render::lighting::{lit_colour, terrain_light_levels};
 
 import render::enhanced::common::{
     EnhancedFrame, CLASS_EMISSION_MASK, CLASS_LEAVES, CLASS_PLANT, FEATURE_SHADOWS,
@@ -268,6 +268,6 @@ fn shade_water(
 
 // Raw sky exposure gates direct sun/moon light; the lightmap already applies time and brightness.
 fn sky_illumination(sample: u32) -> f32 {
-    let value = f32((sample >> 4u) & 15u) / 15.0;
+    let value = terrain_light_levels(sample).y / 15.0;
     return value / (4.0 - 3.0 * value);
 }

@@ -53,7 +53,7 @@ fn frame(fog_rgb: [f32; 3]) -> AtmosphereFrame {
 
 fn frame_buffer(gpu: &Gpu, frame: &AtmosphereFrame) -> wgpu::Buffer {
     gpu.buffer(
-        bytemuck::cast_slice(bytemuck::bytes_of(frame)),
+        &crate::gpu_snapshot::atmosphere_words(frame),
         wgpu::BufferUsages::UNIFORM,
     )
 }

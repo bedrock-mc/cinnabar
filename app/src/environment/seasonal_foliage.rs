@@ -1,6 +1,6 @@
 //! Shared native weather tick samples feed both atmosphere and seasonal foliage.
 
-use bevy::prelude::{Res, ResMut, Resource};
+use bevy::prelude::{Local, Res, ResMut, Resource};
 use render_scene::ChunkBiomeTints;
 
 use crate::runtime::world::ClientWorld;
@@ -24,10 +24,16 @@ pub(crate) fn update_seasonal_foliage(
     ticks: Res<WeatherTickFrame>,
     mut client_world: ResMut<ClientWorld>,
     mut active: ResMut<ChunkBiomeTints>,
+    java: Option<Res<render_scene::JavaWorldVisuals>>,
+    mut java_tints: Local<super::java_world_tints::JavaTintState>,
 ) {
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
+    let java_enabled = java.as_ref().is_some_and(|java| java.enabled());
+    if stream.java_world_lighting() != java_enabled {
+        stream.set_java_world_lighting(java_enabled, web_time::Instant::now());
+    }
     if ticks.dimension != stream.current_dimension() {
         return;
     }
@@ -39,6 +45,13 @@ pub(crate) fn update_seasonal_foliage(
         let resolved = stream.resolved_biome_tints_snapshot();
         *active =
             ChunkBiomeTints::from_resolved_with_identity(&resolved, stream.biome_tint_identity());
+    }
+    if let Some(java) = java {
+        java_tints.update(
+            &java,
+            stream.authority().resolved_biome_tints(),
+            &mut active,
+        );
     }
 }
 

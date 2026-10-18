@@ -37,10 +37,11 @@ pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
     DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
-    MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
-    SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    JAVA_WORLD_VISUALS_DESCRIPTION, JAVA_WORLD_VISUALS_OPTION, MAX_FIXED_FRAME_RATE,
+    MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
+    NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition,
+    SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES,
+    VRR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -48,6 +49,11 @@ pub use keybindings::{
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
+
+/// Standalone settings models have no resource host; startup publishes actual availability.
+fn java_visual_resources_assumed_available() -> bool {
+    true
+}
 
 /// Persisted toggle shared by the new UI's sizing and settings controls.
 pub const EXTRA_LARGE_UI: &str = SettingId::GuiAccessibilityScaling.name();
@@ -82,6 +88,8 @@ pub struct SettingsOptions {
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
     render_distance_defaults: ui::RenderDistanceDefaults,
+    #[serde(skip, default = "java_visual_resources_assumed_available")]
+    java_world_visuals_available: bool,
     keys: BTreeMap<String, u16>,
     /// Layout labels observed this session, independent of persisted bindings.
     #[serde(skip)]
@@ -102,6 +110,7 @@ impl Default for SettingsOptions {
             graphics_api_revision: 0,
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
+            java_world_visuals_available: true,
             keys: BTreeMap::new(),
             key_labels: BTreeMap::new(),
             language: None,
@@ -113,6 +122,16 @@ impl Default for SettingsOptions {
 }
 
 impl SettingsOptions {
+    /// Shares optional-resource availability without changing any persisted preference.
+    pub fn set_java_world_visuals_available(&mut self, available: bool) {
+        self.java_world_visuals_available = available;
+    }
+
+    /// Keeps unavailable optional visual resources out of interactive setting actions.
+    pub fn option_enabled(&self, id: SettingId) -> bool {
+        id != SettingId::JavaWorldVisuals || self.java_world_visuals_available
+    }
+
     /// Captures an option's stored choice without resolving runtime defaults or device limits.
     pub fn option_preference(&self, index: usize) -> Option<OptionPreference> {
         let option = SETTINGS_OPTIONS.get(index)?;

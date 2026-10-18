@@ -2,10 +2,16 @@ use super::*;
 
 /// Reports distinct own and outward light and counts all work needed for a flat face.
 struct FlatInputs {
+    java: bool,
     samples: Cell<usize>,
 }
 
 impl LightingInputs for FlatInputs {
+    /// Selects the optional style while the test keeps smooth lighting disabled.
+    fn java_world_lighting(&self) -> bool {
+        self.java
+    }
+
     fn smooth_lighting(&self) -> bool {
         false
     }
@@ -33,8 +39,9 @@ fn flat_lighting_samples_once_without_ao_and_preserves_emission() {
                     position[axis] = if normal[axis] < 0 { 0 } else { 256 };
                 }
             }
-            for emitting in [false, true] {
+            for (java, emitting) in [(false, false), (false, true), (true, false), (true, true)] {
                 let inputs = FlatInputs {
+                    java,
                     samples: Cell::new(0),
                 };
                 let actual = bake_quad_with(&inputs, [0; 3], face, positions, true, emitting);
@@ -61,6 +68,7 @@ fn flat_positive_faces_beyond_unit_bounds_keep_the_own_cell_light() {
             position[axis] = 288;
         }
         let inputs = FlatInputs {
+            java: true,
             samples: Cell::new(0),
         };
         let actual = bake_quad_with(&inputs, [0; 3], face, positions, true, false);

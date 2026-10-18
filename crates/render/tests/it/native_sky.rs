@@ -38,7 +38,10 @@ fn native_sky_fan_interpolates_center_edges_and_below_horizon_on_the_gpu() {
         &gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
     );
-    let frame = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let frame = gpu.buffer(
+        &crate::gpu_snapshot::atmosphere(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let pixels = gpu.render(
         &shader,
         "fan_probe_vertex",
@@ -121,7 +124,7 @@ fn native_celestial_size_basis_rain_alpha_and_star_colour_on_the_gpu() {
         &gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0_f32; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[11] = 0.25;
     atmosphere[28] = 0.5;
     let frame = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -196,7 +199,7 @@ fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
             ((v + 0.055) / 1.055).powf(2.4)
         }
     };
-    let mut values = [0.0_f32; 32];
+    let mut values = crate::gpu_snapshot::atmosphere();
     for (offset, gamma) in [(8, [0.1, 0.3, 0.8]), (12, [0.7, 0.5, 0.2])] {
         for (channel, v) in gamma.into_iter().enumerate() {
             values[offset + channel] = linear(v);
@@ -268,7 +271,7 @@ fn orbital_phase_visibility_and_star_brightness_survive_the_srgb_target() {
         (254.99, 0, 255),
         (255.01, 255, 255),
     ] {
-        let mut values = [0.0_f32; 32];
+        let mut values = crate::gpu_snapshot::atmosphere();
         values[28] = 0.5;
         values[29] = degrees / 360.0;
         let frame = gpu.buffer(&values, wgpu::BufferUsages::UNIFORM);

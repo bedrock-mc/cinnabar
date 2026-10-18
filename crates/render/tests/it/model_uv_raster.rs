@@ -165,12 +165,18 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
             crate::material_shader::BIOME_QUERY_TABLES_BINDING,
             query_tables.as_entire_binding(),
         ),
-        (20, lightmap.as_entire_binding()),
         (21, expected.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
-    let source = shader_source::standalone(include_str!("../../src/model.wesl"), &[])
-        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+    let lighting = crate::gpu_snapshot::WorldLighting::new(&gpu, &lightmap, None);
+    let bindings = bindings
+        .into_iter()
+        .chain(lighting.flat_bindings())
+        .collect::<Vec<_>>();
+    let source = shader_source::bind_lighting(&shader_source::standalone(
+        include_str!("../../src/model.wesl"),
+        &[],
+    ));
     let witness = WITNESS.replace(
         "INDICES",
         &chunk_constants::STATIC_QUAD_INDICES

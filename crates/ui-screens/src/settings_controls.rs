@@ -32,7 +32,10 @@ pub(super) fn bind_values(
             continue;
         }
         let value = options.get(index);
-        data.set_global(format!("#{}_enabled", option.name), Scalar::Bool(true));
+        data.set_global(
+            format!("#{}_enabled", option.name),
+            Scalar::Bool(options.option_enabled(option.id)),
+        );
         match option.kind {
             SettingKind::Host => continue,
             SettingKind::Toggle => {

@@ -67,6 +67,11 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 /// Bedrock animation is the default; Java 1.7 stays selectable.
 pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definition();
 
+/// Optional world presentation, independent of player animations and graphics quality.
+pub const JAVA_WORLD_VISUALS_OPTION: SettingDefinition = SettingId::JavaWorldVisuals.definition();
+pub const JAVA_WORLD_VISUALS_DESCRIPTION: &str =
+    "Use Java-style lighting, sky, fog, foliage and water. Player animations are set separately.";
+
 /// Native placement is enabled; disabling it centers the authored cube.
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
@@ -353,7 +358,7 @@ settings! {
     GlintSpeed => "glint_speed", slider("options.glintSpeed", 0, 100, 100),
         [(SettingPanel::AccessibilityGameplay, 8)], [SettingsGroup::Accessibility], None, None;
     RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
-        [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
     Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
@@ -398,6 +403,8 @@ settings! {
         [(SettingPanel::VideoAccessibility, 4)], [SettingsGroup::Video], None, None;
     Animations => "animations", dropdown("Animations", ANIMATION_CHOICES, 1),
         [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;
+    JavaWorldVisuals => "java_world_visuals", toggle("Java world visuals", false),
+        [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     CameraShake => "camera_shake", toggle("options.screenShake", true),
         [(SettingPanel::AccessibilityGameplay, 1), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
@@ -559,7 +566,7 @@ settings! {
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [], [], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
-        [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),

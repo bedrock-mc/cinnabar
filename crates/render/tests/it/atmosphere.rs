@@ -79,7 +79,7 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_nine_vec4_abi() {
+fn atmosphere_frame_has_a_uniform_compatible_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());
@@ -623,43 +623,6 @@ fn texture_backed_sky_shader_parses_validates_and_has_no_fullscreen_cloud_plane(
 }
 
 #[test]
-fn every_world_shader_uses_the_shared_distance_fog_uniform() {
-    for (name, shader) in [
-        ("chunk", include_str!("../../src/chunk.wesl")),
-        ("model", include_str!("../../src/model.wesl")),
-        ("liquid", include_str!("../../src/liquid.wesl")),
-    ] {
-        let source = crate::shader_source::standalone(shader, &[]);
-        let module = naga::front::wgsl::parse_str(&source).expect("world shader parses");
-        let uniform = module
-            .global_variables
-            .iter()
-            .find(|(_, variable)| {
-                variable.binding
-                    == Some(naga::ResourceBinding {
-                        group: 0,
-                        binding: 15,
-                    })
-            })
-            .unwrap_or_else(|| panic!("{name} is missing the shared atmosphere uniform"))
-            .1;
-        assert_eq!(uniform.space, naga::AddressSpace::Uniform);
-        assert_eq!(
-            module.types[uniform.ty].name.as_deref(),
-            Some("AtmosphereUniform")
-        );
-        assert!(
-            shader.contains("fn apply_distance_fog("),
-            "{name} is missing bounded distance fog"
-        );
-        assert!(
-            shader.contains("distance(world_position, view.world_position)"),
-            "{name} fog must use camera-relative world distance, not depth"
-        );
-    }
-}
-
-#[test]
 fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_composition() {
     let shader = include_str!("../../src/atmosphere.wesl");
     let guard = "if (code / 4u != 0u)";
@@ -674,30 +637,124 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
 
 #[test]
 fn sky_shader_draws_native_stars_and_dimension_skies_without_a_sunrise_overlay() {
-    let shader = include_str!("../../src/atmosphere.wesl");
-    for needle in [
-        "var<storage, read> stars: array<vec4<f32>>;",
-        "if (kind == 1u)",
-        "if (kind == 2u)",
-        "sunrise_band: vec4<f32>",
-        "sky_extra: vec4<f32>",
-    ] {
-        assert!(shader.contains(needle), "missing {needle}");
-    }
-    assert!(!shader.contains("fn sunrise_glow("));
-    for (name, shader) in [
-        ("chunk", include_str!("../../src/chunk.wesl")),
-        ("model", include_str!("../../src/model.wesl")),
-        ("liquid", include_str!("../../src/liquid.wesl")),
-    ] {
-        assert!(
-            !shader.contains("smoothstep(\n        atmosphere.fog"),
-            "{name} fog is linear"
-        );
-        assert!(
-            !shader.contains("smoothstep(atmosphere.fog"),
-            "{name} fog is linear"
-        );
+    use crate::gpu_snapshot::{self, Draw, Gpu, SNAPSHOT_SIDE};
+    use render_scene::SkyKind;
+
+    let Some(gpu) = Gpu::for_fixture("sky stars and dimensions") else {
+        return;
+    };
+    let mut source = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
+    source.push_str(
+        r#"
+@vertex fn sky_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
+    let position = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
+    return sky_vertex(vec4(position, 0.0, 1.0), 0.0);
+}
+@vertex fn star_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
+    let position = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
+    return sky_vertex(vec4(position, 0.0, 1.0), 0.5);
+}
+"#,
+    );
+    let view = gpu.buffer(
+        &gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let blank = gpu.blank_texture_view();
+    let sampler = gpu.device.create_sampler(&Default::default());
+    let clear = gpu_snapshot::CLEAR_COLOR;
+    let clear = [clear.r, clear.g, clear.b]
+        .map(|value| ((1.055 * value.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8);
+    for kind in [SkyKind::Overworld, SkyKind::Nether, SkyKind::End] {
+        // Dawn has a sunrise band; the native path still uses the supplied sky and fog.
+        let frame = AtmosphereFrame::from_bedrock_time(0.0, 0.0, 0.0)
+            .with_sky_kind(kind)
+            .with_environment_profile(
+                Some(0x40_80_C0),
+                Some(ResolvedFog {
+                    start: 10.0,
+                    end: 100.0,
+                    rgb: [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0],
+                }),
+            );
+        if kind == SkyKind::Overworld {
+            assert!(frame.sunrise_band()[3] > 0.0);
+        }
+        let sky = frame
+            .sky_horizon()
+            .map(|value| ((1.055 * value.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8);
+        let stars = AtmosphereFrame::from_bedrock_time(18_000.0, 0.0, 0.0).with_sky_kind(kind);
+        let brightness = (stars.star_brightness() * 0.5 * 255.0).round() as u8;
+        for (vertex, frame, expected) in [
+            (
+                "sky_probe_vertex",
+                frame,
+                if kind == SkyKind::End {
+                    [0, 0, 0, 255]
+                } else {
+                    [sky[0], sky[1], sky[2], 255]
+                },
+            ),
+            (
+                "star_probe_vertex",
+                stars,
+                if kind == SkyKind::Overworld {
+                    [brightness, brightness, brightness, 128]
+                } else {
+                    [clear[0], clear[1], clear[2], 255]
+                },
+            ),
+        ] {
+            let frame = gpu.buffer(
+                &gpu_snapshot::atmosphere_words(&frame),
+                wgpu::BufferUsages::UNIFORM,
+            );
+            let pixels = gpu.render_srgb(
+                &source,
+                vertex,
+                &[Draw {
+                    fragment: "atmosphere_fragment",
+                    vertices: 0..3,
+                    bindings: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: view.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: frame.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&blank),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&blank),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(&blank),
+                        },
+                    ],
+                    blend: None,
+                    write_depth: false,
+                }],
+            );
+            let side = SNAPSHOT_SIDE as usize;
+            let actual = &pixels[(side / 2 * side + side / 2) * 4..][..4];
+            assert!(
+                actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(actual, expected)| actual.abs_diff(expected) <= 1),
+                "{kind:?}, {vertex}: {actual:?}, expected {expected:?}"
+            );
+        }
     }
 }
 

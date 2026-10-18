@@ -14,7 +14,15 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
         for hdr in [false, true] {
             let id = pipeline
                 .variants
-                .specialize(&cache, CloudPipelineKey { msaa, hdr })
+                .specialize(
+                    &cache,
+                    CloudPipelineKey {
+                        msaa,
+                        hdr,
+                        java: false,
+                        encoded: false,
+                    },
+                )
                 .unwrap();
             let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
             assert_eq!(descriptor.multisample.count, msaa.samples());

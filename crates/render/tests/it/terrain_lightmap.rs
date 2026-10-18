@@ -39,6 +39,31 @@ fn native_sample(table: &[[f32; 4]], levels: [f32; 2]) -> [f32; 3] {
 
 #[test]
 fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
+    let shaders = [
+        (
+            "model",
+            include_str!("../../src/model.wesl"),
+            MODEL_VERTEX,
+            &["fragment", "fragment_blend"][..],
+        ),
+        (
+            "cube",
+            include_str!("../../src/chunk.wesl"),
+            CUBE_VERTEX,
+            &["fragment"][..],
+        ),
+    ]
+    .map(|(kind, shader, vertex, fragments)| {
+        let source = format!(
+            "{}\n{VERTEX}\n{vertex}",
+            shader_source::standalone(shader, &[])
+        )
+        .replace("WITNESS_BINDING", &WITNESS_BINDING.to_string());
+        let source = shader_source::bind_lighting(&source);
+        shader_source::assert_single_bind_group(&source, &["terrain_witness_vertex"]);
+        shader_source::assert_single_bind_group(&source, fragments);
+        (kind, source, fragments)
+    });
     let Some(gpu) = Gpu::for_fixture("terrain light coordinate witness") else {
         return;
     };
@@ -81,7 +106,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
         &meshing::biome_lattice::query_table_words(),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let mut table = render_model::LightmapInputs::default().build();
@@ -100,29 +125,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
     }
     let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
     let mut failures = Vec::new();
-    for (kind, shader, fragments) in [
-        (
-            "model",
-            include_str!("../../src/model.wesl"),
-            &["fragment", "fragment_blend"][..],
-        ),
-        (
-            "cube",
-            include_str!("../../src/chunk.wesl"),
-            &["fragment"][..],
-        ),
-    ] {
-        let vertex = if kind == "model" {
-            MODEL_VERTEX
-        } else {
-            CUBE_VERTEX
-        };
-        let source = format!(
-            "{}\n{VERTEX}\n{vertex}",
-            shader_source::standalone(shader, &[])
-        )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
-        .replace("WITNESS_BINDING", &WITNESS_BINDING.to_string());
+    for (kind, source, fragments) in shaders {
         for (lower, upper) in [
             ([0.0, 13.0], [0.0, 15.0]),
             ([0.0, 0.0], [15.0, 15.0]),
@@ -134,6 +137,9 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                 &[lower[0], lower[1], 0.0, 0.0, upper[0], upper[1], 0.0, 0.0],
                 wgpu::BufferUsages::STORAGE,
             );
+            let water_info = gpu.water_info();
+            let lighting = gpu_snapshot::WorldLighting::new(&gpu, &lightmap, Some(&atmosphere))
+                .with_water(&atlas, &sampler, &water_info);
             let mut bindings = vec![
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -171,11 +177,8 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     binding: WITNESS_BINDING,
                     resource: case.as_entire_binding(),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 27,
-                    resource: lightmap.as_entire_binding(),
-                },
             ];
+            bindings.extend(lighting.flat_bindings());
             if kind == "model" {
                 bindings.push(wgpu::BindGroupEntry {
                     binding: material_shader::NATIVE_LEAF_SAMPLER_BINDING,

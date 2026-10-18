@@ -1,8 +1,7 @@
 use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::math::Vec3;
 use meshing::{
-    CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,
-    CloudFace,
+    CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace,
     cloud_viewport::{CloudViewport, ViewportCloudQuad, mesh_cloud_viewport},
 };
 
@@ -45,39 +44,16 @@ fn draw(
         &super::gpu_snapshot::view(matrix, eye),
         wgpu::BufferUsages::UNIFORM,
     );
-    let frame = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let frame = gpu.buffer(
+        &crate::gpu_snapshot::atmosphere(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let colour = gpu.buffer(
-        &[
-            1.0,
-            1.0,
-            1.0,
-            render_scene::CLOUD_ALPHA,
-            CLOUD_CELL_BLOCKS,
-            CLOUD_UNDERSIDE_Y,
-            CLOUD_TOP_Y,
-            CLOUD_WORLD_PERIOD,
-        ],
+        &crate::gpu_snapshot::cloud_uniform(),
         wgpu::BufferUsages::UNIFORM,
     );
     let geometry = gpu.buffer(bytemuck::cast_slice(records), wgpu::BufferUsages::STORAGE);
-    let bindings = [
-        wgpu::BindGroupEntry {
-            binding: 0,
-            resource: view.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 1,
-            resource: frame.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 2,
-            resource: geometry.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 3,
-            resource: colour.as_entire_binding(),
-        },
-    ];
+    let bindings = crate::gpu_snapshot::cloud_bindings(&view, &frame, &geometry, &colour);
     let vertices = 0..u32::try_from(records.len())
         .unwrap()
         .checked_mul(6)

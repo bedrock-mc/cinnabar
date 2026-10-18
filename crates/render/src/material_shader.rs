@@ -108,6 +108,10 @@ fn stem_colours_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("JAVA_WATER_KINDS", &assets::java_world::WATER_TEXTURE_PATHS.len().to_string())
+        .replace("JAVA_PACKED_LIGHT_FLAG", &format!("{}u", meshing::lighting::JAVA_SAMPLE_FLAG))
+        .replace("JAVA_WATER_TINT_MASK", &format!("{}u", assets::MATERIAL_FLAG_TINT_MASK))
+        .replace("JAVA_WATER_TINT_FLAG", &format!("{}u", assets::MATERIAL_FLAG_WATER_TINT))
         .replace("TERRAIN_UNIT_QUADS", &format!("{}u", render_model::terrain_units::QUADS_PER_UNIT))
         .replace("TERRAIN_UNITS_PER_INSTANCE", &format!("{}u", render_model::terrain_units::UNITS_PER_INSTANCE))
         .replace("FAR_TERRAIN_TILE_CELLS", &format!("{}u", far_terrain::config::TILE_CELLS))

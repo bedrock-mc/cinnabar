@@ -43,7 +43,7 @@ fn raster(gpu: &Gpu, colors: &[[f32; 4]]) -> Vec<u8> {
     );
     let vertices = gpu.buffer(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[19] = 999.0;
     atmosphere[20] = 1000.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

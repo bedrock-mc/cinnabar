@@ -240,7 +240,7 @@ impl Fixture {
     fn new(name: &str) -> Option<Self> {
         let gpu = Gpu::for_fixture(name)?;
         let storage = wgpu::BufferUsages::STORAGE;
-        let mut atmosphere = [0.0; 32];
+        let mut atmosphere = crate::gpu_snapshot::atmosphere();
         atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
         atmosphere[19] = 1.0e6;
         atmosphere[20] = 2.0e6;
@@ -254,8 +254,8 @@ impl Fixture {
                     .map(|index| format!("{index}u"))
                     .join(", "),
             ),
-        )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+        );
+        let source = shader_source::bind_lighting(&source);
         Some(Self {
             materials: gpu.words(&[0, 0, u32::MAX, 0, 0, 0], storage),
             animations: gpu.words(&[0; 8], storage),
@@ -290,6 +290,10 @@ impl Fixture {
             &gpu_snapshot::view(view.clip_from_world, view.eye),
             wgpu::BufferUsages::UNIFORM,
         );
+        let water_info = self.gpu.water_info();
+        let lighting =
+            gpu_snapshot::WorldLighting::new(&self.gpu, &self.lightmap, Some(&self.atmosphere))
+                .with_water(&self.atlas, &self.sampler, &water_info);
         let bindings = [
             (0, uniform.as_entire_binding()),
             (1, streams.quads.as_entire_binding()),
@@ -307,7 +311,6 @@ impl Fixture {
             (11, self.clock.as_entire_binding()),
             (13, streams.geometry.as_entire_binding()),
             (15, self.atmosphere.as_entire_binding()),
-            (27, self.lightmap.as_entire_binding()),
             (
                 material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                 wgpu::BindingResource::TextureView(&self.atlas),
@@ -334,6 +337,10 @@ impl Fixture {
             ),
         ]
         .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+        let bindings = bindings
+            .into_iter()
+            .chain(lighting.flat_bindings())
+            .collect::<Vec<_>>();
         let draw = Draw {
             fragment,
             vertices: 0..streams.quad_count * 6,

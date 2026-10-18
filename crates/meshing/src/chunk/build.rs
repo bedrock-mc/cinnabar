@@ -76,6 +76,8 @@ pub struct MeshOptions {
     /// Keeps every biome-tinted cube face one block wide. Set when the sub-chunk's biome
     /// record is mixed, so the renderer can blend its tint once per face instead of per pixel.
     pub split_tinted_faces: bool,
+    /// Uses the optional terrain corner calculation and self-identifying packed samples.
+    pub java_world_lighting: bool,
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -164,7 +166,8 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         light_sampler,
         &block_bits,
         options.rendering.smooth_lighting,
-    );
+    )
+    .with_java_world_lighting(options.java_world_lighting);
     let neighbour_facts: [OnceCell<PaletteFacts<'_>>; Face::ALL.len()] =
         std::array::from_fn(|_| OnceCell::new());
     let palette_context = PaletteResolutionContext {

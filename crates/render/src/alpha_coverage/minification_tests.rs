@@ -62,7 +62,10 @@ fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
         wgpu::BufferUsages::UNIFORM,
     );
     let light = gpu.lightmap(&[1.0; 256 * 4]);
-    let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let atmosphere = gpu.buffer(
+        &crate::gpu_snapshot::atmosphere(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let environment = gpu.buffer(&[1.0_f32, 0.0, 0.0, 1.0], wgpu::BufferUsages::UNIFORM);
     let glint = gpu
         .device

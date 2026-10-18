@@ -9,6 +9,7 @@ assets/fonts/CinnanglesSans.ttf
 assets/fonts/CinnanglesSeven.ttf
 assets/fonts/CinnanglesTen.ttf
 assets/hud-source-v2193.json
+assets/java-world-source.json
 assets/oreui-icons-source.json
 assets/oreui-icons/action/arrow-left-0.5x.icon.png
 assets/oreui-icons/action/checkmark-0.5x.icon.png

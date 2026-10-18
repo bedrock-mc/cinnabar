@@ -32,6 +32,7 @@ struct VertexOutput {
     @location(12) water_tint: vec4<f32>,
     // Centroid sampling stays separate from the liquid's ordinary UV interpolation.
     @location(13) @interpolate(perspective, centroid) model_uv: vec2<f32>,
+    @location(14) @interpolate(flat) java_water: u32,
 }
 
 @vertex
@@ -63,6 +64,7 @@ fn vertex(
         out.native_light_ao = vec3(liquid.native_light_levels, 0.0);
         out.liquid_uv = liquid.uv;
         out.water_tint = liquid.water_tint;
+        out.java_water = liquid.java_water;
         out.routing.z = liquid.depth_write_route;
         out.frame_face.y = liquid.native_face_shade;
         return out;
@@ -104,6 +106,7 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     liquid.next_texture = in.textures.y;
     liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
+    liquid.java_water = in.java_water;
     liquid.lighting = in.lighting;
     @if(ENHANCED)
     liquid.sky_light = in.sky_ao.x;

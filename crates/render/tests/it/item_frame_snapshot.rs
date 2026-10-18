@@ -218,7 +218,10 @@ fn render_face(
     let texture = texture.create_view(&Default::default());
     let sampler = gpu.device.create_sampler(&Default::default());
     let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
-    let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let atmosphere = gpu.buffer(
+        &crate::gpu_snapshot::atmosphere(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let bindings = [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -252,7 +255,7 @@ fn render_face(
             Draw {
                 fragment: "block_entity_overlay",
                 vertices: textured_end..vertices.len() as u32,
-                bindings: &bindings[..5],
+                bindings: &bindings,
                 blend: None,
                 write_depth: true,
             },

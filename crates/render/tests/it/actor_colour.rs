@@ -568,7 +568,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
         wgpu::BufferUsages::UNIFORM,
     );
     let fog = [0.5, 0.6, 0.7];
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[16..19].copy_from_slice(&fog.map(linear));
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

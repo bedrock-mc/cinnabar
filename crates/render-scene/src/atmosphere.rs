@@ -12,6 +12,7 @@ use meshing::cloud_viewport::CLOUD_FADE_START;
 
 use crate::AtmosphereViewInputs;
 
+mod java_world;
 #[path = "atmosphere/liquid_distance.rs"]
 mod liquid_distance;
 
@@ -221,7 +222,7 @@ pub fn cloud_distance_fade(distance: f32, fade_distance: f32) -> f32 {
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
 ///
-/// The nine `vec4`-shaped records are also the complete GPU uniform. Keeping the
+/// The fixed-size records are also the complete GPU uniform. Keeping the
 /// CPU and GPU contracts identical avoids per-frame allocation or conversion.
 #[repr(C)]
 #[derive(
@@ -249,9 +250,15 @@ pub struct AtmosphereFrame {
     sky_extra: Vec4,
     /// Ordinary liquid alpha's distance control in x; remaining channels are reserved.
     liquid_distance: Vec4,
+    /// Java enable flag, spherical fog start/end, then sky fog end.
+    java_fog: Vec4,
+    /// Star angle in turns, cloud height, cloud fog end, then reserved.
+    java_sky: Vec4,
+    /// Authored Java cloud RGBA in gamma space.
+    java_cloud: Vec4,
 }
 
-const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 144);
+const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 192);
 
 impl Default for AtmosphereFrame {
     fn default() -> Self {
@@ -325,6 +332,9 @@ impl AtmosphereFrame {
                 0.0,
                 0.0,
             ),
+            java_fog: Vec4::ZERO,
+            java_sky: Vec4::ZERO,
+            java_cloud: Vec4::ZERO,
         }
     }
 
@@ -533,6 +543,9 @@ impl AtmosphereFrame {
     /// The cloud caller uses the same narrow camera glare, in gamma space.
     #[must_use]
     pub fn cloud_colour_for_view(self, view: AtmosphereViewInputs) -> [f32; 4] {
+        if self.java_world_visuals() {
+            return self.java_cloud.to_array();
+        }
         let mut colour = cloud_colour(
             self.celestial_angle(),
             self.rain_level(),

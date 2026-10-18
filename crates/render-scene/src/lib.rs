@@ -107,6 +107,8 @@ pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
 pub use lighting::{WorldFullbright, WorldLighting};
+mod java_world;
+pub use java_world::JavaWorldVisuals;
 pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,

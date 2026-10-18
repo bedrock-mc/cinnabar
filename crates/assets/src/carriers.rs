@@ -11,6 +11,7 @@ pub const COMPILED_DIR: &str = ".local/assets/compiled";
 pub const STAMP_FILE: &str = "prepared.json";
 
 pub const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
+pub const JAVA_WORLD_MANIFEST: &str = "assets/java-world-source.json";
 pub const FONT_MANIFEST: &str = "assets/cinnangles-sans-source.json";
 pub const FONT_TEN_MANIFEST: &str = "assets/cinnangles-ten-source.json";
 pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
@@ -41,6 +42,7 @@ pub enum Recipe {
     BlockPhysics,
     ItemFacts,
     Atmosphere,
+    JavaWorld,
     Entity,
     EntityFacts,
     Font,
@@ -513,12 +515,26 @@ pub const AUDIO_PCM: Carrier = Carrier {
     )
 };
 
+/// Optional Java resources are fetched and prepared separately from the Bedrock pack.
+pub const JAVA_WORLD: Carrier = Carrier {
+    inputs: &[Input::Manifest(JAVA_WORLD_MANIFEST)],
+    ..carrier(
+        "java-world",
+        "Preparing Java world visuals",
+        Recipe::JavaWorld,
+        crate::java_world::CARRIER_FILENAME,
+        None,
+        false,
+    )
+};
+
 /// Every carrier, in the order progress reports them.
 pub const CARRIERS: &[Carrier] = &[
     ITEM_FACTS,
     BLOCK_PHYSICS,
     WORLD,
     ATMOSPHERE,
+    JAVA_WORLD,
     ENTITY,
     ENTITY_FACTS,
     FONT,

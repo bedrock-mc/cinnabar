@@ -134,9 +134,8 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         .replace(
             "HAND_FIXTURE_LAYER",
             &format!("{}u", item_flag | cutout_flag),
-        )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
-        .replace("@group(1) @binding(1)", "@group(0) @binding(28)");
+        );
+    let source = crate::shader_source::bind_lighting(&source);
     let source = if back {
         source.replace("edge_corner(index)", "edge_corner(5u - index)")
     } else {
@@ -152,7 +151,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let bounded_sampler = gpu
         .device
         .create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -181,7 +180,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         resource: wgpu::BindingResource::TextureView(&view),
     };
     let entries = if held {
-        let mut entries = Vec::from(
+        Vec::from(
             HandFragmentBindings {
                 instances: &instances,
                 skins: &view,
@@ -194,9 +193,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
                 glint_sampler: &sampler,
             }
             .entries(),
-        );
-        entries.push(buffer_entry(27, &lightmap));
-        entries
+        )
     } else {
         vec![
             buffer_entry(0, &camera),
@@ -214,9 +211,13 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
                 binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
                 resource: wgpu::BindingResource::Sampler(&bounded_sampler),
             },
-            buffer_entry(27, &lightmap),
         ]
     };
+    let lighting = crate::gpu_snapshot::WorldLighting::new(gpu, &lightmap, Some(&atmosphere));
+    let entries = entries
+        .into_iter()
+        .chain(lighting.flat_bindings())
+        .collect::<Vec<_>>();
     gpu.render_with_samples(
         &source,
         "edge_vertex",

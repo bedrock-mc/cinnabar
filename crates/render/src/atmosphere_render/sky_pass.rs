@@ -71,6 +71,14 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
         hdr: camera.hdr,
         stars: false,
         skybox: false,
+        java: world
+            .resource::<render_scene::AtmosphereFrame>()
+            .java_world_visuals(),
+        encoded: scene.is_some()
+            && !camera.hdr
+            && world
+                .resource::<render_scene::AtmosphereFrame>()
+                .java_world_visuals(),
     };
     let Some(stock) = gpu
         .pipelines
@@ -81,7 +89,7 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
     };
     let colour = scene.map_or_else(
         || target.get_color_attachment(),
-        |scene| scene.color_attachment(target, false),
+        |scene| scene.color_attachment(target, key.encoded),
     );
     let extent = crate::render_bounds::extent(colour.view);
     let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
@@ -121,7 +129,15 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
         {
             pass.set_render_pipeline(pipeline);
             if stars {
-                pass.draw(3..3 + gpu.star_vertex_count, 0..1);
+                let range = if world
+                    .resource::<render_scene::AtmosphereFrame>()
+                    .java_world_visuals()
+                {
+                    gpu.java_star_range.clone()
+                } else {
+                    3..3 + gpu.star_vertex_count
+                };
+                pass.draw(range, 0..1);
             } else {
                 pass.draw(0..3, 0..1);
             }

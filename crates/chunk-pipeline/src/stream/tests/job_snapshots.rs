@@ -618,8 +618,8 @@ fn snapshot_knows_exactly_the_blocks_it_can_sample() {
 }
 
 #[test]
-fn quality_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_trip() {
-    for resident in [false, true] {
+fn visual_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_trip() {
+    for (java, resident) in [(false, false), (false, true), (true, false), (true, true)] {
         let (mut stream, key) = fixture();
         if resident {
             stream.resident.insert(key);
@@ -662,8 +662,18 @@ fn quality_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_tri
             smooth_lighting: false,
             transparent_leaves: false,
         };
-        assert!(stream.set_mesh_render_settings(cheap, now));
-        assert_eq!(capture_mesh(&stream, key).rendering, cheap);
+        let apply = |stream: &mut WorldStream, enabled| {
+            if java {
+                stream.set_java_world_lighting(enabled, now);
+            } else {
+                stream.set_mesh_render_settings(if enabled { cheap } else { original }, now);
+            }
+        };
+        apply(&mut stream, true);
+        let updated = capture_mesh(&stream, key);
+        assert_eq!(updated.rendering, if java { original } else { cheap });
+        assert_eq!(updated.java_world_lighting, java);
+        assert!(!snapshot.java_world_lighting);
         assert_eq!(snapshot.rendering, original);
         assert!(stream.mesh_jobs.in_flight.is_empty());
         assert!(cancelled.load(std::sync::atomic::Ordering::Acquire));
@@ -671,12 +681,14 @@ fn quality_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_tri
         assert_eq!(stream.staged_mesh_bytes, 0);
         let changed = stream.revisions.dirty(key).unwrap().revision;
         let quality_revision = stream.mesh_render_revision();
-        assert!(!stream.set_mesh_render_settings(cheap, now));
+        apply(&mut stream, true);
         assert_eq!(stream.revisions.dirty(key).unwrap().revision, changed);
         assert_eq!(stream.mesh_render_revision(), quality_revision);
-        assert!(stream.set_mesh_render_settings(original, now));
+        apply(&mut stream, false);
         assert!(!stream.revisions.is_current(key, revision));
         assert!(stream.mesh_render_revision() > quality_revision);
-        assert_eq!(capture_mesh(&stream, key).rendering, original);
+        let restored = capture_mesh(&stream, key);
+        assert_eq!(restored.rendering, original);
+        assert!(!restored.java_world_lighting);
     }
 }

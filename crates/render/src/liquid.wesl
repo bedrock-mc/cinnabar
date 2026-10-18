@@ -10,7 +10,7 @@ import render::chunk_bindings::{
 import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
 import render::biome_tint::blended_biome_tint;
-import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, sample_ao, sample_emits, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour, distance_fog_weight, java_water_sample};
 @if(ENHANCED)
 import render::enhanced::common::CLASS_WATER;
 @if(ENHANCED)
@@ -62,6 +62,7 @@ struct VertexOutput {
     @location(12) native_light_levels: vec2<f32>,
     @location(13) @interpolate(flat) native_face_shade: f32,
     @location(14) @interpolate(flat) two_sided: u32,
+    @location(15) @interpolate(flat) java_water: u32,
     @if(ENHANCED)
     @location(10) normal: vec3<f32>,
     @if(ENHANCED)
@@ -156,10 +157,25 @@ fn liquid_uv(
     return uv;
 }
 
+// Uncropped flow frames use half a tile on sides and a fixed-size rotated top square.
+fn java_liquid_uv(face: u32, corner: u32, height: f32, flow_x: i32, flow_z: i32) -> vec2<f32> {
+    var uv = LIQUID_BASE_UV[face * 4u + corner];
+    if (((SIDE_FACE_MASK >> face) & 1u) != 0u) {
+        return vec2(uv.x, 1.0 - height) * 0.5;
+    }
+    if (face == FLOW_FACE && (flow_x != 0 || flow_z != 0)) {
+        let angle = FLOW_ANGLE_DIRECTION * atan2(f32(flow_z), f32(flow_x)) + FLOW_ANGLE_OFFSET;
+        let centered = (uv - vec2(0.5)) * 0.5;
+        uv = vec2(centered.x * cos(angle) - centered.y * sin(angle),
+            centered.x * sin(angle) + centered.y * cos(angle)) + vec2(0.5);
+    }
+    return uv;
+}
+
 // Ordinary RenderChunk Transparent vertex shader (installed near-version Metal).
 // Its distance parameter is native camera fade distance, not the fog end.
 fn liquid_vertex_alpha(alpha: f32, camera_distance: f32, fade_distance: f32) -> f32 {
-    if (fade_distance <= 0.0) { return alpha; }
+    if (fade_distance <= 0.0 || atmosphere.java_fog.x > 0.0) { return alpha; }
     if (alpha < 0.95) {
         return mix(alpha, 1.0, clamp(camera_distance / max(fade_distance, 0.0001), 0.0, 1.0));
     }
@@ -260,6 +276,14 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
         signed_i8(geometry, 16u),
         signed_i8(geometry, 24u),
     );
+    out.java_water = 0u;
+    if (atmosphere.java_fog.x > 0.0 && (material.flags & JAVA_WATER_TINT_MASK) == JAVA_WATER_TINT_FLAG && texture_page(frame.current) == 0u) {
+        let side = face != 2u && face != 3u;
+        let flowing = (geometry >> 16u) != 0u;
+        out.java_water = 1u + u32(side || (face == 3u && flowing));
+        out.uv = java_liquid_uv(face, corner, local_position.y - f32(block_coordinate.y),
+            signed_i8(geometry, 16u), signed_i8(geometry, 24u));
+    }
     out.current_texture = frame.current;
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
@@ -272,13 +296,13 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     );
     @if(!ENHANCED)
     out.water_tint.a = liquid_vertex_alpha(out.water_tint.a, distance(world_position, view.world_position), atmosphere.liquid_distance.x);
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
+    out.lighting = light_colour(light_sample) * light_ao_factor(sample_ao(light_sample)) * face_shade(face_normal(face), sample_emits(light_sample));
     out.native_light_levels = terrain_light_levels(light_sample);
-    out.native_face_shade = face_shade(face_normal(face), (light_sample & 2048u) != 0u);
+    out.native_face_shade = face_shade(face_normal(face), sample_emits(light_sample));
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
     @if(ENHANCED)
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+    out.ambient_occlusion = light_ao_factor(sample_ao(light_sample));
     out.depth_write_route = packed_material >> 31u;
     out.two_sided = u32((packed_material & LIQUID_TWO_SIDED_BIT) != 0u);
     out.world_position = world_position;
@@ -353,13 +377,8 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
-    let distance_to_camera = distance(world_position, view.world_position);
-    let fog = clamp(
-        (distance_to_camera - atmosphere.fog_color_start.w)
-            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
-        0.0,
-        1.0,
-    );
+    let fog = distance_fog_weight(world_position - view.world_position,
+        atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, atmosphere.java_fog);
     return mix(colour, atmosphere.fog_color_start.rgb, fog);
 }
 
@@ -375,8 +394,8 @@ in: VertexOutput) -> vec3<f32> {
     let face_tint = floor(clamp(tint_gamma * in.native_face_shade, vec3(0.0), vec3(1.0)) * 255.0 + vec3(0.0001)) / 255.0;
     let lit_gamma = sampled_gamma * face_tint * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    let distance_to_camera = distance(in.world_position, view.world_position);
-    let fog = clamp((distance_to_camera - atmosphere.fog_color_start.w) / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001), 0.0, 1.0);
+    let fog = distance_fog_weight(in.world_position - view.world_position,
+        atmosphere.fog_color_start.w, atmosphere.fog_end_time.x, atmosphere.java_fog);
     return mix(lit_gamma, fog_gamma, fog);
 }
 
@@ -397,6 +416,11 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
     if (in.frame_blend > 0.0) {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
+    }
+    if (in.java_water != 0u) {
+        sampled = java_water_sample(in.java_water, in.uv, dx, dy, clock.tick);
+        @if(ENHANCED)
+        sampled = tint_to_linear(sampled);
     }
     @if(ENHANCED)
     if ((in.surface_class & CLASS_WATER) != 0u) {

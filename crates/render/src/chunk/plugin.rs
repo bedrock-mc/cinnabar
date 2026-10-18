@@ -221,6 +221,9 @@ impl Plugin for ChunkRenderPlugin {
                         .in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
+                    prepare_java_terrain_mips
+                        .in_set(ChunkPublicationStage::Attributes)
+                        .after(prepare_chunk_texture_assets),
                     prepare_chunk_biome_tints
                         .in_set(ChunkPublicationStage::Attributes)
                         .after(prepare_chunk_texture_assets),

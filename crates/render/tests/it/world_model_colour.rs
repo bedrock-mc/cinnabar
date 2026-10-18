@@ -32,6 +32,18 @@ fn linear(value: f32) -> f32 {
 
 #[test]
 fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
+    // Validate the fixture interface even when a GPU is unavailable.
+    let source = format!(
+        "{}\n{VERTEX}",
+        shader_source::standalone(include_str!("../../src/model.wesl"), &[])
+    )
+    .replace("GRID_COLUMNS", &format!("{}.0", CASE_COUNT + 1))
+    .replace("NEXT_FRAME", &format!("{NEXT_FRAME}u"));
+    let source = shader_source::bind_lighting(&source);
+    shader_source::assert_single_bind_group(
+        &source.replace("MATERIAL_FLAGS", "0u"),
+        &["model_witness_vertex", "fragment", "fragment_blend"],
+    );
     let Some(gpu) = Gpu::for_fixture("world-model native colour") else {
         return;
     };
@@ -64,14 +76,6 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    // Actual model entry points, not a reproduction of their arithmetic.
-    let source = format!(
-        "{}\n{VERTEX}",
-        shader_source::standalone(include_str!("../../src/model.wesl"), &[])
-    )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
-    .replace("GRID_COLUMNS", &format!("{}.0", CASE_COUNT + 1))
-    .replace("NEXT_FRAME", &format!("{NEXT_FRAME}u"));
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
     for (light, fog_amount, blend_frames, ao_face) in [
         ([1.0, 1.0, 1.0], 0.0, false, 1.0),
@@ -87,7 +91,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
             .map(|_| [light[0], light[1], light[2], 1.0]);
         let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
         let fog = [0.5, 0.6, 0.7];
-        let mut atmosphere = [0.0; 36];
+        let mut atmosphere = crate::gpu_snapshot::atmosphere();
         atmosphere[16..19].copy_from_slice(&fog.map(linear));
         atmosphere[20] = 100.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -98,6 +102,9 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
             words.extend([fog_amount * 100.0, f32::from(blend_frames), ao_face, 0.0]);
         }
         let cases = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
+        let water_info = gpu.water_info();
+        let lighting = gpu_snapshot::WorldLighting::new(&gpu, &lightmap, Some(&atmosphere))
+            .with_water(&atlas, &sampler, &water_info);
         let bindings = [
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -139,11 +146,11 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                 binding: 28,
                 resource: cases.as_entire_binding(),
             },
-            wgpu::BindGroupEntry {
-                binding: 27,
-                resource: lightmap.as_entire_binding(),
-            },
         ];
+        let bindings = bindings
+            .into_iter()
+            .chain(lighting.flat_bindings())
+            .collect::<Vec<_>>();
         for (material, fragment, flags) in [
             ("opaque", "fragment", 0),
             ("cutout", "fragment", assets::MATERIAL_FLAG_ALPHA_CUTOUT),

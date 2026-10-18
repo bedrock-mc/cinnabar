@@ -52,7 +52,8 @@ pub(super) fn acquire(
     Ok(())
 }
 
-fn download(url: &str, partial: &Path) -> Result<(), Box<dyn Error>> {
+/// Streams an authenticated HTTPS response into the caller-owned temporary file.
+pub(super) fn download(url: &str, partial: &Path) -> Result<(), Box<dyn Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;

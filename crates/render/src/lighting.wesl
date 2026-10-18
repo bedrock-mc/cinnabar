@@ -109,7 +109,26 @@ struct LightmapUniform {
 
 // Both nibbles address the same environment table in every ordinary world pass.
 fn light_colour(sample: u32) -> vec3<f32> {
+    if ((sample & JAVA_PACKED_LIGHT_FLAG) != 0u) {
+        let levels = vec2(f32(sample & 63u), f32((sample >> 6u) & 63u)) * 0.25;
+        let lower = vec2<u32>(floor(levels));
+        let upper = min(lower + vec2(1u), vec2(15u));
+        let blend = fract(levels);
+        return mix(
+            mix(world_lightmap.raw[lower.x | (lower.y << 4u)].rgb, world_lightmap.raw[upper.x | (lower.y << 4u)].rgb, blend.x),
+            mix(world_lightmap.raw[lower.x | (upper.y << 4u)].rgb, world_lightmap.raw[upper.x | (upper.y << 4u)].rgb, blend.x), blend.y);
+    }
     return world_lightmap.raw[sample & 255u].rgb;
+}
+
+// Old and replacement meshes carry their own sample format during a style transition.
+fn sample_ao(sample: u32) -> u32 {
+    return select((sample >> 8u) & 7u, (sample >> 12u) & 7u, (sample & JAVA_PACKED_LIGHT_FLAG) != 0u);
+}
+
+// The Java record uses this bit for its sky coordinate rather than an emitter flag.
+fn sample_emits(sample: u32) -> bool {
+    return (sample & JAVA_PACKED_LIGHT_FLAG) == 0u && (sample & 2048u) != 0u;
 }
 
 // Native consumers read the byte-truncated table prepared once at upload.
@@ -124,12 +143,14 @@ fn native_light_texel(sample: u32) -> vec3<f32> {
 const TERRAIN_LIGHTMAP_SIDE: u32 = 1u << 4u;
 
 fn terrain_light_levels(sample: u32) -> vec2<f32> {
+    if ((sample & JAVA_PACKED_LIGHT_FLAG) != 0u) { return vec2(f32(sample & 63u), f32((sample >> 6u) & 63u)) * 0.25; }
     return vec2(f32(sample & 15u), f32((sample >> 4u) & 15u));
 }
 
 fn terrain_light_colour(levels: vec2<f32>) -> vec3<f32> {
     let last = TERRAIN_LIGHTMAP_SIDE - 1u;
-    let coordinate = clamp(levels * (f32(TERRAIN_LIGHTMAP_SIDE) / f32(last)) - vec2(0.5), vec2(0.0), vec2(f32(last)));
+    var coordinate = clamp(levels * (f32(TERRAIN_LIGHTMAP_SIDE) / f32(last)) - vec2(0.5), vec2(0.0), vec2(f32(last)));
+    if (world_atmosphere.java_fog.x > 0.0) { coordinate = clamp(levels, vec2(0.0), vec2(f32(last))); }
     let lower = vec2<u32>(floor(coordinate));
     let upper = min(lower + vec2(1u), vec2(last));
     let fraction = coordinate - vec2<f32>(lower);
@@ -162,7 +183,13 @@ fn actor_lighting(sample: u32, normal: vec3<f32>, overlay_alpha: f32) -> vec3<f3
     if ((sample & (ACTOR_LIGHT_WORLD_FLAG | ACTOR_LIGHT_DIRECTIONAL_FLAG)) == 0u) { return vec3(1.0); }
     var illumination = vec3(1.0);
     if ((sample & ACTOR_LIGHT_WORLD_FLAG) != 0u) {
-        illumination = actor_light_colour(sample);
+        if (world_atmosphere.java_fog.x > 0.0) { illumination = light_colour(sample); }
+        else { illumination = actor_light_colour(sample); }
+    }
+    if (world_atmosphere.java_fog.x > 0.0) {
+        let first = normalize(vec3(0.2, 1.0, -0.7));
+        let second = normalize(vec3(-0.2, select(1.0, -1.0, u32(world_atmosphere.sky_extra.w) % 4u == 1u), 0.7));
+        return illumination * min(1.0, 0.4 + 0.6 * (max(0.0, dot(normal, first)) + max(0.0, dot(normal, second))));
     }
     let shade = (((1.0 + normal.y) * ACTOR_SHADE[0] + normal.x * normal.x * ACTOR_SHADE[1]) + normal.z * normal.z * ACTOR_SHADE[2]) + ACTOR_SHADE[3] + overlay_alpha * ACTOR_SHADE[4];
     return illumination * shade;
@@ -180,6 +207,13 @@ fn lit_colour(colour: vec3<f32>, lighting: vec3<f32>) -> vec3<f32> {
 
 // Vanilla ordinary and emitting face coefficients.
 fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
+    if (world_atmosphere.java_fog.x > 0.0) {
+        if (abs(normal.y) > 0.5 && u32(world_atmosphere.sky_extra.w) % 4u == 1u) { return 0.9; }
+        if (normal.y < -0.5) { return 0.5; }
+        if (abs(normal.x) > 0.5) { return 0.6; }
+        if (abs(normal.z) > 0.5) { return 0.8; }
+        return 1.0;
+    }
     if normal.y < -0.5 { return select(0.5, 0.875, emitting); }
     if abs(normal.x) > 0.5 { return select(0.6, 0.9, emitting); }
     if abs(normal.z) > 0.5 { return select(0.8, 0.95, emitting); }
@@ -199,14 +233,30 @@ struct WorldAtmosphere {
     sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
     fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
     sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
+    liquid_distance: vec4<f32>,
+    java_fog: vec4<f32>,
+    java_sky: vec4<f32>,
+    java_cloud: vec4<f32>,
 }
 @group(1) @binding(1) var<uniform> world_atmosphere: WorldAtmosphere;
+
+// The optional preset combines spherical atmosphere fog and cylindrical view-distance fog.
+fn distance_fog_weight(delta: vec3<f32>, start: f32, end: f32, java: vec4<f32>) -> f32 {
+    let spherical = length(delta);
+    var render_distance = spherical;
+    if (java.x > 0.0) { render_distance = max(length(delta.xz), abs(delta.y)); }
+    let render_fog = clamp((render_distance - start) / max(end - start, 0.0001), 0.0, 1.0);
+    if (java.x > 0.0) {
+        return max(render_fog, clamp((spherical - java.y) / max(java.z - java.y, 0.0001), 0.0, 1.0));
+    }
+    return render_fog;
+}
 
 // Uses the same distance fade as the terrain passes after lighting and overlays.
 fn world_fog_amount(position: vec3<f32>, camera: vec3<f32>) -> f32 {
     let start = world_atmosphere.fog_color_start.w;
     let end = world_atmosphere.fog_end_time.x;
-    return clamp((distance(position, camera) - start) / max(end - start, 0.0001), 0.0, 1.0);
+    return distance_fog_weight(position - camera, start, end, world_atmosphere.java_fog);
 }
 
 fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
@@ -216,4 +266,18 @@ fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>)
 fn actor_distance_fog(colour_gamma: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
     let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
     return mix(colour_gamma, fog_gamma, world_fog_amount(position, camera));
+}
+
+
+struct JavaWaterInfo { frames: array<vec4<u32>, JAVA_WATER_KINDS> }
+@group(1) @binding(2) var java_water_texture: texture_2d_array<f32>;
+@group(1) @binding(3) var java_water_sampler: sampler;
+@group(1) @binding(4) var<uniform> java_water_info: JavaWaterInfo;
+
+// Samples one regular flipbook without filtering between neighbouring animation frames.
+fn java_water_sample(kind: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, tick: u32) -> vec4<f32> {
+    let info = java_water_info.frames[kind - 1u];
+    let frame = (tick / max(info.z, 1u)) % max(info.y, 1u);
+    let scale = f32(info.w) / f32(textureDimensions(java_water_texture, 0).x);
+    return textureSampleGrad(java_water_texture, java_water_sampler, fract(uv) * scale, i32(info.x + frame), dx * scale, dy * scale);
 }

@@ -1,3 +1,4 @@
+import render::lighting::WorldAtmosphere;
 // Group 0 of the packed chunk layout, shared by the liquid and model programs so one composed
 // shader can draw both without binding the same slot twice.
 import bevy_render::view::View;
@@ -9,13 +10,7 @@ struct AnimationClockGpu { tick: u32, partial_tick: f32, reserved_a: u32, reserv
 // Shaders read a ref's record; the record names its own origin slot, which `metadata_index` mirrors
 // for the CPU-side sort.
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
-    liquid_distance: vec4<f32>,
-}
+alias AtmosphereUniform = WorldAtmosphere;
 // LIQUID_GEOMETRY_CONSTANTS
 
 @group(0) @binding(0) var<uniform> view: View;

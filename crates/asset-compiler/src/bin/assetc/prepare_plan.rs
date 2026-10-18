@@ -143,7 +143,7 @@ pub(super) fn kit_files(sources: &Sources) -> Result<Vec<String>, Box<dyn Error>
 /// Which carriers a run may build.
 pub(super) struct Scope<'a> {
     pub installed_only: bool,
-    /// Carrier names; empty means every carrier in scope.
+    /// Carrier names to build and retry; empty selects all without retrying cached failures.
     pub only: &'a [String],
 }
 
@@ -166,7 +166,7 @@ pub(super) struct FileDigest {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(super) struct Entry {
     pub fingerprint: String,
-    /// An optional carrier whose build failed; retried once its fingerprint changes.
+    /// An optional failure, retried when its fingerprint changes or preparation selects it explicitly.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
 }
@@ -228,7 +228,11 @@ pub(super) fn plan(
         .copied()
         .filter(|carrier| match stamp.carriers.get(carrier.name) {
             Some(entry) if entry.fingerprint == fingerprints[carrier.name] => {
-                !entry.failed && !carrier.outputs(&context.out).all(|path| path.exists())
+                if entry.failed {
+                    !scope.only.is_empty()
+                } else {
+                    !carrier.outputs(&context.out).all(|path| path.exists())
+                }
             }
             _ => true,
         })

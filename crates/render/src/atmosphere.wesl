@@ -1,16 +1,8 @@
+import render::lighting::WorldAtmosphere;
 import bevy_render::view::View;
 import render::lighting::{tint_to_gamma, tint_to_linear};
 
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>,
-    moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>,
-    sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>,
-    fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>,
-    sky_extra: vec4<f32>,
-}
+alias AtmosphereUniform = WorldAtmosphere;
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
@@ -104,7 +96,13 @@ fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         let cosine = cos(angle);
         let sine = sin(angle);
         // Vanilla rotates the star mesh around +Z.
-        let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
+        var sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
+        if (atmosphere.java_fog.x > 0.0) {
+            let rotation = atmosphere.java_sky.x * 6.283185307;
+            let y = star.y * cos(rotation) - star.z * sin(rotation);
+            let z = star.y * sin(rotation) + star.z * cos(rotation);
+            sky = vec3(-z, y, star.x);
+        }
         var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
         return sky_vertex(clip, star.w);
@@ -202,7 +200,7 @@ fn celestial_visibility(phase_offset: f32) -> f32 {
 // clamp(1−2*interpolatedRain,0,1). SunMoon's fragment shader multiplies
 // colour by the sampled RGBA, and its material blends SourceAlpha→One.
 fn celestial_weather_alpha() -> f32 {
-    return clamp(1.0 - 2.0 * atmosphere.sky_zenith_rain.w, 0.0, 1.0);
+    return clamp(1.0 - select(2.0, 1.0, atmosphere.java_fog.x > 0.0) * atmosphere.sky_zenith_rain.w, 0.0, 1.0);
 }
 
 fn composite_celestial(
@@ -221,24 +219,29 @@ fn native_sky_colour(weight: f32, zenith_gamma: vec3<f32>, horizon_gamma: vec3<f
 }
 
 fn sky_output(colour: vec3<f32>) -> vec4<f32> {
+    @if(JAVA_ENCODED)
+    return vec4(clamp(colour, vec3(0.0), vec3(1.0)), 1.0);
+    @if(!JAVA_ENCODED)
     return tint_to_linear(vec4(clamp(colour, vec3(0.0), vec3(1.0)), 1.0));
 }
 
 fn sample_sun(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
-    let mapping = celestial_uv(ray, direction, SUN_HALF_EXTENT);
+    var mapping = celestial_uv(ray, direction, select(SUN_HALF_EXTENT, 0.3, atmosphere.java_fog.x > 0.0));
+    if (atmosphere.java_fog.x > 0.0) { mapping.y = 1.0 - mapping.y; }
     let sampled = textureSampleLevel(sun_texture, atmosphere_sampler, mapping.xy, 0.0);
-    let visible = celestial_visibility(0.0);
+    let visible = select(celestial_visibility(0.0), 1.0, atmosphere.java_fog.x > 0.0);
     return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
 }
 
 fn sample_moon(ray: vec3<f32>, direction: vec3<f32>) -> vec4<f32> {
-    let mapping = celestial_uv(ray, direction, MOON_HALF_EXTENT);
+    var mapping = celestial_uv(ray, direction, select(MOON_HALF_EXTENT, 0.2, atmosphere.java_fog.x > 0.0));
+    if (atmosphere.java_fog.x > 0.0) { mapping.x = 1.0 - mapping.x; }
     let phase = u32(atmosphere.moon_direction_phase.w) % 8u;
     let phase_column = phase % 4u;
     let phase_row = phase / 4u;
     let atlas_uv = (vec2(f32(phase_column), f32(phase_row)) + mapping.xy) / vec2(4.0, 2.0);
     let sampled = textureSampleLevel(moon_phases_texture, atmosphere_sampler, atlas_uv, 0.0);
-    let visible = celestial_visibility(180.0);
+    let visible = select(celestial_visibility(180.0), 1.0, atmosphere.java_fog.x > 0.0);
     return vec4(tint_to_gamma(sampled).rgb, sampled.a * mapping.z * visible * celestial_weather_alpha());
 }
 
@@ -271,18 +274,84 @@ fn end_sky(ray: vec3<f32>, fog_gamma: vec3<f32>) -> vec3<f32> {
     return tint_to_gamma(sampled).rgb * (2.0 * fog_gamma);
 }
 
+// Reconstructs the octagonal sky fan's interpolated vertex distance along a ray.
+fn java_sky_colour(ray: vec3<f32>) -> vec3<f32> {
+    let fog = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    if (ray.y <= 0.0) { return fog; }
+    let point = ray.xz * (16.0 / 512.0) / ray.y;
+    for (var sector = 0u; sector < 8u; sector++) {
+        let angle = f32(sector) * 0.7853981634;
+        let a = vec2(cos(angle), sin(angle));
+        let b = vec2(cos(angle + 0.7853981634), sin(angle + 0.7853981634));
+        let determinant = a.x * b.y - a.y * b.x;
+        let u = (point.x * b.y - point.y * b.x) / determinant;
+        let v = (a.x * point.y - a.y * point.x) / determinant;
+        if (u >= 0.0 && v >= 0.0 && u + v <= 1.0) {
+            let distance = mix(16.0, length(vec2(512.0, 16.0)), u + v);
+            let weight = clamp(distance / max(atmosphere.java_fog.w, 0.0001), 0.0, 1.0);
+            return mix(tint_to_gamma(vec4(atmosphere.sky_zenith_rain.rgb, 1.0)).rgb, fog, weight);
+        }
+    }
+    return fog;
+}
+
+// Returns the center barycentric weight where a forward ray intersects a triangle.
+fn ray_triangle_center(ray: vec3<f32>, center: vec3<f32>, a: vec3<f32>, b: vec3<f32>) -> f32 {
+    let edge_a = a - center;
+    let edge_b = b - center;
+    let cross_ray = cross(ray, edge_b);
+    let determinant = dot(edge_a, cross_ray);
+    if (abs(determinant) < 0.000001) { return 0.0; }
+    let origin = -center;
+    let u = dot(origin, cross_ray) / determinant;
+    let cross_origin = cross(origin, edge_a);
+    let v = dot(ray, cross_origin) / determinant;
+    let distance = dot(edge_b, cross_origin) / determinant;
+    if (u < 0.0 || v < 0.0 || u + v > 1.0 || distance < 0.0) { return 0.0; }
+    return 1.0 - u - v;
+}
+
+// Projects the authored sunset fan after its horizon rotation and alpha-dependent scale.
+fn java_sunset_alpha(ray: vec3<f32>) -> f32 {
+    let alpha = atmosphere.sunrise_band.a;
+    if (alpha <= 0.001) { return 0.0; }
+    let side = select(-1.0, 1.0, sin(atmosphere.sky_extra.y * 6.283185307) < 0.0);
+    let center = vec3(side * 100.0, 0.0, 0.0);
+    for (var sector = 0u; sector < 16u; sector++) {
+        let angle = f32(sector) * 0.3926990817;
+        let next = angle + 0.3926990817;
+        let a = vec3(side * cos(angle) * 120.0, cos(angle) * 40.0 * alpha, -side * sin(angle) * 120.0);
+        let b = vec3(side * cos(next) * 120.0, cos(next) * 40.0 * alpha, -side * sin(next) * 120.0);
+        let weight = ray_triangle_center(ray, center, a, b);
+        if (weight > 0.0) { return alpha * weight; }
+    }
+    return 0.0;
+}
+
 @fragment
 fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let code = u32(atmosphere.sky_extra.w + 0.5);
     if (in.star_alpha > 0.0) {
         if (code != 0u || atmosphere.sky_extra.x <= 0.0) { discard; }
+        if (atmosphere.java_fog.x > 0.0) {
+            @if(JAVA_ENCODED)
+            return vec4(vec3(atmosphere.sky_extra.x), atmosphere.sky_extra.x);
+            @if(!JAVA_ENCODED)
+            return tint_to_linear(vec4(vec3(atmosphere.sky_extra.x), atmosphere.sky_extra.x));
+        }
         return tint_to_linear(native_star_colour(in.star_alpha));
     }
     if (code / 4u != 0u) {
+        @if(JAVA_ENCODED)
+        return tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0));
+        @if(!JAVA_ENCODED)
         return vec4(atmosphere.fog_color_start.rgb, 1.0);
     }
     let kind = code % 4u;
     if (kind == 1u) {
+        @if(JAVA_ENCODED)
+        return tint_to_gamma(vec4(atmosphere.sky_horizon_thunder.rgb, 1.0));
+        @if(!JAVA_ENCODED)
         return vec4(atmosphere.sky_horizon_thunder.rgb, 1.0);
     }
     let ray = view_ray(in.position.xy);
@@ -290,6 +359,11 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return sky_output(end_sky(ray, in.fog_gamma));
     }
     var colour = native_sky_colour(native_sky_fog_weight(ray), in.zenith_gamma, in.horizon_gamma);
+    if (atmosphere.java_fog.x > 0.0) {
+        colour = java_sky_colour(ray);
+        let sunset = tint_to_gamma(vec4(atmosphere.sunrise_band.rgb, 1.0)).rgb;
+        colour = mix(colour, sunset, java_sunset_alpha(ray));
+    }
 
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
     let sun = sample_sun(ray, sun_direction);
@@ -318,5 +392,8 @@ fn pack_skybox_fragment(in: VertexOutput) -> PackSkyboxOutput {
     let exit = pack_skybox_exit(ray, skybox.parameters.x);
     let distance = min(exit.x, min(exit.y, exit.z)) * skybox.parameters.w;
     let clip = view.clip_from_world * vec4(ray * distance + view.world_position, 1.0);
+    @if(JAVA_ENCODED)
+    return PackSkyboxOutput(sampled, clamp(clip.z / clip.w, 0.0, 1.0));
+    @if(!JAVA_ENCODED)
     return PackSkyboxOutput(tint_to_linear(sampled), clamp(clip.z / clip.w, 0.0, 1.0));
 }

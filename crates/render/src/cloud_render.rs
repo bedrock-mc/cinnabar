@@ -50,6 +50,7 @@ use meshing::{
     cloud_viewport::{CloudViewport, ViewportCloudQuad},
 };
 
+mod java_cache;
 mod mesh_cache;
 use mesh_cache::CloudMeshCache;
 use {
@@ -126,6 +127,8 @@ pub(crate) struct CloudViewGpu {
     prepared_identity: Option<[u8; 32]>,
     mesh_cache: CloudMeshCache,
     viewport: CloudViewport,
+    java_viewport: Option<meshing::java_clouds::JavaCloudViewport>,
+    java_cache: java_cache::JavaCloudCache,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
     atmosphere_buffer_id: Option<BufferId>,
@@ -153,6 +156,7 @@ fn init_cloud_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 
 pub(crate) fn prepare_cloud_records(
     requested: Res<AtmosphereTextureAssets>,
+    java: Res<render_scene::JavaWorldVisuals>,
     atmosphere: Res<AtmosphereFrame>,
     uploads: crate::upload_staging::FrameUploads,
     visibility: Res<CloudVisibility>,
@@ -167,7 +171,7 @@ pub(crate) fn prepare_cloud_records(
         gpu.views.clear();
         return;
     };
-    let identity = requested.identity();
+    let identity = java.texture_identity(requested.identity());
     gpu.views.retain(|entity, _| views.contains(*entity));
     let config = CloudRenderConfig::legacy_fancy();
     let CloudGpu {
@@ -205,11 +209,46 @@ pub(crate) fn prepare_cloud_records(
                 prepared_identity: None,
                 mesh_cache: CloudMeshCache::default(),
                 viewport,
+                java_viewport: None,
+                java_cache: java_cache::JavaCloudCache::default(),
                 bind_group: None,
                 view_buffer_id: None,
                 atmosphere_buffer_id: None,
                 bound_asset_identity: None,
             });
+        if atmosphere.java_world_visuals() {
+            let texture = java.sky_texture(
+                runtime
+                    .texture(assets::AtmosphereRole::Clouds)
+                    .expect("validated cloud texture"),
+            );
+            let sample = [
+                f64::from(camera.x) + f64::from(atmosphere.cloud_scroll_blocks()),
+                f64::from(camera.z + meshing::java_clouds::Z_OFFSET),
+            ];
+            let Some(java_viewport) = meshing::java_clouds::JavaCloudViewport::try_new(
+                sample,
+                camera.y,
+                atmosphere.cloud_height(),
+                atmosphere.java_cloud_fog_end(),
+            ) else {
+                prepared.record_count = 0;
+                continue;
+            };
+            if prepared.prepared_identity != Some(identity)
+                || prepared.java_viewport != Some(java_viewport)
+            {
+                let records = prepared.java_cache.get(identity, texture, java_viewport);
+                upload_records(prepared, &records, &uploads, work);
+                prepared.prepared_identity = Some(identity);
+                prepared.java_viewport = Some(java_viewport);
+                prepared.geometry_diagnostic = None;
+                work.rebuilds += 1;
+                work.uploaded_bytes += std::mem::size_of_val(records.as_ref()) as u64;
+            }
+            continue;
+        }
+        prepared.java_viewport = None;
         prepared.mesh_cache.set_identity(identity);
         if prepared.prepared_identity != Some(identity) || prepared.viewport.needs_rebuild(viewport)
         {
@@ -235,28 +274,7 @@ pub(crate) fn prepare_cloud_records(
                     .prefetch(runtime, viewport, *diagnostics);
                 continue;
             };
-            let records = &mesh.records;
-            let bytes = bytemuck::cast_slice::<ViewportCloudQuad, u8>(records);
-            if !bytes.is_empty() {
-                if prepared
-                    .record_buffer
-                    .as_ref()
-                    .is_none_or(|buffer| buffer.size() < bytes.len() as u64)
-                {
-                    prepared.record_buffer =
-                        Some(uploads.device.create_buffer(&BufferDescriptor {
-                            label: Some("retained viewport cloud quad records"),
-                            size: (bytes.len() as u64).next_power_of_two(),
-                            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        }));
-                    prepared.bind_group = None;
-                    work.buffer_creations += 1;
-                }
-                uploads.write(prepared.record_buffer.as_ref().unwrap(), 0, bytes);
-            }
-            prepared.record_count =
-                u32::try_from(records.len()).expect("bounded cloud records fit u32");
+            upload_records(prepared, &mesh.records, &uploads, work);
             prepared.geometry_diagnostic = mesh.diagnostic.clone();
             if let Some(diagnostic) = &prepared.geometry_diagnostic {
                 bevy::log::info!("CLOUD_GEOMETRY_EVIDENCE {}", diagnostic.marker_fields());
@@ -265,7 +283,7 @@ pub(crate) fn prepare_cloud_records(
             prepared.viewport = viewport;
             work.rebuilds += 1;
             work.waited += u64::from(waited);
-            work.uploaded_bytes += bytes.len() as u64;
+            work.uploaded_bytes += std::mem::size_of_val(mesh.records.as_ref()) as u64;
             span.record("waited", work.waited);
             span.record("buffer_creations", work.buffer_creations);
             span.record("uploaded_bytes", work.uploaded_bytes);
@@ -284,6 +302,34 @@ pub(crate) fn prepare_cloud_records(
     }
 }
 
+/// Uploads an immutable record stream, growing a view's retained buffer only when necessary.
+fn upload_records(
+    prepared: &mut CloudViewGpu,
+    records: &[ViewportCloudQuad],
+    uploads: &crate::upload_staging::FrameUploads,
+    work: &mut CloudWork,
+) {
+    let bytes = bytemuck::cast_slice::<ViewportCloudQuad, u8>(records);
+    if !bytes.is_empty() {
+        if prepared
+            .record_buffer
+            .as_ref()
+            .is_none_or(|buffer| buffer.size() < bytes.len() as u64)
+        {
+            prepared.record_buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
+                label: Some("retained viewport cloud quad records"),
+                size: (bytes.len() as u64).next_power_of_two(),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            prepared.bind_group = None;
+            work.buffer_creations += 1;
+        }
+        uploads.write(prepared.record_buffer.as_ref().unwrap(), 0, bytes);
+    }
+    prepared.record_count = records.len() as u32;
+}
+
 fn prepare_cloud_colour(
     atmosphere: Res<AtmosphereFrame>,
     view: Res<render_scene::AtmosphereViewInputs>,
@@ -291,14 +337,31 @@ fn prepare_cloud_colour(
     uploads: crate::upload_staging::FrameUploads,
 ) {
     let colour = atmosphere.cloud_colour_for_view(*view);
+    let java = atmosphere.java_world_visuals();
+    let colour = if java {
+        colour.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8 as f32 / 255.0)
+    } else {
+        colour
+    };
+    let cell = if java {
+        meshing::java_clouds::CELL_BLOCKS
+    } else {
+        CLOUD_CELL_BLOCKS
+    };
+    let bottom = atmosphere.cloud_height();
+    let top = if java {
+        bottom + meshing::java_clouds::THICKNESS
+    } else {
+        CLOUD_TOP_Y
+    };
     let native = [
         colour[0],
         colour[1],
         colour[2],
         colour[3],
-        CLOUD_CELL_BLOCKS,
-        CLOUD_UNDERSIDE_Y,
-        CLOUD_TOP_Y,
+        cell,
+        bottom,
+        top,
         CLOUD_WORLD_PERIOD,
     ];
     if gpu.colour == native {
@@ -414,6 +477,8 @@ impl FromWorld for CloudPipeline {
 struct CloudPipelineKey {
     msaa: Msaa,
     hdr: bool,
+    java: bool,
+    encoded: bool,
 }
 
 impl Specializer<RenderPipeline> for CloudPipelineSpecializer {
@@ -425,11 +490,29 @@ impl Specializer<RenderPipeline> for CloudPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        if key.encoded {
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .push("JAVA_ENCODED".into());
+        }
+        if key.java {
+            let depth = descriptor
+                .depth_stencil
+                .as_mut()
+                .expect("cloud depth state");
+            depth.depth_write_enabled = Some(true);
+            depth.depth_compare = Some(CompareFunction::GreaterEqual);
+        }
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
             .format = if key.hdr {
             render_scene::SCENE_HDR_FORMAT
+        } else if key.encoded {
+            render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
             render_scene::SCENE_COLOR_FORMAT
         };
@@ -501,6 +584,16 @@ fn prepare_cloud_bind_group(
     }
 }
 
+/// Camera and target inputs used to queue clouds for one render view.
+type CloudQueueView = (
+    Entity,
+    &'static MainEntity,
+    &'static ExtractedView,
+    &'static bevy::render::camera::ExtractedCamera,
+    &'static Msaa,
+    Option<&'static crate::scene_target::SceneTarget>,
+);
+
 fn queue_clouds(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<CloudPipeline>,
@@ -508,19 +601,13 @@ fn queue_clouds(
     (atmosphere, visibility): (Res<AtmosphereFrame>, Res<CloudVisibility>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-    )>,
+    views: Query<CloudQueueView>,
 ) {
     if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
-    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, scene) in &views {
         let Some(prepared) = gpu.views.get(&view_entity) else {
             continue;
         };
@@ -538,6 +625,10 @@ fn queue_clouds(
             CloudPipelineKey {
                 msaa: *msaa,
                 hdr: extracted_camera.hdr,
+                java: atmosphere.java_world_visuals(),
+                encoded: atmosphere.java_world_visuals()
+                    && !extracted_camera.hdr
+                    && scene.is_some(),
             },
         ) else {
             continue;
@@ -577,6 +668,14 @@ fn cloud_bounds_center(viewport: CloudViewport, scroll_blocks: f32) -> [f32; 3] 
         (CLOUD_UNDERSIDE_Y + CLOUD_TOP_Y) * 0.5,
         center[1] as f32,
     ]
+}
+
+/// Identifies cloud draws so the sorted pass can select their authored blend colour space.
+pub(crate) fn draw_function(world: &World) -> Option<bevy::render::render_phase::DrawFunctionId> {
+    world
+        .get_resource::<DrawFunctions<Transparent3d>>()?
+        .read()
+        .get_id::<DrawCloudCommands>()
 }
 
 type DrawCloudCommands = crate::gpu_timing::GpuDrawSpan<
@@ -652,13 +751,17 @@ impl crate::pipeline_warmup::PrewarmPipelines for CloudPipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        ids.push(self.variants.specialize(
-            cache,
-            CloudPipelineKey {
-                msaa: view.msaa,
-                hdr: view.hdr,
-            },
-        )?);
+        for java in [false, true] {
+            ids.push(self.variants.specialize(
+                cache,
+                CloudPipelineKey {
+                    msaa: view.msaa,
+                    hdr: view.hdr,
+                    java,
+                    encoded: java && !view.hdr,
+                },
+            )?);
+        }
         Ok(())
     }
 }

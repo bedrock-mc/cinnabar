@@ -637,6 +637,28 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     assert!(!settings.user_settings().video.java_animations);
 }
 
+/// World presentation preserves animation, brightness and quality choices across reloads.
+#[test]
+fn java_world_visuals_are_opt_in_and_independent() {
+    let mut settings = SettingsOptions::decode(br#"{"values":{"animations":0,"gamma":40}}"#)
+        .expect("existing preferences");
+    assert!(!settings.user_settings().video.java_world_visuals);
+    for enabled in [1, 0, 1] {
+        settings.set(SettingId::JavaWorldVisuals.index(), enabled);
+        let saved = serde_json::to_vec(&settings).unwrap();
+        let loaded = SettingsOptions::decode(&saved).unwrap();
+        assert_eq!(
+            loaded.user_settings().video.java_world_visuals,
+            enabled != 0
+        );
+        assert!(loaded.user_settings().video.java_animations);
+        assert_eq!(loaded.value(SettingId::Gamma), 40);
+        assert_eq!(loaded.video_preset(), settings.video_preset());
+    }
+    settings.reset_group(super::SettingsGroup::Video);
+    assert!(!settings.user_settings().video.java_world_visuals);
+}
+
 #[test]
 fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
     for (toggle, choice) in [(0, 1), (1, 0)] {

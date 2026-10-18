@@ -17,6 +17,7 @@ pub use font_atlas::{
 };
 mod item_geometry;
 pub mod java_animation;
+pub mod java_world;
 pub mod legacy_combat;
 mod nametag;
 pub mod panorama;

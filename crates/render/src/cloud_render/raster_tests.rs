@@ -12,40 +12,14 @@ fn draw(gpu: &Gpu, records: &wgpu::Buffer, count: u32, eye: Vec3) -> Vec<u8> {
         &gpu_snapshot::view(matrix, eye),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0_f32; 32];
+    let mut atmosphere = crate::gpu_snapshot::atmosphere();
     atmosphere[23] = 160.0;
     let frame = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let colour = gpu.buffer(
-        &[
-            1.0,
-            1.0,
-            1.0,
-            render_scene::CLOUD_ALPHA,
-            CLOUD_CELL_BLOCKS,
-            CLOUD_UNDERSIDE_Y,
-            CLOUD_TOP_Y,
-            CLOUD_WORLD_PERIOD,
-        ],
+        &crate::gpu_snapshot::cloud_uniform(),
         wgpu::BufferUsages::UNIFORM,
     );
-    let bindings = [
-        wgpu::BindGroupEntry {
-            binding: 0,
-            resource: view.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 1,
-            resource: frame.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 2,
-            resource: records.as_entire_binding(),
-        },
-        wgpu::BindGroupEntry {
-            binding: 3,
-            resource: colour.as_entire_binding(),
-        },
-    ];
+    let bindings = crate::gpu_snapshot::cloud_bindings(&view, &frame, records, &colour);
     let source = crate::shader_source::standalone(
         &meshing::cloud_viewport::shader_source(include_str!("../cloud.wesl")),
         &[],

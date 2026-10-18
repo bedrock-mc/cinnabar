@@ -15,6 +15,17 @@ use launcher::menu::settings_options::{
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 impl MenuRuntime {
+    /// Disables the optional world-style control if its local resources failed to load.
+    pub fn sync_java_world_visuals_available(&mut self, available: bool) {
+        if self
+            .settings_options
+            .option_enabled(SettingId::JavaWorldVisuals)
+            != available
+        {
+            Arc::make_mut(&mut self.settings_options).set_java_world_visuals_available(available);
+        }
+    }
+
     /// Refreshes untouched render distance from the selected device before settings publication.
     pub fn sync_render_distance_device(&mut self, device: ui::RenderDistanceDevice) {
         if Arc::make_mut(&mut self.settings_options).set_render_distance_device(device) {

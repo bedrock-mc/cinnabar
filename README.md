@@ -38,6 +38,11 @@ every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
+If the optional Java resource download fails, restore connectivity and run
+`make java-world-assets` to retry. In general, `make NAME-assets` retries failed optional
+carriers and their dependencies while reusing successful unchanged outputs. Java world
+visuals remain off until enabled in Settings → Video.
+
 ## What's different
 
 Vanilla behaviour is the default. Everything below is extra:

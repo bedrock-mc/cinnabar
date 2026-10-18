@@ -490,6 +490,12 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
+        name: "settings-video-java-world",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_video_java_world,
+    },
+    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -795,6 +801,16 @@ pub fn settings(section: &str) -> MenuView {
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
+}
+
+/// Reveals the optional world-style control with its default-off preference.
+fn settings_video_java_world() -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::JavaWorldVisuals.index() as u16,
+        1,
+    ));
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows Storage as a desktop host fills it, with the folder buttons.

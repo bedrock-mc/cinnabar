@@ -110,6 +110,40 @@ fn native_liquid_planes_and_flow_uvs_execute_on_gpu() {
     );
 }
 
+#[test]
+fn java_water_uses_uncropped_flow_frames_on_gpu() {
+    let Some(gpu) = Gpu::new() else {
+        eprintln!("missing fixture: native GPU adapter for Java water coordinates");
+        return;
+    };
+    let source = format!(
+        "{}\n{WITNESS}",
+        shader_source::standalone(include_str!("../../src/liquid.wesl"), &[])
+    );
+    for (face, corner, height, flow, expected) in [
+        (3., 0., 1., [1., 0.], [0.75, 0.25]),
+        (3., 0., 1., [0., 1.], [0.25, 0.25]),
+        (3., 0., 1., [-1., 0.], [0.25, 0.75]),
+        (3., 0., 1., [0., -1.], [0.75, 0.75]),
+        (3., 0., 1., [1., 1.], [0.5, 0.146_446_62]),
+        (3., 2., 1., [0., 0.], [1., 1.]),
+        (1., 2., 0.75, [0., 0.], [0.5, 0.125]),
+    ] {
+        assert_case(
+            &gpu,
+            &source,
+            [
+                [0.; 4],
+                [0.; 4],
+                [face, corner, height, 0.],
+                [flow[0], flow[1], expected[0], expected[1]],
+            ],
+            "java_uv",
+            &format!("Java water face {face} corner {corner} flow {flow:?}"),
+        );
+    }
+}
+
 fn assert_case(gpu: &Gpu, source: &str, record: [[f32; 4]; 4], fragment: &str, label: &str) {
     let buffer = gpu.buffer(bytemuck::cast_slice(&record), wgpu::BufferUsages::STORAGE);
     let bindings = [wgpu::BindGroupEntry {
@@ -153,6 +187,12 @@ struct WitnessOutput { @builtin(position) position: vec4<f32>, }
     let data = witness_case[2];
     let expected = witness_case[3];
     let actual = liquid_uv(u32(data.x), u32(data.y), data.z, i32(expected.x), i32(expected.y));
+    return select(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.), distance(actual, expected.zw) < 0.000002);
+}
+@fragment fn java_uv() -> @location(0) vec4<f32> {
+    let data = witness_case[2];
+    let expected = witness_case[3];
+    let actual = java_liquid_uv(u32(data.x), u32(data.y), data.z, i32(expected.x), i32(expected.y));
     return select(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.), distance(actual, expected.zw) < 0.000002);
 }
 "#;

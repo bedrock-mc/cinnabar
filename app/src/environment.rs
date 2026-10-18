@@ -6,6 +6,8 @@ use client_world::CommittedControlEvent;
 
 pub(crate) mod atmosphere;
 mod diagnostics;
+pub(crate) mod java_world;
+mod java_world_tints;
 pub(crate) use diagnostics::log_world_lighting;
 mod time_override;
 pub(crate) use time_override::VisualTimeOverride;
@@ -45,6 +47,8 @@ pub(crate) struct EnvironmentContext {
     /// Known precipitation-admitting cells in the native weather/fog lattice.
     pub(crate) precipitation_sample_count: Option<usize>,
     pub(crate) render_distance_blocks: Option<f32>,
+    pub(crate) camera_sky_light: Option<u8>,
+    pub(crate) spectator: bool,
 }
 
 /// Active client profile identifiers. Lighting remains routed through the

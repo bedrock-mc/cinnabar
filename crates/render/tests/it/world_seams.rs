@@ -183,35 +183,6 @@ fn slab_top_template() -> Vec<u32> {
     words
 }
 
-/// Global bindings each named entry point actually reads, found with naga so
-/// a pass's bind group lists exactly what its derived layout expects.
-fn used_bindings(source: &str, entries: [&str; 2]) -> Vec<u32> {
-    let module = naga::front::wgsl::parse_str(source)
-        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    )
-    .validate(&module)
-    .expect("world seam shader validates");
-    let mut used = Vec::new();
-    for (index, entry) in module.entry_points.iter().enumerate() {
-        if !entries.contains(&entry.name.as_str()) {
-            continue;
-        }
-        let function = info.get_entry_point(index);
-        for (handle, variable) in module.global_variables.iter() {
-            if let Some(binding) = &variable.binding
-                && !function[handle].is_empty()
-                && !used.contains(&binding.binding)
-            {
-                used.push(binding.binding);
-            }
-        }
-    }
-    used
-}
-
 /// Production world shaders with the test's section-mapped entry points.
 struct Shaders {
     cube: String,
@@ -226,12 +197,12 @@ impl Shaders {
             .map(|index| format!("{index}u"))
             .join(", ");
         let prepare = |source: &str, entries: &str| {
-            format!(
+            let source = format!(
                 "{}\n{}",
                 shader_source::standalone(source, &[]),
                 entries.replace("INDICES", &indices)
-            )
-            .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
+            );
+            shader_source::bind_lighting(&source)
         };
         Self {
             cube: prepare(include_str!("../../src/chunk.wesl"), CUBE_ENTRIES),
@@ -253,7 +224,7 @@ struct Fixture {
     tints: wgpu::Buffer,
     query_tables: wgpu::Buffer,
     atmosphere: wgpu::Buffer,
-    lightmap: wgpu::Buffer,
+    lighting: gpu_snapshot::WorldLighting,
     atlas: wgpu::TextureView,
     sampler: wgpu::Sampler,
 }
@@ -265,6 +236,11 @@ impl Fixture {
         let storage = wgpu::BufferUsages::STORAGE;
         let uniform = wgpu::BufferUsages::UNIFORM;
         let frame = render_scene::AtmosphereFrame::default();
+        let atmosphere = gpu.buffer(&crate::gpu_snapshot::atmosphere_words(&frame), uniform);
+        let lightmap = gpu.lightmap(bytemuck::cast_slice(
+            &render_model::LightmapInputs::default().build(),
+        ));
+        let lighting = gpu_snapshot::WorldLighting::new(&gpu, &lightmap, Some(&atmosphere));
         Some(Self {
             materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
             zeros: gpu.words(&UNUSED, storage),
@@ -277,10 +253,9 @@ impl Fixture {
                 &meshing::biome_lattice::query_table_words(),
                 wgpu::BufferUsages::UNIFORM,
             ),
-            atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
-            lightmap: gpu.lightmap(bytemuck::cast_slice(
-                &render_model::LightmapInputs::default().build(),
-            )),
+            atmosphere,
+            lighting,
+
             atlas: solid_terrain_raster::pattern_texture(&gpu),
             sampler: gpu.device.create_sampler(&wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::Repeat,
@@ -297,7 +272,7 @@ impl Fixture {
         streams: &'a Streams,
         uniform: &'a wgpu::Buffer,
         geometry: &'a wgpu::Buffer,
-    ) -> [(u32, wgpu::BindingResource<'a>); 24] {
+    ) -> Vec<(u32, wgpu::BindingResource<'a>)> {
         [
             (0, uniform.as_entire_binding()),
             (1, streams.cube_quads.as_entire_binding()),
@@ -343,8 +318,14 @@ impl Fixture {
                 material_shader::NATIVE_LEAF_SAMPLER_BINDING,
                 wgpu::BindingResource::Sampler(&self.sampler),
             ),
-            (27, self.lightmap.as_entire_binding()),
         ]
+        .into_iter()
+        .chain(
+            self.lighting
+                .flat_bindings()
+                .map(|entry| (entry.binding, entry.resource)),
+        )
+        .collect()
     }
 
     /// Draws cube, slab and water passes together; pass_vertices selects model/liquid entry points.
@@ -387,12 +368,12 @@ impl Fixture {
         let bindings = passes
             .iter()
             .map(|&(source, vertex, fragment, geometry, _)| {
-                let used = used_bindings(source, [vertex, fragment]);
-                self.resources(streams, &uniform, geometry)
+                let resources = self
+                    .resources(streams, &uniform, geometry)
                     .into_iter()
-                    .filter(|(binding, _)| used.contains(binding))
                     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                gpu_snapshot::bindings_for(source, &[vertex, fragment], 0, &resources)
             })
             .collect::<Vec<_>>();
         let draws = passes

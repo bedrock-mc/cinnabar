@@ -37,6 +37,7 @@ mod hud;
 pub mod hud_extras;
 pub mod icon;
 pub mod item;
+pub mod java_world;
 mod lang;
 mod light_registry;
 pub mod material_keys;

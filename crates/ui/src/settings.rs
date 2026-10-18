@@ -196,6 +196,8 @@ pub struct VideoSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
     pub java_animations: bool,
+    /// Opt-in Java world presentation; player animations remain independent.
+    pub java_world_visuals: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
     /// When to draw cached terrain past the render distance.
@@ -227,6 +229,7 @@ impl Default for VideoSettings {
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
             java_animations: false,
+            java_world_visuals: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             // Far terrain has no setting while it is disabled.
             far_terrain: render_api::far_terrain::FarTerrainMode::Off,

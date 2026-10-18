@@ -146,7 +146,7 @@ use gpu::bind_groups::{
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
     init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
-    prepare_chunk_texture_assets, storage_table_fits,
+    prepare_chunk_texture_assets, prepare_java_terrain_mips, storage_table_fits,
 };
 #[allow(unused_imports)]
 use gpu::layout::{

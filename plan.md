@@ -1650,6 +1650,27 @@ Implementation and deterministic swing, sway, camera, overlay, equipment and sha
 are present. Full combat-profile visual comparison remains incomplete; this does
 not close a parity or visual acceptance gate.
 
+## Java world visuals (in progress)
+
+- The approved UI is one `Java world visuals` toggle in Video, off by default,
+  with a description. Java 1.7 player animations remain a separate option.
+- The setting and the working world preset must land together. The target is the
+  pinned Java release in `assets/java-world-source.json`, using original code and
+  per-install visual resources. Game code and art are not distributed here.
+- Local implementation covers setting persistence and both settings hosts, a bounded
+  optional resource carrier, environment attributes, a lightmap, camera fog, sky
+  geometry, seeded stars, camera-facing clouds, climate colours, water flipbooks,
+  terrain mip generation and quarter-level terrain light samples.
+- Validation: the bounded macOS build and 38 focused Java tests pass, including
+  decoding the authenticated resource archive. Metal captures at 1920×1080,
+  scale 1 and GUI scale 2 show the same terrain with the preset off and on.
+  The live Video control persists its choice and restores the normal style when disabled.
+- Incomplete: partial-model AO weights, biome blending, aliases and swamp noise,
+  full foliage and water geometry matching, underground fog, torch flicker and lightning handling,
+  pack-override checks, terrain light interpolation, End sky details,
+  matching Java captures, and frame/streaming budget checks.
+  These are open work, not accepted approximations. No parity or performance gate closes.
+
 ## Java 1.7 animations
 
 - Player poses and items are selected live from Video › Animations (persisted): Java 1.7 or

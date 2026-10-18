@@ -10,6 +10,10 @@ fn variants() -> Vec<Variant> {
         ("chunk", include_str!("../chunk.wesl")),
         ("model", include_str!("../model.wesl")),
         ("liquid", include_str!("../liquid.wesl")),
+        (
+            "transparent_terrain",
+            include_str!("../transparent_terrain.wesl"),
+        ),
     ] {
         result.push((
             name,
@@ -162,15 +166,30 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
         return;
     };
     let (device, queue) = (gpu.device, gpu.queue);
+    let samples = [
+        240_u32,
+        0,
+        u32::from(meshing::lighting::JAVA_SAMPLE_FLAG) | (60 << 6),
+        u32::from(meshing::lighting::JAVA_SAMPLE_FLAG),
+        u32::from(meshing::lighting::JAVA_SAMPLE_FLAG) | (29 << 6) | 60,
+    ];
+    let sample_count = samples.len();
+    let result_count = sample_count + 1;
+    let result_bytes = result_count * std::mem::size_of::<f32>();
+    let sample_words = samples.map(|sample| format!("{sample}u")).join(", ");
     let source = shader_source::composed(
-        "import render::enhanced::view::sky_illumination;
+        &format!(
+            "import render::enhanced::view::sky_illumination;
 import render::lighting::light_colour;
-@group(0) @binding(0) var<storage, read_write> results: array<f32, 3>;
-@compute @workgroup_size(1) fn main() {
-    results[0] = smoothstep(0.25, 0.8, sky_illumination(240u));
-    results[1] = sky_illumination(0u);
-    results[2] = light_colour(240u).r;
-}",
+@group(0) @binding(0) var<storage, read_write> results: array<f32, {result_count}>;
+@compute @workgroup_size(1) fn main() {{
+    let samples = array({sample_words});
+    for (var i = 0u; i < {sample_count}u; i += 1u) {{
+        results[i] = sky_illumination(samples[i]);
+    }}
+    results[{sample_count}] = light_colour(240u).r;
+}}"
+        ),
         &["ENHANCED"],
     );
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -203,11 +222,11 @@ import render::lighting::light_colour;
     );
     let results = buffer(
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        &[0; 12],
+        &vec![0; result_bytes],
     );
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 12,
+        size: result_bytes as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -230,7 +249,7 @@ import render::lighting::light_colour;
         pass.set_bind_group(1, &lights, &[]);
         pass.dispatch_workgroups(1, 1, 1);
     }
-    encoder.copy_buffer_to_buffer(&results, 0, &readback, 0, 12);
+    encoder.copy_buffer_to_buffer(&results, 0, &readback, 0, result_bytes as u64);
     queue.submit([encoder.finish()]);
     readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -243,4 +262,16 @@ import render::lighting::light_colour;
     .to_vec();
     assert_eq!(values[0], 1.0, "direct-light gate at full sky");
     assert_eq!(values[1], 0.0, "no sky exposure");
+    assert_eq!(values[2], 1.0, "Java full sky with no block light");
+    assert_eq!(values[3], 0.0, "Java no sky exposure");
+    let sky = 29.0_f32 / 60.0;
+    assert!(
+        (values[4] - sky / (4.0 - 3.0 * sky)).abs() < 1.0e-6,
+        "Java fractional sky ignores block light: {}",
+        values[4]
+    );
+    assert!(
+        (values[sample_count] - 0.129).abs() < 1.0e-6,
+        "night lightmap stays dark"
+    );
 }

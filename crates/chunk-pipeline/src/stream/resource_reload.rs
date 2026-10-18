@@ -45,12 +45,26 @@ impl ResourceMeshSnapshot {
 }
 
 impl WorldStream {
+    /// Reports the lighting style captured by subsequently dispatched mesh jobs.
+    pub fn java_world_lighting(&self) -> bool {
+        self.java_world_lighting
+    }
+
+    /// Rebuilds affected geometry and rejects work captured for an earlier style.
+    pub fn set_java_world_lighting(&mut self, enabled: bool, now: Instant) {
+        if self.java_world_lighting == enabled {
+            return;
+        }
+        self.java_world_lighting = enabled;
+        self.invalidate_mesh_rendering(now);
+    }
+
     /// The render choices captured by new mesh jobs and resource-pack snapshots.
     pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
         self.mesh_render_settings
     }
 
-    /// Identifies the quality generation, including changes that return to an earlier value.
+    /// Identifies mesh choices, including changes that return to an earlier value.
     pub fn mesh_render_revision(&self) -> u64 {
         self.mesh_render_revision
     }
@@ -66,11 +80,16 @@ impl WorldStream {
             return false;
         }
         self.mesh_render_settings = settings;
+        self.invalidate_mesh_rendering(now);
+        true
+    }
+
+    /// Withdraws obsolete work and advances the generation used by resource-pack rebuilds.
+    fn invalidate_mesh_rendering(&mut self, now: Instant) {
         self.mesh_render_revision += 1;
         self.invalidate_meshes(now);
         self.staged_mesh_completions.clear();
         self.staged_mesh_bytes = 0;
-        true
     }
 
     /// Captures resident render neighbourhoods only when their lighting is ready.
