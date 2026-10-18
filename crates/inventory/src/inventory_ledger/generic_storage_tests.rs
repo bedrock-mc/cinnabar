@@ -12,6 +12,8 @@ use protocol::{
 };
 
 mod cursor_close;
+mod input_close;
+mod response_identity;
 
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
@@ -72,7 +74,7 @@ fn response_with_storage_identity(request_id: i32, identity: ContainerIdentity) 
 
 /// Native accepted answers write backing explicitly; success alone never
 /// replays the local transfer. Both corrections belong to this take request.
-fn accepted_storage_take(request_id: i32, dynamic_id: u32) -> InventoryEvent {
+fn accepted_storage_take(request_id: i32) -> InventoryEvent {
     let corrected_slot = |slot, count, item_stack_id| StackResponseSlot {
         slot,
         hotbar_slot: slot,
@@ -91,7 +93,7 @@ fn accepted_storage_take(request_id: i32, dynamic_id: u32) -> InventoryEvent {
                     container: ContainerIdentity {
                         window_id: None,
                         slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-                        dynamic_id: Some(dynamic_id),
+                        dynamic_id: None,
                     },
                     slots: Arc::from([corrected_slot(2, 0, 0)]),
                 },
@@ -126,16 +128,15 @@ fn player_content_with_first(stack: NetworkItemStack) -> InventoryEvent {
     })
 }
 
-/// Vanilla's cursor authority: the UI window naming the cursor container.
+/// Clears the cursor through its fixed UI Slot receipt.
 fn cursor_content() -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(124),
-            slot_type: Some(59),
-            dynamic_id: None,
+    InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([NetworkItemStack::default()]),
-        storage_item: NetworkItemStack::default(),
+        stack: NetworkItemStack::empty(),
+        storage_item: None,
     })
 }
 
@@ -174,7 +175,7 @@ fn full_storage_refresh_prevents_rejection_from_restoring_an_empty_taken_slot() 
 }
 
 #[test]
-fn generic_storage_accepts_addressable_lengths_and_rejects_unaddressable_lengths() {
+fn generic_storage_accepts_addressable_lengths_and_ignores_unaddressable_content() {
     for count in [
         1,
         9,
@@ -196,7 +197,7 @@ fn generic_storage_accepts_addressable_lengths_and_rejects_unaddressable_lengths
     for count in [0, protocol::MAX_GENERIC_STORAGE_SLOTS + 1] {
         let ledger = ready(count, 9);
         assert_eq!(ledger.storage_slot_count(), None);
-        assert!(ledger.pending_batch().unwrap().is_some());
+        assert!(ledger.pending_batch().unwrap().is_none());
     }
 }
 
@@ -260,7 +261,7 @@ fn reused_window_id_has_a_new_generation_and_late_response_cannot_mutate_it() {
     assert!(ledger.storage_generation().unwrap() > first_generation);
 
     ledger.apply(&response(request, StackResponseStatus::Accepted));
-    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(200));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, None);
     assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
 }
 
@@ -276,7 +277,7 @@ fn player_cell_request_made_in_storage_ui_is_bound_to_that_open_generation() {
     ledger.apply(&response(request, StackResponseStatus::Accepted));
 
     assert_eq!(ledger.displayed_stack(0), Some(&original));
-    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(200));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, None);
 }
 
 #[test]
@@ -321,7 +322,7 @@ fn mismatched_full_container_identity_cannot_confirm_a_storage_request() {
             dynamic_id: Some(301),
         },
     ));
-    assert!(ledger.resync_required());
+    assert!(!ledger.resync_required());
     assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
 }
 
@@ -330,7 +331,7 @@ fn matching_response_full_identity_commits_without_a_window_field() {
     let mut ledger = ready(27, 300);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
-    ledger.apply(&accepted_storage_take(request, 300));
+    ledger.apply(&accepted_storage_take(request));
     assert!(!ledger.resync_required());
     assert!(ledger.storage_stack(2).is_none());
     assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 91);
@@ -454,11 +455,11 @@ fn timed_out_prediction_retires_after_every_touched_surface_refreshes() {
 }
 
 #[test]
-fn foreign_storage_content_and_mismatched_slot_updates_are_fenced() {
+fn foreign_storage_windows_are_fenced_and_matching_window_ignores_descriptors() {
     let mut ledger = ready(27, 700);
     ledger.apply(&content(2, 999, 27));
     ledger.apply(&content(1, 701, 27));
-    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(700));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, None);
     assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
     assert!(ledger.pending_batch().unwrap().is_none());
 
@@ -483,7 +484,16 @@ fn foreign_storage_content_and_mismatched_slot_updates_are_fenced() {
         stack: stack(10, 5, 100),
         storage_item: None,
     }));
-    assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 99);
+    assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 100);
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(2),
+            slot: 2,
+        },
+        stack: stack(10, 5, 200),
+        storage_item: None,
+    }));
+    assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 100);
 }
 
 #[test]
@@ -491,7 +501,7 @@ fn local_close_with_held_cursor_and_unknown_player_inventory_requires_authority(
     let mut ledger = ready(27, 800);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
-    ledger.apply(&accepted_storage_take(request, 800));
+    ledger.apply(&accepted_storage_take(request));
     assert!(ledger.cursor_stack().is_some());
     ledger.request_storage_close();
     assert!(ledger.resync_required());
@@ -520,7 +530,7 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
         .expect("a pending prediction retains the closing window");
     assert_eq!(
         ledger.storage_identity().unwrap().dynamic_id,
-        Some(900),
+        None,
         "the container identity stays retained"
     );
     assert_eq!(
@@ -552,13 +562,13 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
     // A duplicate close gesture cannot restart or requeue the close.
     ledger.request_storage_close();
     assert_eq!(ledger.storage_generation(), Some(generation));
-    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(900));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, None);
 }
 
 #[test]
 fn accepted_response_reconciles_then_finishes_the_deferred_close() {
     let (mut ledger, request) = closing_with_pending(910);
-    ledger.apply(&accepted_storage_take(request, 910));
+    ledger.apply(&accepted_storage_take(request));
 
     assert_eq!(
         ledger.cursor_stack().map(|stack| stack.stack_network_id),
@@ -687,7 +697,7 @@ fn replacing_the_window_clears_a_closing_state_immediately() {
         .storage_generation()
         .expect("the replacement window opened");
     assert_ne!(new_generation, old_generation);
-    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(951));
+    assert_eq!(ledger.storage_identity().unwrap().dynamic_id, None);
     ledger.apply(&response(request, StackResponseStatus::Accepted));
     assert_eq!(
         ledger.cursor_stack().map(|stack| stack.stack_network_id),
@@ -706,7 +716,7 @@ fn server_close_with_held_cursor_requires_player_and_cursor_in_both_orders() {
         let mut ledger = ready(27, 801);
         let request = ledger.begin_storage_click(2).unwrap();
         ledger.mark_transport_enqueued(10);
-        ledger.apply(&accepted_storage_take(request, 801));
+        ledger.apply(&accepted_storage_take(request));
         assert!(ledger.cursor_stack().is_some());
 
         ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
@@ -735,10 +745,9 @@ fn server_close_with_held_cursor_requires_player_and_cursor_in_both_orders() {
     }
 }
 
-/// A closed chest's late answer moves the item into the player inventory without ever
-/// hiding or clearing the same slot of the chest opened after it.
+/// A retired chest request changes neither shared player backing nor a reopened chest.
 #[test]
-fn settling_chest_request_never_touches_the_next_chest() {
+fn retired_chest_request_never_touches_backing_or_the_next_chest() {
     let mut ledger = ready(27, 960);
     ledger.apply(&player_content());
     let request = ledger
@@ -805,13 +814,11 @@ fn settling_chest_request_never_touches_the_next_chest() {
         }]),
     }));
     assert_eq!(ledger.storage_stack(2), Some(&chest_b_slot));
-    let received = ledger
-        .confirmed
-        .get(crate::inventory_ledger::Cell::Inventory(destination))
-        .unwrap();
-    assert_eq!(
-        (received.stack.count, received.stack.stack_network_id),
-        (3, 91)
+    assert!(
+        ledger
+            .confirmed
+            .get(crate::inventory_ledger::Cell::Inventory(destination))
+            .is_none()
     );
     assert_eq!(ledger.pending_state(), None);
 }

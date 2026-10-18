@@ -179,13 +179,14 @@ pub use item::{
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns, item_book,
     item_bundle_id, item_charged_projectile, item_custom_color, item_display,
-    item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
-    item_stack_damage, item_use_progress_packet, offhand_equipment_packet,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    item_enchantment_level, item_extra_damage, item_extra_damage_value, item_extra_unbreakable,
+    item_has_enchantment_list, item_stack_damage, item_use_progress_packet,
+    offhand_equipment_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_extra_slot_locked, item_filtered_custom_name, item_repair_cost,
+    item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

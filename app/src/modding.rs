@@ -369,9 +369,23 @@ fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
     ui: Res<UiRuntimeResource>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        let needs_targets = (0..extension.hosts.host_count())
+            .any(|index| extension.hosts.host(index).grants().entity_highlight);
+        let targets = actors
+            .as_deref()
+            .filter(|_| needs_targets)
+            .map(render_scene::mod_scene::mask_targets)
+            .unwrap_or_default();
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .publish_mask_targets(&targets);
+        }
         extension.hosts.begin_frame();
     }
 }
@@ -556,7 +570,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },

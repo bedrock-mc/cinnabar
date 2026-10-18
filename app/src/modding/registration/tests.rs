@@ -294,7 +294,7 @@ fn an_obsolete_completed_candidate_cannot_replace_the_current_host() {
 
 #[test]
 fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
-    let status = Status::new(PathBuf::from("a"), "error", Some("é\n".repeat(1000)));
+    let status = Status::new(PathBuf::from("a"), "error", Some("é\n".repeat(1000)), None);
     let message = status.message.unwrap();
     assert!(message.len() <= status::MAX_MESSAGE_BYTES && !message.contains('\n'));
     let mut world = World::new();

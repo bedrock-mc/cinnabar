@@ -14,17 +14,46 @@ fn dynamic(id: u32) -> ContainerIdentity {
     }
 }
 
+/// Registers the storage component required to admit new dynamic container keys.
+fn storage_registry() -> protocol::ItemRegistryEvent {
+    let mut registry = protocol::test_support::items::component_item_registry(
+        "fixture:bundle",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    );
+    let entry = &mut Arc::make_mut(&mut registry.entries)[0];
+    let components = entry.components.get_or_insert_with(Default::default);
+    Arc::make_mut(components).storage_container = true;
+    registry
+}
+
+/// Creates a ledger with the negotiated item definition needed by its storage descriptors.
+fn bundle_ledger() -> PlayerInventoryLedger {
+    let mut ledger = PlayerInventoryLedger::default();
+    ledger.apply_registry(&storage_registry());
+    ledger
+}
+
 /// Restates one bundle with a known stack identity.
 fn content(id: u32) -> InventoryEvent {
     InventoryEvent::Content(InventoryContentEvent {
-        container: dynamic(id),
+        container: ContainerIdentity {
+            window_id: Some(protocol::DYNAMIC_STORAGE_WINDOW_ID),
+            ..dynamic(id)
+        },
         slots: Arc::from([NetworkItemStack {
             network_id: 6,
             stack_network_id: 81,
             count: 3,
             ..Default::default()
         }]),
-        storage_item: NetworkItemStack::empty(),
+        storage_item: NetworkItemStack {
+            network_id: 6,
+            stack_network_id: 90,
+            count: 1,
+            ..Default::default()
+        },
     })
 }
 
@@ -35,7 +64,7 @@ fn cleanup(containers: &[ContainerIdentity]) -> InventoryEvent {
 
 #[test]
 fn container_registry_cleanup_removes_only_the_matching_bundle() {
-    let mut ledger = PlayerInventoryLedger::default();
+    let mut ledger = bundle_ledger();
     ledger.apply(&content(7));
     ledger.apply(&content(8));
     let other = ledger.bundle_contents(8).unwrap().to_vec();
@@ -73,7 +102,7 @@ fn container_registry_cleanup_removes_only_the_matching_bundle() {
 
 #[test]
 fn container_registry_cleanup_does_not_alias_other_full_names() {
-    let mut ledger = PlayerInventoryLedger::default();
+    let mut ledger = bundle_ledger();
     ledger.apply(&content(7));
     ledger.apply(&content(0));
     let before = ledger.bundles.clone();
@@ -100,7 +129,7 @@ fn container_registry_cleanup_does_not_alias_other_full_names() {
 
 #[test]
 fn container_registry_cleanup_reclaims_capacity_and_session_reset_clears_contents() {
-    let mut ledger = PlayerInventoryLedger::default();
+    let mut ledger = bundle_ledger();
     for id in 0..MAX_BUNDLES as u32 {
         ledger.apply(&content(id));
     }
@@ -115,6 +144,7 @@ fn container_registry_cleanup_reclaims_capacity_and_session_reset_clears_content
     }
     ledger.begin_session(2);
     assert!(ledger.bundles.is_empty());
+    ledger.apply_registry(&storage_registry());
     ledger.apply(&content(7));
     assert!(ledger.bundle_contents(7).is_some());
 }
@@ -122,6 +152,7 @@ fn container_registry_cleanup_reclaims_capacity_and_session_reset_clears_content
 #[test]
 fn container_registry_cleanup_obeys_session_fifo_and_rejects_stale_sessions() {
     let mut session = InventorySession::new(1);
+    session.ledger_mut().apply_registry(&storage_registry());
     for (sequence, event) in [
         (1, content(7)),
         (2, content(8)),
@@ -144,6 +175,7 @@ fn container_registry_cleanup_obeys_session_fifo_and_rejects_stale_sessions() {
     session.begin_session(2);
     assert!(session.apply_next().is_none());
     assert!(session.ledger().bundle_contents(7).is_none());
+    session.ledger_mut().apply_registry(&storage_registry());
     session.enqueue_inventory_event(2, 1, content(7)).unwrap();
     session.drain_pending_inventory();
     assert!(matches!(
