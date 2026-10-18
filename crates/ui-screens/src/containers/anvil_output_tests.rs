@@ -57,6 +57,7 @@ fn the_anvil_output_cell_shows_the_predicted_result() {
         offhand_icon: None,
         offhand_durability: None,
         cursor_icon: None,
+        cursor_durability: None,
         recipe_icons: &[],
         recipe_output: Some(&predicted),
         book_entries: &[],

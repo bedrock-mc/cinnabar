@@ -97,3 +97,36 @@ fn solid_lines_share_the_legacy_ribbon_budget() {
         mod_api::MAX_RENDER_RIBBONS
     );
 }
+
+#[test]
+fn legacy_post_imports_cannot_bypass_remote_policy() {
+    let mut state = state();
+    state.drawing_policy = Some(mod_api::drawing::DrawingSession {
+        connection: 1,
+        permissions: mod_api::drawing::DrawingPermissions {
+            world_draw: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert!(
+        state
+            .register_pass(wit::PassSpec {
+                name: "grade".into(),
+                order: 0,
+                source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }".into(),
+                depth: false,
+            })
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        state
+            .update_pass("grade".into(), true, vec![])
+            .unwrap()
+            .is_err()
+    );
+    assert!(state.remove_pass("grade".into()).unwrap().is_err());
+    state.render.commit();
+    assert!(state.render.output().passes.is_empty());
+}

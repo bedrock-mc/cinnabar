@@ -269,6 +269,9 @@ impl LauncherCoreSlot {
 impl MenuRuntime {
     /// The validated sign-in's auth cache, for the launcher core and joins.
     pub fn launcher_auth_cache(&self) -> Option<PathBuf> {
+        if self.external.is_some() {
+            return None;
+        }
         if self.feeds.account_adding && self.accounts.pending_ready {
             return Some(
                 launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache(),

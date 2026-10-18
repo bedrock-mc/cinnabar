@@ -166,6 +166,7 @@ fn render_is_denied_by_default_even_with_other_grants() {
         inventory: true,
         block_highlights: false,
         fullbright: false,
+        ..Default::default()
     };
     let (_dir, mut host) = load(&calls, &init, &frame, grants);
     host.frame(false).unwrap();
@@ -350,4 +351,48 @@ fn identical_primitives_keep_their_identity_and_generation() {
         "an unchanged frame publishes no new generation"
     );
     assert!(std::sync::Arc::ptr_eq(&first, &output.primitives));
+}
+
+#[test]
+fn drawing_policy_is_installed_before_candidate_init() {
+    let mut calls = Calls::new();
+    let init = calls.register("grade", 0, GRADE, false, true);
+    let source = calls.source(&init, "");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("candidate.wat");
+    let session = mod_api::drawing::DrawingSession::default();
+    let host = ModHost::prepare_snapshot_in_session(
+        &path,
+        source.as_bytes(),
+        granted(),
+        None,
+        Some(session),
+    )
+    .unwrap();
+    assert!(host.is_active());
+    assert!(!host.grants().render);
+    assert!(host.render().0.passes.is_empty());
+}
+
+#[test]
+fn failed_drawing_policy_init_is_not_retried_until_the_fence_changes() {
+    let mut calls = Calls::new();
+    let init = calls.register("grade", 0, GRADE, false, false);
+    let (_directory, mut host) = load(&calls, &init, "", granted());
+    let session = mod_api::drawing::DrawingSession {
+        connection: 1,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().is_err());
+    assert!(host.is_revoked());
+    assert!(!host.reload_if_changed().unwrap());
+    host.bind_drawing_session(mod_api::drawing::DrawingSession {
+        local: true,
+        permissions: mod_api::drawing::DrawingPermissions::ALL,
+        ..session
+    });
+    assert!(host.reload_if_changed().unwrap());
+    assert!(host.is_active());
+    assert_eq!(host.render().0.passes.len(), 1);
 }

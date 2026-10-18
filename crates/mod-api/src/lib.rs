@@ -192,3 +192,6 @@ pub const MAX_COMBAT_READ_EVENTS: usize = 4;
 
 /// Total regular frame-callback fuel shared across all local mods.
 pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;
+
+/// World drawing authority and generation-safe resource tokens.
+pub mod drawing;

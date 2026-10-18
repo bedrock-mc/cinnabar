@@ -140,13 +140,15 @@ func (relay *Relay) serveSocket(w http.ResponseWriter, r *http.Request, channel 
 		relay.runPlay(ctx, conn, client, nil, request)
 		return
 	}
-	session, detach, err := relay.openControl(client, request.Resume, time.Now())
+	controller, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
 		_ = writeJSON(ctx, conn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
-	relay.runControl(ctx, conn, client, session)
+	stopController := context.AfterFunc(controller.ctx, cancel)
+	defer stopController()
+	relay.runControl(ctx, conn, client, controller)
 }
 
 // newSocketConn preserves the reliable byte stream while bounding incoming and outgoing messages.
@@ -216,18 +218,20 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 	if err != nil {
 		return
 	}
-	session, detach, err := relay.openControl(client, request.Resume, time.Now())
+	controller, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
 		_ = writeJSON(ctx, controlConn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
+	stopController := context.AfterFunc(controller.ctx, cancel)
+	defer stopController()
 	if !admission.establish() {
 		return
 	}
 	var workers sync.WaitGroup
 	defer func() { cancel(); _ = transport.CloseWithError(0, ""); workers.Wait() }()
-	workers.Go(func() { relay.runControl(ctx, controlConn, client, session); cancel() })
+	workers.Go(func() { relay.runControl(ctx, controlConn, client, controller); cancel() })
 	// Older peers may not negotiate session stream limits. Reject uni streams explicitly too.
 	workers.Go(func() {
 		for {
@@ -257,7 +261,7 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 			conn.abort()
 			continue
 		}
-		workers.Go(func() { defer func() { <-playing }(); relay.runPlay(ctx, conn, client, session, request) })
+		workers.Go(func() { defer func() { <-playing }(); relay.runPlay(ctx, conn, client, controller, request) })
 	}
 }
 

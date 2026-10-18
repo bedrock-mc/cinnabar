@@ -14,6 +14,7 @@ const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
+/// Allocates a process-unique identity across reloads and owners.
 fn next_revision() -> u64 {
     REVISION.fetch_add(1, Ordering::Relaxed)
 }
@@ -97,13 +98,32 @@ impl RenderState {
 }
 
 impl State {
+    /// Charges an import before testing primitive authority.
     fn render_allowed(&mut self) -> Result<Result<(), String>> {
         self.render.budget()?;
-        Ok(if self.grants.render {
+        Ok(if self.grants.render || self.grants.world_draw {
             Ok(())
         } else {
             Err("render capability denied".into())
         })
+    }
+}
+
+impl State {
+    /// Legacy post effects require their own session authority, including all mutations.
+    fn post_allowed(&mut self) -> Result<Result<(), String>> {
+        self.render.budget()?;
+        Ok(
+            if (self.grants.render || self.grants.render_post)
+                && self.drawing_policy.is_none_or(|policy| {
+                    policy.permissions.render_post && (policy.local || self.grants.render_post)
+                })
+            {
+                Ok(())
+            } else {
+                Err("post effect capability denied".into())
+            },
+        )
     }
 }
 
@@ -116,7 +136,7 @@ impl wit::Host for State {
     }
 
     fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
+        if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
         if !mod_render::pass_name_valid(&spec.name) {
@@ -172,7 +192,7 @@ impl wit::Host for State {
     }
 
     fn remove_pass(&mut self, name: String) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
+        if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
         let passes = self.render.staged();
@@ -191,7 +211,7 @@ impl wit::Host for State {
         enabled: bool,
         params: Vec<f32>,
     ) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
+        if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
         if params.len() > MAX_PASS_PARAMS || !params.iter().all(|value| value.is_finite()) {

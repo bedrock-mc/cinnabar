@@ -16,10 +16,16 @@ pub(crate) fn from_wgsl(source: impl Into<Cow<'static, str>>, path: impl Into<St
 pub(crate) fn from_wesl(source: impl Into<Cow<'static, str>>, path: impl Into<String>) -> Shader {
     let path = path.into();
     let normalized = path.replace('\\', "/");
-    let relative = normalized.split_once("/src/").map_or_else(
-        || normalized.strip_prefix("src/").unwrap_or(&normalized),
-        |(_, relative)| relative,
-    );
+    let (owner, relative) = normalized
+        .strip_prefix("embedded://")
+        .and_then(|embedded| embedded.split_once('/'))
+        .unwrap_or_else(|| {
+            let relative = normalized.split_once("/src/").map_or_else(
+                || normalized.strip_prefix("src/").unwrap_or(&normalized),
+                |(_, relative)| relative,
+            );
+            (env!("CARGO_PKG_NAME"), relative)
+        });
     let mut components = Vec::new();
     for component in relative.split('/') {
         match component {
@@ -32,11 +38,7 @@ pub(crate) fn from_wesl(source: impl Into<Cow<'static, str>>, path: impl Into<St
             component => components.push(component),
         }
     }
-    let embedded = format!(
-        "embedded://{}/{}",
-        env!("CARGO_PKG_NAME"),
-        components.join("/")
-    );
+    let embedded = format!("embedded://{owner}/{}", components.join("/"));
     let mut shader = Shader::from_wesl(source, embedded);
     shader.path = path;
     shader.validate_shader = ValidateShader::Enabled;
@@ -126,6 +128,18 @@ mod tests {
         assert!(root.imports.contains(&library.import_path));
         assert!(matches!(library.validate_shader, ValidateShader::Enabled));
         assert!(matches!(root.validate_shader, ValidateShader::Enabled));
+    }
+
+    #[test]
+    fn embedded_wesl_keeps_its_owner_and_runtime_checks() {
+        let path = "embedded://bevy_render/view.wesl";
+        let shader = from_wesl("const VALUE: u32 = 1u;", path);
+        assert_eq!(shader.path, path);
+        assert_eq!(
+            shader.import_path,
+            bevy::shader::ShaderImport::Custom("bevy_render::view".into())
+        );
+        assert!(matches!(shader.validate_shader, ValidateShader::Enabled));
     }
 
     #[test]

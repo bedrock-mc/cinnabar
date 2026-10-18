@@ -45,6 +45,34 @@ impl ResourceMeshSnapshot {
 }
 
 impl WorldStream {
+    /// The render choices captured by new mesh jobs and resource-pack snapshots.
+    pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
+        self.mesh_render_settings
+    }
+
+    /// Identifies the quality generation, including changes that return to an earlier value.
+    pub fn mesh_render_revision(&self) -> u64 {
+        self.mesh_render_revision
+    }
+
+    /// Rebuilds resident meshes when quality changes, cancelling old jobs and withdrawing
+    /// queued results. Forced revisions reject late completions even after an A/B/A toggle.
+    pub fn set_mesh_render_settings(
+        &mut self,
+        settings: ::meshing::MeshRenderSettings,
+        now: Instant,
+    ) -> bool {
+        if self.mesh_render_settings == settings {
+            return false;
+        }
+        self.mesh_render_settings = settings;
+        self.mesh_render_revision += 1;
+        self.invalidate_meshes(now);
+        self.staged_mesh_completions.clear();
+        self.staged_mesh_bytes = 0;
+        true
+    }
+
     /// Captures resident render neighbourhoods only when their lighting is ready.
     pub fn resource_mesh_snapshot(
         &self,

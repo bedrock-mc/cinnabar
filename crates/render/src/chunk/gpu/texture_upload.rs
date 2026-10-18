@@ -57,6 +57,9 @@ pub(super) fn build_carrier_texture_assets(
     Some((prepared, stats))
 }
 
+#[cfg(test)]
+mod tests;
+
 /// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
 pub(in crate::chunk) fn build_chunk_texture_assets(
     assets: &ChunkTextureAssets,
@@ -115,7 +118,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         let texture = match match binding {
             TexturePageBinding::Asset(index) => assets.assets().terrain_texture_page(index),
             TexturePageBinding::DiagnosticFallback => {
-                assets::texture::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
+                assets::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
             }
         } {
             Ok(texture) => texture,
@@ -672,7 +675,7 @@ mod tests {
                         carrier.assets().terrain_texture_page(index).unwrap()
                     }
                     TexturePageBinding::DiagnosticFallback => std::borrow::Cow::Owned(
-                        assets::texture::rebuild_legacy_terrain_mips(&fallback).unwrap(),
+                        assets::rebuild_legacy_terrain_mips(&fallback).unwrap(),
                     ),
                 };
                 page.mips
