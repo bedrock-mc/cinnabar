@@ -23,6 +23,11 @@ pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
+mod options;
+pub(crate) use options::normalize_inventory_options;
+pub use options::{
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+};
 mod furnace_options;
 pub(crate) use furnace_options::normalize_furnace_options;
 pub use furnace_options::{
@@ -246,6 +251,7 @@ pub enum InventoryEvent {
     Data(ContainerDataEvent),
     EnchantOptions(EnchantOptionsEvent),
     FurnaceOptions(FurnaceOptionsEvent),
+    Options(InventoryOptions),
     Creative(CreativeContentEvent),
 }
 

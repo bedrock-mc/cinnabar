@@ -11,11 +11,13 @@ use super::*;
 pub(super) use crate::test_support::{creative_with, inventory_session as session};
 use ui_screens::container_actions::InventoryCellHit;
 
+mod fallback_recipe_tests;
 mod furnace_fuel_tests;
 mod furnace_recipe_tests;
 mod hotbar_open_tests;
 mod inventory_layout_tests;
 mod prewarm_tests;
+mod search_focus_tests;
 
 #[test]
 fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
@@ -148,12 +150,6 @@ fn with_enchant_options(
     runtime
 }
 
-/// The creative inventory over a 300-item catalog across the four tabs, whose
-/// first construction items fold into a named group, the second one unfolded.
-fn creative(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
-    creative_with(player_runtime, 300)
-}
-
 /// A writable three-page book, on its first spread or its signing cover.
 fn book(player_runtime: &mut player_state::PlayerState, signing: bool) -> UiRuntime {
     use crate::ui_runtime::book_screen::{BookSource, BookState};
@@ -250,7 +246,7 @@ fn screens() -> Vec<(
             "inventory_recipe_book",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = Some(true);
+                runtime.select_inventory_layout(player_runtime, 2).unwrap();
                 runtime
             },
             vec![
@@ -263,7 +259,7 @@ fn screens() -> Vec<(
             "inventory_recipe_search",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = Some(true);
+                runtime.select_inventory_layout(player_runtime, 2).unwrap();
                 runtime
                     .screen_state_mut()
                     .select_tab(ui_screens::container_actions::SEARCH_TAB);
@@ -273,7 +269,7 @@ fn screens() -> Vec<(
         ),
         screen(
             "creative",
-            creative,
+            inventory_layout_tests::creative_with_player_cells,
             vec![
                 RecipeBook(0),
                 RecipeBook(20),
@@ -635,56 +631,6 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
         .collect();
     assert!(reached.contains(&InventoryCellHit::Storage(1)));
     assert!(!reached.contains(&InventoryCellHit::Storage(0)));
-}
-
-// Creative's wide list drops the player inventory for the catalog and keeps
-// the hotbar beneath it; its toggles pick each layout.
-#[test]
-fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    use ui_screens::container_actions::Widget as W;
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        eprintln!(
-            "skipping creative_wide_layout_keeps_only_the_hotbar_under_the_catalog: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    let mut runtime = creative(&mut player_runtime);
-    runtime.screen_state_mut().creative_wide = true;
-    let dpi = DpiScale::new(1.0).unwrap();
-    for now in [0, 500] {
-        presentation
-            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
-            .unwrap();
-    }
-    let input = presentation
-        .build(&player_runtime, &runtime, 5_000, [1280, 720], dpi)
-        .unwrap();
-    super::super::forms::snapshot::write(&input, "container-creative_wide");
-    let frame = presentation.engine_container_frame().unwrap();
-    let reached: Vec<InventoryCellHit> = frame
-        .hits
-        .iter()
-        .filter_map(|region| {
-            let center = [
-                (region.rect.x + region.rect.w / 2.0) as f32,
-                (region.rect.y + region.rect.h / 2.0) as f32,
-            ];
-            presentation.engine_container_hit(center)
-        })
-        .collect();
-    for hit in [
-        InventoryCellHit::RecipeBook(0),
-        InventoryCellHit::Player(0),
-        InventoryCellHit::Player(8),
-        InventoryCellHit::Widget(W::InventoryLayout(2)),
-    ] {
-        assert!(reached.contains(&hit), "{hit:?} unreachable");
-    }
-    assert!(!reached.contains(&InventoryCellHit::Player(9)));
 }
 
 // The personal inventory is prepared while it is closed, and other containers never evict it,
