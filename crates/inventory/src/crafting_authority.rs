@@ -310,7 +310,7 @@ impl CraftingAuthority {
         }
     }
 
-    /// Only the admitted session bootstrap may call this; it grants no cell facts.
+    /// Seeds startup authority and absent discovery without granting cell facts.
     pub(super) fn bootstrap(
         &mut self,
         registry: Option<&protocol::ItemRegistryEvent>,
@@ -321,12 +321,14 @@ impl CraftingAuthority {
         }
         self.registry = registry.and_then(|event| self.registry_owner(event));
         self.authority = Some(authority);
+        self.unlock_component = Some(false);
         observation::bootstrap(self.session, self.registry.is_some());
     }
 
     /// Bootstrap facts are admissible only before the stream or an authority loss begins.
     fn accepts_bootstrap(&self) -> bool {
-        self.observed == 0
+        self.stream.is_none()
+            && self.observed == 0
             && self.consumed == 0
             && self.barrier == 0
             && self.authority_loss == 0

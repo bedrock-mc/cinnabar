@@ -39,7 +39,7 @@ fn commit(session: &mut InventorySession, sequence: u64, event: InventoryEvent) 
     session.drain_pending_inventory();
 }
 
-/// Installs one real recipe and a known personal crafting input.
+/// Bootstraps after idle login drains, then installs a recipe and a known crafting input.
 fn session(always: bool) -> InventorySession {
     let registry = ItemRegistryEvent {
         entries: ::protocol::vanilla_item_registry(),
@@ -51,7 +51,15 @@ fn session(always: bool) -> InventorySession {
         .unwrap()
         .network_id;
     let mut session = InventorySession::new(1);
-    session.enqueue_item_registry_event(1, 1, registry).unwrap();
+    for _ in 0..3 {
+        session.synchronize_crafting_frontier(1, None);
+        session.drain_pending_inventory();
+    }
+    assert!(session.publish_bootstrap_inventory(
+        Some(registry),
+        InventoryEvent::Authority(::protocol::InventoryAuthority::Server),
+    ));
+    session.publish_crafting_rules_bootstrap(CraftingRules::default());
     commit(
         &mut session,
         2,
@@ -130,6 +138,51 @@ fn recipe_book_distinguishes_absent_discovery_from_an_empty_component() {
     assert_eq!(session.book_recipes(false, false, 0, usize::MAX).len(), 1);
     commit(&mut session, 4, recipe_unlock_event(0, &[]));
     assert!(session.book_recipes(false, false, 0, usize::MAX).is_empty());
+}
+
+#[test]
+fn recipe_book_survives_prebootstrap_drains_without_unlock_packets() {
+    let mut session = session(false);
+    let mut material = session
+        .ledger()
+        .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(
+            *::protocol::CRAFTING_INPUT_SLOTS.start(),
+        ))
+        .unwrap()
+        .clone();
+    material.stack_network_id = 12;
+    let mut slots =
+        vec![NetworkItemStack::empty(); inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = material;
+    commit(
+        &mut session,
+        4,
+        InventoryEvent::Content(InventoryContentEvent {
+            container: ::protocol::ContainerIdentity::window(0),
+            slots: Arc::from(slots),
+            storage_item: NetworkItemStack::empty(),
+        }),
+    );
+    assert!(session.ledger_mut().request_personal_open(42));
+    assert!(session.ledger_mut().mark_transport_enqueued(0));
+    commit(
+        &mut session,
+        5,
+        InventoryEvent::Open(::protocol::ContainerOpenEvent {
+            container: ::protocol::ContainerIdentity::window(1),
+            window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            position: [0; 3],
+            runtime_entity_id: -1,
+        }),
+    );
+    for search_active in [false, true] {
+        let mut session = session.clone();
+        let entries = session.book_recipes(false, search_active, 0, 10);
+        assert_eq!(entries.len(), 1);
+        assert!(session.book_recipe_selectable(&entries[0].recipe));
+        assert!(session.begin_book_craft(&entries[0].recipe).is_ok());
+        assert_eq!(session.ledger().pending_request_count(), 1);
+    }
 }
 
 #[test]
