@@ -135,9 +135,15 @@ pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
     item_extra_damage_value(extra_data).and_then(|value| u32::try_from(value).ok())
 }
 
-/// Reads a retained integer `Damage` value, including signed corrections.
+/// Reads item damage as a signed 16-bit value from its retained integer `Damage` tag.
 #[must_use]
 pub fn item_extra_damage_value(extra_data: &[u8]) -> Option<i32> {
+    item_extra_damage_integer(extra_data).map(|damage| i32::from(damage as i16))
+}
+
+/// Reads the stored root `Damage` integer without applying item damage conversion.
+#[must_use]
+pub fn item_extra_damage_integer(extra_data: &[u8]) -> Option<i32> {
     root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 

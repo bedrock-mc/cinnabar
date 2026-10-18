@@ -76,7 +76,8 @@ impl InventorySession {
     pub const fn pending_hotbar_selection(&self) -> Option<u8> {
         self.pending_hotbar_selection
     }
-    /// Builds a pending slot-selection command without consuming it.
+    /// Builds the pending selection from current authority without consuming it.
+    /// Unknown cells announce an empty hand; unsent local backing changes still wait.
     pub fn pending_hotbar_packet(
         &self,
         game_mode: Option<PlayerGameMode>,
@@ -88,7 +89,7 @@ impl InventorySession {
     }
 
     /// Builds changed held equipment for a local tick without consuming it.
-    /// Unknown cells wait; accepted sends commit the slot and stack together.
+    /// Unknown cells announce an empty hand; accepted sends commit the slot and stack together.
     pub fn changed_held_equipment_packet(
         &self,
         game_mode: Option<PlayerGameMode>,
@@ -96,10 +97,13 @@ impl InventorySession {
         let Some(runtime_id) = self.local_runtime_id() else {
             return Ok(None);
         };
-        let Some(snapshot) = self.selected_stack_snapshot(game_mode) else {
+        let Some(snapshot) = self.selected_backing_stack_snapshot(game_mode) else {
             return Ok(None);
         };
         let target = snapshot.slot;
+        if self.inventory_ledger.slot_backing_transport_pending(target) {
+            return Ok(None);
+        }
         if self
             .pending_hotbar_selection
             .is_some_and(|pending| pending != target)
@@ -108,8 +112,7 @@ impl InventorySession {
         }
         let empty = protocol::NetworkItemStack::empty();
         let stack = match snapshot.state {
-            PlayerInventorySlot::Unknown => return Ok(None),
-            PlayerInventorySlot::Empty => &empty,
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => &empty,
             PlayerInventorySlot::Present(stack) => stack,
         };
         let (announced_slot, announced_stack) = &self.announced_hotbar;
@@ -160,7 +163,7 @@ impl InventorySession {
         }
     }
 
-    /// Commits known held equipment after acceptance, preserving newer pending selections.
+    /// Commits held backing equipment after acceptance, preserving newer pending selections.
     pub fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
         if self
             .pending_hotbar_selection
@@ -171,10 +174,14 @@ impl InventorySession {
         {
             return false;
         }
-        let stack = match self.hotbar_slot_state(slot) {
-            None | Some(PlayerInventorySlot::Unknown) => return false,
-            Some(PlayerInventorySlot::Empty) => protocol::NetworkItemStack::empty(),
-            Some(PlayerInventorySlot::Present(stack)) => stack.clone(),
+        let Some(state) = self.inventory_ledger.backing_slot_state(slot) else {
+            return false;
+        };
+        let stack = match self.selected_snapshot_with_equipment(slot, state).state {
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
+                protocol::NetworkItemStack::empty()
+            }
+            PlayerInventorySlot::Present(stack) => stack.clone(),
         };
         self.announced_hotbar = (slot, stack);
         self.pending_hotbar_selection = None;
@@ -214,6 +221,28 @@ impl InventorySession {
     /// Resolves a physical hotbar cell, using its equipment echo only while authority is unknown.
     fn hotbar_slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
         let ledger_state = self.inventory_ledger.slot_state(slot)?;
+        Some(
+            self.selected_snapshot_with_equipment(slot, ledger_state)
+                .state,
+        )
+    }
+
+    /// Borrows selected player backing while screen predictions retain their separate view.
+    pub fn selected_backing_stack_snapshot(
+        &self,
+        game_mode: Option<protocol::PlayerGameMode>,
+    ) -> Option<SelectedStackSnapshot<'_>> {
+        let slot = self.selected_hotbar_slot(game_mode)?;
+        let state = self.inventory_ledger.backing_slot_state(slot)?;
+        Some(self.selected_snapshot_with_equipment(slot, state))
+    }
+
+    /// Uses admitted equipment only while the addressed player cell remains unknown.
+    fn selected_snapshot_with_equipment<'a>(
+        &'a self,
+        slot: u8,
+        ledger_state: PlayerInventorySlot<'a>,
+    ) -> SelectedStackSnapshot<'a> {
         let state = match ledger_state {
             PlayerInventorySlot::Unknown => self
                 .local_selected_equipment
@@ -228,7 +257,7 @@ impl InventorySession {
                 }),
             known => known,
         };
-        Some(state)
+        SelectedStackSnapshot { slot, state }
     }
 
     /// Returns the present selected stack, preserving the existing optional API.
@@ -616,9 +645,34 @@ mod tests {
         );
     }
 
-    /// A slot whose stack still carries a predicted request id sends at once.
+    /// Unreported cells announce an empty hand without manufacturing slot authority.
     #[test]
-    fn predicted_stack_id_does_not_withhold_the_hotbar_packet() {
+    fn unknown_hotbar_cell_can_announce_empty_equipment() {
+        let mode = Some(PlayerGameMode::Survival);
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        session.queue_local_hotbar_selection(2, mode);
+        let (slot, packet) = session.pending_hotbar_packet(mode).unwrap().unwrap();
+        assert_eq!(slot, 2);
+        let equipment = protocol::test_support::packets::equipment(&packet).unwrap();
+        assert_eq!(equipment.network_id, 0);
+        assert_eq!(equipment.count, 0);
+        assert_eq!(
+            session.ledger().backing_slot_state(2),
+            Some(PlayerInventorySlot::Unknown)
+        );
+        assert!(session.clear_pending_hotbar_selection(slot));
+        assert!(
+            session
+                .changed_held_equipment_packet(mode)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// A local drop publishes backing only after its transaction enters transport.
+    #[test]
+    fn backing_hotbar_descriptor_waits_for_a_local_backing_mutation() {
         let game_mode = Some(PlayerGameMode::Survival);
         let mut session = InventorySession::new(1);
         session.publish_local_runtime_id(1, 42).unwrap();
@@ -645,11 +699,81 @@ mod tests {
         assert_eq!(predicted.stack_network_id, -3);
 
         session.queue_local_hotbar_selection(2, game_mode);
+        assert!(session.pending_hotbar_packet(game_mode).unwrap().is_none());
+        assert!(session.ledger_mut().mark_transport_enqueued(0));
         let (slot, packet) = session.pending_hotbar_packet(game_mode).unwrap().unwrap();
         assert_eq!(slot, 2);
         let packet = protocol::test_support::packets::equipment(&packet)
             .expect("hotbar selection must build a MobEquipment packet");
         assert_eq!(packet.count, 3);
         assert_eq!(packet.stack_network_id, None);
+    }
+
+    #[test]
+    fn backing_hotbar_descriptor_ignores_screen_only_item_changes() {
+        for backing_present in [false, true] {
+            let mode = Some(PlayerGameMode::Survival);
+            let mut session = InventorySession::new(1);
+            session.publish_local_runtime_id(1, 42).unwrap();
+            let ledger = session.ledger_mut();
+            ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+            let item = protocol::NetworkItemStack {
+                network_id: 7,
+                stack_network_id: 13,
+                count: 4,
+                ..protocol::NetworkItemStack::empty()
+            };
+            for (window, slot, stack) in [
+                (
+                    protocol::PLAYER_INVENTORY_WINDOW_ID,
+                    2,
+                    if backing_present {
+                        item.clone()
+                    } else {
+                        protocol::NetworkItemStack::empty()
+                    },
+                ),
+                (
+                    protocol::UI_INVENTORY_WINDOW_ID,
+                    0,
+                    if backing_present {
+                        protocol::NetworkItemStack::empty()
+                    } else {
+                        item
+                    },
+                ),
+            ] {
+                ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                    identity: protocol::SlotIdentity {
+                        container: ContainerIdentity::window(window),
+                        slot,
+                    },
+                    stack,
+                    storage_item: None,
+                }));
+            }
+            assert!(ledger.request_personal_open(42));
+            assert!(ledger.mark_transport_enqueued(0));
+            let gesture = if backing_present {
+                crate::inventory_ledger::CellGesture::TakeCount(1)
+            } else {
+                crate::inventory_ledger::CellGesture::Click
+            };
+            ledger
+                .begin_target_gesture(crate::inventory_ledger::InventoryTarget::Player(2), gesture)
+                .unwrap();
+            session.queue_local_hotbar_selection(2, mode);
+            let (_, packet) = session.pending_hotbar_packet(mode).unwrap().unwrap();
+            let sent = protocol::test_support::packets::equipment(&packet).unwrap();
+            assert_eq!(sent.network_id, if backing_present { 7 } else { 0 });
+            assert_eq!(sent.count, if backing_present { 4 } else { 0 });
+            assert!(session.clear_pending_hotbar_selection(2));
+            assert!(
+                session
+                    .changed_held_equipment_packet(mode)
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 }

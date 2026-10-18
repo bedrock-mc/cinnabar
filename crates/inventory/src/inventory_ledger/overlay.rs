@@ -227,6 +227,7 @@ fn transfer(
             if partial {
                 // The split-off stack gets a new identity when its prediction is stamped.
                 moved.source_stack_id = None;
+                moved.source_origin = None;
                 moved.acknowledged_request_id = None;
             }
             moved.stack.count = amount;

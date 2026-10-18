@@ -32,7 +32,7 @@ pub fn selected_riptide_use(
     stream: &WorldStream,
     wet: bool,
 ) -> Option<gameplay::item_use::RiptideUse> {
-    let stack = player.selected_stack()?;
+    let stack = player.selected_backing_stack()?;
     if !player
         .inventory
         .item_facts()
@@ -43,13 +43,7 @@ pub fn selected_riptide_use(
         return None;
     }
     let canonical = stream.authority().canonical_item_stack(stack)?;
-    let damage = player
-        .selected_hotbar_slot()
-        .and_then(|slot| player.inventory.ledger().presented_slot_overlay(slot))
-        .and_then(|overlay| overlay.durability_correction)
-        .and_then(|damage| u32::try_from(damage).ok())
-        .or(canonical.damage)
-        .unwrap_or(0);
+    let damage = canonical.damage.unwrap_or(0);
     Some(gameplay::item_use::RiptideUse {
         level: protocol::item_enchantment_level(
             &stack.extra_data,
@@ -79,7 +73,16 @@ pub fn selected_air_use_with_projectile(
     stream: &WorldStream,
     projectile_override: Option<Option<assets::item_use::ItemProjectileRole>>,
 ) -> Option<AirUse> {
-    let stack = player_runtime.selected_stack()?;
+    let stack = player_runtime.selected_backing_stack()?;
+    air_use_for_stack(stack, stream, projectile_override)
+}
+
+/// Classifies one admitted stack without choosing between backing and presented inventory.
+pub(super) fn air_use_for_stack(
+    stack: &protocol::NetworkItemStack,
+    stream: &WorldStream,
+    projectile_override: Option<Option<assets::item_use::ItemProjectileRole>>,
+) -> Option<AirUse> {
     let canonical = stream.authority().canonical_item_stack(stack)?;
     let quick_charge = protocol::item_enchantment_level(
         &stack.extra_data,
@@ -96,14 +99,14 @@ pub fn selected_air_use_with_projectile(
     )
 }
 
-/// The use duration of the selected stack when vanilla animates its use as eating or drinking.
+/// The presented stack's duration for the eating or drinking animation, independent of transport.
 pub fn consume_ticks(
     player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
 ) -> Option<u32> {
     let stack = player_runtime.selected_stack()?;
     let profile = stream.authority().item_use_profile(stack.network_id);
-    match selected_air_use(player_runtime, stream)? {
+    match air_use_for_stack(stack, stream, None)? {
         AirUse::Hold { max_ticks, .. }
             if matches!(
                 profile.consumption,
@@ -136,7 +139,7 @@ pub fn needs_met(
     let arrow_in_inventory = || {
         let ledger = ui.inventory_ledger(player_runtime);
         (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter_map(|slot| ledger.displayed_stack(slot))
+            .filter_map(|slot| ledger.backing_stack(slot))
             .chain(ui.gameplay_hud().offhand_stack())
             .any(|stack| is(stack, assets::item_use::ItemProjectileRole::Arrow))
     };
@@ -189,7 +192,7 @@ pub fn loading_projectile(
     }
     (creative
         || (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter_map(|slot| ui.inventory_ledger(player_runtime).displayed_stack(slot))
+            .filter_map(|slot| ui.inventory_ledger(player_runtime).backing_stack(slot))
             .any(|stack| role(stack) == assets::item_use::ItemProjectileRole::Arrow))
     .then_some(assets::item_use::ItemProjectileRole::Arrow)
 }

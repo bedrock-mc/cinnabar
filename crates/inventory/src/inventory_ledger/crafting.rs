@@ -373,6 +373,7 @@ impl PlayerInventoryLedger {
             cell: Cell::CreatedOutput,
             held: Held {
                 source_stack_id: Some(created.stack_network_id),
+                source_origin: None,
                 stack: created.clone(),
                 overlay: None,
                 acknowledged_request_id: None,
@@ -610,6 +611,7 @@ impl PlayerInventoryLedger {
                     cell: Cell::CreatedOutput,
                     held: Held {
                         source_stack_id: Some(stack.stack_network_id),
+                        source_origin: None,
                         stack,
                         overlay: None,
                         acknowledged_request_id: None,

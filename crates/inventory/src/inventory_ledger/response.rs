@@ -193,7 +193,7 @@ pub(super) fn apply_response_item_data(
     correction: &StackResponseSlot,
 ) -> Option<()> {
     let damage = i32::from(correction.durability_correction as i16);
-    let previous = protocol::item_extra_damage_value(&held.stack.extra_data).unwrap_or(0);
+    let previous = protocol::item_extra_damage_integer(&held.stack.extra_data).unwrap_or(0);
     let rename = !correction.custom_name.is_empty()
         && (protocol::item_custom_name(&held.stack.extra_data).as_deref()
             != Some(correction.custom_name.as_ref())

@@ -166,6 +166,7 @@ pub(crate) fn produce_attacks(
         if movement.has_held_release() {
             return None;
         }
+        let selection = hand_interaction_selection(&player)?;
         let sample = runtime.between_ticks_press(&movement).or_else(|| {
             runtime.press_sample(
                 picked.crosshair,
@@ -182,7 +183,7 @@ pub(crate) fn produce_attacks(
                 player_position: sample.position,
                 input_mode: protocol_input_mode(input.input_mode),
                 local_runtime_id: stream.local_player_runtime_id(),
-                selection: hand_interaction_selection(&player),
+                selection: Some(selection),
                 swing_duration: item
                     .and_then(|timing| timing.swing_duration_ticks)
                     .map(|ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1))
@@ -302,7 +303,7 @@ pub(crate) fn selected_attack_timing<'a>(
     let stream = world.stream.as_ref()?;
     let item = stream
         .authority()
-        .canonical_item_stack(player.selected_stack()?)?;
+        .canonical_item_stack(player.selected_backing_stack()?)?;
     stream
         .authority()
         .item_attack_timing(item.identifier.as_deref()?)

@@ -885,5 +885,6 @@ fn review_overlapping_ingredients_find_a_complete_assignment() {
         assert!(result.is_ok(), "{result:?}");
     }
 }
+
 #[path = "crafting_tests/batches.rs"]
 mod batches;

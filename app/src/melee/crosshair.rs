@@ -108,6 +108,7 @@ pub(super) struct ResolvedTarget {
 }
 
 /// Picks once against published camera and actor geometry, using current admission policy.
+/// Defers hover and attack together while the selected hand awaits transport.
 pub(super) fn resolve_crosshair(
     player: &client_state::PlayerRuntime,
     context: &MeleeContext,
@@ -123,6 +124,7 @@ pub(super) fn resolve_crosshair(
     }
     let world = stream.authority();
     let input = context.input.snapshot()?;
+    let selection = hand_interaction_selection(player)?;
     let input_mode = protocol_input_mode(input.input_mode);
     let caps = player.facts.game_mode_capabilities();
     let reach = if caps.is_some_and(|caps| caps.creative_reach) {
@@ -184,32 +186,26 @@ pub(super) fn resolve_crosshair(
         },
         None => normal(),
     };
-    let observed =
-        hand_interaction_selection(player).and_then(|selection| {
-            match observe_block_ray(
-                &obstruction_origin,
-                &context.ui,
-                &context.client_world,
-                &context.collisions,
-                selection,
-                player.facts.player_game_mode(),
-                (
-                    input_mode,
-                    block_pick_reach(reach, actor_reach),
-                    (input.authority_generation, input.frame_sequence),
-                    position_authority,
-                ),
-            ) {
-                Ok(observed) => observed,
-                Err(BlockRayUnavailable) => {
-                    gameplay::movement::note_click_drop(
-                        "attack",
-                        "block_ray_unreadable_treated_as_clear",
-                    );
-                    None
-                }
-            }
-        });
+    let observed = match observe_block_ray(
+        &obstruction_origin,
+        &context.ui,
+        &context.client_world,
+        &context.collisions,
+        selection,
+        player.facts.player_game_mode(),
+        (
+            input_mode,
+            block_pick_reach(reach, actor_reach),
+            (input.authority_generation, input.frame_sequence),
+            position_authority,
+        ),
+    ) {
+        Ok(observed) => observed,
+        Err(BlockRayUnavailable) => {
+            gameplay::movement::note_click_drop("attack", "block_ray_unreadable_treated_as_clear");
+            None
+        }
+    };
     let block_distance = observed.map(|block| block.hit_distance());
     let hover = match classify(actor, block_distance, actor_reach) {
         Crosshair::Actor(hit) => Some(gameplay::entity_hover::HoveredActor {
