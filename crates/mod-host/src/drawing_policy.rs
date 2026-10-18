@@ -3,6 +3,13 @@
 use crate::{ModGrants, ModHost};
 use mod_api::drawing::{DrawingPermissions, DrawingSession};
 
+/// Tracks whether a revoked guest still needs an admission attempt under its latest fence.
+pub(crate) enum DrawingRestart {
+    None,
+    Pending,
+    Attempted,
+}
+
 impl ModGrants {
     /// Extracts the individually consented capabilities without extending legacy grants.
     pub fn drawing_permissions(&self) -> DrawingPermissions {
@@ -39,11 +46,11 @@ impl ModGrants {
         grants.render_post &= policy.render_post;
         grants.render &= policy.world_draw;
         grants.render_depth &= policy.render_post;
-        // Existing observations are not occlusion filtered. Deny them before disclosure.
+        // Player poses retain their independent gameplay consent. Unfiltered entity
+        // and terrain observations still require the session's drawing authority.
         let protected = policy.entity_observe
             && policy.render_through_walls
             && (session.local || (self.entity_observe && self.render_through_walls));
-        grants.players &= protected;
         grants.entities &= protected;
         grants.terrain &=
             policy.render_through_walls && (session.local || self.render_through_walls);
@@ -60,21 +67,24 @@ impl ModHost {
         if self.drawing_session == Some(session) {
             return;
         }
-        self.drawing_restart = self.is_active() || self.is_revoked();
-        self.revoke();
+        if self.is_active() || self.needs_drawing_restart() {
+            self.drawing_restart = DrawingRestart::Pending;
+        }
+        self.pending_events.clear();
+        self.instance.revoke();
         self.drawing_session = Some(session);
         self.instance
             .bind_drawing_policy(self.grants.for_drawing_session(session), session);
     }
 
-    /// Whether a session fence needs a fresh guest, independently of registration changes.
-    pub fn needs_drawing_restart(&self) -> bool {
-        self.drawing_restart
+    /// Returns the fence used to admit callbacks and prepare an off-frame replacement.
+    pub fn drawing_session(&self) -> Option<DrawingSession> {
+        self.drawing_session
     }
 
-    /// Identifies the successfully admitted component for session capability scope.
-    pub fn admitted_source_digest(&self) -> [u8; 32] {
-        self.admitted_digest
+    /// Whether a session fence needs a fresh guest, independently of registration changes.
+    pub fn needs_drawing_restart(&self) -> bool {
+        !matches!(self.drawing_restart, DrawingRestart::None)
     }
 }
 
@@ -83,7 +93,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remote_default_denies_protected_producers_but_keeps_plain_geometry() {
+    fn remote_default_preserves_player_consent_but_denies_protected_drawing() {
         let grants = ModGrants {
             render: true,
             players: true,
@@ -102,8 +112,8 @@ mod tests {
             },
             ..Default::default()
         });
-        assert!(effective.render && effective.hud);
-        assert!(!effective.players && !effective.entities && !effective.terrain);
+        assert!(effective.render && effective.hud && effective.players);
+        assert!(!effective.entities && !effective.terrain);
         assert!(!effective.block_highlights && !effective.render_depth);
         assert_eq!(
             grants.for_drawing_session(DrawingSession {

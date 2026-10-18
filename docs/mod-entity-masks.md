@@ -19,8 +19,8 @@ cutouts retain the scene's alpha-to-coverage rule. Dissolve depth-only companion
 no colour coverage. No unadmitted attachment or off-screen mesh is enumerated.
 
 Attachments are allocated only for nonempty selections, per view, and retired on removal.
-Accounting includes physical dimensions, sample count and resolve targets. A frame exceeding
-the aggregate attachment budget disables all masks for that frame. Unavailable pipelines,
+Accounting includes physical dimensions, sample count, resolve targets and private companion
+depth. A frame exceeding the aggregate attachment budget disables all masks for that frame. Unavailable pipelines,
 artwork or changed geometry fail closed, and every retained target is cleared before reuse.
 
 ## Outline and glow

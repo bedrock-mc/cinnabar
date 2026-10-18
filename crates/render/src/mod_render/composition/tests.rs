@@ -323,7 +323,7 @@ fn outlines_and_halos_render_from_actor_coverage_in_ldr_and_hdr_targets() {
     };
     let before = actor_pixels(&gpu, false, 1);
     let mask = actor_pixels(&gpu, true, 1);
-    assert!(mask.chunks_exact(4).any(|pixel| pixel[0] == 255));
+    assert!(mask.as_chunks::<4>().0.iter().any(|pixel| pixel[0] == 255));
     let outline = MaskStyle {
         outline: [1.0, 0.6, 0.1, 1.0],
         outline_radius: 2.0,

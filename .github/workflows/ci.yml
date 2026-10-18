@@ -230,6 +230,25 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/tests/acceptance_test.sh
 
+  browser:
+    name: Browser target and JavaScript edges
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - name: Check browser crates and JavaScript edges
+        run: cargo run -p devtool --locked -- check-web
+
   rust-tests:
     permissions:
       contents: read
@@ -538,6 +557,7 @@ jobs:
       - preflight
       - verify
       - rust-tests
+      - browser
       - go
       - platform
       - packaging

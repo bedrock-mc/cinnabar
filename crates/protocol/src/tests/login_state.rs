@@ -43,6 +43,7 @@ use disconnect_reason::{
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
 const SCRIPTED_PLAY_END_TIME: i32 = 34_567; // The last SetTime of the default play traffic.
+const CACHE_CLASSIFIED_TIME: i32 = 67_890;
 const CORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy)]
@@ -385,12 +386,10 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
             }
             CachePlayScript::InvalidMissResponseThenTraffic => {
                 let hash = protocol::client_blob_hash(b"semantic-response-wanted");
-                frames.push(batch(&[Packet::new(cached_level_chunk(
-                    31,
-                    -47,
-                    vec![hash],
-                    b"",
-                ))]));
+                frames.push(batch(&[
+                    Packet::new(cached_level_chunk(31, -47, vec![hash], b"")),
+                    set_time(CACHE_CLASSIFIED_TIME),
+                ]));
             }
             CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk => {
                 unreachable!("wire failures are scripted above")
@@ -694,6 +693,15 @@ async fn expect_cached_prelude(session: &mut PlaySession) {
     }
 }
 
+/// Supplies the simulation opportunity that the app normally sends after physics.
+async fn cache_status_opportunity(session: &mut PlaySession) {
+    let mut outbound = session.outbound().unwrap();
+    outbound
+        .send_batch(Vec::new(), Some(simulation_clock::Moment::default()))
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn play_keeps_normal_output_moving_while_a_cached_chunk_resolves() {
     let (mut session, core) = joined(Script {
@@ -721,6 +729,7 @@ async fn play_keeps_normal_output_moving_while_a_cached_chunk_resolves() {
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
 
+    cache_status_opportunity(&mut session).await;
     let (chunk, payload) = session
         .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
         .await
@@ -764,6 +773,13 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
     })
     .await;
     expect_cached_prelude(&mut semantic_session).await;
+    assert_eq!(
+        semantic_session.recv_world_event(0).await.unwrap(),
+        WorldEvent::SetTime(protocol::SetTimeEvent {
+            time: CACHE_CLASSIFIED_TIME
+        })
+    );
+    cache_status_opportunity(&mut semantic_session).await;
     assert_eq!(
         semantic_session
             .recv_world_event(0)

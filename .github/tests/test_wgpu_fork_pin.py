@@ -11,7 +11,7 @@ SPEC = importlib.util.spec_from_file_location("wgpu_fork_pin", MODULE)
 fork_pin = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(fork_pin)
 
-URL = "https://github.com/bedrock-mc/wgpu"
+URL = "https://github.com/cinnabar-mc/wgpu"
 
 
 def manifest(*revs: str) -> dict:
@@ -22,7 +22,7 @@ def manifest(*revs: str) -> dict:
 
 class WgpuForkPinTests(unittest.TestCase):
     def test_derives_the_release_branch_from_the_wgpu_major(self):
-        self.assertEqual(fork_pin.pin(manifest("a" * 40, "a" * 40)), ("bedrock-mc/wgpu", "a" * 40, "cinnabar-v30"))
+        self.assertEqual(fork_pin.pin(manifest("a" * 40, "a" * 40)), (URL.removeprefix(fork_pin.FORK_PREFIX), "a" * 40, "cinnabar-v30"))
 
     def test_rejects_crates_pinned_to_different_commits(self):
         with self.assertRaises(ValueError):
@@ -37,6 +37,7 @@ class WgpuForkPinTests(unittest.TestCase):
     def test_the_workspace_manifest_pins_one_fork_commit(self):
         root = Path(__file__).resolve().parents[2]
         repository, rev, branch = fork_pin.pin(tomllib.loads((root / "Cargo.toml").read_text()))
+        self.assertEqual(repository, URL.removeprefix(fork_pin.FORK_PREFIX))
         self.assertEqual(len(rev), 40)
         self.assertTrue(branch.startswith("cinnabar-v"))
 

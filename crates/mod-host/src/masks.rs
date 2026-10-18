@@ -60,8 +60,6 @@ fn error(value: MaskError) -> types::DrawError {
     }
 }
 
-impl types::Host for State {}
-
 impl wit::Host for State {
     fn entity(
         &mut self,
@@ -183,7 +181,7 @@ mod tests {
                 .code,
             types::ErrorCode::Denied
         );
-        state.render.begin_masks();
+        state.render.begin_callback();
         for _ in 0..mod_api::drawing::MAX_MASK_CALLS {
             assert_eq!(
                 state.entity(1).unwrap().unwrap_err().code,
@@ -191,7 +189,7 @@ mod tests {
             );
         }
         assert!(state.entity(1).is_err());
-        state.render.begin_masks();
+        state.render.begin_callback();
         assert!(state.entity(1).is_ok());
     }
 
@@ -209,11 +207,11 @@ mod tests {
         });
         let mask = state.create(wit::DepthPolicy::Test).unwrap().unwrap();
         assert!(state.render.output().masks.is_empty());
-        state.render.commit_masks();
+        state.render.commit_retained();
         let generation = state.render.generation();
         assert_eq!(state.render.output().masks.len(), 1);
-        state.render.begin_masks();
-        state.render.commit_masks();
+        state.render.begin_callback();
+        state.render.commit_retained();
         assert_eq!(state.render.generation(), generation);
         state.render.revoke();
         assert!(state.render.output().masks.is_empty());
@@ -246,7 +244,7 @@ mod tests {
             types::ErrorCode::Denied
         );
         state.grants.render_post = true;
-        state.render.commit_masks();
+        state.render.commit_retained();
         state.render.begin_frame();
         state.register_effect(spec.clone()).unwrap().unwrap();
         assert_eq!(
@@ -260,7 +258,7 @@ mod tests {
                 .code,
             types::ErrorCode::BudgetExceeded
         );
-        state.render.commit_masks();
+        state.render.commit_retained();
         assert_eq!(state.render.output().passes.len(), 1);
         assert_eq!(
             state.remove(mask).unwrap().unwrap_err().code,
@@ -269,7 +267,7 @@ mod tests {
         use super::super::cinnabar::extension::render::Host as _;
         state.remove_pass("selection".into()).unwrap().unwrap();
         state.remove(mask).unwrap().unwrap();
-        state.render.commit_masks();
+        state.render.commit_retained();
         assert!(state.render.output().masks.is_empty());
         assert!(state.render.output().passes.is_empty());
     }

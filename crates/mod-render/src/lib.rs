@@ -2,6 +2,7 @@
 
 pub mod geometry;
 pub mod masks;
+pub mod retained;
 pub mod shader;
 
 use mod_api::{
@@ -181,6 +182,7 @@ pub struct RenderOutput {
     pub passes: Vec<Pass>,
     pub primitives: Arc<Primitives>,
     pub masks: Arc<[masks::Mask]>,
+    pub retained: Vec<Arc<retained::Resources>>,
 }
 
 /// Combines several mods' output in load order within the single-mod budgets: earlier mods
@@ -222,10 +224,15 @@ impl RenderMerge {
             .iter()
             .flat_map(|output| output.masks.iter().cloned())
             .collect();
+        let retained = outputs
+            .iter()
+            .flat_map(|output| output.retained.iter().cloned())
+            .collect();
         RenderOutput {
             passes,
             primitives,
             masks,
+            retained,
         }
     }
 

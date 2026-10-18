@@ -253,12 +253,12 @@ impl MaskStore {
     }
 }
 
-/// Accounts for both multisampled coverage and its single-sample resolve target.
+/// Accounts for coverage, its resolve target, and private multisampled companion depth.
 pub fn attachment_bytes(width: u32, height: u32, samples: u32) -> Option<u64> {
     u64::from(width)
         .checked_mul(u64::from(height))?
         .checked_mul(4)?
-        .checked_mul(u64::from(samples) + u64::from(samples > 1))
+        .checked_mul(u64::from(samples).checked_mul(2)? + u64::from(samples > 1))
 }
 
 #[cfg(test)]

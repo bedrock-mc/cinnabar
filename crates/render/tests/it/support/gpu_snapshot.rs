@@ -39,6 +39,10 @@ pub struct RasterState {
     pub clear_color: wgpu::Color,
     /// Optional production actor fragment selected by the actor raster fixture.
     pub actor_fragment: Option<&'static str>,
+    /// Optional dissolve companion, rendered with its independent coverage parameter.
+    pub actor_companion: Option<render_model::ActorMaterial>,
+    /// Optional attachment retained for a later pass to sample or probe.
+    pub depth_target: Option<wgpu::Texture>,
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
@@ -65,6 +69,8 @@ impl Default for RasterState {
         Self {
             clear_color: CLEAR_COLOR,
             actor_fragment: None,
+            actor_companion: None,
+            depth_target: None,
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
@@ -405,11 +411,13 @@ impl Gpu {
                 state.multisample.count,
             )
         });
-        let depth = texture(
-            wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-            state.multisample.count,
-        );
+        let depth = state.depth_target.clone().unwrap_or_else(|| {
+            texture(
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                state.multisample.count,
+            )
+        });
         let view = target.create_view(&Default::default());
         let multisampled_view = multisampled
             .as_ref()

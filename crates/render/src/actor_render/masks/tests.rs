@@ -1,4 +1,201 @@
 use super::*;
+use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+
+mod viewport_raster;
+use bevy::prelude::UVec4;
+
+#[test]
+fn mask_raster_viewport_uses_main_pass_resolution_and_camera_depth() {
+    let camera = Viewport {
+        physical_position: UVec2::new(12, 8),
+        physical_size: UVec2::new(96, 64),
+        depth: 0.25..0.75,
+    };
+    let resolution = MainPassResolutionOverride(UVec2::new(32, 24));
+    let viewport = raster_viewport(Some(&camera), Some(&resolution), [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::new(12, 8));
+    assert_eq!(viewport.physical_size, resolution.0);
+    assert_eq!(viewport.depth, 0.25..0.75);
+
+    let viewport = raster_viewport(None, Some(&resolution), [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::ZERO);
+    assert_eq!(viewport.physical_size, resolution.0);
+    assert_eq!(viewport.depth, 0.0..1.0);
+}
+
+#[test]
+fn mask_raster_viewport_clips_to_attachments_and_handles_empty_views() {
+    let viewport = raster_viewport(None, None, [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::ZERO);
+    assert_eq!(viewport.physical_size, UVec2::new(128, 96));
+    assert_eq!(viewport.depth, 0.0..1.0);
+
+    let camera = Viewport {
+        physical_position: UVec2::new(12, 8),
+        physical_size: UVec2::new(96, 64),
+        depth: 0.25..0.75,
+    };
+    let viewport = raster_viewport(Some(&camera), None, [64, 48]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::new(12, 8));
+    assert_eq!(viewport.physical_size, UVec2::new(52, 40));
+    assert_eq!(viewport.depth, 0.25..0.75);
+    assert!(raster_viewport(Some(&camera), None, [12, 8]).is_none());
+    assert!(raster_viewport(Some(&camera), None, [0, 0]).is_none());
+    let empty = MainPassResolutionOverride(UVec2::ZERO);
+    assert!(raster_viewport(Some(&camera), Some(&empty), [128, 96]).is_none());
+}
+
+#[test]
+fn mask_selection_keeps_the_dissolve_companion() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 20], 1);
+    let instances = std::sync::Arc::make_mut(&mut frame.rig.instances);
+    instances[0].material = assets::EntityRenderMaterial::DissolveDepth as u32;
+    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let manifest = std::sync::Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity = render_model::ActorRenderIdentity {
+        layer: 1,
+        ..manifest[0].identity
+    };
+    draw_frame(&mut app, &frame);
+    let identity = frame.rig.manifest[0].identity;
+    let mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        style: None,
+        depth: MaskDepth::Always,
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
+    assert_eq!(
+        spans.len(),
+        2,
+        "the color layer needs its rejecting depth companion"
+    );
+}
+
+#[test]
+fn mask_dissolve_prepass_writes_only_private_depth() {
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        for depth in [MaskDepth::Test, MaskDepth::Always] {
+            let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+            MaskSpecializer
+                .specialize(
+                    Key {
+                        actor: ActorPipelineKey {
+                            msaa,
+                            hdr: false,
+                            enhanced: false,
+                            material: assets::EntityRenderMaterial::DissolveDepth as u32,
+                        },
+                        depth,
+                    },
+                    &mut descriptor,
+                )
+                .unwrap();
+            assert_eq!(
+                descriptor.depth_stencil.unwrap().depth_write_enabled,
+                Some(true)
+            );
+            assert!(descriptor.fragment.unwrap().targets.is_empty());
+        }
+    }
+}
+
+#[test]
+fn actor_only_renderer_draws_without_a_mod_scene() {
+    let mut app = fixture();
+    assert!(
+        !app.sub_app(RenderApp)
+            .world()
+            .contains_resource::<render_scene::ModRenderScene>()
+    );
+    let frame = publication(1, &[20], 1);
+    assert_eq!(draw_frame(&mut app, &frame).len(), 1);
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<MaskGpu>()
+            .targets
+            .is_empty()
+    );
+}
+
+#[test]
+fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
+    let mut app = fixture();
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .init_resource::<render_scene::ModRenderScene>();
+    let control = publication(1, &[20], 1);
+    assert_eq!(draw_frame(&mut app, &control).len(), 1);
+    let identity = &control.rig.manifest[0].identity;
+    let mut mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        style: None,
+        depth: MaskDepth::Test,
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    assert!(mask.authorized());
+    assert_eq!(
+        selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>())
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let mut next = control;
+    next.rig.frame_generation += 1;
+    let fault = gpu_allocation::inject(|owner, _| owner == "actor instance and bone upload");
+    assert!(draw_frame(&mut app, &next).is_empty());
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(gpu.instance_count, 0);
+    assert!(!gpu.spans.is_empty() && !gpu.manifest.is_empty());
+    assert!(gpu.artwork_current && gpu.artwork.pages[0].bind_group.is_some());
+    for depth in [MaskDepth::Test, MaskDepth::Always] {
+        mask.depth = depth;
+        assert!(selection(&mask, gpu).is_none(), "{depth:?}");
+    }
+
+    drop(fault);
+    next.rig.frame_generation += 1;
+    assert_eq!(draw_frame(&mut app, &next).len(), 1);
+    assert_eq!(
+        selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>())
+            .unwrap()
+            .len(),
+        1
+    );
+}
 
 #[test]
 fn mask_pipeline_cannot_inherit_an_actors_depth_bypass_or_write_world_depth() {
@@ -62,7 +259,13 @@ fn production_mask_shaders_validate_for_opaque_blended_and_msaa_cutout_coverage(
             "ACTOR_RIG_VERTEX_WORDS",
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
-    for defines in [vec![], vec!["MASK_BLEND"], vec!["ALPHA_TO_COVERAGE"]] {
+    for defines in [
+        vec![],
+        vec!["MASK_BLEND"],
+        vec!["ALPHA_TO_COVERAGE"],
+        vec!["MASK_DISSOLVE"],
+        vec!["MASK_DISSOLVE", "MASK_DISSOLVE_MSAA"],
+    ] {
         let source = crate::shader_source::standalone_prepared(&source, &defines);
         let module = naga::front::wgsl::parse_str(&source).unwrap();
         naga::valid::Validator::new(
@@ -124,7 +327,11 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
             },
         );
         assert!(
-            !pixels.chunks_exact(4).any(|pixel| pixel[0] == 255),
+            !pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] == 255),
             "transparent texels must not become silhouette pixels"
         );
     }
@@ -161,94 +368,210 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
 }
 
 #[test]
+fn actor_mask_pixels_preserve_dissolve_rejection() {
+    use crate::{
+        actor_raster,
+        gpu_snapshot::{self, Gpu, RasterState, SNAPSHOT_SIDE},
+    };
+    let Some(gpu) = Gpu::for_fixture_with_limits(
+        "actor mask dissolve rejection",
+        wgpu::Features::empty(),
+        wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+    ) else {
+        return;
+    };
+    let vertices = actor_raster::cube([16; 3], true, false);
+    let middle = ((SNAPSHOT_SIDE / 2 * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) * 4) as usize;
+    let mut failures = Vec::new();
+    for samples in [1, 4] {
+        for depth in [MaskDepth::Test, MaskDepth::Always] {
+            for (alpha, multiplier, retained) in [
+                (255, 0.0, false),
+                (255, 0.49, false),
+                (255, 0.5, true),
+                (128, 1.0, true),
+                (127, 2.0, false),
+            ] {
+                let pixels = actor_raster::raster_material_with_state(
+                    &gpu,
+                    &vertices,
+                    render_model::ActorMaterial {
+                        kind: assets::EntityRenderMaterial::DissolveColor,
+                        // The companion, rather than this independent parameter, owns rejection.
+                        dissolve_multiplier: 0.0,
+                        ..Default::default()
+                    },
+                    false,
+                    [[255, 255, 255, alpha]; 2],
+                    false,
+                    false,
+                    render_model::pack_actor_light(15, 15),
+                    0,
+                    0,
+                    &[],
+                    RasterState {
+                        actor_fragment: Some("actor_mask_fragment"),
+                        actor_companion: Some(render_model::ActorMaterial {
+                            kind: assets::EntityRenderMaterial::DissolveDepth,
+                            dissolve_multiplier: multiplier,
+                            ..Default::default()
+                        }),
+                        depth_compare: if depth == MaskDepth::Test {
+                            wgpu::CompareFunction::GreaterEqual
+                        } else {
+                            wgpu::CompareFunction::Always
+                        },
+                        multisample: wgpu::MultisampleState {
+                            count: samples,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                );
+                if alpha == 255 && multiplier == 0.49 {
+                    gpu_snapshot::save(&format!("mask-dissolve-{depth:?}-{samples}"), &pixels);
+                }
+                let expected = if retained {
+                    255
+                } else {
+                    (gpu_snapshot::CLEAR_COLOR.r * 255.0).round() as u8
+                };
+                if pixels[middle].abs_diff(expected) > 1 {
+                    failures.push(format!("{depth:?}, {samples} samples, alpha {alpha}, multiplier {multiplier}: {:?}", &pixels[middle..middle + 4]));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn mask_attachments_reject_stale_resolution_and_sample_counts() {
-    use bevy::render::texture::CachedTexture;
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let depth = |side, samples| {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("mask resize witness"),
-            size: Extent3d {
-                width: side,
-                height: side,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: CORE_3D_DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        ViewDepthStencilTexture::new(
-            CachedTexture {
-                default_view: texture.create_view(&default()),
-                texture,
-            },
-            Some(0.0),
-            None,
-        )
-    };
-    let original = depth(64, 1);
+    let original = test_depth(&device, 64, 1);
     let mask = MaskTarget::new(&device, &original).unwrap();
     assert!(mask.matches(&original));
-    assert!(!mask.matches(&depth(127, 1)));
-    assert!(!mask.matches(&depth(64, 4)));
-    let multisampled = MaskTarget::new(&device, &depth(127, 4)).unwrap();
-    assert!(multisampled.matches(&depth(127, 4)));
+    assert!(!mask.matches(&test_depth(&device, 127, 1)));
+    assert!(!mask.matches(&test_depth(&device, 64, 4)));
+    let multisampled = MaskTarget::new(&device, &test_depth(&device, 127, 4)).unwrap();
+    assert!(multisampled.matches(&test_depth(&device, 127, 4)));
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);
 }
 
-#[test]
-fn guest_sampling_requires_this_views_current_encoded_owner_target() {
-    use bevy::render::texture::CachedTexture;
-    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let device = RenderDevice::from(device);
+/// Allocates scene depth on the fixture device for mask allocation and resizing tests.
+fn test_depth(device: &RenderDevice, side: u32, samples: u32) -> ViewDepthStencilTexture {
     let texture = device.create_texture(&TextureDescriptor {
-        label: None,
+        label: Some("mask resize witness"),
         size: Extent3d {
-            width: 1,
-            height: 1,
+            width: side,
+            height: side,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: samples,
         dimension: TextureDimension::D2,
         format: CORE_3D_DEPTH_FORMAT,
         usage: TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
-    let depth = ViewDepthStencilTexture::new(
-        CachedTexture {
+    ViewDepthStencilTexture::new(
+        bevy::render::texture::CachedTexture {
             default_view: texture.create_view(&default()),
             texture,
         },
         Some(0.0),
         None,
-    );
-    let mut target = MaskTarget::new(&device, &depth).unwrap();
-    target.ready = true;
-    let handle = DrawingHandle {
-        owner: 1,
-        generation: 1,
-        slot: 1,
+    )
+}
+
+#[test]
+fn masks_split_shared_coverage_after_membership_changes() {
+    let mut app = fixture();
+    let frame = publication(1, &[20, 30], 1);
+    let entities: Vec<_> = frame
+        .rig
+        .manifest
+        .iter()
+        .map(|entry| MaskEntity {
+            connection: entry.identity.session_id,
+            dimension: entry.identity.dimension,
+            runtime_id: entry.identity.runtime_id,
+            spawn_revision: entry.identity.spawn_revision,
+        })
+        .collect();
+    let mut first = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: entities[0].connection,
+            dimension: entities[0].dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        depth: MaskDepth::Test,
+        entities: vec![entities[0]],
+        style: None,
     };
-    let view = Entity::PLACEHOLDER;
-    let mut gpu = MaskGpu::from_world(&mut World::new());
-    gpu.targets.insert((view, handle), target);
-    assert!(gpu.planned(view, handle).is_some());
-    assert!(gpu.sample(view, handle).is_none());
-    gpu.targets[&(view, handle)]
-        .encoded
-        .store(true, std::sync::atomic::Ordering::Relaxed);
-    assert!(gpu.sample(view, handle).is_some());
-    assert!(
-        gpu.sample(view, DrawingHandle { owner: 2, ..handle })
-            .is_none()
+    let mut second = first.clone();
+    second.handle.owner = 2;
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let view = world
+        .query_filtered::<Entity, bevy::prelude::With<ExtractedView>>()
+        .single(world)
+        .unwrap();
+    let depth = test_depth(world.resource::<RenderDevice>(), 64, 1);
+    world.entity_mut(view).insert(depth);
+    world.init_resource::<render_scene::ModRenderScene>();
+    world.resource_mut::<render_scene::ModRenderScene>().masks =
+        vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_eq!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
     );
-    gpu.targets[&(view, handle)]
-        .encoded
-        .store(false, std::sync::atomic::Ordering::Relaxed);
-    assert!(gpu.sample(view, handle).is_none());
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
+    );
+
+    second.entities = vec![entities[1]];
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .masks = vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_ne!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
+    );
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap() * 2
+    );
+
+    first.entities = second.entities.clone();
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .masks = vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_eq!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
+    );
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
+    );
 }
