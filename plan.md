@@ -10105,6 +10105,14 @@ Menu, modal and custom form submissions include the final newline inside the res
 JSON string. Cancellation replies retain their absent response value. Encoded packet
 regressions cover scalar answers, arrays and escaped text. Full numeric formatting,
 string escaping and form admission/lifetime parity remain incomplete.
+### Resolve NPC reply targets through their admitted actor lifetime
+
+NPC dialogue carries a unique ID; action and closing replies use the runtime ID
+of the actor resolved when the dialogue was admitted. Recheck that actor's full
+lifetime before each enqueue, including retries, and retire replies locally when
+it despawns or is replaced. Preserve the signed unique-ID bits while normalizing
+the incoming dialogue. Full NPC component admission, opening-command dispatch,
+server-close targeting and exact-current timing parity remain incomplete.
 
 ## Inventory opening while mounted
 
