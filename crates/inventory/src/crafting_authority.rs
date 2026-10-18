@@ -466,11 +466,7 @@ impl CraftingAuthority {
         };
         let verified = self.grid.each_ref().map(|cell| {
             let stack = &cell.as_ref().expect("known grid gate").stack;
-            // This inactive plain-item slice never materializes arbitrary NBT
-            // while matching. Ordinary inventory retains its existing validator.
-            if stack.is_empty()
-                || !(stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
-            {
+            if stack.is_empty() {
                 return None;
             }
             VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()

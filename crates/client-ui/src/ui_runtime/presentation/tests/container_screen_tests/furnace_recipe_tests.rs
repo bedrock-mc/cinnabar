@@ -97,7 +97,7 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
     runtime.screen_state_mut().search_focused = true;
     runtime.screen_state_mut().furnace.as_mut().unwrap().layout =
         ::protocol::FurnaceLayout::RecipeBook;
-    runtime.observe_inventory_search_focus(&player);
+    runtime.observe_inventory_search_focus(&player, true);
     assert!(
         runtime.screen_state().text_focused(),
         "visible furnace search retains the keyboard across pointer frames"
@@ -167,7 +167,6 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         &mut player,
         PointerAction::Click(InventoryCellHit::Widget(Widget::InventoryLayout(2))),
     );
-    runtime.screen_state_mut().recipe_filtering = Some(false);
     presentation
         .build(&player, &runtime, 0, [1280, 720], dpi)
         .unwrap();
@@ -298,7 +297,6 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         }));
     let generation = player.inventory.ledger().storage_generation();
     runtime.screen_state_mut().observe_window(generation);
-    runtime.screen_state_mut().recipe_filtering = Some(false);
     assert_eq!(
         recipe_book_entries(&player, &runtime)
             .iter()

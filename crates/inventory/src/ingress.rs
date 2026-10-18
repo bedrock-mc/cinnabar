@@ -133,6 +133,9 @@ impl InventorySession {
                 self.ledger_mut().apply_registry(registry)
             }
             InventoryAuthorityEvent::Inventory(event) => {
+                if let InventoryEvent::Options(options) = event {
+                    self.set_inventory_options(*options);
+                }
                 if let InventoryEvent::FurnaceOptions(update) = event {
                     self.set_furnace_options(update.kind, update.options);
                 }

@@ -72,15 +72,15 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
 
 #[test]
 fn global_texture_bind_group_rebuilds_only_for_new_asset_identity_or_revision() {
-    let current = texture_identity(0x1000, 7);
+    let current = texture_assets(0x1000, 7).binding_identity();
     assert!(!texture_asset_needs_rebuild(Some(current), current));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        texture_identity(0x2000, 7)
+        texture_assets(0x2000, 7).binding_identity()
     ));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        texture_identity(0x1000, 8)
+        texture_assets(0x1000, 8).binding_identity()
     ));
     assert!(texture_asset_needs_rebuild(None, current));
 }

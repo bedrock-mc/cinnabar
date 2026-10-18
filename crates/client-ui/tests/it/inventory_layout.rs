@@ -2,7 +2,10 @@ use client_ui::ui_runtime::{
     UiRuntime, inventory_drag::PointerAction, presentation::forms::recipe_book_shown,
 };
 use player_state::PlayerState;
-use protocol::{GameModeEvent, GameModeUpdate, HudEvent, PlayerGameMode, UiEvent};
+use protocol::{
+    GameModeEvent, GameModeUpdate, HudEvent, InventoryLayout, InventoryOptions, PlayerGameMode,
+    UiEvent,
+};
 use ui_screens::container_actions::{InventoryCellHit, Widget};
 
 use super::fixtures::envelope;
@@ -18,22 +21,37 @@ fn choose_layout(player: &mut PlayerState, runtime: &mut UiRuntime, shown: bool)
 }
 
 #[test]
-fn untouched_layout_uses_mode_defaults_and_book_toggle_records_a_choice() {
+fn untouched_classic_layout_shows_the_recipe_book_and_book_toggle_records_a_choice() {
     for mode in [PlayerGameMode::Survival, PlayerGameMode::Creative] {
         let mut player = PlayerState::new(1);
         player.facts.publish_player_game_mode(mode);
         let mut runtime = UiRuntime::new(1);
-        let default_shown = mode == PlayerGameMode::Creative;
-        assert_eq!(recipe_book_shown(&player, &runtime), default_shown);
+        assert!(recipe_book_shown(&player, &runtime));
+        assert_eq!(
+            runtime.inventory_controller(&player).unwrap().layout(),
+            if mode == PlayerGameMode::Creative {
+                InventoryLayout::RecipeBookOnly
+            } else {
+                InventoryLayout::RecipeBook
+            }
+        );
+        assert_eq!(
+            player.inventory.inventory_options(),
+            InventoryOptions::default()
+        );
         runtime.perform_pointer_action(
             &mut player,
             PointerAction::Click(InventoryCellHit::Widget(Widget::BookToggle)),
         );
-        assert_eq!(recipe_book_shown(&player, &runtime), !default_shown);
+        assert!(!recipe_book_shown(&player, &runtime));
+        assert_eq!(
+            player.inventory.inventory_options().inventory_layout,
+            InventoryLayout::InventoryOnly
+        );
         player
             .facts
             .publish_player_game_mode(PlayerGameMode::Spectator);
-        assert_eq!(recipe_book_shown(&player, &runtime), !default_shown);
+        assert!(!recipe_book_shown(&player, &runtime));
     }
 }
 
@@ -91,7 +109,7 @@ fn selected_inventory_layout_survives_death_and_game_mode_changes() {
 }
 
 #[test]
-fn selected_inventory_layout_survives_session_replacement_without_input_focus() {
+fn session_replacement_resets_inventory_options_and_input_focus() {
     for shown in [false, true] {
         let mut player = PlayerState::new(1);
         player
@@ -106,7 +124,15 @@ fn selected_inventory_layout_survives_session_replacement_without_input_focus() 
         player
             .facts
             .publish_player_game_mode(PlayerGameMode::Creative);
-        assert_eq!(recipe_book_shown(&player, &runtime), shown);
+        assert!(recipe_book_shown(&player, &runtime));
+        assert_eq!(
+            runtime.inventory_controller(&player).unwrap().layout(),
+            InventoryLayout::RecipeBookOnly
+        );
+        assert_eq!(
+            player.inventory.inventory_options(),
+            InventoryOptions::default()
+        );
         assert!(!runtime.screen_state().text_focused());
         assert!(runtime.screen_state().search.is_empty());
     }

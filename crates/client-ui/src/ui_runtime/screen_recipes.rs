@@ -44,9 +44,9 @@ impl UiRuntime {
         if let Some(options) = self.furnace_options(player_runtime) {
             return options.filtering;
         }
-        self.screen_state().recipe_filtering.unwrap_or(
-            player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative),
-        )
+        self.inventory_controller(player_runtime)
+            .is_some_and(|controller| controller.options.filtering)
+            && player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative)
     }
 
     /// Projects one recipe-book page using the screen's filter choice.
