@@ -77,7 +77,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
         .unwrap()
         .vertices
         .as_ptr();
-    let emote = actor_animation::CustomEmote::Twerk;
+    let emote = cosmetics::test_support::playback_emote();
     presentation.capture_hud_player_with_emote(Some(&stream), false, Some((emote, 0.0)));
     let first = presentation.gui_models.live_player.vertices.clone();
     assert_ne!(first, rest);

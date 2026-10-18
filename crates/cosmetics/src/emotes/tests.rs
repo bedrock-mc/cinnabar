@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn catalog_rollback_activates_the_readmitted_revision_and_advances_generation() {
+    let _catalog = crate::test_support::catalog_lock();
+    let a = crate::test_support::emote("fixture:rollback", "Revision A", true);
+    let b = crate::test_support::emote("fixture:rollback", "Revision B", false);
+    activate(&[b]);
+    assert_eq!(Item::from_id(&a.descriptor().id), Some(b));
+    let generation = Item::generation();
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../core/cinnabarapi/schema/emote-clips.json"
+    ))
+    .unwrap();
+    let bytes = serde_json::to_vec(&cases[0]["clip"]).unwrap();
+    let readmitted = Item::admit(a.descriptor().clone(), &bytes).unwrap();
+    assert_eq!(readmitted, a);
+    activate(&[readmitted]);
+    assert_eq!(Item::from_id(&a.descriptor().id), Some(a));
+    assert_eq!(Item::all(), vec![a]);
+    assert!(Item::from_id(&a.descriptor().id).unwrap().descriptor().free);
+    assert_ne!(Item::generation(), generation);
+}
+
+#[test]
 fn parser_matches_the_api_conformance_cases() {
     let source: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../core/cinnabarapi/schema/source.json"

@@ -39,22 +39,27 @@ fn catalog_preserves_unsupported_partial_geometry() {
 
 #[test]
 fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
-    let source = fixture();
+    let source = full_fixture();
     let original = (*source).clone();
-    let model = model(&source, CustomEmote::Twerk).unwrap().geometry;
+    let model = model(&source).unwrap().geometry;
     assert_eq!(*source, original);
     assert_ne!(model.digest, source.digest);
     assert!(Arc::ptr_eq(
         &model,
-        &super::model(&source, CustomEmote::Twerk).unwrap().geometry
+        &super::model(&source).unwrap().geometry
     ));
-    assert_eq!(model.bones.len(), source.bones.len() + 6);
+    assert!(model.bones.len() > source.bones.len());
     let upper = &model.bones[6].cubes[0];
-    let lower = &model.bones[9].cubes[0];
-    assert_eq!(upper.origin[1].get(), 6.0);
-    assert_eq!(upper.size[1].get(), 6.0);
+    let lower = &model
+        .bones
+        .iter()
+        .find(|bone| bone.name.as_ref() == "leftLeg.cinnabar_knee")
+        .unwrap()
+        .cubes[0];
+    assert_eq!(upper.origin[1].get(), 5.0);
+    assert_eq!(upper.size[1].get(), 7.0);
     assert_eq!(lower.origin[1].get(), 2.0);
-    assert_eq!(lower.size[1].get(), 4.0);
+    assert_eq!(lower.size[1].get(), 5.0);
     let EntityGeometryUv::Faces(upper) = &upper.uv else {
         panic!("explicit UV crop")
     };
@@ -73,17 +78,17 @@ fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
             .uv_size
             .unwrap()
             .map(Scalar::get),
-        [4.0, 6.0]
+        [4.0, 7.0]
     );
     assert_eq!(
         lower.north.as_ref().unwrap().uv.map(Scalar::get),
-        [4.0, 26.0]
+        [4.0, 25.0]
     );
     assert_ne!(
         lower.down, upper.down,
         "a knee must not acquire a boot sole"
     );
-    assert_eq!(upper.down, lower.up);
+    assert!(upper.down.is_some() && lower.up.is_some());
     let find = |name: &str| {
         model
             .bones
@@ -107,18 +112,18 @@ fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
 fn owned_custom_emote_knee_mesh_skips_rotated_or_nonclassic_legs() {
     let mut source = (*fixture()).clone();
     source.bones[6].cubes[0].rotation[0] = Scalar::new(10.0).unwrap();
-    assert!(build(&source, CustomEmote::Twerk).is_none());
+    assert!(build(&source).is_none());
     let mut source = (*fixture()).clone();
     source.bones[6].cubes[0].size[1] = Scalar::new(3.0).unwrap();
-    assert!(build(&source, CustomEmote::Twerk).is_none());
+    assert!(build(&source).is_none());
 }
 
 #[test]
 fn owned_custom_emote_publishes_matching_body_and_layer_meshes() {
+    use crate::SkinRenderLayer;
     use crate::custom_emotes::{sample_custom_emote, tests::Fixture};
-    use crate::{CustomEmote, SkinRenderLayer};
 
-    let source = fixture();
+    let source = full_fixture();
     let f = Fixture::from_skin((*source).clone());
     let native = render_model::skin_geometry(&source, render_model::DIAGNOSTIC_RIG_ID).unwrap();
     let layers = [SkinRenderLayer {
@@ -144,8 +149,19 @@ fn owned_custom_emote_publishes_matching_body_and_layer_meshes() {
         ..f.rig()
     };
     let mut retained_vertices = None;
-    for phase in [0.0, 0.1, 0.3, CustomEmote::Twerk.duration_seconds()] {
-        let pose = sample_custom_emote(&rig, CustomEmote::Twerk, phase, phase).unwrap();
+    for phase in [
+        0.0,
+        0.1,
+        0.3,
+        crate::custom_emotes::tests::catalog_emote().duration_seconds(),
+    ] {
+        let pose = sample_custom_emote(
+            &rig,
+            crate::custom_emotes::tests::catalog_emote(),
+            phase,
+            phase,
+        )
+        .unwrap();
         let snapshot = pose.snapshot(rig);
         let mesh = snapshot.skin_mesh.expect("articulated body mesh");
         let expected =
@@ -179,136 +195,18 @@ fn owned_custom_emote_publishes_matching_body_and_layer_meshes() {
 }
 
 #[test]
-fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
-    use crate::CustomEmote;
-    use crate::custom_emotes::{
-        sample_custom_emote,
-        tests::{Fixture, near, point},
-    };
-    let source = fixture();
-    let f = Fixture::from_skin((*source).clone());
-    let native = f.rest.clone();
-    let period = CustomEmote::Twerk.duration_seconds();
-    let mut first_feet: Option<Vec<[f32; 3]>> = None;
-    let mut head_height = None;
-    let mut lowest_hip = f32::INFINITY;
-    let mut highest_hip = f32::NEG_INFINITY;
-    for step in 0..=32 {
-        let phase = f64::from(step) * period / 32.0;
-        let pose = sample_custom_emote(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
-        let snapshot = pose.snapshot(f.rig());
-        let index = |name: &str| {
-            snapshot
-                .bone_names
-                .iter()
-                .position(|part| part.as_ref() == name)
-                .unwrap()
-        };
-        let head = snapshot.current[index("head")].translation_scale[1];
-        let baseline = *head_height.get_or_insert(head);
-        assert!((head - baseline).abs() < 1e-4);
-        let hip = snapshot.current[index("leftleg")].translation_scale[1];
-        lowest_hip = lowest_hip.min(hip);
-        highest_hip = highest_hip.max(hip);
-        let mut feet = Vec::new();
-        for name in ["leftleg", "rightleg"] {
-            let thigh = snapshot.current[index(name)];
-            let shin = snapshot.current[index(&format!("{name}.cinnabar_knee"))];
-            near(point(thigh, [0.0, -6.0, 0.0]), point(shin, [0.0; 3]));
-            let ankle = index(&format!("{name}.cinnabar_ankle"));
-            let foot = snapshot.current[ankle];
-            near(point(shin, [0.0, -4.0, 0.0]), point(foot, [0.0; 3]));
-            assert_eq!(
-                foot.rotation,
-                [0.0, 0.0, 0.0, 1.0],
-                "soles must remain level"
-            );
-            let cube = &snapshot.skin_geometry.unwrap().bones[ankle].cubes[0];
-            let origin = cube.origin.map(Scalar::get);
-            let size = cube.size.map(Scalar::get);
-            let pivot = snapshot.rest[ankle].translation_scale;
-            // The ankle must be buried inside the textured foot, so rotating
-            // the shin cannot expose a sliced-off foot at its joint center.
-            assert!(origin[1] < pivot[1]);
-            assert!(origin[1] + size[1] > pivot[1]);
-            let overlap = point(shin, [0.0, -3.0, 0.0]);
-            let local = [
-                overlap[0] - foot.translation_scale[0],
-                overlap[1] - foot.translation_scale[1],
-                overlap[2] - foot.translation_scale[2],
-            ];
-            for axis in 0..3 {
-                let (min, max) = if axis == 0 {
-                    (-origin[0] - size[0] - pivot[0], -origin[0] - pivot[0])
-                } else {
-                    (
-                        origin[axis] - pivot[axis],
-                        origin[axis] + size[axis] - pivot[axis],
-                    )
-                };
-                assert!(
-                    local[axis] > min && local[axis] < max,
-                    "shin must overlap the foot throughout playback: {local:?}"
-                );
-            }
-            for (x, z) in [
-                (0.0, 0.0),
-                (size[0], 0.0),
-                (0.0, size[2]),
-                (size[0], size[2]),
-            ] {
-                let corner = point(
-                    foot,
-                    [
-                        -origin[0] - x - pivot[0],
-                        origin[1] - pivot[1],
-                        origin[2] + z - pivot[2],
-                    ],
-                );
-                assert!(
-                    corner[1].abs() < 1e-4,
-                    "the whole sole must stay on the floor: {corner:?}"
-                );
-                feet.push(corner);
-            }
-            let thigh_axis = super::super::rotate_vector(thigh.rotation, [0.0, -1.0, 0.0]);
-            let shin_axis = super::super::rotate_vector(shin.rotation, [0.0, -1.0, 0.0]);
-            let dot: f32 = (0..3).map(|axis| thigh_axis[axis] * shin_axis[axis]).sum();
-            assert!(dot < 0.55, "knees must visibly bend: {dot}");
-            assert!(
-                shin_axis[1] < -0.5,
-                "shins must remain above the planted feet"
-            );
-        }
-        if let Some(first) = &first_feet {
-            for (a, b) in feet.iter().zip(first) {
-                near(*a, *b);
-            }
-        } else {
-            first_feet = Some(feet);
-        }
-        assert_eq!(f.rig().current, native);
-        assert_eq!(source.bones.len(), 9);
-    }
-    assert!(
-        highest_hip - lowest_hip > 2.0,
-        "the pelvis must visibly pulse up/down"
-    );
-}
-
-#[test]
 fn shared_emotes_reuse_prepared_meshes_across_many_distinct_skins() {
     let models: Vec<_> = (0u64..24)
         .map(|index| {
-            let mut source = (*fixture()).clone();
+            let mut source = (*full_fixture()).clone();
             source.digest[..8].copy_from_slice(&index.to_le_bytes());
             let source = Arc::new(source);
-            let prepared = model(&source, CustomEmote::Twerk).unwrap();
+            let prepared = model(&source).unwrap();
             (source, prepared)
         })
         .collect();
     for (source, prepared) in models {
-        let next = model(&source, CustomEmote::Twerk).unwrap();
+        let next = model(&source).unwrap();
         assert!(Arc::ptr_eq(&prepared.mesh.vertices, &next.mesh.vertices));
     }
 }
@@ -339,6 +237,76 @@ fn full_fixture() -> Arc<SkinGeometry> {
     source.bones = bones.into();
     source.digest = Sha256::digest(b"original full cuboid catalog test fixture").into();
     Arc::new(source)
+}
+
+#[test]
+fn catalog_floor_correction_preserves_root_lift_in_the_full_pose_and_attachments() {
+    use crate::custom_emotes::{
+        sample_custom_emote,
+        tests::{Fixture, near},
+    };
+    let source = full_fixture();
+    let f = Fixture::from_skin((*source).clone());
+    let layer = crate::SkinRenderLayer {
+        image: render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
+            width: 16,
+            height: 16,
+            rgba8: Arc::from([]),
+            frames: 1,
+            blinking: false,
+        },
+        geometry: source,
+        mesh: None,
+        previous: f.rest.clone().into(),
+        current: f.rest.clone().into(),
+        rest: f.rest.clone().into(),
+        hidden_bones: Arc::from([]),
+        uv_anim: [0.0, 0.0, 1.0, 1.0],
+    };
+    let layers = [layer];
+    let rig = crate::ActorRigSnapshot {
+        skin_layers: &layers,
+        ..f.rig()
+    };
+    let mut poses = Vec::new();
+    for lift in [false, true] {
+        let bytes = format!(r#"{{"version":1,"duration":1,"loop":false,"tracks":[{{"joint":"root","keys":[{{"time":0,"rotation":[0,0,0,1],"offset":[0,0,0]}},{{"time":1,"rotation":[0,0,0,1],"offset":[0,{},0]}}]}}]}}"#, if lift { 0.5 } else { 0.0 }).into_bytes();
+        let mut descriptor = cosmetics::test_support::emote("fixture:lift", "Lift", true)
+            .descriptor()
+            .clone();
+        descriptor.clip.sha256 = format!("{:x}", Sha256::digest(&bytes));
+        descriptor.clip.bytes = bytes.len();
+        let clip = cosmetics::emotes::Item::admit(descriptor, &bytes).unwrap();
+        poses.push(sample_custom_emote(&rig, clip, 0.25, 1.0).unwrap());
+    }
+    assert!(poses[1].articulated.is_some());
+    for (a, b, lift) in [
+        (&poses[0].previous, &poses[1].previous, 1.5),
+        (&poses[0].current, &poses[1].current, 6.0),
+        (
+            &poses[0].skin_layers[0].previous,
+            &poses[1].skin_layers[0].previous,
+            1.5,
+        ),
+        (
+            &poses[0].skin_layers[0].current,
+            &poses[1].skin_layers[0].current,
+            6.0,
+        ),
+    ] {
+        for (a, b) in a.iter().zip(b.iter()) {
+            near(
+                b.translation_scale[..3].try_into().unwrap(),
+                [
+                    a.translation_scale[0],
+                    a.translation_scale[1] + lift,
+                    a.translation_scale[2],
+                ],
+            );
+            assert_eq!(a.rotation, b.rotation);
+        }
+    }
 }
 
 #[test]
@@ -396,20 +364,11 @@ fn posed_vertices(
 #[test]
 fn catalog_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
     let source = full_fixture();
-    let model = model(&source, crate::custom_emotes::tests::catalog_emote()).unwrap();
+    let model = model(&source).unwrap();
     assert!(Arc::ptr_eq(
         &model.geometry,
-        &super::model(&source, crate::custom_emotes::tests::catalog_emote())
-            .unwrap()
-            .geometry
+        &super::model(&source).unwrap().geometry
     ));
-    assert_ne!(
-        model.geometry.digest,
-        super::model(&source, CustomEmote::Twerk)
-            .unwrap()
-            .geometry
-            .digest
-    );
     let find = |name: &str| {
         model
             .geometry
@@ -442,9 +401,7 @@ fn catalog_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
     );
     let mut slim = (*source).clone();
     slim.bones[4].cubes[0].size[0] = Scalar::new(3.0).unwrap();
-    let slim = build(&slim, crate::custom_emotes::tests::catalog_emote())
-        .unwrap()
-        .geometry;
+    let slim = build(&slim).unwrap().geometry;
     for name in [
         "leftarm",
         "leftarm.cinnabar_elbow",

@@ -5,16 +5,16 @@ fn change_emotes_lists_owned_catalog_clips_and_equips_the_chosen_entry() {
     let _catalog = cosmetics::test_support::catalog_lock();
     let free = cosmetics::test_support::emote("fixture:wheel", "Wheel fixture", true);
     let paid = cosmetics::test_support::emote("fixture:unowned", "Unowned fixture", false);
-    cosmetics::emotes::activate(&[free.descriptor().id.clone(), paid.descriptor().id.clone()]);
+    cosmetics::emotes::activate(&[free, paid]);
     let mut state = EmoteState::default();
     state.open();
     state.change_emotes();
     let choices = state.display_slots();
-    assert!(choices.contains(&Some(CustomEmote::Catalog(free))));
-    assert!(!choices.contains(&Some(CustomEmote::Catalog(paid))));
+    assert!(choices.contains(&Some(free)));
+    assert!(!choices.contains(&Some(paid)));
     let index = choices
         .iter()
-        .position(|value| *value == Some(CustomEmote::Catalog(free)))
+        .position(|value| *value == Some(free))
         .unwrap();
     state.activate_slot(index, 0);
     assert!(state.is_equipping());
@@ -22,15 +22,13 @@ fn change_emotes_lists_owned_catalog_clips_and_equips_the_chosen_entry() {
     let saved = state.take_preferences().unwrap();
     assert_eq!(saved[3].as_deref(), Some(free.descriptor().id.as_str()));
     state.open();
-    assert_eq!(
-        state.activate_slot(3, 250),
-        Some(CustomEmote::Catalog(free))
-    );
+    assert_eq!(state.activate_slot(3, 250), Some(free));
     assert_eq!(state.playback().unwrap().elapsed(750), 0.5);
 }
 
 #[test]
 fn selecting_equipped_slot_starts_loop_without_changing_other_slots() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut state = EmoteState::default();
     state.open();
     let emote = state.activate_slot(0, 125).unwrap();
@@ -47,6 +45,7 @@ fn selecting_equipped_slot_starts_loop_without_changing_other_slots() {
 
 #[test]
 fn change_emotes_moves_a_piece_instead_of_equipping_duplicates_and_persists() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut state = EmoteState::default();
     let original = state.slots()[0].unwrap();
     state.open();
@@ -68,7 +67,8 @@ fn change_emotes_moves_a_piece_instead_of_equipping_duplicates_and_persists() {
 
 #[test]
 fn preferences_reject_missing_catalog_entries_and_duplicate_pieces() {
-    let id = CustomEmote::ALL[0].id().to_owned();
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let id = cosmetics::test_support::playback_emote().id().to_owned();
     let saved = [
         Some(id.clone()),
         Some("missing:fixture".into()),
@@ -90,6 +90,7 @@ fn preferences_reject_missing_catalog_entries_and_duplicate_pieces() {
 
 #[test]
 fn native_navigation_cancel_and_session_reset_preserve_equipped_preferences() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut state = EmoteState::default();
     state.open();
     for (action, slot) in [([0, -1], 0), ([1, 0], 1), ([0, 1], 2), ([-1, 0], 3)] {
@@ -113,6 +114,7 @@ fn native_navigation_cancel_and_session_reset_preserve_equipped_preferences() {
 
 #[test]
 fn restarting_at_the_same_clock_value_has_a_new_broadcast_identity() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut state = EmoteState::default();
     state.open();
     state.activate_slot(0, 100);
@@ -133,12 +135,7 @@ fn catalog_pages_cover_owned_clips_and_retire_removed_choices_and_playback() {
             cosmetics::test_support::emote(&format!("fixture:page_{index}"), "Page fixture", true)
         })
         .collect();
-    cosmetics::emotes::activate(
-        &clips
-            .iter()
-            .map(|clip| clip.descriptor().id.clone())
-            .collect::<Vec<_>>(),
-    );
+    cosmetics::emotes::activate(&clips);
     let mut state = EmoteState::default();
     state.open();
     state.change_emotes();
@@ -148,12 +145,8 @@ fn catalog_pages_cover_owned_clips_and_retire_removed_choices_and_playback() {
         listed.extend(state.display_slots().into_iter().flatten());
         state.next_catalog_page();
     }
-    assert_eq!(listed.len(), clips.len() + CustomEmote::ALL.len());
-    assert!(
-        clips
-            .iter()
-            .all(|clip| listed.contains(&CustomEmote::Catalog(*clip)))
-    );
+    assert_eq!(listed.len(), clips.len());
+    assert!(clips.iter().all(|clip| listed.contains(clip)));
     state.activate_slot(1, 0);
     state.activate_slot(3, 0);
     state.activate_slot(3, 0);
@@ -172,6 +165,29 @@ fn catalog_pages_cover_owned_clips_and_retire_removed_choices_and_playback() {
             .into_iter()
             .flatten()
             .collect::<Vec<_>>(),
-        CustomEmote::ALL
+        Vec::<Item>::new()
     );
+}
+
+#[test]
+fn fresh_defaults_follow_the_owned_catalog_and_refresh_without_fabricating_emotes() {
+    let _catalog = cosmetics::test_support::catalog_lock();
+    cosmetics::emotes::activate(&[]);
+    let mut state = EmoteState::default();
+    assert!(state.slots().iter().all(Option::is_none));
+    let free = cosmetics::test_support::playback_emote();
+    let paid = cosmetics::test_support::emote("fixture:default_unowned", "Unowned", false);
+    cosmetics::emotes::activate(&[paid, free]);
+    state.apply_preferences(None);
+    assert_eq!(state.slots(), &[Some(free), None, None, None]);
+    assert_eq!(EmoteState::default().slots(), state.slots());
+    state.open();
+    state.activate_slot(0, 0);
+    cosmetics::emotes::activate(&[]);
+    state.apply_preferences(None);
+    assert!(state.slots().iter().all(Option::is_none));
+    assert!(state.playback().is_none());
+    state.open();
+    state.change_emotes();
+    assert!(state.display_slots().iter().all(Option::is_none));
 }

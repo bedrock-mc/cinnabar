@@ -22,8 +22,8 @@ fn draw(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> Vec<Ui
 #[test]
 fn native_wheel_and_equip_popup_render_four_hit_slices_and_unique_catalog_label() {
     let _catalog = cosmetics::test_support::catalog_lock();
-    let clip = cosmetics::test_support::emote("fixture:picker", "Arm bend", true);
-    cosmetics::emotes::activate(&[clip.descriptor().id.clone()]);
+    let clip = cosmetics::test_support::emote("fixture:picker", "Bend", true);
+    cosmetics::emotes::activate(&[clip]);
     let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
         return;
     };
@@ -76,7 +76,7 @@ fn native_wheel_and_equip_popup_render_four_hit_slices_and_unique_catalog_label(
             None,
             "native inner dead zone"
         );
-        let catalog_label = actor_animation::CustomEmote::ALL[0].label();
+        let catalog_label = clip.label();
         assert!(
             super::super::pack_harness::drawn_texts(&nodes)
                 .iter()
@@ -128,12 +128,13 @@ fn occupied_native_image_routes_the_live_player_marker_without_fabricating_empty
 
 #[test]
 fn catalog_wheel_names_owned_clips_from_saved_preferences() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
         return;
     };
     let mut runtime = super::super::pack_harness::menu_runtime();
     runtime.emotes_mut().apply_preferences(Some(&[
-        Some(actor_animation::CustomEmote::Twerk.id().to_owned()),
+        Some(cosmetics::test_support::playback_emote().id().to_owned()),
         None,
         None,
         None,
@@ -144,7 +145,7 @@ fn catalog_wheel_names_owned_clips_from_saved_preferences() {
     assert!(
         super::super::pack_harness::drawn_texts(&nodes)
             .iter()
-            .any(|text| text == actor_animation::CustomEmote::Twerk.label())
+            .any(|text| text == cosmetics::test_support::playback_emote().label())
     );
 }
 

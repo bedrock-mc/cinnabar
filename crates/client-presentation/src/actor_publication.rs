@@ -69,7 +69,7 @@ pub struct ActorFrameInput {
     pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
-    pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
+    pub custom_emote: Option<(cosmetics::emotes::Item, f64)>,
     /// API-authenticated playback already resolved to this session's actor lifetimes.
     pub remote_emotes: Vec<RemoteEmote>,
 }
@@ -79,7 +79,7 @@ pub struct ActorFrameInput {
 pub struct RemoteEmote {
     pub runtime_id: u64,
     pub spawn_revision: u64,
-    pub emote: actor_animation::CustomEmote,
+    pub emote: cosmetics::emotes::Item,
     pub elapsed: f64,
 }
 

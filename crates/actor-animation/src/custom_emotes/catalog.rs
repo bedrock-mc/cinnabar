@@ -37,6 +37,12 @@ fn sample(keys: &[Key], time: f64) -> Key {
     }
 }
 
+/// Logical bone targets and the authored vertical root offset in model units.
+pub(super) struct Targets {
+    pub bones: Vec<Option<BoneTransform>>,
+    pub root_height: f32,
+}
+
 /// Applies local logical-joint channels while leaving clothing to the skin's own hierarchy.
 pub(super) fn targets(
     names: &[Box<str>],
@@ -44,7 +50,7 @@ pub(super) fn targets(
     clip: &Clip,
     seconds: f64,
     height: f32,
-) -> Vec<Option<BoneTransform>> {
+) -> Targets {
     let time = if clip.looping {
         seconds.rem_euclid(clip.duration)
     } else {
@@ -78,6 +84,7 @@ pub(super) fn targets(
         .collect();
     let mut logical: Vec<BoneTransform> = Vec::with_capacity(rig.len());
     let mut targets = vec![None; names.len()];
+    let mut root_height = 0.0;
     for (index, joint) in rig.iter().enumerate() {
         let key = clip
             .tracks
@@ -116,6 +123,7 @@ pub(super) fn targets(
                 target.translation_scale[axis] = parent_pose.translation_scale[axis] + value;
             }
         } else {
+            root_height = offset[1];
             target.rotation = quat_multiply(rotation, bind[index].rotation);
             for (axis, value) in offset.into_iter().enumerate() {
                 target.translation_scale[axis] += value;
@@ -126,7 +134,10 @@ pub(super) fn targets(
             targets[index] = Some(target);
         }
     }
-    targets
+    Targets {
+        bones: targets,
+        root_height,
+    }
 }
 
 #[cfg(test)]
@@ -177,8 +188,8 @@ mod tests {
                 keys: keys.into(),
             }],
         };
-        let end = targets(&names, &rest, &clip, 2.0, 12.0);
-        assert_eq!(targets(&names, &rest, &clip, 200.0, 12.0), end);
+        let end = targets(&names, &rest, &clip, 2.0, 12.0).bones;
+        assert_eq!(targets(&names, &rest, &clip, 200.0, 12.0).bones, end);
         assert_eq!(end[1].unwrap().translation_scale[1], 27.0);
         assert_eq!(
             end[2], end[1],
@@ -186,8 +197,8 @@ mod tests {
         );
         clip.looping = true;
         assert_eq!(
-            targets(&names, &rest, &clip, 0.0, 12.0),
-            targets(&names, &rest, &clip, 2.0, 12.0)
+            targets(&names, &rest, &clip, 0.0, 12.0).bones,
+            targets(&names, &rest, &clip, 2.0, 12.0).bones
         );
         clip.tracks = vec![cosmetics::emotes::Track {
             joint: "root".into(),
@@ -197,8 +208,8 @@ mod tests {
                 offset: [0.0; 3],
             }],
         }];
-        let complete = targets(&names, &rest, &clip, 0.0, 12.0);
-        let rootless = targets(&names[1..], &rest[1..], &clip, 0.0, 12.0);
+        let complete = targets(&names, &rest, &clip, 0.0, 12.0).bones;
+        let rootless = targets(&names[1..], &rest[1..], &clip, 0.0, 12.0).bones;
         assert_eq!(
             rootless,
             complete[1..],

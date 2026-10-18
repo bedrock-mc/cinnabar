@@ -1,7 +1,7 @@
 //! Native wheel and native equip-slot popup, backed by the original local catalog.
 use std::{collections::HashMap, sync::Arc};
 
-use actor_animation::CustomEmote;
+use cosmetics::emotes::Item;
 use json_ui::{DataSource, HitKind, InputMode, Scalar, ViewState};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef, UiPoint};
 use ui_engine::cached_screen::CachedScreen;
@@ -37,9 +37,9 @@ pub struct EmoteScreen {
 pub struct EmoteInput<'a> {
     pub equipping: bool,
     pub catalog_page: Option<(usize, usize)>,
-    pub equipping_emote: Option<CustomEmote>,
+    pub equipping_emote: Option<Item>,
     pub selected_slot: Option<usize>,
-    pub slots: &'a [Option<CustomEmote>],
+    pub slots: &'a [Option<Item>],
     /// The live player preview the occupied slots show.
     pub preview: Option<IconRef>,
 }

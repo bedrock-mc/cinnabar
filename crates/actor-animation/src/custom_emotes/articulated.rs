@@ -1,5 +1,4 @@
 //! Render-only joints for classic cuboid skins; unusual authored models stay intact.
-use super::CustomEmote;
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
     EntityGeometryScalar as Scalar, EntityGeometryUv, SkinGeometry,
@@ -65,7 +64,7 @@ fn contact_bounds(mesh: &render_model::ActorRigGeometry) -> Arc<[Option<BoneBoun
     bounds.into()
 }
 
-type Entry = ([u8; 32], bool, Option<Model>);
+type Entry = ([u8; 32], Option<Model>);
 mod full_body;
 /// Covers every selected player and persona layer without an eight-skin cache thrashing during shared playback.
 const MAX_MODELS: usize =
@@ -82,32 +81,29 @@ fn mesh_bytes(model: &Option<Model>) -> usize {
 }
 
 /// Reuses the exact mesh for each articulated geometry across playback samples.
-pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Model> {
+pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
     static CACHE: OnceLock<Mutex<Vec<Entry>>> = OnceLock::new();
     let mut cache = CACHE.get_or_init(Mutex::default).lock().ok()?;
-    if let Some((_, _, model)) = cache
-        .iter()
-        .find(|(digest, clip, _)| *digest == source.digest && *clip == emote.articulated())
-    {
+    if let Some((_, model)) = cache.iter().find(|(digest, _)| *digest == source.digest) {
         return model.clone();
     }
-    let model = build(source, emote);
+    let model = build(source);
     let bytes = mesh_bytes(&model);
     if bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES {
         return None;
     }
-    let mut retained: usize = cache.iter().map(|(_, _, model)| mesh_bytes(model)).sum();
+    let mut retained: usize = cache.iter().map(|(_, model)| mesh_bytes(model)).sum();
     while cache.len() >= MAX_MODELS
         || retained + bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
     {
-        retained -= mesh_bytes(&cache.remove(0).2);
+        retained -= mesh_bytes(&cache.remove(0).1);
     }
-    cache.push((source.digest, emote.articulated(), model.clone()));
+    cache.push((source.digest, model.clone()));
     model
 }
 
 /// Splits supported cuboids and prepares a mesh with each generated joint's source bone.
-fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
+fn build(source: &SkinGeometry) -> Option<Model> {
     // Only classic skins with unrotated cuboid limbs can be split without
     // changing authored bind rotations, polygon meshes or arbitrary proportions.
     if source.poly_meshes.iter().any(Option::is_some) {
@@ -154,11 +150,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
             if cube.rotation.iter().any(|v| v.get() != 0.0) {
                 return None;
             }
-            let overlap = if emote.articulated() {
-                height / 12.0
-            } else {
-                0.0
-            };
+            let overlap = height / 12.0;
             let (top, _) = split(cube, height * 0.5 - overlap)?;
             let (_, bottom) = split(cube, height * 0.5 + overlap)?;
             // Put the ankle inside the foot volume, rather than on its exposed
@@ -206,15 +198,11 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
     }
     model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
-    if emote.articulated() {
-        full_body::extend(source, &mut model, &mut sources)?;
-    }
+    full_body::extend(source, &mut model, &mut sources)?;
     let mut digest = Sha256::new();
     digest.update(source.digest);
     digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
-    if emote.articulated() {
-        digest.update(b"cinnabar:elbows-wrists-spine:v2");
-    }
+    digest.update(b"cinnabar:elbows-wrists-spine:v2");
     model.digest = digest.finalize().into();
     let mesh = render_model::skin_geometry(&model, render_model::DIAGNOSTIC_RIG_ID).ok()?;
     Some(Model {
@@ -225,6 +213,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
     })
 }
 
+/// Reports whether a bone belongs to a limb subtree.
 fn descendant(source: &SkinGeometry, index: usize, leg: usize) -> bool {
     let mut current = index;
     for _ in 0..source.bones.len() {
@@ -246,6 +235,7 @@ fn descendant(source: &SkinGeometry, index: usize, leg: usize) -> bool {
     false
 }
 
+/// Splits one cuboid at a joint while cropping its original texture faces.
 fn split(cube: &EntityGeometryCube, knee: f32) -> Option<(EntityGeometryCube, EntityGeometryCube)> {
     let bottom = cube.origin[1].get();
     let top = bottom + cube.size[1].get();
@@ -264,6 +254,7 @@ fn split(cube: &EntityGeometryCube, knee: f32) -> Option<(EntityGeometryCube, En
     Some((upper, lower))
 }
 
+/// Resolves box or authored UVs to explicit face coordinates.
 fn faces(cube: &EntityGeometryCube) -> Option<EntityGeometryFaceUvs> {
     let [x, y, z] = cube.size.map(Scalar::get);
     let face = |uv: [f32; 2], size: [f32; 2]| -> Option<EntityGeometryFaceUv> {
@@ -306,6 +297,7 @@ fn faces(cube: &EntityGeometryCube) -> Option<EntityGeometryFaceUvs> {
     }
 }
 
+/// Crops side faces and samples interior rows for newly exposed joint caps.
 fn crop(faces: &EntityGeometryFaceUvs, start: f32, end: f32) -> Option<EntityGeometryFaceUvs> {
     let mut result = faces.clone();
     for face in [

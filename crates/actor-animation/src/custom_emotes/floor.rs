@@ -45,8 +45,12 @@ pub(super) fn contacts(
         .collect()
 }
 
-/// Grounds visible body bounds and returns the model translation applied to every attachment.
-pub(super) fn ground_pose(pose: &mut [BoneTransform], bounds: &[Option<BoneBounds>]) -> f32 {
+/// Corrects visible contacts independently of authored root height and shares the correction with attachments.
+pub(super) fn ground_pose(
+    pose: &mut [BoneTransform],
+    bounds: &[Option<BoneBounds>],
+    root_height: f32,
+) -> f32 {
     let lowest = pose
         .iter()
         .zip(bounds)
@@ -72,8 +76,9 @@ pub(super) fn ground_pose(pose: &mut [BoneTransform], bounds: &[Option<BoneBound
     if !lowest.is_finite() {
         return 0.0;
     }
+    let correction = root_height - lowest;
     for target in pose {
-        target.translation_scale[1] -= lowest;
+        target.translation_scale[1] += correction;
     }
-    -lowest
+    correction
 }

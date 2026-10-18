@@ -203,6 +203,30 @@ pub fn supported(item: &Descriptor) -> bool {
 }
 
 impl Item {
+    /// Lists active clips owned by every account through the catalog's free flag.
+    pub fn owned() -> Vec<Self> {
+        Self::all()
+            .into_iter()
+            .filter(|item| item.descriptor().free)
+            .collect()
+    }
+    /// Returns the current revision's stable catalog identifier.
+    pub fn id(self) -> &'static str {
+        &self.descriptor().id
+    }
+    /// Returns the catalog's display name for this revision.
+    pub fn label(self) -> &'static str {
+        &self.descriptor().display_name
+    }
+    /// Returns the authored clip duration in seconds.
+    pub fn duration_seconds(self) -> f64 {
+        self.clip().duration
+    }
+    /// Reports whether playback wraps at the authored duration.
+    pub fn looping(self) -> bool {
+        self.clip().looping
+    }
+
     /// Hash-checks and parses optional content once, bounding retained immutable revisions.
     pub fn admit(descriptor: Descriptor, bytes: &[u8]) -> Option<Self> {
         let admitted = (|| {
@@ -261,17 +285,8 @@ impl Item {
 }
 
 /// Publishes the complete supported catalog after all clip assets have been checked.
-pub fn activate(ids: &[String]) {
-    let items = ITEMS.read().unwrap_or_else(|error| error.into_inner());
-    let active = ids
-        .iter()
-        .filter_map(|id| {
-            items
-                .iter()
-                .rposition(|item| item.descriptor.id == *id)
-                .map(|index| Item(index as u16))
-        })
-        .collect();
+pub fn activate(items: &[Item]) {
+    let active = items.to_vec();
     let mut current = ACTIVE.write().unwrap_or_else(|error| error.into_inner());
     if *current != active {
         *current = active;

@@ -26,3 +26,15 @@ pub fn catalog_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|error| error.into_inner())
 }
+
+/// Admits the shared synthetic playback fixture without changing catalog ownership.
+pub fn playback_emote() -> emotes::Item {
+    emote("fixture:playback", "Clip", true)
+}
+
+/// Installs one owned synthetic catalog clip while excluding other catalog-mutating tests.
+pub fn playback_catalog() -> std::sync::MutexGuard<'static, ()> {
+    let guard = catalog_lock();
+    emotes::activate(&[playback_emote()]);
+    guard
+}

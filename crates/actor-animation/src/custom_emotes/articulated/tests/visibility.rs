@@ -51,10 +51,7 @@ fn assert_visibility(
 fn generated_body_pieces_keep_each_render_layers_source_visibility() {
     let source = full_fixture();
     let fixture = Fixture::from_skin((*source).clone());
-    for emote in [
-        CustomEmote::Twerk,
-        crate::custom_emotes::tests::catalog_emote(),
-    ] {
+    for emote in [crate::custom_emotes::tests::catalog_emote()] {
         for hidden in std::iter::once(None).chain((0..source.bones.len()).map(Some)) {
             let hidden: Arc<[u32]> = hidden.map(|index| index as u32).into_iter().collect();
             let render = [body_layer(Arc::clone(&hidden)), body_layer(Arc::from([]))];
@@ -83,10 +80,7 @@ fn generated_skin_layer_pieces_keep_their_own_source_visibility() {
     layer_source.digest = Sha256::digest(b"reordered visibility layer").into();
     let layer_fixture = Fixture::from_skin(layer_source.clone());
     let layer_source = Arc::new(layer_source);
-    for emote in [
-        CustomEmote::Twerk,
-        crate::custom_emotes::tests::catalog_emote(),
-    ] {
+    for emote in [crate::custom_emotes::tests::catalog_emote()] {
         for hidden in std::iter::once(None).chain((0..layer_source.bones.len()).map(Some)) {
             let hidden: Arc<[u32]> = hidden.map(|index| index as u32).into_iter().collect();
             let layer = SkinRenderLayer {
@@ -173,7 +167,7 @@ fn contacts_include_a_piece_visible_in_any_body_draw_and_allow_no_visible_bounds
     let source = full_fixture();
     let fixture = Fixture::from_skin((*source).clone());
     let hidden: Arc<[u32]> = (0..source.bones.len() as u32).collect();
-    let model = model(&source, crate::custom_emotes::tests::catalog_emote()).unwrap();
+    let model = model(&source).unwrap();
     let (_, names) = crate::geometry::skeleton(&model.geometry.bones).unwrap();
     let render = [body_layer(Arc::clone(&hidden)), body_layer(Arc::from([]))];
     let original = crate::ActorRigSnapshot {
@@ -191,7 +185,7 @@ fn contacts_include_a_piece_visible_in_any_body_draw_and_allow_no_visible_bounds
     assert!(contacts.iter().all(Option::is_none));
     let mut pose = fixture.rest.clone();
     assert_eq!(
-        crate::custom_emotes::floor::ground_pose(&mut pose, &contacts),
+        crate::custom_emotes::floor::ground_pose(&mut pose, &contacts, 0.0),
         0.0
     );
     assert_eq!(pose, fixture.rest);

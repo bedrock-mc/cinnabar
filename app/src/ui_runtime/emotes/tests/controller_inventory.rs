@@ -59,6 +59,7 @@ fn inventory_harness(identifier: &str) -> Harness {
 
 #[test]
 fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for closing_button in [GamepadButton::South, GamepadButton::East] {
         let mut h = inventory_harness("minecraft:stone");
         let pad = h.app.world_mut().spawn(Gamepad::default()).id();
@@ -126,6 +127,7 @@ fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
 
 #[test]
 fn closing_emote_wheel_consumes_book_use_and_allows_a_fresh_gameplay_use() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = inventory_harness("minecraft:writable_book");
     h.press(KeyCode::KeyB);
     h.queue(KeyCode::Escape);

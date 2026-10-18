@@ -1,11 +1,11 @@
-//! Local original emotes: native four-slot selection and unique equipped pieces.
-use actor_animation::CustomEmote;
+//! Catalog emotes: native four-slot selection and unique equipped pieces.
+use cosmetics::emotes::Item;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::UiAction;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EmotePlayback {
-    pub emote: CustomEmote,
+    pub emote: Item,
     pub start_millis: u64,
     /// Distinguishes repeated starts even when the render clock has not advanced.
     pub revision: u64,
@@ -28,22 +28,22 @@ enum Mode {
 
 #[derive(Clone, Debug)]
 pub struct EmoteState {
-    slots: [Option<CustomEmote>; EMOTE_SLOT_COUNT],
+    slots: [Option<Item>; EMOTE_SLOT_COUNT],
     mode: Mode,
     selected: Option<usize>,
     playback: Option<EmotePlayback>,
     playback_revision: u64,
-    catalog: Vec<CustomEmote>,
+    catalog: Vec<Item>,
     catalog_page: usize,
-    chosen: Option<CustomEmote>,
+    chosen: Option<Item>,
     preferences: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
 }
 
 impl Default for EmoteState {
     fn default() -> Self {
         let mut slots = [None; EMOTE_SLOT_COUNT];
-        for (slot, emote) in slots.iter_mut().zip(CustomEmote::ALL) {
-            *slot = Some(*emote);
+        for (slot, emote) in slots.iter_mut().zip(Item::owned()) {
+            *slot = Some(emote);
         }
         Self {
             slots,
@@ -74,7 +74,7 @@ impl EmoteState {
     pub fn is_equipping(&self) -> bool {
         self.mode == Mode::Equip
     }
-    pub fn slots(&self) -> &[Option<CustomEmote>; EMOTE_SLOT_COUNT] {
+    pub fn slots(&self) -> &[Option<Item>; EMOTE_SLOT_COUNT] {
         &self.slots
     }
     pub fn selected_slot(&self) -> Option<usize> {
@@ -89,7 +89,7 @@ impl EmoteState {
             self.next_catalog_page();
             return;
         }
-        self.catalog = CustomEmote::available();
+        self.catalog = Item::owned();
         self.catalog_page = 0;
         self.chosen = None;
         self.selected = None;
@@ -100,7 +100,7 @@ impl EmoteState {
         self.mode == Mode::Choose
     }
     /// Returns the chosen clip while selecting its destination slot.
-    pub fn equipping_emote(&self) -> Option<CustomEmote> {
+    pub fn equipping_emote(&self) -> Option<Item> {
         self.chosen
     }
     /// Returns the current catalog page and total page count for instructions.
@@ -118,7 +118,7 @@ impl EmoteState {
         }
     }
     /// Lists catalog choices during browsing, otherwise the four equipped slots.
-    pub fn display_slots(&self) -> [Option<CustomEmote>; EMOTE_SLOT_COUNT] {
+    pub fn display_slots(&self) -> [Option<Item>; EMOTE_SLOT_COUNT] {
         if self.is_choosing() {
             std::array::from_fn(|slot| {
                 self.catalog
@@ -136,14 +136,13 @@ impl EmoteState {
         self.playback = None;
     }
 
-    pub fn activate_slot(&mut self, slot: usize, now_millis: u64) -> Option<CustomEmote> {
+    pub fn activate_slot(&mut self, slot: usize, now_millis: u64) -> Option<Item> {
         if !self.is_open() || slot >= self.slots.len() {
             return None;
         }
         self.selected = Some(slot);
         if self.is_choosing() {
-            self.chosen =
-                self.display_slots()[slot].filter(|emote| CustomEmote::available().contains(emote));
+            self.chosen = self.display_slots()[slot].filter(|emote| Item::owned().contains(emote));
             if self.chosen.is_some() {
                 self.mode = Mode::Equip;
                 self.selected = None;
@@ -153,7 +152,7 @@ impl EmoteState {
         if self.is_equipping() {
             let emote = self
                 .equipping_emote()
-                .filter(|emote| CustomEmote::available().contains(emote))?;
+                .filter(|emote| Item::owned().contains(emote))?;
             if self.slots[slot] != Some(emote) {
                 if let Some(previous) = self.slots.iter().position(|value| *value == Some(emote)) {
                     self.slots.swap(previous, slot);
@@ -168,7 +167,7 @@ impl EmoteState {
             self.mode = Mode::Wheel;
             return None;
         }
-        let emote = self.slots[slot].filter(|emote| CustomEmote::available().contains(emote))?;
+        let emote = self.slots[slot].filter(|emote| Item::owned().contains(emote))?;
         self.playback_revision = self.playback_revision.wrapping_add(1);
         self.playback = Some(EmotePlayback {
             revision: self.playback_revision,
@@ -179,7 +178,7 @@ impl EmoteState {
         Some(emote)
     }
 
-    pub fn handle_action(&mut self, action: UiAction, now_millis: u64) -> Option<CustomEmote> {
+    pub fn handle_action(&mut self, action: UiAction, now_millis: u64) -> Option<Item> {
         if !self.is_open() {
             return None;
         }
@@ -205,7 +204,7 @@ impl EmoteState {
     }
 
     pub fn apply_preferences(&mut self, saved: Option<&[Option<String>; EMOTE_SLOT_COUNT]>) {
-        let available = CustomEmote::available();
+        let available = Item::owned();
         if self
             .playback
             .is_some_and(|playback| !available.contains(&playback.emote))
@@ -228,13 +227,13 @@ impl EmoteState {
                 self.mode = Mode::Choose;
             }
         }
-        let Some(saved) = saved else {
-            return;
-        };
+        let defaults =
+            std::array::from_fn(|slot| available.get(slot).map(|emote| emote.id().to_owned()));
+        let saved = saved.unwrap_or(&defaults);
         self.slots = saved.clone().map(|value| {
             value
                 .as_deref()
-                .and_then(CustomEmote::from_id)
+                .and_then(Item::from_id)
                 .filter(|emote| available.contains(emote))
         });
         for slot in 0..self.slots.len() {

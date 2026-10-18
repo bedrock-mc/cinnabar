@@ -18,7 +18,7 @@ reads = [
 test-support = []
 
 [dependencies]
-actor-animation = { path = "../actor-animation" }
+cosmetics = { path = "../cosmetics" }
 assets = { path = "../assets" }
 bridge = { path = "../bridge" }
 inventory = { path = "../inventory" }

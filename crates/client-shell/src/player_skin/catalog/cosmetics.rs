@@ -38,7 +38,7 @@ pub(super) fn load(layout: &InstallLayout) {
             continue;
         };
         if let Some(item) = cosmetics::emotes::Item::admit(item, &bytes) {
-            emotes.push(item.descriptor().id.clone());
+            emotes.push(item);
         } else {
             bevy::log::warn!("malformed catalog emote skipped");
         }

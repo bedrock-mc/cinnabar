@@ -298,7 +298,12 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             dismissed |= !input.runtime.emotes().is_open();
         }
         for pad in input.pads.iter().filter(|_| !toggled) {
-            if pad.just_pressed(GamepadButton::North) {
+            let mapped = |button| {
+                input.menu.as_deref().map_or(button, |menu| {
+                    gamepad_button(&menu.settings_snapshot().0, button)
+                })
+            };
+            if pad.just_pressed(mapped(GamepadButton::North)) {
                 input.runtime.emotes_mut().change_emotes();
             }
             if pad.just_pressed(GamepadButton::RightTrigger) {
@@ -312,9 +317,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 (GamepadButton::DPadDown, UiAction::Navigate([0, 1])),
                 (GamepadButton::DPadLeft, UiAction::Navigate([-1, 0])),
             ] {
-                let button = input.menu.as_deref().map_or(button, |menu| {
-                    gamepad_button(&menu.settings_snapshot().0, button)
-                });
+                let button = mapped(button);
                 if pad.just_pressed(button) {
                     if let Some(presentation) = input.presentation.as_deref_mut() {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
