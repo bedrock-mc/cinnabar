@@ -224,7 +224,15 @@ fn ordered_mouse_world_unchanged_boundary_placement_retries_once_with_original_p
         .filter_map(observe_transaction)
         .filter_map(|tx| tx.item_use().cloned())
         .collect();
-    assert_eq!(uses.len(), 1);
+    assert_eq!(
+        uses.iter().map(|use_| use_.action).collect::<Vec<_>>(),
+        [
+            protocol::test_support::transactions::ItemUseAction::ClickBlock,
+            protocol::test_support::transactions::ItemUseAction::ClickAir,
+        ],
+        "one placement and its existing air-use suffix must each admit once",
+    );
+    assert_eq!(uses[1].item.count, 63);
     assert_eq!(uses[0].position, CLICKED);
     assert_eq!(uses[0].face, 5);
     assert_eq!(uses[0].from_position, NETWORK_POSITION);
