@@ -560,6 +560,23 @@ fn inventory_options_adoption_resets_list_offsets() {
             runtime.close_inventory(&mut player);
         }
         runtime.toggle_inventory(&mut player, None);
+        assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                3,
+                InventoryEvent::Open(protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(
+                        protocol::PLAYER_INVENTORY_WINDOW_ID,
+                    ),
+                    window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                    position: [0, 64, 0],
+                    runtime_entity_id: -1,
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
         let count = visible_creative_entries(&player, &runtime).len();
         assert!(count > 0 && row * GRID_COLUMNS >= count);
         assert_eq!(
