@@ -15,6 +15,7 @@ use bevy::{
 use render_scene::TransparentSortMetrics;
 use std::sync::{Arc, Mutex, PoisonError};
 
+#[cfg(not(target_arch = "wasm32"))]
 use client_runtime::shutdown::{ShutdownWatchdog, begin_bounded_shutdown};
 #[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;
@@ -85,6 +86,7 @@ pub(crate) fn window_close_exit(requested: bool) -> Option<AppExit> {
     requested.then_some(AppExit::Success)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn exit_on_window_close_requested(
     mut close_requests: MessageReader<WindowCloseRequested>,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,

@@ -532,7 +532,7 @@ fn drive_particles(
         icons: icons.as_ref().map(|icons| &*icons.0),
     };
     let view = particle_view(&(*transform).into(), projection);
-    let first_person = crate::ui_runtime::presentation::publish::hand_first_person(
+    let first_person = client_presentation::camera::hand_first_person(
         camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
             settings.perspective()
         }),

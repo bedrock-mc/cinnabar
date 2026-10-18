@@ -494,7 +494,17 @@ impl PlayerInventoryLedger {
         Ok(request_id)
     }
 
+    /// Submits a screen gesture using its current presentation snapshot.
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
+        self.submit_request(submission, None)
+    }
+
+    /// Submits a gesture with its transport kind known before capturing transaction snapshots.
+    pub(super) fn submit_request(
+        &mut self,
+        submission: Submission,
+        world_drop: Option<super::queue::WorldDrop>,
+    ) -> Result<i32, InventoryGestureError> {
         self.validate_submission(&submission)?;
         if self.authority == Some(protocol::InventoryAuthority::Client) {
             self.validate_legacy_submission(&submission)?;
@@ -520,8 +530,10 @@ impl PlayerInventoryLedger {
             registry_bound_merge: submission.registry_bound_merge,
             quick_move_route: None,
             predicted: Vec::new(),
+            placements: Vec::new(),
             mining: None,
-            world_drop: None,
+            world_drop,
+            consumed_after: Vec::new(),
         });
         Ok(request_id)
     }

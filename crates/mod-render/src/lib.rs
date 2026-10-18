@@ -2,6 +2,7 @@
 
 pub mod geometry;
 pub mod masks;
+pub mod material;
 pub mod retained;
 pub mod shader;
 

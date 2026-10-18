@@ -3,6 +3,7 @@ use crate::{
     actor_raster,
     gpu_snapshot::{Gpu, RasterState, SNAPSHOT_SIDE},
 };
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::{GlobalTransform, Mat4, UVec4, Vec3};
 
 #[test]
@@ -200,7 +201,13 @@ fn composed(
 ) -> Vec<u8> {
     let device = RenderDevice::from(gpu.device.clone());
     let queue = RenderQueue::new(gpu.queue.clone());
-    let cache = PipelineCache::new(device.clone(), true);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.insert_resource(PipelineCache::new(device.clone(), true));
+    world.run_system_once(init).unwrap();
+    world.resource_mut::<PipelineCache>().process_queue();
+    let cache = world.resource::<PipelineCache>();
+    let compositor = world.resource::<CompositionGpu>();
     let view = ExtractedView {
         retained_view_entity: bevy::render::view::RetainedViewEntity::new(
             Entity::PLACEHOLDER.into(),
@@ -219,28 +226,12 @@ fn composed(
     let mask = texture(&device, &queue, mask, TextureFormat::Rgba8Unorm);
     let coverage = mask.create_view(&default());
     let scene_view = scene.create_view(&default());
-    let sampler = device.create_sampler(&SamplerDescriptor {
-        mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Linear,
-        ..default()
-    });
-    let pyramid = Pyramid::new(&device, &queue, &cache, &sampler, &coverage, &view).unwrap();
-    let source = mod_render::shader::compose(BLUR, false).unwrap();
-    let blur = passes::create_pipeline(
-        &device,
-        &cache.get_bind_group_layout(&passes::layout(false)),
-        &source,
-        TextureFormat::Rgba8Unorm,
-    )
-    .unwrap();
-    let source = mod_render::shader::compose_masked(COMPOSITE, false, 2).unwrap();
-    let composite = passes::create_pipeline(
-        &device,
-        &cache.get_bind_group_layout(&passes::masked_layout(false, 2)),
-        &source,
-        format,
-    )
-    .unwrap();
+    let sampler = &compositor.sampler;
+    let pyramid = Pyramid::new(&device, &queue, cache, sampler, &coverage, &view).unwrap();
+    let blur = cache.get_render_pipeline(compositor.blur.unwrap()).unwrap();
+    let composite = cache
+        .get_render_pipeline(compositor.composite[&format])
+        .unwrap();
     let output = device.create_texture(&TextureDescriptor {
         label: Some("selection colour output"),
         size: scene.size(),
@@ -254,14 +245,9 @@ fn composed(
         view_formats: &[],
     });
     let output_view = output.create_view(&default());
-    let uniform = device.create_buffer(&BufferDescriptor {
-        label: None,
-        size: mod_render::shader::FRAME_UNIFORM_BYTES as u64,
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let mut style_gpu = StyleGpu::new(&device);
     queue.profiled_write_buffer(
-        &uniform,
+        &style_gpu.uniform,
         0,
         bytemuck::bytes_of(&style_uniform(&view, style, scene.size())),
     );
@@ -270,14 +256,14 @@ fn composed(
     } else {
         &coverage
     };
-    let group = binding(
+    style_gpu.prepare_bindings(
         &device,
-        &cache,
-        &sampler,
-        &uniform,
-        &scene_view,
-        &[&coverage, halo],
+        cache,
+        sampler,
+        [&scene_view, &scene_view],
+        [&coverage, halo],
     );
+    let group = style_gpu.binding(scene_view.id()).unwrap();
     let converted = texture(&device, &queue, before, TextureFormat::Rgba8UnormSrgb);
     let convert_source = mod_render::shader::compose(
         "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }",
@@ -291,13 +277,20 @@ fn composed(
         TextureFormat::Rgba8UnormSrgb,
     )
     .unwrap();
-    let convert_binding = binding(&device, &cache, &sampler, &uniform, &output_view, &[]);
+    let convert_binding = binding(
+        &device,
+        cache,
+        sampler,
+        &style_gpu.uniform,
+        &output_view,
+        &[],
+    );
     let (_, commands) =
         crate::render_test_support::record(&mut World::new(), &device, |_, context| {
             for level in &pyramid.levels {
-                fullscreen(context, &level.view, &blur, &level.binding);
+                fullscreen(context, &level.view, blur, &level.binding);
             }
-            fullscreen(context, &output_view, &composite, &group);
+            fullscreen(context, &output_view, composite, group);
             fullscreen(
                 context,
                 &converted.create_view(&default()),

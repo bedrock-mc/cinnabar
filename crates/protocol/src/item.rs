@@ -32,7 +32,7 @@ mod registry_properties;
 mod user_data;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
-pub use banner::{ItemBannerPattern, item_banner_patterns};
+pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
@@ -135,9 +135,15 @@ pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
     item_extra_damage_value(extra_data).and_then(|value| u32::try_from(value).ok())
 }
 
-/// Reads a retained integer `Damage` value, including signed corrections.
+/// Reads item damage as a signed 16-bit value from its retained integer `Damage` tag.
 #[must_use]
 pub fn item_extra_damage_value(extra_data: &[u8]) -> Option<i32> {
+    item_extra_damage_integer(extra_data).map(|damage| i32::from(damage as i16))
+}
+
+/// Reads the stored root `Damage` integer without applying item damage conversion.
+#[must_use]
+pub fn item_extra_damage_integer(extra_data: &[u8]) -> Option<i32> {
     root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 
@@ -151,14 +157,18 @@ pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
     })
 }
 
+/// Reads the typed item-lock byte, preserving unknown values for special-removal checks.
+#[must_use]
+pub fn item_extra_lock(extra_data: &[u8]) -> Option<u8> {
+    let mut cursor = decode_extra_nbt(extra_data)?;
+    let mut value = root_tag(&mut cursor, 1, b"minecraft:item_lock")?;
+    read_u8(&mut value)
+}
+
 /// Whether retained item data locks the item into its current slot.
 #[must_use]
 pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
-    decode_extra_nbt(extra_data).is_some_and(|nbt| {
-        let mut cursor = nbt;
-        root_tag(&mut cursor, 1, b"minecraft:item_lock")
-            .is_some_and(|mut value| read_u8(&mut value) == Some(1))
-    })
+    item_extra_lock(extra_data) == Some(1)
 }
 
 /// Reads one enchantment's level from the root `ench` list of a stack's extra data.
@@ -166,6 +176,13 @@ pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
 /// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.
 #[must_use]
 pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
+    item_enchantment_level_value(extra_data, enchantment_id)
+        .and_then(|level| u8::try_from(level).ok())
+}
+
+/// Reads the full signed-short level of the first matching typed enchantment entry.
+#[must_use]
+pub fn item_enchantment_level_value(extra_data: &[u8], enchantment_id: i16) -> Option<i16> {
     let nbt = decode_extra_nbt(extra_data)?;
     let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"ench")?;
@@ -190,7 +207,7 @@ pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<
             skip_le_payload(&mut list, tag, 1)?;
         }
         if id == Some(enchantment_id) {
-            return level.and_then(|level| u8::try_from(level).ok());
+            return level;
         }
     }
     None

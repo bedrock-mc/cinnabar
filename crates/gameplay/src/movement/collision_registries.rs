@@ -149,11 +149,15 @@ impl PhysicsCollisionRegistries {
             records,
             expected_protocol,
         )?;
-        // The identity carries the decoder's exact stamped wire protocol so
-        // the registries never claim a protocol the carrier did not declare;
-        // the explicit `expected_protocol` argument keeps every construction
-        // site on the shared active-content authority instead of a hidden
-        // legacy default.
+        Self::from_decoded(records, &physics)
+    }
+
+    /// Builds collision views from the exact block records used to validate `physics`.
+    pub fn from_decoded(
+        records: &[RegistryRecord],
+        physics: &assets::PhysicsRegistry,
+    ) -> Result<Self, PhysicsCollisionRegistryError> {
+        // The registry retains the protocol and digest already validated by its decoder.
         let sequential_identity = CollisionRegistryIdentity {
             protocol: physics.protocol(),
             id_space: CollisionIdSpace::Sequential,
@@ -177,7 +181,10 @@ impl PhysicsCollisionRegistries {
         for record in records {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
-                .expect("strict PREG decoder covers every supplied BREG record");
+                .ok_or_else(|| assets::AssetError::InvalidPhysicsRegistry {
+                    detail: "physics registry does not cover the block records; run make assets"
+                        .into(),
+                })?;
             let shapes =
                 fact.shapes
                     .as_ref()

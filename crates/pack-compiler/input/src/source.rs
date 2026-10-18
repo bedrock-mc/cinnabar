@@ -1,9 +1,14 @@
 use std::{
     borrow::Cow,
-    fs::{File, OpenOptions},
+    fs::File,
     io::{self, Read},
-    path::{Component, Path},
+    path::Path,
 };
+
+#[cfg(any(unix, windows))]
+use std::fs::OpenOptions;
+#[cfg(any(unix, windows))]
+use std::path::Component;
 
 use assets::{AssetError, MAX_ENTITY_SOURCE_BYTES};
 use sha2::{Digest, Sha256};
@@ -43,6 +48,7 @@ pub fn read_bounded_source(root: &Path, path: &Path) -> Result<Vec<u8>, AssetErr
 }
 
 /// Rejects paths that escape the root or contain non-normal components.
+#[cfg(any(unix, windows))]
 fn relative_components<'a>(root: &Path, path: &'a Path) -> io::Result<Vec<&'a std::ffi::OsStr>> {
     let relative = path
         .strip_prefix(root)

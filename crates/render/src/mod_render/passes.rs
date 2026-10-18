@@ -194,6 +194,8 @@ pub(crate) fn color_target(format: TextureFormat) -> ColorTargetState {
     }
 }
 
+/// Describes the unmasked post-pass layout for shader and raster fixtures.
+#[cfg(test)]
 pub(crate) fn layout(depth: bool) -> BindGroupLayoutDescriptor {
     masked_layout(depth, 0)
 }

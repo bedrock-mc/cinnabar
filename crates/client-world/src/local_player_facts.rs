@@ -9,6 +9,7 @@ use protocol::{ActorAttribute, GameModeUpdate, PlayerGameMode};
 use crate::game_mode_capabilities::GameModeCapabilities;
 
 mod abilities;
+mod instabuild;
 mod stat;
 
 pub use stat::LocalPlayerStat;
@@ -18,6 +19,7 @@ pub use stat::LocalPlayerStat;
 pub struct LocalPlayerFacts {
     session_id: u64,
     local_abilities: abilities::LocalAbilities,
+    instabuild: instabuild::InstabuildLayers,
     player_game_mode: Option<PlayerGameMode>,
     world_default_game_mode: Option<PlayerGameMode>,
     player_mode_from_default: bool,
@@ -93,6 +95,7 @@ impl LocalPlayerFacts {
 
     /// Installs an explicit mode without clearing or inventing attribute values.
     pub fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
+        self.instabuild.assign_mode(game_mode);
         self.player_game_mode = Some(game_mode);
         self.player_mode_from_default = false;
     }
@@ -104,6 +107,7 @@ impl LocalPlayerFacts {
         world_default: PlayerGameMode,
         player_uses_world_default: bool,
     ) {
+        self.instabuild.assign_mode(player);
         self.player_game_mode = Some(player);
         self.world_default_game_mode = Some(world_default);
         self.player_mode_from_default = player_uses_world_default;
@@ -113,6 +117,7 @@ impl LocalPlayerFacts {
     pub fn apply_game_mode_update(&mut self, update: GameModeUpdate) -> bool {
         match update {
             GameModeUpdate::Explicit(mode) => {
+                self.instabuild.assign_mode(mode);
                 self.player_game_mode = Some(mode);
                 self.player_mode_from_default = false;
                 true
@@ -122,6 +127,7 @@ impl LocalPlayerFacts {
             }
             GameModeUpdate::WorldDefault => match self.world_default_game_mode {
                 Some(default) => {
+                    self.instabuild.assign_mode(default);
                     self.player_game_mode = Some(default);
                     self.player_mode_from_default = true;
                     true
@@ -138,6 +144,7 @@ impl LocalPlayerFacts {
             GameModeUpdate::Explicit(mode) => {
                 self.world_default_game_mode = Some(mode);
                 if self.player_mode_from_default {
+                    self.instabuild.assign_mode(mode);
                     self.player_game_mode = Some(mode);
                 }
                 true
@@ -147,6 +154,11 @@ impl LocalPlayerFacts {
             ),
             GameModeUpdate::WorldDefault | GameModeUpdate::Unknown(_) => false,
         }
+    }
+
+    /// Returns effective creation permission after accepted mode and ability updates.
+    pub fn instabuild(&self) -> Option<bool> {
+        self.instabuild.resolve()
     }
 
     /// Returns the retained resolved mode, or None before it is known.

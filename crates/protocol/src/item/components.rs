@@ -53,6 +53,7 @@ pub struct ItemComponents {
     /// Category declared by the legacy Int property, narrowed to its low byte.
     /// Missing or ambiguous item-properties containers stay unresolved.
     pub creative_category: Option<u8>,
+    /// Nonnegative maximum from a typed Int; missing or invalid values remain unresolved.
     pub max_durability: Option<u32>,
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
@@ -277,15 +278,17 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .or(property("allow_off_hand"))
             .and_then(|value| match value.field("value").unwrap_or(value) {
                 Nbt::Byte(value) => Some(*value != 0),
-                Nbt::Int(value) => Some(*value != 0),
+                Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => Some(*value != 0),
                 _ => None,
             }),
         creative_category: super::registry_properties::negotiated_creative_category(bytes),
-        max_durability: count(match component("minecraft:durability") {
-            Some(durability) => durability.field("max_durability"),
-            None => component("minecraft:max_damage"),
-        })
-        .filter(|maximum| *maximum > 0),
+        max_durability: match component("minecraft:durability") {
+            Some(durability) => durability
+                .field("max_durability")
+                .and_then(Nbt::int32)
+                .and_then(|maximum| u32::try_from(maximum).ok()),
+            None => count(component("minecraft:max_damage")).filter(|maximum| *maximum > 0),
+        },
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
@@ -318,7 +321,11 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         wearable_protection: component("minecraft:wearable")
             .and_then(|wearable| wearable.field("protection"))
             .and_then(|value| match value {
-                Nbt::Int(value) if (0..=i64::from(i32::MAX)).contains(value) => Some(*value as u32),
+                Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value)
+                    if (0..=i64::from(i32::MAX)).contains(value) =>
+                {
+                    Some(*value as u32)
+                }
                 _ => None,
             }),
         block_placer: component("minecraft:block_placer").and_then(|placer| {
@@ -552,10 +559,21 @@ mod tests {
     }
 
     #[test]
-    fn durability_declaration_retains_absent_invalid_and_positive_maxima() {
+    fn durability_declaration_retains_absent_invalid_and_nonnegative_int_maxima() {
+        let scalar = |tag, payload: &[u8]| {
+            let mut field = name(tag, "max_durability");
+            field.extend(payload);
+            vec![field]
+        };
         for (fields, expected) in [
             (vec![], None),
-            (vec![int("max_durability", 0)], None),
+            (scalar(1, &[50]), None),
+            (scalar(2, &50_i16.to_le_bytes()), None),
+            (scalar(4, &[100]), None),
+            (scalar(5, &50_f32.to_le_bytes()), None),
+            (scalar(6, &50_f64.to_le_bytes()), None),
+            (vec![compound("max_durability", &[int("value", 50)])], None),
+            (vec![int("max_durability", 0)], Some(0)),
             (vec![int("max_durability", -1)], None),
             (vec![int("max_durability", 50)], Some(50)),
         ] {

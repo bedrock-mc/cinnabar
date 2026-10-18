@@ -62,7 +62,7 @@ fn a_mods_creative_take_is_the_catalogs_request_for_its_count() {
     let (mut player, mut runtime) = creative_session(protocol::PlayerGameMode::Creative);
     let mut expected = runtime.inventory_ledger(&player).clone();
     expected
-        .begin_creative_take_count(44, CreativeDestination::Cursor, Some(1))
+        .begin_creative_take(44, CreativeDestination::Cursor, Some(1))
         .unwrap();
     runtime
         .mod_creative_take(&mut player, "minecraft:apple", 0, 1)

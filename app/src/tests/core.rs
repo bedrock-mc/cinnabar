@@ -330,90 +330,6 @@ pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
 }
 
 #[test]
-fn client_world_publication_contract_crosses_the_app_boundary() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                payload: overworld_biome_payload(),
-            }),
-        )
-        .unwrap();
-    complete_world_stream_decodes(&mut stream);
-
-    let request = stream.pop_next_request().expect("sub-chunk request");
-    stream.record_sub_chunk_request_transport_pending(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-    );
-    stream.acknowledge_sub_chunk_request_sent(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-        Instant::now(),
-    );
-    let key = SubChunkKey::from_chunk(request.chunk, request.base_sub_chunk_y);
-    stream
-        .submit(
-            2,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: 0,
-                entries: vec![SubChunkEntryEvent {
-                    diagnostics: None,
-                    position: [key.x, key.y, key.z],
-                    result: SubChunkResult::AllAir,
-                }],
-            }),
-        )
-        .unwrap();
-    complete_world_stream_decodes(&mut stream);
-
-    let acknowledgement = wait_for_mesh_publication(|| {
-        stream.poll([0.0; 3], 1);
-        let mut target = None;
-        while let Some(change) = stream.pop_mesh_change() {
-            let (changed, generation, dirty_since) = match change {
-                WorldMeshChange::Upsert {
-                    key,
-                    generation,
-                    dirty_since,
-                    ..
-                }
-                | WorldMeshChange::Remove {
-                    key,
-                    generation,
-                    dirty_since,
-                    ..
-                } => (key, generation, dirty_since),
-            };
-            stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
-            if changed == key {
-                target = Some((generation, dirty_since));
-            }
-        }
-        std::thread::yield_now();
-        target
-    })
-    .unwrap_or_else(|| panic!("public mesh publication timed out: {:?}", stream.stats()));
-    assert_ne!(acknowledgement.0, 0);
-    assert!(stream.is_mesh_clean(key));
-}
-
-#[test]
 fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
     let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
     let mut active = startup_biome_tints(&runtime_assets);
@@ -1040,7 +956,7 @@ fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_fina
 }
 
 /// Polls the public mesh boundary while background work catches up.
-fn wait_for_mesh_publication<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
+pub(super) fn wait_for_mesh_publication<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
     let mut publication = None;
     test_time::wait_until(WORLD_STREAM_COMPLETION_TIMEOUT, || {
         publication = poll();

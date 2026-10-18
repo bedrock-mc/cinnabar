@@ -21,6 +21,39 @@ impl State {
 }
 
 impl wit::Host for State {
+    fn observe_entities(
+        &mut self,
+    ) -> anyhow::Result<Result<Vec<wit::ObservedEntity>, wit::DrawError>> {
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        if !permissions.entity_observe
+            || self
+                .drawing_policy
+                .is_some_and(|policy| !policy.local && !permissions.render_through_walls)
+        {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Denied,
+                detail: "unfiltered entity observation",
+            })));
+        }
+        Ok(self
+            .render
+            .retained
+            .observe_entities()
+            .map(|entities| {
+                entities
+                    .into_iter()
+                    .map(|(entity, key)| wit::ObservedEntity {
+                        entity: output_handle(entity),
+                        runtime_id: key.runtime_id,
+                    })
+                    .collect()
+            })
+            .map_err(convert_error))
+    }
+
     fn capabilities(&mut self) -> anyhow::Result<wit::Permissions> {
         self.render.budget()?;
         let p = self.grants.drawing_permissions();
@@ -41,6 +74,22 @@ impl wit::Host for State {
             }
         }
         Ok(result)
+    }
+
+    fn create_material(
+        &mut self,
+        source: String,
+    ) -> anyhow::Result<Result<wit::Handle, wit::DrawError>> {
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        Ok(self
+            .render
+            .retained
+            .create_material(&source, permissions)
+            .map(output_handle)
+            .map_err(convert_error))
     }
 
     fn create_geometry(
@@ -76,6 +125,9 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if spec.params.len() > mod_api::materials::PARAMS {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -93,6 +145,9 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if spec.params.len() > mod_api::materials::PARAMS {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -109,6 +164,12 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
+        if draws
+            .iter()
+            .any(|draw| draw.params.len() > mod_api::materials::PARAMS)
+        {
+            return Ok(Err(parameter_error()));
+        }
         Ok(self
             .render
             .retained
@@ -126,6 +187,14 @@ impl wit::Host for State {
             .remove(handle(id))
             .map_err(convert_error))
     }
+}
+
+/// Reports an oversized fixed material block without truncating caller data.
+fn parameter_error() -> wit::DrawError {
+    convert_error(domain::DrawError {
+        code: domain::ErrorCode::Invalid,
+        detail: "material parameters",
+    })
 }
 
 /// Converts a copied ABI token without trusting its owner or generation.
@@ -157,6 +226,8 @@ fn vertex(v: wit::Vertex) -> domain::Vertex {
 fn instance(spec: wit::Instance) -> domain::Instance {
     domain::Instance {
         geometry: handle(spec.geometry),
+        material: spec.material.map(handle),
+        params: std::array::from_fn(|index| spec.params.get(index).copied().unwrap_or(0.)),
         anchor: match spec.anchor {
             wit::Anchor::World(anchor) => domain::Anchor::World {
                 dimension: anchor.dimension,
@@ -313,5 +384,102 @@ mod tests {
                 .sum::<u32>() as usize,
             DrawingPermissions::NAMES.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+    use wit::Host as _;
+    #[test]
+    fn material_import_requires_grant_and_publishes_only_on_commit() {
+        let mut state = State::new(
+            crate::ModGrants::default(),
+            String::new(),
+            Default::default(),
+        );
+        state.grants.world_draw = true;
+        assert_eq!(
+            state
+                .create_material(mod_render::material::BUILTIN.into())
+                .unwrap()
+                .unwrap_err()
+                .code,
+            wit::ErrorCode::Denied
+        );
+        state.grants.render_material = true;
+        let handle = state
+            .create_material(mod_render::material::BUILTIN.into())
+            .unwrap()
+            .unwrap();
+        assert!(state.render.output().retained.is_empty());
+        state.render.commit();
+        assert_eq!(state.render.output().retained[0].materials.len(), 1);
+        state.render.revoke();
+        assert_eq!(
+            state.remove(handle).unwrap().unwrap_err().code,
+            wit::ErrorCode::StaleHandle
+        );
+    }
+}
+
+impl crate::ModHost {
+    /// Exposes only host-owned incarnation keys for liveness checks, never guest pose data.
+    pub fn drawing_entity_keys(&self) -> impl Iterator<Item = domain::EntityKey> + '_ {
+        self.instance.drawing_entity_keys()
+    }
+
+    /// Supplies this callback's bounded candidates and authoritative removals before execution.
+    pub fn update_drawing_entities(
+        &mut self,
+        candidates: Vec<domain::EntityKey>,
+        despawned: &[domain::EntityKey],
+    ) -> Result<(), domain::DrawError> {
+        self.instance.update_drawing_entities(candidates, despawned)
+    }
+}
+
+#[cfg(test)]
+mod entity_tests {
+    use super::*;
+    use wit::Host as _;
+
+    #[test]
+    fn remote_actor_references_need_explicit_unfiltered_observation_authority() {
+        let mut state = State::new(
+            crate::ModGrants {
+                world_draw: true,
+                entity_observe: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        state.drawing_policy = Some(mod_api::drawing::DrawingSession {
+            connection: 1,
+            ..Default::default()
+        });
+        assert_eq!(
+            state.observe_entities().unwrap().unwrap_err().code,
+            wit::ErrorCode::Denied
+        );
+        state.grants.render_through_walls = true;
+        state
+            .render
+            .retained
+            .reconcile_entities(
+                vec![domain::EntityKey {
+                    session: 1,
+                    dimension: 0,
+                    runtime_id: 7,
+                    spawn_revision: 1,
+                }],
+                &[],
+            )
+            .unwrap();
+        let observed = state.observe_entities().unwrap().unwrap();
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].runtime_id, 7);
+        assert!(state.render.output().retained.is_empty());
     }
 }

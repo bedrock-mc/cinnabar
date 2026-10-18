@@ -822,7 +822,9 @@ fn state_value(value: &Nbt) -> Option<CustomStateValue> {
     match value {
         Nbt::String(value) => Some(CustomStateValue::String(value.as_str().into())),
         Nbt::Byte(value) => Some(CustomStateValue::Bool(*value != 0)),
-        Nbt::Int(value) => Some(CustomStateValue::Int(*value)),
+        Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => {
+            Some(CustomStateValue::Int(*value))
+        }
         _ => None,
     }
 }

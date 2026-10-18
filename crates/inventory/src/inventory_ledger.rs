@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, VecDeque};
 mod admission;
 mod auto_craft;
 mod bundles;
+mod cancellation;
 mod cells;
+mod consumption;
 mod control;
 mod crafting;
 mod crafting_close;
@@ -171,9 +173,17 @@ pub enum InventoryGestureError {
     SlotLocked,
 }
 
+/// Effective actor permissions captured when an inventory command is built.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct InventoryPermissions {
+    pub creative: bool,
+    pub instabuild: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
+    permissions: InventoryPermissions,
     /// Backing truth, including client-authoritative writes admitted to transport.
     confirmed: Cells,
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
@@ -229,6 +239,7 @@ impl Default for PlayerInventoryLedger {
     fn default() -> Self {
         Self {
             authority: None,
+            permissions: InventoryPermissions::default(),
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
@@ -268,6 +279,11 @@ impl Default for PlayerInventoryLedger {
 }
 
 impl PlayerInventoryLedger {
+    /// Installs the accepted local actor's effective permissions before building a command.
+    pub fn set_permissions(&mut self, permissions: InventoryPermissions) {
+        self.permissions = permissions;
+    }
+
     /// Returns only personal cells authoritatively written by the latest inventory event.
     pub(crate) fn personal_updates(&self) -> PersonalUpdates<'_> {
         std::array::from_fn(|index| {
@@ -302,6 +318,26 @@ impl PlayerInventoryLedger {
             Some(stack) => PlayerInventorySlot::Present(stack),
             None => PlayerInventorySlot::Empty,
         })
+    }
+
+    /// Reads player backing independently of screen-owned sparse presentation.
+    #[must_use]
+    pub fn backing_slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
+        if !*self.known.get(usize::from(slot))? {
+            return Some(PlayerInventorySlot::Unknown);
+        }
+        Some(match self.backing_stack(slot) {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None => PlayerInventorySlot::Empty,
+        })
+    }
+
+    /// Borrows an occupied player backing cell without applying screen predictions.
+    #[must_use]
+    pub fn backing_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+        self.confirmed
+            .get(Cell::Inventory(slot))
+            .map(|held| &held.stack)
     }
 
     #[must_use]
@@ -494,6 +530,17 @@ impl PlayerInventoryLedger {
     pub fn slot_gesture_pending(&self, slot: u8) -> bool {
         self.gestures()
             .any(|pending| pending.touches(Cell::Inventory(slot)))
+    }
+
+    /// Whether a local backing mutation still needs transport admission for this player slot.
+    #[must_use]
+    pub fn slot_backing_transport_pending(&self, slot: u8) -> bool {
+        self.queue.iter().any(|request| {
+            request.state == InventoryPendingState::AwaitingTransport
+                && (self.authority == Some(InventoryAuthority::Client)
+                    || request.world_drop.is_some())
+                && request.touches(Cell::Inventory(slot))
+        })
     }
 
     #[must_use]

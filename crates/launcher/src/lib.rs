@@ -19,6 +19,7 @@ pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod accounts;
 pub mod branding;
+pub mod download;
 pub mod dressing_room;
 pub mod global_resources;
 pub mod graphics_backend;

@@ -93,7 +93,7 @@ struct ModPassVertex { @builtin(position) position: vec4<f32>, @location(0) uv: 
 "#;
 
 /// Validation runs on its own thread so its recursion never depends on the caller's stack.
-const VALIDATION_STACK_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const VALIDATION_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 /// Returns the complete host-composed module, or a guest-facing rejection.
 pub fn compose(source: &str, depth: bool) -> Result<String, String> {
@@ -120,7 +120,7 @@ pub fn compose_masked(source: &str, depth: bool, masks: usize) -> Result<String,
 }
 
 /// Counts identifier and number runs and other characters as tokens, ignoring comments.
-fn check_statement_tokens(source: &str) -> Result<(), String> {
+pub(crate) fn check_statement_tokens(source: &str) -> Result<(), String> {
     let bytes = source.as_bytes();
     let (mut i, mut tokens, mut line) = (0, 0, 1);
     while i < bytes.len() {
@@ -174,6 +174,7 @@ fn check_statement_tokens(source: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Parses and validates the composed post-pass module before applying its resource contract.
 fn compose_checked(source: &str, depth: bool, masks: usize) -> Result<String, String> {
     let mut prelude = if depth {
         format!("{PRELUDE}{DEPTH_PRELUDE}")
@@ -209,10 +210,29 @@ fn compose_checked(source: &str, depth: bool, masks: usize) -> Result<String, St
     )
     .validate(&module)
     .map_err(|error| format!("shader invalid: {}", error.as_inner()))?;
-    check_sandbox(&module, depth, masks)?;
+    let mut expected = vec![
+        "frame".to_owned(),
+        "scene_sampler".into(),
+        "scene_texture".into(),
+    ];
+    if depth {
+        expected.push("depth_texture".into());
+    }
+    expected.extend((0..masks).map(|index| format!("mask_texture_{index}")));
+    expected.sort_unstable();
+    let expected: Vec<_> = expected.iter().map(String::as_str).collect();
+    check_sandbox(
+        &module,
+        &expected,
+        &[FRAGMENT_ENTRY, VERTEX_ENTRY],
+        FRAGMENT_ENTRY,
+        MAX_SHADER_TEXTURE_SAMPLES,
+        MAX_SHADER_EXPRESSIONS,
+    )?;
     Ok(composed)
 }
 
+/// Bounds per-fragment private values before measuring instructions.
 fn check_type_sizes(module: &Module) -> Result<(), String> {
     let context = module.to_ctx();
     for (_, ty) in module.types.iter() {
@@ -225,23 +245,21 @@ fn check_type_sizes(module: &Module) -> Result<(), String> {
     Ok(())
 }
 
-fn check_sandbox(module: &Module, depth: bool, masks: usize) -> Result<(), String> {
+/// Applies the same resource, control-flow and expanded call-cost checks to each contract.
+pub(crate) fn check_sandbox(
+    module: &Module,
+    expected: &[&str],
+    expected_entries: &[&str],
+    fragment_entry: &str,
+    max_samples: u32,
+    max_expressions: u32,
+) -> Result<(), String> {
     let mut globals: Vec<_> = module
         .global_variables
         .iter()
         .map(|(_, global)| global.name.as_deref().unwrap_or(""))
         .collect();
     globals.sort_unstable();
-    let mut expected = vec![
-        "frame".to_owned(),
-        "scene_sampler".into(),
-        "scene_texture".into(),
-    ];
-    if depth {
-        expected.push("depth_texture".into());
-    }
-    expected.extend((0..masks).map(|index| format!("mask_texture_{index}")));
-    expected.sort_unstable();
     if globals != expected {
         return Err("shaders may not declare resources or module-scope variables".into());
     }
@@ -255,7 +273,7 @@ fn check_sandbox(module: &Module, depth: bool, masks: usize) -> Result<(), Strin
         .map(|e| e.name.as_str())
         .collect();
     entries.sort_unstable();
-    if entries != [FRAGMENT_ENTRY, VERTEX_ENTRY] {
+    if entries != expected_entries {
         return Err("shaders may not declare entry points".into());
     }
     let mut costs = Vec::with_capacity(module.functions.len());
@@ -266,18 +284,18 @@ fn check_sandbox(module: &Module, depth: bool, masks: usize) -> Result<(), Strin
     let fragment = module
         .entry_points
         .iter()
-        .find(|entry| entry.name == FRAGMENT_ENTRY)
+        .find(|entry| entry.name == fragment_entry)
         .expect("checked entry point");
     let total = cost(&fragment.function, &costs)?;
-    if total.samples > MAX_SHADER_TEXTURE_SAMPLES {
+    if total.samples > max_samples {
         return Err(format!(
-            "shader reads textures {} times per pixel; the limit is {MAX_SHADER_TEXTURE_SAMPLES}",
+            "shader reads textures {} times per pixel; the limit is {max_samples}",
             total.samples
         ));
     }
-    if total.expressions > MAX_SHADER_EXPRESSIONS {
+    if total.expressions > max_expressions {
         return Err(format!(
-            "shader evaluates {} expressions per pixel; the limit is {MAX_SHADER_EXPRESSIONS}",
+            "shader evaluates {} expressions per pixel; the limit is {max_expressions}",
             total.expressions
         ));
     }
@@ -309,6 +327,7 @@ fn cost(function: &Function, callees: &[Cost]) -> Result<Cost, String> {
     Ok(total)
 }
 
+/// Accumulates all branches and expanded call sites, rejecting unbounded work.
 fn walk(block: &naga::Block, callees: &[Cost], total: &mut Cost) -> Result<(), String> {
     for statement in block.iter() {
         match statement {
@@ -353,6 +372,7 @@ fn walk(block: &naga::Block, callees: &[Cost], total: &mut Cost) -> Result<(), S
     Ok(())
 }
 
+/// Resolves previously checked callees and rejects recursion.
 fn callee(function: Handle<Function>, callees: &[Cost]) -> Result<Cost, String> {
     callees
         .get(function.index())

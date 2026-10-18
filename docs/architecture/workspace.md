@@ -46,7 +46,7 @@ coordinates work that crosses these owners.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `app` | `cinnabar` | Client executable and Bevy composition; use it to launch the client and assemble its plugins. | `client-*` crates own subsystem adapters; domain crates own game rules. |
-| `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames. |
+| `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames; `cinnabar` owns application startup. |
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
@@ -65,7 +65,7 @@ coordinates work that crosses these owners.
 | --- | --- | --- | --- |
 | `crates/world` | `world` | Palette-native chunks and world storage; use its block, chunk and coordinate types. | `client-world` admits network state; `meshing` produces geometry. |
 | `crates/client-world` | `client-world` | Authoritative world, actor and local-player facts, decoding and ordered commits; use its ingestion and committed views. | `world` owns storage; `inventory` admits numeric session item facts; `chunk-pipeline` schedules terrain; `player-state` joins player authorities. |
-| `crates/chunk-pipeline` | `chunk-pipeline` | Bounded terrain residency, worker scheduling and publication; use its world stream and publication snapshots. | `client-world` owns admitted state; `meshing` builds geometry; `render` consumes publications. |
+| `crates/chunk-pipeline` | `chunk-pipeline` | Bounded terrain residency, worker scheduling and publication; use its world stream and publication snapshots. | `client-world` owns admitted state; `render-api` owns shared request bounds and receipts; the app encodes outbound requests through `protocol`; `meshing` builds geometry; `render` consumes publications. |
 | `crates/far-terrain` | `far-terrain` | Far-terrain level of detail from received terrain: per-column surface summaries, their caches and bounds; use its summaries and config. | `chunk-pipeline` extracts summaries on its workers; `render` draws the far pass. |
 | `crates/inventory` | `inventory` | Inventory authority, prediction, crafting and commands; use its session, ledger and router APIs. | `player-state` shares it with gameplay and UI; `protocol` defines wire requests. |
 | `crates/player-state` | `player-state` | Shared inventory and local-player authority; use `PlayerState` to keep both on one session generation. | `inventory` owns stacks and crafting; `client-world` owns player facts. |

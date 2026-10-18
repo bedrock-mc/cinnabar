@@ -61,11 +61,11 @@ impl DeferredPredictionCorrections {
         else {
             return;
         };
-        state.position = Vec3::new(
+        state.set_position(Vec3::new(
             f64::from(anchor.network_position[0]),
             f64::from(anchor.network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(anchor.network_position[2]),
-        );
+        ));
         state.on_ground = anchor.on_ground;
         // The previous location's collisions cannot authorize a climb at the corrected position.
         state.collisions = sim::AxisCollisions::default();

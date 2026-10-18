@@ -609,7 +609,7 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
             first_id,
             1,
             vec![16, 15, 16],
-            vec![Some(41), Some(first_id), Some(41)]
+            vec![Some(41), Some(first_id), None]
         )
     );
     assert_eq!(
@@ -629,7 +629,7 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
             second_id,
             1,
             vec![15, 14, 15],
-            vec![Some(first_id), Some(second_id), Some(first_id)]
+            vec![Some(first_id), Some(second_id), None]
         )
     );
 

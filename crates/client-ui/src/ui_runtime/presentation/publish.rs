@@ -187,8 +187,10 @@ pub fn hovered_stack(
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
                     + usize::from(index);
-                let entries =
-                    crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
+                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                    player_runtime,
+                    runtime,
+                );
                 (entries.get(position).map(|item| &item.stack), None)
             }
             Hit::Widget(ui_screens::container_actions::Widget::BookRecipe(index)) => {
@@ -197,7 +199,7 @@ pub fn hovered_stack(
                 let output = runtime
                     .book_recipes(player_runtime, skip, 1)
                     .first()
-                    .map(protocol::RecipeHandle::output);
+                    .map(|entry| entry.recipe.output());
                 return output.map(|output| {
                     let stack = protocol::NetworkItemStack {
                         network_id: output.network_id,

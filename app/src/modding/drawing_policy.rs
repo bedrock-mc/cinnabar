@@ -8,7 +8,8 @@ pub(super) fn bind(
     hosts: &mut ModHosts,
     gameplay: &super::gameplay::GameplayContext<'_>,
     ui: &client_ui::ui_runtime::UiRuntime,
-) {
+) -> bool {
+    let mut changed = false;
     let fence = gameplay
         .world
         .as_ref()
@@ -39,82 +40,74 @@ pub(super) fn bind(
                 client_ui::experience_session::unix_seconds(),
             )
         };
-        host.bind_drawing_session(DrawingSession {
+        changed |= host.bind_drawing_session(DrawingSession {
             connection,
             dimension,
             local,
             permissions,
         });
     }
+    changed
+}
+
+/// Publishes availability for only the block anchors in the current retained output.
+pub(super) fn publish_frame(
+    hosts: &ModHosts,
+    gameplay: &super::gameplay::GameplayContext<'_>,
+    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
+) {
+    *frame = Default::default();
+    let Some(world) = gameplay
+        .world
+        .as_ref()
+        .filter(|world| !world.dimension_transfer.active())
+    else {
+        return;
+    };
+    let Some(stream) = world.stream.as_ref() else {
+        return;
+    };
+    frame.connection = stream.authority().actor_session_id();
+    frame.dimension = stream.authority().current_dimension();
+    for (output, _) in hosts.render_outputs() {
+        for resources in &output.retained {
+            publish_retained(resources, stream.authority().terrain(), frame);
+        }
+    }
+}
+
+/// Adds one retained snapshot's live owner and authoritative block anchors to the frame.
+fn publish_retained(
+    resources: &mod_render::retained::Resources,
+    terrain: &world::ChunkStore,
+    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
+) {
+    if let Some(handle) = resources
+        .geometry
+        .keys()
+        .chain(resources.materials.keys())
+        .next()
+    {
+        frame.live_owners.insert((handle.owner, handle.generation));
+    }
+    for draw in resources.instances.values() {
+        if let mod_render::retained::Anchor::Block {
+            dimension,
+            position,
+        } = draw.anchor
+        {
+            let key = world::SubChunkKey {
+                dimension,
+                x: position[0].div_euclid(world::SUB_CHUNK_SIDE as i32),
+                y: position[1].div_euclid(world::SUB_CHUNK_SIDE as i32),
+                z: position[2].div_euclid(world::SUB_CHUNK_SIDE as i32),
+            };
+            if dimension == frame.dimension && terrain.is_sub_chunk_loaded(key) {
+                frame.loaded_blocks.insert(position);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::{ecs::system::SystemState, prelude::World};
-    use chunk_pipeline::WorldStream;
-    use client_ui::ui_runtime::UiRuntime;
-    use mod_host::{ModGrants, ModHost};
-    use protocol::WorldBootstrap;
-
-    /// A real world authority allocates its own actor incarnation independently of UI sessions.
-    fn stream() -> WorldStream {
-        WorldStream::new(WorldBootstrap {
-            dimension: 0,
-            local_player_runtime_id: 1,
-            local_player_unique_id: 1,
-            player_position: [0.; 3],
-            world_spawn_position: [0; 3],
-            air_network_id: 0,
-            block_network_ids_are_hashes: false,
-        })
-    }
-
-    #[test]
-    fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
-        let bytes = br#"(component
-            (core module $m (func (export "init")) (func (export "frame")))
-            (core instance $i (instantiate $m))
-            (func (export "init") (canon lift (core func $i "init")))
-            (func (export "frame") (canon lift (core func $i "frame"))))"#;
-        let directory = tempfile::tempdir().unwrap();
-        let host = ModHost::load_snapshot_with_grants(
-            &directory.path().join("selection.wasm"),
-            bytes,
-            ModGrants::default(),
-        )
-        .unwrap();
-        let mut hosts = ModHosts::new(host, vec![]);
-        let stream = stream();
-        let actor_session = stream.authority().actor_session_id();
-        let ui = UiRuntime::new(actor_session + 1);
-        let mut world = World::new();
-        world.insert_resource(crate::runtime::world::ClientWorld {
-            stream: Some(stream),
-            ..Default::default()
-        });
-        let mut state = SystemState::<super::super::gameplay::GameplayContext>::new(&mut world);
-        bind(&mut hosts, &state.get_mut(&mut world).unwrap(), &ui);
-        assert_eq!(
-            hosts.host(0).drawing_session().unwrap().connection,
-            actor_session
-        );
-
-        let replacement = self::stream();
-        let replacement_session = replacement.authority().actor_session_id();
-        world
-            .resource_mut::<crate::runtime::world::ClientWorld>()
-            .stream = Some(replacement);
-        bind(&mut hosts, &state.get_mut(&mut world).unwrap(), &ui);
-        assert_eq!(
-            hosts.host(0).drawing_session().unwrap().connection,
-            replacement_session
-        );
-        assert_ne!(actor_session, replacement_session);
-        world
-            .resource_mut::<crate::runtime::world::ClientWorld>()
-            .stream = None;
-        bind(&mut hosts, &state.get_mut(&mut world).unwrap(), &ui);
-        assert_eq!(hosts.host(0).drawing_session().unwrap().connection, 0);
-    }
-}
+mod tests;

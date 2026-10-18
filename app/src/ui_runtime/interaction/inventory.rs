@@ -22,7 +22,9 @@ use ui_screens::container_actions::{InventoryCellHit, Widget};
 use {
     client_ui::ui_runtime::{
         UiRuntime,
-        presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen},
+        presentation::{
+            UiPresentationRuntime, forms::recipe_book_shown, inventory_pointer::InventoryScreen,
+        },
     },
     inventory::inventory_ledger::DropSource,
 };
@@ -43,7 +45,7 @@ pub(crate) fn drive_world_inventory_keys(
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationResource>>,
     mut runtime: ResMut<UiRuntimeResource>,
-    emote_input: Option<Res<crate::ui_runtime::emotes::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
     book_transport: (
@@ -173,7 +175,10 @@ pub(super) fn apply_inventory_pointer(
     mouse_buttons.reset_all();
     runtime.observe_inventory_window(player_runtime);
     let screen = InventoryScreen::of_runtime(player_runtime, runtime);
-    runtime.observe_inventory_search_focus(player_runtime);
+    runtime.observe_inventory_search_focus(
+        player_runtime,
+        presentation.engine_container_frame().is_some(),
+    );
     let Some(position) = window.cursor_position() else {
         // A cancelled touch withdraws the pointer, so its release closes nothing.
         runtime.set_inventory_pointer_gui(None);
@@ -218,7 +223,7 @@ pub(super) fn apply_inventory_pointer(
         }
         return;
     }
-    let book_open = runtime.screen_state().book_open.unwrap_or(false);
+    let book_open = recipe_book_shown(player_runtime, runtime);
     let reader_mode = runtime
         .screen_state()
         .book

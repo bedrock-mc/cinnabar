@@ -75,22 +75,23 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                pending
-                    .predicted
-                    .iter()
-                    .filter_map(|prediction| prediction.held.as_ref())
-                    .map(|held| held.stack.network_id)
-                    .any(|network_id| {
-                        registry_identity_changed(previous, &next, network_id)
-                            || (pending.predicted.iter().any(|prediction| {
-                                matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
-                            }) && (equipment_admission(&self.item_facts, network_id)
-                                != equipment_admission(&facts, network_id)
-                                || previous.get(&network_id).and_then(entry_capacity)
-                                    != next.get(&network_id).and_then(entry_capacity)))
-                            || (pending.registry_bound_merge
-                                && registry_merge_rule_changed(previous, &next, network_id))
-                    })
+                self.placement_admission_changes(pending, &facts)
+                    || pending
+                        .predicted
+                        .iter()
+                        .filter_map(|prediction| prediction.held.as_ref())
+                        .map(|held| held.stack.network_id)
+                        .any(|network_id| {
+                            registry_identity_changed(previous, &next, network_id)
+                                || (pending.predicted.iter().any(|prediction| {
+                                    matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
+                                }) && (equipment_admission(&self.item_facts, network_id)
+                                    != equipment_admission(&facts, network_id)
+                                    || previous.get(&network_id).and_then(entry_capacity)
+                                        != next.get(&network_id).and_then(entry_capacity)))
+                                || (pending.registry_bound_merge
+                                    && registry_merge_rule_changed(previous, &next, network_id))
+                        })
             })
             .map(|pending| pending.request_id)
             .collect();
@@ -293,10 +294,14 @@ pub(crate) fn entry_capacity_with_base(
     Some(vanilla.unwrap_or(protocol::ITEM_DEFAULT_MAX_STACK_SIZE))
 }
 
+/// Checks retained byte integrity without interpreting pending request IDs as wire stack IDs.
+pub(super) fn recipe_input_valid(stack: &NetworkItemStack) -> bool {
+    <[u8; 32]>::from(Sha256::digest(&stack.extra_data)) == stack.nbt_digest
+}
+
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
-    // Plainness describes user data, not aux or block identity. Recipes match
-    // aux independently and vanilla accepts block ingredients with runtime ids.
+    // Plainness describes user data, independently of aux and block identity.
     (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
         && stack.nbt_digest == digest
 }

@@ -93,6 +93,7 @@ pub(super) fn bootstrap(
         hardcore: false,
         hud_rules: Default::default(),
         death_rules: Default::default(),
+        crafting_rules: Default::default(),
         packs,
         terrain_before_spawn: true,
         level_identity: None,

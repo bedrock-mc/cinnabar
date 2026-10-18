@@ -1,5 +1,25 @@
 use super::*;
 
+/// Retired allocations must be released by cooperative turns without any worker threads.
+#[test]
+fn cooperative_retirement_drops_allocations_without_worker_threads() {
+    let pool = WorldPool {
+        shared: Arc::default(),
+        size: PoolSize {
+            foreground: 0,
+            background: 0,
+        },
+    };
+    let now = Moment::default();
+    let mut scratch = world::LightSolverScratch::default();
+    let retired = Arc::new(vec![0_u8; 4096]);
+    let witness = Arc::downgrade(&retired);
+    pool.retire(move || drop(retired));
+    assert!(run_one(&pool.shared, now, &mut scratch));
+    assert!(witness.upgrade().is_none());
+    assert!(!run_one(&pool.shared, now, &mut scratch));
+}
+
 /// Mesh can use every world thread while light stays on the background share.
 #[test]
 fn pool_sizing_leaves_frame_cores_and_foreground_threads() {
@@ -271,6 +291,34 @@ fn local_driver_runs_one_job_and_reuses_the_native_queue_order() {
         assert!(run_one(&shared, now, &mut scratch));
         assert_eq!(received.try_recv().unwrap(), expected);
         assert!(received.try_recv().is_err());
+    }
+    assert!(!run_one(&shared, now, &mut scratch));
+}
+
+/// Ready meshes retain a foreground turn while overdue lighting remains queued.
+#[test]
+fn local_driver_does_not_starve_meshes_behind_overdue_lighting() {
+    let shared = Shared::default();
+    let queued = Moment::default();
+    let now = queued.checked_add(LIGHT_MAX_WAIT).unwrap();
+    let (sent, received) = crossbeam_channel::unbounded();
+    for lane in [Lane::Light, Lane::Light, Lane::Light, Lane::Mesh] {
+        let sent = sent.clone();
+        shared
+            .lock()
+            .push(lane, queued, Box::new(move |_| sent.send(lane).unwrap()));
+    }
+    let mut scratch = world::LightSolverScratch::default();
+    for _ in 0..2 {
+        assert!(run_one(&shared, now, &mut scratch));
+    }
+    assert_eq!(
+        received.try_iter().collect::<Vec<_>>(),
+        [Lane::Light, Lane::Mesh]
+    );
+    for _ in 0..2 {
+        assert!(run_one(&shared, now, &mut scratch));
+        assert_eq!(received.try_recv().unwrap(), Lane::Light);
     }
     assert!(!run_one(&shared, now, &mut scratch));
 }

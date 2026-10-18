@@ -10,6 +10,9 @@ use serde::Deserialize;
 
 use super::*;
 
+#[path = "quick_move_role_tests/station_counts.rs"]
+mod station_counts;
+
 const SOURCE_SLOT: u8 = 20;
 
 /// Starts a server-backed player inventory with one registered item and known UI cells.
@@ -328,11 +331,11 @@ fn component_items_do_not_inherit_smithing_roles_from_a_stock_name() {
 }
 
 #[test]
-fn negotiated_banner_tag_routes_a_custom_item_to_the_loom() {
+fn a_banner_tag_does_not_replace_the_loom_item_identity() {
     let entry = tagged_entry("custom:standard", "minecraft:banner", None);
     let mut ledger = ledger(&entry, 11);
     open(&mut ledger, protocol::WINDOW_TYPE_LOOM);
-    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(9));
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
 }
 
 #[test]
@@ -415,20 +418,6 @@ fn registry_role_changes_retire_unsent_quick_moves_and_restore_the_source() {
             "minecraft:trim_materials",
             InventoryTarget::Player(0),
             InventoryTarget::Craft(52),
-        ),
-        (
-            protocol::WINDOW_TYPE_LOOM,
-            "minecraft:banner",
-            "minecraft:is_food",
-            InventoryTarget::Craft(9),
-            InventoryTarget::Player(0),
-        ),
-        (
-            protocol::WINDOW_TYPE_LOOM,
-            "minecraft:is_food",
-            "minecraft:banner",
-            InventoryTarget::Player(0),
-            InventoryTarget::Craft(9),
         ),
         (
             protocol::WINDOW_TYPE_HORSE,
@@ -765,3 +754,6 @@ fn parity_actions_close_returns_enchanting_input() {
     );
     assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_none());
 }
+
+#[path = "quick_move_role_tests/station_inputs.rs"]
+mod station_inputs;

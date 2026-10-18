@@ -320,7 +320,6 @@ interface render {
     record line { points: list<vector3>, width: f32, color: rgba, pattern: line-pattern }
     /// Appends depth-tested lines with the same authority and shared ribbon budget.
     draw-lines: func(lines: list<line>) -> result<_, string>;
-
 }
 
 /// The mod's JSON-UI templates beside the vanilla container screens. Templates are the

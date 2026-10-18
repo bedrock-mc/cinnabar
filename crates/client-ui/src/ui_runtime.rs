@@ -26,6 +26,7 @@ pub mod inventory_ingress;
 
 mod food;
 mod furnace_options;
+mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
@@ -134,6 +135,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
+    #[cfg(not(target_arch = "wasm32"))]
     pub experiences: crate::experience_session::ExperienceSession,
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
@@ -231,6 +233,7 @@ impl UiRuntime {
         Self {
             item_fuel_catalog: None,
             session_id,
+            #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
             player_roster: Default::default(),
             last_fifo_sequence: None,
@@ -459,7 +462,7 @@ impl UiRuntime {
         &mut self,
         player_runtime: &'a mut player_state::PlayerState,
     ) -> &'a mut PlayerInventoryLedger {
-        let ledger = player_runtime.inventory.ledger_mut();
+        let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
         }
@@ -637,6 +640,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
         self.session_icons = None;
@@ -774,6 +778,12 @@ impl UiRuntime {
                     ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
         }
+        self.screen.inventory = None;
+        if self.inventory_open {
+            self.observe_inventory_window(player_runtime);
+        } else {
+            self.screen.search_focused = false;
+        }
         UiAuthorityTransition {
             consumes_text: false,
             requested_context: if self.inventory_open {
@@ -789,6 +799,8 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
+        self.screen.inventory = None;
+        self.screen.search_focused = false;
         player_runtime
             .inventory
             .ledger_mut()

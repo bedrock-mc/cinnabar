@@ -474,10 +474,9 @@ fn transport_pressure_drops_only_unsent_requests() {
     ledger.note_transport_pressure(20 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert_eq!(ledger.pending_request_count(), 1);
     assert_eq!(ledger.pending_request_id(), Some(admitted));
-    assert!(
-        ledger.cursor_stack().is_none(),
-        "discarded latest unsent owner does not resurrect an older snapshot"
-    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, admitted);
+    assert!(ledger.displayed_stack(0).is_none());
     assert!(!ledger.resync_required());
 }
 
