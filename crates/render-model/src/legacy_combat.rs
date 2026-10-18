@@ -175,7 +175,7 @@ pub fn legacy_hurt_matrix(
         let squared = progress * progress;
         let shake = legacy_sin((squared * squared) * std::f32::consts::PI);
         let strength = if strength.is_finite() {
-            strength.clamp(0.0, 1.0)
+            strength.clamp(0.0, render_api::MAX_HURT_CAMERA_INTENSITY)
         } else {
             1.0
         };

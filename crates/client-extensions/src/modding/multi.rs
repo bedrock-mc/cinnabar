@@ -201,6 +201,11 @@ impl ModHosts {
         let mut hud = self.host(owner).hud()?.clone();
         let mut rows = hud.cards.iter().map(|card| card.rows.len()).sum::<usize>();
         let mut cells = hud.cards.iter().map(|card| card.cells.len()).sum::<usize>();
+        let mut compasses = hud
+            .cards
+            .iter()
+            .filter(|card| card.compass.is_some())
+            .count();
         for index in owner + 1..self.host_count() {
             if let Some(other) = self.host(index).hud() {
                 for card in &other.cards {
@@ -208,9 +213,12 @@ impl ModHosts {
                         && hud.cards.len() < ui::mod_hud::MAX_HUD_CARDS
                         && rows + card.rows.len() <= ui::mod_hud::MAX_HUD_ROWS
                         && cells + card.cells.len() <= ui::mod_hud::MAX_HUD_CELLS
+                        && compasses + usize::from(card.compass.is_some())
+                            <= ui::mod_hud::MAX_HUD_COMPASSES
                     {
                         rows += card.rows.len();
                         cells += card.cells.len();
+                        compasses += usize::from(card.compass.is_some());
                         hud.cards.push(card.clone());
                     }
                 }
@@ -516,6 +524,7 @@ pub struct Merged {
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
+    pub hurt_style: Option<render_api::HurtCameraStyle>,
     pub item_use_delay_fix: Option<(u64, i32)>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
@@ -540,6 +549,7 @@ impl Merged {
         self.rig = self.rig.or(host.camera_rig());
         self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
         self.view_scale = self.view_scale.or(host.camera_view_scale());
+        self.hurt_style = self.hurt_style.or(host.camera_hurt_style());
         self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
         self.time_override = self.time_override.or(host.time_override());
         self.commands.extend(host.take_commands());

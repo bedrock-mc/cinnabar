@@ -3,10 +3,24 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod compass;
 mod cosmetic;
 mod editor_style;
+mod source;
+mod text_plate;
+pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
+mod totems;
+pub use totems::{CounterAnnotation, TotemCounterStyle};
+mod update;
+pub use compass::{
+    COMPASS_DEFAULT_WIDTH, COMPASS_DIRECTIONS, COMPASS_HEIGHT, COMPASS_MAX_WIDTH,
+    COMPASS_MIN_WIDTH, COMPASS_TICKS, Compass, CompassFrame, CompassMarker, MAX_COMPASS_COORDINATE,
+    MAX_COMPASS_MARKERS, MAX_HUD_COMPASSES, compass_bearing, compass_offset,
+};
 pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
 pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
+pub use source::{ActorBounds, ActorHealth, NativeRows, RowSource};
+pub use update::HudUpdate;
 
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
@@ -16,18 +30,24 @@ pub const MAX_OBSERVED_CHAT_MESSAGES: usize = 32;
 pub const MAX_CHAT_READ_MESSAGES: usize = 4;
 /// Bound for camera-projected labels, separate from draggable HUD cards.
 pub const MAX_WORLD_LABELS: usize = 64;
+/// Reserved projected labels for the host's bounded nearby-actor observation set.
+pub const MAX_NATIVE_ACTOR_LABELS: usize = 16;
 /// Bound for clickable literal spans in native chat.
 pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
-pub const MAX_HUD_CARDS: usize = 16;
-pub const MAX_HUD_ROWS: usize = 64;
-pub const MAX_CARD_ROWS: usize = 16;
+pub const MAX_HUD_CARDS: usize = 64;
+pub const MAX_HUD_ROWS: usize = 256;
+pub const MAX_CARD_ROWS: usize = 64;
 /// Total rectangular cells, independent of ordinary text-row limits.
 pub const MAX_HUD_CELLS: usize = 128;
 /// Rectangular cells in one card; their geometry remains individually validated.
 pub const MAX_CARD_CELLS: usize = 64;
 pub const MAX_TEXT_BYTES: usize = 96;
 pub const MAX_CROSSHAIR_BYTES: usize = 1024;
+/// Uniform HUD scales shared by admission and the native layout editor.
+pub const MIN_CARD_SCALE: f32 = 0.25;
+pub const MAX_CARD_SCALE: f32 = 5.;
+pub const MAX_CARD_WIDTH: f32 = 512.;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
 pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
 pub const DEFAULT_ICON_SIZE: f32 = 16.;
@@ -38,6 +58,8 @@ pub const DEFAULT_TEXT_SCALE: f32 = 1.;
 pub enum Anchor {
     #[default]
     TopLeft,
+    /// Keeps the card horizontally centered as its size or viewport changes.
+    TopCenter,
     TopRight,
     BottomLeft,
     BottomRight,
@@ -53,6 +75,8 @@ pub enum RowLayout {
     StackedText,
     /// Places an optional icon at the right edge, after the inline text.
     IconRight,
+    /// Places item rows in square cells, using the row height as the cell width.
+    Grid,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -62,6 +86,12 @@ pub struct Hud {
     /// Cosmetic native actor overrides; absence restores native presentation.
     #[serde(default)]
     pub actor_style: Option<ActorStyle>,
+    /// Read-only replicated health labels; players and mobs require their own grants.
+    #[serde(default)]
+    pub actor_health: Option<ActorHealth>,
+    /// Native depth-tested outlines; requires render plus the selected actor grants.
+    #[serde(default)]
+    pub actor_bounds: Option<ActorBounds>,
     /// Adds cosmetic food-state artwork to the actual native hunger controls.
     #[serde(default)]
     pub hunger_overlay: Option<HungerOverlay>,
@@ -170,6 +200,9 @@ pub struct Card {
     /// Row text multiplier, bounded to 0.5 through 2 independently of card geometry.
     #[serde(default = "text_scale")]
     pub text_scale: f32,
+    /// Draws row labels and values with a shadow; legacy cards keep their shadow.
+    #[serde(default = "enabled")]
+    pub shadow: bool,
     /// Optional factory placement used only by the host-owned layout editor.
     #[serde(default)]
     pub reset_anchor: Option<Anchor>,
@@ -179,6 +212,15 @@ pub struct Card {
     #[serde(default)]
     pub reset_scale: Option<f32>,
     pub rows: Vec<Row>,
+    /// Optional native rows. Game-backed sources require player-state; Clock is local UI time.
+    #[serde(default)]
+    pub source: Option<RowSource>,
+    /// A native compass uses current-session motion instead of guest-sampled geometry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compass: Option<Compass>,
+    /// Native measured text with independently colored brackets, background and border.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_plate: Option<TextPlate>,
     /// Optional rectangular text cells instead of linear rows.
     #[serde(default)]
     pub cells: Vec<Cell>,
@@ -200,10 +242,14 @@ impl Default for Card {
             row_height: row_height(),
             icon_size: icon_size(),
             text_scale: text_scale(),
+            shadow: true,
             reset_anchor: None,
             reset_offset: None,
             reset_scale: None,
             rows: Vec::new(),
+            source: None,
+            compass: None,
+            text_plate: None,
             cells: Vec::new(),
         }
     }
@@ -253,6 +299,9 @@ pub struct EditorResult {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
+    /// Treats the label as a native language key; values remain literal measured text.
+    #[serde(default)]
+    pub localized: bool,
     /// Allows bounded Bedrock style codes in row labels and values.
     #[serde(default)]
     pub formatted: bool,
@@ -311,6 +360,10 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
+/// Preserves legacy text shadows when a card omits its preference.
+fn enabled() -> bool {
+    true
+}
 /// Preserves the existing card surface alpha when the new field is omitted.
 fn background_opacity() -> f32 {
     0.82
@@ -340,6 +393,14 @@ fn text(value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+/// Matches the single resource-identifier contract used by authored rows and native filters.
+fn item_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_:.-/".contains(&b))
+}
 /// Extends the cosmetic text contract only when explicitly requested by the author.
 fn styled_text(value: &str, formatted: bool) -> Result<(), String> {
     if !formatted {
@@ -363,11 +424,25 @@ fn color(value: [f32; 4]) -> Result<(), String> {
 impl Hud {
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(bounds) = &self.actor_bounds {
+            bounds.validate()?;
+        }
+        if let Some(health) = &self.actor_health {
+            health.validate()?;
+            if self.world_labels.len() > MAX_WORLD_LABELS - MAX_NATIVE_ACTOR_LABELS {
+                return Err(
+                    "actor health labels require sixteen reserved world-label slots".into(),
+                );
+            }
+        }
         cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
         if let Some(style) = &self.editor_style {
             style.validate()?;
         }
         if let Some(surface) = &self.surface {
+            if !surface.collections.is_empty() {
+                return Err("HUD editor surfaces do not support tile collections".into());
+            }
             surface.validate()?;
             for action in surface.actions()? {
                 let indexed = |prefix: &str, maximum: usize| {
@@ -432,13 +507,42 @@ impl Hud {
             return Err("invalid world labels".into());
         }
         if self.cards.len() > MAX_HUD_CARDS
-            || self.cards.iter().map(|c| c.rows.len()).sum::<usize>() > MAX_HUD_ROWS
+            || self
+                .cards
+                .iter()
+                .map(|c| {
+                    c.source
+                        .as_ref()
+                        .map_or(c.rows.len(), |s| usize::from(s.limit))
+                })
+                .sum::<usize>()
+                > MAX_HUD_ROWS
             || self.cards.iter().map(|c| c.cells.len()).sum::<usize>() > MAX_HUD_CELLS
+            || self.cards.iter().filter(|c| c.compass.is_some()).count() > MAX_HUD_COMPASSES
         {
             return Err("HUD has too many cards, rows or cells".into());
         }
         let mut ids = HashSet::new();
         for card in &self.cards {
+            if let Some(plate) = &card.text_plate {
+                plate.validate(card)?;
+            }
+            if let Some(compass) = &card.compass {
+                compass.validate()?;
+                if card.source.is_some()
+                    || !card.rows.is_empty()
+                    || !card.cells.is_empty()
+                    || !(COMPASS_MIN_WIDTH..=COMPASS_MAX_WIDTH).contains(&card.width)
+                {
+                    return Err("native compass requires its own bounded, empty card".into());
+                }
+            }
+            if let Some(source) = &card.source {
+                source.validate()?;
+                if !card.cells.is_empty() || card.rows.len() > usize::from(source.limit) {
+                    return Err("native HUD source exceeds its reserved rows or has cells".into());
+                }
+            }
             if card.id.is_empty()
                 || card.id.len() > 48
                 || !card
@@ -451,11 +555,10 @@ impl Hud {
             }
             text(&card.title)?;
             text(&card.editor_label)?;
-            if card
-                .reset_scale
-                .is_some_and(|scale| !scale.is_finite() || !(0.5..=2.).contains(&scale))
-                || !card.scale.is_finite()
-                || !(0.5..=2.).contains(&card.scale)
+            if card.reset_scale.is_some_and(|scale| {
+                !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+            }) || !card.scale.is_finite()
+                || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
                 || card
                     .offset
                     .into_iter()
@@ -466,7 +569,8 @@ impl Hud {
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
                 || !card.width.is_finite()
-                || !(if card.cells.is_empty() { 48. } else { 1. }..=512.).contains(&card.width)
+                || !(if card.cells.is_empty() { 48. } else { 1. }..=MAX_CARD_WIDTH)
+                    .contains(&card.width)
                 || !card.row_height.is_finite()
                 || !(12. ..=64.).contains(&card.row_height)
                 || !card.icon_size.is_finite()
@@ -517,13 +621,7 @@ impl Hud {
                 {
                     return Err("HUD rows accept either an item or a bounded effect ID".into());
                 }
-                if row.item.as_ref().is_some_and(|id| {
-                    id.is_empty()
-                        || id.len() > 128
-                        || !id.bytes().all(|b| {
-                            b.is_ascii_lowercase() || b.is_ascii_digit() || b"_:.-/".contains(&b)
-                        })
-                }) {
+                if row.item.as_ref().is_some_and(|id| !item_identifier(id)) {
                     return Err("HUD item must be a bounded resource identifier".into());
                 }
             }
@@ -576,368 +674,5 @@ impl Crosshair {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn larger_card_catalog_and_actor_cosmetics_keep_explicit_bounds() {
-        let mut hud:Hud=serde_json::from_value(serde_json::json!({"cards":(0..MAX_HUD_CARDS)
-            .map(|index|serde_json::json!({"id":format!("card_{index}"),"rows":[]})).collect::<Vec<_>>(),
-            "actor_style":{"hurt_color":[1.,0.,0.,0.3],"nametags":{"scale":1.,"shadow":true}}})).unwrap();
-        assert!(hud.validate().is_ok());
-        hud.actor_style
-            .as_mut()
-            .unwrap()
-            .nametags
-            .as_mut()
-            .unwrap()
-            .opacity = 1.01;
-        assert!(hud.validate().is_err());
-        hud.actor_style
-            .as_mut()
-            .unwrap()
-            .nametags
-            .as_mut()
-            .unwrap()
-            .opacity = 0.5;
-        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 1.1]);
-        assert!(hud.validate().is_err());
-        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 0.3]);
-        assert!(hud.validate().is_ok());
-        hud.actor_style.as_mut().unwrap().hurt_color = Some([f32::NAN, 0., 0., 1.]);
-        assert!(hud.validate().is_err());
-        hud.actor_style = None;
-        let mut excess = hud.cards[0].clone();
-        excess.id = "excess".into();
-        hud.cards.push(excess);
-        assert!(hud.validate().is_err());
-    }
-    #[test]
-    fn card_defaults_preserve_legacy_background_and_validate_new_presentation_fields() {
-        let mut hud: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"supplies","rows":[]}]}"#).unwrap();
-        assert!(hud.cards[0].title.is_empty());
-        assert_eq!(hud.cards[0].position, None);
-        assert_eq!(hud.cards[0].background_opacity, 0.82);
-        assert_eq!(hud.cards[0].row_layout, RowLayout::Standard);
-        assert_eq!(hud.cards[0].width, DEFAULT_CARD_WIDTH);
-        assert_eq!(hud.cards[0].row_height, DEFAULT_ROW_HEIGHT);
-        assert_eq!(hud.cards[0].icon_size, DEFAULT_ICON_SIZE);
-        assert_eq!(hud.cards[0].text_scale, DEFAULT_TEXT_SCALE);
-        assert!(hud.validate().is_ok());
-        for opacity in [0., 0.35, 1.] {
-            hud.cards[0].background_opacity = opacity;
-            assert!(hud.validate().is_ok());
-        }
-        for opacity in [f32::NAN, -0.01, 1.01] {
-            hud.cards[0].background_opacity = opacity;
-            assert!(hud.validate().is_err());
-        }
-        hud.cards[0].background_opacity = 0.82;
-        for position in [[f32::NAN, 0.], [-0.01, 0.], [1.01, 0.], [0., f32::INFINITY]] {
-            hud.cards[0].position = Some(position);
-            assert!(hud.validate().is_err());
-        }
-        for position in [[0., 0.], [0.5, 0.5], [1., 1.]] {
-            hud.cards[0].position = Some(position);
-            assert!(hud.validate().is_ok());
-        }
-        hud.cards[0].editor_label = "Bad\nlabel".into();
-        assert!(hud.validate().is_err());
-    }
-    #[test]
-    fn row_layout_dimensions_are_bounded_and_icons_fit_their_rows() {
-        for layout in ["standard", "stacked_text", "icon_right"] {
-            let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":[{
-                "id":"fixture","row_layout":layout,"width":64.,
-                "row_height":32.,"icon_size":24.,"rows":[]
-            }]}))
-            .unwrap();
-            assert!(hud.validate().is_ok());
-            for dimensions in [
-                [f32::NAN, 32., 24.],
-                [47., 32., 24.],
-                [513., 32., 24.],
-                [64., f32::INFINITY, 24.],
-                [64., 11., 4.],
-                [64., 65., 24.],
-                [64., 32., f32::NAN],
-                [64., 32., 3.],
-                [64., 64., 49.],
-                [64., 20., 24.],
-                [48., 48., 40.],
-            ] {
-                hud.cards[0].width = dimensions[0];
-                hud.cards[0].row_height = dimensions[1];
-                hud.cards[0].icon_size = dimensions[2];
-                assert!(
-                    hud.validate().is_err(),
-                    "layout={layout}, dimensions={dimensions:?}"
-                );
-            }
-        }
-        assert!(
-            serde_json::from_str::<Hud>(
-                r#"{"cards":[{"id":"fixture","row_layout":"unknown","rows":[]}]}"#
-            )
-            .is_err()
-        );
-    }
-    #[test]
-    fn row_text_scale_is_optional_and_bounded_independently_of_geometry() {
-        let mut hud: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"fixture","rows":[]}]}"#).unwrap();
-        assert_eq!(hud.cards[0].text_scale, 1.);
-        for scale in [0.5, 1., 1.75, 2.] {
-            hud.cards[0].text_scale = scale;
-            assert!(hud.validate().is_ok());
-        }
-        for scale in [f32::NAN, f32::INFINITY, 0.49, 2.01] {
-            hud.cards[0].text_scale = scale;
-            assert!(hud.validate().is_err(), "text_scale={scale}");
-        }
-        let explicit: Hud =
-            serde_json::from_str(r#"{"cards":[{"id":"fixture","text_scale":1.75,"rows":[]}]}"#)
-                .unwrap();
-        assert_eq!(explicit.cards[0].text_scale, 1.75);
-        assert!(explicit.validate().is_ok());
-    }
-    #[test]
-    fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
-        assert!(EditorResult::default().validate().is_ok());
-        let saved = EditorResult {
-            saved: true,
-            reset: false,
-            placements: vec![Placement {
-                id: "equipment".into(),
-                scale: 1.,
-                position: Some([0.5, 0.5]),
-            }],
-        };
-        assert!(saved.validate().is_ok());
-        for scale in [f32::NAN, 0.49, 2.01] {
-            let mut malformed = saved.clone();
-            malformed.placements[0].scale = scale;
-            assert!(malformed.validate().is_err());
-        }
-        assert!(
-            EditorResult {
-                saved: false,
-                ..saved.clone()
-            }
-            .validate()
-            .is_err()
-        );
-        let mut duplicate = saved.clone();
-        duplicate.placements.push(duplicate.placements[0].clone());
-        assert!(duplicate.validate().is_err());
-        let mut excess = saved;
-        excess.placements[0].position = Some([1.01, 0.]);
-        assert!(excess.validate().is_err());
-    }
-    #[test]
-    fn editor_autosave_is_opt_in_and_custom_actions_remain_bounded() {
-        let mut hud: Hud = serde_json::from_str(r#"{"cards":[]}"#).unwrap();
-        assert!(!hud.autosave && hud.surface.is_none());
-        let done_last = format!("hud.done:{}", crate::mod_panel::MAX_PANEL_CONTROLS - 1);
-        let done_excess = format!("hud.done:{}", crate::mod_panel::MAX_PANEL_CONTROLS);
-        let card_last = format!("hud.card:{}", MAX_HUD_CARDS - 1);
-        let card_excess = format!("hud.card:{}", MAX_HUD_CARDS);
-        for (action, valid) in [
-            ("hud.close", true),
-            ("hud.done:0", true),
-            (done_last.as_str(), true),
-            (done_excess.as_str(), false),
-            (card_last.as_str(), true),
-            (card_excess.as_str(), false),
-            ("mod.control:0", false),
-            ("button.resume_game", false),
-        ] {
-            hud.surface = Some(crate::mod_panel::Surface {
-                transitions: Default::default(),
-                screen: "fixture.editor".into(),
-                document: serde_json::json!({"namespace":"fixture","editor":{
-                    "type":"button","button_mappings":[{"from_button_id":"button.menu_select",
-                        "to_button_id":action,"mapping_type":"pressed"}]
-                }})
-                .to_string(),
-                bindings: Default::default(),
-            });
-            assert_eq!(hud.validate().is_ok(), valid, "route {action}");
-        }
-    }
-    #[test]
-    fn crosshair_rejects_invisible_nonfinite_and_excessive_geometry() {
-        for value in [f32::NAN, f32::INFINITY, 0., 17.] {
-            assert!(
-                Crosshair {
-                    size: value,
-                    ..Default::default()
-                }
-                .validate()
-                .is_err()
-            );
-        }
-        for alpha in [0., 0.0001, 0.49 / 255.] {
-            assert!(
-                Crosshair {
-                    color: [1., 1., 1., alpha],
-                    outline: 0.,
-                    ..Default::default()
-                }
-                .validate()
-                .is_err(),
-                "foreground alpha must remain visible after 8-bit conversion"
-            );
-        }
-        assert!(
-            Crosshair {
-                color: [1., 1., 1., 1. / 255.],
-                ..Default::default()
-            }
-            .validate()
-            .is_ok()
-        );
-        assert!(Crosshair::default().validate().is_ok());
-    }
-    #[test]
-    fn hud_rejects_ambiguous_ids_formatting_and_invalid_progress() {
-        let row = Row {
-            formatted: false,
-            label: "Helmet".into(),
-            value: "34 / 363".into(),
-            item: Some("minecraft:diamond_helmet".into()),
-            effect_id: None,
-            metadata: 0,
-            progress: Some(0.1),
-            color: white(),
-        };
-        let card = Card {
-            id: "armor".into(),
-            title: "Armor".into(),
-            anchor: Anchor::TopRight,
-            offset: [-6., 6.],
-            scale: 1.,
-            rows: vec![row],
-            ..Default::default()
-        };
-        let mut hud = Hud {
-            cards: vec![card],
-            ..Default::default()
-        };
-        assert!(hud.validate().is_ok());
-        hud.cards.push(hud.cards[0].clone());
-        assert!(hud.validate().is_err());
-        hud.cards.pop();
-        hud.cards[0].rows[0].progress = Some(1.1);
-        assert!(hud.validate().is_err());
-        hud.cards[0].rows[0].progress = None;
-        hud.cards[0].title = "§khidden".into();
-        assert!(hud.validate().is_err());
-    }
-}
-
-#[cfg(test)]
-mod cell_tests {
-    use super::*;
-
-    #[test]
-    fn rectangular_cells_are_optional_and_bounded() {
-        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"input","width":56,"rows":[],"cells":[{"rect":[19,0,18,18],"label":"W"}]}]}"#).unwrap();
-        assert!(hud.validate().is_ok());
-        hud.cards[0].width = 32.;
-        hud.cards[0].cells[0].rect = [11., 0., 10., 10.];
-        assert!(hud.validate().is_ok());
-        hud.cards[0].width = 56.;
-        for rect in [
-            [40., 0., 18., 18.],
-            [0., 1010., 18., 18.],
-            [0., 0., 0., 18.],
-            [-1., 0., 18., 18.],
-            [0., 0., f32::NAN, 18.],
-        ] {
-            hud.cards[0].cells[0].rect = rect;
-            assert!(hud.validate().is_err(), "accepted {rect:?}");
-        }
-        hud.cards[0].cells[0].rect = [0., 0., 18., 18.];
-        hud.cards[0].cells[0].background = [0., 0., 0., 2.];
-        assert!(hud.validate().is_err());
-        hud.cards[0].cells[0].background = [0.; 4];
-        hud.cards[0].cells = vec![Cell::default(); MAX_CARD_CELLS];
-        assert!(hud.validate().is_ok());
-        hud.cards[0].cells.push(Cell::default());
-        assert!(hud.validate().is_err());
-    }
-    #[test]
-    fn rows_and_cells_retain_independent_card_and_total_limits() {
-        let row: Row = serde_json::from_str(r#"{"label":"Observed","value":"1"}"#).unwrap();
-        let row_card = Card {
-            id: "rows".into(),
-            rows: vec![row.clone(); MAX_CARD_ROWS],
-            ..Default::default()
-        };
-        let mut single = Hud {
-            cards: vec![row_card.clone()],
-            ..Default::default()
-        };
-        assert!(single.validate().is_ok());
-        single.cards[0].rows.push(row.clone());
-        assert!(
-            single.validate().is_err(),
-            "the text-row limit stays unchanged"
-        );
-        single.cards[0].rows.pop();
-        single.cards[0].cells.push(Cell::default());
-        assert!(
-            single.validate().is_err(),
-            "rows and cells cannot share one card"
-        );
-
-        let mut hud = Hud::default();
-        for index in 0..MAX_HUD_ROWS / MAX_CARD_ROWS {
-            hud.cards.push(Card {
-                id: format!("rows_{index}"),
-                ..row_card.clone()
-            });
-        }
-        for index in 0..MAX_HUD_CELLS / MAX_CARD_CELLS {
-            hud.cards.push(Card {
-                id: format!("cells_{index}"),
-                cells: vec![Cell::default(); MAX_CARD_CELLS],
-                ..Default::default()
-            });
-        }
-        assert!(
-            hud.validate().is_ok(),
-            "full cell budgets must coexist with the existing full row budget"
-        );
-        hud.cards.push(Card {
-            id: "extra_cell".into(),
-            cells: vec![Cell::default()],
-            ..Default::default()
-        });
-        assert!(
-            hud.validate().is_err(),
-            "the total cell limit remains bounded"
-        );
-        hud.cards.pop();
-        hud.cards.push(Card {
-            id: "extra_row".into(),
-            rows: vec![row],
-            ..Default::default()
-        });
-        assert!(
-            hud.validate().is_err(),
-            "the total row limit stays unchanged"
-        );
-    }
-    #[test]
-    fn formatted_cells_are_explicit_bounded_and_accept_native_style_codes() {
-        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"sidebar","rows":[],"cells":[{"label":"§aServer §lScore","formatted":true}]}]}"#).unwrap();
-        assert!(hud.validate().is_ok());
-        hud.cards[0].cells[0].formatted = false;
-        assert!(hud.validate().is_err());
-        hud.cards[0].cells[0].formatted = true;
-        hud.cards[0].cells[0].label.push('\n');
-        assert!(hud.validate().is_err());
-    }
-}
+#[path = "mod_hud/tests.rs"]
+mod test_suite;

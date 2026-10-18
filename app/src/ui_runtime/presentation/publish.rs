@@ -141,6 +141,22 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
+    let totem_style = presentation
+        .mod_ui()
+        .mod_actor_style()
+        .and_then(|style| style.totems.as_ref())
+        .cloned();
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_totem_tracking(totem_style.is_some());
+        runtime.player_roster.set_totem_annotations(
+            totem_style.as_ref(),
+            stream.authority().player_totem_activations(),
+        );
+    } else {
+        runtime
+            .player_roster
+            .set_totem_annotations(None, std::iter::empty());
+    }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
@@ -410,8 +426,18 @@ pub(crate) fn prepare_ui_runtime(
         .mod_ui()
         .mod_actor_style()
         .and_then(|style| style.nametags.as_ref());
-    let show_self_tag =
-        tag_style.is_some_and(|style| style.show_self && !style.hide_players) && !first_person;
+    let show_counter_self = totem_style
+        .as_ref()
+        .is_some_and(|style| style.show_self && style.show_nametag)
+        && client_world.stream.as_ref().is_some_and(|stream| {
+            let authority = stream.authority();
+            authority
+                .totem_activations(authority.local_player_runtime_id())
+                .is_some_and(|count| count != 0)
+        });
+    let show_self_tag = (tag_style.is_some_and(|style| style.show_self) || show_counter_self)
+        && !tag_style.is_some_and(|style| style.hide_players)
+        && !first_person;
     let names_with_hidden_hud = tag_style.is_some_and(|style| style.show_when_hud_hidden);
     let nametags = client_world
         .stream
@@ -498,6 +524,14 @@ pub(crate) fn prepare_ui_runtime(
                         .actor_player_roster_identity(tag.runtime_id())
                         .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
                 );
+                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
+                    && let Some(actor) = authority.actor(tag.runtime_id())
+                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
+                {
+                    tag.set_counter_annotation(
+                        runtime.player_roster.totem_annotation(uuid).cloned(),
+                    );
+                }
             }
             tags
         })

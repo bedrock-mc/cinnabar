@@ -15,6 +15,8 @@ pub mod wav;
 pub const ENDPOINT_ENV: &str = "CINNABAR_DEVELOPER_CONTROL";
 /// `WIDTHxHEIGHT` in physical pixels for the window, at scale factor 1.
 pub const WINDOW_SIZE_ENV: &str = "CINNABAR_WINDOW_SIZE";
+/// Optional scale factor for a sized developer surface, including Retina rendering tests.
+pub const WINDOW_SCALE_ENV: &str = "CINNABAR_WINDOW_SCALE_FACTOR";
 /// `1` creates the window hidden, for headless capture.
 pub const HIDDEN_WINDOW_ENV: &str = "CINNABAR_HIDDEN_WINDOW";
 /// Enables placeholder sign-in captures in a hidden developer client.

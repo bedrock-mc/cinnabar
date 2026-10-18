@@ -223,6 +223,10 @@ impl WorldStream {
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.authority.set_actor_camera_rotation(rotation)
     }
+    /// Activates or clears the current world's optional native totem-use counting interval.
+    pub fn set_totem_tracking(&mut self, enabled: bool) {
+        self.authority.set_totem_tracking(enabled);
+    }
     /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
     pub fn set_actor_animation_view(&mut self, view: Option<actor_animation::ActorAnimationView>) {
         self.authority.set_actor_animation_view(view)

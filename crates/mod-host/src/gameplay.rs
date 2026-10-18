@@ -15,6 +15,8 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
+    pub movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
+    pending_movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
     pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
@@ -32,6 +34,8 @@ pub(super) struct WorldState {
 impl WorldState {
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
+        self.movement_toggles = None;
+        self.pending_movement_toggles = None;
         self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
@@ -51,6 +55,7 @@ impl WorldState {
     }
 
     pub fn commit(&mut self) {
+        self.movement_toggles = self.pending_movement_toggles.take();
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }
@@ -203,6 +208,23 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    fn set_movement_toggles(
+        &mut self,
+        policy: Option<cinnabar::extension::gameplay::MovementToggles>,
+    ) -> Result<Result<(), String>> {
+        self.movement_writes += 1;
+        if self.movement_writes > MAX_IMPORT_WRITES {
+            bail!("movement import budget exhausted");
+        }
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if policy.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("movement toggles require focused gameplay".into()));
+        }
+        self.world.pending_movement_toggles = policy;
+        Ok(Ok(()))
+    }
     fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
         self.gameplay_reads += 1;
         if self.gameplay_reads > MAX_IMPORT_WRITES {

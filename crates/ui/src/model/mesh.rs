@@ -42,6 +42,7 @@ pub struct UiMesh {
     vertices: Arc<[UiMeshVertex]>,
     indices: Arc<[u32]>,
     batches: Arc<[UiMeshBatch]>,
+    draw_vertex_count: usize,
 }
 
 /// Meshes compare by contents. [`UiMesh::new`] admits only finite floats, so buffers shared
@@ -114,7 +115,7 @@ impl UiMesh {
         if indices > UiLimits::MAX_UI_INDICES {
             return Err(UiMeshError::IndexLimit);
         }
-        // Draw emission gives each triangle corner its batch material value.
+        // Keep source triangle references within the existing per-mesh admission cap.
         if indices > UiLimits::MAX_UI_VERTICES {
             return Err(UiMeshError::VertexLimit);
         }
@@ -193,11 +194,30 @@ impl UiMesh {
         if expected as usize != indices.len() {
             return Err(UiMeshError::InvalidBatchRange);
         }
+        let mut seen = vec![0; vertices.len()];
+        let mut draw_vertex_count = 0;
+        for (index, batch) in batches.iter().enumerate() {
+            let generation = index + 1;
+            for &source in
+                &indices[batch.index_range.start as usize..batch.index_range.end as usize]
+            {
+                if seen[source as usize] != generation {
+                    seen[source as usize] = generation;
+                    draw_vertex_count += 1;
+                }
+            }
+        }
         Ok(Self {
             vertices,
             indices,
             batches,
+            draw_vertex_count,
         })
+    }
+
+    /// Reserves each referenced vertex once per material, keeping material cutoffs independent.
+    pub(super) fn draw_vertex_count(&self) -> usize {
+        self.draw_vertex_count
     }
 
     pub fn vertices(&self) -> &[UiMeshVertex] {

@@ -133,8 +133,12 @@ impl HudEditor {
             (delta[0] * signed[0] + delta[1] * signed[1]) / (base[0].powi(2) + base[1].powi(2));
         let max_scale = (self.viewport[0] / base[0])
             .min(self.viewport[1] / base[1])
-            .clamp(0.5, 2.);
-        let scale = (resize.scale + projection).clamp(0.5, max_scale) as f32;
+            .clamp(
+                f64::from(ui::mod_hud::MIN_CARD_SCALE),
+                f64::from(ui::mod_hud::MAX_CARD_SCALE),
+            );
+        let scale = (resize.scale + projection)
+            .clamp(f64::from(ui::mod_hud::MIN_CARD_SCALE), max_scale) as f32;
         let changed = self.draft.cards[index].scale != scale;
         self.draft.cards[index].scale = scale;
         let size = cards::dimensions(&self.draft.cards[index]);

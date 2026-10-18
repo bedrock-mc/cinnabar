@@ -233,7 +233,7 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             controls.push(named("toggle", toggle(index, [width - 20.0, 4.0])));
             panel([width, 24.0], [0.0, y], controls)
         }
-        Control::Choice { .. } => {
+        Control::Choice { .. } | Control::Text { .. } => {
             controls[0] = named(
                 "label",
                 label(

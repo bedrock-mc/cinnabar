@@ -26,6 +26,9 @@ pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
+/// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
+pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
+const _: () = assert!(UI_LOCAL_ICON_FONT_PAGE_SIDE <= crate::FONT_ATLAS_SIDE);
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
@@ -357,7 +360,7 @@ impl UiTextureCatalog {
             || native > MAX_UI_NATIVE_SHEET_PAGES
             || dynamic.iter().enumerate().any(|(offset, page)| {
                 (matches!(&page.pixels, Pixels::Font { .. }) && offset != UI_LOCAL_FONT_PAGE_OFFSET)
-                    || !valid_dynamic_dimensions(offset, page.dimensions)
+                    || !valid_dynamic_dimensions(offset, page.dimensions, page.format)
             })
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
@@ -463,7 +466,10 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
         .iter()
         .enumerate()
         .map(|(index, page)| {
-            if index >= dynamic_start && is_resizable_slot(index - dynamic_start) {
+            if index >= dynamic_start
+                && index - dynamic_start != UI_LOCAL_FONT_PAGE_OFFSET
+                && is_resizable_slot(index - dynamic_start)
+            {
                 blank
             } else {
                 page.pixels().len()
@@ -474,13 +480,18 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
-    (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+    offset == UI_LOCAL_FONT_PAGE_OFFSET
+        || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
         || (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
             .contains(&offset)
 }
 
 /// Accepts only the dimensions supported by each reserved dynamic page's producer.
-fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
+fn valid_dynamic_dimensions(
+    offset: usize,
+    [width, height]: [u32; 2],
+    format: UiTextureFormat,
+) -> bool {
     if (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
         .contains(&offset)
     {
@@ -490,7 +501,9 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
             && height <= MAX_UI_TEXTURE_SIDE;
     }
     if offset == UI_LOCAL_FONT_PAGE_OFFSET {
-        return [width, height] == [UI_LOCAL_FONT_PAGE_SIDE; 2];
+        return [width, height] == [UI_LOCAL_FONT_PAGE_SIDE; 2]
+            || (format == UiTextureFormat::Coverage
+                && [width, height] == [UI_LOCAL_ICON_FONT_PAGE_SIDE; 2]);
     }
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
@@ -519,6 +532,32 @@ mod budget_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dense icon coverage fits the old local-font byte budget; RGBA cannot use the larger extent.
+    #[test]
+    fn dense_local_font_coverage_preserves_the_existing_byte_budget() {
+        let dense = [UI_LOCAL_ICON_FONT_PAGE_SIDE; 2];
+        assert!(valid_dynamic_dimensions(
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            dense,
+            UiTextureFormat::Coverage
+        ));
+        assert!(!valid_dynamic_dimensions(
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            dense,
+            UiTextureFormat::Rgba8
+        ));
+        assert_eq!(
+            dense[0] as usize * dense[1] as usize * UiTextureFormat::Coverage.bytes_per_texel(),
+            (UI_LOCAL_FONT_PAGE_SIDE * UI_LOCAL_FONT_PAGE_SIDE) as usize
+                * UiTextureFormat::Rgba8.bytes_per_texel(),
+        );
+        assert!(!valid_dynamic_dimensions(
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            [UI_LOCAL_ICON_FONT_PAGE_SIDE * 2; 2],
+            UiTextureFormat::Coverage
+        ));
+    }
 
     #[test]
     fn native_fonts_art_and_skin_dimensions_share_the_resident_budget() {

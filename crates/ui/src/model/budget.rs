@@ -22,7 +22,7 @@ impl DrawCounts {
             UiVisual::Mesh(mesh) => {
                 return Ok(Self {
                     quads: 0,
-                    mesh_vertices: mesh.indices().len(),
+                    mesh_vertices: mesh.draw_vertex_count(),
                     mesh_indices: mesh.indices().len(),
                     mesh_batches: mesh.batches().len(),
                 });

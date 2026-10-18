@@ -1,6 +1,6 @@
 use json_ui::Catalog;
 use serde_json::{Value, json};
-use ui::mod_panel::{Control, Panel};
+use ui::mod_panel::Panel;
 
 use super::{
     layout::{CARD_HEADER, Layout, NAV_HEIGHT},
@@ -10,7 +10,7 @@ use super::{
 pub(crate) fn same_shape(a: &Panel, b: &Panel) -> bool {
     same_template(a, b)
         && match (&a.surface, &b.surface) {
-            (Some(a), Some(b)) => a.screen == b.screen && a.document == b.document,
+            (Some(a), Some(b)) => a.same_definition(b),
             (None, None) => true,
             _ => false,
         }
@@ -27,32 +27,10 @@ pub(super) fn same_template(a: &Panel, b: &Panel) -> bool {
         && a.dark == b.dark
         && a.sections == b.sections
         && a.controls.len() == b.controls.len()
-        && a.controls.iter().zip(&b.controls).all(|(a, b)| {
-            a.id() == b.id()
-                && match (a, b) {
-                    (Control::Toggle { .. }, Control::Toggle { .. })
-                    | (Control::Keybind { .. }, Control::Keybind { .. })
-                    | (Control::Button { .. }, Control::Button { .. }) => true,
-                    (
-                        Control::Slider {
-                            min: a_min,
-                            max: a_max,
-                            step: a_step,
-                            ..
-                        },
-                        Control::Slider {
-                            min: b_min,
-                            max: b_max,
-                            step: b_step,
-                            ..
-                        },
-                    ) => (a_min, a_max, a_step) == (b_min, b_max, b_step),
-                    (Control::Choice { options: a, .. }, Control::Choice { options: b, .. }) => {
-                        a == b
-                    }
-                    _ => false,
-                }
-        })
+        && a.controls
+            .iter()
+            .zip(&b.controls)
+            .all(|(a, b)| a.same_schema(b))
 }
 
 pub(super) fn catalog(

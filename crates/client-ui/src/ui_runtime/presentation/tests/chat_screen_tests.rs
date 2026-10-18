@@ -186,6 +186,11 @@ fn suggestions(
     assert!(runtime.complete_chat_autocomplete(player_runtime, request));
 }
 
+/// Uses the protocol's displayed completion after the input's separate slash prefix.
+fn suggestion_label(index: usize) -> String {
+    protocol::ChatAutocompleteCatalog::suggestion_text("/", &format!("/give{index}")).to_owned()
+}
+
 /// Lay out one fixed-size gameplay frame.
 fn build(
     player_runtime: &player_state::PlayerState,
@@ -313,14 +318,14 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
         let edit = text_node(nodes, "/|").expect("edit box text");
         assert!(texts(nodes).contains(&"history with suggestions"));
         for index in 0..count {
-            let row = text_node(nodes, &format!("/give{index}")).expect("suggestion row");
+            let row = text_node(nodes, &suggestion_label(index)).expect("suggestion row");
             assert!(
                 row.dest.y + row.dest.h <= edit.dest.y,
                 "rows sit above the edit box"
             );
             assert!(row.layer > text_node(nodes, "history with suggestions").unwrap().layer);
         }
-        let last = text_node(nodes, &format!("/give{}", count - 1)).unwrap();
+        let last = text_node(nodes, &suggestion_label(count - 1)).unwrap();
         let gap = edit.dest.y - (last.dest.y + last.dest.h);
         assert!(
             gap >= 0.0 && gap <= last.dest.h,
@@ -360,7 +365,7 @@ fn server_suggestion_offset_keeps_the_builtin_anchor_and_hits() {
     runtime.open_chat(&mut player_runtime);
     suggestions(&mut player_runtime, &mut runtime, 4);
     build(&player_runtime, &mut presentation, &runtime, 0);
-    let baseline = text_node(presentation.chat_draw_nodes(), "/give3")
+    let baseline = text_node(presentation.chat_draw_nodes(), &suggestion_label(3))
         .expect("suggestion row")
         .dest;
     presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
@@ -375,7 +380,7 @@ fn server_suggestion_offset_keeps_the_builtin_anchor_and_hits() {
         ..Default::default()
     });
     build(&player_runtime, &mut presentation, &runtime, 0);
-    let moved = text_node(presentation.chat_draw_nodes(), "/give3")
+    let moved = text_node(presentation.chat_draw_nodes(), &suggestion_label(3))
         .expect("server-positioned suggestion")
         .dest;
     assert_eq!(moved, baseline);
