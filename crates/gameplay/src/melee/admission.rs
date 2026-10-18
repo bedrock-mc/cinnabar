@@ -54,7 +54,7 @@ pub fn admit_attack_frame(
     admit(runtime, mining, swings, movement, frame, effects, true)
 }
 
-/// Admits one ordered press without repeating held mining maintenance.
+/// Attempts one ordered press once, preserving only accepted mining work.
 pub fn admit_attack_press(
     runtime: &mut MeleeRuntime,
     mining: &mut SurvivalMiningRuntime,
@@ -68,7 +68,11 @@ pub fn admit_attack_press(
         impl FnMut([i32; 3]),
     >,
 ) -> AttackAdmission {
-    admit(runtime, mining, swings, movement, frame, effects, false)
+    let result = admit(runtime, mining, swings, movement, frame, effects, false);
+    if runtime.press_pending() {
+        runtime.cancel();
+    }
+    result
 }
 
 /// Shares carrier admission between per-event work and frame maintenance.
@@ -189,9 +193,6 @@ fn admit(
                     || movement.carries_survival_mining(press.tick)
                 {
                     break;
-                }
-                if !maintain && let Some(pending) = runtime.queue.front_pending_mut() {
-                    pending.retained_tick.get_or_insert(press.tick);
                 }
                 attempted = true;
                 let mut accepted = false;

@@ -119,7 +119,7 @@ fn ordered_mining_authoritative_replacement_cancels_a_refused_press() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Left);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     let replacement = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
@@ -176,7 +176,7 @@ fn ordered_mining_permission_revocation_removes_a_refused_destroy_target() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Left);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     let before = target_block(app.world());
     deny_mining(app.world_mut());

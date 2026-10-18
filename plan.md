@@ -4146,20 +4146,22 @@ releases must drain first. Lowered visual eyes do not change the network anchor.
 camera sampling, held-item user-data bytes, network batch boundaries and latency-reply
 timing remain incomplete pending a matched packet capture.
 
-Desktop button transitions now retain backend arrival order through binding resolution
-and a shared interaction admission cursor. Repeated taps keep separate attempts;
-selection, pick, attack and use stop behind a refused head. Pending context and accepted
-movement/release fences have separate lifetimes. The client bounds a pending burst at
-`semantic_input::MAX_PENDING_ACTION_EVENTS`; overflow cancels unadmitted work and
-quarantines new gestures until a complete neutral sample. This resource policy and
-its overload timing remain provisional and incomplete. Full parity for global camera
-sampling, other input modes and device-specific chords remains incomplete. The existing
-published camera phase is preserved. Retries revalidate current mode, capabilities and
-target evidence while keeping the original movement pose. A waiting use reads the
-current authority-matched pick before preparing its proposal. Placement retries check
-the local player's current position and stance along with remote actor boxes. Held
-targeting refreshes without another press. Focused interaction regressions pass;
-live acceptance remains incomplete.
+Desktop button transitions retain backend arrival order through binding resolution.
+Each selection, pick, attack and use edge is attempted once in its own frame. A
+refused edge is discarded without retaining its target, movement pose or selected
+item. Accepted mining and release carriers stay with their gameplay owners and
+cannot restore an earlier held-button sample. Held actions use current input and
+refresh targeting without another press. Each new use press clears the previous
+block-interaction result before attack vetoes are applied. Hotbar send closures
+leave pending terminal controls to classify the session shutdown.
+
+The client bounds each physical burst at `semantic_input::MAX_PENDING_ACTION_EVENTS`;
+overflow cancels unadmitted gestures and suppresses held actions until a complete
+neutral sample. This resource policy and its overload timing remain provisional
+and incomplete. Full parity for global camera sampling, other input modes and
+device-specific chords remains incomplete. The existing published camera phase
+is preserved. Regression coverage exercises per-frame admission, cancellation
+and pending controls; live acceptance remains incomplete.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the

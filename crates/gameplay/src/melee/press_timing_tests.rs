@@ -174,7 +174,7 @@ fn fresh_press_still_obeys_the_half_swing_guard_after_the_tick() {
 }
 
 #[test]
-fn refused_block_press_keeps_admission_after_publication_advances() {
+fn refused_ordered_press_does_not_survive_publication() {
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     let mut mining = crate::survival_mining::SurvivalMiningRuntime::default();
@@ -213,12 +213,12 @@ fn refused_block_press_keeps_admission_after_publication_advances() {
                 predict_break: |_| panic!("a swing without a mining target cannot break terrain"),
             },
         );
-        assert_eq!(runtime.press_pending(), full);
-        assert_eq!(outcome.admitted.is_some(), !full);
+        assert!(!runtime.press_pending());
+        assert!(outcome.admitted.is_none());
     }
     assert_eq!(
-        attempts, 3,
-        "the refused ordered press keeps its original tick"
+        attempts, 1,
+        "later calls must not replay the refused ordered press"
     );
     assert!(!runtime.has_queued_work());
     runtime = MeleeRuntime::default();

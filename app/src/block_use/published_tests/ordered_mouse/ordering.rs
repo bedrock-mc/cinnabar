@@ -149,22 +149,19 @@ fn ordered_mouse_full_at_each_selection_prefix_never_repeats_an_accepted_attack(
         tap(&mut world, MouseButton::Left);
         mouse_frame(&mut world, MouseButton::Left, &[]);
         let mut attacks = actor_order(&mut captured);
-        assert!(crate::ordered_interactions::pending(&world));
+        assert!(!crate::ordered_interactions::pending(&world));
         assert_eq!(attacks, [(ActorUseAction::Attack, 0)]);
         for _ in 0..3 {
             mouse_frame(&mut world, MouseButton::Left, &[]);
             attacks.extend(actor_order(&mut captured));
         }
-        assert_eq!(
-            attacks,
-            [(ActorUseAction::Attack, 0), (ActorUseAction::Attack, 1)]
-        );
+        assert_eq!(attacks, [(ActorUseAction::Attack, 0)]);
         assert!(!crate::ordered_interactions::pending(&world));
     }
 }
 
 #[test]
-fn ordered_mouse_a_refused_attack_retains_its_published_pick_and_network_pose() {
+fn ordered_mouse_a_refused_attack_cannot_replay_its_old_pick_or_pose() {
     let (mut world, _) = mouse_fixture();
     let (network, mut captured) =
         NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(2);
@@ -176,7 +173,7 @@ fn ordered_mouse_a_refused_attack_retains_its_published_pick_and_network_pose() 
     world.insert_resource(network);
     tap(&mut world, MouseButton::Left);
     mouse_frame(&mut world, MouseButton::Left, &[]);
-    assert!(crate::ordered_interactions::pending(&world));
+    assert!(!crate::ordered_interactions::pending(&world));
     assert!(actor_order(&mut captured).is_empty());
     world.insert_resource(InteractionOriginSnapshot::default());
     world.insert_resource(LocalViewPose::new(
@@ -190,9 +187,10 @@ fn ordered_mouse_a_refused_attack_retains_its_published_pick_and_network_pose() 
         .filter_map(observe_transaction)
         .filter_map(|tx| tx.actor_use().cloned())
         .collect();
-    assert_eq!(attacks.len(), 1);
-    assert_eq!(attacks[0].runtime_id, 99);
-    assert_eq!(attacks[0].from_position, [4.5, 2.620_01, 8.5]);
+    assert!(
+        attacks.is_empty(),
+        "a refused attack must not replay with an old pose"
+    );
 }
 
 #[test]
@@ -209,7 +207,7 @@ fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
     next_slot(&mut world);
     tap(&mut world, MouseButton::Left);
     mouse_frame(&mut world, MouseButton::Left, &[]);
-    assert!(crate::ordered_interactions::pending(&world));
+    assert!(!crate::ordered_interactions::pending(&world));
     assert_eq!(
         world
             .resource::<client_state::PlayerRuntime>()
@@ -304,8 +302,8 @@ fn ordered_mouse_older_movement_and_held_release_fence_the_entire_mixed_burst() 
         mouse_frame(&mut world, MouseButton::Left, &[]);
         assert_eq!(
             actor_order(&mut captured),
-            [(ActorUseAction::Attack, 1)],
-            "release carrier present: {release}",
+            [],
+            "blocked frame must expire; release carrier present: {release}",
         );
         assert!(!world.resource::<MovementTicker>().has_held_release());
     }
@@ -325,7 +323,7 @@ fn ordered_mouse_expiry_or_binding_authority_change_cannot_replay_a_refused_tap(
         world.insert_resource(network);
         tap(&mut world, MouseButton::Left);
         mouse_frame(&mut world, MouseButton::Left, &[]);
-        assert!(crate::ordered_interactions::pending(&world));
+        assert!(!crate::ordered_interactions::pending(&world));
         captured.drain();
         if expire {
             world
@@ -358,7 +356,7 @@ fn ordered_mouse_actor_runtime_reuse_cannot_redirect_a_refused_press() {
     world.insert_resource(network);
     tap(&mut world, MouseButton::Left);
     mouse_frame(&mut world, MouseButton::Left, &[]);
-    assert!(crate::ordered_interactions::pending(&world));
+    assert!(!crate::ordered_interactions::pending(&world));
     captured.drain();
     actor_use_tests::spawn(&mut world, 7.8);
     mouse_frame(&mut world, MouseButton::Left, &[]);
@@ -391,7 +389,7 @@ fn ordered_mouse_pick_remapping_preserves_repeated_pick_requests() {
 }
 
 #[test]
-fn ordered_mouse_a_refused_use_keeps_its_place_before_a_later_attack() {
+fn ordered_mouse_refused_use_and_attack_expire_with_their_frame() {
     let (mut world, _) = mouse_fixture();
     let (network, mut captured) =
         NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(2);
@@ -410,10 +408,7 @@ fn ordered_mouse_a_refused_use_keeps_its_place_before_a_later_attack() {
         mouse_frame(&mut world, MouseButton::Left, &[]);
         sent.extend(actor_order(&mut captured));
     }
-    assert_eq!(
-        sent,
-        [(ActorUseAction::Interact, 0), (ActorUseAction::Attack, 0)]
-    );
+    assert_eq!(sent, []);
 }
 
 #[test]

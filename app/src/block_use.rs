@@ -215,7 +215,7 @@ fn maintain_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     }
-    let mut attempt = build::FrozenBuild::new(observed, state, trigger, due, clock, *context.view);
+    let mut attempt = build::BuildInput::new(observed, state, trigger, due, clock, *context.view);
     build::advance(
         &mut player_runtime,
         &mut context,

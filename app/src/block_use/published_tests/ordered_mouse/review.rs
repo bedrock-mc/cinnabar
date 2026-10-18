@@ -11,6 +11,9 @@ mod mining_tests;
 #[path = "retry_inputs.rs"]
 mod retry_inputs;
 
+#[path = "frame_local.rs"]
+mod frame_local;
+
 /// Installs the real network-stage schedule around the physical-input fixture.
 fn app_fixture(capacity: usize) -> (App, client_session::CapturedPackets) {
     let (mut world, _) = selection_fixture();
@@ -100,7 +103,7 @@ fn inventory_event(world: &mut World, event: InventoryEvent) {
 }
 
 #[test]
-fn ordered_mouse_review_full_air_press_survives_intervening_item_maintenance() {
+fn ordered_mouse_review_refused_air_press_expires_before_item_maintenance() {
     let (mut app, mut captured) = app_fixture(2);
     remove_actor(app.world_mut());
     item_use_tests::hold_snowball(app.world_mut());
@@ -115,7 +118,7 @@ fn ordered_mouse_review_full_air_press_survives_intervening_item_maintenance() {
     tap(app.world_mut(), MouseButton::Right);
     next_slot(app.world_mut());
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     let mut sent = Vec::new();
     for _ in 0..4 {
@@ -127,25 +130,15 @@ fn ordered_mouse_review_full_air_press_survives_intervening_item_maintenance() {
         .filter_map(observe_transaction)
         .filter_map(|tx| tx.item_use().cloned())
         .collect();
-    assert_eq!(
-        uses.len(),
-        1,
-        "Full must not let maintenance consume the unadmitted press"
+    assert!(
+        uses.is_empty(),
+        "refused air input must expire with its frame"
     );
-    assert_eq!(uses[0].slot, 0);
-    let use_at = sent
-        .iter()
-        .position(|p| observe_transaction(p).is_some_and(|tx| tx.item_use().is_some()))
-        .unwrap();
-    let select_at = sent
-        .iter()
-        .position(|p| equipment(p).is_some_and(|e| e.selected_slot == 1))
-        .unwrap();
-    assert!(use_at < select_at);
+    assert!(sent.iter().all(|packet| equipment(packet).is_none()));
 }
 
 #[test]
-fn ordered_mouse_review_full_attack_cannot_be_retired_by_its_movement_tick() {
+fn ordered_mouse_review_refused_attack_does_not_delay_movement() {
     let (mut app, mut captured) = app_fixture(2);
     before_physics(&mut app);
     attack_progress_tests::ticks(app.world_mut(), 102, 103);
@@ -167,25 +160,13 @@ fn ordered_mouse_review_full_attack_cannot_be_retired_by_its_movement_tick() {
         .filter_map(|tx| tx.actor_use().cloned())
         .filter(|tx| tx.action == Some(ActorUseAction::Attack))
         .collect();
-    assert_eq!(
-        attacks.len(),
-        1,
-        "a refused original tick must remain admissible"
-    );
-    assert_eq!(attacks[0].runtime_id, 99);
-    assert_eq!(attacks[0].from_position, [4.5, 2.620_01, 8.5]);
-    let attack_at = sent
-        .iter()
-        .position(|p| observe_transaction(p).is_some_and(|tx| tx.actor_use().is_some()))
-        .unwrap();
-    let input_at = sent
-        .iter()
-        .position(|p| protocol::player_auth_input_trace_sample(p).is_some_and(|s| s.tick == 103))
-        .unwrap();
     assert!(
-        attack_at < input_at,
-        "the action must retain its place before its movement input"
+        attacks.is_empty(),
+        "a refused attack cannot postpone movement or replay later"
     );
+    assert!(sent.iter().any(|packet| {
+        protocol::player_auth_input_trace_sample(packet).is_some_and(|sample| sample.tick == 103)
+    }));
 }
 
 /// Produces a real controller cycle and lets its ordinary flusher encounter Full.
@@ -432,7 +413,7 @@ fn ordered_mouse_review_changed_world_cancels_a_frozen_block_pick() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Middle);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     {
         let mut client = app
@@ -482,7 +463,7 @@ fn ordered_mouse_review_changed_world_cancels_a_frozen_block_use() {
     fill(&app, 8);
     tap(app.world_mut(), MouseButton::Right);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     {
         let mut client = app

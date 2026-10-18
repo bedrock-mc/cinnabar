@@ -60,7 +60,7 @@ fn ordered_equipment_selection_is_not_repeated_by_the_next_completed_tick() {
 }
 
 #[test]
-fn ordered_equipment_full_prefix_retries_selection_and_attack_once_before_movement() {
+fn ordered_equipment_full_prefix_keeps_only_accepted_actions_before_movement() {
     const CAPACITY: usize = 8;
     for available in [0, 1, 3] {
         let (mut app, mut captured) = app_fixture(CAPACITY);
@@ -94,20 +94,18 @@ fn ordered_equipment_full_prefix_retries_selection_and_attack_once_before_moveme
         assert!(!crate::ordered_interactions::pending(app.world()));
         assert_eq!(
             admissions(&packets),
-            [Admission::Equipment(1), Admission::Attack(1)],
-            "an accepted prefix must survive retries without replay: {available}",
+            expected_prefix,
+            "later frames must preserve only the admitted prefix: {available}",
         );
 
         attack_progress_tests::ticks(app.world_mut(), 102, 103);
         frame(&mut app);
         packets.extend(captured.drain());
+        let mut expected = expected_prefix;
+        expected.push(Admission::Input(102));
         assert_eq!(
             admissions(&packets),
-            [
-                Admission::Equipment(1),
-                Admission::Attack(1),
-                Admission::Input(102),
-            ],
+            expected,
             "the completed tick must preserve the accepted prefix: {available}",
         );
     }

@@ -67,7 +67,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
 }
 
-/// Retries ordered work after movement drains, then advances accepted held item use once.
+/// Consumes new frame edges after movement drains, then advances accepted held item use once.
 pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
     crate::ordered_interactions::drain(world);
     world
@@ -203,7 +203,6 @@ fn produce_use(
         return;
     }
     let policy = frame::FramePolicy {
-        sample: None,
         held,
         before_flush,
         delay_fix_enabled,

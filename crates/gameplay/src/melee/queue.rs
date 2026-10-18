@@ -12,8 +12,6 @@ use crate::{
 pub(super) struct PendingPress {
     pub since: Option<u64>,
     pub rejected_tick: Option<u64>,
-    /// An ordered admission keeps this sample fenced instead of resampling movement.
-    pub retained_tick: Option<u64>,
 }
 
 /// An admitted entry stays in front until its movement carrier enters the session FIFO.

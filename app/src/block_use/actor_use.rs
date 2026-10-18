@@ -7,12 +7,9 @@ use {
     gameplay::mining::{FrozenMiningSelection, creative_reach, survival_reach},
 };
 
-/// A resolved actor use retains the actor lifetime, selected descriptor and packet across Full.
-pub(crate) struct ActorUseAttempt {
+/// Current actor-use packet and the local effects committed on successful admission.
+pub(crate) struct ActorUse {
     packet: protocol::Packet,
-    lifetime: actor_animation::ActorLifetimeId,
-    obstruction: Option<sim::WorldCollisionIdentity>,
-    attempted: bool,
     local_use: LocalUse,
     tick: u64,
     due: std::time::Duration,
@@ -31,7 +28,7 @@ pub(super) fn prepare(
     input_mode: PlayerInputMode,
     due: std::time::Duration,
     clock: RepeatClock,
-) -> Option<ActorUseAttempt> {
+) -> Option<ActorUse> {
     let game_mode = player.facts.player_game_mode();
     let stream = context.client_world.stream.as_ref()?;
     let ray = origin.outbound_ray()?;
@@ -102,11 +99,8 @@ pub(super) fn prepare(
         .map_or(LocalUse::Interact, |actor| {
             LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
         });
-    Some(ActorUseAttempt {
+    Some(ActorUse {
         packet,
-        lifetime: stream.authority().actor_lifetime(hit.runtime_id)?,
-        obstruction: obstruction.map(|(_, identity)| identity),
-        attempted: false,
         local_use,
         tick: state.tick.saturating_add(1),
         due,
@@ -114,35 +108,12 @@ pub(super) fn prepare(
     })
 }
 
-impl ActorUseAttempt {
-    /// Verifies the retained actor lifetime and terrain without resolving a replacement target.
-    pub(super) fn current(&self, context: &BlockUseContext) -> bool {
-        context.client_world.stream.as_ref().is_some_and(|stream| {
-            stream.authority().actor_lifetime(self.lifetime.runtime_id) == Some(self.lifetime)
-        }) && self.obstruction.as_ref().map_or_else(
-            || !self.attempted,
-            |identity| {
-                crate::interaction_authority::world_identity_current(
-                    &context.client_world,
-                    &context.collisions,
-                    identity,
-                )
-            },
-        )
-    }
-}
-
-/// Commits an actor use once, rejecting a reused actor ID instead of redirecting a retry.
+/// Commits the current actor use only after its packet enters the session FIFO.
 pub(crate) fn advance(
     context: &BlockUseContext,
     runtime: &mut BlockUseRuntime,
-    attempt: &mut ActorUseAttempt,
+    attempt: &mut ActorUse,
 ) -> bool {
-    if !attempt.current(context) {
-        runtime.clear_press();
-        return true;
-    }
-    attempt.attempted = true;
     match context
         .network
         .send_inventory_packets(vec![attempt.packet.clone()])
@@ -166,7 +137,7 @@ pub(crate) fn advance(
     }
 }
 
-/// Handles an actor press through the shared frozen proposal and commit boundary.
+/// Handles an actor press through the shared immediate admission boundary.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn produce(
     context: &BlockUseContext,

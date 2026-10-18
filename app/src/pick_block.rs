@@ -154,18 +154,14 @@ pub(crate) fn produce_pick_block(
     }
 }
 
-/// Attempts the same ordered pick until admission, without redirecting a reused actor ID.
-pub(crate) fn step_ordered_pick(
-    bevy::prelude::In((mut attempt, input)): bevy::prelude::In<(
-        Option<PickAttempt>,
-        crate::ordered_interactions::InteractionInput,
-    )>,
+/// Attempts this ordered pick once using the current frame's target.
+pub(crate) fn ordered_pick(
+    bevy::prelude::In(input): bevy::prelude::In<crate::ordered_interactions::InteractionInput>,
     player: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: PickBlockContext,
     ui: ResMut<UiRuntimeResource>,
-) -> crate::ordered_interactions::Step<Option<PickAttempt>> {
-    use crate::ordered_interactions::{Progress, Step};
-    let current = observe(
+) {
+    if let Some(pick) = observe(
         &player,
         &context,
         &ui,
@@ -173,17 +169,7 @@ pub(crate) fn step_ordered_pick(
         input.context.mode,
         input.context.identity,
         &input.context.origin,
-    );
-    if attempt.is_some() && attempt != current {
-        return Step::new(attempt, Progress::Complete);
+    ) {
+        let _ = context.network.send_inventory_packet(pick.packet);
     }
-    attempt = current;
-    let Some(pick) = attempt.as_ref() else {
-        return Step::new(attempt, Progress::Complete);
-    };
-    let progress = match context.network.send_inventory_packet(pick.packet.clone()) {
-        Err(client_session::PacketSendError::Full(_)) => Progress::Pending,
-        _ => Progress::Complete,
-    };
-    Step::new(attempt, progress)
 }

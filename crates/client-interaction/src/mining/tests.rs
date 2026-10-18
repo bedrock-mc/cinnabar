@@ -83,25 +83,10 @@ fn sent_world_drop_remainders_remain_available_to_gameplay_selections() {
 }
 
 #[test]
-fn selection_observation_keeps_hand_and_verified_use_eligibility_distinct() {
+fn hand_and_verified_use_keep_their_eligibility_distinct() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     player.inventory.set_local_selected_slot(0);
     let ui = client_ui::ui_runtime::UiRuntime::new(7);
-    let hand = super::SelectionObservation::hand(&player).unwrap();
-    assert!(hand.current(&player, &ui));
-    assert!(super::SelectionObservation::for_use(&player, &ui).is_none());
-    player
-        .inventory
-        .enqueue_inventory_event(
-            7,
-            1,
-            protocol::InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {
-                container: protocol::ContainerIdentity::window(0),
-                slot: 0,
-                select_slot: true,
-            }),
-        )
-        .unwrap();
-    player.inventory.drain_pending_inventory();
-    assert!(!hand.current(&player, &ui));
+    assert!(super::hand_interaction_selection(&player).is_some());
+    assert!(crate::block_use::verified_use_selection(&player, &ui).is_none());
 }

@@ -3,11 +3,11 @@
 use super::*;
 
 #[test]
-fn maintenance_uses_admitted_buttons_until_the_cursor_is_empty() {
+fn maintenance_reads_current_buttons_after_neutral_rearm() {
     let mut runtime = InteractionRuntime::default();
-    runtime.queue.quarantine();
+    runtime.frames.quarantine();
     assert!(!held(Some(&runtime), Action::Attack, true));
-    runtime.queue.observe_neutral(true);
+    runtime.frames.observe_neutral(true);
     assert!(held(Some(&runtime), Action::Attack, true));
     assert!(!is_blocked(Some(&runtime)));
 }

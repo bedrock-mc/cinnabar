@@ -111,7 +111,7 @@ fn ordered_mouse_retry_inputs_mode_change_cancels_refused_instant_break() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Left);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     mode(app.world_mut(), PlayerGameMode::Survival);
     frame(&mut app);
@@ -143,7 +143,7 @@ fn ordered_mouse_retry_inputs_mode_change_cancels_refused_creative_throw() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Right);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     mode(app.world_mut(), PlayerGameMode::Survival);
     for _ in 0..3 {
@@ -178,7 +178,7 @@ fn ordered_mouse_retry_inputs_clear_actor_pick_rechecks_terrain() {
         fill(&app, 8);
         tap(app.world_mut(), MouseButton::Middle);
         frame(&mut app);
-        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(!crate::ordered_interactions::pending(app.world()));
         captured.drain();
         if obstruct {
             let mut client = app
@@ -199,15 +199,15 @@ fn ordered_mouse_retry_inputs_clear_actor_pick_rechecks_terrain() {
             sent.iter()
                 .filter(|packet| **packet == protocol::actor_pick_request_packet(99, false))
                 .count(),
-            usize::from(!obstruct),
-            "only an unchanged clear actor pick may retry"
+            0,
+            "a refused pick must not replay even when the ray is unchanged"
         );
         assert!(!crate::ordered_interactions::pending(app.world()));
     }
 }
 
 #[test]
-fn ordered_mouse_retry_inputs_air_use_keeps_its_pose_while_facts_refresh() {
+fn ordered_mouse_refused_air_use_does_not_consume_inventory_later() {
     let (mut app, mut captured) = app_fixture(2);
     remove_actor(app.world_mut());
     clear_block(app.world_mut());
@@ -215,7 +215,7 @@ fn ordered_mouse_retry_inputs_air_use_keeps_its_pose_while_facts_refresh() {
     fill(&app, 2);
     tap(app.world_mut(), MouseButton::Right);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     captured.drain();
     attack_progress_tests::ticks(app.world_mut(), 102, 104);
     let mut sent = Vec::new();
@@ -228,8 +228,7 @@ fn ordered_mouse_retry_inputs_air_use_keeps_its_pose_while_facts_refresh() {
         .filter_map(observe_transaction)
         .filter_map(|tx| tx.item_use().cloned())
         .collect();
-    assert_eq!(uses.len(), 1);
-    assert_eq!(uses[0].from_position, [4.5, 2.620_01, 8.5]);
+    assert!(uses.is_empty());
     assert_eq!(
         verified_use_selection(
             app.world().resource::<client_state::PlayerRuntime>(),
@@ -238,7 +237,7 @@ fn ordered_mouse_retry_inputs_air_use_keeps_its_pose_while_facts_refresh() {
         .unwrap()
         .item
         .count(),
-        15
+        16
     );
     assert!(!crate::ordered_interactions::pending(app.world()));
 }
@@ -269,7 +268,7 @@ fn ordered_mouse_retry_inputs_mode_change_preserves_an_accepted_mining_carrier()
 }
 
 #[test]
-fn ordered_mouse_retry_inputs_missing_pick_recovers_before_the_next_selection() {
+fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
     for actor in [false, true] {
         let (mut app, mut captured) = app_fixture(8);
         if !actor {
@@ -287,7 +286,7 @@ fn ordered_mouse_retry_inputs_missing_pick_recovers_before_the_next_selection() 
         tap(app.world_mut(), MouseButton::Right);
         next_slot(app.world_mut());
         frame(&mut app);
-        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(!crate::ordered_interactions::pending(app.world()));
         assert!(
             captured
                 .drain()
@@ -313,15 +312,15 @@ fn ordered_mouse_retry_inputs_missing_pick_recovers_before_the_next_selection() 
                     }
                 })
                 .count(),
-            1,
-            "a newly published pick must release the original use edge; actor={actor}"
+            0,
+            "newly available evidence must not replay an old use edge; actor={actor}"
         );
         assert_eq!(
             sent.iter()
                 .filter_map(equipment)
                 .map(|e| e.selected_slot)
                 .collect::<Vec<_>>(),
-            [1]
+            []
         );
         assert!(!crate::ordered_interactions::pending(app.world()));
     }

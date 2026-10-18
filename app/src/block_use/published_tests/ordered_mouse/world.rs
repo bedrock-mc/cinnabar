@@ -168,7 +168,7 @@ fn refuse_placement(app: &mut App, captured: &mut client_session::CapturedPacket
             .filter_map(observe_transaction)
             .all(|tx| tx.item_use().is_none())
     );
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     assert_eq!(held_count(app.world()), 64);
     assert_eq!(
         app.world()
@@ -258,43 +258,15 @@ fn ordered_mouse_retry_validation_standing_into_destination_cancels_placement() 
 }
 
 #[test]
-fn ordered_mouse_world_unchanged_boundary_placement_retries_once_with_original_pose() {
+fn ordered_mouse_refused_placement_expires_even_when_world_evidence_stays_valid() {
     let (mut app, mut captured) = boundary_fixture();
     refuse_placement(&mut app, &mut captured);
     complete_movement(app.world_mut(), [19.5, NETWORK_POSITION[1], 16.5], false);
-    let mut sent = Vec::new();
-    for _ in 0..3 {
-        frame(&mut app);
-        sent.extend(captured.drain());
-    }
-    let uses: Vec<_> = sent
-        .iter()
-        .filter_map(observe_transaction)
-        .filter_map(|tx| tx.item_use().cloned())
-        .collect();
-    assert_eq!(
-        uses.iter().map(|use_| use_.action).collect::<Vec<_>>(),
-        [
-            protocol::test_support::transactions::ItemUseAction::ClickBlock,
-            protocol::test_support::transactions::ItemUseAction::ClickAir,
-        ],
-        "one placement and its existing air-use suffix must each admit once",
-    );
-    assert_eq!(uses[1].item.count, 63);
-    assert_eq!(uses[0].position, CLICKED);
-    assert_eq!(uses[0].face, 5);
-    assert_eq!(uses[0].from_position, NETWORK_POSITION);
-    assert!(
-        sent.iter()
-            .filter_map(equipment)
-            .all(|report| { report.selected_slot == 1 && report.count == 63 }),
-        "a new movement tick may announce the consumed stack without repeating selection"
-    );
+    assert_cancelled(&mut app, &mut captured);
     assert_eq!(
         cell(app.world(), DESTINATION).unwrap(),
-        block_id("minecraft:stone")
+        block_id("minecraft:air")
     );
-    assert_eq!(held_count(app.world()), 63);
 }
 
 #[test]
@@ -465,7 +437,7 @@ fn ordered_mouse_retry_validation_new_terrain_cancels_actor_attack_and_use() {
         fill(&app, 8);
         tap(app.world_mut(), button);
         frame(&mut app);
-        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(!crate::ordered_interactions::pending(app.world()));
         assert!(actor_order(&mut captured).is_empty());
         update(app.world_mut(), [4, 2, 8], block_id("minecraft:stone"));
         for _ in 0..3 {
@@ -485,7 +457,7 @@ fn ordered_mouse_retry_validation_new_terrain_cancels_actor_attack_and_use() {
 }
 
 #[test]
-fn ordered_mouse_retry_validation_unchanged_switch_and_container_use_admit_once() {
+fn ordered_mouse_refused_switch_and_container_use_do_not_replay() {
     for name in ["minecraft:lever", "minecraft:chest"] {
         let (mut app, mut captured) = boundary_fixture();
         update(app.world_mut(), CLICKED, block_id(name));
@@ -500,9 +472,10 @@ fn ordered_mouse_retry_validation_unchanged_switch_and_container_use_admit_once(
             .filter_map(observe_transaction)
             .filter_map(|tx| tx.item_use().cloned())
             .collect();
-        assert_eq!(uses.len(), 1, "{name} must consume its air-use suffix");
-        assert_eq!(uses[0].position, CLICKED);
-        assert!(uses[0].predicted_success);
+        assert!(
+            uses.is_empty(),
+            "refused {name} input must expire with its frame"
+        );
         assert_eq!(held_count(app.world()), 64);
     }
 }
@@ -557,7 +530,7 @@ fn ordered_mouse_retry_validation_actor_reach_change_cancels_a_creative_attack()
         fill(&app, 8);
         tap(app.world_mut(), MouseButton::Left);
         frame(&mut app);
-        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(!crate::ordered_interactions::pending(app.world()));
         assert!(actor_order(&mut captured).is_empty());
         if change_mode {
             app.world_mut()
@@ -585,7 +558,7 @@ fn ordered_mouse_retry_validation_spectator_change_cancels_actor_use() {
     fill(&app, 8);
     tap(app.world_mut(), MouseButton::Right);
     frame(&mut app);
-    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(!crate::ordered_interactions::pending(app.world()));
     assert!(actor_order(&mut captured).is_empty());
     app.world_mut()
         .resource_mut::<client_state::PlayerRuntime>()

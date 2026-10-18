@@ -1,4 +1,4 @@
-//! Frozen build proposals share the same prediction and transport commit as held placement.
+//! Immediate build preparation shared by ordered presses and held placement.
 
 use super::*;
 use gameplay::{
@@ -6,10 +6,9 @@ use gameplay::{
     movement::{MiningEffects, UnsentSampleView},
 };
 
-/// One press/repeat's observed target and pre-tick pose, retained across transport refusal.
-pub(crate) struct FrozenBuild {
+/// Current target and movement facts for one immediate build call.
+pub(crate) struct BuildInput {
     observed: FrozenBlockObservation,
-    plan: Option<sim::CollisionQuery<BuildPlan>>,
     pub state: UnsentSampleView,
     pub trigger: ItemUseTrigger,
     pub due: std::time::Duration,
@@ -30,92 +29,8 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
 }
 
-impl FrozenBuild {
-    /// Validates the complete prepared world observation without changing the frozen target.
-    pub(super) fn current(
-        &self,
-        player: &client_state::PlayerRuntime,
-        context: &BlockUseContext,
-        movement: &MovementTicker,
-    ) -> bool {
-        let identity = self
-            .plan
-            .as_ref()
-            .map_or(&self.observed.ray.world_identity, |plan| &plan.identity);
-        crate::interaction_authority::world_identity_current(
-            &context.client_world,
-            &context.collisions,
-            identity,
-        ) && self
-            .plan
-            .as_ref()
-            .is_none_or(|plan| self.placement_current(player, context, movement, &plan.value))
-    }
-
-    /// Checks the original placement against current local and remote actor boxes.
-    fn placement_current(
-        &self,
-        player: &client_state::PlayerRuntime,
-        context: &BlockUseContext,
-        movement: &MovementTicker,
-        plan: &BuildPlan,
-    ) -> bool {
-        if plan.local_use != LocalUse::Place {
-            return true;
-        }
-        let (Some(stream), Some(current)) = (
-            context.client_world.stream.as_ref(),
-            movement.build_action_state(),
-        ) else {
-            return false;
-        };
-        let world = PaletteWorld::new(
-            stream.collision_store(),
-            context.collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            Default::default(),
-        );
-        let surroundings = use_surroundings(
-            context,
-            &world,
-            &self.observed,
-            current.position,
-            current.sneaking,
-        );
-        if let Some(placement) = predicted_placement(
-            &context.collisions,
-            stream,
-            &world,
-            self.observed.selection.item.block_runtime_id(),
-            &self.observed,
-            &surroundings,
-            self.view,
-        ) {
-            plan.predicted.as_ref().is_some_and(|cells| {
-                std::iter::once((placement.position, 0, placement.block))
-                    .chain(
-                        placement
-                            .additional
-                            .into_iter()
-                            .map(|(position, block)| (position, 0, block)),
-                    )
-                    .eq(cells.iter().copied())
-            })
-        } else {
-            plan.predicted.is_none()
-                && player.facts.game_mode_capabilities().is_some_and(|caps| {
-                    LocalUse::resolve(
-                        &self.observed.selection.item,
-                        self.observed.target.position,
-                        self.observed.target.face,
-                        &surroundings,
-                        &caps,
-                    ) == LocalUse::Place
-                })
-        }
-    }
-
-    /// Captures immutable press facts; packet and local prediction preparation happens once.
+impl BuildInput {
+    /// Groups the current press facts for shared prediction and transport admission.
     pub(super) fn new(
         observed: FrozenBlockObservation,
         state: UnsentSampleView,
@@ -126,7 +41,6 @@ impl FrozenBuild {
     ) -> Self {
         Self {
             observed,
-            plan: None,
             state,
             trigger,
             due,
@@ -143,7 +57,7 @@ fn prepare(
     runtime: &mut BlockUseRuntime,
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     movement: &MovementTicker,
-    attempt: &mut FrozenBuild,
+    attempt: &mut BuildInput,
 ) -> Option<sim::CollisionQuery<BuildPlan>> {
     let mut observed = attempt.observed.clone();
     let state = &attempt.state;
@@ -258,7 +172,7 @@ fn prepare(
     })
 }
 
-/// Sends one frozen proposal and commits its effects only after successful transport admission.
+/// Prepares one build and commits its effects only after successful transport admission.
 pub(crate) fn advance(
     player_runtime: &mut client_state::PlayerRuntime,
     context: &mut BlockUseContext,
@@ -266,22 +180,23 @@ pub(crate) fn advance(
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     swings: &mut SwingTracker,
     movement: &MovementTicker,
-    attempt: &mut FrozenBuild,
+    attempt: &mut BuildInput,
 ) -> bool {
-    if attempt.plan.is_none() {
-        attempt.plan = prepare(
-            player_runtime,
-            context,
-            runtime,
-            item_use,
-            movement,
-            attempt,
-        );
-    }
-    let Some(plan) = attempt.plan.as_ref() else {
+    let Some(plan) = prepare(
+        player_runtime,
+        context,
+        runtime,
+        item_use,
+        movement,
+        attempt,
+    ) else {
         return false;
     };
-    if !attempt.current(player_runtime, context, movement) {
+    if !crate::interaction_authority::world_identity_current(
+        &context.client_world,
+        &context.collisions,
+        &plan.identity,
+    ) {
         return false;
     }
     let plan = &plan.value;

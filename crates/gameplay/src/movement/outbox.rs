@@ -233,9 +233,6 @@ pub fn flush_player_auth_inputs_guarded<E>(
         let Some(mut sample) = ticker.outbox.front().cloned() else {
             break;
         };
-        if ticker.interaction_blocks_tick(sample.snapshot.tick) {
-            break;
-        }
         if ticker
             .held_release
             .as_ref()
@@ -760,5 +757,13 @@ impl MovementTicker {
         }
         self.sent_history.clear();
         self.refresh_outbox_reconciliation();
+    }
+}
+
+impl MovementTicker {
+    /// Checks whether a press can use the first pending or next movement tick.
+    pub fn interaction_tick_available(&self, tick: u64) -> bool {
+        self.is_first_unsent_tick(tick)
+            || self.between_ticks_sample().is_some_and(|s| s.tick == tick)
     }
 }
