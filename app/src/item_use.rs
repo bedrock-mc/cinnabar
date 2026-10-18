@@ -164,22 +164,22 @@ fn produce_use(
     } else {
         true
     };
-    // Accepted releases keep retrying; new button state waits for the ordered cursor.
-    if admitted
-        && context
-            .ordered
-            .as_deref()
-            .is_some_and(|ordered| ordered.maintenance_pending(&context.input))
-        && !runtime.has_pending_release()
-    {
-        return;
-    }
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
             Action::Use,
         );
+    // Accepted uses may end while new starts wait for the ordered cursor.
+    if admitted
+        && context
+            .ordered
+            .as_deref()
+            .is_some_and(|ordered| ordered.maintenance_pending(&context.input))
+        && !runtime.is_releasing(held)
+    {
+        return;
+    }
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
     let release_facing = runtime

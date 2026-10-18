@@ -57,14 +57,7 @@ impl SemanticInputRouter {
                 sample.released[action as usize] = false;
             }
         }
-        let initial = without_quarantined_controls(
-            &state,
-            &self.quarantined_controls,
-            &[],
-            &[],
-            &self.settings,
-        );
-        output.set_initial_buttons(ActionButtons::new(self.sample(&initial, mode).active));
+        output.set_initial_buttons(ActionButtons::new(self.sample_desktop(&state, mode).active));
         for event in events.events() {
             let previous = state.clone();
             let keyboard = state
@@ -76,7 +69,7 @@ impl SemanticInputRouter {
             match *event {
                 DesktopEvent::Scroll { next } => {
                     if self.context == InputContext::Gameplay {
-                        let current = self.sample(&state, mode);
+                        let current = self.sample_desktop(&state, mode);
                         output.push(ActionEvent {
                             action: if next {
                                 Action::HotbarNext
@@ -139,14 +132,7 @@ impl SemanticInputRouter {
                 &self.settings,
             );
             let resolved = self.sample_against(&filtered, mode, &previous);
-            let previous = without_quarantined_controls(
-                &previous,
-                &self.quarantined_controls,
-                &[],
-                &[],
-                &self.settings,
-            );
-            let before = self.sample(&previous, mode);
+            let before = self.sample_desktop(&previous, mode);
             for action in Action::ALL {
                 let index = action as usize;
                 let released =
@@ -171,14 +157,7 @@ impl SemanticInputRouter {
                 }
             }
         }
-        let final_frame = without_quarantined_controls(
-            frame,
-            &self.quarantined_controls,
-            &[],
-            &[],
-            &self.settings,
-        );
-        let final_sample = self.sample(&final_frame, mode);
+        let final_sample = self.sample_desktop(frame, mode);
         let pressed = sample.pressed;
         let released = sample.released;
         *sample = final_sample;
@@ -191,6 +170,18 @@ impl SemanticInputRouter {
             quarantine_active_controls(frame, &mut self.quarantined_controls, &self.settings);
         }
         Some(output)
+    }
+
+    /// Applies desktop quarantine consistently to held state and event-time samples.
+    fn sample_desktop(&self, frame: &DeviceFrame, mode: InputMode) -> Sample {
+        let filtered = without_quarantined_controls(
+            frame,
+            &self.quarantined_controls,
+            &[],
+            &[],
+            &self.settings,
+        );
+        self.sample(&filtered, mode)
     }
 }
 

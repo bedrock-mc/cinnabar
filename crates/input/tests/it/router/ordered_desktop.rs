@@ -106,6 +106,58 @@ fn ordered_desktop_consumed_control_rearms_on_its_release_within_a_batch() {
 }
 
 #[test]
+fn ordered_desktop_scroll_keeps_quarantined_buttons_suppressed_until_release() {
+    for next in [false, true] {
+        let mut router = SemanticInputRouter::default();
+        resolve(&mut router, vec![1, 2], &[(1, true), (2, true)]);
+        for button in [1, 2] {
+            router.consume_control(PhysicalControl::MouseButton(button));
+        }
+        let mut events = DesktopEvents::default();
+        events.push(DesktopEvent::Scroll { next });
+        router
+            .route(DeviceFrame {
+                desktop_events: Some(events),
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    activity_sequence: 1,
+                    mouse_buttons: vec![1, 2],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let snapshot = router.finalize().unwrap();
+        assert_eq!(
+            edges(&snapshot),
+            [(
+                if next {
+                    Action::HotbarNext
+                } else {
+                    Action::HotbarPrevious
+                },
+                true
+            )]
+        );
+        let ordered = snapshot.ordered.as_ref().unwrap();
+        for action in [Action::Attack, Action::Use] {
+            assert!(!snapshot.phases[action as usize].held);
+            for cursor in 0..=ordered.events().len() {
+                assert!(!ordered.buttons_at(cursor).held(action));
+            }
+        }
+        let rearmed = resolve(
+            &mut router,
+            vec![1, 2],
+            &[(1, false), (2, false), (1, true), (2, true)],
+        );
+        assert_eq!(
+            edges(&rearmed),
+            [(Action::Attack, true), (Action::Use, true)]
+        );
+    }
+}
+
+#[test]
 fn ordered_desktop_uses_event_time_modifiers_and_the_shared_binding_evaluator() {
     let bindings = vec![
         ActionBinding {

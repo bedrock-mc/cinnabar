@@ -121,3 +121,89 @@ fn ordered_frame_local_overflow_cannot_restore_a_cancelled_attack() {
         "the already accepted mining carrier must still be delivered"
     );
 }
+
+#[test]
+fn ordered_frame_local_overflow_ends_accepted_item_use_before_neutral_rearm() {
+    use client_interaction::item_use::ItemUseRuntime;
+
+    for identifier in ["minecraft:bow", "minecraft:trident"] {
+        for release in [false, true] {
+            let (mut app, mut captured) = app_fixture(8);
+            remove_actor(app.world_mut());
+            item_use_tests::hold_air_item(app.world_mut(), identifier, 1, [].into());
+            app.world_mut()
+                .resource_mut::<client_state::PlayerRuntime>()
+                .facts
+                .publish_player_game_mode(PlayerGameMode::Creative);
+            {
+                let mut client = app
+                    .world_mut()
+                    .resource_mut::<crate::runtime::world::ClientWorld>();
+                let stream = client.stream.as_mut().unwrap();
+                stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+            }
+            mouse_frame(app.world_mut(), MouseButton::Right, &[ButtonState::Pressed]);
+            assert!(
+                app.world().resource::<ItemUseRuntime>().is_using(),
+                "{identifier}"
+            );
+            assert!(
+                app.world()
+                    .resource::<ItemUseRuntime>()
+                    .movement_modifier()
+                    .is_some()
+            );
+            captured.drain();
+
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyW);
+            for _ in 0..semantic_input::MAX_PENDING_ACTION_EVENTS {
+                tap(app.world_mut(), MouseButton::Middle);
+            }
+            let states = if release {
+                &[ButtonState::Released][..]
+            } else {
+                &[]
+            };
+            mouse_frame(app.world_mut(), MouseButton::Right, states);
+            after_physics(&mut app);
+            let mut packets = captured.drain();
+            for _ in 0..2 {
+                frame(&mut app);
+                packets.extend(captured.drain());
+                assert!(crate::ordered_interactions::is_blocked(
+                    app.world()
+                        .get_resource::<crate::ordered_interactions::InteractionRuntime>()
+                ));
+                assert!(
+                    !app.world().resource::<ItemUseRuntime>().is_using(),
+                    "{identifier}, release: {release}"
+                );
+                assert_eq!(
+                    app.world().resource::<ItemUseRuntime>().movement_modifier(),
+                    None
+                );
+            }
+            tap(app.world_mut(), MouseButton::Right);
+            frame(&mut app);
+            packets.extend(captured.drain());
+            assert!(!app.world().resource::<ItemUseRuntime>().is_using());
+            assert_eq!(
+                packets
+                    .iter()
+                    .filter_map(observe_transaction)
+                    .filter(|tx| tx.release().is_some())
+                    .count(),
+                1,
+                "the accepted {identifier} use must end exactly once, release: {release}"
+            );
+            assert!(
+                packets
+                    .iter()
+                    .filter_map(observe_transaction)
+                    .all(|tx| tx.item_use().is_none())
+            );
+        }
+    }
+}

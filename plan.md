@@ -4197,8 +4197,10 @@ session shutdown.
 
 The client bounds each physical burst at `semantic_input::MAX_PENDING_ACTION_EVENTS`;
 overflow cancels unadmitted gestures and suppresses held actions until a complete
-neutral sample. This resource policy and its overload timing remain provisional
-and incomplete. Full parity for global camera sampling, other input modes and
+neutral sample. Scrolling preserves per-control suppression until release. Accepted
+item uses can end and remove their movement slowdown during overload recovery,
+while new starts remain suppressed. This resource policy and its overload timing
+remain provisional and incomplete. Full parity for global camera sampling, other input modes and
 device-specific chords remains incomplete. The existing published camera phase
 is preserved. Regression coverage exercises per-frame admission, cancellation
 and pending controls; live acceptance remains incomplete.
