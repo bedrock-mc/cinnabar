@@ -179,6 +179,145 @@ mod tests {
     use crate::pipeline_warmup::PendingPipelines as _;
 
     #[test]
+    fn geometry_removal_preserves_material_pipelines_for_reuse() {
+        use super::super::{clock, gpu, pipeline, tests::drawing};
+        use bevy::{ecs::system::RunSystemOnce, render::render_phase::AddRenderCommand};
+        use mod_api::drawing::DrawingPermissions;
+        use render_scene::{ModRenderScene, mod_scene::retained::DrawingFrame};
+
+        let (mut app, view) = crate::queue_review_support::app();
+        app.init_resource::<gpu::Gpu>()
+            .init_resource::<Materials>()
+            .init_resource::<clock::AnimationClock>()
+            .init_resource::<pipeline::Pipeline>()
+            .init_resource::<ModRenderScene>()
+            .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+        let (mut store, _, mut instance) = drawing();
+        let geometry = instance.geometry;
+        let handles: Vec<_> = store.snapshot().instances.keys().copied().collect();
+        let materials: Vec<_> = handles
+            .iter()
+            .map(|handle| {
+                store.begin();
+                let material = store
+                    .create_material(mod_render::material::BUILTIN, DrawingPermissions::ALL)
+                    .unwrap();
+                instance.material = Some(material);
+                store
+                    .update(*handle, instance.clone(), DrawingPermissions::ALL)
+                    .unwrap();
+                store.commit();
+                material
+            })
+            .collect();
+        let drawable = store.snapshot().clone();
+        app.insert_resource(DrawingFrame {
+            connection: 1,
+            live_owners: [(geometry.owner, geometry.generation)].into(),
+            ..default()
+        });
+        let key = Key {
+            msaa: Msaa::Sample4,
+            hdr: false,
+            always: false,
+            additive: false,
+        };
+        let layout = app
+            .world()
+            .resource::<PipelineCache>()
+            .get_bind_group_layout(&app.world().resource::<pipeline::Pipeline>().layout);
+        let pipelines: Vec<_> = materials
+            .iter()
+            .map(|handle| {
+                let material = store.snapshot().materials[handle].clone();
+                let shader = source(&material.shader, include_str!("drawing.wgsl"));
+                let pipeline = compile(
+                    app.world().resource::<RenderDevice>(),
+                    &layout,
+                    &shader,
+                    key,
+                )
+                .unwrap();
+                let id = pipeline.id();
+                app.world_mut().resource_mut::<Materials>().entries.insert(
+                    *handle,
+                    Entry {
+                        _material: material,
+                        variants: [(key, State::Ready(pipeline))].into(),
+                    },
+                );
+                id
+            })
+            .collect();
+        app.world_mut().resource_mut::<ModRenderScene>().retained = vec![store.snapshot().clone()];
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert_eq!(crate::queue_review_support::items(&app, view).len(), 2);
+
+        store.begin();
+        for handle in handles {
+            store.remove(handle).unwrap();
+        }
+        store.remove(geometry).unwrap();
+        store.commit();
+        app.world_mut().resource_mut::<ModRenderScene>().retained = vec![store.snapshot().clone()];
+        crate::queue_review_support::clear(&mut app, view);
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(app.world().resource::<gpu::Gpu>().meshes.is_empty());
+        let retained = app.world().resource::<Materials>();
+        assert!(
+            retained.retired.is_empty(),
+            "live material pipelines must not retire with geometry"
+        );
+        for (handle, id) in materials.iter().zip(&pipelines) {
+            assert_eq!(retained.ready(*handle, key).unwrap().id(), *id);
+        }
+
+        app.world_mut().resource_mut::<ModRenderScene>().retained = vec![drawable.clone()];
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert_eq!(
+            crate::queue_review_support::items(&app, view).len(),
+            2,
+            "reused materials must draw together without recompilation"
+        );
+        for (handle, id) in materials.iter().zip(&pipelines) {
+            assert_eq!(
+                app.world()
+                    .resource::<Materials>()
+                    .ready(*handle, key)
+                    .unwrap()
+                    .id(),
+                *id
+            );
+        }
+
+        let mut removed = (*drawable).clone();
+        removed
+            .instances
+            .retain(|_, draw| draw.material != Some(materials[0]));
+        removed.materials.remove(&materials[0]);
+        app.world_mut().resource_mut::<ModRenderScene>().retained = vec![Arc::new(removed)];
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(
+            app.world()
+                .resource::<Materials>()
+                .ready(materials[0], key)
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .resource::<Materials>()
+                .ready(materials[1], key)
+                .is_some()
+        );
+        app.world_mut()
+            .resource_mut::<DrawingFrame>()
+            .live_owners
+            .clear();
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(app.world().resource::<Materials>().entries.is_empty());
+    }
+
+    #[test]
     fn completed_hidden_variants_stop_blocking_readiness() {
         let pool = bevy::tasks::TaskPoolBuilder::new().num_threads(0).build();
         let material = Arc::new(Material { shader: "".into() });

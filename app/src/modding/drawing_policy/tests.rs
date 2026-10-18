@@ -33,6 +33,8 @@ fn block_anchors_follow_their_subchunk_authority() {
             .create(
                 Instance {
                     geometry,
+                    material: None,
+                    params: mod_api::materials::Preset::default().0,
                     anchor: Anchor::Block {
                         dimension,
                         position,
@@ -71,4 +73,28 @@ fn block_anchors_follow_their_subchunk_authority() {
     let mut frame = DrawingFrame::default();
     publish_retained(store.snapshot(), &terrain, &mut frame);
     assert!(frame.loaded_blocks.is_empty());
+}
+
+#[test]
+fn material_only_snapshots_publish_their_live_owner() {
+    let mut store = Store::default();
+    let material = store
+        .create_material(mod_render::material::BUILTIN, DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    assert!(store.snapshot().geometry.is_empty());
+
+    let mut frame = DrawingFrame::default();
+    publish_retained(store.snapshot(), &ChunkStore::default(), &mut frame);
+    assert_eq!(
+        frame.live_owners,
+        [(material.owner, material.generation)].into()
+    );
+
+    store.begin();
+    store.remove(material).unwrap();
+    store.commit();
+    let mut frame = DrawingFrame::default();
+    publish_retained(store.snapshot(), &ChunkStore::default(), &mut frame);
+    assert!(frame.live_owners.is_empty());
 }

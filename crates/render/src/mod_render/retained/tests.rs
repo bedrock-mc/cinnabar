@@ -41,7 +41,7 @@ fn unlit_shader_layout_and_stages_match_native_storage() {
 }
 
 /// Builds one triangle referenced by two placements in a fenced drawing store.
-fn drawing() -> (Store, mod_api::drawing::DrawingHandle, Instance) {
+pub(super) fn drawing() -> (Store, mod_api::drawing::DrawingHandle, Instance) {
     let mut store = Store::default();
     store.bind_session(1, 0);
     let geometry = store

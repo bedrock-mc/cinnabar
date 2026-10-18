@@ -101,11 +101,15 @@ pub(super) fn queue(
             r.connection == frame.connection
                 && r.dimension == frame.dimension
                 && frame.connection != 0
-                && r.geometry.keys().next().is_some_and(|handle| {
-                    frame
-                        .live_owners
-                        .contains(&(handle.owner, handle.generation))
-                })
+                && r.geometry
+                    .keys()
+                    .chain(r.materials.keys())
+                    .next()
+                    .is_some_and(|handle| {
+                        frame
+                            .live_owners
+                            .contains(&(handle.owner, handle.generation))
+                    })
         })
         .collect();
     materials.retain(&resources);
