@@ -1,4 +1,5 @@
 use protocol::identity::FifoSequence;
+use render_api::sub_chunk_requests::SubChunkRequestReceipt;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{
     io::Write,
@@ -104,7 +105,7 @@ pub enum NetworkControlEvent<P = ()> {
         level_identity: Option<u64>,
     },
     SubChunkRequestSent {
-        receipt: protocol::SubChunkRequestReceipt,
+        receipt: SubChunkRequestReceipt,
         sent_at: Instant,
     },
     ChatPacketSent {
@@ -300,7 +301,7 @@ enum NetworkCommand {
     },
     Send {
         packet: Packet,
-        sub_chunk: Option<protocol::SubChunkRequestReceipt>,
+        sub_chunk: Option<SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
@@ -556,7 +557,7 @@ impl<P> NetworkHandle<P> {
     /// Queues one terrain request with the membership echoed after its successful write.
     pub fn send_sub_chunk_request(
         &self,
-        receipt: protocol::SubChunkRequestReceipt,
+        receipt: SubChunkRequestReceipt,
         packet: Packet,
     ) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, Some(receipt), None, None, None, None)
@@ -565,7 +566,7 @@ impl<P> NetworkHandle<P> {
     fn send_packet_with_confirmation(
         &self,
         packet: Packet,
-        sub_chunk: Option<protocol::SubChunkRequestReceipt>,
+        sub_chunk: Option<SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,

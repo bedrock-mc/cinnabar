@@ -29,7 +29,6 @@ bytes.workspace = true
 hashbrown = "0.16"
 meshing = { path = "../meshing" }
 client-world = { path = "../client-world" }
-protocol = { path = "../protocol" }
 actor-animation = { path = "../actor-animation" }
 far-terrain = { path = "../far-terrain" }
 rayon.workspace = true
@@ -45,6 +44,7 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+protocol = { path = "../protocol" }
 protocol-ids = { path = "../protocol-ids" }
 mimalloc.workspace = true
 test-alloc = { path = "../test-alloc" }

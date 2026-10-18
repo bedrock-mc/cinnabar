@@ -1,4 +1,5 @@
 use super::*;
+use render_api::sub_chunk_requests::{MAX_SUB_CHUNK_REQUESTS, sub_chunk_request_offset};
 
 #[test]
 fn grouped_request_preserves_sparse_absolute_order_around_camera_center() {
@@ -44,13 +45,13 @@ fn every_axis_accepts_signed_127_and_rejects_signed_128_without_overflow() {
             );
         }
     }
-    assert!(crate::sub_chunk_request_offset([i32::MIN; 3], [i32::MAX; 3]).is_none());
-    assert!(crate::sub_chunk_request_offset([i32::MAX; 3], [i32::MIN; 3]).is_none());
+    assert!(sub_chunk_request_offset([i32::MIN; 3], [i32::MAX; 3]).is_none());
+    assert!(sub_chunk_request_offset([i32::MAX; 3], [i32::MIN; 3]).is_none());
 }
 
 #[test]
 fn grouped_request_enforces_the_packet_bound_without_splitting() {
-    let limit = crate::MAX_SUB_CHUNK_REQUESTS;
+    let limit = MAX_SUB_CHUNK_REQUESTS;
     let packet = crate::request_sub_chunks(0, [0; 3], vec![[0; 3]; limit].into_iter()).unwrap();
     let packets::Packet::SubChunkRequest(request) = *packet.data else {
         panic!("expected SubChunkRequest");
