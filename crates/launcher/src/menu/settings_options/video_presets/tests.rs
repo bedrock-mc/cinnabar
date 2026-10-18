@@ -110,7 +110,6 @@ fn presets_respect_device_distance_and_antialiasing_limits() {
         );
         assert_eq!(settings.user_settings().video.anti_aliasing_samples, 1);
         assert_eq!(settings.user_settings().video.smaa_mode, ui::SmaaMode::Off);
-        assert!(!settings.user_settings().video.vsync);
         assert_eq!(
             settings.user_settings().video.frame_rate_limit,
             render_api::FrameRateLimit::Unlimited
@@ -123,7 +122,6 @@ fn presets_respect_device_distance_and_antialiasing_limits() {
         assert!(distance <= 64);
         assert_eq!(settings.user_settings().video.anti_aliasing_samples, 4);
         assert_eq!(settings.user_settings().video.smaa_mode, ui::SmaaMode::Smaa);
-        assert!(settings.user_settings().video.vsync);
         assert_eq!(settings.video_preset(), Some(VideoPreset::Quality));
     }
 }
@@ -145,6 +143,38 @@ fn editing_each_controlled_setting_derives_custom_and_restoring_it_recovers_the_
             assert!(settings.set(index, other));
             assert_eq!(settings.video_preset(), None, "{:?}: {preset:?}", option.id);
             settings.set(index, original);
+            assert_eq!(settings.video_preset(), Some(preset));
+        }
+    }
+}
+
+#[test]
+fn switching_presets_preserves_vsync() {
+    for vsync in [false, true] {
+        let mut settings = SettingsOptions::default();
+        settings.set(SettingId::Vsync.index(), i32::from(vsync));
+        for preset in VideoPreset::ALL
+            .into_iter()
+            .chain(VideoPreset::ALL.into_iter().rev())
+        {
+            settings.apply_video_preset(preset);
+            assert_eq!(settings.user_settings().video.vsync, vsync, "{preset:?}");
+            assert_eq!(settings.video_preset(), Some(preset));
+
+            let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(loaded.user_settings().video.vsync, vsync, "{preset:?}");
+            assert_eq!(loaded.video_preset(), Some(preset));
+        }
+    }
+}
+
+#[test]
+fn editing_vsync_keeps_the_selected_graphics_preset() {
+    for preset in VideoPreset::ALL {
+        let mut settings = SettingsOptions::default();
+        settings.apply_video_preset(preset);
+        for vsync in [false, true] {
+            settings.set(SettingId::Vsync.index(), i32::from(vsync));
             assert_eq!(settings.video_preset(), Some(preset));
         }
     }

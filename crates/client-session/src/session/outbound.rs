@@ -1,6 +1,6 @@
 //! Writes delimited packet batches without waiting on inbound traffic.
 //!
-//! Frame completion and committed latency fences submit batch delimiters.
+//! Frame completion submits batch delimiters for ordinary packets and latency replies.
 
 use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;

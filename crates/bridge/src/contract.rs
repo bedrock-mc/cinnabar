@@ -44,8 +44,17 @@ pub const RELAY_VERSION: u32 = 2;
 /// Largest relay Hello or control JSON payload in bytes.
 pub const RELAY_CONTROL_BYTES: usize = 4096;
 
-/// Largest WebSocket play message and upload burst in bytes.
+/// Largest WebSocket play message in bytes.
 pub const RELAY_PLAY_MESSAGE_BYTES: usize = 8388608;
+
+/// Maximum queued reliable frames or browser receive chunks.
+pub const QUEUED_FRAMES: usize = 16;
+
+/// Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+pub const RELAY_QUEUED_FRAME_BYTES: usize = 8388608;
+
+/// Upload rate limiter burst, independent of message and queue limits.
+pub const RELAY_UPLOAD_BURST_BYTES: usize = 8388608;
 
 /// Interval between control keepalives.
 pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
@@ -370,6 +379,20 @@ pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
     "cinnabar.disconnect.deviceClock",
 ];
 
+/// A safe relay refusal code; unrecognized codes use the generic refusal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum RefusalCode {
+    #[serde(rename = "resume_refused")]
+    ResumeRefused,
+    #[serde(rename = "admission_refused")]
+    AdmissionRefused,
+    #[serde(rename = "session_busy")]
+    SessionBusy,
+    #[serde(rename = "refused")]
+    #[serde(other)]
+    Refused,
+}
+
 /// Game mode a world starts players in.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GameMode {
@@ -532,6 +555,9 @@ pub enum AuthState {
 /// Join progress stage reported by the core.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ConnectStage {
+    /// No join is being prepared.
+    #[serde(rename = "")]
+    Idle,
     /// The Realm lookup.
     #[serde(rename = "realm")]
     Realm,

@@ -17,6 +17,8 @@ mod cosmetic_catalog;
 pub(crate) use cosmetic_catalog::refresh as refresh_cosmetics;
 mod capes;
 mod custom;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) mod memory;
 pub use custom::import;
 mod default_capes;
 mod default_capes_loader;
@@ -332,6 +334,12 @@ fn single_filename(value: &str) -> bool {
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
+/// Finds the native default to equip when deleting an active imported skin.
+pub(crate) fn deletion_fallback(skins: &[DressingRoomSkin]) -> Result<usize, String> {
+    skins.iter().position(|entry| !entry.imported && entry.name == launcher::dressing_room::STARTER_SKIN_NAMES[0])
+        .ok_or("Steve is unavailable. Install the vanilla skin assets before deleting the equipped skin.".to_owned())
+}
+
 fn starter(layout: &InstallLayout) -> Option<Starter> {
     let path = layout.starter_skins_asset();
     if !path.is_file() {
@@ -499,6 +507,19 @@ pub fn select_cosmetic(
     hat: Option<cosmetics::Item>,
 ) -> Result<(), String> {
     let previous = view.selected_cosmetics.clone();
+    toggle_cosmetic(view, hat)?;
+    if let Err(error) = save(layout, view) {
+        view.selected_cosmetics = previous;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Updates free cosmetic slots without making a storage durability claim.
+pub(crate) fn toggle_cosmetic(
+    view: &mut DressingRoomView,
+    hat: Option<cosmetics::Item>,
+) -> Result<(), String> {
     if let Some(item) = hat {
         if !item.descriptor().free {
             return Err("This item is not owned.".to_owned());
@@ -513,10 +534,6 @@ pub fn select_cosmetic(
             .insert(slot, (!selected).then(|| item.id().to_owned()));
     } else {
         view.selected_cosmetics.clear();
-    }
-    if let Err(error) = save(layout, view) {
-        view.selected_cosmetics = previous;
-        return Err(error);
     }
     Ok(())
 }
