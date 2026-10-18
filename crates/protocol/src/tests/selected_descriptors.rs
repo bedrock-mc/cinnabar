@@ -75,6 +75,31 @@ fn round_trip(packet: protocol::Packet) -> packets::Packet {
     *decoded.remove(0).data
 }
 
+/// Adjusts old fixture expectations only for the selected descriptor's optional identity.
+pub(super) fn without_selected_identity(mut packet: protocol::Packet) -> protocol::Packet {
+    let item = match &mut *packet.data {
+        packets::Packet::InventoryTransaction(packet) => match &mut packet.transaction {
+            InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) => {
+                &mut transaction.item
+            }
+            InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction { item, .. }
+            | InventoryTransactionPacketData::ItemReleaseInventoryTransaction { item, .. } => item,
+            _ => panic!("expected selected-item fixture"),
+        },
+        packets::Packet::PlayerAuthInput(input) => {
+            &mut input
+                .item_use_transaction
+                .as_mut()
+                .unwrap()
+                .item_use_transaction
+                .item
+        }
+        _ => panic!("expected interaction fixture"),
+    };
+    item.net_id_variant = None;
+    packet
+}
+
 /// Checks every retained content field independently of the optional stack identity.
 fn assert_contents(
     item: &NetworkItemStackDescriptorSerializedData,
