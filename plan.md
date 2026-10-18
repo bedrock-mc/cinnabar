@@ -4956,6 +4956,17 @@ defects; cache ordering/timing, selected-store unification, item rendering, inve
 geometry and animation, broader actor behavior, exact chunk retention, and native/live acceptance
 remain open.
 
+Held-equipment publication now also notices same-slot count, item-data and depletion changes at
+the local input tick boundary. Accepted sends retain their comparison state across frame retries;
+stack network IDs alone do not trigger a resend, and session changes reset that state. Older
+queued movement drains before a later tick publishes changed equipment. Changed offhand stacks
+publish after mainhand updates. Held-item comparisons ignore compound entry order and root
+names, retain list order and item-data trailers, and use numeric float equality. Malformed,
+oversized or unsupported data keeps strict byte comparison. General inventory merging is
+unchanged. Either descriptor's wildcard auxiliary matches the other's value while retaining
+the other identity checks. Auxiliary normalization, asymmetric block identity, charged-item
+identity, unsupported NBT and full packet timing parity remain incomplete.
+
 The 2026-08-21 parallel audit additionally confirmed the existing version-coherence, resource-pack,
 post-login transfer, movement/input/pose, actor/viewmodel, audio, menu/settings/touch, auth recovery,
 control, local-world, shutdown, Windows transport, packaging, and visual-calibration gaps. New
