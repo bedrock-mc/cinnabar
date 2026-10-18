@@ -10209,3 +10209,9 @@ Nametags, player previews, hands and the paperdoll read the rendering state.
 
 Accepted local held-use and glide/swim/crawl projection, replay authority and exact
 send phase remain incomplete. This separation does not close movement parity.
+## Sign text line breaks
+
+Sign edits retain existing trailing blank lines and line breaks entered before closing.
+Unused editor rows do not add line breaks to the outbound text. The regression checks
+encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
+length limits, structured text and complete editor behavior remain incomplete.
