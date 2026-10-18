@@ -76,7 +76,7 @@ impl<P> NetworkHandle<P> {
         Self::stub_capturing_packets_with_capacity(COMMAND_CAPACITY)
     }
 
-    /// Captures a small FIFO so adapter tests can refuse and retry a specific packet prefix.
+    /// Captures real command admission with a chosen payload capacity.
     pub fn stub_capturing_packets_with_capacity(capacity: usize) -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
         let (commands, command_rx) = frame_flush::command_channel(capacity);
