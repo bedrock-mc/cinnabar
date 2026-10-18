@@ -72,8 +72,13 @@ impl CapturedPackets {
 #[cfg(any(test, feature = "test-support"))]
 impl<P> NetworkHandle<P> {
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
+        Self::stub_capturing_packets_with_capacity(COMMAND_CAPACITY)
+    }
+
+    /// Captures real command admission with a chosen payload capacity.
+    pub fn stub_capturing_packets_with_capacity(capacity: usize) -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
-        let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
+        let (commands, command_rx) = frame_flush::command_channel(capacity);
         handle.commands = commands;
         (
             handle,

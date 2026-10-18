@@ -56,6 +56,9 @@ mod attack_progress_tests;
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
 
+#[path = "published_tests/held_equipment.rs"]
+mod held_equipment_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
@@ -70,6 +73,16 @@ mod repeat_clock_tests;
 
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
+    fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
+}
+
+/// Supplies the existing world fixture with a caller-owned capture transport.
+fn fixture_with_network(
+    (network, captured): (
+        NetworkHandle<PackApplication>,
+        client_session::CapturedPackets,
+    ),
+) -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(bytes, version).unwrap();
@@ -135,7 +148,6 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     });
     let mut sample = gameplay::test_support::survival_mining::completed(101);
     sample.position = position;
-    let (network, captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     let mut movement = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
     );

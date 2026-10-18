@@ -10,8 +10,10 @@ use acceptance::publication_evidence::{
 use client_runtime::network::NetworkHandle;
 use web_time::Instant;
 mod attribution;
+mod held_equipment;
 use attribution::DiagnosticAttributionLogState;
 pub(crate) use attribution::refresh_diagnostic_attribution;
+use held_equipment::HeldEquipmentSchedule;
 
 #[cfg(feature = "acceptance")]
 use bevy::prelude::{Transform, With};
@@ -253,7 +255,9 @@ pub(crate) fn send_player_auth_inputs(
     local_frame: Res<LocalPlayerFrameCarrier>,
     mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
-    player_runtime: Option<Res<client_state::PlayerRuntime>>,
+    mut player_runtime: ResMut<client_state::PlayerRuntime>,
+    effects: Res<client_interaction::movement::LocalMovementEffectTimeline>,
+    mut held_equipment: Local<HeldEquipmentSchedule>,
     mut item_use: Option<ResMut<client_interaction::item_use::ItemUseRuntime>>,
     target: Option<Res<crate::melee::MeleeTarget>>,
     mut hover: bevy::prelude::Local<gameplay::entity_hover::EntityHover>,
@@ -303,15 +307,16 @@ pub(crate) fn send_player_auth_inputs(
         return;
     }
     let session = movement.interaction_authority_identity().0;
-    let use_selection = player_runtime
-        .as_deref()
-        .and_then(client_interaction::mining::verified_selection);
-    let use_animation = player_runtime
-        .as_deref()
-        .zip(use_selection.as_ref())
+    let use_selection = client_interaction::mining::verified_selection(&player_runtime);
+    let use_animation = use_selection
+        .as_ref()
         .zip(client_world.stream.as_ref())
-        .and_then(|((player, selected), stream)| {
-            client_interaction::item_use::selection::progress_animation(player, stream, selected)
+        .and_then(|(selected, stream)| {
+            client_interaction::item_use::selection::progress_animation(
+                &player_runtime,
+                stream,
+                selected,
+            )
         });
     if let Some(runtime) = item_use.as_deref_mut() {
         runtime.synchronize(session.get());
@@ -321,6 +326,36 @@ pub(crate) fn send_player_auth_inputs(
         .as_ref()
         .map(|stream| stream.local_player_runtime_id());
     let hover_snapshot = target.as_ref().and_then(|target| target.hover);
+    let game_mode = player_runtime.facts.player_game_mode();
+    let mut equipment = match player_runtime
+        .inventory
+        .changed_held_equipment_packet(game_mode)
+    {
+        Ok(equipment) => equipment,
+        Err(error) => {
+            record_fatal_error(
+                &mut fatal_error.0,
+                format!("held equipment packet validation failed: {error}"),
+            );
+            return;
+        }
+    };
+    let mut offhand = match player_runtime.inventory.changed_offhand_equipment_packet() {
+        Ok(equipment) => equipment,
+        Err(error) => {
+            record_fatal_error(
+                &mut fatal_error.0,
+                format!("offhand equipment packet validation failed: {error}"),
+            );
+            return;
+        }
+    };
+    held_equipment.observe(
+        &movement,
+        effects.recent_tick_count(),
+        equipment.is_some(),
+        offhand.is_some(),
+    );
     let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
@@ -343,6 +378,24 @@ pub(crate) fn send_player_auth_inputs(
                 hover.send_tick(session, identity.tick.get(), snapshot, |packet| {
                     network.send_inventory_packet(packet)
                 })?;
+            }
+            if held_equipment.mainhand_due(identity.tick.get())
+                && let Some((slot, packet)) = equipment.as_ref()
+            {
+                network.send_hotbar_packet(packet.clone())?;
+                player_runtime
+                    .inventory
+                    .clear_pending_hotbar_selection(*slot);
+                equipment = None;
+                held_equipment.mainhand_admitted();
+            }
+            if held_equipment.offhand_due(identity.tick.get())
+                && let Some(packet) = offhand.as_ref()
+            {
+                network.send_hotbar_packet(packet.clone())?;
+                player_runtime.inventory.acknowledge_offhand_equipment();
+                offhand = None;
+                held_equipment.offhand_admitted();
             }
             match trace {
                 Some(trace) => {
