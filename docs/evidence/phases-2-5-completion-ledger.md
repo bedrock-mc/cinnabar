@@ -596,3 +596,6 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+
+Retained mod drawing has authority and lifetime contracts. Geometry, renderer integration
+and actor attachment remain incomplete and do not close any completion requirement.

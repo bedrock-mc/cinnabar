@@ -17,6 +17,7 @@ fn startup() -> Start {
                 origins: BTreeSet::new(),
                 memory_bytes: 0,
                 gpu_bytes: 0,
+                personal_mods: Default::default(),
             },
             assets: BTreeSet::new(),
             templates: BTreeSet::new(),

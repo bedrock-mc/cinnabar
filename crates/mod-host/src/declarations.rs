@@ -29,6 +29,11 @@ pub struct Declarations {
 /// Only an unreadable file or malformed module framing is an error.
 pub fn declarations(path: &Path) -> Result<Declarations> {
     let bytes = local_files::read(path, MAX_COMPONENT_SOURCE_BYTES)?;
+    declarations_snapshot(&bytes)
+}
+
+/// Parses declarations from the exact bytes selected for admission.
+pub(crate) fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut metadata = ModMetadata::default();
     // Developer text fixtures do not contain binary custom sections.
     if !bytes.starts_with(b"\0asm") {
@@ -40,7 +45,7 @@ pub fn declarations(path: &Path) -> Result<Declarations> {
     let mut depth = 0usize;
     let mut grants = Vec::new();
     let mut icons = Vec::new();
-    for payload in Parser::new(0).parse_all(&bytes) {
+    for payload in Parser::new(0).parse_all(bytes) {
         let section = match payload? {
             Payload::ModuleSection { .. } | Payload::ComponentSection { .. } => {
                 depth += 1;
