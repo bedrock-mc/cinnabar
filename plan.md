@@ -6,6 +6,10 @@ provide hover, toggle and scroll transitions. Camera styling uses a bounded temp
 override that resets on omission, unload or a guest trap. Indexed meshes, coverage
 fonts and shared vector passes keep existing frame and texture-byte limits.
 
+Personal mod updates accept either GitHub release assets or author-hosted HTTPS
+version/checksum manifests. Website payloads stay on the declared origin, retain
+bounded downloads and SHA-256 checks, and preserve installation settings and grants.
+
 Owning contract tests cover the native APIs and UI admission. Displayed-frame pacing,
 complete rendering acceptance and final review remain incomplete.
 ## Custom block and item texture inheritance

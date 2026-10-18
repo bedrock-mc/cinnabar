@@ -147,7 +147,7 @@ fn validate(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), Strin
         .map_err(|error| format!("invalid requested permissions: {error}"))?;
     let matches_source = |metadata: &ui::mod_metadata::ModMetadata| {
         metadata.update_url.as_ref().is_some_and(|source| {
-            source.repository().slug() == download.repository && source.asset() == download.asset
+            source.check_key() == download.source && source.asset_key() == download.asset
         })
     };
     if !matches_source(&previous) || !matches_source(&next.metadata) {

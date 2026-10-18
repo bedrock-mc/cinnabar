@@ -1,6 +1,7 @@
 //! Optional GitHub release checks and automatic downloads, kept off the frame thread.
 
 mod download;
+mod manifest;
 mod progress;
 #[cfg(test)]
 mod tests;
@@ -18,7 +19,7 @@ use std::sync::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Candidate {
     id: u64,
-    repository: String,
+    source: String,
     version: String,
     asset: Option<String>,
 }
@@ -104,7 +105,7 @@ impl Checker {
             .iter()
             .filter_map(|item| {
                 let source = item.metadata.update_url.as_ref()?;
-                enabled.then(|| (item.id, source.asset().to_owned()))
+                enabled.then(|| (item.id, source.asset_key()))
             })
             .collect();
         let automatic = enabled && automatic;
@@ -118,19 +119,22 @@ impl Checker {
                 .iter()
                 .filter_map(|item| {
                     let source = item.metadata.update_url.as_ref();
-                    let repository = source
-                        .map(|source| source.repository())
-                        .or(item.metadata.update_repository.as_ref())?;
+                    let check_source = source.map(|source| source.check_key()).or_else(|| {
+                        item.metadata
+                            .update_repository
+                            .as_ref()
+                            .map(|repo| repo.slug().into())
+                    })?;
                     let version = item.metadata.version.as_ref()?;
                     // A non-SemVer installed version cannot establish that a release is newer.
                     update_manifest::select::newer(version, version).ok()?;
                     Some(Candidate {
                         id: item.id,
-                        repository: repository.slug().into(),
+                        source: check_source,
                         version: version.clone(),
                         asset: source
                             .filter(|_| automatic)
-                            .map(|source| source.asset().into()),
+                            .map(|source| source.asset_key()),
                     })
                 })
                 .collect()

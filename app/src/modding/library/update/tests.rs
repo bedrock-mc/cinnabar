@@ -48,30 +48,33 @@ fn section(bytes: &mut Vec<u8>, name: &str, data: &[u8]) {
 
 #[test]
 fn automatic_install_preserves_registration_settings_and_existing_authority() {
-    let directory = tempfile::tempdir().unwrap();
-    let mods = directory.path().join("mods");
-    fs::create_dir(&mods).unwrap();
-    let path = mods.join("renamed.wasm");
-    fs::write(&path, component("1.0.0", SOURCE, true)).unwrap();
-    let config = directory.path().join("config");
-    selection::select(&config, &path, true, "enabled".into()).unwrap();
-    let before = selection::registered(&config).remove(0).entry;
-    let companion = mod_host::settings_companion(&path);
-    fs::write(&companion, b"{\"volume\":17}").unwrap();
-    let new = component("1.1.0", SOURCE, true);
-    let download = Downloaded::fixture(
-        installed(&mods)[0].0.id,
-        "v1.1.0",
-        "example/zoom",
-        "zoom.wasm",
-        &new,
-    );
-    let message = install(&mods, &download).unwrap().message;
-    assert!(message.contains("Updated renamed.wasm to v1.1.0"));
-    assert_eq!(fs::read(&path).unwrap(), new);
-    assert_eq!(selection::registered(&config)[0].entry, before);
-    assert_eq!(fs::read(&companion).unwrap(), b"{\"volume\":17}");
-    assert_eq!(fs::read_dir(&mods).unwrap().count(), 2);
+    for source in [SOURCE, "https://mods.example/zoom/update.json"] {
+        let directory = tempfile::tempdir().unwrap();
+        let mods = directory.path().join("mods");
+        fs::create_dir(&mods).unwrap();
+        let path = mods.join("renamed.wasm");
+        fs::write(&path, component("1.0.0", source, true)).unwrap();
+        let config = directory.path().join("config");
+        selection::select(&config, &path, true, "enabled".into()).unwrap();
+        let before = selection::registered(&config).remove(0).entry;
+        let companion = mod_host::settings_companion(&path);
+        fs::write(&companion, b"{\"volume\":17}").unwrap();
+        let new = component("1.1.0", source, true);
+        let identity = ui::mod_metadata::ModUpdateUrl::parse(source).unwrap();
+        let download = Downloaded::fixture(
+            installed(&mods)[0].0.id,
+            "v1.1.0",
+            &identity.check_key(),
+            &identity.asset_key(),
+            &new,
+        );
+        let message = install(&mods, &download).unwrap().message;
+        assert!(message.contains("Updated renamed.wasm to v1.1.0"));
+        assert_eq!(fs::read(&path).unwrap(), new);
+        assert_eq!(selection::registered(&config)[0].entry, before);
+        assert_eq!(fs::read(&companion).unwrap(), b"{\"volume\":17}");
+        assert_eq!(fs::read_dir(&mods).unwrap().count(), 2);
+    }
 }
 
 #[test]

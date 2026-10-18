@@ -117,7 +117,7 @@ fn only_newer_published_semantic_versions_offer_updates() {
                 permission: 0,
                 candidates: vec![Candidate {
                     id: 3,
-                    repository: "example/zoom".into(),
+                    source: "example/zoom".into(),
                     asset: None,
                     version: "1.2.0".into(),
                 }],
@@ -162,7 +162,7 @@ fn repository_checks_are_cached_across_mod_versions_and_library_changes() {
                 permission: 0,
                 candidates: vec![Candidate {
                     id: revision,
-                    repository: "example/zoom".into(),
+                    source: "example/zoom".into(),
                     asset: None,
                     version: version.into(),
                 }],
@@ -181,13 +181,13 @@ fn unavailable_repositories_do_not_block_other_mods_and_network_work_is_bounded(
     let (outgoing, responses) = unbounded();
     let mut candidates = vec![Candidate {
         id: 1,
-        repository: "example/unavailable".into(),
+        source: "example/unavailable".into(),
         asset: None,
         version: "1.0.0".into(),
     }];
     candidates.extend((2..=100).map(|id| Candidate {
         id,
-        repository: format!("example/mod-{id}"),
+        source: format!("example/mod-{id}"),
         asset: None,
         version: "1.0.0".into(),
     }));
@@ -238,7 +238,7 @@ fn direct_asset_opt_in_and_player_preference_control_automatic_downloads() {
     checker.configure(&[item.clone()], true, true);
     let automatic = incoming.recv().unwrap();
     assert_eq!(automatic.candidates[0].asset.as_deref(), Some("zoom.wasm"));
-    assert_eq!(automatic.candidates[0].repository, "example/zoom");
+    assert_eq!(automatic.candidates[0].source, "example/zoom");
     let permission = checker.permission.clone();
     let mut neighbor_changed = item.clone();
     neighbor_changed.id += 1;
@@ -285,7 +285,7 @@ fn unchanged_sources_are_downloaded_once_per_launch_and_stale_transfers_can_retr
                 permission: 0,
                 candidates: vec![Candidate {
                     id: 1,
-                    repository: "example/zoom".into(),
+                    source: "example/zoom".into(),
                     version: "1.0.0".into(),
                     asset: Some("zoom.wasm".into()),
                 }],
@@ -420,7 +420,7 @@ fn an_update_click_retries_a_failed_automatic_download_without_rechecking_the_re
                 permission: 0,
                 candidates: vec![Candidate {
                     id: 1,
-                    repository: "example/zoom".into(),
+                    source: "example/zoom".into(),
                     version: "1.0.0".into(),
                     asset: Some("zoom.wasm".into()),
                 }],
@@ -444,7 +444,7 @@ fn completed_download_is_handed_to_the_installer_without_a_spurious_failure() {
             permission: 0,
             candidates: vec![Candidate {
                 id: 1,
-                repository: "example/zoom".into(),
+                source: "example/zoom".into(),
                 version: "1.0.0".into(),
                 asset: Some("zoom.wasm".into()),
             }],
@@ -506,7 +506,7 @@ fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
     });
     let candidate = |id| Candidate {
         id,
-        repository: "example/zoom".into(),
+        source: "example/zoom".into(),
         version: "1.0.0".into(),
         asset: Some("zoom.wasm".into()),
     };
@@ -534,4 +534,30 @@ fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
     assert_eq!(manual.manual, Some(1));
     assert_eq!(manual.downloads.len(), 1);
     assert!(manual.message.is_none());
+}
+
+#[test]
+fn manifest_sources_retain_manual_and_automatic_update_preferences() {
+    let source = "https://mods.example/zoom/update.json";
+    let (mut checker, incoming, _) = checker();
+    let mut item = installed("1.0.0", None);
+    item.metadata.update_url = Some(source.parse().unwrap());
+    checker.configure(&[item.clone()], true, true);
+    let automatic = incoming.recv().unwrap();
+    assert_eq!(automatic.candidates[0].source, source);
+    assert_eq!(automatic.candidates[0].asset.as_deref(), Some(source));
+    checker.configure(&[item.clone()], true, false);
+    let manual = incoming.recv().unwrap();
+    assert_eq!(manual.candidates[0].source, source);
+    assert!(manual.candidates[0].asset.is_none());
+    checker.updates = vec![AvailableUpdate {
+        id: item.id,
+        version: "1.2.3".into(),
+        release_url: source.into(),
+    }];
+    assert!(checker.install(item.id));
+    let selected = incoming.recv().unwrap();
+    assert_eq!(selected.candidates[0].asset.as_deref(), Some(source));
+    checker.configure(&[item], false, true);
+    assert!(incoming.recv().unwrap().candidates.is_empty());
 }

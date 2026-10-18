@@ -17,8 +17,8 @@ pub struct ModMetadata {
     pub licenses: Option<String>,
     /// Author opt-in to launch-time checks of this public GitHub repository's releases.
     pub update_repository: Option<GitHubRepository>,
-    /// Author opt-in to automatic installation of a named latest-release WASM asset.
-    pub update_url: Option<GitHubModAsset>,
+    /// Author opt-in to a GitHub WASM asset or an HTTPS version/checksum manifest.
+    pub update_url: Option<ModUpdateUrl>,
     /// Encoded PNG source that decoded within the icon section's limits.
     pub icon: Option<Arc<[u8]>>,
 }
@@ -100,6 +100,62 @@ pub struct GitHubModAsset {
     asset: String,
 }
 
+/// A stable author-controlled update source; downloaded components must retain this identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModUpdateUrl {
+    GitHub(GitHubModAsset),
+    Manifest(url::Url),
+}
+
+impl std::str::FromStr for ModUpdateUrl {
+    type Err = &'static str;
+
+    /// Accepts the existing GitHub asset form or a credential-free HTTPS manifest URL.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::parse(text).ok_or("expected a GitHub WASM asset or HTTPS update manifest URL")
+    }
+}
+
+impl ModUpdateUrl {
+    /// Parses bounded source metadata without accepting credentials, fragments or hidden whitespace.
+    pub fn parse(text: &str) -> Option<Self> {
+        if text.len() > 512
+            || !text.starts_with("https://")
+            || text.contains('\\')
+            || text.chars().any(char::is_whitespace)
+        {
+            return None;
+        }
+        if let Some(asset) = GitHubModAsset::parse(text) {
+            return Some(Self::GitHub(asset));
+        }
+        let url = url::Url::parse(text).ok()?;
+        (url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none())
+        .then_some(Self::Manifest(url))
+    }
+
+    /// The session cache identity: a repository slug or the complete HTTPS manifest URL.
+    pub fn check_key(&self) -> String {
+        match self {
+            Self::GitHub(asset) => asset.repository().slug().into(),
+            Self::Manifest(url) => url.as_str().into(),
+        }
+    }
+
+    /// The stable selection identity retained across releases, independent of versioned payload URLs.
+    pub fn asset_key(&self) -> String {
+        match self {
+            Self::GitHub(asset) => asset.asset().into(),
+            Self::Manifest(url) => url.as_str().into(),
+        }
+    }
+}
+
 impl std::str::FromStr for GitHubModAsset {
     type Err = &'static str;
 
@@ -178,5 +234,26 @@ mod update_url_tests {
             GitHubModAsset::parse("https://github.com/example/zoom/releases/download/v1/zoom.wasm")
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod manifest_url_tests {
+    use super::*;
+    #[test]
+    fn https_manifests_are_author_opt_in_without_github_or_embedded_credentials() {
+        let text = "https://mods.example/zoom/update.json";
+        let source = ModUpdateUrl::parse(text).unwrap();
+        assert_eq!(source.check_key(), text);
+        assert_eq!(source.asset_key(), text);
+        for invalid in [
+            "http://mods.example/update.json",
+            "https://user:pass@mods.example/update.json",
+            "https://mods.example/update.json#hidden",
+            "https://mods.example/update.json?token=x",
+            "https://mods.example/update.json\n",
+        ] {
+            assert!(ModUpdateUrl::parse(invalid).is_none(), "{invalid}");
+        }
     }
 }

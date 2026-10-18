@@ -19,11 +19,13 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Release {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
+    pub(super) tag_name: String,
+    pub(super) draft: bool,
+    pub(super) prerelease: bool,
     #[serde(default)]
-    assets: Vec<download::Asset>,
+    pub(super) assets: Vec<download::Asset>,
+    #[serde(skip)]
+    pub(super) manifest_url: Option<String>,
 }
 
 impl Release {
@@ -37,19 +39,24 @@ impl Release {
         {
             return None;
         }
-        let mut url = url::Url::parse(&format!(
-            "https://github.com/{}/releases/tag/",
-            candidate.repository
-        ))
-        .ok()?;
-        url.path_segments_mut()
-            .ok()?
-            .pop_if_empty()
-            .push(&self.tag_name);
+        let release_url = if let Some(url) = &self.manifest_url {
+            url.clone()
+        } else {
+            let mut url = url::Url::parse(&format!(
+                "https://github.com/{}/releases/tag/",
+                candidate.source
+            ))
+            .ok()?;
+            url.path_segments_mut()
+                .ok()?
+                .pop_if_empty()
+                .push(&self.tag_name);
+            url.into()
+        };
         Some(AvailableUpdate {
             id: candidate.id,
             version: self.tag_name.clone(),
-            release_url: url.into(),
+            release_url,
         })
     }
 }
@@ -76,6 +83,7 @@ pub(super) fn network(
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let download_client = download::client()?;
+    let manifest_client = download::manifest_client()?;
     run(
         incoming,
         outgoing,
@@ -88,7 +96,11 @@ pub(super) fn network(
                 max_component_bytes,
             )?;
             match runtime.block_on(download::fetch(
-                &download_client,
+                if asset.download_url.is_some() {
+                    &manifest_client
+                } else {
+                    &download_client
+                },
                 candidate,
                 &release.tag_name,
                 asset,
@@ -104,7 +116,7 @@ pub(super) fn network(
                 Ok(download) => Some(download),
                 Err(error) => {
                     progress.finish(candidate.id, revision);
-                    tracing::debug!(repository = candidate.repository, "Mod download: {error:#}");
+                    tracing::debug!(source = candidate.source, "Mod download: {error:#}");
                     None
                 }
             }
@@ -133,12 +145,12 @@ pub(super) fn run(
             if request.generation != generation.load(Ordering::SeqCst) {
                 break;
             }
-            if !cache.contains_key(&candidate.repository) {
+            if !cache.contains_key(&candidate.source) {
                 // Bound network work even if a directory contains hundreds of components.
                 if rate_limited || cache.len() >= MAX_REPOSITORIES {
                     continue;
                 }
-                let release = fetch(&candidate.repository).unwrap_or_else(|error| {
+                let release = fetch(&candidate.source).unwrap_or_else(|error| {
                     rate_limited = error
                         .downcast_ref::<reqwest::Error>()
                         .and_then(|error| error.status())
@@ -149,15 +161,12 @@ pub(super) fn run(
                                     | reqwest::StatusCode::TOO_MANY_REQUESTS
                             )
                         });
-                    tracing::debug!(
-                        repository = candidate.repository,
-                        "Mod update check: {error:#}"
-                    );
+                    tracing::debug!(source = candidate.source, "Mod update check: {error:#}");
                     None
                 });
-                cache.insert(candidate.repository.clone(), release);
+                cache.insert(candidate.source.clone(), release);
             }
-            if let Some(release) = cache.get(&candidate.repository).and_then(Option::as_ref)
+            if let Some(release) = cache.get(&candidate.source).and_then(Option::as_ref)
                 && let Some(update) = release.offer(candidate)
             {
                 updates.push(update);
@@ -214,8 +223,13 @@ pub(super) fn run(
     }
 }
 
-/// Reads only GitHub's latest published release; missing repositories/releases are silent.
+/// Reads the declared HTTPS manifest or GitHub's latest release; missing releases are silent.
 async fn fetch(client: &reqwest::Client, repository: &str) -> Result<Option<Release>> {
+    if let Some(ui::mod_metadata::ModUpdateUrl::Manifest(url)) =
+        ui::mod_metadata::ModUpdateUrl::parse(repository)
+    {
+        return super::manifest::fetch(client, &url).await.map(Some);
+    }
     let mut response = client
         .get(format!(
             "https://api.github.com/repos/{repository}/releases/latest"

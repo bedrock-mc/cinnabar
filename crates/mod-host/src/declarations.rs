@@ -3,7 +3,7 @@
 use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, local_files};
 use anyhow::{Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
-use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
+use ui::mod_metadata::{GitHubRepository, MAX_VERSION_BYTES, ModMetadata, ModUpdateUrl};
 use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
 
 /// The optional top-level component custom section containing a JSON grant request.
@@ -108,9 +108,7 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
             .and_then(GitHubRepository::parse);
     }
     if let [url] = update_urls.as_slice() {
-        metadata.update_url = std::str::from_utf8(url)
-            .ok()
-            .and_then(GitHubModAsset::parse);
+        metadata.update_url = std::str::from_utf8(url).ok().and_then(ModUpdateUrl::parse);
     }
     let requested = match grants.as_slice() {
         [] => Ok(None),

@@ -17,17 +17,20 @@ use std::{
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Asset {
-    id: u64,
-    name: String,
-    size: u64,
-    digest: Option<String>,
+    pub(super) id: u64,
+    pub(super) name: String,
+    pub(super) size: u64,
+    pub(super) digest: Option<String>,
+    /// Set only by the checked HTTPS manifest parser, never by GitHub JSON.
+    #[serde(skip)]
+    pub(super) download_url: Option<String>,
 }
 
 /// A verified release artifact. Dropping it removes its temporary file.
 pub struct Downloaded {
     pub id: u64,
     pub version: String,
-    pub repository: String,
+    pub source: String,
     pub asset: String,
     file: tempfile::NamedTempFile,
     generation: Arc<AtomicU64>,
@@ -53,7 +56,7 @@ impl Downloaded {
         Self {
             id,
             version: version.into(),
-            repository: repository.into(),
+            source: repository.into(),
             asset: asset.into(),
             file,
             generation: Arc::new(AtomicU64::new(1)),
@@ -75,7 +78,7 @@ pub(super) fn select<'a>(assets: &'a [Asset], name: &str, limit: usize) -> Optio
     if matching.next().is_some()
         || asset.size == 0
         || asset.size > limit as u64
-        || !name.ends_with(".wasm")
+        || (asset.download_url.is_none() && !name.ends_with(".wasm"))
         || digest(asset).is_none()
     {
         return None;
@@ -134,6 +137,19 @@ pub(super) fn client() -> Result<reqwest::Client> {
         .build()?)
 }
 
+/// Manifest downloads stay on the declared origin; HTTP redirects are never followed.
+pub(super) fn manifest_client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .user_agent(format!(
+            "{}/{}",
+            launcher::PRODUCT_NAME,
+            launcher::PRODUCT_VERSION
+        ))
+        .timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?)
+}
+
 /// Library revisions cancel obsolete transfers; preference revisions also fence installation.
 pub(super) struct Fence {
     pub generation: Arc<AtomicU64>,
@@ -159,15 +175,19 @@ pub(super) async fn fetch(
         0,
         asset.size,
     );
-    let response = client
-        .get(format!(
+    let url = asset.download_url.clone().unwrap_or_else(|| {
+        format!(
             "https://api.github.com/repos/{}/releases/assets/{}",
-            candidate.repository, asset.id
-        ))
+            candidate.source, asset.id
+        )
+    });
+    let response = client
+        .get(url)
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await?
         .error_for_status()?;
+    ensure!(response.status().is_success(), "mod download redirected");
     receive(response, candidate, version, asset, fence, limit).await
 }
 
@@ -225,7 +245,7 @@ async fn receive(
     Ok(Downloaded {
         id: candidate.id,
         version: version.into(),
-        repository: candidate.repository.clone(),
+        source: candidate.source.clone(),
         asset: asset.name.clone(),
         file,
         generation: fence.permission,

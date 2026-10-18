@@ -112,17 +112,39 @@ icon must be one PNG within the limits above that decodes completely; otherwise
 the card shows the placeholder. Metadata and icons are read by parsing the file
 only, and their content never causes a load to fail.
 
-### Optional GitHub mod updates
+### Optional mod updates
 
 Authors can opt into automatic updates by appending one top-level UTF-8 custom
-section `cinnabar:extension/update-url@1` (`mod_api::UPDATE_URL_SECTION`). Its
-contents identify the exact WASM asset on the latest stable GitHub release:
+section `cinnabar:extension/update-url@1` (`mod_api::UPDATE_URL_SECTION`). It may
+identify a GitHub latest-release WASM asset or an HTTPS update manifest.
+
+For a manifest hosted on the author's website, use a stable URL such as
+`https://mods.example/zoom-plus/update.json`. The JSON document contains:
+
+```json
+{
+  "format": "cinnabar-mod-update-v1",
+  "version": "1.3.0",
+  "url": "https://mods.example/zoom-plus/v1.3.0/zoom-plus.wasm",
+  "size": 1048576,
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
+`size` and `sha256` must describe the exact component bytes. The payload must be
+a `.wasm` URL on the manifest's HTTPS origin. Both URLs exclude credentials,
+queries and fragments; redirects are rejected. Manifests are limited to 16 KiB,
+unknown or duplicate fields are rejected, and payloads retain the host's component
+size limit. Publish a complete versioned payload before atomically replacing the
+manifest. No GitHub repository or account is required for this format.
+
+For a GitHub-hosted release, the URL identifies the exact asset:
 
 ```text
 https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm
 ```
 
-The HTTPS URL must use that path, a public GitHub repository, and an ASCII asset
+The GitHub URL must use that path, a public GitHub repository, and an ASCII asset
 name ending in `.wasm`. URL queries, credentials, fragments and nested paths are
 rejected. The URL is bounded to 512 bytes, with an asset name up to 128 bytes.
 Missing, duplicate, nested or invalid sections disable automatic updates without
@@ -136,11 +158,11 @@ such as `https://github.com/example/zoom-plus`. Repository URLs up to 256 bytes
 accept an optional `.git` suffix or trailing slash. When both sections are
 present, the download URL selects the repository.
 
-On launch, Cinnabar checks opted-in repositories in the background and compares
-the latest release tag, such as `v1.3.0`, with the installed version. Drafts,
-prereleases, equal/older versions and non-SemVer tags are skipped. Each repository
+On launch, Cinnabar checks opted-in sources in the background and compares
+the published version or latest GitHub release tag with the installed version. Drafts,
+prereleases, equal/older versions and non-SemVer tags are skipped. Each source
 is checked once per session, including newly imported mods; network work is
-limited to 32 repositories and 32 automatic download attempts per launch.
+limited to 32 sources and 32 automatic download attempts per launch.
 Missing releases, network failures and API limits leave the installed mod usable.
 These public requests use no GitHub login or token.
 

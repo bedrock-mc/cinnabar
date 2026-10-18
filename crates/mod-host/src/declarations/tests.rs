@@ -225,12 +225,12 @@ fn automatic_update_url_requires_one_valid_top_level_declaration() {
     section(&mut valid, mod_api::UPDATE_URL_SECTION, url);
     let metadata = read(&valid).metadata;
     let source = metadata.update_url.unwrap();
-    assert_eq!(source.repository().slug(), "example/zoom");
-    assert_eq!(source.asset(), "zoom.wasm");
+    assert_eq!(source.check_key(), "example/zoom");
+    assert_eq!(source.asset_key(), "zoom.wasm");
     for data in [
-        b"https://example.com/zoom.wasm".as_slice(),
+        b"http://example.com/update.json".as_slice(),
         b"\xff",
-        b"https://github.com/example/zoom",
+        b"https://user:password@example.com/update.json",
     ] {
         let mut invalid = named(&empty, "Zoom");
         section(&mut invalid, mod_api::UPDATE_URL_SECTION, data);
@@ -246,4 +246,16 @@ fn automatic_update_url_requires_one_valid_top_level_declaration() {
     length(valid.len(), &mut nested);
     nested.extend(valid);
     assert!(read(&nested).metadata.update_url.is_none());
+}
+
+#[test]
+fn https_manifest_declaration_retains_the_full_author_source() {
+    let mut bytes = wat::parse_str("(component)").unwrap();
+    let source = "https://mods.example/zoom/update.json";
+    section(&mut bytes, mod_api::UPDATE_URL_SECTION, source.as_bytes());
+    let metadata = read(&bytes).metadata;
+    assert!(metadata.update_repository.is_none());
+    let selected = metadata.update_url.unwrap();
+    assert_eq!(selected.check_key(), source);
+    assert_eq!(selected.asset_key(), source);
 }

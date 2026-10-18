@@ -24,6 +24,7 @@ crash-report = { path = "../crash-report" }
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
 launcher = { path = "../launcher" }
+ui = { path = "../ui" }
 memmap2 = "0.9"
 minidumper = "0.11"
 resource-pack = { path = "../resource-pack" }

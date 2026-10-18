@@ -8,6 +8,7 @@ fn asset(name: &str, bytes: &[u8]) -> Asset {
         name: name.into(),
         size: bytes.len() as u64,
         digest: Some(format!("sha256:{:x}", Sha256::digest(bytes))),
+        download_url: None,
     }
 }
 
@@ -83,7 +84,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
             .await?;
         let candidate = Candidate {
             id: 1,
-            repository: "example/zoom".into(),
+            source: "example/zoom".into(),
             version: "1.0.0".into(),
             asset: Some("zoom.wasm".into()),
         };
@@ -117,4 +118,14 @@ fn staged_download_verifies_bytes_length_digest_and_cancellation() {
     ] {
         assert!(stage(body, &expected, limit, cancelled).is_err());
     }
+}
+
+#[test]
+fn github_json_cannot_supply_a_manifest_download_override() {
+    let asset: Asset = serde_json::from_value(serde_json::json!({
+        "id":42, "name":"zoom.wasm", "size":9, "digest": format!("sha256:{}", "a".repeat(64)),
+        "download_url":"https://other.example/zoom.wasm"
+    }))
+    .unwrap();
+    assert!(asset.download_url.is_none());
 }

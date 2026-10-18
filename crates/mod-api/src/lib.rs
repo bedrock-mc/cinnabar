@@ -78,7 +78,7 @@ pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
 pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
 /// Optional top-level HTTPS GitHub repository URL enabling mod release notifications.
 pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
-/// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
+/// Optional GitHub latest-release WASM URL or HTTPS update manifest enabling mod installation.
 pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
