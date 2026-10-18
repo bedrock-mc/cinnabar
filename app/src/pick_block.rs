@@ -106,9 +106,7 @@ fn observe(
             world: observed.as_ref().map(|hit| hit.target.identity.clone()),
         });
     }
-    let Some(observed) = observed else {
-        return None;
-    };
+    let observed = observed?;
     Some(PickAttempt {
         packet: protocol::block_pick_request_packet(observed.target.position, false),
         lifetime: None,

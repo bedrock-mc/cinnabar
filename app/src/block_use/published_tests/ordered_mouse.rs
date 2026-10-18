@@ -49,7 +49,7 @@ fn mouse_frame(world: &mut World, button: MouseButton, states: &[ButtonState]) {
         };
         world
             .resource_mut::<Messages<MouseButtonInput>>()
-            .write(event.clone());
+            .write(event);
         world
             .resource_mut::<Messages<WindowEvent>>()
             .write(WindowEvent::MouseButtonInput(event));

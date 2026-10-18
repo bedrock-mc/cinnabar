@@ -23,7 +23,7 @@ impl BlockAttempt {
 
 enum Proposal {
     Actor(actor_use::ActorUseAttempt),
-    Block(build::FrozenBuild),
+    Block(Box<build::FrozenBuild>),
 }
 
 /// Attempts only this edge, returning the same proposal when transport or evidence must wait.
@@ -48,10 +48,10 @@ pub(crate) fn step(
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.synchronize(movement.interaction_authority_identity());
     if !attempt.initialized {
-        if runtime.stopping() || runtime.last_success_destination().is_some() {
-            if !stop_block_use(&mut runtime, &context, pressed && !attacking) {
-                return Step::new(attempt, Progress::Pending);
-            }
+        if (runtime.stopping() || runtime.last_success_destination().is_some())
+            && !stop_block_use(&mut runtime, &context, pressed && !attacking)
+        {
+            return Step::new(attempt, Progress::Pending);
         }
         if !pressed || attacking || context.melee.blocks_use_at(now) {
             runtime.clear_press();
@@ -125,14 +125,14 @@ pub(crate) fn step(
             ItemUseTrigger::PlayerInput,
             &state,
         ) {
-            attempt.proposal = Some(Proposal::Block(build::FrozenBuild::new(
+            attempt.proposal = Some(Proposal::Block(Box::new(build::FrozenBuild::new(
                 observed,
                 state,
                 ItemUseTrigger::PlayerInput,
                 clock.now,
                 clock,
                 input.context.view,
-            )));
+            ))));
         } else {
             runtime.record(
                 ItemUseTrigger::PlayerInput,
@@ -144,12 +144,12 @@ pub(crate) fn step(
             return Step::new(attempt, Progress::Complete);
         }
     }
-    if let Some(Proposal::Block(build)) = &attempt.proposal {
-        if !build.current(&context) {
-            attempt.cancelled = true;
-            runtime.clear_press();
-            return Step::new(attempt, Progress::Complete);
-        }
+    if let Some(Proposal::Block(build)) = &attempt.proposal
+        && !build.current(&context)
+    {
+        attempt.cancelled = true;
+        runtime.clear_press();
+        return Step::new(attempt, Progress::Complete);
     }
     if attempt.fence.is_none() {
         // Both proposal kinds were prepared from the same pre-tick movement state.

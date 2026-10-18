@@ -40,7 +40,7 @@ fn tap(world: &mut World, button: MouseButton) {
         };
         world
             .resource_mut::<Messages<MouseButtonInput>>()
-            .write(event.clone());
+            .write(event);
         world
             .resource_mut::<Messages<WindowEvent>>()
             .write(event.into());

@@ -279,7 +279,7 @@ pub(crate) fn drain(world: &mut World) {
                 let source = (!tail.is_empty()).then(|| capture(world, &snapshot));
                 for edge in tail.iter().copied() {
                     let source = source.as_ref().expect("nonempty action batch");
-                    if let Some(work) = work(edge, &source) {
+                    if let Some(work) = work(edge, source) {
                         let event = Event {
                             edge,
                             source: source.clone(),
