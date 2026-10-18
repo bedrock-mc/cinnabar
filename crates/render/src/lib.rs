@@ -39,6 +39,7 @@ pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
+mod gpu_allocation;
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 

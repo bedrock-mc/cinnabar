@@ -14,6 +14,7 @@ mod construction;
 mod death;
 pub mod disconnect;
 mod dressing_room;
+mod external;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
@@ -182,6 +183,7 @@ pub struct MenuRuntime {
     /// Developer recordings present placeholder accounts without signing in.
     presentation_accounts: bool,
     sign_out_requested: bool,
+    external: Option<external::ExternalServices>,
     accounts: accounts::Manager,
     pub global_resource_actions: Vec<launcher::global_resources::Action>,
     pub global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
@@ -345,6 +347,9 @@ impl MenuRuntime {
     /// The queued join, once the saved account's check has settled (bounded) and any
     /// sign-in helper the join does not outlive has finished cleaning up.
     pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
+        if self.external.is_some() {
+            return self.intents.join.take();
+        }
         let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
             account::JoinSignIn::Waiting => return None,
             account::JoinSignIn::Settled => false,
@@ -505,6 +510,9 @@ impl MenuRuntime {
             return;
         }
         if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
+            return;
+        }
+        if self.external_action(action) {
             return;
         }
         if self.account_change_pending()
@@ -854,6 +862,10 @@ impl MenuRuntime {
         };
         // The server just saved replaces whichever one was selected before.
         self.feeds.select_saved(saved);
+        if let Some(external) = &mut self.external {
+            external.preferences_dirty = true;
+            return true;
+        }
         if let Err(error) = self.saves.save(&self.servers) {
             self.message = Some(format!("Could not save server: {error}"));
             return false;
@@ -863,6 +875,10 @@ impl MenuRuntime {
 
     /// Queues the list for writing; a schema refusal leaves only the log.
     fn save_servers(&mut self) {
+        if let Some(external) = &mut self.external {
+            external.preferences_dirty = true;
+            return;
+        }
         if let Err(error) = self.saves.save(&self.servers) {
             bevy::log::warn!("saved servers not written: {error:#}");
         }
@@ -889,6 +905,10 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub fn request_connect(&mut self, address: String) {
+        if self.external.is_some() {
+            self.request_external_connect(address);
+            return;
+        }
         if self.account_change_pending() {
             self.message = Some("Please wait for the account change to finish.".into());
             return;

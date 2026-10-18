@@ -1,5 +1,5 @@
 use super::{
-    brewing::{BrewingItem, BrewingMix},
+    brewing::{BrewingMix, BrewingMixItem},
     budget::MAX_RECORDS,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
@@ -43,6 +43,7 @@ pub(super) enum ScreenItem<'a> {
     },
     /// A station recipe outside the supported input shape.
     Skipped,
+    Brewing(super::screen::BrewingRecipe),
 }
 
 pub(super) fn identifier(value: &str) -> bool {
@@ -307,27 +308,31 @@ pub(super) fn walk<'a>(
                     record(id, None)?;
                 }
                 8 => {
-                    brewing(BrewingMix::Potion {
-                        input: BrewingItem {
+                    let mix = BrewingMix::Potion {
+                        input: BrewingMixItem {
                             network_id: reader.int()?,
                             aux: reader.int()?,
                         },
-                        reagent: BrewingItem {
+                        reagent: BrewingMixItem {
                             network_id: reader.int()?,
                             aux: reader.int()?,
                         },
-                        output: BrewingItem {
+                        output: BrewingMixItem {
                             network_id: reader.int()?,
                             aux: reader.int()?,
                         },
-                    })?;
+                    };
+                    screen(ScreenItem::Brewing(mix.screen_recipe()))?;
+                    brewing(mix)?;
                 }
                 9 => {
-                    brewing(BrewingMix::Container {
+                    let mix = BrewingMix::Container {
                         input: reader.int()?,
                         reagent: reader.int()?,
                         output: reader.int()?,
-                    })?;
+                    };
+                    screen(ScreenItem::Brewing(mix.screen_recipe()))?;
+                    brewing(mix)?;
                 }
                 10 => {
                     reader.int()?;

@@ -2,6 +2,7 @@ package experience
 
 import (
 	"image"
+	"math/rand/v2"
 	"sync/atomic"
 
 	"github.com/df-mc/dragonfly/server/block"
@@ -238,6 +239,11 @@ func (b Block) Activate(
 	return true
 }
 
+// ScheduledTick hands an update scheduled for the block to the hook sink.
+func (b Block) ScheduledTick(pos cube.Pos, tx *world.Tx, _ *rand.Rand) {
+	currentHooks().scheduledTick(b, pos, tx)
+}
+
 // NeighbourUpdateTick hands a change next to the block to the hook sink.
 func (b Block) NeighbourUpdateTick(pos, changedNeighbour cube.Pos, tx *world.Tx) {
 	currentHooks().neighbourUpdateTick(b, pos, changedNeighbour, tx)
@@ -259,6 +265,8 @@ type hookSink interface {
 	)
 	// neighbourUpdateTick handles a change at changedNeighbour next to the block at pos.
 	neighbourUpdateTick(b Block, pos, changedNeighbour cube.Pos, tx *world.Tx)
+	// scheduledTick handles an update scheduled for the block at pos.
+	scheduledTick(b Block, pos cube.Pos, tx *world.Tx)
 	// breakHandler handles the block at pos having been broken.
 	breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User)
 }
@@ -291,5 +299,7 @@ func (noHooks) useOnBlock(
 func (noHooks) activate(Block, cube.Pos, cube.Face, *world.Tx, item.User, *item.UseContext) {}
 
 func (noHooks) neighbourUpdateTick(Block, cube.Pos, cube.Pos, *world.Tx) {}
+
+func (noHooks) scheduledTick(Block, cube.Pos, *world.Tx) {}
 
 func (noHooks) breakHandler(Block, cube.Pos, *world.Tx, item.User) {}

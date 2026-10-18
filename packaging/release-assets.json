@@ -1,5 +1,5 @@
 {
-  "repository": "bedrock-mc/cinnabar",
+  "repository": "cinnabar-mc/cinnabar",
   "checksums": "SHA256SUMS.txt",
   "assets": {
     "linux": {
@@ -11,6 +11,11 @@
     "macos": {
       "arm64": "Cinnabar-arm64.dmg",
       "x86_64": "Cinnabar-x86_64.dmg"
+    }
+  },
+  "manual_assets": {
+    "android": {
+      "arm64": "Cinnabar-arm64-v8a.apk"
     }
   },
   "symbols": {

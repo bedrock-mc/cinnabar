@@ -5,6 +5,27 @@ use client_ui::ui_runtime::UiRuntime;
 use gameplay::item_use::{AirUse, classify};
 use protocol_ids::Enchantment;
 
+/// Reads explicit animation facts first, then the admitted retail consumption profile.
+/// Custom items without an explicit animation remain unresolved.
+pub fn progress_animation(
+    player: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+    selected: &gameplay::mining::FrozenMiningSelection,
+) -> Option<assets::facts::ItemUseAnimationFact> {
+    use assets::{facts::ItemUseAnimationFact as Animation, item_use::ItemConsumption};
+    let id = selected.item.network_id();
+    let facts = player.inventory.item_facts();
+    if let Some(animation) = facts.get(id).use_animation {
+        return Some(animation);
+    }
+    facts.retail_id(id)?;
+    match stream.authority().item_use_profile(id).consumption {
+        ItemConsumption::Eat => Some(Animation::Eat),
+        ItemConsumption::Drink | ItemConsumption::Honey => Some(Animation::Drink),
+        _ => None,
+    }
+}
+
 /// Resolves enchantment and durability only for a trident admitted by item facts.
 pub fn selected_riptide_use(
     player: &client_state::PlayerRuntime,
@@ -78,14 +99,14 @@ pub(super) fn air_use_for_stack(
     )
 }
 
-/// The use duration of the selected stack when vanilla animates its use as eating or drinking.
+/// The presented stack's duration for the eating or drinking animation, independent of transport.
 pub fn consume_ticks(
     player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
 ) -> Option<u32> {
-    let stack = player_runtime.selected_backing_stack()?;
+    let stack = player_runtime.selected_stack()?;
     let profile = stream.authority().item_use_profile(stack.network_id);
-    match selected_air_use(player_runtime, stream)? {
+    match air_use_for_stack(stack, stream, None)? {
         AirUse::Hold { max_ticks, .. }
             if matches!(
                 profile.consumption,

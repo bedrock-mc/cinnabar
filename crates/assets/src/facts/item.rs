@@ -1,3 +1,5 @@
+/// Canonical arrow identity used by item presentation.
+pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.

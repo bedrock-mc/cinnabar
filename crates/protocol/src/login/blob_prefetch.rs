@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Keeps packet ownership across a cancelled background read, then uses normal resolver
     /// classification and recovery. A disk key alone can never produce a found-ID status.
     pub(super) async fn finish_blob_prefetch(&mut self) -> Result<(), ProtocolError> {
@@ -51,11 +51,11 @@ impl PlaySession {
         if let Some(recovery) = recovery {
             events.push_back(WorldEvent::ChunkResync(recovery));
         }
-        self.pending_blob_cache_delivery = Some(PendingBlobCacheDelivery {
-            status_packets: status.into_packets().into_iter().map(Packet::new).collect(),
-            status_send_in_flight: false,
-            events,
-        });
+        self.pending_blob_cache_events = events;
+        self.cache_status
+            .lock()
+            .expect("cache status lock")
+            .push(status);
         Ok(())
     }
 }
@@ -63,7 +63,7 @@ impl PlaySession {
 /// Polls the same disk future before each bounded raw-reader step. The step returns true
 /// after one item when reading may continue, or false to stop intake at a bound or terminal.
 /// After stopping, only the original future is polled; no request or deadline is restarted.
-async fn prefetch_while_reading(
+pub(super) async fn prefetch_while_reading(
     prefetch: impl Future<Output = ()>,
     mut read_one: impl FnMut(&mut Context<'_>) -> Poll<bool>,
 ) {
@@ -157,7 +157,7 @@ mod tests {
             assert!(recv.as_mut().poll(&mut context).is_pending());
         }
         assert!(session.pending_blob_prefetch.is_some());
-        assert!(session.pending_blob_cache_delivery.is_none());
+        assert!(session.pending_blob_cache_events.is_empty());
         assert_eq!(disk.starts.load(Ordering::Relaxed), 1);
         assert_eq!(session.blob_cache_stats().hashes_classified, 0);
         disk.ready.store(true, Ordering::Release);
@@ -168,12 +168,12 @@ mod tests {
             "only cancellation starts another attempt"
         );
         assert!(session.pending_blob_prefetch.is_none());
-        let delivery = session.pending_blob_cache_delivery.as_ref().unwrap();
-        assert_eq!(delivery.status_packets.len(), 1);
-        let packets::Packet::ClientCacheBlobStatus(status) = &*delivery.status_packets[0].data
-        else {
-            panic!("status")
-        };
+        let status = session
+            .cache_status
+            .lock()
+            .unwrap()
+            .select(simulation_clock::Moment::default())
+            .expect("queued classification");
         assert_eq!(status.found_ids, [wire::U64LE(hash)]);
         assert!(status.missing_ids.is_empty());
         let resolver = session.blob_cache.as_mut().unwrap();
@@ -229,13 +229,14 @@ mod tests {
         );
         assert!(session.blob_cache_stats().pending_bytes <= crate::MAX_CLIENT_BLOB_PENDING_BYTES);
         assert_eq!(session.blob_cache_stats().pending_transactions, 1);
-        let delivery = session.pending_blob_cache_delivery.as_ref().unwrap();
-        let packets::Packet::ClientCacheBlobStatus(status) = &*delivery.status_packets[0].data
-        else {
-            panic!("status")
-        };
+        let status = session
+            .cache_status
+            .lock()
+            .unwrap()
+            .select(simulation_clock::Moment::default())
+            .expect("queued classification");
         assert_eq!(status.missing_ids, [wire::U64LE(2)]);
         assert!(status.found_ids.is_empty());
-        assert!(!delivery.events.is_empty());
+        assert!(!session.pending_blob_cache_events.is_empty());
     }
 }

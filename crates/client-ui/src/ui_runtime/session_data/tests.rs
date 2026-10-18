@@ -152,7 +152,7 @@ fn catalog() -> RecipeCatalog {
     catalog
 }
 
-fn name(identifier: &str) -> String {
+fn name(identifier: &str, _aux: u16) -> String {
     format!("Name of {identifier}")
 }
 
@@ -486,7 +486,7 @@ fn cache_pins_source_identities_until_the_next_publication() {
             catalog: None,
             language: [0; 3],
         },
-        &str::to_owned,
+        &|identifier, _| identifier.to_owned(),
     );
     assert!(!data.items.is_empty());
     drop(registry);
@@ -510,7 +510,7 @@ fn cache_pins_source_identities_until_the_next_publication() {
             catalog: None,
             language: [0; 3],
         },
-        &str::to_owned,
+        &|identifier, _| identifier.to_owned(),
     );
     assert!(empty.items.is_empty());
     assert!(empty.item_revision > data.item_revision);
@@ -540,4 +540,60 @@ fn session_adapter_pins_the_language_identity_used_for_item_names() {
     );
     session_data(&mut cache, &player, &runtime);
     assert!(old.upgrade().is_none());
+}
+
+#[test]
+fn brewing_recipes_list_the_potion_then_the_reagent() {
+    let update = CraftingDataFixture {
+        potions: vec![[4, 0, 3, 0, 4, 14]],
+        containers: vec![[4, 7, 5]],
+        clear_recipes: true,
+        ..CraftingDataFixture::default()
+    }
+    .update();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let data = build(&creative(), &catalog);
+    let [potion, container] = &data.recipes[..] else {
+        panic!("{:?}", data.recipes);
+    };
+    assert_eq!(potion.category, RecipeCategory::Brewing);
+    assert_eq!(
+        potion.ingredients,
+        [
+            Some(Ingredient {
+                kind: IngredientKind::Item(key("minecraft:wool", 0)),
+                count: 1
+            }),
+            Some(Ingredient {
+                kind: IngredientKind::Item(key("minecraft:ender_pearl", 0)),
+                count: 1
+            }),
+        ]
+    );
+    assert_eq!(potion.outputs[0].key, key("minecraft:wool", 14));
+    assert_eq!(
+        container.ingredients[0],
+        Some(Ingredient {
+            kind: IngredientKind::AnyAux("minecraft:wool".into()),
+            count: 1
+        })
+    );
+    assert_eq!(container.outputs[0].key, key("minecraft:bed", 0));
+}
+
+#[test]
+fn items_are_named_with_their_aux() {
+    let registry = registry();
+    let mut cache = SessionDataCache::default();
+    let inputs = SessionInputs {
+        creative: Some(&creative()),
+        registry: Some(&registry),
+        catalog: None,
+        language: [0; 3],
+    };
+    let data = cache.update(inputs, &|identifier, aux| format!("{identifier}#{aux}"));
+    assert_eq!(data.items[0].name, "minecraft:wool#14");
+    assert_eq!(data.items[1].name, "minecraft:wool#0");
 }

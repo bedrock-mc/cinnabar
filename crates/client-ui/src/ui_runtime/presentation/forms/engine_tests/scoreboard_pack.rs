@@ -219,10 +219,14 @@ fn submit(presentation: &UiPresentationRuntime, runtime: &mut UiRuntime) {
     }
     let mut sent = Vec::new();
     assert!(
-        flush_form_response(runtime, |packet| {
-            sent.push(packet);
-            Ok(())
-        })
+        flush_form_response(
+            runtime,
+            |_| false,
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            }
+        )
         .unwrap()
     );
     assert_eq!(

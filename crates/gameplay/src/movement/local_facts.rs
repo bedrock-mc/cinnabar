@@ -1,6 +1,6 @@
 //! Local ability, hunger and equipment facts that gate movement modes.
 
-use client_world::game_mode_capabilities::{ability_bit, resolved_layer};
+use client_world::game_mode_capabilities::{FlightAuthority, ability_bit, resolved_layer};
 use protocol::AbilitiesUpdate;
 use protocol_ids::Enchantment;
 
@@ -11,6 +11,8 @@ use player_state::PlayerState;
 pub struct LocalMovementFacts {
     /// The committed mode forces flight and skips terrain contact.
     pub spectator: bool,
+    /// Collision bypass does not select a travel mode or grant other permissions.
+    pub no_clip: bool,
     pub immobile: bool,
     pub input_locks: protocol::ClientInputLocks,
     pub vertical_physics: sim::VerticalPhysics,
@@ -19,7 +21,7 @@ pub struct LocalMovementFacts {
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
-    pub server_flying: bool,
+    pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
     pub fly_speed: Option<f64>,
     pub vertical_fly_speed: Option<f64>,
@@ -70,6 +72,7 @@ pub fn read(
     let capabilities = player.facts.game_mode_capabilities();
     let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
     let spectator = player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator);
+    let no_clip = capabilities.is_some_and(|caps| !caps.has_collision);
     let hunger_exempt = can_fly || spectator;
     let hunger_below_floor = player.facts.hunger().map(|hunger| {
         u32::from(hunger.current()) <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
@@ -83,6 +86,7 @@ pub fn read(
     });
     LocalMovementFacts {
         spectator,
+        no_clip,
         immobile: player.facts.is_immobile(),
         input_locks: player.facts.input_locks(),
         vertical_physics: sim::VerticalPhysics {
@@ -100,7 +104,7 @@ pub fn read(
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
         can_fly,
-        server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
+        flight: capabilities.map(|caps| caps.flight).unwrap_or_default(),
         ability_sequence: player.facts.local_abilities_sequence(),
         fly_speed: player.facts.local_abilities().and_then(|update| {
             flight_speed(update, ability_bit::FLY_SPEED, |layer| layer.fly_speed_bits)

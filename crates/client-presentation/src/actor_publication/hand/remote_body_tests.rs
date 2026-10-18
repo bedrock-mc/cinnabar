@@ -558,7 +558,8 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     spawn_remotes(&mut stream);
     let items = [
         render_model::hats::fixture::bunny(),
-        render_model::hats::fixture::rigid(),
+        render_model::hats::fixture::dragon_wings(),
+        render_model::hats::fixture::shoulder_parrot(),
     ];
     let selections: Vec<_> = items
         .into_iter()
@@ -574,12 +575,8 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     let before = batch.submissions.len();
     let mut state = super::super::hats::HatState::default();
     state.advance(&[], 0.0, 0.0);
-    state.attach(
-        &mut batch,
-        Some(&stream),
-        &selections,
-        &mut render_scene::ActorRenderScene::default(),
-    );
+    let mut scene = render_scene::ActorRenderScene::default();
+    state.attach(&mut batch, Some(&stream), &selections, &mut scene);
     assert_eq!(batch.submissions.len(), before + items.len());
     let layers: std::collections::HashSet<_> = batch.submissions[before..]
         .iter()
@@ -593,4 +590,128 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
                 .any(|draw| draw.input.rig == render_model::hats::rig(item).geometry.id)
         );
     }
+    let initial: std::collections::HashMap<_, _> = batch.submissions[before..]
+        .iter()
+        .map(|draw| (draw.input.rig, draw.input.current_bones.clone()))
+        .collect();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut next =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let bodies = next.submissions.len();
+    state.advance(&[], 0.0, 0.7);
+    state.attach(&mut next, Some(&stream), &selections, &mut scene);
+    for item in items {
+        let model = render_model::hats::rig(item);
+        let draw = next.submissions[bodies..]
+            .iter()
+            .find(|draw| draw.input.rig == model.geometry.id)
+            .unwrap();
+        if ["back", "pet"].contains(&item.descriptor().slot.as_str()) {
+            assert_ne!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "a stationary remote player's cosmetic animations keep advancing"
+            );
+        } else {
+            assert_eq!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "animated cosmetics cannot move rigid headwear"
+            );
+        }
+    }
+}
+
+#[test]
+fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let glowing = render_model::hats::fixture::glowing_crown();
+    let plain = render_model::hats::fixture::crown();
+    let spawn_revision = stream.authority().actor(2).unwrap().spawn_revision;
+    let selections: Vec<_> = [glowing, plain]
+        .map(|hat| super::super::RemoteHat {
+            runtime_id: 2,
+            spawn_revision,
+            hat,
+        })
+        .into();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut batch =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let before = batch.submissions.len();
+    let mut state = super::super::hats::HatState::default();
+    state.advance(&[], 0.0, 0.0);
+    let mut scene = render_scene::ActorRenderScene::default();
+    state.attach(&mut batch, Some(&stream), &selections, &mut scene);
+    let body = batch
+        .submissions
+        .iter()
+        .find(|body| body.input.identity.runtime_id == 2)
+        .unwrap()
+        .clone();
+    let rig = render_model::hats::rig(glowing);
+    let lit_index = before
+        + batch.submissions[before..]
+            .iter()
+            .position(|draw| draw.input.rig == rig.geometry.id)
+            .unwrap();
+    let lit = batch.submissions[lit_index].clone();
+    let material = lit.material.state.unwrap();
+    assert!(material.emissive && material.alpha_test && material.depth_write);
+    assert!(!material.blend);
+    assert_eq!(lit.material.kind, body.material.kind);
+    assert!(lit.material.allows_overlay(), "hurt tint still applies");
+    assert_eq!(
+        batch.skin_layers[lit.texture_layer as usize].pixels(),
+        rig.world_pixels().pixels()
+    );
+    let unlit = batch.submissions[before..]
+        .iter()
+        .find(|draw| draw.input.rig == render_model::hats::rig(plain).geometry.id)
+        .unwrap();
+    assert_eq!(unlit.material, body.material);
+    assert_eq!(
+        batch.skin_layers[unlit.texture_layer as usize].pixels(),
+        render_model::hats::rig(plain).pixels.pixels()
+    );
+
+    let mut placements = Vec::new();
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert_eq!(placements.len(), 1);
+    let placement = &placements[0];
+    assert_eq!(
+        placement.key,
+        super::super::CosmeticEmitterKey {
+            runtime_id: 2,
+            spawn_revision,
+            item: glowing,
+            emitter: 0,
+        }
+    );
+    assert_eq!(placement.identifier, rig.emitters()[0].identifier);
+    let expected = rig
+        .emitter_transform(
+            0,
+            &lit.input.previous_bones,
+            &lit.input.current_bones,
+            lit.world_from_actor,
+            0.25,
+        )
+        .unwrap();
+    assert_eq!(placement.transform, expected);
+    let head = lit.input.current_bones[0].translation_scale;
+    let pivot = lit
+        .world_from_actor
+        .map(|row| row[0] * head[0] + row[1] * head[1] + row[2] * head[2] + row[3]);
+    assert!(
+        placement.transform.position[1] > pivot[1] + 0.5,
+        "the emitter rises above the posed head pivot"
+    );
+
+    batch.submissions[lit_index].route = render_model::ActorRigRoute::NoDraw;
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert!(placements.is_empty(), "hidden cosmetics stop emitting");
+    state.attach(&mut batch, None, &selections, &mut scene);
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert!(placements.is_empty(), "leaving the world clears placements");
 }

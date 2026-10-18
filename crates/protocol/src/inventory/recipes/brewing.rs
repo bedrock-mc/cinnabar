@@ -2,7 +2,7 @@
 
 /// One raw item ID and auxiliary value from a potion mix, before registry admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BrewingItem {
+pub struct BrewingMixItem {
     pub network_id: i32,
     pub aux: i32,
 }
@@ -11,15 +11,44 @@ pub struct BrewingItem {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrewingMix {
     Potion {
-        input: BrewingItem,
-        reagent: BrewingItem,
-        output: BrewingItem,
+        input: BrewingMixItem,
+        reagent: BrewingMixItem,
+        output: BrewingMixItem,
     },
     Container {
         input: i32,
         reagent: i32,
         output: i32,
     },
+}
+
+impl BrewingMix {
+    /// Projects the retained wire family into the screen recipe's exact or wildcard inputs.
+    pub(super) fn screen_recipe(self) -> super::screen::BrewingRecipe {
+        let [input, reagent, output] = match self {
+            Self::Potion {
+                input,
+                reagent,
+                output,
+            } => [input, reagent, output].map(|item| super::screen::BrewingItem {
+                network_id: item.network_id,
+                aux: Some(item.aux),
+            }),
+            Self::Container {
+                input,
+                reagent,
+                output,
+            } => [input, reagent, output].map(|network_id| super::screen::BrewingItem {
+                network_id,
+                aux: None,
+            }),
+        };
+        super::screen::BrewingRecipe {
+            input,
+            reagent,
+            output,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -63,15 +92,15 @@ mod tests {
             update.brewing_mixes().unwrap(),
             [
                 BrewingMix::Potion {
-                    input: BrewingItem {
+                    input: BrewingMixItem {
                         network_id: -2,
                         aux: 32_768
                     },
-                    reagent: BrewingItem {
+                    reagent: BrewingMixItem {
                         network_id: 3,
                         aux: -1
                     },
-                    output: BrewingItem {
+                    output: BrewingMixItem {
                         network_id: 4,
                         aux: 65_537
                     },
@@ -100,7 +129,8 @@ mod tests {
         }
         .encode_to_vec()
         .unwrap();
-        let bytes = count * size_of::<BrewingMix>();
+        let bytes =
+            count * (size_of::<BrewingMix>() + size_of::<super::super::screen::BrewingRecipe>());
         let limited = Credits::isolated(overhead + bytes - 1);
         assert!(
             decode_with_credits(&body, &limited)

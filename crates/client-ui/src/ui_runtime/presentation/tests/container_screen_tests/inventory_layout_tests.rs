@@ -44,7 +44,7 @@ fn inventory_only_layout_survives_respawn_in_the_rendered_screen() {
             )
             .unwrap();
     }
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert!(runtime.inventory_open());
     for now in [0, 500] {
         presentation

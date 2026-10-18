@@ -253,7 +253,7 @@ mod tests {
         let mut inventory = identified_runtime(&mut player_runtime);
         inventory
             .publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
-        inventory.toggle_inventory(&mut player_runtime);
+        inventory.toggle_inventory(&mut player_runtime, None);
         assert!(inventory.inventory_open());
         assert_eq!(wheel_with_ui(&mut player_runtime, inventory, hidden()), 0);
         let form = client_ui::test_support::pack_harness::action_form(
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_slot_retains_pending_selection_without_sending() {
+    fn unknown_hotbar_cell_announces_empty_equipment_and_releases_hand_actions() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         identified_runtime(&mut player_runtime);
@@ -383,8 +383,12 @@ mod tests {
             Ok::<(), PacketSendError>(())
         });
 
-        assert_eq!(sends, 0);
-        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(2));
+        assert_eq!(sends, 1);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
+        let hand = client_interaction::mining::hand_interaction_selection(&player_runtime)
+            .expect("the admitted selection releases bare-hand actions");
+        assert_eq!(hand.slot, 2);
+        assert_eq!(hand.item.network_id(), 0);
         assert_eq!(fatal, None);
     }
 

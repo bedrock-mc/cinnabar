@@ -189,3 +189,50 @@ fn unavailable_and_rejected_ability_evidence_does_not_invent_instabuild() {
     facts.apply_local_abilities(7, 4, 3, update(17, 0));
     assert_eq!(facts.instabuild(), Some(false));
 }
+
+/// Admitted ability evidence keeps collision and flight permissions independent.
+#[test]
+fn ability_axes_local_facts_keep_permissions_independent() {
+    use crate::game_mode_capabilities::{FlightAuthority, ability_bit as b};
+    use protocol::PlayerGameMode::{Spectator, Survival};
+    for (values, expected_flight, collision) in [
+        (b::FLYING, FlightAuthority::Mutable(true), true),
+        (b::NO_CLIP, FlightAuthority::Mutable(false), false),
+        (
+            b::FLYING | b::NO_CLIP,
+            FlightAuthority::Mutable(true),
+            false,
+        ),
+    ] {
+        let mut runtime = LocalPlayerFacts::new(7);
+        runtime.publish_bootstrap_game_modes(Survival, Survival, false);
+        runtime.bind_local_abilities(7, 4, 17, true);
+        runtime.apply_local_abilities(
+            7,
+            4,
+            1,
+            AbilitiesUpdate {
+                layers: AbilityLayersEvidence::Received(
+                    [AbilityLayerEvidence {
+                        layer_type: 1,
+                        abilities: b::FLYING | b::NO_CLIP,
+                        values,
+                        fly_speed_bits: 0,
+                        vertical_fly_speed_bits: 0,
+                        walk_speed_bits: 0,
+                    }]
+                    .into(),
+                ),
+                ..update(17, 0)
+            },
+        );
+        let caps = runtime.game_mode_capabilities().unwrap();
+        assert_eq!(caps.flight, expected_flight);
+        assert_eq!(caps.has_collision, collision);
+    }
+    let mut spectator = LocalPlayerFacts::new(7);
+    spectator.publish_bootstrap_game_modes(Spectator, Spectator, false);
+    let caps = spectator.game_mode_capabilities().unwrap();
+    assert_eq!(caps.flight, FlightAuthority::Fixed(true));
+    assert!(!caps.has_collision);
+}

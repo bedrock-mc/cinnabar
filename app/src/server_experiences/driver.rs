@@ -34,6 +34,11 @@ pub(super) struct ExperienceService {
     live: Option<super::live::Live>,
     /// The session's items that client parts granted `items` read.
     items: client_ui::ui_runtime::session_data::SessionDataCache,
+    /// This frame's keys pressed over a slot of the focused modal's inventory rows.
+    hotbar: Option<(
+        ui_screens::container_actions::InventoryCellHit,
+        Vec<KeyCode>,
+    )>,
 }
 
 /// Registers a silent controller; disk and network work wait for a valid marker.
@@ -50,12 +55,14 @@ pub(crate) fn configure(app: &mut App) {
         download: None,
         live: None,
         items: Default::default(),
+        hotbar: None,
     })
     .add_systems(
         Update,
         (
             share_items,
             drive.before(client_state::ExperienceInputSet),
+            modal_hotbar.before(client_state::ExperienceInputSet),
             present_media.after(client_state::ExperienceInputSet),
         )
             .chain()
@@ -82,6 +89,39 @@ fn share_items(
     if live.reads_items() {
         let session = client_ui::ui_runtime::session_data::session_data(items, &player, &runtime);
         live.set_session(session);
+    }
+}
+
+/// A hotbar key pressed over a slot of the focused modal's inventory rows swaps that slot with
+/// the hotbar slot, as in a container screen; over anything else it does nothing.
+fn modal_hotbar(
+    mut service: ResMut<ExperienceService>,
+    menu: Option<Res<MenuRuntime>>,
+    mut player: ResMut<client_state::PlayerRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
+) {
+    let Some((hit, keys)) = service.hotbar.take() else {
+        return;
+    };
+    for key in keys {
+        let Some(code) = client_shell::physical_input::keyboard_usage(key) else {
+            continue;
+        };
+        let control = semantic_input::PhysicalControl::KeyboardUsage(code);
+        for slot in client_shell::menu::settings_options::control_bindings::hotbar_control_slots(
+            menu.as_deref(),
+            control,
+        ) {
+            let result = client_ui::ui_runtime::interaction::dispatch_modal_hotbar(
+                &mut player,
+                &mut runtime,
+                hit,
+                slot,
+            );
+            if let Some(Err(error)) = result {
+                bevy::log::debug!(?error, ?hit, slot, "modal hotbar swap refused");
+            }
+        }
     }
 }
 
@@ -214,7 +254,11 @@ fn drive(
             }
         }
     }
+    service.hotbar = None;
     if modal_focus {
+        service.hotbar = cursor
+            .and_then(|point| presentation.experience_modal_inventory_hit(point))
+            .map(|hit| (hit, keys.get_just_pressed().copied().collect()));
         let notches = wheel_events
             .iter()
             .map(|(y, unit)| match unit {

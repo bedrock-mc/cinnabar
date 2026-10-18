@@ -10,10 +10,7 @@ use server_experience::{
     session_data::SessionData,
 };
 use std::{collections::BTreeSet, sync::Arc};
-use wasmtime::{
-    Engine, Store, StoreLimits, StoreLimitsBuilder,
-    component::{Component, HasSelf, Linker},
-};
+use wasmtime::{Store, StoreLimits, StoreLimitsBuilder};
 
 // `player-mod` includes `extension`, so one linker serves both worlds' components.
 wasmtime::component::bindgen!({
@@ -34,13 +31,21 @@ mod block_highlights;
 mod camera;
 #[path = "controls.rs"]
 mod controls;
+#[path = "drawing.rs"]
+mod drawing;
+#[cfg(test)]
+mod drawing_tests;
 mod exports;
 #[path = "gameplay.rs"]
 mod gameplay;
 #[path = "hud.rs"]
 mod hud;
+mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
+mod loading;
+#[path = "masks.rs"]
+mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -94,6 +99,7 @@ struct State {
     item_use_policy: item_use::ItemUsePolicy,
     player_state: player_state::PlayerState,
     render: render::RenderState,
+    drawing_policy: Option<mod_api::drawing::DrawingSession>,
     declared: Declared,
     layout: Option<HostLayout>,
     session: Arc<SessionData>,
@@ -104,6 +110,8 @@ struct State {
     calls: usize,
     output: usize,
     block_highlights: block_highlights::HighlightState,
+    inventory: inventory::InventoryRequests,
+    events: player_mod::EventContext,
 }
 
 impl State {
@@ -160,6 +168,7 @@ impl State {
             item_use_policy: item_use::ItemUsePolicy::default(),
             player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
+            drawing_policy: None,
             declared,
             layout: None,
             session: Arc::default(),
@@ -168,6 +177,8 @@ impl State {
             calls: 0,
             output: 0,
             block_highlights: block_highlights::HighlightState::default(),
+            inventory: Default::default(),
+            events: Default::default(),
         }
     }
 }
@@ -285,95 +296,6 @@ pub(super) struct Instance {
 }
 
 impl Instance {
-    /// Compiles a component and checks its imports and callbacks without running guest code.
-    pub(super) fn check(engine: &Engine, bytes: &[u8]) -> Result<()> {
-        let component = Component::new(engine, bytes)?;
-        let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        exports::Exports::check(&linker.instantiate_pre(&component)?)
-    }
-
-    /// Initializes a candidate store without changing the published instance. An `extension`
-    /// component's instantiation and `init` share `FRAME_FUEL`; a `player-mod` component's
-    /// `init`, which may read the whole session, gets `LOAD_FUEL`.
-    pub(super) fn new(
-        engine: &Engine,
-        bytes: &[u8],
-        grants: ModGrants,
-        settings: String,
-        declared: Declared,
-        panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
-    ) -> Result<Self> {
-        let component = Component::new(engine, bytes)?;
-        let mut linker = Linker::new(engine);
-        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let mut state = State::new(grants, settings, declared);
-        if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
-            state.controls.panel = Some(bundle.panel.clone());
-            state.controls.bundle = Some(bundle);
-        }
-        let pre = linker.instantiate_pre(&component)?;
-        exports::Exports::check(&pre)?;
-        let mut store = Store::new(engine, state);
-        store.limiter(|state| &mut state.limits);
-        let initial = FRAME_FUEL;
-        crate::execution::arm(&mut store, initial, true)?;
-        let instance = pre.instantiate(&mut store)?;
-        let (init, exports) = exports::Exports::find(&mut store, &instance)?;
-        let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
-        let mut armed = initial;
-        if exports.loads_session() {
-            armed = LOAD_FUEL;
-            crate::execution::arm(&mut store, armed, true)?;
-        }
-        init.call(&mut store, ())?;
-        init.post_return(&mut store)?;
-        commit(&mut store);
-        let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
-            + if exports.loads_session() {
-                instantiated
-            } else {
-                0
-            };
-        Ok(Self {
-            store,
-            exports,
-            status: InstanceStatus::Running,
-            last_fuel,
-            callback_budget: None,
-        })
-    }
-
-    /// Initializes a replacement through the bounded loading lane with its full guest limits.
-    pub(super) fn replacement(
-        &self,
-        engine: &Engine,
-        bytes: &[u8],
-        grants: ModGrants,
-        settings: String,
-        declared: Declared,
-        panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
-    ) -> Result<Self> {
-        let budget = self.callback_budget.clone();
-        if let Some(budget) = &budget {
-            anyhow::ensure!(
-                budget.reserve(LOAD_FUEL).is_some(),
-                "loading callback deferred"
-            );
-        }
-        let mut candidate = Self::new(engine, bytes, grants, settings, declared, panel_bundle)?;
-        candidate.callback_budget = budget;
-        candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
-        Ok(candidate)
-    }
-
-    /// Defers an on-frame hot reload when earlier callbacks have consumed the allowance.
-    pub(super) fn can_reload(&self) -> bool {
-        self.callback_budget
-            .as_ref()
-            .is_none_or(|budget| budget.can_load())
-    }
-
     /// Validates presentation observations before they enter the callback sandbox.
     pub(super) fn observe_presentation(
         &mut self,
@@ -563,6 +485,8 @@ impl Instance {
         state.calls = 0;
         state.output = 0;
         state.pending_screens = None;
+        state.inventory.begin();
+        state.render.begin_callback();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -680,6 +604,7 @@ impl Instance {
         state.pending_show_real_position = None;
         state.pending_screens = None;
         state.screens = ModScreens::default();
+        state.inventory.revoke();
     }
 
     pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
@@ -919,11 +844,12 @@ fn commit(store: &mut Store<State>) {
     commit_event(store);
 }
 
-/// Publishes what an event callback may retain: the label, visual time, panel, settings and
-/// screens. Render, camera and command output belongs to `frame` alone, so an event never
-/// replaces the frame's drawn set; what an event stages there is dropped by the next frame.
+/// Publishes retained drawing, label, visual time, panel, settings and screen changes.
+/// Immediate primitives, post effects, camera and command output belong to `frame` alone;
+/// an event's staged changes to those outputs are dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
+    state.render.commit_retained();
     state.hud.commit();
     if let Some(claims) = &state.exclusive.hud {
         claims.release(state.exclusive.owner);
@@ -934,6 +860,7 @@ fn commit_event(store: &mut Store<State>) {
         }
     }
     state.controls.commit();
+    state.inventory.commit();
     if let Some(enabled) = state.pending_fullbright.take() {
         state.fullbright = enabled;
     }

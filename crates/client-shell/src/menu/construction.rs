@@ -177,6 +177,7 @@ impl MenuRuntime {
             sign_in_fixture,
             presentation_accounts: false,
             sign_out_requested: false,
+            external: None,
             accounts: Default::default(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,

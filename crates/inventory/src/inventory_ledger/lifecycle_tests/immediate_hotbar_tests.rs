@@ -61,6 +61,29 @@ fn cancelling_an_unsent_open_rolls_back_first_frame_hotbar_swaps() {
     assert!(ledger.pending_batch().unwrap().is_none());
 }
 
+/// A client part's modal shows the player's cells with no window open: its hotbar keys send the
+/// swap as the in-world drop sends its request, while a container screen's still need the window.
+#[test]
+fn windowless_hotbar_swaps_send_without_an_open_inventory() {
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    assert_eq!(
+        ledger.begin_hotbar_swap(InventoryTarget::Player(0), 1),
+        Err(InventoryGestureError::PersonalInventoryUnavailable)
+    );
+    assert_eq!(
+        ledger.begin_windowless_hotbar_swap(InventoryTarget::Armor(0), 1),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    let id = ledger
+        .begin_windowless_hotbar_swap(InventoryTarget::Player(0), 1)
+        .unwrap();
+    assert_eq!(ledger.pending_request_id(), Some(id));
+    assert!(ledger.displayed_stack(0).is_none());
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 32);
+    assert!(ledger.pending_batch().unwrap().is_some());
+}
+
 #[test]
 fn a_server_window_supersedes_unsent_personal_hotbar_swaps() {
     let mut ledger = ledger_with_slot_zero();

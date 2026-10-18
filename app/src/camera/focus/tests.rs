@@ -262,6 +262,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     assert_released(&app, window);
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |_| Ok(()),
     )
     .unwrap();
@@ -665,7 +666,7 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
             runtime
                 .publish_local_runtime_id(&mut player, 1, 42)
                 .unwrap();
-            runtime.toggle_inventory(&mut player);
+            runtime.toggle_inventory(&mut player, None);
         });
     assert!(app.world().resource::<UiRuntimeResource>().inventory_open());
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;

@@ -3,9 +3,136 @@ use std::{collections::HashMap, sync::Arc};
 use super::super::review_tests::paint;
 use crate::test_support::{add_capes, dressing_room_view as view};
 use launcher::dressing_room::{
-    DressingRoomSection, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode, SkinEditorTarget,
+    CosmeticCategory, DressingRoomSection, STARTER_SKIN_NAMES, SkinEditor, SkinEditorMode,
+    SkinEditorTarget,
 };
 use {super::*, launcher::menu::MenuAction};
+
+#[test]
+fn cosmetic_categories_filter_tiles_and_keep_original_thumbnail_indices() {
+    let head = render_model::hats::fixture::bunny();
+    let back = render_model::hats::fixture::dragon_wings();
+    let pet = render_model::hats::fixture::shoulder_parrot();
+    for category in CosmeticCategory::ALL {
+        let mut view = view(STARTER_SKIN_NAMES.len());
+        let wardrobe = Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = DressingRoomSection::Cosmetics;
+        wardrobe.cosmetic_category = category;
+        let mut visible = Vec::new();
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            visible = draw(canvas, &view, [1280.0, 10_000.0])
+                .unwrap()
+                .visible_cosmetics;
+        });
+        for (item, included) in [
+            (
+                head,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Head),
+            ),
+            (
+                back,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Back),
+            ),
+            (
+                pet,
+                matches!(category, CosmeticCategory::All | CosmeticCategory::Pet),
+            ),
+        ] {
+            assert_eq!(
+                hits.iter()
+                    .any(|(action, _)| { *action == command(Action::SelectCosmetic(Some(item))) }),
+                included,
+                "{category:?} gallery: {}",
+                item.name(),
+            );
+        }
+        assert!(!hits.iter().any(|(action, _)| matches!(
+            action,
+            MenuAction::DressingRoom(Action::SetCosmeticCategory(_))
+        )));
+        if category == CosmeticCategory::Back {
+            let items = cosmetics::Item::all();
+            assert_eq!(
+                visible
+                    .iter()
+                    .map(|index| items[*index])
+                    .collect::<Vec<_>>(),
+                vec![back],
+                "filtered thumbnails retain their source catalog indices",
+            );
+        }
+    }
+}
+
+#[test]
+fn cosmetic_filter_menu_owns_input_and_fits_the_viewport() {
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    let wardrobe = Arc::make_mut(&mut view.dressing_room);
+    wardrobe.section = DressingRoomSection::Cosmetics;
+    wardrobe.cosmetic_filter_open = true;
+    for size in [[1280.0, 720.0], [320.0, 720.0], [640.0, 240.0]] {
+        let (scrolls, hits, _) = paint(HashMap::new(), |canvas| {
+            let preview = draw(canvas, &view, size).unwrap();
+            draw_overlay(canvas, &view, size, preview.filter_anchor).unwrap();
+        });
+        assert!(scrolls.is_empty(), "the open menu owns wheel input");
+        assert!(hits.iter().all(|(action, _)| matches!(
+            action,
+            MenuAction::DressingRoom(Action::ToggleCosmeticFilter | Action::SetCosmeticCategory(_))
+        )));
+        for category in CosmeticCategory::ALL {
+            let bounds = hits
+                .iter()
+                .find_map(|(action, bounds)| {
+                    (*action == command(Action::SetCosmeticCategory(category))).then_some(bounds)
+                })
+                .expect("every category remains selectable, including the current one");
+            assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
+            assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
+        }
+    }
+}
+
+#[test]
+fn busy_cosmetics_block_category_changes() {
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    let wardrobe = Arc::make_mut(&mut view.dressing_room);
+    wardrobe.section = DressingRoomSection::Cosmetics;
+    wardrobe.busy = true;
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [1280.0, 720.0]).unwrap();
+    });
+    assert!(!hits.iter().any(|(action, _)| matches!(
+        action,
+        MenuAction::DressingRoom(Action::SetCosmeticCategory(_) | Action::ToggleCosmeticFilter)
+    )));
+}
+
+#[test]
+fn switching_cosmetic_categories_keeps_the_filtered_collection_visible() {
+    render_model::hats::fixture::gallery();
+    let back = render_model::hats::fixture::dragon_wings();
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    Arc::make_mut(&mut view.dressing_room).section = DressingRoomSection::Cosmetics;
+    for size in [[1280.0, 720.0], [480.0, 1280.0]] {
+        Arc::make_mut(&mut view.dressing_room).cosmetic_category = CosmeticCategory::All;
+        let (scrolls, _, _) = paint(HashMap::new(), |canvas| {
+            draw(canvas, &view, size).unwrap();
+        });
+        let scroll = scrolls.iter().find(|scroll| scroll.max > 0.0).unwrap();
+        Arc::make_mut(&mut view.dressing_room).cosmetic_category = CosmeticCategory::Back;
+        let (_, hits, _) = paint(
+            HashMap::from([(scroll.key.clone(), scroll.max)]),
+            |canvas| {
+                draw(canvas, &view, size).unwrap();
+            },
+        );
+        assert!(
+            hits.iter()
+                .any(|(action, _)| { *action == command(Action::SelectCosmetic(Some(back))) })
+        );
+    }
+}
 
 #[test]
 fn cosmetic_viewport_reports_only_intersecting_gallery_tiles() {
@@ -521,7 +648,7 @@ fn editor_errors_remain_visible_inside_the_modal_without_covering_controls() {
                         .text_request(message, 100_000, super::super::theme::CAPTION)
                         .unwrap();
                     error_key = Some(canvas.layouts.layout(request).unwrap().key().content_sha256);
-                    draw_editor(canvas, &view, size).unwrap();
+                    draw_overlay(canvas, &view, size, None).unwrap();
                 });
                 let surfaces = super::super::test_support::solids(&nodes);
                 let texts = text_bounds(nodes, size);

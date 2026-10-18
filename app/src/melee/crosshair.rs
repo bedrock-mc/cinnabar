@@ -102,6 +102,7 @@ impl FrameInputs {
 #[derive(Clone, Copy)]
 pub(super) struct ResolvedTarget {
     pub(super) crosshair: Crosshair,
+    pub(super) hover: Option<gameplay::entity_hover::HoveredActor>,
     pub(super) direction: [f32; 3],
     pub(super) action_rotation: Option<Quat>,
 }
@@ -209,12 +210,18 @@ pub(super) fn resolve_crosshair(
                 }
             }
         });
+    let block_distance = observed.map(|block| block.hit_distance());
+    let hover = match classify(actor, block_distance, actor_reach) {
+        Crosshair::Actor(hit) => Some(gameplay::entity_hover::HoveredActor {
+            unique_id: world.actor(hit.runtime_id)?.unique_id,
+            runtime_id: hit.runtime_id,
+            point: hit.point,
+        }),
+        _ => None,
+    };
     Some(ResolvedTarget {
-        crosshair: classify(
-            actor,
-            observed.map(|block| block.hit_distance()),
-            attack_reach,
-        ),
+        hover,
+        crosshair: classify(actor, block_distance, attack_reach),
         action_rotation: frame.action_rotation,
         direction: ray.direction().to_array(),
     })

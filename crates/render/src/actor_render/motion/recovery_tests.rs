@@ -104,7 +104,7 @@ fn failed_msaa_replacement_discards_incompatible_motion_view() {
             fixture.state.as_ref().unwrap().texture.sample_count(),
             old_samples
         );
-        let _failure = allocation::inject(|label, _| label == "rendered actor velocities");
+        let _failure = gpu_allocation::inject(|label, _| label == "rendered actor velocities");
         fixture.prepare(&depth(&fixture.device, new_samples), true);
         assert!(
             fixture.state.is_none(),
@@ -135,7 +135,7 @@ fn partial_motion_upload_rebuilds_bindings_on_recovery_without_another_resize() 
     let failed = Rc::new(Cell::new(false));
     {
         let observed = Rc::clone(&failed);
-        let _failure = allocation::inject(move |label, bytes| {
+        let _failure = gpu_allocation::inject(move |label, bytes| {
             let fail = label == "actor velocity upload"
                 && bytes == render_model::ACTOR_BONE_MATRIX_BYTES as u64;
             observed.set(observed.get() || fail);

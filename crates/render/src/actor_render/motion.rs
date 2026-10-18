@@ -109,7 +109,7 @@ impl MotionView {
             * u64::from(size.height)
             * 8
             * u64::from(depth.texture().sample_count());
-        let texture = allocation::checked(device, "rendered actor velocities", bytes, || {
+        let texture = gpu_allocation::checked(device, "rendered actor velocities", bytes, || {
             device.create_texture(&TextureDescriptor {
                 label: Some("rendered actor velocities"),
                 size: depth.texture().size(),
@@ -121,7 +121,7 @@ impl MotionView {
                 view_formats: &[],
             })
         })?;
-        let view = allocation::checked(device, "actor velocity view", 0, || {
+        let view = gpu_allocation::checked(device, "actor velocity view", 0, || {
             texture.create_view(&Default::default())
         })?;
         Some(Self {
@@ -211,7 +211,7 @@ pub(crate) fn prepare(
         return;
     };
     if instances_changed || bones_changed || state.binding.is_none() {
-        state.binding = allocation::checked(device, "actor velocity bindings", 0, || {
+        state.binding = gpu_allocation::checked(device, "actor velocity bindings", 0, || {
             device.create_bind_group(
                 "previous rendered actor pose",
                 &cache.get_bind_group_layout(&layout()),

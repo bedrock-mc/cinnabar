@@ -1,6 +1,6 @@
 //! Local cancellation rolls unsent ownership back without changing response semantics.
 
-use super::queue::PendingRequest;
+use super::queue::{PendingRequest, RollbackAuthority};
 use super::{InventoryPendingState, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
@@ -13,8 +13,15 @@ impl PlayerInventoryLedger {
         while index < self.queue.len() {
             let request = &self.queue[index];
             let unsent = request.state == InventoryPendingState::AwaitingTransport;
-            if (unsent && rolling_back) || matches(request) {
-                let request = self.queue.remove(index).expect("index is in range");
+            if (unsent
+                && (rolling_back
+                    || request
+                        .predicted
+                        .iter()
+                        .any(|prediction| prediction.rollback == RollbackAuthority::Unknown)))
+                || matches(request)
+            {
+                let request = self.discard_request(index);
                 if unsent {
                     rolling_back = true;
                     cancelled.push(request);
@@ -25,20 +32,8 @@ impl PlayerInventoryLedger {
             }
             index += 1;
         }
-        if self.authority == Some(protocol::InventoryAuthority::Client) {
-            let mut owned = Vec::new();
-            for prediction in self
-                .queue
-                .iter_mut()
-                .rev()
-                .flat_map(|request| request.predicted.iter_mut().rev())
-            {
-                prediction.active = !owned.contains(&prediction.cell);
-                if prediction.active {
-                    owned.push(prediction.cell);
-                }
-            }
-        } else {
+        self.restore_local_prediction_owners();
+        if self.authority != Some(protocol::InventoryAuthority::Client) {
             self.restore_cancelled_predictions(&cancelled);
         }
         self.refold();

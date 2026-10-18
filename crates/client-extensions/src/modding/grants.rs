@@ -16,6 +16,8 @@ const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
 const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
 const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
+/// A package's vanilla inventory requests, which its manifest must also ask for.
+const INVENTORY_ENV: &str = "CINNABAR_MOD_INVENTORY";
 /// Comma-separated command names the selected component may request.
 const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
 const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
@@ -40,6 +42,7 @@ pub fn environment_grants() -> ModGrants {
         fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
         entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
+        inventory: std::env::var(INVENTORY_ENV).is_ok_and(|value| value == "1"),
         commands: std::env::var(COMMANDS_ENV)
             .map(|names| {
                 names

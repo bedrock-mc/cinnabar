@@ -32,6 +32,8 @@ pub(super) struct Allowlist {
 pub(super) struct Projection {
     pub states: usize,
     pub legacy_exact_states: usize,
+    #[serde(default)]
+    pub authored_states: usize,
     pub legacy_reduced_states: usize,
     pub twin_states: usize,
     pub twin_names: usize,

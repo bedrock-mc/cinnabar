@@ -33,6 +33,7 @@ type sessionTarget struct {
 
 // sessionHandoff is everything the client needs before play; StartGame travels in the startup packets.
 type sessionHandoff struct {
+	PackStream    uint64          `json:"pack_stream,omitempty"` // web join whose archives arrive on a separate stream
 	Identity      sessionIdentity `json:"identity"`
 	ClientCache   bool            `json:"client_cache"`         // the upstream login advertised blob-cache support
 	PacksRequired bool            `json:"packs_required"`       // the offer or the stack required the packs
@@ -49,6 +50,7 @@ type sessionIdentity struct {
 
 // sessionPack describes one selected archive; ContentKey is secret.
 type sessionPack struct {
+	SHA256     *[32]byte             `json:"sha256,omitempty"` // digest of streamed web archive bytes
 	UUID       string                `json:"uuid"`
 	Version    string                `json:"version"`
 	SubPack    string                `json:"sub_pack"`

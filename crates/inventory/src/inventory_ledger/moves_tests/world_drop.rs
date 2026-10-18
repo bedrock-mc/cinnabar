@@ -8,6 +8,7 @@ use super::*;
 
 mod history_tests;
 mod lifecycle;
+mod retirement;
 
 /// One addressed count and stack-id correction, with its requested cell unchanged.
 fn corrected_container(

@@ -1,9 +1,9 @@
 use client_state::PlayerRuntime;
 use protocol::identity::FifoSequence;
 use protocol::{
-    CONTAINER_NAME_CURSOR, ContainerIdentity, ContainerOpenEvent, EquipmentEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, NetworkItemStack,
-    WorldBootstrap, WorldEvent,
+    ContainerIdentity, ContainerOpenEvent, EquipmentEvent, InventoryAuthority,
+    InventoryContentEvent, InventoryEvent, ItemActorEvent, NetworkItemStack, WorldBootstrap,
+    WorldEvent,
 };
 use simulation_clock::identity::SessionGeneration;
 
@@ -68,14 +68,13 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
         slots: slots.into(),
         storage_item: NetworkItemStack::default(),
     }));
-    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: std::sync::Arc::from([stack(33, 33)]),
-        storage_item: NetworkItemStack::default(),
+        stack: stack(33, 33),
+        storage_item: None,
     }));
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(0));

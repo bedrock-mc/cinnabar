@@ -118,7 +118,7 @@ impl GameplayContext<'_> {
         let capabilities = player.facts.game_mode_capabilities();
         if player.facts.is_immobile()
             || player.facts.mount_unique_id().is_some()
-            || capabilities.is_some_and(|abilities| abilities.flying)
+            || capabilities.is_some_and(|abilities| abilities.flight.is_flying())
             || !self.physics.as_ref()?.jump_pulse_eligible()
         {
             return None;
