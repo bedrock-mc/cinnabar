@@ -1,6 +1,6 @@
 # Cinnabar roadmap
 
-Current work, known limitations and acceptance gates live here. Change history is
+Implementation status and acceptance requirements live here. Change history is
 in [generated release notes and merged PRs](CHANGELOG.md). The
 [completion ledger](docs/evidence/phases-2-5-completion-ledger.md) records acceptance
 evidence; the [workspace map](docs/architecture/workspace.md) explains code ownership.
@@ -8,6 +8,7 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
 ## Maintaining this plan
 
 - Update the existing section when scope, remaining work or acceptance changes.
+  Say what exists before describing a confirmed behavior gap or missing verification.
   Keep entries short; detailed behavior belongs with its code or existing reference docs.
 - Keep provisional behavior and missing evidence explicitly incomplete. A merged PR,
   passing unit test or refactor does not by itself close a parity or performance gate.
@@ -20,13 +21,17 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
 
 ## Current priorities
 
-1. Close the remaining terrain, actor, movement and UI behavior gaps with version-matched evidence.
+1. Identify and resolve confirmed terrain, actor, movement and UI behavior gaps with version-matched evidence.
 2. Qualify frame pacing, streaming, joining and retained memory on the reference hardware.
 3. Verify complete session and input paths across supported platforms.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 
-Implementation exists across these areas, but their broader acceptance remains open.
-The checklist below carries forward unfinished scope; this documentation cleanup
+**The unchecked boxes below describe full acceptance requirements, not absent features.**
+Terrain rendering, movement, actors, chat, HUD, inventories and forms already have
+implementations. These criteria come from the earlier plan and have not had a complete
+status audit against current code. Check the implementation and later evidence before
+treating an inherited entry as new work. Missing acceptance evidence means a feature
+is not fully qualified; it does not mean the feature is unimplemented. This cleanup
 closes no gate and provides no new runtime or performance evidence.
 
 ## Phase 0 — End-to-end acceptance
@@ -46,25 +51,33 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
 
 ## Phase 2 — World rendering
 
+Implemented: [terrain meshing](crates/meshing/src/lib.rs),
+[packed biome storage](crates/world/src/biome.rs),
+[biome tint preparation](crates/meshing/src/biome.rs), and
+[cloud](crates/render/src/cloud_render.rs) and [weather](crates/render/src/weather_render.rs)
+rendering. The criteria below concern complete target coverage, native comparisons
+and resource qualification; they do not imply these systems need to be written.
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
-- [ ] `P2.5-NATIVE-BIOME` — Complete biome palettes, grass/foliage/water tinting and native
-  acceptance while preserving packed storage and the shared quad contract.
+- [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
+  against native output while preserving packed storage and the shared quad contract.
 - [ ] Confirm or replace provisional biome blending using version-matched radius and
   kernel evidence. Cover abrupt boundaries, special foliage, custom-biome fallback,
   missing neighbours, replacement, teleport/eviction, GPU output and performance.
 
-### Remaining block families and galleries
+### Block-family and gallery acceptance
 
-- [ ] Complete static/non-cube models, blend/water and flipbooks, including native
-  presentation and animation acceptance for the remaining visual classes.
-- [ ] Complete compact templates for slabs/stairs, thin attached faces, paired doors,
-  trapdoors, connected panes/fences/gates and static chest/sign models. Keep conservative
-  culling and connectivity until exact face-coverage behavior is verified separately.
+- [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
+  presentation and animation. Identify unsupported states before adding implementation.
+- [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
+  trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
+  coverage before implementing a missing case. Keep conservative culling and connectivity
+  until exact face-coverage behavior is verified separately.
 - [ ] Close paired-door presentation and interaction acceptance, including lower/upper
   state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
@@ -86,7 +99,7 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
   native views, stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
   torchflower positional variation. Earlier bounded artwork fixes do not close this scope.
-- [ ] Complete nether-wart geometry and selector acceptance independently of other crops.
+- [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
@@ -106,7 +119,7 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
 - [ ] Complete every exact-state GPU gallery page for the pinned inventory, with exact
   palette readback, two consecutive completed frames and matched native views. Derive
   page/state totals from the current inventory; support fixtures do not count as targets.
-- [ ] Complete a separately versioned block-entity inventory and renderer manifest,
+- [ ] Verify the separately versioned block-entity inventory and renderer manifest,
   including chunk NBT, live updates, required variants and explicit GPU/no-draw evidence.
 - [ ] Close every registered block-entity renderer route, gallery builder, required
   NBT variant and strict-final witness without deferrals.
@@ -114,8 +127,8 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
   families, updates, animation and item contents; implementation alone closes no gate.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
-- [ ] Complete invisible-block presentation, including conditional camera-facing marker
-  sprites and their display/input conditions; invisible terrain alone is incomplete.
+- [ ] Verify invisible-block presentation, including conditional camera-facing marker
+  sprites and their display/input conditions; invisible terrain alone does not close acceptance.
 
 ### Lighting, atmosphere and publication
 
@@ -135,8 +148,9 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
 - [ ] Close publisher membership/retention acceptance using FIFO-committed announcements
   and epoch identity. Keep raw-radius classification and confirmed player interest
   separate; no single enumerable Euclidean disk defines all server cohorts.
-- [ ] Remove sun/moon background rectangles and filter-edge artifacts using decoded
-  pinned pixels and mip-edge tests across bright/dark skies and every moon phase.
+- [ ] Recheck reported sun/moon background rectangles and filter-edge artifacts using
+  decoded pinned pixels and mip-edge tests across bright/dark skies and every moon
+  phase. Fix any reproduced defects before closing their acceptance record.
 - [ ] Close fresh release/native sun and moon comparisons, including horizon and
   filter-edge cases, before completing the visible-defect gate.
 - [ ] Close precipitation geometry, wrapping, UV, occlusion, density and smoothing
@@ -144,8 +158,9 @@ The pinned target comes from [the target manifest](assets/bedrock-target.json).
   remain unqualified where the current implementation is provisional.
 - [ ] Close volumetric cloud/layer acceptance from above, below, within and at grazing
   angles, preserving world anchoring, weather/fog fades and bounded GPU work.
-- [ ] Resolve cloud scale, thickness, silhouette, shading, motion and seam differences
-  with a fresh accepted native comparison gallery; deterministic mesher tests are insufficient.
+- [ ] Recheck cloud scale, thickness, silhouette, shading, motion and seam differences
+  with a fresh accepted native comparison gallery; resolve reproduced discrepancies.
+  Deterministic mesher tests do not establish the rendered comparison.
 - [ ] Confirm cloud texture scale, height, face shading, drift, day/weather/sunrise colour
   and distance-fade behavior for the pinned target. Historical profile approximations
   remain incomplete until calibrated against that target.
@@ -158,14 +173,21 @@ See the [rendering reference](docs/reference/rendering.md) and
 
 ## Phase 3 — Movement and the local player
 
+Implemented: [movement, collision and prediction](crates/sim/src/lib.rs),
+[semantic input](crates/input/src/lib.rs) and the
+[client interaction adapters](crates/client-interaction/src/lib.rs). Open acceptance
+is a broader claim than the presence of these features.
+
 - [ ] `P3-MOVEMENT` — Close movement, collision, prediction/correction and live-server
   acceptance for the pinned target. A server-compatible run is not full native parity.
 - [ ] `P3.4-INPUT-CAMERA` — Close semantic input, camera and device-specific behavior.
   Touch remains open even when an owner-deprioritized touch witness does not gate a
   narrower scenario verdict.
 
-Known incomplete areas include sprint/double-tap/toggle timing, forced sneak/crawl,
-mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding descent.
+Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
+sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
+descent. Reconcile each case with current code and evidence before calling it a missing
+implementation.
 Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
@@ -180,6 +202,11 @@ See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [camera behavior](docs/reference/camera.md).
 
 ## Phase 4 — Entities and equipment
+
+Implemented: [actor rigs, Molang, controllers, attachables and pose evaluation](crates/actor-animation/src/lib.rs),
+with [client presentation](crates/client-presentation/src/lib.rs) and
+[rendering](crates/render/src/lib.rs). The open gates require complete behavioral
+and rendered qualification, not initial implementation of those systems.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -204,6 +231,12 @@ See [actor animation clocks](docs/reference/actor-animation-clocks.md),
 
 ## Phase 5 — Interaction, inventory and UI
 
+Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
+[UI runtime and server forms](crates/client-ui/src/ui_runtime.rs),
+[inventory prediction and crafting](crates/inventory/src/lib.rs), and
+[menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
+across these existing features; they are not a list of missing screens or systems.
+
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior.
@@ -226,7 +259,7 @@ See [actor animation clocks](docs/reference/actor-animation-clocks.md),
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
 
-Other incomplete interaction scope includes full item identity and use phases,
+The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
 native emote admission/cancellation/timing, overlapping dimension/respawn loading screens,
 and server-authored chat hover/input behavior. Keep native input state independent of
