@@ -116,6 +116,7 @@ pub(in crate::inventory) struct Record {
 pub(in crate::inventory) struct Batch {
     pub(in crate::inventory) records: Vec<Record>,
     pub(super) screen: super::screen::ScreenRecipes,
+    pub(super) brewing: Vec<super::brewing::BrewingMix>,
     pub(super) identities: Vec<super::identity::RecipeIdentity>,
     pub(in crate::inventory) clear: bool,
     pub(super) _permit: Permit,
@@ -128,6 +129,11 @@ pub struct RecipeUpdate {
 }
 
 impl RecipeUpdate {
+    /// Borrows all mix records in wire order while this update retains their allocation credit.
+    pub fn brewing_mixes(&self) -> Option<&[super::brewing::BrewingMix]> {
+        Some(&self.batch.as_ref()?.brewing)
+    }
+
     pub fn is_unavailable(&self) -> bool {
         self.batch.is_none()
     }
@@ -153,6 +159,7 @@ impl PartialEq for RecipeUpdate {
                 a.clear == b.clear
                     && a.records == b.records
                     && a.screen == b.screen
+                    && a.brewing == b.brewing
                     && a.identities == b.identities
             }
             (None, None) => true,

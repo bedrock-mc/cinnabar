@@ -297,6 +297,7 @@ mod tests {
     fn update(owner: &Arc<Credits>, clear: bool) -> RecipeUpdate {
         RecipeUpdate {
             batch: Some(Arc::new(Batch {
+                brewing: Vec::new(),
                 identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: vec![Record {
@@ -451,6 +452,7 @@ mod tests {
         let permit = owner.reserve(charge).unwrap();
         let replacement = RecipeUpdate {
             batch: Some(Arc::new(Batch {
+                brewing: Vec::new(),
                 identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: (100..100 + MAX_RECORDS as u32)

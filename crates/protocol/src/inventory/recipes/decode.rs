@@ -1,4 +1,5 @@
 use super::{
+    brewing::BrewingMix,
     budget::{Credits, MAX_UPDATE_BYTES},
     crafting::RecipeOutput,
     grammar,
@@ -28,10 +29,13 @@ pub(super) fn decode_with_credits(
         let mut screen_names = 0usize;
         let mut multi_count = 0usize;
         let mut brewing_count = 0usize;
+        let mut screen_brewing_count = 0usize;
+        let mut recipe_count = 0usize;
         let mut identities_count = 0usize;
-        let (clear, total) = grammar::walk(
+        let (clear, _) = grammar::walk(
             &mut reader,
             |_, candidate, identity| {
+                recipe_count += 1;
                 identities_count += usize::from(identity.is_some());
                 retained_names += candidate.map_or(0, |candidate| {
                     candidate
@@ -49,11 +53,17 @@ pub(super) fn decode_with_credits(
                         screen_names += record.len;
                     }
                     grammar::ScreenItem::Multi { .. } => multi_count += 1,
-                    grammar::ScreenItem::Brewing(_) if brewing_count < MAX_SCREEN_RECIPES => {
-                        brewing_count += 1;
+                    grammar::ScreenItem::Brewing(_)
+                        if screen_brewing_count < MAX_SCREEN_RECIPES =>
+                    {
+                        screen_brewing_count += 1;
                     }
                     _ => {}
                 }
+                Ok(())
+            },
+            |_| {
+                brewing_count += 1;
                 Ok(())
             },
         )?;
@@ -63,13 +73,16 @@ pub(super) fn decode_with_credits(
         let retained_names = retained_names
             .checked_add(screen_names)
             .ok_or(Refusal::Policy)?;
-        let charge = total
+        let charge = recipe_count
             .checked_mul(size_of::<Record>())
             .and_then(|n| n.checked_add(retained_names.checked_mul(128)?))
             .and_then(|n| n.checked_add(screen_names.checked_mul(size_of::<ScreenIngredient>())?))
             .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
             .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
-            .and_then(|n| n.checked_add(brewing_count.checked_mul(size_of::<BrewingRecipe>())?))
+            .and_then(|n| n.checked_add(brewing_count.checked_mul(size_of::<BrewingMix>())?))
+            .and_then(|n| {
+                n.checked_add(screen_brewing_count.checked_mul(size_of::<BrewingRecipe>())?)
+            })
             .and_then(|n| {
                 n.checked_add(identities_count.checked_mul(size_of::<RecipeIdentity>() + 64)?)
             })
@@ -82,9 +95,13 @@ pub(super) fn decode_with_credits(
         let permit = credits.reserve(charge).ok_or(Refusal::Policy)?;
         let mut records = Vec::new();
         records
-            .try_reserve_exact(total)
+            .try_reserve_exact(recipe_count)
             .map_err(|_| Refusal::Policy)?;
         let mut reader = Reader::new(body)?;
+        let mut brewing = Vec::new();
+        brewing
+            .try_reserve_exact(brewing_count)
+            .map_err(|_| Refusal::Policy)?;
         let mut identities = Vec::new();
         identities
             .try_reserve_exact(identities_count)
@@ -100,7 +117,7 @@ pub(super) fn decode_with_credits(
             .map_err(|_| Refusal::Policy)?;
         screens
             .brewing
-            .try_reserve_exact(brewing_count)
+            .try_reserve_exact(screen_brewing_count)
             .map_err(|_| Refusal::Policy)?;
         grammar::walk(
             &mut reader,
@@ -195,6 +212,10 @@ pub(super) fn decode_with_credits(
                 }
                 Ok(())
             },
+            |mix| {
+                brewing.push(mix);
+                Ok(())
+            },
         )?;
         records.sort_unstable_by_key(|record| record.id);
         // Ambiguous duplicates are tombstones, independent of arrival order.
@@ -238,6 +259,7 @@ pub(super) fn decode_with_credits(
                 records,
                 identities,
                 screen: screens,
+                brewing,
                 clear,
                 _permit: permit,
             })),
