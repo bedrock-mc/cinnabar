@@ -6,6 +6,9 @@ pub mod browser;
 pub mod control;
 pub mod session;
 
+#[cfg(any(test, target_arch = "wasm32"))]
+mod receive;
+
 use session::{Session, State};
 
 use std::future::Future;
@@ -44,12 +47,6 @@ pub trait RelayTransport {
     type Stream: AsyncRead + AsyncWrite + Unpin;
     /// Opens a reliable channel; the caller writes its framed Hello next.
     async fn open(&mut self, channel: Channel) -> Result<Self::Stream, CloseReason>;
-    /// Returns the available datagram payload ceiling, or no datagram lane.
-    fn max_datagram_size(&self) -> Option<usize>;
-    /// Sends one bounded optional datagram; completion does not imply delivery.
-    async fn send_datagram(&mut self, bytes: &[u8]) -> Result<(), CloseReason>;
-    /// Receives one optional datagram without an unbounded receive queue.
-    async fn recv_datagram(&mut self) -> Result<Option<Vec<u8>>, CloseReason>;
     /// Cancels pending I/O immediately, including a throttled send.
     fn close(&mut self, reason: CloseReason);
 }
