@@ -14,7 +14,7 @@ use std::{
 };
 
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
-const MAX_REPOSITORIES: usize = 32;
+pub(super) const MAX_REPOSITORIES: usize = 32;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Deserialize)]
@@ -61,6 +61,7 @@ pub(super) fn network(
     generation: Arc<AtomicU64>,
     permission: Arc<AtomicU64>,
     max_component_bytes: usize,
+    progress: super::progress::Progress,
 ) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -96,11 +97,13 @@ pub(super) fn network(
                     revision,
                     permission: permission.clone(),
                     authorization,
+                    progress: progress.clone(),
                 },
                 max_component_bytes,
             )) {
                 Ok(download) => Some(download),
                 Err(error) => {
+                    progress.finish(candidate.id, revision);
                     tracing::debug!(repository = candidate.repository, "Mod download: {error:#}");
                     None
                 }
@@ -125,7 +128,7 @@ pub(super) fn run(
     while let Ok(request) = incoming.recv() {
         let request = incoming.try_iter().last().unwrap_or(request);
         let mut updates = Vec::new();
-        let mut downloads = Vec::new();
+        let mut manual_completed = false;
         for candidate in &request.candidates {
             if request.generation != generation.load(Ordering::SeqCst) {
                 break;
@@ -161,14 +164,30 @@ pub(super) fn run(
                 let key = (candidate.id, candidate.asset.clone(), request.permission);
                 if candidate.asset.is_some()
                     && request.generation == generation.load(Ordering::SeqCst)
-                    && downloads_started < MAX_REPOSITORIES
-                    && attempted.insert(key.clone())
+                    && (request.manual == Some(candidate.id)
+                        || downloads_started < MAX_REPOSITORIES)
+                    && (request.manual == Some(candidate.id) || attempted.insert(key.clone()))
                 {
-                    downloads_started += 1;
+                    if request.manual != Some(candidate.id) {
+                        downloads_started += 1;
+                    }
                     if let Some(download) =
                         download(candidate, release, request.generation, request.permission)
                     {
-                        downloads.push(download);
+                        let manual = request.manual.filter(|id| *id == candidate.id);
+                        manual_completed |= manual.is_some();
+                        if outgoing
+                            .send(Response {
+                                manual,
+                                message: None,
+                                generation: request.generation,
+                                updates: updates.clone(),
+                                downloads: vec![download],
+                            })
+                            .is_err()
+                        {
+                            return;
+                        }
                     }
                     if request.generation != generation.load(Ordering::SeqCst) {
                         attempted.remove(&key);
@@ -176,11 +195,17 @@ pub(super) fn run(
                 }
             }
         }
+        let manual = request.manual.filter(|_| !manual_completed);
+        let message = manual.map(|_| {
+            "Could not download the mod update. Your installed mod was kept. Try again.".into()
+        });
         if outgoing
             .send(Response {
+                manual,
+                message,
                 generation: request.generation,
                 updates,
-                downloads,
+                downloads: Vec::new(),
             })
             .is_err()
         {

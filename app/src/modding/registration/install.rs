@@ -312,10 +312,11 @@ pub(super) fn apply(world: &mut World, update: Update) {
     let mut statuses = Vec::new();
     for change in update.changes {
         let component = change.entry.component;
+        let reload = Some(change.entry.reload);
         let error = match change.result {
             Ok(candidate) => match publish(world, *candidate) {
                 Ok(()) => {
-                    statuses.push(Status::new(component, "loaded", None));
+                    statuses.push(Status::new(component, "loaded", None, reload));
                     continue;
                 }
                 Err(candidate) => {
@@ -331,6 +332,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
             component,
             if running { "reload-error" } else { "error" },
             Some(error),
+            reload,
         ));
     }
     reorder(world, &update.registration.mods);

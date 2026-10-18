@@ -570,7 +570,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },

@@ -42,6 +42,13 @@ pub(super) fn mods(ready: bool, settings: bool) -> Fixture {
         view.screen = launcher::menu::MenuScreen::Home;
     }
     if ready {
+        std::sync::Arc::make_mut(&mut view.mods).library.installed[0]
+            .metadata
+            .update_url = Some(
+            "https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm"
+                .parse()
+                .unwrap(),
+        );
         std::sync::Arc::make_mut(&mut view.mods)
             .library
             .updates
@@ -50,6 +57,39 @@ pub(super) fn mods(ready: bool, settings: bool) -> Fixture {
                 version: "v1.3.0".into(),
                 release_url: "https://github.com/example/zoom-plus/releases/tag/v1.3.0".into(),
             });
+    }
+    Fixture::Menu(view)
+}
+
+/// Shows an explicitly requested in-app update while download or installation is pending.
+pub(super) fn mod_installing() -> Fixture {
+    let Fixture::Menu(mut view) = mods(true, true) else {
+        unreachable!()
+    };
+    let library = &mut std::sync::Arc::make_mut(&mut view.mods).library;
+    library.busy = true;
+    library.update_progress = vec![launcher::mods::UpdateProgress {
+        id: 1,
+        phase: launcher::mods::UpdatePhase::Downloading,
+        received_bytes: 512 * 1024,
+        total_bytes: 1024 * 1024,
+        bytes_per_sec: Some(256 * 1024),
+        eta_secs: Some(2),
+    }];
+    Fixture::Menu(view)
+}
+
+/// Shows real post-download stages without fabricating byte percentages for local work.
+pub(super) fn mod_stage(phase: launcher::mods::UpdatePhase) -> Fixture {
+    let Fixture::Menu(mut view) = mod_installing() else {
+        unreachable!()
+    };
+    let library = &mut std::sync::Arc::make_mut(&mut view.mods).library;
+    library.update_progress = vec![launcher::mods::UpdateProgress::stage(1, phase)];
+    if phase == launcher::mods::UpdatePhase::Reloading {
+        library.installed[0].metadata.version = Some("1.3.0".into());
+        library.updates.clear();
+        library.active[0].status = launcher::mods::Status::Starting;
     }
     Fixture::Menu(view)
 }

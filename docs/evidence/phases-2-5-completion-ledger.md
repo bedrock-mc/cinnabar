@@ -628,3 +628,7 @@ Retained mod drawing has authority and lifetime contracts. Retained geometry and
 transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
 Renderer integration and actor attachment remain incomplete and do not close any completion
 requirement.
+
+Host-composed outlines and halos use admitted actor masks. Custom effects declare their
+own mask bindings. In-world ordering, resolution transitions and hardware budgets remain
+incomplete in `plan.md`; these additions close no rendering or performance gate.
