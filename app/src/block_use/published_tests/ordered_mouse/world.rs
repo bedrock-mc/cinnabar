@@ -59,6 +59,19 @@ fn cell(world: &World, position: [i32; 3]) -> Result<u32, sim::WorldQueryError> 
     .primary_runtime_id(position)
 }
 
+/// Reads the destination column's terrain authority independently of mesh publication.
+fn destination_revision(world: &World) -> Option<world::ChunkCollisionRevision> {
+    let client = world.resource::<crate::runtime::world::ClientWorld>();
+    let stream = client.stream.as_ref().unwrap();
+    stream
+        .collision_store()
+        .collision_revision(world::ChunkKey::new(
+            stream.current_dimension(),
+            DESTINATION[0].div_euclid(16),
+            DESTINATION[2].div_euclid(16),
+        ))
+}
+
 /// Reads the held-placement inventory owner, including only already committed local uses.
 fn held_count(world: &World) -> u16 {
     let player = world.resource::<client_state::PlayerRuntime>();
@@ -166,6 +179,7 @@ fn refuse_placement(app: &mut App, captured: &mut client_session::CapturedPacket
 
 /// Checks cancellation has no packet, prediction, inventory or cue effects after space returns.
 fn assert_cancelled(app: &mut App, captured: &mut client_session::CapturedPackets) {
+    let terrain_before_retry = destination_revision(app.world());
     for _ in 0..3 {
         frame(app);
         let packets = captured.drain();
@@ -180,6 +194,11 @@ fn assert_cancelled(app: &mut App, captured: &mut client_session::CapturedPacket
                 .all(|tx| tx.item_use().is_none()),
             "obsolete placement must not be admitted or retargeted"
         );
+        assert_eq!(
+            destination_revision(app.world()),
+            terrain_before_retry,
+            "cancelled placement must not mutate destination terrain"
+        );
     }
     assert!(!crate::ordered_interactions::pending(app.world()));
     assert_eq!(held_count(app.world()), 64);
@@ -188,15 +207,6 @@ fn assert_cancelled(app: &mut App, captured: &mut client_session::CapturedPacket
             .resource::<Messages<client_audio::audio::LocalBlockCue>>()
             .len(),
         0
-    );
-    let client = app.world().resource::<crate::runtime::world::ClientWorld>();
-    assert!(
-        client
-            .stream
-            .as_ref()
-            .unwrap()
-            .prediction_generation(DESTINATION)
-            .is_none()
     );
 }
 
@@ -232,6 +242,16 @@ fn ordered_mouse_world_full_placement_cannot_overwrite_a_filled_adjacent_destina
     refuse_placement(&mut app, &mut captured);
     let dirt = block_id("minecraft:dirt");
     update(app.world_mut(), DESTINATION, dirt);
+    assert!(
+        app.world()
+            .resource::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .prediction_generation(DESTINATION)
+            .is_some(),
+        "authoritative destination fill must still await mesh publication"
+    );
     assert_cancelled(&mut app, &mut captured);
     assert_eq!(cell(app.world(), DESTINATION).unwrap(), dirt);
 }

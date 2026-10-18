@@ -162,8 +162,14 @@ pub(super) fn resolve_captured(
     captured: &CapturedInputs,
     input: &crate::ordered_interactions::InteractionInput,
 ) -> Option<ResolvedTarget> {
-    input.origin.outbound_ray()?;
-    resolve_frame(player, context, &captured.0, input.mode, input.identity)
+    input.context.origin.outbound_ray()?;
+    resolve_frame(
+        player,
+        context,
+        &captured.0,
+        input.context.mode,
+        input.context.identity,
+    )
 }
 
 /// Applies current admission policy to one coherent published camera and actor frame.

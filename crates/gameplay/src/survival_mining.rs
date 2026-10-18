@@ -544,11 +544,9 @@ impl SurvivalMiningRuntime {
         self.last_stepped_tick = Some(completed_tick);
     }
 
-    /// Reanchors clear the outbox and may rewind tick numbers.
-    pub(crate) fn synchronize(
-        &mut self,
-        identity: (SessionGeneration, PositionAuthorityGeneration),
-    ) {
+    /// Reanchors tick tracking when session or position authority changes.
+    /// Position changes interrupt active mining; session changes reset it entirely.
+    pub fn synchronize(&mut self, identity: (SessionGeneration, PositionAuthorityGeneration)) {
         if let Some((session, _)) = self
             .position_authority
             .filter(|previous| *previous != identity)
