@@ -1,10 +1,10 @@
 //! Retained placement evidence includes every world column read before transport refusal.
 use super::*;
 
-const CLICKED: [i32; 3] = [15, 2, 15];
-const DESTINATION: [i32; 3] = [16, 2, 15];
-const EYE: [f32; 3] = [18.5, 2.5, 17.5];
-const NETWORK_POSITION: [f32; 3] = [18.5, 2.620_01, 17.5];
+const CLICKED: [i32; 3] = [15, 2, 14];
+const DESTINATION: [i32; 3] = [16, 2, 14];
+const EYE: [f32; 3] = [18.5, 2.5, 16.5];
+const NETWORK_POSITION: [f32; 3] = [18.5, 2.620_01, 16.5];
 
 /// Resolves fixture blocks from the same pinned registry as the production collision owner.
 fn block_id(name: &str) -> u32 {
@@ -115,7 +115,7 @@ fn boundary_fixture() -> (App, client_session::CapturedPackets) {
     }
     flush_movement(world);
     captured.drain();
-    let direction = (Vec3::new(15.5, 2.5, 15.5) - Vec3::from_array(EYE)).normalize();
+    let direction = (Vec3::new(15.5, 2.5, 14.5) - Vec3::from_array(EYE)).normalize();
     let rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
     let origin = frame_origin(world, Vec3::from_array(EYE), rotation);
     let authority = world
