@@ -6,6 +6,7 @@ struct Particle {
     axis_x: vec4<f32>,
     axis_y: vec4<f32>,
     uv: vec4<f32>,
+    texture_bounds: vec4<f32>,
     color: vec4<f32>,
 }
 
@@ -19,6 +20,7 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) alpha_test: f32,
+    @location(3) @interpolate(flat) texture_bounds: vec4<f32>,
 }
 
 @vertex
@@ -47,12 +49,19 @@ fn particle_vertex(
     }
     out.color = vec4(particle.color.rgb * light, particle.color.a);
     out.alpha_test = particle.axis_x.w;
+    out.texture_bounds = particle.texture_bounds;
     return out;
 }
 
 @fragment
 fn particle_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = tint_to_gamma(textureSample(atlas, atlas_sampler, in.uv));
+    var uv = in.uv;
+    if (all(in.texture_bounds.zw > vec2(0.0))) {
+        let half_texel = vec2(0.5) / vec2<f32>(textureDimensions(atlas));
+        uv = clamp(uv, in.texture_bounds.xy + half_texel,
+            in.texture_bounds.xy + in.texture_bounds.zw - half_texel);
+    }
+    let texel = tint_to_gamma(textureSample(atlas, atlas_sampler, uv));
     var colour = texel * in.color;
     if (in.alpha_test > 0.5) {
         if (texel.a < 0.5) {

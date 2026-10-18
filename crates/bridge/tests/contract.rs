@@ -28,6 +28,7 @@ fn wire_enums_accept_every_manifest_spelling() {
                 "PackAcquisition" => round_trip::<bridge::PackAcquisition>(&value),
                 "PackDownstreamOutcome" => round_trip::<bridge::PackDownstreamOutcome>(&value),
                 "PackApplication" => round_trip::<bridge::PackApplication>(&value),
+                "RefusalCode" => round_trip::<contract::RefusalCode>(&value),
                 "ConnectTarget" => round_trip::<bridge::ConnectTarget>(&value),
                 "AuthState" => round_trip::<bridge::AuthState>(&value),
                 "ConnectStage" => round_trip::<bridge::ConnectStage>(&value),

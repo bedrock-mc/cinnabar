@@ -1,5 +1,14 @@
 # Phases 2-5 Completion Ledger
 
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+
 ## Redstone dust item sprite
 
 A reviewed default binding selects the item-atlas dust sprite, leaving placed
@@ -140,7 +149,7 @@ performance qualification remain incomplete. No phase or performance gate closes
 |---|---|
 | Owning plan/task | Numbered raster pack skyboxes and optional native vertical placement in `plan.md`; broader atmosphere work remains open. |
 | Deterministic tests | Pack admission and reload dependency regressions in `pack-runtime`, with publication regressions in `app`, cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
-| Review commit | Skybox tranche tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox tranche tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Retained-pack offline GPU views and both Video setting states were inspected. Current-server full-client acceptance remains open. |
 | Performance/resource witness | Existing raster byte, dimension and allocation bounds remain; texture-cache regressions cover stable frames. Live frame and join budgets remain open. |
 | Final status | Open — numbered PNG/TGA/JPEG skyboxes are implemented; HDR/KTX, enhanced rendering and broader atmosphere acceptance remain open. |
@@ -302,6 +311,10 @@ execution of this move are unverified, and it adds no parity evidence.
 
 ## P4.5-ITEM-ACTIONS
 
+Session custom-item regressions cover scalar legacy facts and stack limits,
+shared held/preview/dropped block geometry, carried tint and owner-selected
+external armor models. Broader item-action and custom-content parity stays open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
@@ -365,6 +378,11 @@ the missing overlay against the official client; broader HUD parity remains open
 Plain chat offers `@here` and player-list names; command targets include `@n`.
 Education selectors, selector-expansion permission and cheat gating, selector
 argument completion, and live visual acceptance remain incomplete.
+
+Server-authored message content keeps its parser bindings and hover controls inside
+the client-owned chat placement. Regressions cover retained captions, HUD collection
+rows, pointer entry/exit through pass-through panels, display scaling and zero-sized
+tooltip controls. Native command-edit acceptance and broader JSON-UI parity remain open.
 
 ## P5.4-SCOREBOARD
 
@@ -457,7 +475,7 @@ and this visible removal closes no settings, UI parity or performance gate.
 |---|---|
 | Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
 | Deterministic tests | Launcher regression covers default-on, old saves, both saved values, subsystem projection and Video reset. Offline JSON-UI regression reaches and renders both toggle states. |
-| Review commit | Skybox option tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox option tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Both offline Video control states were inspected; full settings and current-server acceptance remain open. |
 | Performance/resource witness | Full settings performance witness remains open. |
 | Final status | Open — the skybox option is implemented; the complete settings gate is not closed. |

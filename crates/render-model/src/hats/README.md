@@ -4,7 +4,7 @@ The API serves production cosmetics. The client downloads, verifies, caches and
 renders them; it does not bundle the catalog artwork.
 
 Editable Blockbench projects, textures, animations, export tooling and the full
-catalog belong in [cinnabar-api/art/cosmetics](https://github.com/bedrock-mc/cinnabar-api/tree/main/art/cosmetics).
+catalog belong in [cinnabar-api/art/cosmetics](https://github.com/cinnabar-mc/cinnabar-api/tree/main/art/cosmetics).
 That repository checks project/export consistency and packaged asset digests in CI.
 Adding an item with supported features must not require a client change.
 

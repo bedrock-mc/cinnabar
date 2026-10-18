@@ -324,13 +324,24 @@ fn publishing_repository(path: &Path, branch: &str) -> Option<(String, String)> 
     )
 }
 
-/// Parses `owner/name` from HTTPS, SSH, or scp-style GitHub URLs.
+/// Parses GitHub remote URLs and resolves the former Cinnabar owner to its current owner.
 fn github_repository(url: &str) -> Option<(String, String)> {
     let (_, path) = url.split_once("github.com")?;
     let path = path.strip_prefix([':', '/'])?.trim_end_matches('/');
     let (owner, name) = path.strip_suffix(".git").unwrap_or(path).split_once('/')?;
-    (!owner.is_empty() && !name.is_empty() && !name.contains('/'))
-        .then(|| (owner.to_owned(), name.to_owned()))
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return None;
+    }
+    let canonical: serde_json::Value =
+        serde_json::from_str(include_str!("../../../packaging/release-assets.json")).ok()?;
+    let (current_owner, current_name) = canonical["repository"].as_str()?.split_once('/')?;
+    let owner =
+        if owner.eq_ignore_ascii_case("bedrock-mc") && name.eq_ignore_ascii_case(current_name) {
+            current_owner
+        } else {
+            owner
+        };
+    Some((owner.to_owned(), name.to_owned()))
 }
 
 /// Lists PRs with head `branch` in `state`, newest first; `None` when `gh` fails.
@@ -471,14 +482,29 @@ mod tests {
 
     #[test]
     fn github_remote_urls_resolve_their_repository() {
-        let expected = Some(("bedrock-mc".to_owned(), "cinnabar".to_owned()));
-        for url in [
-            "https://github.com/bedrock-mc/cinnabar.git",
-            "https://github.com/bedrock-mc/cinnabar/",
-            "git@github.com:bedrock-mc/cinnabar.git",
-            "ssh://git@github.com/bedrock-mc/cinnabar",
-        ] {
-            assert_eq!(github_repository(url), expected, "{url}");
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../packaging/release-assets.json")).unwrap();
+        let (owner, name) = manifest["repository"]
+            .as_str()
+            .unwrap()
+            .split_once('/')
+            .unwrap();
+        let expected = Some((owner.to_owned(), name.to_owned()));
+        for org in [owner, "bedrock-mc"] {
+            for url in [
+                format!("https://github.com/{org}/{name}.git"),
+                format!("https://github.com/{org}/{name}/"),
+                format!("git@github.com:{org}/{name}.git"),
+                format!("ssh://git@github.com/{org}/{name}"),
+            ] {
+                assert_eq!(github_repository(&url), expected, "{url}");
+            }
+        }
+        for (org, repo) in [("bedrock-mc", "dragonfly"), ("contributor", name)] {
+            assert_eq!(
+                github_repository(&format!("https://github.com/{org}/{repo}.git")),
+                Some((org.to_owned(), repo.to_owned())),
+            );
         }
         assert_eq!(github_repository("/srv/git/cinnabar.git"), None);
     }

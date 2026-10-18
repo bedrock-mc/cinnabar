@@ -369,7 +369,9 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
         ActorEvent::Status(status) if local_runtime(status.runtime_id) => {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }
-        ActorEvent::PlayerList(_) => C::ACTORS.with(C::CONTROLS).with(C::UI),
+        ActorEvent::PlayerList(_) | ActorEvent::Skin { .. } => {
+            C::ACTORS.with(C::CONTROLS).with(C::UI)
+        }
         // A pickup voices its own sound, which the audio consumer orders by sequence.
         ActorEvent::TakeItem(_) => C::ACTORS.with(C::UI).with(C::AUDIO),
         // Spawns and removals can change the local mount, which publishes a UI delta.

@@ -29,6 +29,55 @@ pub fn settings_companion(component: &Path) -> PathBuf {
     component.with_extension("settings.json")
 }
 
+/// Committed preferences or one bounded disk seed, tied to its resolved persistence path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsSnapshot {
+    pub path: PathBuf,
+    pub json: String,
+}
+
+impl SettingsSnapshot {
+    /// Captures committed preferences without file access, including a stopped guest's last value.
+    pub fn capture(host: &crate::ModHost) -> Option<Self> {
+        let (path, json) = host.settings_path().zip(host.settings_snapshot())?;
+        Some(Self {
+            path: path.to_owned(),
+            json: json.to_owned(),
+        })
+    }
+
+    /// Captures matching committed preferences or reads the bounded companion off-frame.
+    pub fn read(component: &Path, current: Option<&Self>) -> anyhow::Result<Self> {
+        let path = destination(component)?;
+        let json = if let Some(current) = current.filter(|current| current.path == path) {
+            current.json.clone()
+        } else {
+            crate::load::read_settings(
+                component,
+                &crate::ModGrants {
+                    settings: true,
+                    ..Default::default()
+                },
+            )?
+        };
+        Ok(Self { path, json })
+    }
+}
+
+/// Resolves the writer's directory without following a companion-file link.
+fn destination(component: &Path) -> io::Result<PathBuf> {
+    let path = settings_companion(component);
+    Ok(path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .canonicalize()?
+        .join(
+            path.file_name()
+                .ok_or_else(|| io::Error::other("settings file unavailable"))?,
+        ))
+}
+
 pub(super) struct SettingsWriter {
     shared: Arc<Shared>,
     worker: Option<JoinHandle<()>>,
@@ -46,19 +95,7 @@ impl SettingsWriter {
 
     /// Creates the disk lane off-frame but permits no writes until publication.
     pub fn prepare(component: &Path) -> io::Result<Self> {
-        let path = settings_companion(component);
-        // Resolve the directory without following a companion-file link: writes
-        // atomically replace the selected companion entry, as the ordinary loader does.
-        let destination = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-            .canonicalize()?
-            .join(
-                path.file_name()
-                    .ok_or_else(|| io::Error::other("settings file unavailable"))?,
-            );
-        let mut writer = Self::start(destination, write_companion)?;
+        let mut writer = Self::start(destination(component)?, write_companion)?;
         writer.active = false;
         Ok(writer)
     }

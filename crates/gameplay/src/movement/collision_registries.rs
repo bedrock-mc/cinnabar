@@ -13,6 +13,7 @@ use sim::{
 use thiserror::Error;
 
 mod multipart;
+mod placement;
 mod selection;
 mod session_palette;
 mod sleeping;
@@ -21,6 +22,8 @@ mod tags;
 /// Interaction facts shared by both runtime identity spaces.
 #[derive(Debug, Clone)]
 struct InteractionBlock {
+    /// Shared custom definition and palette index; native records use compiled metadata.
+    custom_state: Option<(Arc<protocol::CustomBlock>, u32)>,
     identifier: Arc<str>,
     facts: assets::facts::BlockFact,
     full_cube: bool,
@@ -195,6 +198,7 @@ impl PhysicsCollisionRegistries {
             )
             .ok();
             let binding = InteractionBlock {
+                custom_state: None,
                 identifier: Arc::from(record.name.as_ref()),
                 facts: block_facts.get(record.sequential_id),
                 full_cube,
@@ -296,6 +300,12 @@ impl PhysicsCollisionRegistries {
                 {
                     registry.set_dripstone_column_offset(id);
                 }
+                if shapes
+                    .flags
+                    .contains(assets::block_shapes::ShapeFlags::GRASS_OFFSET)
+                {
+                    registry.set_random_offset(id, block_transform::random_offset::SHORT_GRASS);
+                }
                 if shapes.flags.contains(assets::block_shapes::ShapeFlags::AIR) {
                     registry.set_air_runtime_id(id);
                 }
@@ -377,11 +387,13 @@ impl PhysicsCollisionRegistries {
                 next = next.checked_add(block.state_count)?;
                 continue;
             }
+            let definition = Arc::new(block.clone());
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 Arc::make_mut(&mut self.interaction_blocks).insert(
                     next,
                     InteractionBlock {
+                        custom_state: Some((Arc::clone(&definition), state)),
                         identifier: Arc::clone(&block.name),
                         facts: custom_block_facts(block),
                         full_cube: custom_block_is_full_cube(&effective),
@@ -421,6 +433,7 @@ impl PhysicsCollisionRegistries {
             Arc::make_mut(&mut self.hashed_interaction_blocks).remove(&hash);
         }
         for block in custom.blocks.iter() {
+            let definition = Arc::new(block.clone());
             for (index, state) in block.hashed_states().into_iter().enumerate() {
                 if self.hashed.contains_runtime_id(state.hash) {
                     continue;
@@ -435,6 +448,7 @@ impl PhysicsCollisionRegistries {
                     Arc::make_mut(&mut self.hashed_interaction_blocks).insert(
                         state.hash,
                         InteractionBlock {
+                            custom_state: Some((Arc::clone(&definition), index as u32)),
                             identifier: Arc::clone(&block.name),
                             facts: custom_block_facts(block),
                             full_cube: custom_block_is_full_cube(&effective),

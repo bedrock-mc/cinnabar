@@ -14,6 +14,7 @@ mod admission;
 mod crossbow;
 mod delayfix;
 mod frame_order;
+mod progress;
 mod respawn;
 mod riptide;
 mod rockets;
