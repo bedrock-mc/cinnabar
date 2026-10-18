@@ -717,6 +717,17 @@ mod tests {
 
     #[test]
     fn base_source_override_retargets_variants_and_releases_replaced_pixels() {
+        // Keep common pack pixels live across the override's release assertion.
+        let unrelated = ActorArtworkPages::default().with_pack_artwork(
+            &[assets::ActorTexture {
+                source: 0,
+                width: 2,
+                height: 2,
+                pixel_sha256: Sha256::digest([7; 16]).into(),
+                rgba8: Arc::from([7; 16]),
+            }],
+            &[],
+        );
         let route = ActorArtworkLocation {
             page: 1,
             layer: 0,
@@ -738,10 +749,12 @@ mod tests {
             entity_locations: Arc::new(BTreeSet::from([(1, 0)])),
             ..Default::default()
         };
+        // Distinct bytes give the lifetime assertion its own allocation.
+        let replacement_pixels = *b"override pixels!";
         let replacement = EquipmentRaster {
             width: 2,
             height: 2,
-            rgba8: vec![7; 16].into(),
+            rgba8: replacement_pixels.into(),
         };
         let applied = base
             .clone()
@@ -751,11 +764,12 @@ mod tests {
         assert_ne!(new_route.page, route.page);
         let page = &applied.pages()[usize::from(new_route.page) - 1];
         assert_eq!((page.width, page.height), (2, 2));
-        assert_eq!(&page.rgba8[..], &[7; 16]);
+        assert_eq!(&page.rgba8[..], &replacement_pixels);
         let pixels = Arc::downgrade(&page.rgba8);
         drop(applied);
         assert!(pixels.upgrade().is_none());
         assert_eq!(base.route(EntityRigId(0)), Some(route));
+        assert_eq!(unrelated.pages()[0].pixels(), &[7; 16]);
     }
 
     #[test]
