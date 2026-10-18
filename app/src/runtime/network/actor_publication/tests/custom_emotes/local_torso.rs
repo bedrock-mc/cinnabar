@@ -77,8 +77,8 @@ fn production_java_torso_joins_physics_history_after_same_frame_admission() {
         (Some((4, 0)), 8, 24.9579),
     ] {
         let mut app = App::new();
-        crate::app::configure_client_frame_schedule(&mut app);
-        crate::app::configure_actor_render_systems(&mut app);
+        crate::game_frame::configure_client_frame_schedule(&mut app);
+        crate::game_frame::configure_actor_render_systems(&mut app);
         app.add_systems(
             Update,
             admit_once.in_set(client_state::ClientFrameSet::NetworkSend),

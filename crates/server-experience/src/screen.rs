@@ -284,3 +284,14 @@ fn references(value: &Json, visit: &mut impl FnMut(&str)) {
 
 #[cfg(test)]
 mod tests;
+
+/// The control a template file opens as: `ui/terminal.json` opens `terminal` of the bundle's
+/// namespace. `None` for a path that is not one `ui/` file with a JSON-UI name.
+pub fn template_root(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("ui/")?.strip_suffix(".json")?;
+    (!name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
+    .then_some(name)
+}

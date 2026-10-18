@@ -87,6 +87,59 @@ fn event_masks_and_geometry_publish_together() {
 }
 
 #[test]
+fn event_styles_geometry_and_mask_effects_publish_together() {
+    use cinnabar::extension::render::Host as _;
+
+    let mut instance = instance();
+    instance.store.data_mut().grants.render_post = true;
+    let mut resources = None;
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, store| {
+            let state = store.data_mut();
+            let geometry = state.create_geometry(mesh(3))?.unwrap();
+            let mask = masks::Host::create(state, masks::DepthPolicy::Test)?.unwrap();
+            masks::Host::set_style(state, mask, Some(masks::Style {
+                outline: masks::Rgba { r: 1., g: 0., b: 0., a: 1. },
+                outline_radius: 2.,
+                glow: masks::Rgba { r: 0., g: 0., b: 0., a: 0. },
+                glow_radius: 0.,
+            }))?.unwrap();
+            masks::Host::register_effect(state, masks::EffectSpec {
+                name: "selection".into(), order: 0,
+                source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) + vec3<f32>(mask(0u, uv)); }".into(),
+                masks: vec![mask],
+            })?.unwrap();
+            resources = Some((geometry, mask));
+            Ok(())
+        })
+        .unwrap();
+    let output = instance.render().0;
+    assert_eq!(output.retained[0].geometry.len(), 1);
+    assert_eq!(output.masks[0].style.unwrap().outline_radius, 2.);
+    assert_eq!(output.passes.len(), 1);
+    assert_eq!(output.passes[0].masks, [output.masks[0].handle]);
+    let generation = instance.render().1;
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, _| Ok(()))
+        .unwrap();
+    assert_eq!(instance.render().1, generation);
+    let (geometry, mask) = resources.unwrap();
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, store| {
+            let state = store.data_mut();
+            state.remove_pass("selection".into())?.unwrap();
+            masks::Host::remove(state, mask)?.unwrap();
+            state.remove(geometry)?.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert!(instance.render().0.masks.is_empty());
+    assert!(instance.render().0.passes.is_empty());
+    assert!(instance.render().0.retained.is_empty());
+    assert_ne!(instance.render().1, generation);
+}
+
+#[test]
 fn mask_and_geometry_import_budgets_reset_for_each_event() {
     let mut instance = instance();
     for fuel in [CALLBACK_FUEL, LOAD_FUEL, FRAME_FUEL] {

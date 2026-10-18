@@ -29,7 +29,7 @@ pub(super) fn draw(
         size,
         canvas.title_artwork,
         view.feeds.home.live_event.is_some(),
-        view.updates.ready.is_some(),
+        super::updates::available(view),
     );
     let preview = canvas.with_scale(layout.scale, |canvas| {
         draw_layout(canvas, view, size, portrait, translate, layout)

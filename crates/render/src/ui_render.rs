@@ -207,7 +207,7 @@ pub(crate) struct UiGpu {
     #[cfg(test)]
     pub(crate) world_passes: std::sync::atomic::AtomicUsize,
     viewport_size: [u32; 2],
-    started: std::time::Instant,
+    started: web_time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
     /// `bilinear` sprites sample through this instead.

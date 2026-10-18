@@ -1,6 +1,9 @@
 //! Supplies simulation time from the current update rather than the previous presentation.
 
-use bevy::time::{TimeReceiver, TimeSender, TimeSystems, create_time_channels};
+use bevy::{
+    prelude::First,
+    time::{TimeReceiver, TimeSender, TimeSystems, create_time_channels},
+};
 
 use super::*;
 

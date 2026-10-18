@@ -1,5 +1,11 @@
 //! Orders frame-time presses and tick-bound interaction payloads in the session FIFO.
-use super::*;
+#[cfg(feature = "acceptance")]
+use crate::runtime::movement_evidence::emit_movement_evidence;
+use crate::{
+    runtime::telemetry::send_player_auth_inputs, ui_runtime::outbound::flush_inventory_network,
+};
+use bevy::prelude::*;
+use client_state::ClientFrameSet;
 
 /// Admits attacks before their frame's movement, then drains inputs before item uses.
 pub(crate) fn configure(app: &mut App) {
@@ -12,7 +18,7 @@ pub(crate) fn configure(app: &mut App) {
             #[cfg(not(feature = "acceptance"))]
             crate::runtime::telemetry::discard_completed_movement_evidence,
             crate::melee::prepare_melee,
-            produce_attacks,
+            crate::melee::produce_attacks,
             crate::item_use::prepare_item_release,
             #[cfg(feature = "tracy")]
             crate::tracy::plot_physics_to_send,

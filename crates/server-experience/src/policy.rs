@@ -96,3 +96,13 @@ pub const MAX_UI_VALUES: usize = 256;
 pub const MAX_UI_NUMBERS: usize = 4;
 
 pub const MAX_EDIT_TEXT_BYTES: usize = 512;
+
+/// A local consent action; remote messages cannot create one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    Once,
+    Always,
+    Never,
+    Cancel,
+    Disable,
+}

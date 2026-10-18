@@ -20,11 +20,11 @@ pub mod policy;
 pub mod rate_limit;
 #[cfg(feature = "host")]
 pub mod runtime;
-#[cfg(feature = "host")]
+#[cfg(feature = "data")]
 pub mod screen;
 #[cfg(feature = "host")]
 pub mod session;
-#[cfg(feature = "host")]
+#[cfg(feature = "data")]
 pub mod session_data;
 #[cfg(feature = "host")]
 pub mod trust;

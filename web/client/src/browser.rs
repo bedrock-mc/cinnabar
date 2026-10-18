@@ -8,11 +8,15 @@ use std::{
     rc::Rc,
     time::Duration,
 };
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::{JsError, JsValue, wasm_bindgen};
 use wasm_bindgen_futures::spawn_local;
 use web_transport::{CloseReason, browser::BrowserTransport, session::AccountOperation};
 
+mod audio;
+mod game;
 mod timer;
+pub use audio::SoundSource;
+pub use game::Game;
 
 /// Samples the browser's monotonic clock only at the platform edge.
 fn now() -> Duration {
@@ -53,11 +57,14 @@ impl Host for BrowserHost {
 /// Owns bounded account commands; dropping the page cancels its controller.
 #[wasm_bindgen]
 pub struct Page {
+    ready: Rc<Cell<bool>>,
+    account: Rc<RefCell<crate::launcher::RelayAccount>>,
+    observe: Function,
     commands: mpsc::Sender<AccountCommand>,
+    joins: mpsc::Sender<crate::play::Request<web_transport::browser::BrowserStream>>,
     lifecycle: mpsc::Sender<()>,
     suspended: Rc<Cell<bool>>,
     intent: Rc<Intent>,
-    account: Rc<RefCell<crate::launcher::RelayAccount>>,
     _cancel: oneshot::Sender<()>,
 }
 
@@ -66,30 +73,36 @@ impl Page {
     /// Opens QUIC first and falls back through the existing transport selector.
     #[wasm_bindgen(constructor)]
     pub fn new(origin: &str, observe: Function) -> Result<Page, JsError> {
+        let intent = Rc::new(Intent::default());
+        let ready = Rc::clone(&intent.ready);
+        let account = Rc::new(RefCell::new(crate::launcher::RelayAccount::default()));
         let (commands, pending) = mpsc::channel(4);
+        let (joins, requests) = mpsc::channel(1);
         let (lifecycle, changed) = mpsc::channel(1);
         let suspended = Rc::new(Cell::new(false));
-        let intent = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
-        let account = Rc::new(RefCell::new(crate::launcher::RelayAccount::default()));
         spawn_local(relay::run(
             BrowserHost {
                 origin: origin.to_owned(),
-                observe,
+                observe: observe.clone(),
                 account: Rc::clone(&account),
             },
             pending,
+            requests,
             changed,
             Rc::clone(&suspended),
             Rc::clone(&intent),
             cancelled,
         ));
         Ok(Page {
+            ready,
+            account,
+            observe,
             commands,
+            joins,
             lifecycle,
             suspended,
             intent,
-            account,
             _cancel: cancel,
         })
     }
@@ -129,6 +142,17 @@ impl Page {
     }
 }
 impl Page {
+    /// Requests ordered play I/O from the page's one account and reconnect driver.
+    pub async fn open_play(
+        &mut self,
+    ) -> Result<crate::play::Lease<web_transport::browser::BrowserStream>, CloseReason> {
+        let (reply, response) = oneshot::channel();
+        self.joins
+            .try_send(crate::play::Request { reply })
+            .map_err(|_| CloseReason::Transport)?;
+        response.await.map_err(|_| CloseReason::Cancelled)?
+    }
+
     /// Admits a menu intent before updating presentation; full queues remain visible failures.
     pub fn account_intent(
         &mut self,
@@ -169,6 +193,9 @@ impl Page {
 
     /// Coalesces lifecycle changes even when the bounded wake slot is already occupied.
     fn set_suspended(&mut self, suspended: bool) {
+        if suspended {
+            self.ready.set(false);
+        }
         self.suspended.set(suspended);
         let _ = self.lifecycle.try_send(());
     }
@@ -197,11 +224,19 @@ impl Carriers {
             .map(|source| Self { source })
             .map_err(error)
     }
-    /// Supplies canonical filenames; JS never maintains a carrier list.
+    /// Supplies canonical filenames and delivery requirements from the startup carrier set.
     pub fn entries(&self) -> String {
         serde_json::to_string(
-            &startup_carriers()
-                .map(|carrier| (carrier.name, carrier.output))
+            &self
+                .source
+                .entries()
+                .map(|carrier| {
+                    (
+                        carrier.name,
+                        carrier.output,
+                        startup_carriers().any(|required| required.name == carrier.name),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
         .expect("carrier strings")
@@ -214,6 +249,44 @@ impl Carriers {
     pub fn validate(&self) -> Result<(), JsError> {
         self.source.decode_startup().map(|_| ()).map_err(error)
     }
+
+    /// Transfers verified startup carriers to the game host and starts the existing canvas.
+    pub fn boot(
+        self,
+        canvas: String,
+        input: &crate::BrowserInput,
+        identity: i64,
+        audio: Option<SoundSource>,
+    ) -> Result<Game, JsError> {
+        console_error_panic_hook::set_once();
+        let startup = self.into_startup().map_err(error)?;
+        let identity = protocol::ClientRandomId::new(identity)
+            .ok_or_else(|| JsError::new("invalid client identity"))?;
+        let mut input = input.clone();
+        let (bank, audio_task) = match audio {
+            Some(audio) => {
+                let (bank, task) = audio.start(startup.audio.clone());
+                (Some(bank), Some(task))
+            }
+            None => (None, None),
+        };
+        let output = if bank.is_some() {
+            client_audio::named_audio::AudioDevice::open_default_once()
+        } else {
+            client_audio::named_audio::AudioDevice::disabled()
+        };
+        let audio = output.browser_audio();
+        let host = cinnabar::browser::run(
+            startup,
+            canvas,
+            identity,
+            Box::new(move || input.take_device()),
+            bank,
+            output,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(Game::new(host, audio, audio_task))
+    }
 }
 /// Presents a carrier validation failure with the canonical rebuild hint.
 fn error(error: assets::carriers::startup::delivery::DeliveryError) -> JsError {
@@ -224,20 +297,6 @@ fn error(error: assets::carriers::startup::delivery::DeliveryError) -> JsError {
 #[wasm_bindgen]
 pub fn manifest_limit() -> usize {
     assets::carriers::startup::delivery::MAX_DELIVERY_MANIFEST_BYTES
-}
-
-/// Supplies the storage ceiling from the same owner that validates the document.
-#[wasm_bindgen]
-pub fn preference_limit() -> usize {
-    crate::launcher::preferences::MAX_PREFERENCE_BYTES
-}
-
-/// Returns a canonical validated preference document for the browser storage edge.
-#[wasm_bindgen]
-pub fn validate_preferences(json: &str) -> Result<String, JsError> {
-    crate::launcher::preferences::Preferences::decode(json)
-        .and_then(|preferences| preferences.encode())
-        .map_err(JsError::new)
 }
 
 impl Carriers {

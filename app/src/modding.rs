@@ -570,7 +570,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },
@@ -806,7 +806,7 @@ pub(super) mod fullbright;
 mod gameplay;
 pub(crate) mod ghost;
 mod input;
-pub(crate) mod interaction;
+use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;
