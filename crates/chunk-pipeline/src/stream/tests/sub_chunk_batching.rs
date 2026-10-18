@@ -251,6 +251,57 @@ fn transient_reply_before_write_confirmation_does_not_arm_the_answered_attempt()
     assert_eq!(stream.requests.requested[&chunk][&-4].confirmed_attempts, 1);
 }
 
+/// Coordinate-only replies consume a confirmed attempt before an unconfirmed retry.
+#[test]
+fn mixed_confirmed_timeout_and_pending_retry_keep_local_reply_correlation() {
+    let mut stream = request_stream();
+    let chunk = ChunkKey::new(0, 0, 0);
+    let key = SubChunkKey::from_chunk(chunk, -4);
+    stream.enqueue_request(chunk, key.y, 1, None);
+    let (_, initial) = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
+    stream.record_sub_chunk_request_transport_pending(&initial);
+    let sent_at = Instant::now();
+    stream.acknowledge_sub_chunk_request_sent(&initial.receipt, sent_at);
+    let expired_at = sent_at + SUB_CHUNK_RESPONSE_TIMEOUT;
+    stream.expire_sub_chunk_deadlines(expired_at);
+    let (_, retry) = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
+    stream.record_sub_chunk_request_transport_pending(&retry);
+    let pending = stream.requests.requested[&chunk][&key.y];
+    assert_eq!(pending.confirmed_attempts, 1);
+    assert_eq!(pending.pending_transport_attempts, 1);
+
+    stream.record_sub_chunk_reply_admission(&protocol::SubChunkReplyAdmissionEvent {
+        dimension: key.dimension,
+        positions: vec![[key.x, key.y, key.z]],
+    });
+    apply_sub_chunk_result(
+        &mut stream,
+        key,
+        PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
+    );
+    let pending = stream.requests.requested[&chunk][&key.y];
+    assert_eq!(pending.confirmed_attempts, 0);
+    assert_eq!(pending.pending_transport_attempts, 1);
+    assert_eq!(pending.answered_transport_packet, 0);
+    assert!(stream.requests.deadlines.is_empty());
+
+    let confirmed_at = expired_at + Duration::from_secs(1);
+    stream.acknowledge_sub_chunk_request_sent(&retry.receipt, confirmed_at);
+    let confirmed = stream.requests.requested[&chunk][&key.y];
+    assert_eq!(confirmed.confirmed_attempts, 1);
+    assert_eq!(confirmed.pending_transport_attempts, 0);
+    assert_eq!(
+        confirmed.response_deadline,
+        Some(confirmed_at + SUB_CHUNK_RESPONSE_TIMEOUT)
+    );
+    let packets_sent = stream.stats.publication_stages.requests_sent;
+    stream
+        .acknowledge_sub_chunk_request_sent(&retry.receipt, confirmed_at + Duration::from_secs(1));
+    assert_eq!(stream.requests.requested[&chunk][&key.y], confirmed);
+    assert_eq!(stream.stats.publication_stages.requests_sent, packets_sent);
+    assert!(stream.requests.transport.is_empty());
+}
+
 #[test]
 fn dimension_reset_and_replacement_stream_reject_old_receipts_and_rollback() {
     let mut stream = request_stream();
@@ -397,7 +448,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         0,
         "selection alone is not successful-send evidence",
     );
-    let receipt = record_request_transport(&mut stream, &request);
+    record_request_transport(&mut stream, &request);
     let dispatched = stream.publication_snapshot(destination);
     assert_eq!(dispatched.local_reset_dispatch_count, 1);
     assert_eq!(dispatched.local_reset_dispatch_total, 1);

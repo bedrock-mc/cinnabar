@@ -419,6 +419,7 @@ pub struct WorldStreamNormalizationStats {
     pub outbound_request_placement_failures: u64,
     pub request_encoding_failures: u64,
     pub deferred_retry_capacity_failures: u64,
+    /// Retained for diagnostic consumers; retries now queue intents without encoding packets.
     pub retry_request_encoding_failures: u64,
     pub biome_definition_resolution_failures: u64,
     pub biome_tint_revision_overflows: u64,
@@ -475,7 +476,6 @@ pub(super) enum NormalizationErrorReason {
     OutboundRequestPlacementFailure,
     RequestEncodingFailure,
     DeferredRetryCapacityFailure,
-    RetryRequestEncodingFailure,
     BiomeDefinitionResolutionFailure,
     BiomeTintRevisionOverflow,
     InvalidActorBlockSync,
@@ -514,9 +514,6 @@ impl WorldStreamNormalizationStats {
             NormalizationErrorReason::RequestEncodingFailure => &mut self.request_encoding_failures,
             NormalizationErrorReason::DeferredRetryCapacityFailure => {
                 &mut self.deferred_retry_capacity_failures
-            }
-            NormalizationErrorReason::RetryRequestEncodingFailure => {
-                &mut self.retry_request_encoding_failures
             }
             NormalizationErrorReason::BiomeDefinitionResolutionFailure => {
                 &mut self.biome_definition_resolution_failures

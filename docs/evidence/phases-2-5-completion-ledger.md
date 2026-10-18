@@ -128,7 +128,7 @@ performance qualification remain incomplete. No phase or performance gate closes
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
-| Deterministic tests | Protocol, stream, transport and app regressions are authored. Compilation and execution are pending. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
 | Performance/resource witness | Live join, streaming and hardware budgets remain open. |

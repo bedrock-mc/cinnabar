@@ -8426,7 +8426,7 @@ The existing timeout, retry, recovery and queue capacities remain local policy a
 are explicitly incomplete for native parity. Global request discovery, the complete
 camera writer phase, broader native retry policy, later client versions, and live
 streaming and join acceptance remain open. Regression coverage is authored;
-execution and independent review are pending.
+final verification and independent review are pending.
 
 ### Between-frames world servicing (incomplete native acceptance)
 
