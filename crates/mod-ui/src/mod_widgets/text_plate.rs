@@ -27,15 +27,17 @@ pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
             value(card),
             if plate.style.brackets { "]" } else { "" },
         ];
-        let extents = words.map(|word| {
+        let mut extents = words.map(|word| {
             text.label(word, None, shape)
                 .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
         });
-        let width = extents
-            .iter()
-            .map(|v| v[0])
-            .sum::<f64>()
-            .min(f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k);
+        let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
+        // Reserve both brackets before fitting the value into the shared width limit.
+        for index in [0, 2, 1] {
+            extents[index][0] = extents[index][0].min(remaining);
+            remaining -= extents[index][0];
+        }
+        let width = extents.iter().map(|v| v[0]).sum::<f64>();
         let height = extents
             .iter()
             .map(|v| v[1])
@@ -54,7 +56,7 @@ pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
         let size = [background[0].max(width), background[1].max(height)];
         let mut x = (size[0] - width) * 0.5;
         let spans = std::array::from_fn(|index| {
-            let w = extents[index][0].min(f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k);
+            let w = extents[index][0];
             let rect = [x, (size[1] - height) * 0.5, w, height];
             x += w;
             rect
@@ -249,6 +251,58 @@ mod tests {
         );
         assert!(measure(&mut hud, &Metrics));
         assert_eq!(dimensions(&hud.cards[0]), [160., 52.]);
+    }
+
+    /// Long admitted values share one width budget with both brackets at every HUD scale.
+    #[test]
+    fn measured_plate_keeps_long_spans_within_combined_width_limit() {
+        use ui::mod_hud::{MAX_CARD_SCALE, MAX_CARD_WIDTH, MAX_TEXT_BYTES, MIN_CARD_SCALE};
+
+        for scale in [MIN_CARD_SCALE, 1., MAX_CARD_SCALE] {
+            for brackets in [true, false] {
+                for background_width in [None, Some(56.)] {
+                    let mut hud = fixture();
+                    let card = &mut hud.cards[0];
+                    card.scale = scale;
+                    card.text_scale = 2.;
+                    card.rows[0].value = "W".repeat(MAX_TEXT_BYTES);
+                    let style = &mut card.text_plate.as_mut().unwrap().style;
+                    style.brackets = brackets;
+                    style.width = background_width;
+                    hud.validate().unwrap();
+                    assert!(measure(&mut hud, &Metrics));
+
+                    let card = &hud.cards[0];
+                    let layout = card.text_plate.as_ref().unwrap().layout.as_ref().unwrap();
+                    let limit = f64::from(MAX_CARD_WIDTH * scale);
+                    let total_width = layout.spans.iter().map(|rect| rect[2]).sum::<f64>();
+                    assert_eq!(total_width, limit, "spans must share the card width cap");
+                    let mut right = layout.spans[0][0];
+                    for [x, _, width, _] in layout.spans {
+                        assert_eq!(x, right, "spans must remain adjacent");
+                        assert!(width >= 0.);
+                        right = x + width;
+                        assert!(right <= layout.size[0], "span exceeds editor bounds");
+                    }
+                    assert_eq!(
+                        layout.spans[0][0],
+                        layout.size[0] - right,
+                        "the combined text must stay centered"
+                    );
+                    let bracket_width = Metrics.label(
+                        if brackets { "[" } else { "" },
+                        None,
+                        LabelShape {
+                            scale: 0.8 * f64::from(scale) * f64::from(card.text_scale),
+                            line_padding: 0.,
+                            hide_hyphen: true,
+                        },
+                    )[0];
+                    assert_eq!(layout.spans[0][2], bracket_width);
+                    assert_eq!(layout.spans[2][2], bracket_width);
+                }
+            }
+        }
     }
 
     /// The retained template draws independently colored literal spans without rebuilding on a tick.
