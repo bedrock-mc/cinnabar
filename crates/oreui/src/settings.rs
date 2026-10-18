@@ -12,6 +12,7 @@ mod resources;
 mod sections;
 mod services;
 mod sidebar;
+mod updates;
 
 #[cfg(test)]
 mod row_tests;

@@ -4,6 +4,7 @@ use update_manifest::channel::Channel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
+    CheckNow,
     Restart,
     Later,
     Download,
@@ -37,11 +38,41 @@ impl Ready {
     }
 }
 
+/// Progress from the worker, independent of a previously downloaded update.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Status {
+    #[default]
+    Idle,
+    Checking,
+    Downloading,
+    UpToDate,
+    Failed,
+}
+
+impl Status {
+    /// A running check or download cannot accept another manual check.
+    pub fn is_busy(self) -> bool {
+        matches!(self, Self::Checking | Self::Downloading)
+    }
+}
+
+/// Identifies the running client using the shared product version and publication number.
+pub fn installed_version() -> String {
+    let version = crate::PRODUCT_VERSION;
+    let build = update_manifest::build_number();
+    if build == 0 {
+        format!("Version {version}")
+    } else {
+        format!("Version {version} · Build {build}")
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct View {
     /// Only the client holding the updater role exposes update controls and notices.
     pub active: bool,
     pub ready: Option<Ready>,
+    pub status: Status,
     pub stable_available: bool,
     pub switch_available: bool,
     pub message: Option<String>,
@@ -80,11 +111,29 @@ impl Default for Preferences {
 }
 
 impl View {
+    /// Gives busy and failed checks priority while retaining any verified update offer.
+    pub fn status_text(&self) -> String {
+        if !self.status.is_busy()
+            && self.status != Status::Failed
+            && let Some(ready) = &self.ready
+        {
+            return ready.title();
+        }
+        match self.status {
+            Status::Checking => "Checking for updates…".into(),
+            Status::Downloading => "Downloading update…".into(),
+            Status::Failed => "Could not check or download updates. Try again.".into(),
+            Status::UpToDate => "You're up to date.".into(),
+            Status::Idle => "Check for the latest release.".into(),
+        }
+    }
+
     /// Builds a view from the publishing tracks declared by a release catalog.
     pub fn with_publications(published: impl Fn(Channel) -> bool) -> Self {
         Self {
             active: true,
             ready: None,
+            status: Status::Idle,
             stable_available: false,
             switch_available: false,
             message: None,
@@ -123,5 +172,26 @@ mod tests {
         assert!(notice.title().contains("required to connect"));
         assert_eq!(notice.action(), Action::Download);
         assert!(!Preferences::default().install_on_quit);
+    }
+    /// Refreshing a retained offer reports current work and restores the offer afterward.
+    #[test]
+    fn update_status_keeps_downloaded_offers_separate_from_checks() {
+        let mut view = View::default();
+        view.ready = Some(Ready {
+            version: crate::PRODUCT_VERSION.into(),
+            writable: true,
+            protocol_required: false,
+        });
+        let ready = view.status_text();
+        assert_eq!(ready, view.ready.as_ref().unwrap().title());
+        for status in [Status::Checking, Status::Downloading, Status::Failed] {
+            view.status = status;
+            assert_ne!(view.status_text(), ready);
+            assert!(view.ready.is_some());
+        }
+        view.status = Status::UpToDate;
+        assert_eq!(view.status_text(), ready);
+        view.ready = None;
+        assert!(view.status_text().contains("up to date"));
     }
 }
