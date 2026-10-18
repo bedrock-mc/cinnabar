@@ -396,7 +396,7 @@ fn initial_resizing_weights_surface_channels_by_opacity() {
     });
     let normal = RgbaImage::from_fn(4, 4, |x, _| {
         Rgba(if x % 2 == 0 {
-            [128, 128, 180, 40]
+            [64, 96, 180, 40]
         } else {
             [240, 128, 0, 220]
         })
@@ -432,7 +432,7 @@ fn initial_resizing_weights_surface_channels_by_opacity() {
                 .filter(|((color, _), _)| color[3] > 0)
             {
                 assert!(color[3] > 0);
-                assert_eq!(*normal, [128, 128, 180, 40]);
+                assert_eq!(*normal, [64, 96, 180, 40]);
                 for (&actual, expected) in material.iter().zip([20, 30, 64, 40]) {
                     assert!(
                         (actual as i32 - expected).abs() <= 1,
@@ -452,6 +452,63 @@ fn initial_resizing_weights_surface_channels_by_opacity() {
     assert!(overlay.normal[0].rgba8[0] > 128);
     assert_eq!(overlay.normal[0].rgba8[2..], [90, 130]);
     assert!(overlay.material[0].rgba8[2] > 200);
+}
+
+#[test]
+fn initial_resizing_preserves_signed_normals_and_constant_roughness() {
+    for normal in [[64, 96, 180, 40], [64, 160, 180, 40], [192, 96, 180, 40]] {
+        for side in [1, 2, 8] {
+            let mips = build_pbr_mips(
+                &surface(
+                    rgba([255, 255, 255, 128]),
+                    RgbaImage::from_pixel(4, 4, Rgba(normal)),
+                    rgba([20, 30, 96, 40]),
+                    PBR_REF_NORMAL | PBR_REF_MATERIAL,
+                ),
+                side,
+                false,
+                false,
+            )
+            .unwrap();
+            for mip in &mips.normal {
+                for actual in mip.rgba8.as_chunks::<4>().0 {
+                    assert_eq!(*actual, normal, "normal {normal:?} resized to {side}");
+                }
+            }
+            for mip in &mips.material {
+                for actual in mip.rgba8.as_chunks::<4>().0 {
+                    assert!(
+                        (actual[2] as i32 - 96).abs() <= 1,
+                        "constant normal {normal:?} resized to {side} changed roughness: {actual:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn initial_resizing_filters_opposing_normals_before_roughness_correction() {
+    for horizontal in [false, true] {
+        let normals = RgbaImage::from_fn(4, 4, |x, y| {
+            let coordinate = if horizontal { x } else { y };
+            Rgba([if coordinate % 2 == 0 { 25 } else { 230 }, 128, 255, 128])
+        });
+        let mips = build_pbr_mips(
+            &surface(
+                rgba([255, 255, 255, 255]),
+                normals,
+                rgba([0, 0, 0, 0]),
+                PBR_REF_NORMAL | PBR_REF_MATERIAL,
+            ),
+            2,
+            false,
+            false,
+        )
+        .unwrap();
+        assert!((mips.normal.last().unwrap().rgba8[0] as i32 - 128).abs() <= 1);
+        assert!(mips.material.last().unwrap().rgba8[2] > 128);
+    }
 }
 
 #[test]

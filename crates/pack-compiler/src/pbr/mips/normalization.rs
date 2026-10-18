@@ -1,8 +1,8 @@
-use image::{ImageBuffer, Pixel, imageops::FilterType};
+use image::{ImageBuffer, Pixel};
 
 use super::{FloatImage, LABPBR_METAL_START, ScalarImage, categorical};
 
-/// Resizes floating-point channels to the requested square layer size.
+/// Resizes floating-point channels with unclamped separable triangle filtering.
 pub(super) fn resize<P: Pixel<Subpixel = f32> + 'static>(
     image: ImageBuffer<P, Vec<f32>>,
     side: u32,
@@ -10,8 +10,54 @@ pub(super) fn resize<P: Pixel<Subpixel = f32> + 'static>(
     if image.width() == side && image.height() == side {
         image
     } else {
-        image::imageops::resize(&image, side, side, FilterType::Triangle)
+        resize_axis(&resize_axis(&image, side, true), side, false)
     }
+}
+
+/// Triangle-filters one axis without clamping its floating-point channels.
+fn resize_axis<P: Pixel<Subpixel = f32> + 'static>(
+    image: &ImageBuffer<P, Vec<f32>>,
+    side: u32,
+    vertical: bool,
+) -> ImageBuffer<P, Vec<f32>> {
+    let (source_side, lanes) = if vertical {
+        (image.height(), image.width())
+    } else {
+        (image.width(), image.height())
+    };
+    let at = |lane, index| {
+        if vertical {
+            (lane, index)
+        } else {
+            (index, lane)
+        }
+    };
+    let (width, height) = at(lanes, side);
+    let mut output = ImageBuffer::<P, Vec<f32>>::new(width, height);
+    let mut samples = Vec::new();
+    for index in 0..side {
+        samples.clear();
+        samples.extend(triangle_samples(index, source_side, side));
+        let total = samples.iter().map(|(_, weight)| weight).sum::<f32>();
+        for (_, weight) in &mut samples {
+            *weight /= total;
+        }
+        for lane in 0..lanes {
+            let (x, y) = at(lane, index);
+            let pixel = output.get_pixel_mut(x, y);
+            for &(source, weight) in &samples {
+                let (x, y) = at(lane, source);
+                for (value, source) in pixel
+                    .channels_mut()
+                    .iter_mut()
+                    .zip(image.get_pixel(x, y).channels())
+                {
+                    *value += source * weight;
+                }
+            }
+        }
+    }
+    output
 }
 
 /// Filters channels with color opacity aligned to their native resolution, then removes the weight.
