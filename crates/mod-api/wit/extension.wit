@@ -6,6 +6,9 @@ interface hud {
     set-label: func(text: string) -> result<_, string>;
     /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
     set-content: func(json: string) -> result<_, string>;
+    /// Atomically replaces named HUD cards, removes named cards, and optionally replaces
+    /// presentation metadata while retaining other cards. Uses the bounded HudUpdate schema.
+    update-content: func(json: string) -> result<_, string>;
     /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
     set-crosshair: func(json: string) -> result<_, string>;
     /// Adds one bounded local-only system chat line after a successful callback; requires hud.
@@ -164,6 +167,7 @@ interface settings {
 /// Local control edges, available only with explicit controls authority.
 interface input {
     use panel.{event};
+    record text-event { id: string, value: string }
     record controls {
         seconds: f32,
         focused: bool,
@@ -187,6 +191,9 @@ interface input {
     /// Reads selected fields from the same current frame, preserving native key order.
     /// Requires controls authority and shares the read-controls callback read budget.
     read-selected-controls: func(selection: selection) -> result<controls, string>;
+    /// Committed single-line native text edits, separate from legacy numeric control events.
+    /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
+    read-text-events: func() -> result<list<text-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
@@ -234,6 +241,10 @@ interface gameplay {
     pulse-jump: func() -> result<_, string>;
     /// Cancels pending local jump input after a successful callback, even outside gameplay.
     cancel-jump: func() -> result<_, string>;
+    record movement-toggles { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
+    /// Renews ordinary input toggle modes for this focused gameplay frame. Omission restores saved settings.
+    /// Requires movement authority; server movement, hunger and item-use restrictions still apply.
+    set-movement-toggles: func(policy: option<movement-toggles>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
     /// Bounded local actor attack range; none restores ordinary game-mode rules.
@@ -403,6 +414,12 @@ interface inventory {
 
 /// Opt-in local camera policy; requires the explicit camera grant.
 interface camera {
+    /// Damage shake only; death rotation and ordinary view bob remain independent.
+    record hurt-camera-style { intensity: f32, old-tilt: bool }
+    /// Current-frame damage presentation, with finite intensity from zero through two.
+    /// Presentation remains available while a menu owns input. None, omission, unload,
+    /// and failed callbacks restore current player settings; this does not change look or movement.
+    set-hurt-camera-style: func(style: option<hurt-camera-style>) -> result<_, string>;
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
     /// Omission, no gameplay frame, or a failed callback restores server rotation.
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;

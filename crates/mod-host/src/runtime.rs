@@ -1,3 +1,4 @@
+mod input_host;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
     GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
@@ -24,7 +25,7 @@ wasmtime::component::bindgen!({
     additional_derives: [PartialEq],
 });
 
-const MAX_IMPORT_WRITES: u32 = 8;
+pub(crate) const MAX_IMPORT_WRITES: u32 = 8;
 #[path = "block_highlights.rs"]
 mod block_highlights;
 #[path = "camera.rs"]
@@ -121,6 +122,7 @@ impl State {
             || self.camera_delta.is_some()
             || self.camera_policy.committed
             || self.camera_policy.committed_view_scale.is_some()
+            || self.camera_policy.committed_hurt_style.is_some()
     }
 
     fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
@@ -205,6 +207,11 @@ impl cinnabar::extension::hud::Host for State {
         hud::set_content(self, json)
     }
 
+    /// Applies a bounded retained HUD update inside the current callback transaction.
+    fn update_content(&mut self, json: String) -> Result<Result<(), String>> {
+        hud::update_content(self, json)
+    }
+
     fn set_crosshair(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_crosshair(self, json)
     }
@@ -253,28 +260,6 @@ impl cinnabar::extension::environment::Host for State {
         }
         self.pending_time = Some(ticks);
         Ok(Ok(()))
-    }
-}
-
-impl cinnabar::extension::input::Host for State {
-    /// Reads only the host's one-frame action edge, never raw keyboard state.
-    fn demo_pressed(&mut self) -> Result<bool> {
-        Ok(self.pressed)
-    }
-
-    fn read_controls(&mut self) -> Result<Result<crate::ControlFrame, String>> {
-        controls::read(self)
-    }
-
-    fn read_selected_controls(
-        &mut self,
-        selection: cinnabar::extension::input::Selection,
-    ) -> Result<Result<crate::ControlFrame, String>> {
-        controls::read_selected(self, selection)
-    }
-
-    fn reserve_keys(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
-        controls::reserve(self, keys)
     }
 }
 
@@ -396,8 +381,8 @@ impl Instance {
         state.pressed = false;
     }
 
-    /// Restores the call budget and commits output only on successful return.
-    pub(super) fn frame(
+    /// Validates and stages current observations even when lifecycle delivery defers.
+    pub(super) fn observe_frame(
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
@@ -430,7 +415,31 @@ impl Instance {
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
-        let result = self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store));
+        Ok(())
+    }
+
+    /// Refreshes native presentation on deferred delivery and publishes guest output on success.
+    pub(super) fn frame(&mut self, delivery: CallbackOutcome) -> Result<()> {
+        if !self.is_active() {
+            return Ok(());
+        }
+        self.store.data_mut().controls.begin_text_frame();
+        let result = match delivery {
+            CallbackOutcome::Executed => {
+                self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
+            }
+            CallbackOutcome::Deferred => Ok(CallbackOutcome::Deferred),
+        };
+        if matches!(&result, Ok(CallbackOutcome::Deferred)) {
+            hud::sources::refresh(self.store.data_mut());
+        }
+        self.store
+            .data_mut()
+            .controls
+            .finish_text_frame(matches!(&result, Ok(CallbackOutcome::Deferred)));
+        if result.is_ok() {
+            hud::bounds::update(self.store.data_mut());
+        }
         result.map(|_| ())
     }
 
@@ -622,6 +631,13 @@ impl Instance {
             .flatten()
     }
 
+    /// Successful frame-local presentation remains independent of gameplay input ownership.
+    pub(super) fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_hurt_style)
+            .flatten()
+    }
+
     /// Consumes the committed cancellation once.
     pub(super) fn take_jump_cancel(&mut self) -> bool {
         std::mem::take(&mut self.store.data_mut().jump_cancel)
@@ -700,7 +716,8 @@ impl Instance {
     }
 
     pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
-        self.store.data().hud.content.as_ref()
+        let hud = &self.store.data().hud;
+        hud.resolved.as_ref().or(hud.content.as_ref())
     }
 
     /// Consumes committed local-only system feedback once.
@@ -812,6 +829,11 @@ impl Instance {
         self.last_fuel
     }
 
+    /// Returns only the movement policy committed by the current successful frame.
+    pub(super) fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
+        self.store.data().world.movement_toggles.as_ref()
+    }
+
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
         self.store.data_mut().session = session;
     }
@@ -832,6 +854,7 @@ fn commit(store: &mut Store<State>) {
         && !state.controls.frame.panel_open)
         .then_some(state.camera_policy.pending_view_scale)
         .flatten();
+    state.camera_policy.committed_hurt_style = state.camera_policy.pending_hurt_style;
     state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
     state.exclusive.camera_claimed = state.camera_output();
@@ -877,40 +900,8 @@ fn commit_event(store: &mut Store<State>) {
     {
         state.screens = screens;
     }
+    hud::sources::refresh(state);
 }
 
 #[cfg(test)]
-mod epoch_tests {
-    use super::*;
-
-    #[test]
-    fn epoch_traps_quarantine_callbacks_before_output_is_committed() {
-        let (engine, _ticker) = crate::execution::engine().unwrap();
-        let mut instance = Instance::new(
-            &engine,
-            br#"(component
-            (core module $code
-                (memory 1)
-                (func (export "init"))
-                (func (export "frame") (loop $work
-                    i32.const 0 i32.const 0 i32.const 65536 memory.fill br $work)))
-            (core instance $run (instantiate $code))
-            (func (export "init") (canon lift (core func $run "init")))
-            (func (export "frame") (canon lift (core func $run "frame"))))"#,
-            ModGrants::default(),
-            String::new(),
-            Declared::default(),
-            None,
-        )
-        .unwrap();
-        let result = instance.run(u64::MAX, commit, |exports, store| {
-            // Explicitly expire this newly armed callback without waiting on wall time.
-            store.epoch_deadline_callback(|_| Err(wasmtime::Trap::Interrupt.into()));
-            store.set_epoch_deadline(0);
-            exports.frame(store)
-        });
-        assert!(result.is_err());
-        assert!(!instance.is_active());
-        assert!(instance.label().is_none());
-    }
-}
+mod epoch_tests;

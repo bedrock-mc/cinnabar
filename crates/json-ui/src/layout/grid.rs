@@ -15,6 +15,8 @@ pub const TEMPLATE_KEY: &str = "grid_template_node";
 /// Marks a cell the binder left unbuilt out of view, naming its grid's bind key: an empty
 /// panel of the cell template's size that draws nothing and takes no input.
 pub const PLACEHOLDER_KEY: &str = "grid_placeholder_of";
+/// A host-opted cell whose descendants are guaranteed to stay within its rectangle.
+pub const CLIPPED_CELL_KEY: &str = "grid_clipped_cell";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Direction {

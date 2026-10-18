@@ -86,6 +86,30 @@ fn view_multipliers_leave_saved_settings_and_perspective_intact() {
     assert_eq!(settings.horizontal_fov_degrees(), 100.0);
 }
 
+/// Releasing a module uses current preferences, including edits made while its override was active.
+#[test]
+fn hurt_camera_override_releases_to_current_preferences_and_resets_with_the_view() {
+    let mut settings = CameraSettingsAuthority::default();
+    let mut user = ui::UserSettings::default();
+    user.video.damage_bob = 0.25;
+    settings.replace(1, &user).unwrap();
+    settings.set_hurt_camera_style(render_api::HurtCameraStyle::new(2.0, true));
+    assert_eq!(settings.hurt_camera_style().intensity(), 2.0);
+    assert!(settings.hurt_camera_style().old_tilt());
+    user.video.damage_bob = 0.75;
+    settings.replace(2, &user).unwrap();
+    assert_eq!(settings.hurt_camera_style().intensity(), 2.0);
+    assert_eq!(settings.feel().damage_bob, 0.75);
+    settings.set_hurt_camera_style(None);
+    assert_eq!(settings.hurt_camera_style().intensity(), 0.75);
+    assert!(!settings.hurt_camera_style().old_tilt());
+    settings.set_hurt_camera_style(render_api::HurtCameraStyle::new(0.0, true));
+    assert_eq!(settings.hurt_camera_style().intensity(), 0.0);
+    settings.reset_perspective();
+    assert_eq!(settings.hurt_camera_style().intensity(), 0.75);
+    assert!(!settings.hurt_camera_style().old_tilt());
+}
+
 #[test]
 fn rig_offset_follows_the_eye_look_in_camera_local_axes() {
     let eye = Vec3::new(10.0, 70.0, 10.0);

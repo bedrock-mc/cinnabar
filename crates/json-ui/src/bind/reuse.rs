@@ -408,6 +408,15 @@ impl Binder<'_> {
                     let index = scope.cursor.indices.get(collection).copied().unwrap_or(0);
                     if let Ok(index) = usize::try_from(index) {
                         reads.add(Data::Item, key, Some(index));
+                        if let Some(item) =
+                            self.data.collections.get(key).and_then(|v| v.get(index))
+                        {
+                            for property in source.properties() {
+                                if let Some(global) = item.global_bindings.get(property) {
+                                    reads.add(Data::Global, global, None);
+                                }
+                            }
+                        }
                     }
                     reads.add(Data::Defaults, key, None);
                     if source

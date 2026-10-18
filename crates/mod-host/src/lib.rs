@@ -32,7 +32,7 @@ pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens}
 
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob,
-    MovementSnapshot as GameplayMovementSnapshot, Player as GameplayPlayer,
+    MovementSnapshot as GameplayMovementSnapshot, MovementToggles, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{

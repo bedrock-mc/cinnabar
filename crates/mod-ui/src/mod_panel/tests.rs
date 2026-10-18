@@ -1,11 +1,44 @@
 use super::*;
 use crate::test_support::sample_panel as panel;
 
+/// Custom artwork follows both toggle states through the actual global binding pipeline.
+#[test]
+fn authored_toggle_faces_follow_native_control_values() {
+    let surface = ui::mod_panel::Surface { collections: Default::default(),
+        screen: "extension.screen".into(), bindings: Default::default(), transitions: Default::default(),
+        document: serde_json::json!({"namespace":"extension","screen":{"type":"screen","controls":[
+            {"enabled":{"type":"panel","bindings":[{"binding_name":"#row_0_toggle_enabled","binding_name_override":"#visible"}]}},
+            {"disabled":{"type":"panel","bindings":[{"binding_name":"#row_0_toggle_disabled","binding_name_override":"#visible"}]}}
+        ]}}).to_string(),
+    };
+    let catalog = super::surface::catalog(&surface).unwrap();
+    let root = json_ui::resolve(&catalog, &surface.screen, &Context::default())
+        .control
+        .unwrap();
+    let mut settings = panel();
+    for enabled in [false, true, false] {
+        if let Control::Toggle { value, .. } = &mut settings.controls[0] {
+            *value = enabled;
+        }
+        let data = data::control_data(&settings);
+        let bound = json_ui::bind(&root, &data, &json_ui::EmptyLibrary);
+        assert_eq!(
+            bound.child("enabled").unwrap().properties.get("visible"),
+            Some(&serde_json::json!(enabled))
+        );
+        assert_eq!(
+            bound.child("disabled").unwrap().properties.get("visible"),
+            Some(&serde_json::json!(!enabled))
+        );
+    }
+}
+
 /// Prepares two authored routes with distinct wrapper facts for each owner or revision.
 fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) {
     let mut content = panel();
     content.title = title.into();
     content.surface = Some(ui::mod_panel::Surface {
+        collections: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({
@@ -23,6 +56,7 @@ fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) 
     .to_string();
     let bundle = Arc::new(ui::mod_panel::PanelBundle {
         panel: content.clone(),
+        control_schemas: Default::default(),
         surfaces: std::collections::BTreeMap::from([(
             "other".into(),
             other.surface.as_ref().unwrap().clone(),
@@ -30,6 +64,36 @@ fn prepared_panels(title: &str) -> ([Panel; 2], Arc<prepared::PreparedPanelUi>) 
     });
     let prepared = prepared::PreparedPanelUi::prepare(bundle).unwrap();
     ([content, other], prepared)
+}
+
+/// Prepared routes keep the schema used to validate their actions, even with identical artwork.
+#[test]
+fn prepared_routes_match_their_own_control_schema() {
+    let ([initial, _], _) = prepared_panels("Route schemas");
+    let mut options = initial.clone();
+    options.controls = vec![Control::Button {
+        id: "back".into(),
+        label: "Back".into(),
+    }];
+    let bundle = Arc::new(ui::mod_panel::PanelBundle {
+        panel: initial.clone(),
+        surfaces: std::collections::BTreeMap::from([(
+            "options".into(),
+            options.surface.clone().unwrap(),
+        )]),
+        control_schemas: std::collections::BTreeMap::from([(
+            "options".into(),
+            options.controls.clone(),
+        )]),
+    });
+    let prepared = prepared::PreparedPanelUi::prepare(bundle).unwrap();
+    assert!(prepared.route(&initial).is_some());
+    assert!(prepared.route(&options).is_some());
+    options.controls[0] = Control::Button {
+        id: "unregistered".into(),
+        label: "Back".into(),
+    };
+    assert!(prepared.route(&options).is_none());
 }
 
 /// Replacing a registration retires its old bundles and preserves an active environment route.
@@ -580,6 +644,7 @@ fn exiting_panel(exit: Option<f64>) -> Panel {
 
     let mut content = panel();
     content.surface = Some(Surface {
+        collections: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({
             "namespace": "extension",

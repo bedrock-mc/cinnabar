@@ -96,11 +96,10 @@ impl ModHost {
     ) -> Result<()> {
         self.begin_frame();
         let result = match self.dispatch(Vec::new()) {
-            Ok(CallbackOutcome::Executed) => {
-                self.instance
-                    .frame(pressed, snapshot, mobs, player_state, movement, controls)
-            }
-            Ok(CallbackOutcome::Deferred) => Ok(()),
+            Ok(delivery) => self
+                .instance
+                .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                .and_then(|()| self.instance.frame(delivery)),
             Err(error) => Err(error),
         };
         self.instance.finish_frame();
@@ -141,6 +140,11 @@ impl ModHost {
     /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
     pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.instance.camera_view_scale()
+    }
+
+    /// Current-frame damage styling; absence restores the player's camera preferences.
+    pub fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
+        self.instance.camera_hurt_style()
     }
 
     /// Consumes a successful callback's jump request once.

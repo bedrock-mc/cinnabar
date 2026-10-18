@@ -23,6 +23,31 @@ fn autosave_editor(p: &mut UiPresentationRuntime) {
     frame(p, &UiRuntime::new(1), [1280, 720], 1.);
 }
 
+/// Autosave chrome offers a close action instead of promising to undo completed saves.
+#[test]
+fn autosave_toolbar_closes_without_exposing_a_cancel_action() {
+    let mut p = presentation(false);
+    autosave_editor(&mut p);
+    let hits = &p
+        .mod_ui()
+        .mod_hud_editor_state()
+        .unwrap()
+        .frame
+        .unwrap()
+        .hits;
+    assert!(
+        hits.iter()
+            .any(|hit| hit.pressed.as_deref() == Some("hud.close"))
+    );
+    assert!(
+        !hits
+            .iter()
+            .any(|hit| matches!(hit.pressed.as_deref(), Some("hud.cancel" | "hud.save")))
+    );
+    click(&mut p, "hud.close");
+    assert!(!p.mod_ui().mod_hud_editor_open() && !p.mod_ui().mod_panel_open());
+}
+
 #[test]
 fn completed_drag_autosaves_without_closing_and_interrupted_drag_rolls_back() {
     let mut p = presentation(false);
@@ -214,6 +239,7 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
             "size":["100%","100%"],"radius":0,"color":color})
     };
     hud.surface = Some(ui::mod_panel::Surface {
+        collections: Default::default(),
         transitions: Default::default(),
         screen: "fixture.overlay".into(),
         document: serde_json::json!({"namespace":"fixture","overlay":{
@@ -419,7 +445,7 @@ fn corners_resize_uniformly_autosave_and_restore_interrupted_drafts() {
                 .scale,
             1.
         );
-        for (direction, scale) in [(1., 2.), (-1., 0.5)] {
+        for direction in [1., -1.] {
             frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
             let at = point(&p, &format!("hud.resize:0:{corner}"));
             let destination: [f32; 2] = std::array::from_fn(|axis| {
@@ -427,17 +453,23 @@ fn corners_resize_uniformly_autosave_and_restore_interrupted_drafts() {
             });
             p.mod_ui_mut().mod_panel_events(at, true, true);
             p.mod_ui_mut().mod_panel_events(destination, false, false);
-            assert_eq!(
-                p.mod_ui_mut()
-                    .take_mod_hud_editor_result()
-                    .unwrap()
-                    .placements[0]
-                    .scale,
-                scale
-            );
+            let saved = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
+            let scale = saved.placements[0].scale;
+            if direction < 0. {
+                assert_eq!(scale, ui::mod_hud::MIN_CARD_SCALE);
+            } else {
+                assert!(scale > 1. && scale <= ui::mod_hud::MAX_CARD_SCALE);
+            }
             let editor = p.mod_ui().mod_hud_editor_state().unwrap();
             let origin = card_origin(&editor.draft.cards[0], editor.viewport);
             let size = card_dimensions(&editor.draft.cards[0]);
+            if direction > 0. {
+                assert!(
+                    scale == ui::mod_hud::MAX_CARD_SCALE
+                        || (0..2).any(|axis| (size[axis] - editor.viewport[axis]).abs() < 0.001),
+                    "growth fills a limiting dimension or reaches the published maximum"
+                );
+            }
             for axis in 0..2 {
                 assert!(
                     origin[axis] >= 0.

@@ -61,6 +61,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
         camera.set_view_scale(1.0, 1.0);
+        camera.set_hurt_camera_style(None);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
         presentation.set_mod_menu_branding(None);

@@ -26,7 +26,7 @@ pub struct Path {
 
 /// Conservative authored bounds kept separately from layout and input rectangles.
 #[derive(Clone, Copy)]
-pub(crate) struct Bounds {
+pub struct Bounds {
     view_box: [f32; 4],
     min: [f32; 2],
     max: [f32; 2],
@@ -35,7 +35,7 @@ pub(crate) struct Bounds {
 
 impl Bounds {
     /// Retains point extrema and the shared stroke policy without retaining all path points.
-    pub(crate) fn new(path: &Path) -> Option<Self> {
+    pub fn new(path: &Path) -> Option<Self> {
         let mut min = [f32::INFINITY; 2];
         let mut max = [f32::NEG_INFINITY; 2];
         for point in path.contours.iter().flatten() {
@@ -54,7 +54,7 @@ impl Bounds {
     }
 
     /// Includes round caps, joins and half a physical pixel of coverage in virtual coordinates.
-    pub(crate) fn at(self, dest: crate::Rect, pixel: f64) -> crate::Rect {
+    pub fn at(self, dest: crate::Rect, pixel: f64) -> crate::Rect {
         self.geometry(dest).expanded(self.padding(dest, pixel))
     }
 
