@@ -137,6 +137,7 @@ acceptance = { path = "../crates/acceptance", optional = true }
 crash-report = { path = "../crates/crash-report" }
 developer-control = { path = "../crates/developer-control", optional = true }
 sadness-generator = { version = "0.7", optional = true }
+tempfile = "3"
 update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 mod-host = { path = "../crates/mod-host" }
@@ -183,7 +184,6 @@ launcher-host = { path = "../crates/launcher-host", features = ["test-support"] 
 launcher = { path = "../crates/launcher", features = ["test-support"] }
 test-time = { path = "../crates/test-time" }
 wit-component.workspace = true
-tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }
 acceptance = { path = "../crates/acceptance", features = ["test-support"] }
 client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }

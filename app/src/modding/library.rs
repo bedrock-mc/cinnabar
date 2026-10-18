@@ -19,6 +19,13 @@ use std::{
     sync::Arc,
 };
 
+mod update;
+
+enum Command {
+    Action(Action),
+    Update(launcher_host::mod_updates::Downloaded),
+}
+
 const FILTER: Filter = Filter {
     title: "Import mod",
     name: "Mods",
@@ -28,8 +35,11 @@ const FILTER: Filter = Filter {
 
 #[derive(Resource)]
 pub(super) struct ModLibrary {
-    commands: Sender<Action>,
+    commands: Sender<Command>,
     published: Receiver<Library>,
+    updates: Option<launcher_host::mod_updates::Checker>,
+    checks: bool,
+    automatic: bool,
 }
 
 /// Starts the library worker and the system that connects it to the Mods tab.
@@ -60,20 +70,55 @@ pub(super) fn configure(
     app.insert_resource(ModLibrary {
         commands,
         published,
+        updates: launcher_host::mod_updates::Checker::start(mod_host::MAX_COMPONENT_SOURCE_BYTES)
+            .map_err(|error| {
+                warn!("Mod update checks unavailable: {error}");
+            })
+            .ok(),
+        checks: false,
+        automatic: false,
     })
     .add_systems(Update, drive);
 }
 
 /// Forwards Mods-tab work and publishes the newest library.
-fn drive(library: Res<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
+fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
     let Some(mut menu) = menu else { return };
     if !menu.mod_actions.is_empty() {
         for action in std::mem::take(&mut menu.mod_actions) {
-            let _ = library.commands.send(action);
+            let _ = library.commands.send(Command::Action(action));
         }
     }
-    if let Some(latest) = library.published.try_iter().last() {
+    let latest = library.published.try_iter().last();
+    let changed = latest.is_some();
+    if let Some(latest) = latest {
         Arc::make_mut(&mut menu.mods).publish(latest);
+    }
+    let checks = menu
+        .settings_snapshot()
+        .0
+        .value(launcher::menu::settings_options::SettingId::ModUpdateChecks)
+        != 0;
+    let automatic = menu
+        .settings_snapshot()
+        .0
+        .value(launcher::menu::settings_options::SettingId::ModAutoUpdate)
+        != 0;
+    let configure = changed || checks != library.checks || automatic != library.automatic;
+    library.checks = checks;
+    library.automatic = automatic;
+    if let Some(checker) = &mut library.updates {
+        if configure {
+            checker.configure(&menu.mods.library.installed, checks, automatic);
+        }
+        let updates = checker.updates();
+        if menu.mods.library.updates != updates {
+            Arc::make_mut(&mut menu.mods).library.updates = updates.to_vec();
+        }
+        let downloads = checker.take_downloads();
+        for download in downloads {
+            let _ = library.commands.send(Command::Update(download));
+        }
     }
 }
 
@@ -81,7 +126,7 @@ fn drive(library: Res<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
 fn run(
     mods: &Path,
     registration: &Path,
-    incoming: &Receiver<Action>,
+    incoming: &Receiver<Command>,
     outgoing: &Sender<Library>,
     mut pick: impl FnMut() -> Result<Option<PathBuf>, String>,
     mut retire: impl FnMut(&Receipt) -> Result<removal::Permit, String>,
@@ -91,7 +136,10 @@ fn run(
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(super::RELOAD_INTERVAL) {
-            Ok(action) => {
+            Ok(Command::Update(download)) => {
+                update::install(mods, &download).unwrap_or_else(|error| error)
+            }
+            Ok(Command::Action(action)) => {
                 if matches!(action, Action::Import | Action::Remove(_)) {
                     library.busy = true;
                     let _ = outgoing.send(library.clone());
@@ -199,6 +247,8 @@ fn perform(
             .map(|()| String::new())
         }
         Action::ReadMore(_)
+        | Action::ViewUpdates
+        | Action::OpenUpdate(_)
         | Action::ToggleActive
         | Action::ToggleAvailable
         | Action::Customize(_)
@@ -398,6 +448,7 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
         active,
         busy: false,
         message,
+        updates: Vec::new(),
     }
 }
 

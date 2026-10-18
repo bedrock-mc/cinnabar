@@ -134,15 +134,15 @@ fn storage_ledger(slot_count: usize) -> PlayerInventoryLedger {
     ledger
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 
@@ -422,9 +422,20 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule_and_registry_shapes_bind_na
             ..StackResponseOverlay::default()
         },
     );
+    assert_eq!(meaningful_overlay.begin_click(0), Ok(-3));
+    assert_eq!(meaningful_overlay.displayed_stack(0).unwrap().count, 3);
+    assert_eq!(meaningful_overlay.cursor_stack().unwrap().count, 60);
     assert_eq!(
-        meaningful_overlay.begin_click(0),
-        Err(InventoryGestureError::InvalidRequest)
+        meaningful_overlay
+            .view()
+            .get(Cell::Cursor)
+            .unwrap()
+            .overlay
+            .as_ref()
+            .unwrap()
+            .custom_name
+            .as_deref(),
+        Some("named")
     );
 }
 
@@ -759,3 +770,142 @@ fn late_rejection_preserves_discarded_personal_cursor_recovery() {
         );
     }
 }
+
+/// A current screen response above item capacity is skipped rather than published.
+#[test]
+fn parity_requests_response_above_capacity_is_skipped() {
+    if assets::facts::ItemFacts::builtin().is_err() {
+        eprintln!("missing-fixture: builtin item facts carrier");
+        return;
+    }
+    let original = stack(6, 10, 4);
+    let mut ledger = player_ledger(
+        Some(registry(vec![entry(
+            6,
+            "test:probe",
+            Some(16),
+            true,
+            false,
+        )])),
+        original.clone(),
+        NetworkItemStack::empty(),
+    );
+    assert_eq!(
+        ledger
+            .negotiated_item_entry(6)
+            .and_then(super::registry::entry_capacity),
+        Some(16)
+    );
+    let request = ledger
+        .begin_drop(
+            super::moves::DropSource::Target(super::gesture::InventoryTarget::Player(0)),
+            Some(1),
+        )
+        .unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    let response = StackResponseContainer {
+        container: ContainerIdentity {
+            window_id: None,
+            slot_type: Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+            dynamic_id: None,
+        },
+        slots: Arc::from([StackResponseSlot {
+            slot: 0,
+            hotbar_slot: 0,
+            count: 17,
+            item_stack_id: 11,
+            custom_name: Arc::from(""),
+            filtered_custom_name: Arc::from(""),
+            durability_correction: 0,
+        }]),
+    };
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id: request,
+            containers: Arc::from([response]),
+        }]),
+    }));
+    assert_eq!(ledger.displayed_stack(0), Some(&original));
+}
+
+/// Equal names on compatible stacks may merge without losing their accepted overlay.
+#[test]
+fn parity_requests_matching_named_stacks_can_merge() {
+    if assets::facts::ItemFacts::builtin().is_err() {
+        eprintln!("missing-fixture: builtin item facts carrier");
+        return;
+    }
+    let mut ledger = player_ledger(
+        Some(registry(vec![entry(
+            6,
+            "test:probe",
+            Some(64),
+            true,
+            false,
+        )])),
+        stack(6, 10, 4),
+        stack(6, 11, 3),
+    );
+    let overlay = super::response::StackResponseOverlay {
+        custom_name: Some(Arc::from("Original probe label")),
+        filtered_custom_name: Some(Arc::from("Original probe label")),
+        durability_correction: Some(0),
+    };
+    ledger.set_confirmed_overlay(super::cells::Cell::Inventory(0), overlay.clone());
+    ledger.set_confirmed_overlay(super::cells::Cell::Cursor, overlay);
+    ledger
+        .begin_click(0)
+        .expect("equal names do not make compatible items unmergeable");
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 7);
+    assert!(ledger.cursor_stack().is_none());
+}
+
+/// Equal decoded custom-name compounds retain ordinary item identity during a merge.
+#[test]
+fn parity_requests_pass2_identical_named_nbt_can_merge() {
+    assets::facts::ItemFacts::builtin().expect("required builtin facts fixture");
+    let extra = protocol::edit_item_extra(
+        &[0; 10],
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some("Original parity probe".to_owned())),
+            ..Default::default()
+        },
+    )
+    .expect("original valid named compound");
+    assert_eq!(
+        protocol::item_custom_name(&extra).as_deref(),
+        Some("Original parity probe")
+    );
+    let mut target = stack(6, 10, 4);
+    target.nbt_digest = Sha256::digest(&extra).into();
+    target.extra_data = extra.clone();
+    let mut cursor = target.clone();
+    cursor.count = 3;
+    cursor.stack_network_id = 11;
+    assert_eq!(target.extra_data, cursor.extra_data);
+    assert_eq!(target.nbt_digest, cursor.nbt_digest);
+    let mut ledger = player_ledger(
+        Some(registry(vec![entry(
+            6,
+            "test:probe",
+            Some(64),
+            true,
+            false,
+        )])),
+        target,
+        cursor,
+    );
+    ledger
+        .begin_click(0)
+        .expect("matching named item data can merge");
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 7);
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        protocol::item_custom_name(&ledger.displayed_stack(0).unwrap().extra_data).as_deref(),
+        Some("Original parity probe")
+    );
+}
+
+#[path = "merge_tests/rebase.rs"]
+mod rebase;

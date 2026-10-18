@@ -32,3 +32,24 @@ pub(super) fn signed_in() -> Fixture {
     view.feeds.profile.gamertag = "ExamplePlayer".into();
     Fixture::Menu(view)
 }
+
+/// Shows optional mod update discovery without app updates or a network request.
+pub(super) fn mods(ready: bool, settings: bool) -> Fixture {
+    let Fixture::Menu(mut view) = super::mods::declared() else {
+        unreachable!()
+    };
+    if !settings {
+        view.screen = launcher::menu::MenuScreen::Home;
+    }
+    if ready {
+        std::sync::Arc::make_mut(&mut view.mods)
+            .library
+            .updates
+            .push(launcher::mods::AvailableUpdate {
+                id: 1,
+                version: "v1.3.0".into(),
+                release_url: "https://github.com/example/zoom-plus/releases/tag/v1.3.0".into(),
+            });
+    }
+    Fixture::Menu(view)
+}

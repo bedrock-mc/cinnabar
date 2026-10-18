@@ -6,6 +6,8 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// Release tags share the installed metadata version's display bound.
+pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,6 +19,8 @@ pub enum Action {
     Disable(u64),
     Remove(u64),
     Import,
+    ViewUpdates,
+    OpenUpdate(u64),
     Reload(u64),
     ReloadAll,
     MoveUp(u64),
@@ -126,6 +130,14 @@ pub struct ActiveMod {
     pub status: Status,
 }
 
+/// A newer GitHub release for one installed file revision; installation stays manual.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableUpdate {
+    pub id: u64,
+    pub version: String,
+    pub release_url: String,
+}
+
 /// Directory contents and the ordered Active list, published off-frame by the app.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
@@ -133,6 +145,7 @@ pub struct Library {
     pub active: Vec<ActiveMod>,
     pub busy: bool,
     pub message: String,
+    pub updates: Vec<AvailableUpdate>,
 }
 impl Library {
     /// Preserves Active-list precedence and directory order for available components.

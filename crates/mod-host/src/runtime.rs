@@ -44,6 +44,8 @@ mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
 mod loading;
+#[path = "masks.rs"]
+mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;

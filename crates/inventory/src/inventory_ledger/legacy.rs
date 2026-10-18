@@ -6,6 +6,7 @@ use protocol::{
 
 use super::cells::Held;
 use super::gesture::Submission;
+use super::queue::RollbackAuthority;
 use super::{
     Cell, InventoryGestureError, InventoryPendingState, PendingRequest, PlayerInventoryLedger,
 };
@@ -30,10 +31,15 @@ impl PlayerInventoryLedger {
         self.invalidate_request_sources(cell, i32::MIN);
     }
 
+    /// Writes backing authority and records which personal observation cells changed.
     pub(super) fn set_authoritative_cell(&mut self, cell: Cell, held: Option<Held>) -> bool {
         self.prepare_authoritative_cell(cell);
         let written = self.confirmed.set(cell, held);
         if written {
+            self.offhand_written |= cell == Cell::Offhand;
+            if let Some(index) = cell.personal_index() {
+                self.personal_writes |= 1 << index;
+            }
             self.note_observed_gear(cell);
         }
         written
@@ -164,6 +170,10 @@ impl PlayerInventoryLedger {
         let remainder = request.world_drop.expect("world drop").legacy_request_id;
         request.state = InventoryPendingState::AwaitingResponse;
         request.transport_deadline_millis = None;
+        // Admission transfers this player's transaction to gameplay backing.
+        request.storage_generation = None;
+        request.storage_identity = None;
+        request.personal_generation = None;
         let request_id = request.request_id;
         let prediction = &mut request.predicted[0];
         let from = prediction.held.clone();
@@ -173,7 +183,13 @@ impl PlayerInventoryLedger {
         let cell = prediction.cell;
         let to = prediction.held.clone();
         self.confirmed.set(cell, to.clone());
-        self.rebase_predictions(request_id, cell, from.as_ref(), to);
+        self.rebase_predictions(
+            request_id,
+            cell,
+            from.as_ref(),
+            to,
+            RollbackAuthority::Known,
+        );
         self.refold();
         self.finish_closing();
         true
@@ -230,7 +246,13 @@ impl PlayerInventoryLedger {
             }
         }
         self.confirmed.set(cell, after.clone());
-        self.rebase_predictions(i32::MAX, cell, Some(&before), after);
+        self.rebase_predictions(
+            i32::MAX,
+            cell,
+            Some(&before),
+            after,
+            RollbackAuthority::Known,
+        );
         self.refold();
         true
     }
@@ -281,10 +303,18 @@ impl PlayerInventoryLedger {
         };
         let request: PendingRequest = self.queue.remove(index).expect("index observed");
         if self.request_is_current(&request) {
-            for prediction in request.predicted {
-                self.confirmed.set(prediction.cell, prediction.held);
+            for prediction in &request.predicted {
+                self.confirmed.set(prediction.cell, prediction.held.clone());
+                self.rebase_predictions(
+                    request.request_id,
+                    prediction.cell,
+                    prediction.held.as_ref(),
+                    prediction.held.clone(),
+                    RollbackAuthority::Known,
+                );
             }
         }
+        self.finish_request_retirement(request.request_id, false);
         self.refold();
         self.finish_closing();
         true

@@ -18,24 +18,28 @@ fn next_revision() -> u64 {
 }
 
 pub(super) struct RenderState {
+    pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
     pub(super) retained: mod_render::retained::Store,
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
     calls: usize,
+    mask_calls: u32,
     compiles_left: u32,
 }
 
 impl RenderState {
     pub fn new() -> Self {
         Self {
+            masks: mod_render::masks::MaskStore::new(next_revision()),
             committed: RenderOutput::default(),
             retained: Default::default(),
             generation: next_revision(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
             calls: 0,
+            mask_calls: 0,
             compiles_left: MAX_RENDER_PASSES as u32,
         }
     }
@@ -49,10 +53,12 @@ impl RenderState {
         self.generation
     }
 
-    /// Starts a resource transaction and restores the shared render import allowance.
+    /// Starts mask and geometry transactions and restores their import allowances.
     pub fn begin_callback(&mut self) {
+        self.masks.begin();
         self.retained.begin();
         self.calls = 0;
+        self.mask_calls = 0;
     }
 
     /// Discards earlier immediate output and restores the frame's shader compile allowance.
@@ -63,24 +69,25 @@ impl RenderState {
         self.staged_primitives = Primitives::default();
     }
 
-    /// Publishes retained resources without replacing the frame's immediate output.
+    /// Publishes masks and geometry without replacing the frame's immediate output.
     pub fn commit_retained(&mut self) {
+        let masks = self.masks.commit();
+        let mut changed = masks != self.committed.masks;
+        self.committed.masks = masks;
         self.retained.commit();
         let snapshot = self.retained.snapshot();
         if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
-            if self.committed.retained.is_empty() {
-                return;
-            }
+            changed |= !self.committed.retained.is_empty();
             self.committed.retained.clear();
-        } else {
-            if matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
-            {
-                return;
-            }
+        } else if !matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+        {
             self.committed.retained.clear();
             self.committed.retained.push(Arc::clone(snapshot));
+            changed = true;
         }
-        self.generation = next_revision();
+        if changed {
+            self.generation = next_revision();
+        }
     }
 
     /// Publishes immediate primitives and post effects after a successful frame.
@@ -103,6 +110,7 @@ impl RenderState {
     }
 
     pub fn revoke(&mut self) {
+        self.masks.revoke();
         self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
@@ -116,6 +124,15 @@ impl RenderState {
         self.calls += 1;
         if self.calls > MAX_RENDER_CALLS {
             bail!("render import budget exhausted");
+        }
+        Ok(())
+    }
+
+    /// Charges mask imports separately from legacy primitives and pass mutations.
+    pub(super) fn mask_budget(&mut self) -> Result<()> {
+        self.mask_calls += 1;
+        if self.mask_calls > mod_api::drawing::MAX_MASK_CALLS {
+            bail!("mask import budget exhausted");
         }
         Ok(())
     }

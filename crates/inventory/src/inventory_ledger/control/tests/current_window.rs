@@ -72,7 +72,7 @@ fn closing_a_personal_replacement_allows_storage_before_the_older_close_settles(
 }
 
 #[test]
-fn closing_replacements_keep_returns_sent_before_their_close_can_leave() {
+fn closing_replacements_retire_returns_sent_before_their_close_can_leave() {
     for storage in [false, true] {
         for replacement_id in [3, 7] {
             for close_first in [false, true] {
@@ -126,8 +126,8 @@ fn closing_replacements_keep_returns_sent_before_their_close_can_leave() {
                 }
                 assert_eq!(ledger.pending_request_count(), 0);
                 assert!(!ledger.resync_required());
-                assert!(ledger.cursor_stack().is_none());
-                assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
+                assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
+                assert!(ledger.displayed_stack(0).is_none());
                 assert!(ledger.begin_click(0).is_ok());
             }
         }
