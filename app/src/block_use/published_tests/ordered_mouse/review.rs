@@ -2,6 +2,9 @@
 use super::*;
 use protocol::test_support::packets::equipment;
 
+#[path = "equipment.rs"]
+mod equipment_tests;
+
 /// Installs the real network-stage schedule around the physical-input fixture.
 fn app_fixture(capacity: usize) -> (App, client_session::CapturedPackets) {
     let (mut world, _) = selection_fixture();
