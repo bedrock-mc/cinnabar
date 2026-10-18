@@ -10,7 +10,7 @@ use std::sync::{
 };
 
 /// Render imports per callback; drawing and per-pass updates need more than other capabilities.
-const MAX_RENDER_CALLS: u32 = 32;
+pub(super) const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -51,15 +51,22 @@ impl RenderState {
         self.generation
     }
 
-    pub fn begin_frame(&mut self) {
+    /// Starts a resource transaction and restores the shared render import allowance.
+    pub fn begin_callback(&mut self) {
         self.retained.begin();
         self.calls = 0;
+    }
+
+    /// Discards earlier immediate output and restores the frame's shader compile allowance.
+    pub fn begin_frame(&mut self) {
+        self.begin_callback();
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
     }
 
-    pub fn commit(&mut self) {
+    /// Publishes retained resources without replacing the frame's immediate output.
+    pub fn commit_retained(&mut self) {
         self.retained.commit();
         let snapshot = self.retained.snapshot();
         let retained = if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
@@ -67,10 +74,16 @@ impl RenderState {
         } else {
             vec![Arc::clone(snapshot)]
         };
-        let retained_changed = self.committed.retained != retained;
-        self.committed.retained = retained;
+        if self.committed.retained != retained {
+            self.committed.retained = retained;
+            self.generation = next_revision();
+        }
+    }
+
+    /// Publishes immediate primitives and post effects after a successful frame.
+    pub fn commit(&mut self) {
         let primitives = std::mem::take(&mut self.staged_primitives);
-        let mut changed = retained_changed;
+        let mut changed = false;
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
             changed |= passes != self.committed.passes;

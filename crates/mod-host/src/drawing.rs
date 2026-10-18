@@ -251,7 +251,7 @@ mod tests {
         state.grants.world_draw = true;
         let geometry = state.create_geometry(triangle()).unwrap().unwrap();
         assert!(state.render.output().retained.is_empty());
-        state.render.commit();
+        state.render.commit_retained();
         assert_eq!(state.render.output().retained[0].geometry.len(), 1);
         state.render.begin_frame();
         state.remove(geometry).unwrap().unwrap();
