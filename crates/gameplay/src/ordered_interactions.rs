@@ -3,7 +3,7 @@
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
-/// Authorities that invalidate unadmitted input and old-world carriers.
+/// Authorities that scope input and accepted gameplay work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InteractionScope {
     pub session: SessionGeneration,
@@ -12,11 +12,14 @@ pub struct InteractionScope {
     pub input: InputAuthorityGeneration,
 }
 
-/// World replacement retires old carriers; input cancellation preserves accepted work.
+/// Separates input cancellation, changed geometry and world replacement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Invalidation {
     None,
     Input,
+    /// Retires old geometry while preserving accepted item-use charges and releases.
+    Position,
+    /// Retires accepted work from the previous session or dimension.
     World,
 }
 
@@ -29,16 +32,20 @@ pub struct OrderedInteractions {
 }
 
 impl OrderedInteractions {
-    /// Reports input cancellation separately from world replacement.
+    /// Reports the strongest changed authority so each owner can retire its own work.
     pub fn synchronize(&mut self, scope: InteractionScope, invalidated: bool) -> Invalidation {
         let world_changed = self.scope.is_some_and(|previous| {
-            (previous.session, previous.position, previous.dimension)
-                != (scope.session, scope.position, scope.dimension)
+            (previous.session, previous.dimension) != (scope.session, scope.dimension)
         });
+        let position_changed = self
+            .scope
+            .is_some_and(|previous| previous.position != scope.position);
         let changed = self.scope.is_some_and(|previous| previous != scope);
         self.scope = Some(scope);
         if world_changed {
             Invalidation::World
+        } else if position_changed {
+            Invalidation::Position
         } else if changed || invalidated {
             Invalidation::Input
         } else {

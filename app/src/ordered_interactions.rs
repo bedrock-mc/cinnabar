@@ -224,7 +224,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         .synchronize(scope, (new_frame && snapshot.authority_released) || !active);
     if invalidation != Invalidation::None {
         cancel_pending_owners(world);
-        if invalidation == Invalidation::World {
+        if matches!(invalidation, Invalidation::World | Invalidation::Position) {
             world.resource_mut::<MeleeRuntime>().synchronize(authority);
             world
                 .resource_mut::<BlockUseRuntime>()
@@ -232,6 +232,8 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
             world
                 .resource_mut::<client_interaction::survival_mining::SurvivalMiningRuntime>()
                 .synchronize(authority);
+        }
+        if invalidation == Invalidation::World {
             world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
         }
     }

@@ -18,10 +18,6 @@ fn world_replacement_is_distinct_from_input_cancellation() {
             ..scope()
         },
         InteractionScope {
-            position: PositionAuthorityGeneration::new(4),
-            ..scope()
-        },
-        InteractionScope {
             dimension: 1,
             ..scope()
         },
@@ -30,6 +26,24 @@ fn world_replacement_is_distinct_from_input_cancellation() {
         frames.synchronize(scope(), false);
         assert_eq!(frames.synchronize(replacement, false), Invalidation::World);
     }
+}
+
+#[test]
+fn position_correction_does_not_replace_the_world() {
+    let mut frames = OrderedInteractions::default();
+    frames.synchronize(scope(), false);
+    let corrected = InteractionScope {
+        position: PositionAuthorityGeneration::new(4),
+        ..scope()
+    };
+    assert_eq!(frames.synchronize(corrected, false), Invalidation::Position);
+    assert_eq!(frames.synchronize(corrected, false), Invalidation::None);
+    let replaced = InteractionScope {
+        session: SessionGeneration::new(8),
+        position: PositionAuthorityGeneration::new(5),
+        ..corrected
+    };
+    assert_eq!(frames.synchronize(replaced, true), Invalidation::World);
 }
 
 #[test]

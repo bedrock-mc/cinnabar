@@ -5,6 +5,9 @@ use client_interaction::item_use::ItemUseRuntime;
 #[path = "ordered/matrix.rs"]
 mod matrix;
 
+#[path = "ordered/correction.rs"]
+mod correction;
+
 /// Publishes a release followed by a wheel selection through the semantic desktop adapter.
 fn release_and_select(world: &mut World, release: bool) {
     let mut events = semantic_input::DesktopEvents::default();
