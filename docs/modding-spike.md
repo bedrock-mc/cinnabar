@@ -112,6 +112,60 @@ icon must be one PNG within the limits above that decodes completely; otherwise
 the card shows the placeholder. Metadata and icons are read by parsing the file
 only, and their content never causes a load to fail.
 
+### Optional GitHub mod updates
+
+Authors can opt into automatic updates by appending one top-level UTF-8 custom
+section `cinnabar:extension/update-url@1` (`mod_api::UPDATE_URL_SECTION`). Its
+contents identify the exact WASM asset on the latest stable GitHub release:
+
+```text
+https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm
+```
+
+The HTTPS URL must use that path, a public GitHub repository, and an ASCII asset
+name ending in `.wasm`. URL queries, credentials, fragments and nested paths are
+rejected. The URL is bounded to 512 bytes, with an asset name up to 128 bytes.
+Missing, duplicate, nested or invalid sections disable automatic updates without
+affecting the mod's loading. The component also needs a standard `version`
+section containing SemVer, and each release must retain the same update URL.
+
+For notifications alone, authors can instead append
+`cinnabar:extension/update-repository@1`
+(`mod_api::UPDATE_REPOSITORY_SECTION`) containing the public repository URL,
+such as `https://github.com/example/zoom-plus`. Repository URLs up to 256 bytes
+accept an optional `.git` suffix or trailing slash. When both sections are
+present, the download URL selects the repository.
+
+On launch, Cinnabar checks opted-in repositories in the background and compares
+the latest release tag, such as `v1.3.0`, with the installed version. Drafts,
+prereleases, equal/older versions and non-SemVer tags are skipped. Each repository
+is checked once per session, including newly imported mods; network work is
+limited to 32 repositories and 32 automatic download attempts per launch.
+Missing releases, network failures and API limits leave the installed mod usable.
+These public requests use no GitHub login or token.
+
+With automatic installation enabled, Cinnabar selects the exact named release
+asset and downloads its immutable GitHub asset ID. The asset must have GitHub's
+SHA-256 digest and fit the host's component size limit. Cinnabar checks the hash,
+component compatibility, declared source and embedded version before atomically
+replacing the unchanged file in the managed mods folder. Settings companions and
+registration, including permission grants, are preserved. Enabled mods reload
+through the existing source watcher, which retains the running instance if
+activation fails. Disabled mods stay disabled. Components registered outside the
+managed mods folder can show notifications but are not replaced automatically.
+
+A newer release shows the launcher's corner update card. **View mod updates**
+opens **Settings → Mods**. **View release** opens the release page for release
+notes or manual installation, including when automatic installation is disabled
+or unavailable. Successful installs report their version on the Mods tab and
+clear the available-update notice. App updates take priority in the corner.
+
+Players can disable **Install mod updates automatically** in **Settings →
+General** while retaining notifications, or disable **Check for mod updates**
+to stop both checks and downloads. Both mod settings work independently of the
+app updater, including development builds. Mods without either declaration make
+no update requests.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one

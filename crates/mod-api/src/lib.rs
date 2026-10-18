@@ -65,10 +65,14 @@ pub const MAX_MENU_TITLE_BYTES: usize = 64;
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
 /// Optional top-level PNG shown beside the component in the Mods library.
 pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Optional top-level HTTPS GitHub repository URL enabling mod release notifications.
+pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
+/// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
+pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
-/// Every versioned static section recognized by the local component loader.
+/// Every presentation asset section stripped from executable component bytes.
 pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
