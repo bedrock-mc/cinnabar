@@ -61,7 +61,9 @@ impl CapturedPackets {
         while let Ok(command) = self.commands.try_recv() {
             match command {
                 NetworkCommand::Send { packet, .. } => self.pending.push(packet),
-                NetworkCommand::FlushFrame => return Some(std::mem::take(&mut self.pending)),
+                NetworkCommand::FlushFrame { .. } => {
+                    return Some(std::mem::take(&mut self.pending));
+                }
                 NetworkCommand::FinishLoading => {}
             }
         }

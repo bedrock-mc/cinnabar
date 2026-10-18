@@ -16,6 +16,8 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
             .iter()
             .any(|&index| index as usize >= vertices.len())
         || vertices.iter().any(|v| {
+            #[cfg(test)]
+            super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
             !v.position
                 .iter()
                 .chain(&v.uv)
