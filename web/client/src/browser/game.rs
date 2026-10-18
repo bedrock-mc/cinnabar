@@ -1,7 +1,6 @@
 //! One page-owned game task over the relay's prepared play lease.
 use super::{Page, emit, timer};
 use futures::{
-    FutureExt,
     channel::{mpsc, oneshot},
     future::{AbortHandle, Abortable},
 };
@@ -202,19 +201,7 @@ async fn drive(
             return;
         };
         emit(&observe, serde_json::json!({"state":"joining"}));
-        let mut work = work.fuse();
-        let mut writer = io.writer.fuse();
-        let completed = {
-            let cancelled = guard.cancelled().fuse();
-            futures::pin_mut!(cancelled);
-            futures::select_biased! {
-                _ = cancelled => false,
-                _ = work => true,
-                _ = writer => false,
-            }
-        };
-        drop(work);
-        drop(writer);
+        let completed = guard.run(work, io.writer).await;
         drop(guard);
         if !completed {
             host.borrow_mut().disconnect();

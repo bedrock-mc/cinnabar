@@ -40,6 +40,19 @@ export async function boundedBytes(response, maximum, exact = true) {
   } finally { await reader.cancel(); }
 }
 
+/** Keeps required delivery failures fatal while unavailable optional carriers use startup fallbacks. */
+export async function downloadCarriers(carriers, manifest, base, fetcher = fetch) {
+  for (const [name, path, required] of JSON.parse(carriers.entries())) {
+    try {
+      const entry = manifest.entries.find((entry) => entry.name === name);
+      const response = await fetcher(new URL(path, base), { credentials: "omit" });
+      carriers.insert(name, await boundedBytes(response, entry.bytes));
+    } catch (error) {
+      if (required !== false) throw error;
+    }
+  }
+}
+
 /** Suspends cached pages and tears down resources only when navigation is final. */
 export function pageLifecycle(input, audio, page, dispose, view = window) {
   let cached = false, disposed = false;

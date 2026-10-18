@@ -1,6 +1,6 @@
 //! A play stream leased from the page's retained relay session.
 
-use futures::channel::oneshot;
+use futures::{FutureExt, channel::oneshot};
 use std::{future::Future, pin::Pin};
 #[cfg(any(target_arch = "wasm32", test))]
 use web_transport::CloseReason;
@@ -49,6 +49,26 @@ impl Guard {
     pub async fn cancelled(&mut self) {
         let _ = (&mut self.cancelled).await;
     }
+
+    /// Drives I/O until the session finishes (true) or its generation is cancelled (false).
+    /// A stopped writer leaves terminal recovery to the session and its existing deadlines.
+    pub async fn run(
+        &mut self,
+        session: impl Future<Output = ()>,
+        writer: impl Future<Output = ()>,
+    ) -> bool {
+        let session = session.fuse();
+        let writer = writer.fuse();
+        let cancelled = self.cancelled().fuse();
+        futures::pin_mut!(session, writer, cancelled);
+        loop {
+            futures::select_biased! {
+                _ = cancelled => return false,
+                _ = session => return true,
+                _ = writer => {},
+            }
+        }
+    }
 }
 
 /// Control-side ownership; its drop wakes the game's cancellation future.
@@ -57,3 +77,6 @@ pub(crate) struct Active {
     pub finished: oneshot::Receiver<()>,
     pub cancel: Option<oneshot::Sender<()>>,
 }
+
+#[cfg(test)]
+mod tests;

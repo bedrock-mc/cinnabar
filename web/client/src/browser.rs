@@ -1,6 +1,6 @@
 //! Browser-local control driver and verified asset download admission.
 use crate::relay::{self, AccountCommand, Host, Intent, Refresh};
-use assets::carriers::startup::delivery::{DeliveryManifest, MemoryCarriers};
+use assets::carriers::startup::delivery::{DeliveryManifest, MemoryCarriers, startup_carriers};
 use futures::channel::{mpsc, oneshot};
 use js_sys::Function;
 use std::{
@@ -224,13 +224,19 @@ impl Carriers {
             .map(|source| Self { source })
             .map_err(error)
     }
-    /// Supplies canonical filenames; JS never maintains a carrier list.
+    /// Supplies canonical filenames and delivery requirements from the startup carrier set.
     pub fn entries(&self) -> String {
         serde_json::to_string(
             &self
                 .source
                 .entries()
-                .map(|carrier| (carrier.name, carrier.output))
+                .map(|carrier| {
+                    (
+                        carrier.name,
+                        carrier.output,
+                        startup_carriers().any(|required| required.name == carrier.name),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
         .expect("carrier strings")

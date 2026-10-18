@@ -25,7 +25,7 @@ a { color: #a9dad2; }
 <canvas id="game" aria-label="Client canvas"></canvas>
 <script type="module">
 import init, { Page, Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } from "./pkg/web_client.js";
-import { boundedBytes, canvasEdges, pageLifecycle } from "./edges.mjs";
+import { boundedBytes, downloadCarriers, canvasEdges, pageLifecycle } from "./edges.mjs";
 import { openSoundBank } from "./audio.mjs";
 /** Finds a page control by its stable DOM identifier. */
 const element = (id) => document.getElementById(id);
@@ -56,11 +56,7 @@ async function prepare(input) {
   let carriers = new Carriers(JSON.stringify(manifest));
   let audio;
   try {
-    for (const [name, path] of JSON.parse(carriers.entries())) {
-      const entry = manifest.entries.find((entry) => entry.name === name);
-      const response = await fetch(new URL(path, base), { credentials: "omit" });
-      carriers.insert(name, await boundedBytes(response, entry.bytes));
-    }
+    await downloadCarriers(carriers, manifest, base);
     const prepared = carriers;
     carriers = null;
     const identity = crypto.getRandomValues(new BigInt64Array(1))[0] || 1n;
