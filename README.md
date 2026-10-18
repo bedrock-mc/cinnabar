@@ -80,6 +80,7 @@ Built on these libraries:
 
 Crate-by-crate layout: [docs/architecture/workspace.md](docs/architecture/workspace.md).
 Benchmarks: [docs/benchmarks.md](docs/benchmarks.md).
+Roadmap: [plan.md](plan.md). Change history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 
