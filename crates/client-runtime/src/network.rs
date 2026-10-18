@@ -3,7 +3,9 @@
 use bevy::app::{App, MainScheduleOrder};
 use bevy::diagnostic::FrameCount;
 use bevy::ecs::schedule::ScheduleLabel;
-use bevy::prelude::{Deref, DerefMut, IntoScheduleConfigs, Query, Res, ResMut, Resource};
+use bevy::prelude::{
+    Deref, DerefMut, IntoScheduleConfigs, Query, Res, ResMut, Resource, Time, Update,
+};
 use bevy::render::view::ExtractedWindow;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use std::{collections::VecDeque, path::PathBuf};
@@ -120,6 +122,24 @@ pub fn configure_network_frame_flush<P: Send + Sync + 'static>(app: &mut App) {
         .resource_mut::<MainScheduleOrder>()
         .insert_before(render::FrameEnd, NetworkFrameFlush);
     app.add_systems(NetworkFrameFlush, flush_network_frame::<P>);
+    app.add_systems(
+        Update,
+        advance_network_simulation::<P>
+            .after(client_state::ClientFrameSet::Physics)
+            .before(client_state::ClientFrameSet::Camera),
+    );
+}
+
+/// Advances the joined session after physics, including idle and terrain-blocked frames.
+fn advance_network_simulation<P: Send + Sync + 'static>(
+    time: Option<Res<Time<bevy::time::Real>>>,
+    network: Option<Res<NetworkHandle<P>>>,
+) {
+    if let (Some(time), Some(network)) = (time, network)
+        && network.core_socket_dir.is_some()
+    {
+        network.advance_simulation(time.delta());
+    }
 }
 
 /// Records each extracted frame, and each that reached a window's swap chain, in the latency trace

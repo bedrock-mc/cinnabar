@@ -2,6 +2,65 @@ use super::*;
 use protocol::{ContainerIdentity, InventorySlotEvent, NetworkItemStack, SlotIdentity};
 
 #[test]
+fn item_data_committed_preview_accepts_a_named_ordinary_ingredient() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    use sha2::{Digest, Sha256};
+    let mut recipe = RecipeFixture::shaped(
+        "test:item_data",
+        1,
+        1,
+        vec![IngredientFixture::named("minecraft:oak_log", 0)],
+        vec![OutputFixture::new(6, 1)],
+    );
+    recipe.net_id = 17;
+    let mut state = CraftingAuthority::new(1);
+    state.bootstrap(
+        Some(&named_registry("minecraft:oak_log", 64)),
+        InventoryAuthority::Server,
+    );
+    state.observe(
+        1,
+        1,
+        &InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(
+            CraftingDataFixture::clearing(vec![recipe]).update(),
+        )),
+    );
+    let mut input = NetworkItemStack {
+        network_id: 6,
+        count: 2,
+        stack_network_id: 101,
+        ..NetworkItemStack::empty()
+    };
+    input.extra_data = protocol::edit_item_extra(
+        &[0; 10],
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some("Craft ingredient".to_owned())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    input.nbt_digest = Sha256::digest(&input.extra_data).into();
+    state.observe(
+        1,
+        2,
+        &contextual_content([
+            input,
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+        ]),
+    );
+    state.synchronize(Some((1, 0, Some(2))));
+    state.advance();
+    assert!(matches!(
+        state.preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+}
+
+#[test]
 fn normal_transaction_commits_crafting_and_cursor_as_one_fifo_revision() {
     let mut state = CraftingAuthority::new(1);
     let update = |slot, id| InventorySlotEvent {
@@ -75,7 +134,7 @@ fn contextual_content(stacks: [NetworkItemStack; 4]) -> InventoryAuthorityEvent 
 }
 
 #[test]
-fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_authority() {
+fn contextual_grid_and_incremental_cells_share_committed_fifo_with_cursor_authority() {
     let stacks = std::array::from_fn(|index| NetworkItemStack {
         network_id: 6,
         stack_network_id: i32::try_from(101 + index).unwrap(),
@@ -94,7 +153,7 @@ fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_aut
     for (cell, expected) in state.grid.iter().zip(&stacks) {
         assert_eq!(&cell.as_ref().unwrap().stack, expected);
     }
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
     let old = state.clone();
     state.observe(1, 2, &slot(0, 29));
     state.observe(1, 3, &present_slot(13, 30));
@@ -119,7 +178,7 @@ fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_aut
             .iter()
             .all(|cell| cell.as_ref().unwrap().stack.is_empty())
     );
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
 }
 
 #[test]
@@ -155,7 +214,7 @@ fn contextual_grid_obeys_session_epoch_and_immediate_client_revocation() {
 }
 
 #[test]
-fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_does_not_invent_cursor() {
+fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_restores_cursor_authority() {
     let empty = || contextual_content(std::array::from_fn(|_| NetworkItemStack::empty()));
     let mut state = CraftingAuthority::new(1);
     state.bootstrap(
@@ -182,7 +241,7 @@ fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_does_not_invent_curs
     state.synchronize(Some((1, 0, Some(67))));
     state.advance();
     assert!(state.grid.iter().all(Option::is_some));
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
     assert!(state.preview().is_none());
 }
 

@@ -1,8 +1,8 @@
-//! Direct world-projected UI pass with the native text depth modes.
+//! World-projected UI shares compatible passes while each material keeps its native depth mode.
 use super::*;
 use bevy::{ecs::query::QueryItem, render::render_resource::RenderPassDepthStencilAttachment};
 
-type UiViewQuery = (
+pub(crate) type UiViewQuery = (
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
     &'static MainEntity,
@@ -17,96 +17,130 @@ pub(super) fn ui_world(
     view: bevy::render::renderer::ViewQuery<UiViewQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
-    draw_ui_view(view.entity(), &mut context, view.into_inner(), world)
+    let Some(gpu) = world.get_resource::<UiGpu>() else {
+        return Ok(());
+    };
+    draw_ui_view(
+        view.entity(),
+        &mut context,
+        view.into_inner(),
+        world,
+        gpu,
+        &gpu.batches,
+    )
 }
 
-/// Draw projected batches in authored order under their native depth modes.
-fn draw_ui_view(
+/// Shares projected batches across compatible attachments, preserving material depth behavior.
+pub(crate) fn draw_ui_view(
     view_entity: Entity,
     context: &mut RenderContext,
     (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
     world: &World,
+    gpu: &UiGpu,
+    batches: &[UiRenderBatch],
 ) -> Result<(), BevyError> {
-    let (Some(gpu), Some(pipeline_cache)) = (
-        world.get_resource::<UiGpu>(),
-        world.get_resource::<PipelineCache>(),
-    ) else {
+    let Some(pipeline_cache) = world.get_resource::<PipelineCache>() else {
         return Ok(());
     };
     let (Some(vertices), Some(indices), Some(_)) = (
         &gpu.vertex_buffer,
         &gpu.index_buffer,
-        overlay_pipeline_pair(&gpu.batches, &gpu.view_pipelines, view_entity),
+        overlay_pipeline_pair(batches, &gpu.view_pipelines, view_entity),
     ) else {
         return Ok(());
     };
-    if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-    {
-        return Ok(());
-    }
     let Some(batches) = resolved_batches(
         gpu.accepted_revision,
-        &gpu.batches,
+        batches,
         &gpu.textures.locations,
         gpu.textures.allocated_buckets(),
     ) else {
         return Ok(());
     };
-    // Separate passes keep depth/no-depth and read-only/writable attachment states compatible.
-    // Preserve the authored plate/text order across every depth mode.
-    let mut batches = batches
-        .filter(|(_, batch, _)| batch.world_projection != 0)
-        .peekable();
-    while let Some((_, first, _)) = batches.peek().copied() {
-        let depth_test = first.depth_test != 0;
-        let depth_write = first.depth_write != 0;
-        let matches_depth = |batch: &UiRenderBatch| {
-            (batch.depth_test != 0, batch.depth_write != 0) == (depth_test, depth_write)
-        };
-        let depth = depth.filter(|depth| world_depth_compatible(depth, scene_target));
-        let pair = if depth_test || depth_write {
-            depth.and_then(|_| {
-                gpu.world_view_pipelines
-                    .get(&(view_entity, depth_test, depth_write))
-            })
+    let batches = batches.filter(|(_, batch, _)| {
+        batch.world_projection != 0
+            && gpu
+                .textures
+                .page_binding(batch.texture_page as usize)
+                .is_some()
+    });
+    let depth = depth.filter(|depth| world_depth_compatible(depth, scene_target));
+    let ready = |test: bool, write: bool, attached: bool| {
+        if (test || write) && depth.is_none() {
+            return None;
+        }
+        let &(alpha, invert) =
+            gpu.world_view_pipelines
+                .get(&(view_entity, test, write, attached))?;
+        // Preserve the original readiness gate, including for invert-only batches.
+        let alpha = (alpha, pipeline_cache.get_render_pipeline(alpha)?);
+        let invert = pipeline_cache
+            .get_render_pipeline(invert)
+            .map(|pipeline| (invert, pipeline));
+        Some((alpha, invert))
+    };
+    // Two independent depth flags give four material modes; resolve each only once per view.
+    let materials: [_; 4] = std::array::from_fn(|mode| ready(mode & 2 != 0, mode & 1 != 0, false));
+    let attached = ready(false, false, true);
+    let pipeline = |batch: &UiRenderBatch, shared: bool| {
+        let mode = usize::from(batch.depth_test != 0) * 2 + usize::from(batch.depth_write != 0);
+        let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
+        let (alpha, invert) = materials[mode]?;
+        let original = if wants_invert { invert } else { Some(alpha) }?;
+        if shared && mode == 0 {
+            let (alpha, invert) = attached?;
+            if wants_invert { invert } else { Some(alpha) }
         } else {
-            gpu.world_view_pipelines.get(&(view_entity, false, false))
-        };
-        let Some((alpha, invert)) = pair else {
-            while batches
-                .next_if(|(_, batch, _)| matches_depth(batch))
-                .is_some()
-            {}
-            continue;
-        };
-        let Some(pipeline) = pipeline_cache.get_render_pipeline(*alpha) else {
-            while batches
-                .next_if(|(_, batch, _)| matches_depth(batch))
-                .is_some()
-            {}
-            continue;
-        };
+            Some(original)
+        }
+    };
+    // Read-only depth is enough unless a ready material writes it. No-depth frames stay so.
+    let depth_write = batches
+        .clone()
+        .filter_map(|(_, batch, _)| {
+            ((batch.depth_test != 0 || batch.depth_write != 0) && pipeline(batch, false).is_some())
+                .then_some(batch.depth_write != 0)
+        })
+        .reduce(|left, right| left || right);
+    // Keep no-depth draws visible while the compatible variants are still compiling.
+    let share_depth = depth_write.is_some()
+        && batches.clone().all(|(_, batch, _)| {
+            batch.depth_test != 0
+                || batch.depth_write != 0
+                || pipeline(batch, false).is_none()
+                || pipeline(batch, true).is_some()
+        });
+    let mut batches = batches
+        .filter_map(|(_, batch, location)| {
+            pipeline(batch, share_depth).map(|(id, pipeline)| {
+                (
+                    batch,
+                    location,
+                    id,
+                    pipeline,
+                    share_depth || batch.depth_test != 0 || batch.depth_write != 0,
+                )
+            })
+        })
+        .peekable();
+    while let Some(needs_depth) = batches.peek().map(|batch| batch.4) {
+        #[cfg(test)]
+        gpu.world_passes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let attachments = [Some(scene_target.color_attachment(target, false))];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("retained world-projected UI"),
             color_attachments: &attachments,
-            depth_stencil_attachment: if depth_test || depth_write {
+            depth_stencil_attachment: depth_write.filter(|_| needs_depth).and_then(|write| {
                 depth.map(|depth| RenderPassDepthStencilAttachment {
                     view: depth.attachment.depth_stencil_views().attachment_view(),
-                    depth_ops: depth_write.then_some(Operations {
+                    depth_ops: write.then_some(Operations {
                         load: LoadOp::Load,
                         store: StoreOp::Store,
                     }),
                     stencil_ops: None,
                 })
-            } else {
-                None
-            },
+            }),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
                 render_scene::RuntimeStage::GpuUi,
@@ -114,7 +148,6 @@ fn draw_ui_view(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_render_pipeline(pipeline);
         if let Some(viewport) = overlay_viewport(camera.viewport.as_ref(), resolution_override) {
             let Some(viewport) = crate::render_bounds::viewport(
                 &viewport,
@@ -126,25 +159,21 @@ fn draw_ui_view(
         }
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-        let mut invert_bound = false;
-        while let Some((_, batch, location)) = batches.next_if(|(_, batch, _)| matches_depth(batch))
+        let mut bound = None;
+        while let Some((batch, location, id, pipeline, _)) =
+            batches.next_if(|batch| batch.4 == needs_depth)
         {
-            let binding = gpu.textures.buckets[location.bucket]
-                .bind_group
-                .as_ref()
-                .unwrap();
-            pass.set_bind_group(0, binding, &[]);
-            let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
-            if wants_invert != invert_bound {
-                let id = if wants_invert { *invert } else { *alpha };
-                let Some(pipeline) = pipeline_cache.get_render_pipeline(id) else {
-                    // The invert variant is still compiling; skip its batches
-                    // this frame rather than drawing them with the wrong blend.
-                    continue;
-                };
+            if bound != Some(id) {
                 pass.set_render_pipeline(pipeline);
-                invert_bound = wants_invert;
+                bound = Some(id);
             }
+            pass.set_bind_group(
+                0,
+                gpu.textures
+                    .page_binding(batch.texture_page as usize)
+                    .unwrap(),
+                &[],
+            );
             let Some(scissor) = crate::render_bounds::scissor(
                 batch.scissor,
                 crate::render_bounds::extent(scene_target.color_view(false)),
@@ -160,7 +189,7 @@ fn draw_ui_view(
     Ok(())
 }
 
-/// Only bind depth with the owning color target's dimensions and sample count.
+/// Only binds depth with the owning color target's dimensions and sample count.
 fn world_depth_compatible(
     depth: &ViewDepthStencilTexture,
     target: &crate::scene_target::SceneTarget,

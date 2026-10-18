@@ -97,7 +97,7 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
     runtime.screen_state_mut().search_focused = true;
     runtime.screen_state_mut().furnace.as_mut().unwrap().layout =
         ::protocol::FurnaceLayout::RecipeBook;
-    runtime.observe_inventory_search_focus(&player);
+    runtime.observe_inventory_search_focus(&player, true);
     assert!(
         runtime.screen_state().text_focused(),
         "visible furnace search retains the keyboard across pointer frames"

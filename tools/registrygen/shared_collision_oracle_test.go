@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 // sharedCollisionSeed projects the catalog's collision boxes into the carrier's fixed point format.

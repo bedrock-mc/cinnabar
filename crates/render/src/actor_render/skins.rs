@@ -24,7 +24,7 @@ pub(super) struct GpuSkinArrays {
 
 /// Allocates a class array before any view or layer copy can reference it.
 fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Option<Texture> {
-    allocation::checked(
+    gpu_allocation::checked(
         device,
         "player skin class array",
         u64::from(side) * u64::from(side) * u64::from(layers) * 4,
@@ -61,9 +61,10 @@ impl GpuSkinArrays {
     /// Creates empty class bindings, or disables actors when even the placeholder fails.
     pub fn new(device: &RenderDevice) -> Option<Self> {
         let texture = skin_array(device, 1, 1)?;
-        let placeholder = allocation::checked(device, "actor skin placeholder view", 0, || {
-            array_view(&texture)
-        })?;
+        let placeholder =
+            gpu_allocation::checked(device, "actor skin placeholder view", 0, || {
+                array_view(&texture)
+            })?;
         Some(Self {
             classes: std::array::from_fn(|_| GpuSkinClass {
                 texture: None,
@@ -106,7 +107,7 @@ impl GpuSkinArrays {
             return false;
         }
         let previous = self.classes.clone();
-        let result = allocation::checked(device, "actor skin transfers", 0, || {
+        let result = gpu_allocation::checked(device, "actor skin transfers", 0, || {
             self.try_sync(residency, device, queue)
         })
         .flatten();
@@ -211,7 +212,7 @@ impl GpuSkinArrays {
                     bytes = resident.texels.len(),
                 )
                 .entered();
-                allocation::checked(
+                gpu_allocation::checked(
                     device,
                     "actor skin upload",
                     resident.texels.len() as u64,
@@ -250,7 +251,7 @@ impl GpuSkinArrays {
             let command = copies.finish();
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("actor.skin_copy_submit").entered();
-            allocation::checked(device, "actor skin copy", 0, || queue.submit([command]))?;
+            gpu_allocation::checked(device, "actor skin copy", 0, || queue.submit([command]))?;
         }
         self.synced = Some(Arc::clone(residency));
         Some(views_changed)

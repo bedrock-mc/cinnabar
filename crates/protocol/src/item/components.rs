@@ -30,6 +30,8 @@ pub struct ItemComponents {
     pub fuel_duration_ticks: Option<u32>,
     /// Whether fuel was declared, including malformed component values.
     pub fuel_declared: bool,
+    /// Both storage components required to register a dynamic item container are present.
+    pub storage_container: bool,
     /// Attack and kinetic presentation facts, when this item declares them.
     pub attack: Option<super::ItemAttackTiming>,
     /// `item_texture.json` key from `minecraft:icon`.
@@ -55,6 +57,8 @@ pub struct ItemComponents {
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
+    /// The top-level stack component, independent from item_properties precedence.
+    pub max_stack_size_component: Option<u8>,
     /// Duplicate capacity fields or ancestors make the stack capacity unresolved.
     pub stack_capacity_ambiguous: bool,
     /// The components carry an `item_properties` entry, whose stack size a component item takes.
@@ -210,14 +214,18 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .filter(|value| value.is_finite() && *value >= 0.0)
             .map(|value| value.min(f64::from(u32::MAX)) as u32)
     };
-    let use_duration_ticks = count(property("use_duration")).or_else(|| {
-        use_modifiers
-            .and_then(|modifiers| modifiers.field("use_duration"))
-            .and_then(Nbt::number)
-            .map(|seconds| seconds as f32)
-            .and_then(simulation_clock::whole_ticks_from_seconds)
-    });
-    let glint = declared_flag(property("foil"), component("minecraft:glint"));
+    let use_duration_ticks =
+        count(property("use_duration").or(component("minecraft:use_duration"))).or_else(|| {
+            use_modifiers
+                .and_then(|modifiers| modifiers.field("use_duration"))
+                .and_then(Nbt::number)
+                .map(|seconds| seconds as f32)
+                .and_then(simulation_clock::whole_ticks_from_seconds)
+        });
+    let glint = declared_flag(
+        property("foil").or(component("minecraft:foil")),
+        component("minecraft:glint"),
+    );
     let hand_equipped = declared_flag(
         property("hand_equipped"),
         component("minecraft:hand_equipped"),
@@ -249,6 +257,9 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .and_then(Nbt::number)
             .and_then(duration_ticks),
         fuel_declared: component("minecraft:fuel").is_some(),
+        storage_container: ["minecraft:storage_item", "minecraft:storage_weight_limit"]
+            .into_iter()
+            .all(|name| component(name).is_some_and(|value| matches!(value, Nbt::Compound(_)))),
         attack: super::attack::parse_attack(components),
         icon: super::icons::icon_key(bytes),
         display_name: text(
@@ -258,7 +269,8 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         glint_declared: glint.0,
         hand_equipped: hand_equipped.1,
         hand_equipped_declared: hand_equipped.0,
-        durability_declared: component("minecraft:durability").is_some(),
+        durability_declared: component("minecraft:durability").is_some()
+            || component("minecraft:max_damage").is_some(),
         allow_off_hand_declared: property("allow_off_hand").is_some()
             || component("minecraft:allow_off_hand").is_some(),
         allow_off_hand: component("minecraft:allow_off_hand")
@@ -269,12 +281,15 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
                 _ => None,
             }),
         creative_category: super::registry_properties::negotiated_creative_category(bytes),
-        max_durability: count(
-            component("minecraft:durability")
-                .and_then(|durability| durability.field("max_durability")),
-        )
+        max_durability: count(match component("minecraft:durability") {
+            Some(durability) => durability.field("max_durability"),
+            None => component("minecraft:max_damage"),
+        })
         .filter(|maximum| *maximum > 0),
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
+            .filter(|size| (1..=255).contains(size))
+            .map(|size| size as u8),
+        max_stack_size_component: count(component("minecraft:max_stack_size"))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
         stack_capacity_ambiguous,
@@ -510,6 +525,30 @@ mod tests {
         entries.iter().for_each(|entry| bytes.extend(entry));
         bytes.push(0);
         bytes
+    }
+
+    #[test]
+    fn custom_content_legacy_components_retain_tool_glint_and_use_facts() {
+        let root = compound(
+            "",
+            &[compound(
+                "components",
+                &[
+                    int("minecraft:max_stack_size", 1),
+                    int("minecraft:max_damage", 1562),
+                    byte("minecraft:foil", 1),
+                    byte("minecraft:hand_equipped", 1),
+                    int("minecraft:use_duration", 32),
+                ],
+            )],
+        );
+        let facts = parse_components(&root).unwrap();
+        assert_eq!(facts.max_stack_size, Some(1));
+        assert_eq!(facts.max_durability, Some(1562));
+        assert!(facts.durability_declared && facts.max_stack_size_component_declared);
+        assert_eq!(facts.glint, Some(true));
+        assert_eq!(facts.hand_equipped, Some(true));
+        assert_eq!(facts.use_duration_ticks, Some(32));
     }
 
     #[test]
@@ -752,6 +791,24 @@ mod tests {
     }
 
     #[test]
+    fn custom_content_stack_component_retains_its_own_value_with_property_precedence() {
+        let payload = compound(
+            "",
+            &[compound(
+                "components",
+                &[
+                    compound("item_properties", &[int("max_stack_size", 64)]),
+                    int("minecraft:max_stack_size", 1),
+                ],
+            )],
+        );
+        let components = parse_components(&payload).unwrap();
+        assert_eq!(components.max_stack_size, Some(64));
+        assert_eq!(components.max_stack_size_component, Some(1));
+        assert!(!components.stack_capacity_ambiguous);
+    }
+
+    #[test]
     fn intrinsic_glint_flags_distinguish_false_missing_and_malformed_data() {
         let payload = |flag: Option<Vec<u8>>| {
             compound(
@@ -834,5 +891,35 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(overridden.allow_off_hand, Some(false));
+    }
+    #[test]
+    fn dynamic_storage_requires_both_component_objects() {
+        for storage in [false, true] {
+            for weight in [false, true] {
+                let mut fields = Vec::new();
+                if storage {
+                    fields.push(compound("minecraft:storage_item", &[]));
+                }
+                if weight {
+                    fields.push(compound("minecraft:storage_weight_limit", &[]));
+                }
+                let payload = compound("", &[compound("components", &fields)]);
+                assert_eq!(
+                    parse_components(&payload).unwrap().storage_container,
+                    storage && weight
+                );
+            }
+        }
+        let payload = compound(
+            "",
+            &[compound(
+                "components",
+                &[
+                    string("minecraft:storage_item", "wrong"),
+                    compound("minecraft:storage_weight_limit", &[]),
+                ],
+            )],
+        );
+        assert!(!parse_components(&payload).unwrap().storage_container);
     }
 }

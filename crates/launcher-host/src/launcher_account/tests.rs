@@ -140,6 +140,10 @@ fn core_connect_stages_map_to_join_stages() {
         received_bytes: 3,
         total_bytes: 4,
     };
+    assert_eq!(
+        join_stage(&progress(ConnectStage::Idle)),
+        JoinStage::Connecting
+    );
     assert_eq!(join_stage(&progress(ConnectStage::Realm)), JoinStage::Realm);
     assert_eq!(
         join_stage(&progress(ConnectStage::Connecting)),

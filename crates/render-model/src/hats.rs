@@ -26,8 +26,12 @@ pub struct HatRig {
     wind: Option<cosmetics_animation::Wind>,
     playback: Option<cosmetics_animation::Playback>,
     pub rest_vertices: Arc<[ActorVertex]>,
+    preview_part: u32,
+    preview_frame: std::sync::OnceLock<thumbnail::Frame>,
     pub texture: CapeImage,
     pub pixels: SkinRgba8,
+    world_pixels: Option<SkinRgba8>,
+    emitters: Box<[emitters::CosmeticEmitter]>,
 }
 
 static RIGS: RwLock<Vec<(Item, &'static HatRig)>> = RwLock::new(Vec::new());
@@ -259,13 +263,23 @@ impl HatPoseCache {
 
 #[cfg(test)]
 mod animation_tests;
+#[cfg(test)]
+mod catalog_tests;
 mod clip_playback;
 mod cosmetics_animation;
+#[cfg(test)]
+mod emitter_tests;
+mod emitters;
+pub use emitters::{
+    COSMETIC_EFFECT_NAMESPACE, COSMETIC_PARTICLE_TEXTURE, COSMETIC_SPRITE_SIDE, CosmeticEmitter,
+    CosmeticSprite, MAX_COSMETIC_EMITTERS,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture;
 #[cfg(test)]
 mod flight_tests;
 mod model;
+mod preview;
 #[cfg(test)]
 mod tests;
 pub mod thumbnail;

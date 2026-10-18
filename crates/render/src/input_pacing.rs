@@ -15,11 +15,14 @@ use std::{
 };
 
 #[cfg(test)]
-use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
-    ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::{App, First, Last, Plugin, Res, Resource, World},
+    ecs::schedule::ScheduleLabel,
+    prelude::{First, Fixed, FixedUpdate, Last, PreUpdate, Real, ResMut, Time, Update},
+};
+use bevy::{
+    ecs::schedule::MainThreadExecutor,
+    prelude::{App, Plugin, Res, Resource, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};
@@ -48,35 +51,7 @@ const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
 const SPIN_HEADROOM: Duration = Duration::from_micros(25);
 
-/// Starts frame timing before reclaiming background work and running `First`.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameStart;
-
-impl FrameStart {
-    /// Installs the timing boundary once, preserving schedules already placed after it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_before(First, Self);
-        }
-    }
-}
-
-/// Waits for the next frame only after the current frame's work has finished.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameEnd;
-
-impl FrameEnd {
-    /// Installs the wait boundary once so other owners can finish work before it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_after(Last, Self);
-        }
-    }
-}
+use crate::{FrameEnd, FrameStart};
 
 /// The cadence the next frames are admitted at; the app's presentation policy writes it.
 #[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -267,12 +242,15 @@ impl InputPacer {
         self.epoch + Duration::from_nanos(nanos)
     }
 
-    /// Marks this update's input sample against the cadence; a new rate starts a new epoch.
-    fn update_started(&self, pacing: FramePacing) {
-        let now = self.clock.now();
-        let at = self.nanos(now);
+    /// Records input sampling before frame work, without retaining the previous focus policy.
+    fn update_started(&self) {
+        self.state().update_started = Some(self.clock.now());
+    }
+
+    /// Applies this frame's policy before waiting, anchoring cadence to its input sample.
+    fn prepare_wait(&self, pacing: FramePacing) {
         let mut state = self.state();
-        state.update_started = Some(now);
+        let at = self.nanos(state.update_started.unwrap_or_else(|| self.clock.now()));
         state.precise = pacing.precise;
         #[cfg(any(target_os = "macos", test))]
         state.gpu.set_display_sync(pacing.display_sync);
@@ -343,6 +321,7 @@ impl InputPacer {
         let ready = self.clock.now();
         inner(main, render);
         let handed = self.clock.now();
+        self.prepare_wait(*main.resource::<FramePacing>());
         let (update_started, delay, handed_frame, cadence, precise, gpu_ready) = {
             let mut state = self.state();
             state.handed += 1;
@@ -404,6 +383,7 @@ impl InputPacer {
 
     /// Without pipelined rendering only the cadence applies, at the end of the update.
     fn pace_unpipelined(&self, main: &World) {
+        self.prepare_wait(*main.resource::<FramePacing>());
         let (cadence, precise) = {
             let state = self.state();
             (state.cadence, state.precise)
@@ -509,8 +489,8 @@ impl Plugin for InputPacingPlugin {
     }
 }
 
-fn mark_update_start(pacer: Res<InputPacer>, pacing: Res<FramePacing>) {
-    pacer.update_started(*pacing);
+fn mark_update_start(pacer: Res<InputPacer>) {
+    pacer.update_started();
 }
 
 fn pace_unpipelined(world: &mut World) {

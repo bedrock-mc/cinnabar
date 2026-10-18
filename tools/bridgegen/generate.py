@@ -44,7 +44,7 @@ def declarations(manifest, root=ROOT):
             if len(values) != len(set(values)):
                 raise ValueError(f'duplicate enum {key} in {enum["rust_name"]}')
         constants.extend({"rust_name": "", "go_name": variant["go_name"],
-                          "value": variant["value"], "rust_type": "str",
+                          "value": variant["value"], "rust_type": "str", "enum_value": True,
                           "doc": f'{enum["doc"]} {variant["rust_name"]}.'}
                          for variant in enum["variants"])
     for key in ("rust_name", "go_name"):
@@ -67,8 +67,9 @@ def declarations(manifest, root=ROOT):
             resolved[row["rust_name"]] = value
         rust_type = row["rust_type"]
         if rust_type == "str":
-            if not isinstance(value, str) or not value or not value.isascii():
-                raise ValueError("bridge string constants must be nonempty ASCII")
+            if (not isinstance(value, str) or not value.isascii()
+                    or (not value and not row.get("enum_value", False))):
+                raise ValueError("bridge strings must be ASCII and named constants must be nonempty")
             value = json.dumps(value)
             rust_type = "&str"
         else:

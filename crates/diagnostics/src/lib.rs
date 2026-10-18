@@ -1,12 +1,14 @@
 //! Runtime metrics, process logging and shared diagnostic marker contracts.
 pub mod bounded_file;
 pub mod console;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod logging;
 pub mod markers;
 pub mod metrics;
 pub mod rate;
 pub mod secret;
 pub mod session;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod session_log;
 
 /// Writes one diagnostic marker and flushes it immediately.
@@ -39,3 +41,12 @@ pub fn transparent_sort_committed_marker(
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+/// Writes one diagnostic line through the console queue and its optional session file.
+#[macro_export]
+macro_rules! log_stderr {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!($crate::console::stderr(), $($arg)*);
+    }};
+}

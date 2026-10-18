@@ -83,7 +83,7 @@ impl WorldStream {
             if !retaining_rows {
                 self.seasonal_foliage.reset(&next_definitions);
             }
-            self.invalidate_resident_biome_tints(Instant::now());
+            self.invalidate_meshes(Instant::now());
         }
     }
 }

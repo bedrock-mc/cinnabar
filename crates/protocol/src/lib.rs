@@ -102,11 +102,11 @@ pub use codec::{
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet, entity_hover_packet,
-    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
-    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
+    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
+    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
+    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
     BrewingItem, BrewingRecipe, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
@@ -182,23 +182,27 @@ pub use item::{
     ItemRegistryEvent, ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
     KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_banner_patterns, item_book, item_bundle_id,
-    item_charged_projectile, item_custom_color, item_display, item_enchantment_level,
-    item_extra_damage, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns, item_book,
+    item_bundle_id, item_charged_projectile, item_custom_color, item_display,
+    item_enchantment_level, item_enchantment_level_value, item_extra_damage,
+    item_extra_damage_value, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
+    item_use_progress_packet, offhand_equipment_packet, select_hotbar_slot_packet,
+    vanilla_item_registry,
 };
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,
+    item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
-    LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
-    PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
+    JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
+    PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
+    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, WebSessionReader,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -226,6 +230,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
@@ -254,7 +259,7 @@ pub use world::{
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
     ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockPhysics, CustomBlockVisuals,
     CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomPhysicalComponents, CustomSelection, CustomStateAxis,
+    CustomPermutation, CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis,
     CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
     DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
@@ -289,3 +294,6 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 extern crate self as protocol;
 #[cfg(test)]
 mod tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use login::NativeJoinPreparation;

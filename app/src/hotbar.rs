@@ -253,7 +253,7 @@ mod tests {
         let mut inventory = identified_runtime(&mut player_runtime);
         inventory
             .publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
-        inventory.toggle_inventory(&mut player_runtime);
+        inventory.toggle_inventory(&mut player_runtime, None);
         assert!(inventory.inventory_open());
         assert_eq!(wheel_with_ui(&mut player_runtime, inventory, hidden()), 0);
         let form = client_ui::test_support::pack_harness::action_form(

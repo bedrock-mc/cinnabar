@@ -17,13 +17,13 @@ test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test
 tracy = ["oreui/tracy"]
 
 [dependencies]
+web-time.workspace = true
 cosmetics = { path = "../cosmetics" }
 uuid.workspace = true
 protocol-ids = { path = "../protocol-ids" }
 pack-json = { path = "../pack-json" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
-launcher-host = { path = "../launcher-host" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
 assets = { path = "../assets" }
@@ -45,7 +45,7 @@ ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
 ui-screens = { path = "../ui-screens" }
 world = { path = "../world" }
-server-experience = { path = "../server-experience" }
+server-experience = { path = "../server-experience", default-features = false, features = ["data"] }
 image.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -59,9 +59,18 @@ rayon.workspace = true
 tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+launcher-host = { path = "../launcher-host" }
+server-experience = { path = "../server-experience", features = ["host"] }
+
 # Android has no clipboard adapter yet; its chat copy and paste report unavailable.
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.104"
+wasm-bindgen = "0.2.127"
+wasm-bindgen-futures = "0.4.77"
 
 [dev-dependencies]
 render-model = { path = "../render-model", features = ["test-support"] }

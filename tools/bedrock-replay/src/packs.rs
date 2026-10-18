@@ -74,6 +74,7 @@ pub fn read_pack(path: &Path, content_key: &str) -> Result<Pack> {
     drop(zip);
     Ok(Pack {
         metadata: HandoffPack {
+            sha256: Some(Sha256::digest(&bytes).into()),
             uuid: uuid.clone(),
             version: version.clone(),
             sub_pack: String::new(),

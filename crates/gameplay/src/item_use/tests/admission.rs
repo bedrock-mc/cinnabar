@@ -77,7 +77,7 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
             first_id,
             1,
             vec![16, 15, 16],
-            vec![Some(41), Some(first_id), Some(41)]
+            vec![Some(41), Some(first_id), None]
         )
     );
     assert!(
