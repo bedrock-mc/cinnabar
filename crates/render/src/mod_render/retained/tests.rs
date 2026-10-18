@@ -4,6 +4,13 @@ use bevy::{
     render::{render_phase::AddRenderCommand, render_resource::*},
 };
 use mod_render::retained::*;
+use std::sync::Arc;
+
+#[path = "raster_tests.rs"]
+mod raster;
+
+#[path = "timing_tests.rs"]
+mod timing;
 
 #[test]
 fn unlit_shader_layout_and_stages_match_native_storage() {
@@ -58,7 +65,7 @@ fn drawing() -> (Store, mod_api::drawing::DrawingHandle, Instance) {
             dimension: 0,
             origin: [0.; 3],
         },
-        transform: Transform::default(),
+        transform: mod_render::retained::Transform::default(),
         tint: [1.; 4],
         depth: Depth::Test,
         blend: Blend::Premultiplied,

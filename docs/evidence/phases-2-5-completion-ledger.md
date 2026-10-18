@@ -629,10 +629,13 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; the generic unlit renderer is connected. Bounded procedural materials and SDK presets
-are connected with a session animation phase; their execution and native capture checks
-remain pending. Native output captures, hardware budgets
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Retained geometry and
+instance transactions are implemented; the generic unlit renderer is connected.
+Bounded procedural materials and SDK presets use a session animation phase.
+Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover
+animated presets, line joins and scaled geometry. In-world output captures,
+hardware budgets and actor attachment remain incomplete and do not close any
+completion requirement.
 Retained mod drawing has authority and lifetime contracts. Geometry admission validates
 vertices once and caches extent and quota facts for every shared instance and callback
 group. Extent checks use conservative box and sphere bounds without revisiting vertices.

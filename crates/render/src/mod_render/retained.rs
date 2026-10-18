@@ -28,7 +28,7 @@ pub(super) fn install(app: &mut App) {
         app,
         SHADER,
         "retained/drawing.wgsl",
-        |source: &str, path: &str| {
+        |source: &str, path| {
             crate::shader_safety::from_wgsl(
                 materials::source(
                     &mod_render::material::module(mod_render::material::BUILTIN),

@@ -1,5 +1,5 @@
 use crate::gpu_snapshot::{self, Draw, Gpu, SNAPSHOT_SIDE};
-use bevy::prelude::Mat4;
+use bevy::prelude::{Mat4, Vec3};
 use mod_render::retained::*;
 use render_scene::mod_scene::retained::GpuInstance;
 
