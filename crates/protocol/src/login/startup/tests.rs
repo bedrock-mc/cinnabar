@@ -190,7 +190,9 @@ mod session {
             ]],
         )
         .await;
-        await_spawn(transport, |_, _| {}).await.unwrap();
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .unwrap();
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
             panic!("options packet")
         };
