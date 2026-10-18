@@ -2,6 +2,9 @@
 
 use super::{MAX_ITEM_EXTRA_BYTES, read_i32_le, read_u8, read_u16_le, skip_le_payload};
 
+/// Borrows a compound entry's name, tag type, and payload bytes.
+type CompoundEntry<'a> = (&'a [u8], u8, &'a [u8]);
+
 /// Compares parsed compound values and the unchanged item-data trailer.
 /// Unsupported or malformed data retains strict byte comparison.
 pub(super) fn same_extra(a: &[u8], b: &[u8]) -> bool {
@@ -57,7 +60,7 @@ fn take_payload<'a>(cursor: &mut &'a [u8], tag: u8, depth: u8) -> Option<&'a [u8
 }
 
 /// Reads unique compound entries in name order without copying payload bytes.
-fn entries(mut cursor: &[u8], depth: u8) -> Option<Vec<(&[u8], u8, &[u8])>> {
+fn entries(mut cursor: &[u8], depth: u8) -> Option<Vec<CompoundEntry<'_>>> {
     let mut fields = Vec::new();
     loop {
         let tag = read_u8(&mut cursor)?;
