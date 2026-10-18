@@ -31,8 +31,14 @@ const (
 	RelayVersion = 2
 	// RelayControlBytes: Largest relay Hello or control JSON payload in bytes.
 	RelayControlBytes = 4096
-	// RelayPlayMessageBytes: Largest WebSocket play message and upload burst in bytes.
+	// RelayPlayMessageBytes: Largest WebSocket play message in bytes.
 	RelayPlayMessageBytes = 8388608
+	// QueuedFrames: Maximum queued reliable frames or browser receive chunks.
+	QueuedFrames = 16
+	// RelayQueuedFrameBytes: Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+	RelayQueuedFrameBytes = 8388608
+	// RelayUploadBurstBytes: Upload rate limiter burst, independent of message and queue limits.
+	RelayUploadBurstBytes = 8388608
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
 	// RelayTransportPath: WebTransport Extended CONNECT route.
@@ -239,6 +245,14 @@ const (
 	DisconnectKeyInvalidName = "disconnectionScreen.invalidName"
 	// DisconnectKeyDeviceClock: Core disconnect message: The sign-in token was rejected because this device's clock is behind.
 	DisconnectKeyDeviceClock = "cinnabar.disconnect.deviceClock"
+	// RelayRefusalResume: A safe relay refusal code; unrecognized codes use the generic refusal. ResumeRefused.
+	RelayRefusalResume = "resume_refused"
+	// RelayRefusalAdmission: A safe relay refusal code; unrecognized codes use the generic refusal. AdmissionRefused.
+	RelayRefusalAdmission = "admission_refused"
+	// RelayRefusalSessionBusy: A safe relay refusal code; unrecognized codes use the generic refusal. SessionBusy.
+	RelayRefusalSessionBusy = "session_busy"
+	// RelayRefusalUnknown: A safe relay refusal code; unrecognized codes use the generic refusal. Refused.
+	RelayRefusalUnknown = "refused"
 	// GameModeSurvival: Game mode a world starts players in. Survival.
 	GameModeSurvival = "survival"
 	// GameModeCreative: Game mode a world starts players in. Creative.
@@ -325,6 +339,8 @@ const (
 	AuthSignedIn = "signed_in"
 	// AuthFailed: Sign-in state of the core. Failed.
 	AuthFailed = "failed"
+	// ConnectStageIdle: Join progress stage reported by the core. Idle.
+	ConnectStageIdle = ""
 	// ConnectStageRealm: Join progress stage reported by the core. Realm.
 	ConnectStageRealm = "realm"
 	// ConnectStagePacks: Join progress stage reported by the core. Packs.

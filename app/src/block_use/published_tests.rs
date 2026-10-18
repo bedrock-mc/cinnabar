@@ -23,6 +23,9 @@ mod actor_use_tests;
 #[path = "published_tests/item_use.rs"]
 mod item_use_tests;
 
+#[path = "published_tests/use_progress.rs"]
+mod use_progress_tests;
+
 #[path = "published_tests/liquid_pick.rs"]
 mod liquid_pick_tests;
 

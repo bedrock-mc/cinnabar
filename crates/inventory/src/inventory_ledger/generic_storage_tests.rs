@@ -407,8 +407,9 @@ fn close_and_channel_pressure_are_bounded() {
     // Structure-editor windows have no client screen.
     let mut unsupported = PlayerInventoryLedger::default();
     unsupported.apply(&open(9, 14));
-    assert!(unsupported.pending_batch().unwrap().is_some());
+    assert!(unsupported.pending_batch().unwrap().is_none());
     assert_eq!(unsupported.storage_slot_count(), None);
+    assert_eq!(unsupported.skipped_unknown_containers(), 1);
 }
 
 #[test]

@@ -484,20 +484,22 @@ pub fn modal_form_submit_response(
         ModalFormResponseSelection::ButtonIndex(index) => index.to_string(),
         ModalFormResponseSelection::ModalButton(flag) => flag.to_string(),
     };
-    crate::Packet::new(ModalFormResponse {
-        form_id: wire::VarUInt(form_id),
-        json_response: Some(payload.into()),
-        form_cancel_reason: None,
-    })
+    submitted_form_response(form_id, payload)
 }
 
 /// Encodes a custom-form submit answer: response data present(1) carrying the JSON
 /// array of `values` in element order, cancel reason absent(0).
 pub fn custom_form_submit_response(form_id: u32, values: &[CustomFormValue]) -> crate::Packet {
     let array = serde_json::Value::Array(values.iter().map(custom_value_json).collect());
+    submitted_form_response(form_id, array.to_string())
+}
+
+/// Encodes submitted JSON with its final line break inside the response string.
+fn submitted_form_response(form_id: u32, mut json: String) -> crate::Packet {
+    json.push('\n');
     crate::Packet::new(ModalFormResponse {
         form_id: wire::VarUInt(form_id),
-        json_response: Some(array.to_string().into()),
+        json_response: Some(json.into()),
         form_cancel_reason: None,
     })
 }

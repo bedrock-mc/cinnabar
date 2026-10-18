@@ -79,16 +79,6 @@ impl PlayerInventoryLedger {
         })
     }
 
-    pub(super) fn settling_storage_generations(&self) -> Vec<u64> {
-        self.settling
-            .iter()
-            .filter_map(|window| match window {
-                SettlingWindow::Storage { generation, .. } => Some(*generation),
-                SettlingWindow::Personal(_) => None,
-            })
-            .collect()
-    }
-
     /// Finds the next closed window whose final retained request has left the queue.
     pub(super) fn settled_close_index(&self) -> Option<usize> {
         self.settling

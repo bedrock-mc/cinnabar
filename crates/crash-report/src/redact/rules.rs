@@ -175,7 +175,7 @@ impl Rules {
         Some(out)
     }
 
-    /// Source locations with a path separator or column, and complete ISO timestamps.
+    /// Source locations with a path separator or column, ISO timestamps and line-leading log times.
     /// Both may contain colons and digits without naming a server.
     fn source_locations(&self, text: &str) -> Vec<Range<usize>> {
         self.source_location

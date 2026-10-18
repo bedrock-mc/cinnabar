@@ -67,6 +67,7 @@ pub(crate) struct SessionController {
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
     destination_identity: Option<String>,
+    local_world: bool,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
@@ -94,6 +95,7 @@ impl SessionController {
             client_id_load: None,
             presence: None,
             destination_identity: None,
+            local_world: false,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
@@ -114,6 +116,11 @@ impl SessionController {
         self.destination_identity =
             address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
         self
+    }
+
+    /// Whether the trusted launcher selected a local world for this connection.
+    pub(crate) fn is_local_world(&self) -> bool {
+        self.local_world
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
@@ -235,6 +242,7 @@ impl SessionController {
     /// Installs a connecting join at the current generation.
     #[cfg(all(test, unix))]
     pub(crate) fn adopt_join(&mut self, address: &str, local_world: bool, stage: JoinStage) {
+        self.local_world = local_world;
         self.client_random_id = Some(protocol::ClientRandomId::new(-7).unwrap());
         self.join = Some(JoinAttempt {
             generation: self.generation,
@@ -312,6 +320,7 @@ impl SessionResources<'_> {
         controller.connecting = false;
         controller.presence = None;
         controller.destination_identity = None;
+        controller.local_world = false;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -375,6 +384,7 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
+    session.controller.local_world = local_world;
     session.controller.destination_identity = Some(
         if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
             format!("local:{id}")
@@ -507,7 +517,7 @@ fn poll_join(
     }
 }
 
-/// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
+/// Captures the player's settings as the join starts, including a hidden-menu launch.
 pub(crate) fn login_settings(
     menu: &MenuRuntime,
     input: Option<&client_state::SemanticInputSnapshot>,
@@ -523,6 +533,7 @@ pub(crate) fn login_settings(
         memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
         filter_profanity: menu.settings_snapshot().0.value(SettingId::FilterProfanity) != 0,
+        view_distance_chunks: menu.settings_snapshot().0.value(SettingId::RenderDistance) as u8,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -808,6 +819,35 @@ mod tests {
         let settings = login_settings(&menu, None);
         assert_eq!(settings.gui_scale_offset, -1);
         assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
+
+    #[test]
+    fn login_settings_carry_the_saved_view_radius_without_a_visible_menu() {
+        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
+
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.id == SettingId::RenderDistance)
+            .unwrap();
+        for radius in [8, 35] {
+            let layout = launcher::test_support::scratch(&format!("login-radius-{radius}"));
+            let mut saved = SettingsOptions::default();
+            saved.set(index, radius);
+            saved
+                .save(&layout.user_config_root.join(SETTINGS_FILE))
+                .unwrap();
+            let menu = MenuRuntime::new_with_layout(
+                false,
+                None,
+                "Direct".to_owned(),
+                layout,
+                client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            );
+            assert_eq!(
+                login_settings(&menu, None).view_distance_chunks,
+                radius as u8
+            );
+        }
     }
 
     #[test]
