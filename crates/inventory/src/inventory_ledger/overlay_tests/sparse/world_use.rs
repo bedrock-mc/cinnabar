@@ -319,3 +319,5 @@ mod cross_cell;
 
 #[path = "world_use/merges.rs"]
 mod merges;
+#[path = "world_use/queued_drops.rs"]
+mod queued_drops;

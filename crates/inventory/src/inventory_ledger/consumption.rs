@@ -2,7 +2,7 @@
 
 use super::cells::{Cell, Held};
 use super::overlay::DeltaGroup;
-use super::queue::RollbackAuthority;
+use super::queue::{CellPrediction, RollbackAuthority};
 use super::{InventoryPendingState, PendingRequest, PlayerInventoryLedger};
 
 /// Later consumption belonging to one retained request cell, independent of its screen scope.
@@ -14,11 +14,49 @@ pub(super) struct SubsequentConsumption {
 }
 
 impl PlayerInventoryLedger {
+    /// Resolves a gesture cell with admitted consumption, preserving its pending wire owner.
+    pub(super) fn transaction_held(&self, cell: Cell) -> Option<Held> {
+        self.queue
+            .iter()
+            .rev()
+            .find_map(|request| {
+                request
+                    .predicted
+                    .iter()
+                    .find(|prediction| prediction.cell == cell && prediction.active)
+                    .map(|prediction| request.transaction_result(prediction))
+            })
+            .unwrap_or_else(|| self.confirmed.get(cell).cloned())
+    }
+
     /// Decrements each retained backing alternative once, preserving other cells' wire owners.
     pub(super) fn consume_retained_source(&mut self, cell: Cell, source: &Held, name: i32) {
         let mut positions = Vec::new();
-        for request in &mut self.queue {
+        let mut replacements = Vec::new();
+        for request in self
+            .queue
+            .iter_mut()
+            .filter(|request| request.state == InventoryPendingState::AwaitingResponse)
+        {
+            let before: Vec<_> = request
+                .predicted
+                .iter()
+                .filter(|prediction| prediction.current)
+                .map(|prediction| (prediction.cell, request.transaction_result(prediction)))
+                .collect();
             request.note_consumption(cell, source, name, &mut positions);
+            for (cell, from) in before {
+                let prediction = request.predicted.iter().find(|p| p.cell == cell).unwrap();
+                let to = request.transaction_result(prediction);
+                if from != to {
+                    let authority = if request.locally_committed() {
+                        RollbackAuthority::Known
+                    } else {
+                        RollbackAuthority::Pending(request.request_id)
+                    };
+                    replacements.push((request.request_id, cell, from, to, authority));
+                }
+            }
         }
         let changes: Vec<_> = self
             .confirmed
@@ -49,6 +87,9 @@ impl PlayerInventoryLedger {
                 RollbackAuthority::Known,
             );
         }
+        for (request, cell, from, to, authority) in replacements {
+            self.rebase_predictions(request, cell, from.as_ref(), to, authority);
+        }
         self.refold();
     }
 }
@@ -62,6 +103,19 @@ struct ConsumptionPosition {
 }
 
 impl PendingRequest {
+    /// Removes consumption from a retained screen result once; local drops already include it.
+    fn transaction_result(&self, prediction: &CellPrediction) -> Option<Held> {
+        let amount = if self.locally_committed() {
+            0
+        } else {
+            self.consumed_after
+                .iter()
+                .find(|consumed| consumed.cell == prediction.cell)
+                .map_or(0, |consumed| consumed.amount)
+        };
+        consumed_stack(prediction.held.as_ref(), amount, None)
+    }
+
     /// Routes one consumed unit through this request and retains its successor dependencies.
     fn note_consumption(
         &mut self,

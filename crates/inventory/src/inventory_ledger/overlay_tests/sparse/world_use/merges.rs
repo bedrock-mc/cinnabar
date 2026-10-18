@@ -1,7 +1,7 @@
 use super::*;
 
 /// Installs the item capacity needed to admit compatible stack merges.
-fn allow_merges(ledger: &mut PlayerInventoryLedger, capacity: u8) {
+pub(super) fn allow_merges(ledger: &mut PlayerInventoryLedger, capacity: u8) {
     ledger.apply_registry(&protocol::test_support::items::component_item_registry(
         "minecraft:apple",
         6,

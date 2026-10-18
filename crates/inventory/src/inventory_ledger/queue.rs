@@ -203,7 +203,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Queues one request built against the current view.
+    /// Captures one request from its screen or consumption-adjusted transaction inputs.
     pub(super) fn enqueue(&mut self, mut request: PendingRequest) {
         let server_authoritative = self.authority == Some(protocol::InventoryAuthority::Server);
         if server_authoritative {
@@ -212,7 +212,12 @@ impl PlayerInventoryLedger {
         tracing::debug!(target: "cinnabar::inventory_requests",
             request_id = request.request_id, actions = ?request.actions,
             "inventory request predicted");
-        let before = self.view().clone();
+        let mut before = self.view().clone();
+        if request.world_drop.is_some() {
+            for cell in request.touched() {
+                before.set(cell, self.transaction_held(cell));
+            }
+        }
         let mut predicted = before.clone();
         let applied = request
             .groups
