@@ -906,6 +906,14 @@ dependency. The app owns the build-identity resource and passes its build profil
 into the runtime-metadata and world-publication markers. Marker output is unchanged;
 compilation and test execution of this move remain unverified until CI.
 
+Developer builds keep a request-to-terrain join timeline in debug logs. The local
+Connect request carries its diagnostic ID to the core; transport, HTTP, login,
+pack preparation and spawn milestones retain that attempt across workers. Timed
+sections can overlap and must not be summed as sequential latency. Pack subscriber
+compilation and bootstrap retain their own breakdowns. Shipping builds omit the
+Rust timing feature and the Go `joinprofile` tag. Live join measurements remain
+separate from the LAN join-budget acceptance gate.
+
 ## World day length
 
 `world::TICKS_PER_DAY` is the single day length for sky and moon-phase math, the HUD

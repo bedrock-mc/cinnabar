@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+bridge = { path = "../bridge" }
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true

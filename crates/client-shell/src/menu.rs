@@ -923,6 +923,7 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        bridge::join_profile::JoinProfile::begin();
         self.remember_session_origin();
         self.stop_catalog();
         self.hold_join_for_sign_in();

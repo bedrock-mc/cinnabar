@@ -85,6 +85,7 @@ pub(crate) fn receive_network_events(
         NETWORK_CONTROL_BUDGET_PER_FRAME,
     ) {
         if matches!(control, NetworkControlEvent::Bootstrap { .. }) {
+            bridge::join_profile::JoinProfile::current().mark("bootstrap_received");
             bootstrap::apply(
                 control,
                 &mut state,

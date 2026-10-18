@@ -12,6 +12,7 @@ const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/core_s
 #[test]
 fn connect_encoding_matches_the_core_fixture() {
     let request = ConnectRequest {
+        join_profile_id: None,
         protocol: 2193,
         target: Some(ConnectTarget::RakNet("play.example.net:19132".into())),
         client_cache: true,
@@ -350,4 +351,29 @@ fn pack_receiver_rejects_unadmitted_declarations() {
     let sizes = [MAX_PACK_ARCHIVE_BYTES as u64; 2];
     assert_eq!(sizes.iter().sum::<u64>(), MAX_SELECTED_PACK_BYTES as u64);
     assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_ok());
+}
+
+/// Diagnostic IDs survive the local wire without entering Bedrock client data.
+#[test]
+fn connect_keeps_diagnostic_identity_separate_from_login_claims() {
+    let request = ConnectRequest {
+        protocol: crate::PROTOCOL_VERSION,
+        target: None,
+        client_cache: false,
+        client_data: serde_json::json!({}),
+        join_profile_id: Some(42),
+    };
+    let decoded = decode_connect(&encode_connect(&request).unwrap()).unwrap();
+    assert_eq!(decoded.join_profile_id, Some(42));
+    assert_eq!(decoded.client_data, serde_json::json!({}));
+    let plain = ConnectRequest {
+        join_profile_id: None,
+        ..request
+    };
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("join_profile_id")
+            .is_none()
+    );
 }

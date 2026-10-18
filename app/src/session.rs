@@ -162,6 +162,7 @@ impl SessionController {
 
     /// Returns a failed join to the menu, keeping only the newest compiled packs for a retry.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
+        bridge::join_profile::JoinProfile::current().finish("failed");
         menu.show_join_failure(message);
         self.connecting = false;
         self.kept_packs.keep_for_rejoin();
@@ -313,6 +314,11 @@ fn attempt_connect(
     cache: &BlobCache,
     intent: JoinIntent,
 ) {
+    let profile = bridge::join_profile::JoinProfile::current();
+    if profile.id().is_none() {
+        bridge::join_profile::JoinProfile::begin();
+    }
+    bridge::join_profile::JoinProfile::current().mark("session_controller");
     let JoinIntent {
         address,
         auth_cache,
@@ -510,6 +516,7 @@ fn start_network(
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
     registry_base: crate::runtime::network::session_registries::RegistryBase,
 ) -> Result<(), String> {
+    bridge::join_profile::JoinProfile::current().mark("core_ready");
     let replacement = crate::runtime::network::session::spawn_network(NetworkConfig {
         registry_base,
         session_generation: simulation_clock::identity::SessionGeneration::new(session_generation),
@@ -591,6 +598,7 @@ fn drive_intents(
         return;
     }
     if menu.take_disconnect_request() {
+        bridge::join_profile::JoinProfile::current().finish("cancelled");
         // Loading and pause screens retain the Play page that opened the session.
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a

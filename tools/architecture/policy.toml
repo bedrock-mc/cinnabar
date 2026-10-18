@@ -188,7 +188,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 name = "pack-runtime"
 path = "crates/pack-runtime"
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler"]
-allowed_dependencies = ["pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
+allowed_dependencies = ["bridge", "pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

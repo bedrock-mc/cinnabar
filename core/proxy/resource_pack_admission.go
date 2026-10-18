@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -514,6 +515,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger, nil)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		logger := joinprofile.Logger(ctx, logger)
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(dialer, logger)
 			dial := attempt.DialContextNetwork
@@ -641,7 +643,9 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if isSession && session.sessionResolveTarget() != nil {
 		resolve = session.sessionResolveTarget()
 	}
+	resolveDone := joinprofile.Stage(ctx, "target_resolution")
 	target, err = resolve(withConnectProgress(ctx, report))
+	resolveDone()
 	if err != nil {
 		return nil, err
 	}

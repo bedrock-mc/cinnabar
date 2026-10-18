@@ -18,7 +18,8 @@ impl JoinPreparation for NativeJoinPreparation {
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Self::Task<T> {
         // Spawn at submission, before the spawn sequence reads more server packets.
-        let task = tokio::task::spawn_blocking(work);
+        let profile = bridge::join_profile::JoinProfile::current();
+        let task = tokio::task::spawn_blocking(move || profile.run(work));
         Box::pin(async move {
             match task.await {
                 Ok(value) => value,
@@ -46,9 +47,12 @@ impl LoginSequence {
         tap: Option<Arc<dyn PacketTap>>,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession, P), ProtocolError> {
+        let profile = bridge::join_profile::JoinProfile::current();
+        let endpoint = profile.stage("core_endpoint_connect");
         let (reader, frames) = bridge::connect_session(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
+        drop(endpoint);
         Self::connect_prepared(
             SessionIo {
                 reader,

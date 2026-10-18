@@ -154,12 +154,13 @@ fn advance_network_simulation<P: Send + Sync + 'static>(
 /// Records each extracted frame, and each that reached a window's swap chain, in the latency trace
 /// while tracing; needs the render sub-app.
 pub(crate) fn trace_presented_frames(app: &mut App) {
-    if bridge::latency_trace::active().is_none() {
+    if bridge::latency_trace::active().is_none() && !bridge::join_profile::ENABLED {
         return;
     }
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
         render_app
             .init_resource::<HeldSwapChains>()
+            .init_resource::<PresentedJoin>()
             .add_systems(ExtractSchedule, trace_frame_extracted)
             .add_systems(
                 Render,
@@ -177,8 +178,17 @@ pub(crate) fn trace_presented_frames(app: &mut App) {
 #[derive(Resource, Default)]
 struct HeldSwapChains(usize);
 
+/// The attempt whose loading-free UI was extracted for this exact render frame.
+#[derive(Resource, Default)]
+struct PresentedJoin(Option<bridge::join_profile::JoinProfile>);
+
 /// Stamps the main frame as the render world extracts it, the count pairing it with its present.
-fn trace_frame_extracted(frames: Extract<Option<Res<FrameCount>>>) {
+fn trace_frame_extracted(
+    frames: Extract<Option<Res<FrameCount>>>,
+    mut pending: ResMut<PresentedJoin>,
+) {
+    let profile = bridge::join_profile::JoinProfile::current();
+    pending.0 = profile.presentation_pending().then_some(profile);
     if let (Some(trace), Some(frames)) = (bridge::latency_trace::active(), frames.as_ref()) {
         trace.record(
             bridge::latency_trace::kind::EXTRACTED,
@@ -197,9 +207,13 @@ fn trace_frame_presented(
     frames: Option<Res<FrameCount>>,
     windows: Query<&ExtractedWindow>,
     held: Res<HeldSwapChains>,
+    mut pending: ResMut<PresentedJoin>,
 ) {
     if presented(held.0, held_swap_chains(&windows)) {
         trace_frame(bridge::latency_trace::kind::PRESENTED, frames);
+        if let Some(profile) = pending.0.take() {
+            profile.finish("first_world_presented");
+        }
     }
 }
 

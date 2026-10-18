@@ -69,6 +69,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
     view_distance_chunks: u8,
     on_startup: impl FnOnce(StartGame, ItemRegistry),
 ) -> Result<Spawned, ProtocolError> {
+    let profile = bridge::join_profile::JoinProfile::current();
     let mut on_startup = Some(on_startup);
     let mut runtime_id: Option<u64> = None;
     let mut start_game: Option<StartGame> = None;
@@ -96,6 +97,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                     }
                     Some(_) => {}
                     None => {
+                        profile.mark("start_game_decoded");
                         runtime_id = Some(received);
                         start_game = Some(*start);
                     }
@@ -110,6 +112,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                 if registry_seen {
                     continue;
                 }
+                profile.mark("item_registry_decoded");
                 registry_seen = true;
                 item_registry = Some(registry);
             }
@@ -118,6 +121,9 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                     unreachable!("packet ID and decoded variant must agree")
                 };
                 if status.status == PlayStatusType::Playerspawn {
+                    if !received_player_spawn {
+                        profile.mark("player_spawn");
+                    }
                     received_player_spawn = true;
                 }
             }
@@ -134,6 +140,9 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                     .into());
                 }
                 deferred.push(raw)?;
+                if !received_chunk_radius {
+                    profile.mark("chunk_radius_reply");
+                }
                 received_chunk_radius = true;
             }
             PacketId::Disconnect => {
@@ -169,6 +178,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                     startup_write_failure(transport, error, super::WRITE_FAILURE_DRAIN).await,
                 );
             }
+            profile.mark("chunk_radius_requested");
             sent_chunk_radius = true;
         }
         if sent_chunk_radius

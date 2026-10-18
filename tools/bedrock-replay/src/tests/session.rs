@@ -49,7 +49,7 @@ fn options(root: &std::path::Path) -> Options {
 
 /// Sends exactly the device-free claims the native session client uses for replay.
 fn connect() -> Bytes {
-    encode_connect(&ConnectRequest { protocol: protocol::PROTOCOL_VERSION, target: None, client_cache: false,
+    encode_connect(&ConnectRequest { join_profile_id: None, protocol: protocol::PROTOCOL_VERSION, target: None, client_cache: false,
         client_data: serde_json::json!({"GameVersion": protocol::GAME_VERSION, "ThirdPartyName": "ReplayTest"}) }).unwrap()
 }
 

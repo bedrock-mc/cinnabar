@@ -6699,6 +6699,7 @@ version = "0.1.20"
 dependencies = [
  "assets",
  "block-transform",
+ "bridge",
  "image",
  "json-ui",
  "pack-compile-input",
