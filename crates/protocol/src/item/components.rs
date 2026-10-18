@@ -48,6 +48,9 @@ pub struct ItemComponents {
     pub allow_off_hand: Option<bool>,
     /// Distinguishes a malformed offhand declaration from an absent one.
     pub allow_off_hand_declared: bool,
+    /// Category declared by the legacy Int property, narrowed to its low byte.
+    /// Missing or ambiguous item-properties containers stay unresolved.
+    pub creative_category: Option<u8>,
     pub max_durability: Option<u32>,
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
@@ -272,6 +275,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
                 Nbt::Int(value) => Some(*value != 0),
                 _ => None,
             }),
+        creative_category: super::registry_properties::negotiated_creative_category(bytes),
         max_durability: count(match component("minecraft:durability") {
             Some(durability) => durability.field("max_durability"),
             None => component("minecraft:max_damage"),
@@ -325,6 +329,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
 
 #[cfg(test)]
 mod tests {
+    mod creative_category;
     use super::parse_components;
 
     #[test]

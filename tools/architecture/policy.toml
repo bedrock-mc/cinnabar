@@ -430,7 +430,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api"]
+allowed_dependencies = ["mod-api", "test-alloc"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
@@ -1352,6 +1352,11 @@ baselines = [
 path = "app/src/render_mode/authored_textures/enhanced_textures/cache.rs"
 literal = "target"
 reason = "Cargo build directory skipped while hashing local authored packs."
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/web.rs"
+literal = "web"
+reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"

@@ -22,11 +22,13 @@ struct Fake {
     stall_play: bool,
     closed: Rc<Cell<bool>>,
     written: Rc<RefCell<Vec<u8>>>,
+    read_time: Option<(Rc<Cell<Duration>>, Duration)>,
 }
 struct Stream {
     input: VecDeque<u8>,
     pending: bool,
     written: Rc<RefCell<Vec<u8>>>,
+    read_time: Option<(Rc<Cell<Duration>>, Duration)>,
 }
 impl AsyncRead for Stream {
     fn poll_read(
@@ -36,6 +38,9 @@ impl AsyncRead for Stream {
     ) -> Poll<io::Result<()>> {
         if self.pending && self.input.is_empty() {
             return Poll::Pending;
+        }
+        if let Some((clock, now)) = self.read_time.take() {
+            clock.set(now);
         }
         for _ in 0..out.remaining().min(self.input.len()).min(2) {
             let Some(byte) = self.input.pop_front() else {
@@ -76,16 +81,8 @@ impl RelayTransport for Fake {
             pending: input.is_empty(),
             input: input.into(),
             written: self.written.clone(),
+            read_time: self.read_time.take(),
         })
-    }
-    fn max_datagram_size(&self) -> Option<usize> {
-        None
-    }
-    async fn send_datagram(&mut self, _: &[u8]) -> Result<(), CloseReason> {
-        Err(CloseReason::Protocol)
-    }
-    async fn recv_datagram(&mut self) -> Result<Option<Vec<u8>>, CloseReason> {
-        Ok(None)
     }
     fn close(&mut self, _: CloseReason) {
         self.closed.set(true);
@@ -111,6 +108,7 @@ fn fake(input: Vec<u8>, failed: bool) -> Fake {
         stall_play: false,
         closed: Rc::new(Cell::new(false)),
         written: Rc::new(RefCell::new(Vec::new())),
+        read_time: None,
     }
 }
 /// Decodes all complete client frames for behavioral assertions.
@@ -122,6 +120,105 @@ fn sent(output: &Rc<RefCell<Vec<u8>>>) -> Vec<Value> {
         frames.push(serde_json::from_slice(&frame).unwrap());
     }
     frames
+}
+
+#[tokio::test]
+async fn shared_control_fixtures_cover_both_channel_prefixes_and_events() {
+    let contract: Value =
+        serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json")).unwrap();
+    let fixtures = contract["relay"]["fixtures"].as_array().unwrap();
+    let welcome = fixtures
+        .iter()
+        .find(|fixture| fixture["type"] == RELAY_EVENT_WELCOME)
+        .unwrap();
+    let events: Vec<_> = fixtures
+        .iter()
+        .filter(|fixture| fixture.get("type").is_some() && fixture["type"] != RELAY_EVENT_WELCOME)
+        .collect();
+    let mut input = wire(welcome.clone());
+    for &event in &events {
+        input.extend(wire(event.clone()));
+    }
+    let transport = fake(input, false);
+    let output = transport.written.clone();
+    let mut session = Session::new();
+    select(
+        &mut session,
+        None,
+        || transport,
+        || Duration::ZERO,
+        std::future::pending,
+        || Duration::ZERO,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        session.state(),
+        State::Ready(welcome["generation"].as_u64().unwrap())
+    );
+    let expiry = Duration::from_secs(welcome["expires_seconds"].as_u64().unwrap());
+    assert_eq!(
+        session.resume(expiry - Duration::from_secs(1)),
+        welcome["resume"].as_str().unwrap()
+    );
+    assert_eq!(session.resume(expiry), "");
+    let mut expected_requests = vec![
+        fixtures
+            .iter()
+            .find(|fixture| fixture["channel"] == RELAY_CHANNEL_CONTROL)
+            .unwrap()
+            .clone(),
+    ];
+    for request in fixtures
+        .iter()
+        .filter(|fixture| fixture.get("op").is_some() && fixture["op"] != RELAY_OP_PONG)
+    {
+        session.desire_account(match request["op"].as_str().unwrap() {
+            RELAY_OP_SIGN_IN => AccountOperation::SignIn,
+            RELAY_OP_SIGN_OUT => AccountOperation::SignOut,
+            op => panic!("add shared request coverage for {op}"),
+        });
+        session.flush_account().await.unwrap();
+        expected_requests.push(request.clone());
+    }
+    for event in events {
+        let expected = match event["type"].as_str().unwrap() {
+            RELAY_EVENT_ACCOUNT => {
+                ControlEvent::Account(serde_json::from_value(event["account"].clone()).unwrap())
+            }
+            RELAY_EVENT_CONNECT => {
+                ControlEvent::Connect(serde_json::from_value(event["connect"].clone()).unwrap())
+            }
+            RELAY_EVENT_ERROR => {
+                let refusal = serde_json::from_value(event["error"].clone()).unwrap();
+                ControlEvent::RequestRefused(match refusal {
+                    RefusalCode::AdmissionRefused => RequestRefusal::RetrySignIn,
+                    code => RequestRefusal::Refused(code),
+                })
+            }
+            RELAY_EVENT_PING => {
+                expected_requests.push(json!({"op": RELAY_OP_PONG, "resume": event["resume"]}));
+                ControlEvent::Keepalive
+            }
+            kind => panic!("add shared event coverage for {kind}"),
+        };
+        assert_eq!(
+            session.next_event(|| Duration::ZERO).await.unwrap(),
+            expected
+        );
+    }
+    let (_read, _frames, _writer) = session
+        .open_play(|| Duration::ZERO, std::future::pending())
+        .await
+        .unwrap();
+    let mut play = fixtures
+        .iter()
+        .find(|fixture| fixture["channel"] == RELAY_CHANNEL_PLAY)
+        .unwrap()
+        .clone();
+    play["resume"] = welcome["resume"].clone();
+    expected_requests.push(play);
+    assert_eq!(sent(&output), expected_requests);
 }
 
 #[tokio::test]
@@ -382,28 +479,20 @@ fn reconnect_is_bounded_and_deliberate_close_is_terminal() {
 async fn received_capabilities_use_observation_time_and_closed_stays_terminal() {
     let mut input = wire(capability(RELAY_EVENT_WELCOME, "welcome", 120));
     input.extend(wire(capability(RELAY_EVENT_PING, "ping", 120)));
-    let transport = fake(input, false);
+    let clock = Rc::new(Cell::new(Duration::ZERO));
+    let mut transport = fake(input, false);
+    transport.read_time = Some((clock.clone(), Duration::from_secs(30)));
     let mut session = Session::new();
-    let calls = Cell::new(0);
     select(
         &mut session,
         None,
         || transport,
-        || {
-            let call = calls.get();
-            calls.set(call + 1);
-            Duration::from_secs(if call < 2 { 0 } else { 30 })
-        },
+        || clock.get(),
         std::future::pending,
         || Duration::ZERO,
     )
     .await
     .unwrap();
-    assert_eq!(
-        calls.get(),
-        3,
-        "sample admission, Hello and received Welcome separately"
-    );
     assert_eq!(session.resume(Duration::from_secs(149)), "welcome");
     assert_eq!(session.resume(Duration::from_secs(150)), "");
     assert_eq!(

@@ -2635,6 +2635,7 @@ dependencies = [
  "crossbeam-channel",
  "developer-control",
  "image",
+ "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2658,6 +2659,8 @@ dependencies = [
  "tokio",
  "ui",
  "ui-engine",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wgpu",
  "winit",
  "zip",
@@ -2691,6 +2694,7 @@ dependencies = [
  "glam",
  "image",
  "inventory 0.1.20",
+ "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2725,6 +2729,8 @@ dependencies = [
  "ui-screens",
  "url",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "world",
  "zip",
 ]
@@ -3490,6 +3496,7 @@ dependencies = [
  "test-assembler",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "wait-timeout",
  "wholesym",
  "workspace-declarations",
@@ -5776,6 +5783,7 @@ dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+ "test-alloc",
 ]
 
 [[package]]

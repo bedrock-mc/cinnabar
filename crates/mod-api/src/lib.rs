@@ -156,6 +156,7 @@ pub mod bindings {
             "wit",
         ],
         world: "cinnabar:extension/extension@0.1.0",
+        generate_all,
         pub_export_macro: true,
     });
 }
@@ -195,3 +196,12 @@ pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;
 
 /// World drawing authority and generation-safe resource tokens.
 pub mod drawing;
+
+/// Retained drawing budgets per owner; aggregate capacity is reserved for every loaded mod.
+pub const MAX_DRAW_INSTANCES: usize = 1024;
+pub const MAX_DRAW_GEOMETRIES: usize = 256;
+pub const MAX_DRAW_VERTICES: usize = 65_536;
+pub const MAX_DRAW_INDICES: usize = 196_608;
+pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
+pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;

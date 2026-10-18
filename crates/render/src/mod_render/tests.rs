@@ -45,6 +45,7 @@ fn applying_output_rebuilds_geometry_only_on_change() {
     let output = RenderOutput {
         passes: vec![pass("a", 7)],
         primitives: Arc::clone(&primitives),
+        ..Default::default()
     };
     scene.apply(&output, 1);
     assert_eq!(scene.vertex_count(), 6);
@@ -181,6 +182,7 @@ fn primitives_queue_one_late_transparent_item_only_when_present() {
         &RenderOutput {
             passes: Vec::new(),
             primitives: Arc::new(decal()),
+            ..Default::default()
         },
         1,
     );
@@ -228,6 +230,7 @@ fn replaced_passes_release_their_pipelines() {
             &RenderOutput {
                 passes: vec![pass("a", revision)],
                 primitives: Default::default(),
+                ..Default::default()
             },
             revision,
         );
@@ -268,6 +271,7 @@ fn primitives_queue_on_the_frame_they_first_arrive() {
         &RenderOutput {
             passes: Vec::new(),
             primitives: Arc::new(decal()),
+            ..Default::default()
         },
         1,
     );
@@ -305,6 +309,7 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
             &RenderOutput {
                 passes: Vec::new(),
                 primitives: Arc::new(decal()),
+                ..Default::default()
             },
             1,
         );

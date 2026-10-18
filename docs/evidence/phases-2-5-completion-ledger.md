@@ -1,5 +1,25 @@
 # Phases 2-5 Completion Ledger
 
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+## Browser release verification
+
+Browser target checks and JavaScript edge suites are CI gates. Go and Rust consume
+shared control fixtures, and devtool builds a staged static bundle with the locked
+binding CLI and canonical carrier delivery index. Certificate renewal retains
+relay sessions and rejects invalid replacements while keeping the last good pair.
+The receive-buffer regression runs on the native test target.
+
+Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
+real-browser acceptance matrix follow gameplay composition. No supported-browser,
+release, parity, memory or hardware performance gate closes from these checks.
+
 ## Redstone dust item sprite
 
 A reviewed default binding selects the item-atlas dust sprite, leaving placed
@@ -585,5 +605,7 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Geometry, renderer integration
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Retained geometry and instance
+transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
+Renderer integration and actor attachment remain incomplete and do not close any completion
+requirement.

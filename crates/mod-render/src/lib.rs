@@ -1,6 +1,7 @@
 //! Validated render output of a personal mod: sandboxed post passes and world primitives.
 
 pub mod geometry;
+pub mod retained;
 pub mod shader;
 
 use mod_api::{
@@ -177,6 +178,7 @@ pub struct Pass {
 pub struct RenderOutput {
     pub passes: Vec<Pass>,
     pub primitives: Arc<Primitives>,
+    pub retained: Vec<Arc<retained::Resources>>,
 }
 
 /// Combines several mods' output in load order within the single-mod budgets: earlier mods
@@ -214,7 +216,15 @@ impl RenderMerge {
             (Some(only), None) => Arc::clone(&only.primitives),
             _ => self.merge_primitives(&outputs),
         };
-        RenderOutput { passes, primitives }
+        let retained = outputs
+            .iter()
+            .flat_map(|output| output.retained.iter().cloned())
+            .collect();
+        RenderOutput {
+            passes,
+            primitives,
+            retained,
+        }
     }
 
     fn merge_primitives(&mut self, outputs: &[&RenderOutput]) -> Arc<Primitives> {

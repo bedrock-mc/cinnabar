@@ -59,10 +59,14 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
         }
         let mut sent = Vec::new();
         assert!(
-            super::super::flush_form_response(&mut runtime, |packet| {
-                sent.push(packet);
-                Ok(())
-            })
+            super::super::flush_form_response(
+                &mut runtime,
+                |_| false,
+                |packet| {
+                    sent.push(packet);
+                    Ok(())
+                }
+            )
             .unwrap()
         );
         assert_eq!(

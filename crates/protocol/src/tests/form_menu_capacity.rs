@@ -59,7 +59,10 @@ fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
                 panic!("form response");
             };
             assert_eq!(response.form_id.0, event.form_id);
-            assert_eq!(response.json_response, Some((count - 1).to_string().into()));
+            assert_eq!(
+                response.json_response,
+                Some(format!("{}\n", count - 1).into())
+            );
         }
     }
 }

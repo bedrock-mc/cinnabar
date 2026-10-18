@@ -49,6 +49,7 @@ mod tests {
             &mod_render::RenderOutput {
                 passes: Vec::new(),
                 primitives: Arc::new(primitives),
+                ..Default::default()
             },
             1,
         );
