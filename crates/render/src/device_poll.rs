@@ -5,7 +5,7 @@
 //! what arrived by the previous frame's poll.
 
 use bevy::{
-    prelude::*,
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SubApp, SystemSet, warn},
     render::{
         Render, RenderSystems,
         render_resource::PollType,
