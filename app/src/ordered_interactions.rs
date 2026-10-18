@@ -6,9 +6,12 @@ use client_interaction::{
     movement::MovementTicker,
 };
 use client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose};
+use client_runtime::network::NetworkHandle;
 use client_state::SemanticInputSnapshot;
 use gameplay::ordered_interactions::{InteractionScope, Invalidation, OrderedInteractions};
 use semantic_input::{Action, ActionEvent, ActionSnapshot};
+
+use crate::runtime::network::resource_packs::PackApplication;
 
 /// The resolved edge and the frame geometry used during its immediate dispatch.
 #[derive(Clone)]
@@ -35,6 +38,7 @@ pub(crate) struct CapturedContext {
 pub(crate) struct InteractionRuntime {
     frames: OrderedInteractions,
     ingested: usize,
+    barrier_pending: bool,
     overflowed_batches: u64,
 }
 
@@ -46,7 +50,12 @@ pub(crate) enum DispatchPhase {
 }
 
 impl InteractionRuntime {
-    /// Reports whether this frame still has edges waiting for the late dispatch boundary.
+    /// Keeps frame-final input behind unresolved edges and older gameplay announcements.
+    pub(crate) fn maintenance_pending(&self, input: &SemanticInputSnapshot) -> bool {
+        self.frames.quarantined() || self.barrier_pending || self.has_unconsumed_edges(input)
+    }
+
+    /// Reports whether any edge still awaits dispatch in this frame.
     pub(crate) fn has_unconsumed_edges(&self, input: &SemanticInputSnapshot) -> bool {
         input
             .snapshot()
@@ -65,9 +74,8 @@ pub(crate) fn pending(world: &World) -> bool {
     let Some(runtime) = world.get_resource::<InteractionRuntime>() else {
         return false;
     };
-    is_blocked(Some(runtime))
+    runtime.maintenance_pending(world.resource::<SemanticInputSnapshot>())
         || accepted_work_pending(world)
-        || runtime.has_unconsumed_edges(world.resource::<SemanticInputSnapshot>())
 }
 
 /// Keeps new actions behind an accepted release before and after movement owns its carrier.
@@ -77,13 +85,31 @@ pub(crate) fn release_pending(item_use: &ItemUseRuntime, movement: &MovementTick
 
 /// Reads the gameplay owners shared by pressed actions and held placement.
 fn accepted_work_pending(world: &World) -> bool {
-    world
-        .resource::<MeleeRuntime>()
-        .has_queued_work(world.resource::<MovementTicker>())
+    maintenance_carrier_pending(world)
         || release_pending(
             world.resource::<ItemUseRuntime>(),
             world.resource::<MovementTicker>(),
         )
+}
+
+/// Keeps new input behind older mining, block stops, selections and terminal controls.
+fn maintenance_carrier_pending(world: &World) -> bool {
+    world
+        .resource::<MeleeRuntime>()
+        .has_queued_work(world.resource::<MovementTicker>())
+        || world.resource::<BlockUseRuntime>().stopping()
+        || world
+            .resource::<client_state::PlayerRuntime>()
+            .inventory
+            .pending_hotbar_selection()
+            .is_some()
+        || world
+            .resource::<NetworkHandle<PackApplication>>()
+            .closed_command_has_pending_control()
+        || world
+            .resource::<crate::runtime::shutdown::FatalError>()
+            .0
+            .is_some()
 }
 
 /// Reads current held state, suppressing it until an incomplete sample returns to neutral.
@@ -201,7 +227,6 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     }
     let start = runtime.ingested;
     let tail = ordered.events().get(start..).unwrap_or_default();
-    runtime.ingested = runtime.ingested.max(ordered.events().len());
     if ordered.overflowed() {
         if new_frame {
             runtime.overflowed_batches = runtime.overflowed_batches.saturating_add(1);
@@ -235,7 +260,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         && !tail.is_empty()
     {
         let mut context = None;
-        for (index, edge) in tail.iter().copied().enumerate() {
+        for edge in tail.iter().copied() {
             if accepted_work_pending(world)
                 || !world
                     .resource::<MovementTicker>()
@@ -247,7 +272,6 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
                 && edge.action == Action::PickItem
                 && edge.pressed
             {
-                runtime.ingested = start + index;
                 break;
             }
             let context = context.get_or_insert_with(|| capture(world, &snapshot));
@@ -258,8 +282,18 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
                     context: context.clone(),
                 },
             );
+            runtime.ingested += 1;
         }
     }
+    if phase == DispatchPhase::AfterMovement
+        || !active
+        || snapshot.authority_released
+        || runtime.frames.quarantined()
+    {
+        // A blocked suffix expires only at its final opportunity, without replay next frame.
+        runtime.ingested = ordered.events().len();
+    }
+    runtime.barrier_pending = !stop_ready || !selection_ready || maintenance_carrier_pending(world);
     world.insert_resource(runtime);
 }
 

@@ -2,6 +2,9 @@
 use super::*;
 use client_interaction::item_use::ItemUseRuntime;
 
+#[path = "ordered/matrix.rs"]
+mod matrix;
+
 /// Publishes a release followed by a wheel selection through the semantic desktop adapter.
 fn release_and_select(world: &mut World, release: bool) {
     let mut events = semantic_input::DesktopEvents::default();
@@ -44,6 +47,7 @@ fn observed_release() -> (World, client_session::CapturedPackets) {
         ui.publish_local_runtime_id(&mut player, 7, 42).unwrap();
     });
     set_hotbar_stack(&mut world, 1, None);
+    set_hotbar_stack(&mut world, 2, None);
     let selection = client_interaction::block_use::verified_use_selection(
         world.resource::<client_state::PlayerRuntime>(),
         world.resource::<UiRuntimeResource>(),
@@ -104,12 +108,19 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
         .run_system_cached(crate::item_use::produce_item_use)
         .unwrap();
     let release = captured.drain();
-    assert_eq!(release.len(), 1);
+    assert_eq!(release.len(), 2);
     assert!(
         protocol::test_support::transactions::observe_transaction(&release[0])
             .unwrap()
             .release()
             .is_some()
+    );
+    assert_eq!(
+        protocol::test_support::packets::equipment(&release[1])
+            .unwrap()
+            .selected_slot,
+        1,
+        "the deferred selection may follow its release in the same frame"
     );
     assert!(tick(&mut world).processed.spin_started);
     flush_and_acknowledge(&mut world);
@@ -119,7 +130,7 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
         world
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(1)
+        Some(2)
     );
     assert_eq!(
         captured
