@@ -46,6 +46,7 @@ func withJoinPackProfile(ctx context.Context, dialer minecraft.Dialer, logger *s
 		return dialer, func() {}
 	}
 	profile := &joinPackProfile{logger: joinprofile.Logger(ctx, logger), sources: make(map[minecraft.ResourcePackSource]*joinPackSource), active: make(map[joinPackTransfer]time.Time), failedURLs: make(map[string]bool)}
+	dialer.HTTPClient = joinprofile.HTTPClient(ctx, dialer.HTTPClient)
 	previous := dialer.ResourcePackProgress
 	dialer.ResourcePackProgress = func(event minecraft.ResourcePackEvent) {
 		profile.record(event, time.Now())

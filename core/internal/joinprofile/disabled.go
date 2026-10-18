@@ -6,6 +6,7 @@ package joinprofile
 import (
 	"context"
 	"log/slog"
+	"net/http"
 )
 
 // Enabled is false in shipping builds, allowing diagnostic branches to be removed.
@@ -22,3 +23,6 @@ func Stage(context.Context, string) func() { return func() {} }
 
 // Logger preserves the caller's logger in shipping builds.
 func Logger(_ context.Context, logger *slog.Logger) *slog.Logger { return logger }
+
+// HTTPClient preserves the caller's client in shipping builds.
+func HTTPClient(_ context.Context, client *http.Client) *http.Client { return client }

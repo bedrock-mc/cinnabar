@@ -3,6 +3,7 @@ package proxy
 import (
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
@@ -11,18 +12,20 @@ import (
 
 func TestJoinPackProfileDebugDisabledPreservesDialer(t *testing.T) {
 	backend := &scriptedResourcePackCache{}
+	client := &http.Client{}
 	calls := 0
 	options := &slog.HandlerOptions{}
 	if !joinprofile.Enabled {
 		options.Level = slog.LevelDebug
 	}
 	dialer, finish := withJoinPackProfile(t.Context(), minecraft.Dialer{
+		HTTPClient:           client,
 		ResourcePackCache:    backend,
 		ResourcePackProgress: func(minecraft.ResourcePackEvent) { calls++ },
 	}, slog.New(slog.NewTextHandler(io.Discard, options)))
 	finish()
 	dialer.ResourcePackProgress(minecraft.ResourcePackEvent{})
-	if calls != 1 || dialer.ResourcePackCache != backend || dialer.PacketObserver.Func != nil || len(dialer.PacketObserver.PacketIDs) != 0 {
+	if calls != 1 || dialer.HTTPClient != client || dialer.ResourcePackCache != backend || dialer.PacketObserver.Func != nil || len(dialer.PacketObserver.PacketIDs) != 0 {
 		t.Fatal("disabled pack diagnostics changed callbacks, cache or packet observation")
 	}
 }
