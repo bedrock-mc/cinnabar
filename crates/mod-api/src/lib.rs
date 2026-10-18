@@ -215,6 +215,9 @@ pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
 /// Bounds host-expanded GPU topology independently of source vertex and index counts.
 pub const MAX_DRAW_EXPANDED_VERTICES: usize = MAX_DRAW_INDICES;
 
+/// Current actor observations and retained actor references, per drawing owner.
+pub const MAX_DRAW_ENTITIES: usize = MAX_OBSERVED_ACTORS;
+
 /// Caps submitted vertex work as well as resident mesh sizes, including repeated instances.
 pub const MAX_DRAW_VERTEX_WORK: usize = MAX_DRAW_EXPANDED_VERTICES * 4;
 

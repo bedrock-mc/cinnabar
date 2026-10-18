@@ -290,6 +290,101 @@ fn triangle_expansion_preserves_indices_and_zero_length_lines_emit_nothing() {
     assert!(super::mesh::build(&store.snapshot().geometry[&line]).is_empty());
 }
 
+/// Names a session-bound actor incarnation for lifetime probes.
+fn actor(spawn_revision: u64) -> EntityKey {
+    EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision,
+    }
+}
+
+#[test]
+fn absent_candidates_preserve_instances_but_confirmed_despawn_removes_them() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let target = store.observe_entities().unwrap()[0].0;
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.anchor = Anchor::Entity(EntityAnchor {
+        entity: target,
+        body_rotation: false,
+    });
+    store
+        .create(instance.clone(), DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    store.reconcile_entities(Vec::new(), &[]).unwrap();
+    assert_eq!(store.snapshot().instances.len(), 1);
+    store
+        .reconcile_entities(vec![actor(2)], &[actor(1)])
+        .unwrap();
+    assert!(store.snapshot().instances.is_empty());
+    assert_eq!(
+        store
+            .create(instance, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleHandle
+    );
+    let replacement = store.observe_entities().unwrap()[0].0;
+    assert_ne!(target, replacement);
+}
+
+#[test]
+fn entity_references_are_owner_scoped_and_cannot_be_freed_while_attached() {
+    let mut first = Store::default();
+    let mut second = Store::default();
+    first.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let target = first.observe_entities().unwrap()[0].0;
+    let geometry = second.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.anchor = Anchor::Entity(EntityAnchor {
+        entity: target,
+        body_rotation: true,
+    });
+    assert_eq!(
+        second
+            .create(instance, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleHandle
+    );
+    let geometry = first.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.anchor = Anchor::Entity(EntityAnchor {
+        entity: target,
+        body_rotation: false,
+    });
+    first.create(instance, DrawingPermissions::ALL).unwrap();
+    assert_eq!(first.remove(target).unwrap_err().code, ErrorCode::InUse);
+}
+
+#[test]
+fn entity_reference_capacity_errors_preserve_the_previous_selection() {
+    let mut store = Store::default();
+    let first: Vec<_> = (0..mod_api::MAX_DRAW_ENTITIES)
+        .map(|index| EntityKey {
+            runtime_id: index as u64 + 1,
+            ..actor(1)
+        })
+        .collect();
+    store.reconcile_entities(first, &[]).unwrap();
+    store.observe_entities().unwrap();
+    store.commit();
+    let previous = Arc::clone(store.snapshot());
+    store.begin();
+    store.reconcile_entities(vec![actor(2)], &[]).unwrap();
+    assert_eq!(
+        store.observe_entities().unwrap_err().detail,
+        "entity handles"
+    );
+    store.rollback();
+    assert!(Arc::ptr_eq(&previous, store.snapshot()));
+}
+
 #[test]
 fn distinct_polyline_endpoints_survive_expansion_before_instance_scaling() {
     for axis in 0..3 {
@@ -498,4 +593,56 @@ fn unchanged_updates_stage_nothing_and_keep_the_snapshot() {
     assert_eq!(store.mutation_bytes, 0);
     store.commit();
     assert!(Arc::ptr_eq(&before, store.snapshot()));
+}
+
+#[test]
+fn entity_observations_commit_without_geometry_or_instance_edits() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let observed = store.observe_entities().unwrap();
+    assert!(store.snapshot().entities.is_empty());
+    store.commit();
+    assert_eq!(
+        store.snapshot().entities.get(&observed[0].0),
+        Some(&actor(1))
+    );
+
+    let previous = Arc::clone(store.snapshot());
+    store.begin();
+    assert_eq!(store.observe_entities().unwrap(), observed);
+    store.commit();
+    assert!(Arc::ptr_eq(&previous, store.snapshot()));
+
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let mut instance = drawing(geometry);
+    instance.anchor = Anchor::Entity(EntityAnchor {
+        entity: observed[0].0,
+        body_rotation: false,
+    });
+    store.create(instance, DrawingPermissions::ALL).unwrap();
+}
+
+#[test]
+fn entity_reference_release_commits_without_geometry_or_instance_edits() {
+    let mut store = Store::default();
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let observed = store.observe_entities().unwrap();
+    store.create_geometry(mesh()).unwrap();
+    store.commit();
+    let previous = Arc::clone(store.snapshot());
+    store.begin();
+    store.remove(observed[0].0).unwrap();
+    store.rollback();
+    assert!(Arc::ptr_eq(&previous, store.snapshot()));
+    store.begin();
+    store.remove(observed[0].0).unwrap();
+    store.commit();
+    assert!(store.snapshot().entities.is_empty());
+    assert_eq!(
+        store.remove(observed[0].0).unwrap_err().code,
+        ErrorCode::StaleHandle
+    );
+    store.begin();
+    assert_ne!(store.observe_entities().unwrap()[0].0, observed[0].0);
 }
