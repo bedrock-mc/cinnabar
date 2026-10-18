@@ -74,12 +74,12 @@ fn inventory_options_restore_without_echo_and_keep_context_layouts_separate() {
         crafting_layout: InventoryLayout::RecipeBook,
     };
     receive(&mut runtime, &mut player, 1, stored);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert_eq!(
         runtime.inventory_controller(&player).unwrap().options,
         stored
     );
-    assert_eq!(runtime.screen_state().creative_tab(), 1);
+    assert_eq!(runtime.creative_tab(&player), 1);
     assert!(runtime.recipe_filtering(&player));
     assert!(runtime.take_client_packet().is_none());
     click(&mut runtime, &mut player, Widget::InventoryLayout(2));
@@ -108,7 +108,7 @@ fn inventory_options_restore_without_echo_and_keep_context_layouts_separate() {
 fn inventory_options_controls_deduplicate_and_keep_false_state_changes_local() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let before = runtime.inventory_controller(&player).unwrap();
     runtime.screen_state_mut().creative_row = 4;
     runtime
@@ -173,7 +173,7 @@ fn inventory_options_controls_deduplicate_and_keep_false_state_changes_local() {
 fn inventory_options_incoming_updates_do_not_replace_open_controller_or_lose_last_queued_choice() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let shown = runtime.inventory_controller(&player).unwrap();
     runtime.perform_pointer_action(
         &mut player,
@@ -229,7 +229,7 @@ fn inventory_options_incoming_updates_do_not_replace_open_controller_or_lose_las
     assert_eq!(player.inventory.inventory_options(), saved);
     runtime.close_inventory(&mut player);
     receive(&mut runtime, &mut player, 3, incoming);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert_eq!(
         runtime.inventory_controller(&player).unwrap().options,
         incoming
@@ -240,7 +240,7 @@ fn inventory_options_incoming_updates_do_not_replace_open_controller_or_lose_las
 fn inventory_options_queue_rejection_and_session_reset_are_atomic() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let shown = runtime.inventory_controller(&player).unwrap();
     for _ in 0..super::super::book_screen::MAX_QUEUED_CLIENT_PACKETS {
         assert!(
@@ -283,7 +283,7 @@ fn inventory_options_creative_bypasses_effective_filter_and_workbench_rejects_wi
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Creative);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert_eq!(
         runtime.inventory_controller(&player).unwrap().layout(),
         InventoryLayout::RecipeBookOnly
@@ -311,7 +311,7 @@ fn inventory_options_creative_bypasses_effective_filter_and_workbench_rejects_wi
 fn inventory_options_unsaved_choices_retire_on_close_without_a_flush() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     runtime
         .change_inventory_options(&mut player, false, |controller| {
             controller.options.left_tab = InventoryTab::Nature
@@ -320,7 +320,7 @@ fn inventory_options_unsaved_choices_retire_on_close_without_a_flush() {
     runtime.close_inventory(&mut player);
     assert!(runtime.screen_state().inventory.is_none());
     assert!(runtime.take_client_packet().is_none());
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert_eq!(
         runtime
             .inventory_controller(&player)
@@ -342,7 +342,7 @@ fn inventory_options_search_focus_does_not_follow_into_a_book_reader() {
     for editable in [false, true] {
         let mut player = player_state::PlayerState::new(1);
         let mut runtime = crate::test_support::inventory_session(&mut player);
-        runtime.toggle_inventory(&mut player);
+        runtime.toggle_inventory(&mut player, None);
         runtime.perform_pointer_action(
             &mut player,
             PointerAction::Click(InventoryCellHit::CreativeSearch),
@@ -369,7 +369,7 @@ fn inventory_options_closing_search_releases_keyboard_without_flushing_preferenc
     for toggle in [false, true] {
         let mut player = player_state::PlayerState::new(1);
         let mut runtime = crate::test_support::inventory_session(&mut player);
-        runtime.toggle_inventory(&mut player);
+        runtime.toggle_inventory(&mut player, None);
         runtime.perform_pointer_action(
             &mut player,
             PointerAction::Click(InventoryCellHit::CreativeSearch),
@@ -377,7 +377,7 @@ fn inventory_options_closing_search_releases_keyboard_without_flushing_preferenc
         runtime.screen_state_mut().type_text("iron");
         assert!(runtime.screen_state().text_focused());
         if toggle {
-            runtime.toggle_inventory(&mut player);
+            runtime.toggle_inventory(&mut player, None);
         } else {
             runtime.close_inventory(&mut player);
         }
@@ -397,7 +397,7 @@ fn inventory_options_closing_search_releases_keyboard_without_flushing_preferenc
 fn inventory_options_server_close_releases_personal_search_focus() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
     let container = protocol::ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID);
     let window_type = inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE;

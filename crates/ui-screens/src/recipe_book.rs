@@ -202,10 +202,7 @@ fn option_bindings(
         && controller.allows_recipe_book_only(creative)
         && controller.layout() == InventoryLayout::RecipeBookOnly;
     for (name, value) in [
-        (
-            "#is_survival_layout",
-            controller.layout() == InventoryLayout::InventoryOnly,
-        ),
+        ("#is_survival_layout", !shown),
         ("#is_recipe_book_layout", shown && !wide),
         ("#is_creative_layout", wide),
         ("#is_creative_mode", creative),

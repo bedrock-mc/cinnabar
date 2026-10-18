@@ -165,7 +165,7 @@ fn fallback_recipe_hits_follow_the_controller_layout() {
 
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let mut presentation = UiPresentationRuntime::with_hud(
         ui_engine::test_support::fixture_font(),
         client_ui::test_support::fixture_hud(),

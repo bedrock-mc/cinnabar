@@ -350,7 +350,7 @@ fn snapshot_custom_display_name_search() {
     let icon = presentation.item_icon("custom:blade", 0).unwrap();
     presentation.hud_frame_mut().window_icons.book_entries = vec![Some(icon)];
     let first = runtime.screen_state().creative_row;
-    let matched = visible_creative_entries(runtime.inventory_ledger(&player), &runtime).len();
+    let matched = visible_creative_entries(&player, &runtime).len();
     for frame in 0..24 {
         let input = presentation
             .build(

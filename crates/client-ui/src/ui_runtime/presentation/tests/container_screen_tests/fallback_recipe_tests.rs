@@ -28,7 +28,7 @@ fn render_layout(layout: InventoryLayout, workbench: bool, captured: bool) -> im
             .unwrap();
         runtime.drain_pending_inventory(&mut player);
     } else {
-        runtime.toggle_inventory(&mut player);
+        runtime.toggle_inventory(&mut player, None);
     }
     if !captured {
         runtime.screen_state_mut().inventory = None;

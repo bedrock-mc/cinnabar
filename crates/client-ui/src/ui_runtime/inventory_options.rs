@@ -155,14 +155,15 @@ impl UiRuntime {
             controller.options.right_tab = tab
         })
     }
-}
 
-impl super::screen_state::ScreenState {
-    /// Projects the captured left tab into the existing category order.
-    pub fn creative_tab(&self) -> u8 {
-        inventory_tab_ui(self.inventory.map_or(InventoryTab::Search, |controller| {
-            controller.options.left_tab
-        }))
+    /// Projects the resolved controller's left tab into the existing category order.
+    pub fn creative_tab(&self, player: &player_state::PlayerState) -> u8 {
+        inventory_tab_ui(
+            self.inventory_controller(player)
+                .map_or(InventoryTab::Search, |controller| {
+                    controller.options.left_tab
+                }),
+        )
         .unwrap_or(SEARCH_TAB)
     }
 }

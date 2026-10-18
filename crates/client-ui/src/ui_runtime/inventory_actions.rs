@@ -74,8 +74,8 @@ pub fn recipe_book_entries<'a>(
     if player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
         && let Some(catalog) = ledger.creative_catalog()
     {
-        let items = visible_creative_entries(ledger, runtime);
-        if state.creative_tab() == SEARCH_TAB {
+        let items = visible_creative_entries(player_runtime, runtime);
+        if runtime.creative_tab(player_runtime) == SEARCH_TAB {
             return items
                 .iter()
                 .map(|item| BookEntry::Creative {
@@ -120,9 +120,12 @@ pub fn recipe_book_entries<'a>(
     let shown: std::collections::HashSet<i32> = ledger
         .creative_catalog()
         .map(|catalog| {
-            creative_entries(catalog, state.creative_tab(), &state.search, |item| {
-                item_name(ledger, runtime, item)
-            })
+            creative_entries(
+                catalog,
+                runtime.creative_tab(player_runtime),
+                &state.search,
+                |item| item_name(ledger, runtime, item),
+            )
             .iter()
             .map(|item| item.stack.network_id)
             .collect()
@@ -158,11 +161,13 @@ enum Clicked {
 
 /// The catalog entries the creative screen currently lists, in grid order.
 pub fn visible_creative_entries<'a>(
-    ledger: &'a PlayerInventoryLedger,
+    player: &'a player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> super::screen_state::CreativeEntries<'a> {
+    let ledger = runtime.inventory_ledger(player);
     runtime.screen_state().matching_creative_entries(
         ledger,
+        runtime.creative_tab(player),
         runtime.item_name_generation(),
         |item| item_name(ledger, runtime, item),
     )
@@ -187,7 +192,7 @@ impl UiRuntime {
     ) -> Option<Outcome> {
         let id = match hit {
             InventoryCellHit::CreativeGrid(index) => {
-                let entries = visible_creative_entries(self.inventory_ledger(player_runtime), self);
+                let entries = visible_creative_entries(player_runtime, self);
                 let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
                 entries.get(position).map(|item| item.creative_network_id)
             }
@@ -836,7 +841,7 @@ impl UiRuntime {
                 .begin_destroy_cursor();
         }
         let id = {
-            let entries = visible_creative_entries(player_runtime.inventory.ledger(), self);
+            let entries = visible_creative_entries(player_runtime, self);
             let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
             if usize::from(index) >= GRID_CELLS {
                 return Err(InventoryGestureError::InvalidRequest);

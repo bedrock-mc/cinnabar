@@ -3,6 +3,72 @@ use crate::ui_runtime::{SequencedUiEvent, inventory_drag::PointerAction};
 use ui_screens::container_actions::Widget;
 
 #[test]
+fn negative_inventory_layout_draws_as_hidden_recipe_book() {
+    use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
+    let Some(mut presentation) = engine_presentation_with(pack_harness::font()) else {
+        eprintln!(
+            "skipping negative_inventory_layout_draws_as_hidden_recipe_book: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let mut hidden = None;
+    for layout in [
+        protocol::InventoryLayout::InventoryOnly,
+        protocol::InventoryLayout::Unknown(-1),
+    ] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = session(&mut player);
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        player
+            .inventory
+            .set_inventory_options(protocol::InventoryOptions {
+                inventory_layout: layout,
+                ..Default::default()
+            });
+        runtime.toggle_inventory(&mut player, None);
+        for now in [0, 500] {
+            presentation
+                .build(
+                    &player,
+                    &runtime,
+                    now,
+                    [1280, 720],
+                    DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+        }
+        let input = presentation
+            .build(
+                &player,
+                &runtime,
+                5_000,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        assert!(!crate::ui_runtime::presentation::forms::recipe_book_shown(
+            &player, &runtime
+        ));
+        assert_eq!(
+            runtime.inventory_controller(&player).unwrap().layout(),
+            layout
+        );
+        let raster = snapshot::rasterize(&input);
+        if let Some(hidden) = &hidden {
+            snapshot::write(&input, "inventory-negative-layout");
+            assert!(
+                raster == *hidden,
+                "a hidden book must draw the inventory-only screen"
+            );
+        } else {
+            hidden = Some(raster);
+        }
+    }
+}
+
+#[test]
 fn inventory_only_layout_survives_respawn_in_the_rendered_screen() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::super::forms::pack_harness::font())
