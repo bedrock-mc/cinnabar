@@ -1107,7 +1107,7 @@ fn open_personal_inventory(player_runtime: &mut PlayerRuntime, runtime: &mut UiR
     runtime
         .publish_local_runtime_id(player_runtime, runtime.session_id(), 42)
         .unwrap();
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(
         runtime

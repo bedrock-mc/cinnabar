@@ -160,7 +160,6 @@ pub(crate) fn login_client_data(
         "PlayFabId": "",
         "ServerAddress": "",
         "ThirdPartyName": display_name,
-        "ThirdPartyNameOnly": false,
         "UIProfile": 0,
     });
     let skin_claims = json!({
@@ -551,6 +550,21 @@ mod tests {
                 Some(filter_profanity),
                 "the selected preference must be present, including false"
             );
+        }
+    }
+
+    /// Modern login names omit the legacy name-only marker, including an offline name.
+    #[test]
+    fn claims_omit_the_legacy_name_only_marker() {
+        for name in ["Fixture", "Player Name", "测试"] {
+            let claims = login_client_data(
+                name,
+                ClientRandomId::new(-7).unwrap(),
+                None,
+                &LoginSettings::default(),
+            );
+            assert_eq!(claims["ThirdPartyName"], name);
+            assert!(claims.get("ThirdPartyNameOnly").is_none());
         }
     }
 

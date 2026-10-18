@@ -104,6 +104,51 @@ fn hd_icon_variants_respect_the_remaining_retained_pixel_budget() {
     );
 }
 
+#[test]
+fn browser_startup_item_alias_inherits_base_sprite_without_pack_raster() {
+    let entities = assets::RuntimeEntityAssets::from_compiled(
+        assets::carriers::startup::test_carriers::synthetic_entity_assets(147),
+    )
+    .unwrap();
+    let sprite = assets::IconSprite {
+        width: 16,
+        height: 16,
+        rgba8: Arc::from([12, 34, 56, 255].repeat(16 * 16)),
+    };
+    let encoded = assets::encode_icon_catalog_with_sources(
+        entities.source_manifest_sha256(),
+        std::slice::from_ref(&sprite),
+        &[],
+        &[],
+        &[],
+        &[assets::icon::IconSource {
+            path: "textures/items/canvas_base.png".into(),
+            sprite: 0,
+        }],
+    )
+    .unwrap();
+    let icons = assets::RuntimeIconCatalog::decode(&encoded).unwrap();
+    crate::runtime::network::install_vanilla_item_assets(&entities, &icons);
+
+    let icons = compile_session_icons(
+        &stack(&[&[(
+            "textures/item_texture.json",
+            br#"{"texture_data":{"alias":{"textures":"textures/items/canvas_base"}}}"#.to_vec(),
+        )]]),
+        &[(Arc::from("fixture:canvas_alias"), Arc::from("alias"))],
+        BlockIcons::default(),
+    )
+    .expect("base sprite must satisfy a server alias without a bundled raster");
+    assert!(super::vanilla_item_paths_installed());
+    let inherited = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "fixture:canvas_alias")
+        .expect("server alias artwork");
+    assert_eq!((inherited.width, inherited.height), (16, 16));
+    assert_eq!(inherited.rgba8.as_ref(), sprite.rgba8.as_ref());
+}
+
 fn stack(packs: &[&[(&str, Vec<u8>)]]) -> LayeredPackView {
     let archives = packs
         .iter()

@@ -865,7 +865,7 @@ fn middle_click_requests_the_nearer_mob_and_respects_block_occlusion() {
 
 #[test]
 fn browser_canvas_pick_binding_publishes_one_request_per_press() {
-    use crate::browser_input::{BrowserOptions, InputSource, sample_input};
+    use crate::browser_input::{BrowserOptions, CanvasCapture, InputSource, sample_input};
     use launcher::menu::settings_options::BindingId;
     use semantic_input::{ButtonEdges, DeviceFrame, KeyboardMouseFrame, PhysicalControl};
 
@@ -892,6 +892,7 @@ fn browser_canvas_pick_binding_publishes_one_request_per_press() {
                     .remap(BindingId::PickItem.row(false).unwrap(), control)
             );
             world.insert_resource(options);
+            world.init_resource::<CanvasCapture>();
             for (pressed, held, focus_lost, ui_focused, count) in [
                 (true, true, false, false, 1),
                 (false, true, false, false, 0),

@@ -736,9 +736,11 @@ impl UiRuntime {
         }
     }
 
+    /// Toggles the active inventory against the actor authority available at this input edge.
     pub fn toggle_inventory(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
+        authority: Option<&client_world::WorldAuthority>,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
         self.chat_focused = false;
@@ -763,10 +765,16 @@ impl UiRuntime {
             self.inventory_open = self
                 .local_runtime_id(player_runtime)
                 .is_some_and(|runtime_id| {
-                    player_runtime
-                        .inventory
-                        .ledger_mut()
-                        .request_personal_open(runtime_id)
+                    let mount = authority
+                        .filter(|world| world.local_player_runtime_id() == runtime_id)
+                        .and_then(|world| {
+                            player_runtime
+                                .facts
+                                .mount_unique_id()
+                                .and_then(|mount| world.actor_by_unique_id(mount))
+                        });
+                    let ledger = player_runtime.inventory.ledger_mut();
+                    ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
         }
         UiAuthorityTransition {

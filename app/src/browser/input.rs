@@ -11,9 +11,33 @@ pub(crate) struct BrowserOptions(
 /// Canvas observations owned by the DOM edge, sampled once per game update.
 pub(crate) struct InputSource(pub Box<dyn FnMut() -> semantic_input::DeviceFrame>);
 
+/// Whether the canvas owns the device sample used by this gameplay frame.
+#[derive(Resource, Default)]
+pub(crate) struct CanvasCapture(bool);
+
+/// Publishes UI ownership and canvas capture for every gameplay input consumer.
+pub(crate) fn screen_focus(
+    capture: Res<CanvasCapture>,
+    player: Res<client_state::PlayerRuntime>,
+    ui: Res<client_shell::ui_resources::UiRuntimeResource>,
+    presentation: Res<client_shell::ui_resources::UiPresentationResource>,
+    world: Res<world::ClientWorld>,
+    mut focus: ResMut<client_state::ScreenFocus>,
+) {
+    let focused =
+        ui.ui_focused(&player) || presentation.loading_stage().is_some() || world.stream.is_none();
+    focus.set_if_neq(client_state::ScreenFocus {
+        ui_focused: focused,
+        absorbs_input: focused || !capture.0,
+        steals_mouse: Some(focused),
+        ..Default::default()
+    });
+}
+
 /// Samples the browser canvas without also collecting the native physical input source.
 pub(crate) fn sample_input(
     mut source: NonSendMut<InputSource>,
+    mut capture: ResMut<CanvasCapture>,
     mut pending: ResMut<semantic_controls::PendingDeviceFrame>,
     world: Res<world::ClientWorld>,
     options: Res<BrowserOptions>,
@@ -21,6 +45,7 @@ pub(crate) fn sample_input(
 ) {
     let mut frame = (source.0)();
     frame.window_focus_lost |= world.stream.is_none();
+    capture.0 = !frame.window_focus_lost;
     let pressed = |control| match control {
         semantic_input::PhysicalControl::KeyboardUsage(key) => frame
             .keyboard_mouse
@@ -43,3 +68,7 @@ pub(crate) fn sample_input(
         .any(pressed);
     pending.replace(frame);
 }
+
+#[cfg(test)]
+#[path = "input/tests.rs"]
+mod tests;

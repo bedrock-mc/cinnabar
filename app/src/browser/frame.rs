@@ -6,25 +6,7 @@ use crate::{
 use bevy::prelude::*;
 use client_state::ClientFrameSet;
 
-use crate::browser_input::sample_input;
-
-/// Publishes game UI ownership for the shared semantic router and camera.
-fn screen_focus(
-    player: Res<client_state::PlayerRuntime>,
-    ui: Res<client_shell::ui_resources::UiRuntimeResource>,
-    presentation: Res<client_shell::ui_resources::UiPresentationResource>,
-    world: Res<world::ClientWorld>,
-    mut focus: ResMut<client_state::ScreenFocus>,
-) {
-    let focused =
-        ui.ui_focused(&player) || presentation.loading_stage().is_some() || world.stream.is_none();
-    focus.set_if_neq(client_state::ScreenFocus {
-        ui_focused: focused,
-        absorbs_input: focused,
-        steals_mouse: Some(focused),
-        ..Default::default()
-    });
-}
+use crate::browser_input::{CanvasCapture, sample_input, screen_focus};
 
 /// Installs production owners in the same authority, simulation and publication phases.
 pub(super) fn configure(app: &mut App) {
@@ -34,6 +16,7 @@ pub(super) fn configure(app: &mut App) {
     };
     crate::game_frame::configure_client_frame_schedule(app);
     crate::game_frame::configure_world(app);
+    app.init_resource::<CanvasCapture>();
     app.add_plugins((
         client_runtime::ClientRuntimePlugin::<network::resource_packs::PackApplication>::default(),
         client_presentation::ClientPresentationPlugin,

@@ -46,11 +46,11 @@ pub(super) fn install(
     output: client_audio::named_audio::AudioDevice,
 ) -> Result<(Host, HostCommands)> {
     let entities = Arc::new(startup.entities);
-    network::set_vanilla_item_paths(&entities);
     network::resource_packs::set_base_world_assets(Arc::clone(&startup.world));
     let artwork = crate::asset_bindings::actor_artwork(&startup.actors, &entities);
     let hand_geometry = render_model::ViewmodelGeometry::from_runtime(&entities, &artwork);
     let icons = Arc::new(startup.icons);
+    network::install_vanilla_item_assets(&entities, &icons);
     let (equipment, artwork, geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entities),

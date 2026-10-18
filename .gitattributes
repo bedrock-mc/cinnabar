@@ -42,7 +42,9 @@ crates/assets/data/item-facts-expansion-*.tsv text eol=lf
 crates/assets/data/item-facts-*.bin binary
 crates/crash-report/data/redaction-rules.json text eol=lf
 core/internal/redact/rules.json text eol=lf
+core/cinnabarapi/schema/*.json text eol=lf
 *_generated.rs text eol=lf
 crates/protocol-ids/src/generated.rs text eol=lf
 # Agents append independent entries; keep both sides instead of conflicting.
 plan.md merge=union
+docs/evidence/*-completion-ledger.md merge=union

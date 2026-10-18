@@ -220,6 +220,13 @@ pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
 });
 
 impl WorldPool {
+    /// Submits detached allocations to the executor driven by the browser host.
+    #[cfg(any(test, target_arch = "wasm32"))]
+    fn retire(&self, job: impl FnOnce() + Send + 'static) {
+        // Decode ageing also prevents a mesh backlog from retaining evicted allocations.
+        self.spawn(Lane::Decode, job);
+    }
+
     /// Creates the queues and starts native threads; the browser driver retains the same jobs.
     fn new(size: PoolSize) -> Self {
         let shared = Arc::new(Shared::default());
@@ -267,6 +274,14 @@ impl WorldPool {
             jobs: Vec::new(),
         }
     }
+}
+
+/// Releases detached world allocations through the host's background executor.
+pub(super) fn retire(job: impl FnOnce() + Send + 'static) {
+    #[cfg(not(target_arch = "wasm32"))]
+    rayon::spawn(job);
+    #[cfg(target_arch = "wasm32")]
+    WORKERS.retire(job);
 }
 
 /// Prepared jobs retain independent priority after their shared publication.

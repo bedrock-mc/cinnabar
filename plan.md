@@ -781,6 +781,9 @@ which misreports the builtin vertex index under nonzero base vertices.
 The Go core, local server, and fixture generator share a reviewed transport revision with
 corrected handshake addresses and probe cadence, connected control framing, reliability
 and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+The consumers now also include the merged fresh-entropy GUID, offline reply validation,
+final MTU selection, retry deadline, and split-memory fixes. A wire regression exercises
+the effective dependency, and manifest checks keep the three Go module pins together.
 
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
@@ -852,6 +855,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Login names omit the legacy ThirdPartyNameOnly marker while preserving ThirdPartyName.
+  Complete claim presence, ordering and platform lifecycle parity remain incomplete.
 - Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
   image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
@@ -4658,8 +4663,8 @@ remain in the production build. The checkpoint is pushed through `2759e46d`;
 hosted run `34088016127` passed every job, including Windows acceptance,
 macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
-A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
-unavailable until the next session; broader timeout recovery remains incomplete.
+Open timeouts release local admission, and later server opens supply their actual
+window IDs. Broader timeout and reconnect behavior still needs live qualification.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
@@ -10070,6 +10075,20 @@ but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
 
+## Inventory opening while mounted
+
+Inventory input resolves a retained mount through live actor authority and sends its runtime
+ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
+request. The chosen runtime ID survives transport delay. Supported server window opens
+are handled without request correlation, including replies received after cancellation,
+timeout, or a changed target. An open settles the pending input without retaining reply
+history or sending a rejection close. Personal opens supersede storage; storage opens
+keep the active personal screen guard.
+Open timeouts release local admission without closing a guessed window ID.
+Item requests and admitted user closes retain their window generations for settlement.
+Full mount container, vehicle input and platform-specific inventory-opening guards
+remain incomplete.
+
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
 with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
@@ -10123,3 +10142,9 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
+renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.

@@ -2,6 +2,9 @@ use super::*;
 use candidate::build_candidate;
 use std::fs;
 
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     fixture_with_capture(enabled, frame, text, false)
 }
@@ -75,6 +78,7 @@ fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
         acknowledgments: Mutex::new(Vec::new()),
         fallback_retired: Mutex::new(Vec::new()),
         settings: Arc::new(Mutex::new(BTreeMap::new())),
+        drawing: Arc::new(Mutex::new(BTreeMap::new())),
         companions: Arc::new(Mutex::new(Vec::new())),
     });
     (world, incoming, retiring)
@@ -519,7 +523,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
-    watcher.remember_settings(world.resource::<ModRuntime>());
+    watcher.remember_settings(Some(world.resource::<ModRuntime>()), None);
     let permit = removal::Permit::new(
         watcher.latest.load(Ordering::Acquire),
         watcher.latest.clone(),
@@ -552,7 +556,13 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
     let Message::Acknowledge { installed, .. } = messages.try_recv().unwrap() else {
         panic!("unrelated change attempted to retry a trapped guest")
     };
-    assert_eq!(installed.get(&a.component), Some(&identity));
+    assert_eq!(
+        installed.get(&a.component),
+        Some(&Admitted {
+            source: identity,
+            drawing: None
+        })
+    );
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
     assert!(!world.resource::<ModRuntime>().hosts.host(1).is_active());
     apply(&mut world, vec![a.clone(), b.clone()], Vec::new());
@@ -668,4 +678,128 @@ fn failed_admission_acknowledges_an_absent_host_without_retrying() {
     assert!(installed.is_empty());
     assert_eq!(statuses[0].state, "error");
     assert!(messages.try_recv().is_err());
+}
+
+#[test]
+fn drawing_fence_changes_cannot_restore_withdrawn_registration_grants() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let mut entry = first.registration.clone();
+    apply(&mut world, vec![entry.clone()], vec![change(first)]);
+    entry.grants.controls = false;
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration
+        .as_mut()
+        .unwrap()
+        .mods[0] = entry;
+    install::sync_authority(&mut world);
+    let mut runtime = world.resource_mut::<ModRuntime>();
+    let host = runtime.hosts.host_mut(0);
+    host.bind_drawing_session(mod_api::drawing::DrawingSession {
+        connection: 2,
+        local: true,
+        permissions: mod_api::drawing::DrawingPermissions::ALL,
+        ..Default::default()
+    });
+    assert!(host.is_revoked());
+    assert!(!host.needs_drawing_restart());
+    assert!(!host.reload_if_changed().unwrap());
+    host.frame(false).unwrap();
+    assert!(host.label().is_none());
+}
+
+#[test]
+fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let entry = first.registration.clone();
+    apply(&mut world, vec![entry.clone()], vec![change(first)]);
+    let session = mod_api::drawing::DrawingSession {
+        connection: 1,
+        ..Default::default()
+    };
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .bind_drawing_session(session);
+    let context = super::super::admission::DrawingContext::capture(
+        world.resource::<ModRuntime>().hosts.host(0),
+        None,
+    );
+    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    snapshot.drawing = context;
+    let prepared = Box::new(build_candidate(snapshot).unwrap());
+    assert_eq!(prepared.host.drawing_session(), Some(session));
+    apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert!(
+        !world
+            .resource::<ModRuntime>()
+            .hosts
+            .host(0)
+            .needs_drawing_restart()
+    );
+    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    snapshot.drawing = super::super::admission::DrawingContext::capture(
+        world.resource::<ModRuntime>().hosts.host(0),
+        None,
+    );
+    let stale = Box::new(build_candidate(snapshot).unwrap());
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .bind_drawing_session(mod_api::drawing::DrawingSession {
+            connection: 2,
+            ..session
+        });
+    apply(&mut world, vec![entry], vec![change(stale)]);
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+}
+
+#[test]
+fn the_real_watcher_restarts_unchanged_bytes_under_each_drawing_fence() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("a.wasm");
+    fs::write(&path, fixture(false, "", "Hello")).unwrap();
+    selection::select(directory.path(), &path, true, "selected".into()).unwrap();
+    let mut app = App::new();
+    app.insert_resource(Watcher::start(directory.path().into()).unwrap());
+    app.add_systems(
+        bevy::prelude::Update,
+        (install_pending, ApplyDeferred).chain(),
+    );
+    test_time::eventually("registered guest is admitted", || {
+        app.update();
+        app.world()
+            .get_resource::<ModRuntime>()
+            .is_some_and(|runtime| runtime.hosts.host(0).is_active())
+    });
+    for connection in [1, 2] {
+        let session = mod_api::drawing::DrawingSession {
+            connection,
+            ..Default::default()
+        };
+        app.world_mut()
+            .resource_mut::<ModRuntime>()
+            .hosts
+            .host_mut(0)
+            .bind_drawing_session(session);
+        test_time::eventually("registered drawing fence is admitted by the worker", || {
+            app.update();
+            let runtime = app.world().resource::<ModRuntime>();
+            runtime.hosts.host(0).is_active()
+                && runtime.hosts.host(0).drawing_session() == Some(session)
+        });
+        let runtime = app.world().resource::<ModRuntime>();
+        assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
+        assert!(!runtime.hosts.host(0).needs_drawing_restart());
+    }
 }

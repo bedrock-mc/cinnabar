@@ -334,7 +334,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } = carriers.core.context("load startup block assets")?;
     logging::loaded_assets(&loaded_assets);
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
-    crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
     let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry =
@@ -347,7 +346,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
     bevy::log::info!("{}", icon_assets.startup_summary());
-    crate::runtime::network::set_vanilla_item_sprites(&entity_runtime, icon_assets.runtime());
+    crate::runtime::network::install_vanilla_item_assets(&entity_runtime, icon_assets.runtime());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(

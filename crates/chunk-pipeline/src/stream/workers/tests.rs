@@ -1,5 +1,25 @@
 use super::*;
 
+/// Retired allocations must be released by cooperative turns without any worker threads.
+#[test]
+fn cooperative_retirement_drops_allocations_without_worker_threads() {
+    let pool = WorldPool {
+        shared: Arc::default(),
+        size: PoolSize {
+            foreground: 0,
+            background: 0,
+        },
+    };
+    let now = Moment::default();
+    let mut scratch = world::LightSolverScratch::default();
+    let retired = Arc::new(vec![0_u8; 4096]);
+    let witness = Arc::downgrade(&retired);
+    pool.retire(move || drop(retired));
+    assert!(run_one(&pool.shared, now, &mut scratch));
+    assert!(witness.upgrade().is_none());
+    assert!(!run_one(&pool.shared, now, &mut scratch));
+}
+
 /// Mesh can use every world thread while light stays on the background share.
 #[test]
 fn pool_sizing_leaves_frame_cores_and_foreground_threads() {
