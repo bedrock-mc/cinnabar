@@ -2,9 +2,11 @@
 
 use super::*;
 use bevy::{
+    camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
-    prelude::{SubApp, SystemSet},
+    prelude::{SubApp, SystemSet, UVec2},
     render::{
+        camera::ExtractedCamera,
         render_resource::RenderPassDepthStencilAttachment,
         renderer::{RenderContext, ViewQuery},
         view::{ViewDepthStencilTexture, ViewTarget},
@@ -401,21 +403,31 @@ fn prepare(
     }
 }
 
+/// Uses the scene's main-pass viewport and clips it to the mask attachment.
+fn raster_viewport(
+    viewport: Option<&Viewport>,
+    resolution: Option<&MainPassResolutionOverride>,
+    extent: [u32; 2],
+) -> Option<Viewport> {
+    let viewport = Viewport::from_viewport_and_override(viewport, resolution).unwrap_or(Viewport {
+        physical_size: UVec2::from_array(extent),
+        ..default()
+    });
+    crate::render_bounds::viewport(&viewport, extent)
+}
+
 /// Clears even an empty or unavailable selection so a previous silhouette is never reused.
 fn draw(
     world: &World,
     query: ViewQuery<(
         &ViewDepthStencilTexture,
-        &ExtractedView,
-        Option<&bevy::render::camera::ExtractedCamera>,
+        &ExtractedCamera,
+        Option<&MainPassResolutionOverride>,
     )>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let entity = query.entity();
-    let (depth, view, camera) = query.into_inner();
-    let depth_range = camera
-        .and_then(|camera| camera.viewport.as_ref())
-        .map_or(0.0..1.0, |viewport| viewport.depth.clone());
+    let (depth, camera, resolution) = query.into_inner();
     let (Some(masks), Some(gpu), Some(lightmap), Some(offset), Some(cache)) = (
         world.get_resource::<MaskGpu>(),
         world.get_resource::<ActorGpu>(),
@@ -450,13 +462,9 @@ fn draw(
         if !target.ready || target.frame_generation != gpu.frame_generation {
             continue;
         }
-        let Some(rect) = crate::render_bounds::scissor(
-            render_model::UiScissor::new(
-                view.viewport.x,
-                view.viewport.y,
-                view.viewport.z,
-                view.viewport.w,
-            ),
+        let Some(viewport) = raster_viewport(
+            camera.viewport.as_ref(),
+            resolution,
             crate::render_bounds::extent(&target.render_view),
         ) else {
             continue;
@@ -509,15 +517,13 @@ fn draw(
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                pass.set_viewport(
-                    rect.x as f32,
-                    rect.y as f32,
-                    rect.width as f32,
-                    rect.height as f32,
-                    depth_range.start,
-                    depth_range.end,
+                pass.set_camera_viewport(&viewport);
+                pass.set_scissor_rect(
+                    viewport.physical_position.x,
+                    viewport.physical_position.y,
+                    viewport.physical_size.x,
+                    viewport.physical_size.y,
                 );
-                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
                 pass.set_bind_group(1, &lightmap.bind_group, &[]);
                 for (span, id) in draws {
                     if dissolve_depth(span.material) != prepass {

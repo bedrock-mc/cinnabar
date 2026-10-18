@@ -1,6 +1,50 @@
 use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
 
+mod viewport_raster;
+use bevy::prelude::UVec4;
+
+#[test]
+fn mask_raster_viewport_uses_main_pass_resolution_and_camera_depth() {
+    let camera = Viewport {
+        physical_position: UVec2::new(12, 8),
+        physical_size: UVec2::new(96, 64),
+        depth: 0.25..0.75,
+    };
+    let resolution = MainPassResolutionOverride(UVec2::new(32, 24));
+    let viewport = raster_viewport(Some(&camera), Some(&resolution), [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::new(12, 8));
+    assert_eq!(viewport.physical_size, resolution.0);
+    assert_eq!(viewport.depth, 0.25..0.75);
+
+    let viewport = raster_viewport(None, Some(&resolution), [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::ZERO);
+    assert_eq!(viewport.physical_size, resolution.0);
+    assert_eq!(viewport.depth, 0.0..1.0);
+}
+
+#[test]
+fn mask_raster_viewport_clips_to_attachments_and_handles_empty_views() {
+    let viewport = raster_viewport(None, None, [128, 96]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::ZERO);
+    assert_eq!(viewport.physical_size, UVec2::new(128, 96));
+    assert_eq!(viewport.depth, 0.0..1.0);
+
+    let camera = Viewport {
+        physical_position: UVec2::new(12, 8),
+        physical_size: UVec2::new(96, 64),
+        depth: 0.25..0.75,
+    };
+    let viewport = raster_viewport(Some(&camera), None, [64, 48]).unwrap();
+    assert_eq!(viewport.physical_position, UVec2::new(12, 8));
+    assert_eq!(viewport.physical_size, UVec2::new(52, 40));
+    assert_eq!(viewport.depth, 0.25..0.75);
+    assert!(raster_viewport(Some(&camera), None, [12, 8]).is_none());
+    assert!(raster_viewport(Some(&camera), None, [0, 0]).is_none());
+    let empty = MainPassResolutionOverride(UVec2::ZERO);
+    assert!(raster_viewport(Some(&camera), Some(&empty), [128, 96]).is_none());
+}
+
 #[test]
 fn mask_selection_keeps_the_dissolve_companion() {
     let mut app = fixture();
