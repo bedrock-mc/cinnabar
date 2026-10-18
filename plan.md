@@ -3829,8 +3829,8 @@ sleeping players lower their anchor by `1.5` blocks.
 Each centered line has a black background at alpha `0.25`, with one pixel of side
 padding and vertical bounds `-1 .. 8`. Multiline spacing and world lift remain unchanged.
 
-Ordinary tags draw their background and dim text at alpha `32 / 255` through walls, followed
-by full-opacity depth-tested text before the next label starts. Complete labels draw back
+Ordinary tags draw their background and full-opacity text through geometry, including
+server cosmetics extending above the published actor bounds. Complete labels draw back
 to front by camera depth, independently of viewer-distance limits and score range,
 with depth selection on each quad. Sneaking tags draw only their depth-tested background
 and dim text. Only tested text writes depth; labels use no depth bias and test final
@@ -3839,7 +3839,8 @@ alpha against `0.1`. Visibility uses strict viewer-distance limits of 64 blocks,
 suppress tags; the local player's tag stays hidden by default. Explicit always-show metadata
 overrides a cleared show-name flag; otherwise explicit server hides suppress tags.
 The open font, server text and formatting, score lines, debug text and explicit debug
-quaternions retain their existing paths. Rendered-frame acceptance remains incomplete;
+quaternions retain their existing paths. Live acceptance with oversized server cosmetics remains
+incomplete, as does the broader rendered-frame acceptance;
 no name-tag visual parity gate is closed. See [rendering rules](docs/reference/nametag-rendering.md).
 
 2026-10-01 first-person item rendering: ordinary icons and opaque full-cube blocks now use

@@ -2,14 +2,14 @@
 
 use super::*;
 
-/// Finds the full depth pass for one independently colored native glyph run.
+/// Finds one independently colored glyph run.
 fn colored_record(scene: &NametagScene, rgb: [f32; 3]) -> &NametagRecord {
     scene
         .records
         .iter()
         .find(|record| {
             record.text != 0
-                && record.depth_tested == 1
+                && record.depth_tested == 0
                 && record.color[..3]
                     .iter()
                     .zip(rgb)
@@ -41,7 +41,7 @@ fn totem_annotation_preserves_server_lines_tints_and_native_depth_passes() {
                 .records
                 .iter()
                 .filter(|record| {
-                    record.text != 0 && record.depth_tested == 1 && record.color == [1.; 4]
+                    record.text != 0 && record.depth_tested == 0 && record.color == [1.; 4]
                 })
                 .collect();
             assert_eq!(

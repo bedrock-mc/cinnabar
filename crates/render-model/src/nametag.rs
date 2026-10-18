@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub const NAMETAG_BLOCKS_PER_FONT_PIXEL: f32 = 1.6 * (1.0 / 60.0);
 /// Atlas coverage must exceed this value before label opacity is applied.
 pub const NAMETAG_ALPHA_CUTOFF: f32 = 0.1;
-/// Native opacity for sneaking text and the ordinary through-wall text pass.
+/// Opacity for depth-tested sneaking text.
 pub const NAMETAG_DIM_TEXT_ALPHA: f32 = 32.0 / 255.0;
 pub const NAMETAG_TEXT_REVERSE_Z_BIAS: i32 = 32;
 /// Side of the square RGBA8 text atlas.

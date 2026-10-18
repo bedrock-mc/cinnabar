@@ -333,7 +333,7 @@ fn tag_anchor_follows_the_same_interpolated_feet_as_the_rig() {
 fn multiline_lines_get_their_own_centred_backgrounds_before_their_glyphs() {
     let anchor = anchor("AB\nA");
     let scene = scene(std::slice::from_ref(&anchor));
-    assert_eq!(scene.records.len(), 6);
+    assert_eq!(scene.records.len(), 4);
     let (plates, glyphs) = scene.records[..4].split_at(2);
     for (index, (plate, glyph)) in plates.iter().zip(glyphs).enumerate() {
         assert_eq!(plate.color, PLATE_COLOR);
@@ -363,21 +363,14 @@ fn multiline_lines_get_their_own_centred_backgrounds_before_their_glyphs() {
     assert!(
         glyphs
             .iter()
-            .all(|record| record.text == 1 && record.color == [1.0, 1.0, 1.0, DIM_TEXT_ALPHA])
+            .all(|record| record.text == 1 && record.color == [1.0; 4])
     );
-    for (dim, full) in glyphs.iter().zip(&scene.records[4..]) {
-        assert_eq!(dim.depth_tested, 0);
-        assert_eq!(full.depth_tested, 1);
-        assert_eq!(full.color, [1.0; 4]);
-        assert_eq!(full.rect, dim.rect);
-        assert_eq!(full.uv, dim.uv);
-        assert_eq!(full.anchor, dim.anchor);
-    }
+    assert!(glyphs.iter().all(|record| record.depth_tested == 0));
 }
 
 #[test]
 fn oversized_tags_render_a_prefix_within_the_scene_budget() {
-    let records_per_line = NAMETAG_RECORDS_PER_LINE + 1;
+    let records_per_line = NAMETAG_RECORDS_PER_LINE;
     let line_budget = MAX_NAMETAG_RECORDS / records_per_line;
     let tag = anchor(&"A\n".repeat(line_budget + 1));
     let scene = scene(&[tag]);
@@ -390,7 +383,7 @@ fn oversized_tags_render_a_prefix_within_the_scene_budget() {
             .iter()
             .filter(|record| record.text == 1)
             .count(),
-        line_budget * 2
+        line_budget
     );
     assert_eq!(
         scene
@@ -413,7 +406,7 @@ fn oversized_tags_use_the_budget_left_by_earlier_tags() {
     let mut first = anchor("AB");
     first.position.x = 1.0;
     first.view_depth = 8.0;
-    let first_records = NAMETAG_RECORDS_PER_LINE + 1;
+    let first_records = NAMETAG_RECORDS_PER_LINE;
     let remaining_lines = (MAX_NAMETAG_RECORDS - first_records) / NAMETAG_RECORDS_PER_LINE;
     let mut oversized = anchor(&"A\n".repeat(remaining_lines + 2));
     oversized.position.x = 2.0;
@@ -479,7 +472,7 @@ fn ordinary_and_sneaking_labels_draw_together_back_to_front() {
             .iter()
             .map(|record| record.anchor[0])
             .collect::<Vec<_>>(),
-        [9.0, 9.0, 8.0, 8.0, 8.0, 2.0, 2.0, 2.0]
+        [9.0, 9.0, 8.0, 8.0, 2.0, 2.0]
     );
     assert_eq!(
         scene
@@ -487,7 +480,7 @@ fn ordinary_and_sneaking_labels_draw_together_back_to_front() {
             .iter()
             .map(|record| record.depth_tested)
             .collect::<Vec<_>>(),
-        [1, 1, 0, 0, 1, 0, 0, 1]
+        [1, 1, 0, 0, 0, 0]
     );
 }
 
@@ -914,7 +907,7 @@ fn long_server_tag_lines_render_bounded_utf8_prefixes() {
         );
         assert!(tag.lines[0].chars().count() <= ui::MAX_GLYPHS_PER_LAYOUT);
         let scene = scene(&[tag]);
-        assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE + 1);
+        assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE);
         assert!(scene.atlas[0].rgba8.iter().any(|&byte| byte != 0));
         assert!(scene.atlas[0].cell[2] <= NAMETAG_ATLAS_SIDE);
         assert!(scene.atlas[0].cell[3] <= NAMETAG_ATLAS_SIDE);
@@ -944,10 +937,7 @@ fn long_formatted_lines_keep_the_aggregate_multiline_budget() {
                 <= ui::MAX_TEXT_SPANS
         );
     }
-    assert_eq!(
-        scene(&[tag]).records.len(),
-        2 * (NAMETAG_RECORDS_PER_LINE + 1)
-    );
+    assert_eq!(scene(&[tag]).records.len(), 2 * NAMETAG_RECORDS_PER_LINE);
 }
 
 #[test]
@@ -969,7 +959,7 @@ fn wide_advance_lines_keep_a_prefix_instead_of_exceeding_the_wrap_limit() {
     let text = "0".repeat(ui::MAX_WRAP_LINES * glyphs_per_line + 1);
     assert!(text.len() <= ui::UiLimits::MAX_TEXT_BYTES);
     let scene = scene_with_font(&[anchor(&text)], &font);
-    assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE + 1);
+    assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE);
     assert!(scene.atlas[0].cell[2] <= NAMETAG_ATLAS_SIDE);
 }
 
@@ -984,7 +974,31 @@ fn oversized_glyph_ink_is_clipped_to_the_atlas_cell() {
         |_| true,
     );
     let scene = scene_with_font(&[anchor("0")], &font);
-    assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE + 1);
+    assert_eq!(scene.records.len(), NAMETAG_RECORDS_PER_LINE);
     assert_eq!(scene.atlas[0].cell[2..], [NAMETAG_ATLAS_SIDE; 2]);
     assert!(scene.atlas[0].rgba8.iter().any(|&byte| byte != 0));
+}
+
+/// An oversized opaque cosmetic may cover the label plane without covering ordinary name ink.
+#[test]
+fn overlapping_cosmetic_keeps_ordinary_names_readable_but_hides_sneaking_names() {
+    for sneaking in [false, true] {
+        let mut tag = anchor("Player\n7 wins");
+        tag.depth_tested = sneaking;
+        tag.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
+        tag.set_cinnabar_badge(true);
+        let scene = scene(&[tag]);
+        // Sample opaque ink on each run with an opaque hat closer than the label plane.
+        let hat = [0.2, 0.4, 0.6];
+        for glyph in scene.records.iter().filter(|record| record.text != 0) {
+            let mut pixel = hat;
+            if glyph.depth_tested == 0 {
+                let fragment = glyph.fragment_color([1.0; 4]).unwrap();
+                pixel = std::array::from_fn(|i| {
+                    fragment[i] * fragment[3] + pixel[i] * (1.0 - fragment[3])
+                });
+            }
+            assert_eq!(pixel, if sneaking { hat } else { [1.0; 3] });
+        }
+    }
 }
