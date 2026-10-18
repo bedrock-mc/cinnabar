@@ -141,7 +141,7 @@ fn creative_selection(
         position: [0, 64, 0],
         runtime_entity_id: -1,
     }));
-    runtime.screen_state_mut().creative_tab = SEARCH_TAB;
+    runtime.screen_state_mut().select_tab(SEARCH_TAB);
     Some((runtime, player))
 }
 
