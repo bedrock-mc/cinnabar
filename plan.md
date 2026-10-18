@@ -433,14 +433,16 @@ the pointer. The Android workflow builds the APK for Android packaging changes, 
 and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
 persistent signing key and release checksums; Android installs updates through the APK installer.
 APKs compile the shared product icon into their launcher resources. Android 11+ relaunches offer
-copyable diagnostics after an unexpected process exit.
+copyable diagnostics and a report export to Downloads after an unexpected process exit. Native
+reports include Android's retained tombstone on Android 12+ when available.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
 Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
 menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
 and performance have no Android acceptance. No parity gate closes here.
-Reported exits after resource setup on Galaxy S21 remain undiagnosed; device acceptance is open.
+The reported Galaxy S21 native crash occurs after Vulkan device creation and before confirmed
+first presentation; its failing native call remains undiagnosed and device acceptance is open.
 
 ## Runtime terrain bindings
 
@@ -778,6 +780,14 @@ trapdoor controls. The base uses the cobblestone-wall top source independently o
 the handle sprite. Owning regressions and the focused crate check pass; the
 missing-part regression fails on the previous envelope model.
 Rendered/input acceptance, native-server placement and broader parity remain incomplete.
+
+## Flowerbed stem tint
+
+Flowerbed stems use biome grass tint while petals retain their sprite colours.
+Original-art compiler coverage checks every registered flowerbed state and the
+carrier roundtrip. The focused check and local BDS rendering with a rebuilt
+carrier pass against the official client's green stems. Broader terrain parity
+and hardware performance gates stay open.
 
 ## Bubble column terrain geometry
 
@@ -9834,6 +9844,13 @@ choices remain provisional compatibility data. Complete native, metadata, versio
 and custom base-item coverage is incomplete. Optional Java animation name routing
 remains a separate incomplete admission path. This does not close the complete
 equipment parity gate. `make assets` rebuilds carriers that lack these records.
+
+Canonical empty component data preserves the compiled native item grip even when
+an item registry marks the item component based. Explicit hand flags still override it;
+malformed, missing nonempty definitions and unknown versions remain unresolved.
+Original regressions cover upright and mirrored art plus retained equipment refresh.
+A local fishing-rod check restores the upright grip and first-person art direction.
+Incomplete: a third-person rod rotation difference remains against native Bedrock.
 
 ## Spawner display actors
 

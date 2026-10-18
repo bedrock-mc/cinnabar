@@ -38,6 +38,13 @@ The receive-buffer regression runs on the native test target.
 Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
 real-browser acceptance matrix follow gameplay composition. No supported-browser,
 release, parity, memory or hardware performance gate closes from these checks.
+## Flowerbed stem tint
+
+Wildflower and pink-petal stems retain biome grass tint independently of petal
+colours and pack-selected sprite names. Every registered flowerbed state passes
+the original-art compiler and carrier-roundtrip regression. The focused crate
+check and rebuilt-carrier local BDS rendering pass against the official client.
+Broader terrain parity and hardware performance gates remain open.
 
 ## Redstone dust item sprite
 
