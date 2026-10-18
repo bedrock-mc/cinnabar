@@ -18,7 +18,7 @@ use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
     MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
     crypto::{ContentKey, contents_file_keys},
-    manifest::read_manifest,
+    manifest::{IdentityPolicy, read_manifest_with_policy},
     pack::{EntryIndex, ValidatedPack, read_entry},
 };
 #[cfg(feature = "handoff")]
@@ -116,26 +116,49 @@ fn admit_stack_entry<T>(
     } else {
         Some(ContentKey::new(key).ok_or(AdmissionError::InvalidContentKey)?)
     };
-    let (pack, declared) = validate_archive_parts(
+    let (pack, declared) = validate_archive_with_identity(
         archive.pack_id,
         &archive.version,
         &archive.sub_pack_name,
         archive.archive,
         key,
         memory,
+        IdentityPolicy::ServerAdvertisement,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
     Ok((pack, size, bounds))
 }
 
+/// Validates a local selection with exact manifest identity matching.
 pub(crate) fn validate_archive_parts(
+    pack_id: Uuid,
+    version: &str,
+    sub_pack_name: &str,
+    archive_bytes: Vec<u8>,
+    key: Option<ContentKey>,
+    memory: Option<u32>,
+) -> Result<(ValidatedPack, u64), AdmissionError> {
+    validate_archive_with_identity(
+        pack_id,
+        version,
+        sub_pack_name,
+        archive_bytes,
+        key,
+        memory,
+        IdentityPolicy::Manifest,
+    )
+}
+
+/// Applies the selected identity policy after the same archive, encryption and size checks.
+fn validate_archive_with_identity(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
     memory: Option<u32>,
+    identity: IdentityPolicy,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
@@ -223,7 +246,7 @@ pub(crate) fn validate_archive_parts(
             other => other,
         })?
         .ok_or(AdmissionError::MissingManifest)?;
-    let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
+    let manifest = read_manifest_with_policy(&manifest_bytes, pack_id, version, identity)?;
     let selected = if let Some(memory) = memory {
         crate::subpacks::supported(&manifest.subpacks, sub_pack_name, memory)
     } else {

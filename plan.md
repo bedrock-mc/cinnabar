@@ -1,3 +1,15 @@
+## Server resource-pack transport identities (in progress)
+
+Server handoff admission keeps the negotiated UUID and version for stack selection
+even when a valid archive declares a different manifest identity. Local imports
+and library selections retain exact manifest matching. Archive integrity, path,
+module, encryption and memory checks remain in force. Synthetic fixtures reproduce
+a required pack advertised as one identity while its downloaded manifest names another.
+
+Incomplete: integration with the matching Gophertunnel transfer-identity change,
+version-matched end-to-end client acceptance, and broader server compatibility.
+This does not close a parity gate.
+
 ## Native extension UI and HUD support (in progress)
 
 Personal extensions can publish retained module collections, editable profile fields,
