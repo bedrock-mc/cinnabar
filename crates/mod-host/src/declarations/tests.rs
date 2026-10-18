@@ -215,3 +215,35 @@ fn update_repository_is_optional_top_level_and_never_breaks_other_metadata() {
     outer.extend(valid);
     assert!(read(&outer).metadata.update_repository.is_none());
 }
+
+#[test]
+fn automatic_update_url_requires_one_valid_top_level_declaration() {
+    let empty = wat::parse_str("(component)").unwrap();
+    assert!(read(&empty).metadata.update_url.is_none());
+    let mut valid = named(&empty, "Zoom");
+    let url = b"https://github.com/Example/Zoom/releases/latest/download/zoom.wasm";
+    section(&mut valid, mod_api::UPDATE_URL_SECTION, url);
+    let metadata = read(&valid).metadata;
+    let source = metadata.update_url.unwrap();
+    assert_eq!(source.repository().slug(), "example/zoom");
+    assert_eq!(source.asset(), "zoom.wasm");
+    for data in [
+        b"https://example.com/zoom.wasm".as_slice(),
+        b"\xff",
+        b"https://github.com/example/zoom",
+    ] {
+        let mut invalid = named(&empty, "Zoom");
+        section(&mut invalid, mod_api::UPDATE_URL_SECTION, data);
+        let metadata = read(&invalid).metadata;
+        assert!(metadata.update_url.is_none());
+        assert_eq!(metadata.name.as_deref(), Some("Zoom"));
+    }
+    let mut duplicate = valid.clone();
+    section(&mut duplicate, mod_api::UPDATE_URL_SECTION, url);
+    assert!(read(&duplicate).metadata.update_url.is_none());
+    let mut nested = empty;
+    nested.push(4);
+    length(valid.len(), &mut nested);
+    nested.extend(valid);
+    assert!(read(&nested).metadata.update_url.is_none());
+}

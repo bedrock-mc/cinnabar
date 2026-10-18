@@ -3,7 +3,7 @@
 use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, local_files};
 use anyhow::{Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
-use ui::mod_metadata::{GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
+use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
 use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
 
 /// The optional top-level component custom section containing a JSON grant request.
@@ -32,7 +32,11 @@ pub fn declarations(path: &Path) -> Result<Declarations> {
 }
 
 /// Parses declarations from the exact bytes selected for admission.
-pub(crate) fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
+pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
+    ensure!(
+        bytes.len() <= MAX_COMPONENT_SOURCE_BYTES,
+        "component declarations exceed byte limit"
+    );
     let mut metadata = ModMetadata::default();
     // Developer text fixtures do not contain binary custom sections.
     if !bytes.starts_with(b"\0asm") {
@@ -45,6 +49,7 @@ pub(crate) fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut grants = Vec::new();
     let mut icons = Vec::new();
     let mut update_repositories = Vec::new();
+    let mut update_urls = Vec::new();
     for payload in Parser::new(0).parse_all(bytes) {
         let section = match payload? {
             Payload::ModuleSection { .. } | Payload::ComponentSection { .. } => {
@@ -90,6 +95,7 @@ pub(crate) fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
             (REQUESTED_GRANTS_SECTION, _) => grants.push(data),
             (mod_api::ICON_SECTION, _) => icons.push(data),
             (mod_api::UPDATE_REPOSITORY_SECTION, _) => update_repositories.push(data),
+            (mod_api::UPDATE_URL_SECTION, _) => update_urls.push(data),
             _ => {}
         }
     }
@@ -100,6 +106,11 @@ pub(crate) fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
         metadata.update_repository = std::str::from_utf8(repository)
             .ok()
             .and_then(GitHubRepository::parse);
+    }
+    if let [url] = update_urls.as_slice() {
+        metadata.update_url = std::str::from_utf8(url)
+            .ok()
+            .and_then(GitHubModAsset::parse);
     }
     let requested = match grants.as_slice() {
         [] => Ok(None),

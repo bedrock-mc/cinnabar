@@ -223,7 +223,7 @@ fn mod_card(
             let mut buttons = vec![toggle];
             if update.is_some() {
                 buttons.push((
-                    "View update",
+                    "View release",
                     Variant::Secondary,
                     available.then_some(command(Action::OpenUpdate(item.id))),
                 ));

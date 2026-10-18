@@ -17,6 +17,8 @@ pub struct ModMetadata {
     pub licenses: Option<String>,
     /// Author opt-in to launch-time checks of this public GitHub repository's releases.
     pub update_repository: Option<GitHubRepository>,
+    /// Author opt-in to automatic installation of a named latest-release WASM asset.
+    pub update_url: Option<GitHubModAsset>,
     /// Encoded PNG source that decoded within the icon section's limits.
     pub icon: Option<Arc<[u8]>>,
 }
@@ -88,5 +90,93 @@ mod tests {
         ] {
             assert!(GitHubRepository::parse(url).is_none(), "{url}");
         }
+    }
+}
+
+/// A stable GitHub latest-release download URL naming exactly one WASM asset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GitHubModAsset {
+    repository: GitHubRepository,
+    asset: String,
+}
+
+impl std::str::FromStr for GitHubModAsset {
+    type Err = &'static str;
+
+    /// Parses the same exact-asset URL contract used by component declarations.
+    fn from_str(url: &str) -> Result<Self, Self::Err> {
+        Self::parse(url).ok_or("expected a GitHub latest-release WASM download URL")
+    }
+}
+
+impl GitHubModAsset {
+    /// Accepts only `https://github.com/OWNER/REPO/releases/latest/download/FILE.wasm`.
+    pub fn parse(url: &str) -> Option<Self> {
+        if url.len() > 512 {
+            return None;
+        }
+        let (repository, asset) = url.split_once("/releases/latest/download/")?;
+        let repository = GitHubRepository::parse(repository)?;
+        if asset.len() > 128
+            || !asset.ends_with(".wasm")
+            || asset.starts_with('.')
+            || !asset
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
+            return None;
+        }
+        Some(Self {
+            repository,
+            asset: asset.into(),
+        })
+    }
+
+    /// The repository containing the named release asset.
+    pub fn repository(&self) -> &GitHubRepository {
+        &self.repository
+    }
+
+    /// The case-sensitive release asset name.
+    pub fn asset(&self) -> &str {
+        &self.asset
+    }
+}
+
+#[cfg(test)]
+mod update_url_tests {
+    use super::*;
+
+    #[test]
+    fn update_urls_name_exact_latest_release_wasm_assets() {
+        let source = GitHubModAsset::parse(
+            "https://github.com/Example/Zoom/releases/latest/download/Zoom.wasm",
+        )
+        .unwrap();
+        assert_eq!(source.repository().slug(), "example/zoom");
+        assert_eq!(source.asset(), "Zoom.wasm");
+        for path in [
+            "zoom.wasm?token=x",
+            "../zoom.wasm",
+            "zoom.zip",
+            "zoom%2ewasm",
+            ".hidden.wasm",
+            "zoom.wasm#fragment",
+            "zoom.wasm/",
+            "zoom.wasm\n",
+        ] {
+            assert!(
+                GitHubModAsset::parse(&format!(
+                    "https://github.com/example/zoom/releases/latest/download/{path}"
+                ))
+                .is_none(),
+                "{path}"
+            );
+        }
+        assert!(GitHubModAsset::parse("https://example.com/mod.wasm").is_none());
+        assert!(
+            GitHubModAsset::parse("https://github.com/example/zoom/releases/download/v1/zoom.wasm")
+                .is_none()
+        );
     }
 }

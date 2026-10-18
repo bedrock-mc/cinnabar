@@ -1,11 +1,11 @@
 //! Bounded unauthenticated GitHub requests and a launch-scoped repository cache.
 
-use super::{AvailableUpdate, Candidate, Request, Response};
+use super::{AvailableUpdate, Candidate, Request, Response, download};
 use anyhow::{Context, Result, ensure};
 use crossbeam_channel::{Receiver, Sender};
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -22,6 +22,8 @@ pub(super) struct Release {
     tag_name: String,
     draft: bool,
     prerelease: bool,
+    #[serde(default)]
+    assets: Vec<download::Asset>,
 }
 
 impl Release {
@@ -57,6 +59,8 @@ pub(super) fn network(
     incoming: Receiver<Request>,
     outgoing: Sender<Response>,
     generation: Arc<AtomicU64>,
+    permission: Arc<AtomicU64>,
+    max_component_bytes: usize,
 ) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -70,9 +74,39 @@ pub(super) fn network(
         .timeout(REQUEST_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    run(incoming, outgoing, &generation, |repository| {
-        runtime.block_on(fetch(&client, repository))
-    });
+    let download_client = download::client()?;
+    run(
+        incoming,
+        outgoing,
+        &generation,
+        |repository| runtime.block_on(fetch(&client, repository)),
+        |candidate, release, revision, authorization| {
+            let asset = download::select(
+                &release.assets,
+                candidate.asset.as_deref()?,
+                max_component_bytes,
+            )?;
+            match runtime.block_on(download::fetch(
+                &download_client,
+                candidate,
+                &release.tag_name,
+                asset,
+                download::Fence {
+                    generation: generation.clone(),
+                    revision,
+                    permission: permission.clone(),
+                    authorization,
+                },
+                max_component_bytes,
+            )) {
+                Ok(download) => Some(download),
+                Err(error) => {
+                    tracing::debug!(repository = candidate.repository, "Mod download: {error:#}");
+                    None
+                }
+            }
+        },
+    );
     Ok(())
 }
 
@@ -82,12 +116,16 @@ pub(super) fn run(
     outgoing: Sender<Response>,
     generation: &AtomicU64,
     mut fetch: impl FnMut(&str) -> Result<Option<Release>>,
+    mut download: impl FnMut(&Candidate, &Release, u64, u64) -> Option<download::Downloaded>,
 ) {
     let mut cache = HashMap::new();
+    let mut attempted = HashSet::new();
+    let mut downloads_started = 0;
     let mut rate_limited = false;
     while let Ok(request) = incoming.recv() {
         let request = incoming.try_iter().last().unwrap_or(request);
         let mut updates = Vec::new();
+        let mut downloads = Vec::new();
         for candidate in &request.candidates {
             if request.generation != generation.load(Ordering::SeqCst) {
                 break;
@@ -116,18 +154,33 @@ pub(super) fn run(
                 });
                 cache.insert(candidate.repository.clone(), release);
             }
-            if let Some(update) = cache
-                .get(&candidate.repository)
-                .and_then(Option::as_ref)
-                .and_then(|release| release.offer(candidate))
+            if let Some(release) = cache.get(&candidate.repository).and_then(Option::as_ref)
+                && let Some(update) = release.offer(candidate)
             {
                 updates.push(update);
+                let key = (candidate.id, candidate.asset.clone(), request.permission);
+                if candidate.asset.is_some()
+                    && request.generation == generation.load(Ordering::SeqCst)
+                    && downloads_started < MAX_REPOSITORIES
+                    && attempted.insert(key.clone())
+                {
+                    downloads_started += 1;
+                    if let Some(download) =
+                        download(candidate, release, request.generation, request.permission)
+                    {
+                        downloads.push(download);
+                    }
+                    if request.generation != generation.load(Ordering::SeqCst) {
+                        attempted.remove(&key);
+                    }
+                }
             }
         }
         if outgoing
             .send(Response {
                 generation: request.generation,
                 updates,
+                downloads,
             })
             .is_err()
         {

@@ -478,6 +478,8 @@ settings! {
         [(SettingPanel::GeneralUpdates, 2)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
         [(SettingPanel::GeneralNetwork, 4)], [], None, None;
+    ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
+        [(SettingPanel::GeneralNetwork, 5)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),

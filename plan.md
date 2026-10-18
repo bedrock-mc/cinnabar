@@ -7902,14 +7902,18 @@ apply the selected mode to existing worlds. The local-world parity gate remains 
 
 ## Phase 8 — Audio, polish, packaging
 
-**Optional mod update discovery:** Components can declare a public GitHub repository
-for launch-time release checks. A bounded background worker compares SemVer tags,
-caches repositories for the session and publishes the launcher corner notice plus
-per-mod release links. Mods without the declaration make no requests; a separate
-General setting disables discovery. Installation remains manual. Network and UI
-regressions cover optional metadata, version ordering, stale replies and the
-existing app-update priority. Offline home and Mods-tab captures pass at desktop
-and small window sizes; live GitHub acceptance remains incomplete.
+**Optional mod updates:** Components can declare a GitHub latest-release WASM URL
+for automatic background updates, or a repository URL for notifications alone.
+The launch-scoped worker compares stable SemVer tags, caches repository checks,
+and bounds API responses, asset downloads and redirects. Exact assets require a
+verified SHA-256, matching embedded version/source and host compatibility before
+atomic replacement of an unchanged managed file. Settings and grants persist;
+the existing watcher reloads enabled mods. Separate General settings disable
+automatic installation or all mod checks, including in passive app-updater builds.
+Regressions cover metadata, versions, cancellation, stale sources, download
+integrity and unchanged permissions/settings. Offline home and Mods-tab captures
+pass at desktop and small window sizes; live automatic-update acceptance remains
+incomplete.
 
 **Rain ambience:** completed weather ticks now admit overlapping finite rain
 sounds from loaded warm precipitation columns. Sample density follows rain

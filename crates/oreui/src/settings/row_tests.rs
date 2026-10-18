@@ -203,10 +203,12 @@ fn passive_clients_keep_mod_checks_without_app_update_controls() {
             _ => false,
         }
     }));
-    assert!(hits.iter().any(|(action, _)| matches!(action,
-        MenuAction::SettingsOption(index, 0)
-            if usize::from(*index) == SettingId::ModUpdateChecks.index()
-    )));
+    for setting in [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate] {
+        assert!(hits.iter().any(|(action, _)| matches!(action,
+            MenuAction::SettingsOption(index, 0)
+                if usize::from(*index) == setting.index()
+        )));
+    }
 }
 
 /// General ends with an Advanced heading holding both diagnostics toggles, off by default,
