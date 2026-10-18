@@ -195,17 +195,17 @@ impl EmoteScreen {
 pub fn instructions(mode: InputMode, page: Option<(usize, usize)>, equipping: bool) -> String {
     if let Some((page, count)) = page {
         let next = match mode {
-            InputMode::Mouse => "Tab: next page",
-            InputMode::Gamepad => "RB: next page",
-            InputMode::Touch => "Next page: more",
+            InputMode::Mouse => "Tab: more",
+            InputMode::Gamepad => "RB: more",
+            InputMode::Touch => "Next page",
         };
-        format!("Choose emote ({}/{}). {next}", page + 1, count)
+        format!("Choose ({}/{}). {next}", page + 1, count)
     } else if equipping {
         "Choose a wheel slot".to_owned()
     } else {
         match mode {
-            InputMode::Mouse => "1–4: play. C: Change Emotes",
-            InputMode::Gamepad => "D-pad: select. A: play. Y: Change Emotes",
+            InputMode::Mouse => "1–4: play. C: catalog",
+            InputMode::Gamepad => "D-pad/A: play. Y: catalog",
             InputMode::Touch => "Tap an emote or Change Emotes",
         }
         .to_owned()
