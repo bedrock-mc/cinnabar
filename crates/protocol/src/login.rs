@@ -32,7 +32,9 @@ mod startup;
 pub use session_join::NativeJoinPreparation;
 pub use session_join::{JoinPreparation, SessionIo, SessionLogin};
 mod unused_packets;
+mod web_handoff;
 use boundary::boundary_wakeup;
+pub use web_handoff::WebSessionReader;
 
 /// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
 pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);

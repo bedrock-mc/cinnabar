@@ -14,6 +14,8 @@ pub(crate) struct Hello {
     pub resume: String,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub generation: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub join: u64,
 }
 impl Hello {
     /// Builds the channel declaration from the authoritative bridge contract.
@@ -30,6 +32,10 @@ impl Hello {
             },
             resume: resume.into(),
             generation,
+            join: match channel {
+                Channel::Control => 0,
+                Channel::Play { join } => join,
+            },
         }
     }
 }
@@ -100,7 +106,7 @@ pub fn connection_refusal_message(code: RefusalCode) -> &'static str {
     }
 }
 
-/// Omits the unused generation from a control Hello.
+/// Omits unused numeric fields from a channel Hello.
 fn is_zero(value: &u64) -> bool {
     *value == 0
 }

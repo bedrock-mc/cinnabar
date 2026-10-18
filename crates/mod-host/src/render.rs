@@ -2,15 +2,13 @@
 
 use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
-use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_PASSES};
+use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
 
-/// Render imports per callback; drawing and per-pass updates need more than other capabilities.
-pub(super) const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -25,7 +23,7 @@ pub(super) struct RenderState {
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
-    calls: u32,
+    calls: usize,
     compiles_left: u32,
 }
 
