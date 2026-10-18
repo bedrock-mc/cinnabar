@@ -227,7 +227,11 @@ impl<E: Send + 'static> PacketOutbound<E> {
 impl<E: std::fmt::Display + Send + 'static> OutboundSession for PacketOutbound<E> {
     type Error = E;
 
-    async fn send_batch(&mut self, packets: Vec<protocol::Packet>) -> Result<(), E> {
+    async fn send_batch(
+        &mut self,
+        packets: Vec<protocol::Packet>,
+        _: Option<simulation_clock::Moment>,
+    ) -> Result<(), E> {
         for packet in packets {
             (self.write)(packet).await?;
         }
@@ -638,7 +642,11 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: None,
@@ -700,7 +708,11 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     let (control_event_tx, mut control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
     let inbound_selected = Arc::new(AtomicBool::new(false));
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         ReadyInboundSession {
             inbound: Some(WorldEvent::ChunkRadiusUpdated(99)),

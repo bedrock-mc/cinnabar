@@ -65,7 +65,7 @@ pub use error::BridgeError;
 pub use framed::BridgeCodec;
 #[cfg(not(target_arch = "wasm32"))]
 pub use framed::FramedStream;
-pub use framed::{FrameQueue, FrameRead, FramedReader};
+pub use framed::{FrameQueue, FrameRead, FrameWritten, FramedReader};
 #[cfg(not(target_arch = "wasm32"))]
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
