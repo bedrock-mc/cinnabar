@@ -1,6 +1,36 @@
 use super::*;
 use assets::texture::TextureMip;
 
+#[test]
+fn authored_streaming_profiles_each_frames_buffer_and_texture_bytes() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let source =
+        source(vec![u32::MAX; EnhancedTextureAssets::REFERENCE_BASE_WORDS].into_boxed_slice());
+    let reference_bytes = std::mem::size_of_val(source.texture_refs.as_ref());
+    let mut upload = AuthoredUpload::new(
+        ChunkTextureAssets::default().binding_identity(),
+        source,
+        &device,
+    )
+    .unwrap();
+    let (written, counts) =
+        render_scene::runtime_profile_uploads::measure(|| upload.step(&queue, reference_bytes));
+    assert_eq!(written, reference_bytes);
+    assert_eq!(counts, (1, written as u64));
+    for _ in 0..3 {
+        let (written, counts) =
+            render_scene::runtime_profile_uploads::measure(|| upload.step(&queue, 8));
+        assert_eq!(written, 8);
+        assert_eq!(counts, (2, written as u64));
+    }
+    assert!(upload.complete());
+    let (written, counts) =
+        render_scene::runtime_profile_uploads::measure(|| upload.step(&queue, 8));
+    assert_eq!((written, counts), (0, (0, 0)));
+}
+
 /// Builds a complete layer-major mip chain for upload scheduling tests.
 fn array(side: u32, layers: u32) -> TextureArray {
     TextureArray {
@@ -79,7 +109,8 @@ fn reference_table_twice_the_frame_budget_completes_in_three_frames() {
         .map(|mip| mip.rgba8.len())
         .sum();
     let candidate = base.with_updated_enhanced(Some(source.clone()));
-    let mut upload = AuthoredUpload::new(candidate.identity(), source.clone(), &device).unwrap();
+    let mut upload =
+        AuthoredUpload::new(candidate.binding_identity(), source.clone(), &device).unwrap();
     for _ in 0..2 {
         assert_eq!(upload.step(&queue, FRAME_UPLOAD_BYTES), FRAME_UPLOAD_BYTES);
         assert!(!upload.complete());
@@ -88,13 +119,13 @@ fn reference_table_twice_the_frame_budget_completes_in_three_frames() {
             prepared.enhanced_views.each_ref().map(|view| view.id()),
             old_views
         );
-        assert_eq!(prepared.identity, base.identity());
+        assert_eq!(prepared.identity, base.binding_identity());
     }
     assert_eq!(upload.step(&queue, FRAME_UPLOAD_BYTES), texture_bytes);
     assert!(upload.complete());
     assert_eq!(upload.step(&queue, FRAME_UPLOAD_BYTES), 0);
     upload.publish(&mut prepared, &mut stats);
-    assert_eq!(prepared.identity, candidate.identity());
+    assert_eq!(prepared.identity, candidate.binding_identity());
     assert_ne!(prepared.enhanced_texture_refs.id(), old_references);
     assert!(Arc::ptr_eq(
         prepared.authored_source.as_ref().unwrap(),
@@ -116,7 +147,7 @@ fn reference_segments_obey_word_alignment_and_make_progress_with_small_budgets()
         source(vec![u32::MAX; EnhancedTextureAssets::REFERENCE_BASE_WORDS].into_boxed_slice());
     let identity = ChunkTextureAssets::default()
         .with_updated_enhanced(Some(source.clone()))
-        .identity();
+        .binding_identity();
     let mut upload = AuthoredUpload::new(identity, source, &device).unwrap();
     let word = std::mem::size_of::<u32>();
     assert_eq!(upload.step(&queue, 0), 0);
@@ -200,12 +231,11 @@ fn whole_layers_are_coalesced_without_padding_the_remaining_mips() {
 
 #[test]
 fn obsolete_authored_identity_cancels_without_changing_carrier_identity() {
-    let current = ChunkTextureAssetIdentity {
-        pointer: 1,
+    let current = ChunkTextureBindingIdentity {
+        carrier: render_scene::ChunkTextureAssetIdentity::new(1, 7),
         enhanced_pointer: 2,
-        revision: 7,
     };
-    let replacement = ChunkTextureAssetIdentity {
+    let replacement = ChunkTextureBindingIdentity {
         enhanced_pointer: 3,
         ..current
     };
@@ -213,15 +243,15 @@ fn obsolete_authored_identity_cancels_without_changing_carrier_identity() {
     assert!(same_carrier(current, replacement));
     assert!(!same_carrier(
         current,
-        ChunkTextureAssetIdentity {
-            revision: 8,
+        ChunkTextureBindingIdentity {
+            carrier: render_scene::ChunkTextureAssetIdentity::new(1, 8),
             ..replacement
         }
     ));
     assert!(!same_carrier(
         current,
-        ChunkTextureAssetIdentity {
-            pointer: 4,
+        ChunkTextureBindingIdentity {
+            carrier: render_scene::ChunkTextureAssetIdentity::new(4, 7),
             ..replacement
         }
     ));

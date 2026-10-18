@@ -57,7 +57,7 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
         .unwrap(),
     );
     let candidate = base.with_updated_enhanced(Some(source.clone()));
-    let mut pending = AuthoredUpload::new(candidate.identity(), source, &device).unwrap();
+    let mut pending = AuthoredUpload::new(candidate.binding_identity(), source, &device).unwrap();
     let reference_bytes = assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS * 4;
     assert_eq!(
         pending.step(&queue, reference_bytes / 2),
@@ -80,7 +80,7 @@ fn native_authored_stripes_publish_complete_mips_and_preserve_carrier_resources(
     assert!(frames > 2);
     assert_eq!(pending.step(&queue, FRAME_UPLOAD_BYTES), 0);
     pending.publish(&mut prepared, &mut stats);
-    assert_eq!(prepared.identity, candidate.identity());
+    assert_eq!(prepared.identity, candidate.binding_identity());
     assert_eq!(prepared._textures[0].id(), carrier_texture);
     assert_eq!(prepared.material_buffer.id(), carrier_materials);
 

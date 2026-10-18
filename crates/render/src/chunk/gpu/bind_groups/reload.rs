@@ -18,7 +18,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     reload: Res<ChunkTextureReload>,
     mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
-    let identity = assets.identity();
+    let identity = assets.binding_identity();
     if gpu_assets
         .pending
         .as_ref()
@@ -131,7 +131,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity)
         && requested
             .as_ref()
-            .is_none_or(|candidate| candidate.assets().identity() != identity)
+            .is_none_or(|candidate| candidate.assets().binding_identity() != identity)
         && (gpu_assets.prepared.is_none()
             || authored_only
             || arena.allocations.is_empty() && arena.retired_allocations.is_empty())
@@ -168,7 +168,9 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     };
     if gpu_assets.staged.is_some()
         || gpu_assets.pending.is_some()
-        || reload.status(candidate.assets().identity()).is_some()
+        || reload
+            .status(candidate.assets().binding_identity())
+            .is_some()
     {
         return;
     }
@@ -223,7 +225,7 @@ fn rebuild_bootstrap_atlas(
     render_queue: &RenderQueue,
 ) {
     #[cfg(feature = "enhanced")]
-    let identity = assets.identity();
+    let identity = assets.binding_identity();
     #[cfg(feature = "enhanced")]
     if gpu_assets
         .prepared

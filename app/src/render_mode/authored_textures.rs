@@ -234,16 +234,19 @@ mod tests {
     fn attaching_maps_preserves_current_server_assets_and_revision() {
         let server_runtime = Arc::new(RuntimeAssets::diagnostic());
         let mut textures = ChunkTextureAssets::with_revision(server_runtime.clone(), 17);
-        let original_identity = textures.identity();
+        let carrier_identity = textures.identity();
+        let original_identity = textures.binding_identity();
         let authored = maps();
         apply(&mut textures, Some(authored.clone()));
         assert!(Arc::ptr_eq(textures.assets(), &server_runtime));
         assert!(Arc::ptr_eq(textures.enhanced().unwrap(), &authored));
-        let enhanced_identity = textures.identity();
+        assert_eq!(textures.identity(), carrier_identity);
+        let enhanced_identity = textures.binding_identity();
+        assert_ne!(enhanced_identity, original_identity);
         apply(&mut textures, Some(authored));
-        assert_eq!(textures.identity(), enhanced_identity);
+        assert_eq!(textures.binding_identity(), enhanced_identity);
         apply(&mut textures, None);
-        assert_eq!(textures.identity(), original_identity);
+        assert_eq!(textures.binding_identity(), original_identity);
     }
 
     /// The disabled renderer decodes and attaches nothing even with completed maps.

@@ -140,7 +140,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     // while the physical-removal and completion-fence work above continues to drain.
     if textures.as_ref().is_some_and(|textures| {
         textures.prepared.as_ref().is_none_or(|prepared| {
-            !super::bind_groups::same_carrier(prepared.identity, texture_assets.identity())
+            !super::bind_groups::same_carrier(prepared.identity, texture_assets.binding_identity())
         })
     }) {
         fairness.recover_untracked = true;

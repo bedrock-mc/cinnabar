@@ -385,7 +385,7 @@ pub(crate) fn reload_resource_packs(
             Some(result)
         } else {
             if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref()) {
-                gpu.cancel_except(current.identity());
+                gpu.cancel_except(current.binding_identity());
             }
             None
         };
@@ -414,19 +414,19 @@ pub(crate) fn reload_resource_packs(
                             return;
                         }
                         Err(error) => {
-                            gpu.cancel_except(current.identity());
+                            gpu.cancel_except(current.binding_identity());
                             reload.error = Some(error);
                             reload.applied = reload.revision;
                             return;
                         }
                     }
-                    match gpu.status(candidate.identity()) {
+                    match gpu.status(candidate.binding_identity()) {
                         None => {
                             reload.ready = Some(prepared);
                             return;
                         }
                         Some(Err(error)) => {
-                            gpu.cancel_except(current.identity());
+                            gpu.cancel_except(current.binding_identity());
                             reload.error = Some(error);
                             reload.applied = reload.revision;
                             return;
@@ -435,7 +435,7 @@ pub(crate) fn reload_resource_packs(
                     }
                 } else if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())
                 {
-                    gpu.cancel_except(current.identity());
+                    gpu.cancel_except(current.binding_identity());
                 }
                 if let Some(gpu) = gpu_reload.as_ref()
                     && reload.geometry.publish(&mut chunks, gpu)
@@ -549,7 +549,7 @@ pub(crate) fn reload_resource_packs(
             Some(Ok(_)) | None => {}
             Some(Err(error)) => {
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref()) {
-                    gpu.cancel_except(current.identity());
+                    gpu.cancel_except(current.binding_identity());
                 }
                 reload.error = Some(error);
                 reload.applied = reload.revision;

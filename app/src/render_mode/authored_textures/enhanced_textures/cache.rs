@@ -39,7 +39,7 @@ impl Payload {
     }
 }
 
-/// Collects relevant pack files while rejecting symlinks and skipping build trees.
+/// Collects relevant pack files in every directory while rejecting symlinks.
 fn files(root: &Path, result: &mut Vec<PathBuf>) -> Option<()> {
     for entry in fs::read_dir(root).ok()? {
         let entry = entry.ok()?;
@@ -49,13 +49,6 @@ fn files(root: &Path, result: &mut Vec<PathBuf>) -> Option<()> {
         }
         let path = entry.path();
         if kind.is_dir() {
-            let name = entry.file_name();
-            if [".git", "src", "node_modules", "target", ".local"]
-                .iter()
-                .any(|skip| name == *skip)
-            {
-                continue;
-            }
             files(&path, result)?;
         } else if kind.is_file()
             && path
@@ -369,6 +362,45 @@ pub(super) fn save(key: &[u8; 32], payload: &Payload) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn referenced_images_in_any_directory_invalidate_cached_artwork() {
+        let root = tempfile::tempdir().unwrap();
+        let pack = PbrPack::new(root.path(), None);
+        let packs = std::slice::from_ref(&pack);
+        for directory in ["src", "target", "node_modules", ".local", ".git"] {
+            let texture = format!("textures/blocks/{directory}/cache_fixture");
+            let path = root.path().join(format!("{texture}.png"));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 80, 140, 255]))
+                .save(&path)
+                .unwrap();
+            let before = fingerprint(packs, &Default::default()).unwrap();
+            let mut cached = Vec::new();
+            encode(&mut cached, &before, &payload(1, 1)).unwrap();
+            image::RgbaImage::from_pixel(2, 2, image::Rgba([140, 80, 20, 255]))
+                .save(&path)
+                .unwrap();
+            let decoded = pack_compiler::pbr::load_pbr_texture(packs, &texture)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                decoded.frame(0, 1).unwrap().color.get_pixel(0, 0).0,
+                [140, 80, 20, 255]
+            );
+            let after = fingerprint(packs, &Default::default()).unwrap();
+            assert_ne!(before, after, "referenced image in {directory}");
+            assert!(
+                decode(
+                    &mut cached.as_slice(),
+                    cached.len() as u64,
+                    &after,
+                    MAX_CACHE_BYTES
+                )
+                .is_none()
+            );
+        }
+    }
 
     /// Builds small complete mip chains with distinct bytes for each material map and page.
     fn payload(side: u32, layers: u32) -> Payload {

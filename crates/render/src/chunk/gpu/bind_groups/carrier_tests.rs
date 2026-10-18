@@ -41,7 +41,7 @@ fn ready(source: Arc<EnhancedTextureAssets>) -> App {
         .insert_resource(device)
         .insert_resource(queue)
         .insert_resource(ChunkGpuTextureAssets {
-            attempted_identity: Some(assets.identity()),
+            attempted_identity: Some(assets.binding_identity()),
             _attempted_assets: Some(assets.assets().clone()),
             prepared: Some(prepared),
             ..Default::default()
@@ -68,7 +68,7 @@ fn carrier_replacement_reuses_unchanged_authored_gpu_maps() {
     let carrier = previous.views[0].id();
     let replacement =
         ChunkTextureAssets::with_enhanced(Arc::new(RuntimeAssets::diagnostic()), source, 1);
-    let identity = replacement.identity();
+    let identity = replacement.binding_identity();
     app.insert_resource(replacement);
     app.update();
     let gpu = app.world().resource::<ChunkGpuTextureAssets>();
@@ -91,7 +91,7 @@ fn carrier_replacement_stages_changed_authored_maps_within_frame_budget() {
         authored(assets::texture::PBR_TILE_SIZE, 2),
         1,
     );
-    let identity = replacement.identity();
+    let identity = replacement.binding_identity();
     let source = replacement.enhanced().unwrap().clone();
     app.insert_resource(replacement);
     app.update();

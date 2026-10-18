@@ -1,7 +1,8 @@
 //! Authored-only replacements preserve the carrier and publish after bounded complete uploads.
 
 use crate::chunk::*;
-use render_scene::{ChunkTextureAssetIdentity, EnhancedTextureAssets};
+use crate::queue_writes::ProfiledQueue as _;
+use render_scene::{ChunkTextureBindingIdentity, EnhancedTextureAssets};
 
 #[cfg(test)]
 use super::bind_groups::same_carrier;
@@ -128,7 +129,7 @@ impl Schedule {
 }
 
 pub(super) struct AuthoredUpload {
-    identity: ChunkTextureAssetIdentity,
+    identity: ChunkTextureBindingIdentity,
     source: Arc<EnhancedTextureAssets>,
     textures: [Texture; 6],
     views: [TextureView; 6],
@@ -154,12 +155,12 @@ impl AuthoredUpload {
         {
             return None;
         }
-        Self::new(assets.identity(), source.clone(), device)
+        Self::new(assets.binding_identity(), source.clone(), device)
     }
 
     /// Allocates unpublished resources for device-admitted maps and their reference table.
     pub(super) fn new(
-        identity: ChunkTextureAssetIdentity,
+        identity: ChunkTextureBindingIdentity,
         source: Arc<EnhancedTextureAssets>,
         device: &RenderDevice,
     ) -> Option<Self> {
@@ -220,7 +221,7 @@ impl AuthoredUpload {
     }
 
     /// Checks whether the upload still belongs to the current asset generation.
-    pub(super) fn matches(&self, identity: ChunkTextureAssetIdentity) -> bool {
+    pub(super) fn matches(&self, identity: ChunkTextureBindingIdentity) -> bool {
         self.identity == identity
     }
 
@@ -234,7 +235,7 @@ impl AuthoredUpload {
             let end = self.reference_words_written + words;
             let bytes =
                 bytemuck::cast_slice(&self.source.texture_refs[self.reference_words_written..end]);
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 &self.references,
                 (self.reference_words_written * word_bytes) as u64,
                 bytes,
@@ -245,7 +246,7 @@ impl AuthoredUpload {
         let arrays = self.source.pages();
         while let Some(stripe) = self.schedule.next(remaining) {
             let mip = &arrays[stripe.page].mips[stripe.mip as usize];
-            queue.write_texture(
+            queue.profiled_write_texture(
                 TexelCopyTextureInfo {
                     texture: &self.textures[stripe.page],
                     mip_level: stripe.mip,
@@ -319,7 +320,7 @@ fn replace_stats(
 /// Restores neutral authored resources while retaining the carrier atlas.
 pub(super) fn detach(
     prepared: &mut PreparedChunkTextureAssets,
-    identity: ChunkTextureAssetIdentity,
+    identity: ChunkTextureBindingIdentity,
     device: &RenderDevice,
     stats: &mut ChunkTextureUploadStats,
 ) {

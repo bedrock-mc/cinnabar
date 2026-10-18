@@ -34,7 +34,7 @@ pub(super) fn build_carrier_texture_assets(
 ) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
     let carrier = assets.with_updated_enhanced(None);
     let (mut prepared, mut stats) = build_chunk_texture_assets(&carrier, device, queue)?;
-    prepared.identity = assets.identity();
+    prepared.identity = assets.binding_identity();
     #[cfg(feature = "enhanced")]
     if let Some(previous) = _previous.filter(|previous| {
         previous
@@ -68,7 +68,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
     render_queue: &RenderQueue,
 ) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
     let _zone = bevy::log::info_span!("pack_apply.gpu_atlas").entered();
-    let identity = assets.identity();
+    let identity = assets.binding_identity();
     let pages = assets.assets().texture_pages();
     let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
         bevy::log::error!(
@@ -664,7 +664,7 @@ mod tests {
         let queue = RenderQueue::new(queue);
         let carrier = ChunkTextureAssets::default();
         let (prepared, stats) = build_chunk_texture_assets(&carrier, &device, &queue).unwrap();
-        assert_eq!(prepared.identity, carrier.identity());
+        assert_eq!(prepared.identity, carrier.binding_identity());
         let pages = carrier.assets().texture_pages();
         let fallback = diagnostic_texture_page(&pages[0].texture).unwrap();
         let bindings = plan_texture_page_bindings(pages.len()).unwrap();
@@ -725,7 +725,7 @@ mod tests {
         let current = carrier.with_updated_enhanced(Some(authored.clone()));
         assert!(
             super::super::authored_upload::AuthoredUpload::new(
-                current.identity(),
+                current.binding_identity(),
                 authored,
                 &device,
             )
@@ -742,11 +742,11 @@ mod tests {
         let prepared = build_chunk_texture_assets(&replacement, &device, &queue);
         reload.finish(&request, prepared.is_some());
         assert_eq!(
-            reload.status(replacement.identity()),
+            reload.status(replacement.binding_identity()),
             Some(Ok(())),
             "rejected optional maps must not abort a valid server atlas replacement",
         );
-        assert_eq!(prepared.unwrap().0.identity, replacement.identity());
+        assert_eq!(prepared.unwrap().0.identity, replacement.binding_identity());
     }
 
     #[cfg(feature = "enhanced")]

@@ -46,8 +46,8 @@ use {
     },
     render_scene::{
         AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue,
-        ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkUploadPriority,
-        MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
+        ChunkRenderQueueLimits, ChunkTextureAssets, ChunkTextureBindingIdentity,
+        ChunkUploadPriority, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
         MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, PresentedFrameAck, RenderViewCohort,
         TextureArrayLimits, TextureLimitError, TexturePageBinding, diagnostic_texture_page,
         greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
@@ -272,7 +272,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
     })
 }
 
-fn texture_identity(asset: usize, revision: u64) -> ChunkTextureAssetIdentity {
+fn texture_identity(asset: usize, revision: u64) -> ChunkTextureBindingIdentity {
     static ASSETS: OnceLock<Vec<Arc<RuntimeAssets>>> = OnceLock::new();
     let assets = ASSETS.get_or_init(|| {
         (0..32)
@@ -280,7 +280,7 @@ fn texture_identity(asset: usize, revision: u64) -> ChunkTextureAssetIdentity {
             .collect()
     });
     let slot = (asset ^ (asset >> 12)) % assets.len();
-    ChunkTextureAssets::with_revision(Arc::clone(&assets[slot]), revision).identity()
+    ChunkTextureAssets::with_revision(Arc::clone(&assets[slot]), revision).binding_identity()
 }
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {

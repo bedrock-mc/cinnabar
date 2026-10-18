@@ -1,7 +1,7 @@
 use super::*;
 
 /// Selects valid authored pages whose upload spans multiple ordinary frames.
-fn begin_upload(app: &mut App) -> ChunkTextureAssetIdentity {
+fn begin_upload(app: &mut App) -> ChunkTextureBindingIdentity {
     let side = assets::texture::PBR_TILE_SIZE;
     let array = TextureArray {
         layers: 2,
@@ -29,7 +29,7 @@ fn begin_upload(app: &mut App) -> ChunkTextureAssetIdentity {
         .world()
         .resource::<ChunkTextureAssets>()
         .with_updated_enhanced(Some(maps));
-    let identity = candidate.identity();
+    let identity = candidate.binding_identity();
     app.insert_resource(candidate);
     app.world_mut()
         .run_system_once(prepare_chunk_texture_assets)

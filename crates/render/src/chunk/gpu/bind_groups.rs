@@ -15,10 +15,9 @@ use bevy::color::ColorToPacked;
 pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
 use render_scene::{
-    BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
-    TextureMipUploadPlan, TextureUploadPlanError, plan_texture_mip_uploads,
-    texture_asset_needs_rebuild,
+    BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets,
+    ChunkTextureBindingIdentity, ChunkTexturePreparation, ChunkTextureReload, TextureMipUploadPlan,
+    TextureUploadPlanError, plan_texture_mip_uploads, texture_asset_needs_rebuild,
 };
 
 #[cfg(test)]
@@ -46,7 +45,7 @@ pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) biome_tints: BufferId,
     pub(in crate::chunk) atmosphere: BufferId,
     pub(in crate::chunk) biome_tint_table: ChunkBiomeTintResourceIdentity,
-    pub(in crate::chunk) textures: ChunkTextureAssetIdentity,
+    pub(in crate::chunk) textures: ChunkTextureBindingIdentity,
 }
 
 #[repr(C)]
@@ -161,10 +160,10 @@ pub(in crate::chunk) fn biome_tint_bind_group_needs_rebuild(
 
 /// Checks carrier ownership and revision independently of optional authored maps.
 pub(super) fn same_carrier(
-    current: ChunkTextureAssetIdentity,
-    next: ChunkTextureAssetIdentity,
+    current: ChunkTextureBindingIdentity,
+    next: ChunkTextureBindingIdentity,
 ) -> bool {
-    current.pointer == next.pointer && current.revision == next.revision
+    current.carrier == next.carrier
 }
 
 pub(in crate::chunk) fn prepare_chunk_biome_tints(
@@ -178,7 +177,7 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         && textures
             .prepared
             .as_ref()
-            .is_none_or(|prepared| !same_carrier(prepared.identity, assets.identity()))
+            .is_none_or(|prepared| !same_carrier(prepared.identity, assets.binding_identity()))
     {
         return;
     }
@@ -216,7 +215,7 @@ pub(in crate::chunk) struct PreparedChunkTextureAssets {
     /// Retains the authored source represented by the current GPU bindings.
     #[cfg(feature = "enhanced")]
     pub(super) authored_source: Option<Arc<EnhancedTextureAssets>>,
-    pub(in crate::chunk) identity: ChunkTextureAssetIdentity,
+    pub(in crate::chunk) identity: ChunkTextureBindingIdentity,
     pub(in crate::chunk) material_buffer: Buffer,
     pub(in crate::chunk) animation_buffer: Buffer,
     pub(in crate::chunk) animation_frame_buffer: Buffer,
@@ -288,7 +287,7 @@ struct StagedTextures {
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
-    pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
+    pub(in crate::chunk) attempted_identity: Option<ChunkTextureBindingIdentity>,
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,

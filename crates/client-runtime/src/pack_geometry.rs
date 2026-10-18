@@ -42,7 +42,7 @@ impl GeometryPreparation {
             .is_some_and(|(previous, _)| *previous != source)
         {
             self.pending = None;
-            gpu.cancel_except(current.identity());
+            gpu.cancel_except(current.binding_identity());
         }
         if let Some((_, receiver)) = &self.pending {
             match receiver
@@ -52,7 +52,8 @@ impl GeometryPreparation {
             {
                 Ok(geometry) => gpu.request_geometry(epoch, candidate.clone(), geometry),
                 Err(mpsc::TryRecvError::Disconnected)
-                    if gpu.status(candidate.identity()).is_none() && gpu.geometry().is_none() =>
+                    if gpu.status(candidate.binding_identity()).is_none()
+                        && gpu.geometry().is_none() =>
                 {
                     return Err("Resource pack geometry worker stopped".into());
                 }
@@ -250,7 +251,7 @@ mod tests {
             .request(&candidate, &current, Some(&stream), &chunks, &gpu)
             .expect("retired geometry must be replaced");
         assert!(gpu.geometry().is_some());
-        assert!(gpu.status(candidate.identity()).is_none());
+        assert!(gpu.status(candidate.binding_identity()).is_none());
     }
 
     #[test]
@@ -288,10 +289,10 @@ mod tests {
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
                 .expect("an obsolete GPU result must be replaced");
             assert!(gpu.geometry().is_some());
-            assert!(gpu.status(candidate.identity()).is_none());
+            assert!(gpu.status(candidate.binding_identity()).is_none());
             assert!(!gpu.finish(&obsolete, true));
             gpu.finish(&gpu.preparation().unwrap(), true);
-            assert_eq!(gpu.status(candidate.identity()), Some(Ok(())));
+            assert_eq!(gpu.status(candidate.binding_identity()), Some(Ok(())));
         }
     }
 
