@@ -10148,3 +10148,11 @@ Drawing permissions and connection fences cover legacy post effects, block highl
 unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
 renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
+## Chat editor submission prefixes
+
+Editor submissions remove leading ASCII spaces, tabs and line-control whitespace before
+validation, history and slash-command routing. Trailing whitespace and non-ASCII spaces
+remain intact. Explicit message-queue calls retain their exact-text contract.
+
+Incomplete parity: native blank-line dismissal settings, account safety restrictions,
+platform chat identities and the current command-version value remain unverified.
