@@ -67,8 +67,11 @@ The `terrain_ready` milestone uses the existing loading-screen gate and queues
 loading completion. The terminal `first_world_presented` milestone waits until
 the render world presents a frame extracted after that gate, with the loading
 screen removed. It includes rendering stalls after readiness; a skipped present
-does not complete the attempt. This is swap-chain presentation, not OS display
-feedback. `player_spawn` is an earlier protocol milestone. Independent `duration_ms` sections, transport
+does not complete the attempt. The timing includes completion of the submitted GPU
+work. Hidden windows render without an OS swap chain, so headless runs instead
+end at `first_world_frame_completed` after the same loading-free frame's GPU work.
+Neither endpoint claims OS display feedback. `player_spawn` is an earlier
+protocol milestone. Independent `duration_ms` sections, transport
 setup and authentication can overlap; use cumulative milestones for total join
 time. Cancellation, failure and replacement end the old attempt. Detailed frame
 and packet traces remain available for attributing work between these milestones.
