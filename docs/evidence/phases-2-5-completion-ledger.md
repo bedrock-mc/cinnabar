@@ -12,6 +12,13 @@ incomplete. This adds no completed parity or browser-release gate.
 transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
 delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
 browser-release gate.
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers read the separate animation state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last
@@ -420,6 +427,11 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Selected transaction descriptor regressions cover optional stack-ID omission while
+preserving item contents, inventory action IDs and legacy requests. The shared
+embedded movement payload uses the same conversion. Admission, dynamic actions,
+NBT rewriting and combined runtime acceptance remain incomplete.
+
 Block and actor rays share float normalization. Block traversal and clipping use
 rounded float segments; placement bounds and click coordinates stay in float
 precision. CI must verify the new rounding regressions. Block tie/union rules,
@@ -617,8 +629,12 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Geometry admission validates
+vertices once and caches extent and quota facts for every shared instance and callback
+group. Extent checks use conservative box and sphere bounds without revisiting vertices.
+Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
+renderer is connected; actor attachment, native output captures and hardware budgets
+remain incomplete and do not close any completion requirement.
 
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained

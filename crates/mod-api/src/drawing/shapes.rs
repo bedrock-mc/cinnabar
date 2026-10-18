@@ -5,10 +5,14 @@
 //! Builders perform no observation or host calls. Host admission and aggregate quotas remain
 //! authoritative, including earlier imports in the callback and the owner's other resources.
 
-use super::api::{DrawError, ErrorCode, GeometrySpec, Polyline, Vertex};
+use super::{
+    api::{DrawError, ErrorCode, GeometrySpec, Polyline, Vertex},
+    expanded_vertices,
+};
 use crate::{
-    MAX_DRAW_COLOR_COMPONENT, MAX_DRAW_GEOMETRIES, MAX_DRAW_GEOMETRY_BYTES,
-    MAX_DRAW_MUTATION_BYTES, MAX_DRAW_VERTICES, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_CALLS,
+    MAX_DRAW_COLOR_COMPONENT, MAX_DRAW_EXPANDED_VERTICES, MAX_DRAW_GEOMETRIES,
+    MAX_DRAW_GEOMETRY_BYTES, MAX_DRAW_MUTATION_BYTES, MAX_DRAW_VERTICES,
+    MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_CALLS,
 };
 
 #[cfg(test)]
@@ -24,7 +28,7 @@ pub fn box_wireframe(
     if !bounds.into_iter().all(point) || !(0..3).all(|axis| min[axis] < max[axis]) {
         return Err(error(ErrorCode::Invalid, "box bounds"));
     }
-    budget(12, 24)?;
+    budget(12, 2, false)?;
     let corners: [[f32; 3]; 8] = std::array::from_fn(|i| {
         std::array::from_fn(|axis| {
             if i & (1 << axis) == 0 {
@@ -144,7 +148,7 @@ pub fn arrow(
     {
         return Err(error(ErrorCode::Invalid, "arrow dimensions"));
     }
-    budget(3, 6)?;
+    budget(3, 2, false)?;
     let direction: [f32; 3] = std::array::from_fn(|i| (end[i] - start[i]) / length);
     let axis = (0..3)
         .min_by(|&a, &b| direction[a].abs().total_cmp(&direction[b].abs()))
@@ -186,12 +190,7 @@ pub fn grid(
     let count = u64::from(cells[0]) + u64::from(cells[1]) + 2;
     let count =
         usize::try_from(count).map_err(|_| error(ErrorCode::BudgetExceeded, "grid lines"))?;
-    budget(
-        count,
-        count
-            .checked_mul(2)
-            .ok_or_else(|| error(ErrorCode::BudgetExceeded, "grid vertices"))?,
-    )?;
+    budget(count, 2, false)?;
     let mut lines = Vec::with_capacity(count);
     for axis in 0..2 {
         for i in 0..=cells[axis] {
@@ -217,11 +216,14 @@ pub fn chunk_border(
 }
 
 /// Rejects a shape that cannot fit an otherwise empty owner and callback before allocation.
-fn budget(lines: usize, vertices: usize) -> Result<(), DrawError> {
-    let bytes = vertices.checked_mul(std::mem::size_of::<Vertex>() + std::mem::size_of::<f32>());
+fn budget(lines: usize, vertices_per_line: usize, closed: bool) -> Result<(), DrawError> {
+    let vertices = lines.saturating_mul(vertices_per_line);
+    let bytes = vertices.saturating_mul(std::mem::size_of::<Vertex>() + std::mem::size_of::<f32>());
+    let expanded = expanded_vertices(vertices_per_line, 0, true, closed).saturating_mul(lines);
     if lines > MAX_DRAW_GEOMETRIES.min(MAX_RENDER_CALLS)
         || vertices > MAX_DRAW_VERTICES
-        || bytes.is_none_or(|b| b > MAX_DRAW_GEOMETRY_BYTES || b > MAX_DRAW_MUTATION_BYTES)
+        || bytes > MAX_DRAW_GEOMETRY_BYTES.min(MAX_DRAW_MUTATION_BYTES)
+        || expanded > MAX_DRAW_EXPANDED_VERTICES
     {
         return Err(error(ErrorCode::BudgetExceeded, "shape geometry"));
     }
@@ -239,15 +241,12 @@ fn circle_budget(
     if !extent(radius) || segments < 3 {
         return Err(error(ErrorCode::Invalid, "circle dimensions"));
     }
-    let vertices = (segments as usize)
-        .checked_mul(rings)
-        .ok_or_else(|| error(ErrorCode::BudgetExceeded, "circle vertices"))?;
-    budget(rings, vertices)
+    budget(rings, segments as usize, true)
 }
 
 /// Checks point payloads after rejecting excessive cardinality, without allocating.
 fn path_valid(points: &[[f32; 3]], closed: bool) -> Result<(), DrawError> {
-    budget(1, points.len())?;
+    budget(1, points.len(), closed)?;
     if points.len() < if closed { 3 } else { 2 } || !points.iter().copied().all(point) {
         return Err(error(ErrorCode::Invalid, "path points"));
     }

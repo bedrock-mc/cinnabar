@@ -171,9 +171,17 @@ pub enum InventoryGestureError {
     SlotLocked,
 }
 
+/// Effective actor permissions captured when an inventory command is built.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct InventoryPermissions {
+    pub creative: bool,
+    pub instabuild: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
+    permissions: InventoryPermissions,
     /// Backing truth, including client-authoritative writes admitted to transport.
     confirmed: Cells,
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
@@ -229,6 +237,7 @@ impl Default for PlayerInventoryLedger {
     fn default() -> Self {
         Self {
             authority: None,
+            permissions: InventoryPermissions::default(),
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
@@ -268,6 +277,11 @@ impl Default for PlayerInventoryLedger {
 }
 
 impl PlayerInventoryLedger {
+    /// Installs the accepted local actor's effective permissions before building a command.
+    pub fn set_permissions(&mut self, permissions: InventoryPermissions) {
+        self.permissions = permissions;
+    }
+
     /// Returns only personal cells authoritatively written by the latest inventory event.
     pub(crate) fn personal_updates(&self) -> PersonalUpdates<'_> {
         std::array::from_fn(|index| {

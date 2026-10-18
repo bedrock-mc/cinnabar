@@ -23,7 +23,7 @@ mod overdraw;
 mod pass;
 pub(crate) mod readback;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(feature = "tracy")]
 mod tracy;
 

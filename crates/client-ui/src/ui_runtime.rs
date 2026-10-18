@@ -461,7 +461,7 @@ impl UiRuntime {
         &mut self,
         player_runtime: &'a mut player_state::PlayerState,
     ) -> &'a mut PlayerInventoryLedger {
-        let ledger = player_runtime.inventory.ledger_mut();
+        let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
         }

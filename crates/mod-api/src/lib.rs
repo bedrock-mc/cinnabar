@@ -211,5 +211,12 @@ pub const MAX_DRAW_INDICES: usize = 196_608;
 pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
 pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
+
+/// Bounds host-expanded GPU topology independently of source vertex and index counts.
+pub const MAX_DRAW_EXPANDED_VERTICES: usize = MAX_DRAW_INDICES;
+
+/// Caps submitted vertex work as well as resident mesh sizes, including repeated instances.
+pub const MAX_DRAW_VERTEX_WORK: usize = MAX_DRAW_EXPANDED_VERTICES * 4;
+
 /// Largest linear RGBA component admitted by retained unlit drawing.
 pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;
