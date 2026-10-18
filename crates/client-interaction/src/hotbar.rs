@@ -35,7 +35,7 @@ pub fn queue_hotbar_selection(
     // Direct number-key selection. The router only resolves Hotbar1..9 in the Gameplay context,
     // so digits typed while chat is focused never reach this snapshot.
     let mut requested: Option<u8> = None;
-    for action in HOTBAR_DIGIT_ACTIONS {
+    for &action in HOTBAR_DIGIT_ACTIONS {
         if input.phase(action).pressed {
             requested = slot_for_action(action, 0);
         }

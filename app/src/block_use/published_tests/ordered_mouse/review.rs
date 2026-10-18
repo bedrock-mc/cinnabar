@@ -491,3 +491,6 @@ fn ordered_mouse_review_changed_world_cancels_a_frozen_block_use() {
             .all(|tx| tx.item_use().is_none())
     );
 }
+
+#[path = "world.rs"]
+mod world_evidence;
