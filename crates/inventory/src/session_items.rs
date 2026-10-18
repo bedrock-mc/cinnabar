@@ -212,12 +212,8 @@ fn resolve(
             });
     }
     if components.durability_declared {
-        fact.durability = components
-            .max_durability
-            .filter(|maximum| component_item || *maximum > 0)
-            .map_or(ItemDurability::Unresolved, |maximum| {
-                ItemDurability::Maximum { maximum }
-            });
+        fact.durability =
+            ItemDurability::from_declared_maximum(components.max_durability, component_item);
     }
     if components.fuel_declared {
         fact.fuel = components
