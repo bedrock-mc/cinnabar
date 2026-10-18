@@ -10225,3 +10225,10 @@ release for the replacement stack. Held updates retain their start snapshot, an
 unchanged count still releases, and an already-observed release retains its retry
 policy. Full item identity, unavailable-selection, deferred-release and use-phase
 parity remain incomplete.
+### Keep custom playback out of native emote input
+
+Custom emotes continue through their render overlay and Cinnabar API. They no
+longer start or cancel the native movement-input emote duration. An adapter
+regression checks the serialized next input during local playback and restarts.
+Native Marketplace admission, identity, cancellation and timing parity remain
+incomplete.
