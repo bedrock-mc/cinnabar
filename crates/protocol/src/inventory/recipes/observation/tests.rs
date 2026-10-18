@@ -29,6 +29,7 @@ fn catalog(count: usize) -> RecipeCatalog {
     let owner = Credits::isolated(65536);
     let update = RecipeUpdate {
         batch: Some(Arc::new(Batch {
+            brewing: Vec::new(),
             identities: Vec::new(),
             screen: Default::default(),
             records: (0..count)
@@ -139,6 +140,7 @@ fn unsupported_advertised_records_are_not_invented_as_supported_recipes() {
     let owner = Credits::isolated(4096);
     let update = RecipeUpdate {
         batch: Some(Arc::new(Batch {
+            brewing: Vec::new(),
             identities: Vec::new(),
             screen: Default::default(),
             records: vec![Record {

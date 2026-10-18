@@ -1,8 +1,9 @@
 use super::{
+    brewing::{BrewingMix, BrewingMixItem},
     budget::MAX_RECORDS,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
-    screen::{BrewingItem, BrewingRecipe, ScreenRecipeKind},
+    screen::ScreenRecipeKind,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -280,6 +281,7 @@ pub(super) fn walk<'a>(
     reader: &mut Reader<'a>,
     mut record: impl FnMut(u32, Option<Candidate<'a>>, Option<Identity<'a>>) -> ReadResult<()>,
     mut screen: impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
+    mut brewing: impl FnMut(BrewingMix) -> ReadResult<()>,
 ) -> ReadResult<(bool, usize)> {
     let mut total = 0usize;
     for family in 0..11 {
@@ -346,32 +348,31 @@ pub(super) fn walk<'a>(
                     record(id, None, identity)?;
                 }
                 8 => {
-                    let mut item = || -> ReadResult<BrewingItem> {
-                        Ok(BrewingItem {
+                    let mix = BrewingMix::Potion {
+                        input: BrewingMixItem {
                             network_id: reader.int()?,
-                            aux: Some(reader.int()?),
-                        })
+                            aux: reader.int()?,
+                        },
+                        reagent: BrewingMixItem {
+                            network_id: reader.int()?,
+                            aux: reader.int()?,
+                        },
+                        output: BrewingMixItem {
+                            network_id: reader.int()?,
+                            aux: reader.int()?,
+                        },
                     };
-                    let (input, reagent, output) = (item()?, item()?, item()?);
-                    screen(ScreenItem::Brewing(BrewingRecipe {
-                        input,
-                        reagent,
-                        output,
-                    }))?;
+                    screen(ScreenItem::Brewing(mix.screen_recipe()))?;
+                    brewing(mix)?;
                 }
                 9 => {
-                    let mut item = || -> ReadResult<BrewingItem> {
-                        Ok(BrewingItem {
-                            network_id: reader.int()?,
-                            aux: None,
-                        })
+                    let mix = BrewingMix::Container {
+                        input: reader.int()?,
+                        reagent: reader.int()?,
+                        output: reader.int()?,
                     };
-                    let (input, reagent, output) = (item()?, item()?, item()?);
-                    screen(ScreenItem::Brewing(BrewingRecipe {
-                        input,
-                        reagent,
-                        output,
-                    }))?;
+                    screen(ScreenItem::Brewing(mix.screen_recipe()))?;
+                    brewing(mix)?;
                 }
                 10 => {
                     reader.int()?;
