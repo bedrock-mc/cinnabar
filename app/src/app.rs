@@ -80,8 +80,8 @@ use {
                 refresh_cave_visibility, remove_chunk_visibility,
             },
             world::{
-                ClientWorld, WorldStreamFramePoll, drive_world_stream,
-                reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
+                ClientWorld, WorldStreamFramePoll, camera_environment::update_camera_medium,
+                drive_world_stream, reconcile_world_stream_before_physics, startup_biome_tints,
             },
         },
         semantic_controls::{

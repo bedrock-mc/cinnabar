@@ -112,7 +112,7 @@ pub(super) fn configure(app: &mut App) {
     .add_systems(
         Update,
         (
-            world::update_camera_medium,
+            world::camera_environment::update_camera_medium,
             crate::environment::update_atmosphere_frame,
             crate::environment::update_seasonal_foliage,
             crate::environment::update_precipitation_scene,
