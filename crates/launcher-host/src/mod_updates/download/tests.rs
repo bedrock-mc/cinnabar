@@ -1,5 +1,8 @@
 use super::*;
-use std::{io::Read, net::TcpListener};
+use std::{
+    io::{BufRead, BufReader},
+    net::TcpListener,
+};
 
 /// Models the public asset API with a content-derived digest.
 fn asset(name: &str, bytes: &[u8]) -> Asset {
@@ -59,8 +62,11 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
     let bytes = bytes.to_vec();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0; 2048];
-        stream.read(&mut request).unwrap();
+        assert!(
+            BufReader::new(&mut stream)
+                .lines()
+                .any(|line| line.unwrap().is_empty())
+        );
         // Close-delimited framing exercises the streaming bound without Content-Length.
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
