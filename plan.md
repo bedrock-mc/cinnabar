@@ -2124,11 +2124,16 @@ not close a parity or visual acceptance gate.
 - Secondary creative catalog clicks create one item with an empty cursor and destroy one
   with a held selection. Typed item locks apply to ordinary player removal, storage and
   station placement, drops, destruction and consumption.
+- Inventory commands capture the actor's current effective permissions. Accepted ability
+  packets replace prior layer definitions, and later mode assignments update their owned
+  layers. Binding armor removal follows actor Creative mode; item creation follows
+  Instabuild. Creative catalog handlers reject stale hits after a mode change, and empty
+  Survival recipe-book clicks preserve the cursor selection.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
 - Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
-  effective ability and mode-dependent removal, all station membership rules,
+  all station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.

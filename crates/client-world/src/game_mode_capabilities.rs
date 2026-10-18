@@ -27,6 +27,13 @@ pub mod ability_bit {
     pub const VERTICAL_FLY_SPEED: u32 = 1 << 19;
 }
 
+/// Known ability-layer identities shared by effective permission consumers.
+pub mod ability_layer {
+    pub const COUNT: usize = 6;
+    pub const BASE: usize = 1;
+    pub const SPECTATOR: usize = super::SPECTATOR_LAYER_TYPE as usize;
+}
+
 /// Spectator ability layer type, per the pinned gophertunnel
 /// `minecraft/protocol/ability.go` (`AbilityLayerTypeSpectator`).
 pub const SPECTATOR_LAYER_TYPE: u16 = 2;
@@ -225,7 +232,7 @@ pub fn resolved_layer(
     let AbilityLayersEvidence::Received(layers) = &update.layers else {
         return None;
     };
-    (0..6).rev().find_map(|kind| {
+    (0..ability_layer::COUNT as u16).rev().find_map(|kind| {
         layers
             .iter()
             .rev()

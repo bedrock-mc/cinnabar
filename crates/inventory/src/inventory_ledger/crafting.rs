@@ -528,6 +528,9 @@ impl PlayerInventoryLedger {
         destination: CreativeDestination,
         requested: Option<u8>,
     ) -> Result<i32, InventoryGestureError> {
+        if self.permissions.instabuild != Some(true) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         let personal_generation = self.gesture_preflight(true)?;
         let item = self
             .creative
