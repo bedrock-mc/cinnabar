@@ -10132,3 +10132,9 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
+renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.
