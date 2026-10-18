@@ -112,7 +112,7 @@ fn assert_creative_drop(
     hit: InventoryCellHit,
     creative_id: u32,
 ) {
-    let mut expected_ledger = runtime.inventory_ledger(player).clone();
+    let mut expected_ledger = player.inventory_commands().clone();
     expected_ledger
         .begin_creative_take(creative_id, CreativeDestination::Drop, Some(1))
         .unwrap();

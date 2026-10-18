@@ -28,6 +28,7 @@ pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::M
 pub struct ModRenderScene {
     generation: u64,
     pub passes: Vec<mod_render::Pass>,
+    pub retained: Vec<Arc<mod_render::retained::Resources>>,
     pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
@@ -54,6 +55,7 @@ impl ModRenderScene {
         }
         self.generation = generation;
         self.passes.clone_from(&output.passes);
+        self.retained.clone_from(&output.retained);
         self.masks = Arc::clone(&output.masks);
         if !Arc::ptr_eq(&self.primitives, &output.primitives) {
             self.primitives = Arc::clone(&output.primitives);
@@ -121,3 +123,6 @@ impl ModRenderScene {
 mod block_highlights_tests;
 #[cfg(test)]
 mod position_box_tests;
+
+/// Same-frame placement and GPU inputs for retained world drawing.
+pub mod retained;

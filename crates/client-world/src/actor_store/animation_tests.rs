@@ -51,6 +51,7 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         player_game_mode: None,
         source_tick: None,
         metadata,
+        local_presentation_flags: None,
         attributes: HashMap::new(),
         int_properties: HashMap::new(),
         float_properties: HashMap::new(),
