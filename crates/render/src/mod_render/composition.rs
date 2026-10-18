@@ -4,10 +4,11 @@ use super::passes::{self, FrameUniform};
 use crate::actor_render::masks::{MaskGpu, MaskLabel};
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::{
+    asset::uuid_handle,
     core_pipeline::{Core3d, Core3dSystems},
     prelude::{
-        Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, SubApp, SystemSet,
-        World, default,
+        BevyError, Commands, Entity, Handle, IntoScheduleConfigs, Query, Res, ResMut, Resource,
+        Shader, SubApp, SystemSet, World, default,
     },
     render::{
         Render, RenderStartup, RenderSystems,
@@ -22,6 +23,8 @@ use std::collections::HashMap;
 
 const COMPOSITE: &str = include_str!("composition.wgsl");
 const BLUR: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return blur(uv, 1.0); }";
+const BLUR_SHADER: Handle<Shader> = uuid_handle!("ec6e8c09-3fa0-4cf9-844f-579d5e220f69");
+const COMPOSITE_SHADER: Handle<Shader> = uuid_handle!("53a30e40-6e29-41ad-98c1-aa4bc5888d6e");
 
 struct Level {
     _texture: Texture,
@@ -35,13 +38,87 @@ struct Pyramid {
     size: Extent3d,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct BindingKey {
+    source: TextureViewId,
+    masks: [TextureViewId; 2],
+    sampler: SamplerId,
+}
+
+struct StyleGpu {
+    uniform: Buffer,
+    bindings: Vec<(BindingKey, BindGroup)>,
+}
+
+impl StyleGpu {
+    /// Keeps a style's uniform and its dependent bindings under the same lifetime.
+    fn new(device: &RenderDevice) -> Self {
+        Self {
+            uniform: device.create_buffer(&BufferDescriptor {
+                label: Some("host selection style"),
+                size: mod_render::shader::FRAME_UNIFORM_BYTES as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            bindings: Vec::new(),
+        }
+    }
+
+    /// Prepares both scene inputs with the current coverage and selected halo level.
+    fn prepare_bindings(
+        &mut self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        sampler: &Sampler,
+        sources: [&TextureView; 2],
+        masks: [&TextureView; 2],
+    ) {
+        let keys = sources.map(|source| BindingKey {
+            source: source.id(),
+            masks: masks.map(TextureView::id),
+            sampler: sampler.id(),
+        });
+        self.bindings.retain(|(key, _)| keys.contains(key));
+        for (source, key) in sources.into_iter().zip(keys) {
+            if self.bindings.iter().any(|(existing, _)| *existing == key) {
+                continue;
+            }
+            self.bindings.push((
+                key,
+                binding(device, cache, sampler, &self.uniform, source, &masks),
+            ));
+        }
+    }
+
+    /// Selects a prepared binding without changing the view's alternating scene texture.
+    fn binding(&self, source: TextureViewId) -> Option<&BindGroup> {
+        self.bindings
+            .iter()
+            .find_map(|(key, binding)| (key.source == source).then_some(binding))
+    }
+}
+
 #[derive(Resource)]
-struct CompositionGpu {
+pub(super) struct CompositionGpu {
     sampler: Sampler,
-    blur: Option<RenderPipeline>,
-    composite: HashMap<TextureFormat, RenderPipeline>,
+    blur: Option<CachedRenderPipelineId>,
+    composite: HashMap<TextureFormat, CachedRenderPipelineId>,
     pyramids: HashMap<TextureViewId, Pyramid>,
-    uniforms: HashMap<(Entity, DrawingHandle), Buffer>,
+    styles: HashMap<(Entity, DrawingHandle), StyleGpu>,
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for CompositionGpu {
+    /// Holds loading until the downsampler and both scene-format composites finish compiling.
+    fn prewarm(
+        &mut self,
+        _cache: &PipelineCache,
+        _view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.extend(self.blur);
+        ids.extend(self.composite.values().copied());
+        Ok(())
+    }
 }
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -83,15 +160,32 @@ pub(super) fn install_graph(world: &mut World) {
     }
 }
 
-/// Compiles the bounded shared downsampler once, independently of any component's source.
-fn init(mut commands: Commands, device: Res<RenderDevice>, cache: Res<PipelineCache>) {
+/// Queues every built-in variant at startup, before any selection or style is published.
+fn init(mut commands: Commands, device: Res<RenderDevice>, mut cache: ResMut<PipelineCache>) {
     let source = mod_render::shader::compose(BLUR, false).expect("host blur shader");
-    let blur = passes::create_pipeline(
-        &device,
-        &cache.get_bind_group_layout(&passes::layout(false)),
-        &source,
-        TextureFormat::Rgba8Unorm,
+    cache.set_shader(
+        BLUR_SHADER.id(),
+        crate::shader_safety::from_wgsl(source, "selection-blur.wgsl"),
     );
+    let source =
+        mod_render::shader::compose_masked(COMPOSITE, false, 2).expect("host selection shader");
+    cache.set_shader(
+        COMPOSITE_SHADER.id(),
+        crate::shader_safety::from_wgsl(source, "selection-composite.wgsl"),
+    );
+    let blur = Some(queue_pipeline(
+        &cache,
+        BLUR_SHADER,
+        0,
+        TextureFormat::Rgba8Unorm,
+    ));
+    let composite = [
+        render_scene::SCENE_COLOR_FORMAT,
+        render_scene::SCENE_HDR_FORMAT,
+    ]
+    .map(|format| (format, queue_pipeline(&cache, COMPOSITE_SHADER, 2, format)))
+    .into_iter()
+    .collect();
     commands.insert_resource(CompositionGpu {
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("selection halo sampler"),
@@ -102,10 +196,35 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, cache: Res<PipelineCa
             ..default()
         }),
         blur,
-        composite: HashMap::new(),
+        composite,
         pyramids: HashMap::new(),
-        uniforms: HashMap::new(),
+        styles: HashMap::new(),
     });
+}
+
+/// Uses Bevy's checked cache so compilation participates in the shared loading gate.
+fn queue_pipeline(
+    cache: &PipelineCache,
+    shader: Handle<Shader>,
+    masks: usize,
+    format: TextureFormat,
+) -> CachedRenderPipelineId {
+    cache.queue_render_pipeline(RenderPipelineDescriptor {
+        label: Some("host selection composition".into()),
+        layout: vec![passes::masked_layout(false, masks)],
+        vertex: VertexState {
+            shader: shader.clone(),
+            entry_point: Some(mod_render::shader::VERTEX_ENTRY.into()),
+            ..default()
+        },
+        fragment: Some(FragmentState {
+            shader,
+            entry_point: Some(mod_render::shader::FRAGMENT_ENTRY.into()),
+            targets: vec![Some(passes::color_target(format))],
+            ..default()
+        }),
+        ..default()
+    })
 }
 
 /// Computes all quarter-area levels with checked accounting, including one-pixel tails.
@@ -272,7 +391,11 @@ fn prepare(
     if !halo_budget {
         gpu.pyramids.clear();
     }
-    if halo_budget && gpu.blur.is_some() {
+    if halo_budget
+        && gpu
+            .blur
+            .is_some_and(|id| cache.get_render_pipeline(id).is_some())
+    {
         for (id, (source, view)) in sources {
             if gpu
                 .pyramids
@@ -288,8 +411,9 @@ fn prepare(
             }
         }
     }
-    gpu.uniforms.retain(|(entity, handle), _| {
+    gpu.styles.retain(|(entity, handle), _| {
         views.contains(*entity)
+            && masks.planned(*entity, *handle).is_some()
             && scene
                 .masks
                 .iter()
@@ -299,19 +423,6 @@ fn prepare(
         if !scene.masks.iter().any(|mask| mask.style.is_some()) {
             continue;
         }
-        let format = target.main_texture_format();
-        if let std::collections::hash_map::Entry::Vacant(entry) = gpu.composite.entry(format) {
-            let source = mod_render::shader::compose_masked(COMPOSITE, false, 2)
-                .expect("host selection shader");
-            if let Some(pipeline) = passes::create_pipeline(
-                &device,
-                &cache.get_bind_group_layout(&passes::masked_layout(false, 2)),
-                &source,
-                format,
-            ) {
-                entry.insert(pipeline);
-            }
-        }
         for mask in scene.masks.iter() {
             let Some(style) = mask.style else {
                 continue;
@@ -319,21 +430,34 @@ fn prepare(
             let Some(coverage) = masks.planned(entity, mask.handle) else {
                 continue;
             };
-            let uniform = gpu
-                .uniforms
+            let CompositionGpu {
+                styles,
+                pyramids,
+                sampler,
+                ..
+            } = &mut *gpu;
+            let style_gpu = styles
                 .entry((entity, mask.handle))
-                .or_insert_with(|| {
-                    device.create_buffer(&BufferDescriptor {
-                        label: Some("host selection style"),
-                        size: mod_render::shader::FRAME_UNIFORM_BYTES as u64,
-                        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    })
-                });
+                .or_insert_with(|| StyleGpu::new(&device));
             queue.profiled_write_buffer(
-                uniform,
+                &style_gpu.uniform,
                 0,
                 bytemuck::bytes_of(&style_uniform(view, style, coverage.texture().size())),
+            );
+            let halo = if style.glow[3] > 0.0 && style.glow_radius > 0.0 {
+                pyramids
+                    .get(&coverage.id())
+                    .map(|pyramid| &pyramid.levels[halo_level(style.glow_radius)].view)
+                    .unwrap_or(coverage)
+            } else {
+                coverage
+            };
+            style_gpu.prepare_bindings(
+                &device,
+                &cache,
+                sampler,
+                [target.main_texture_view(), target.main_texture_other_view()],
+                [coverage, halo],
             );
         }
     }
@@ -397,45 +521,38 @@ fn draw(
     }
     let mut blurred = std::collections::HashSet::new();
     for mask in scene.masks.iter() {
-        let (Some(mut style), Some(coverage), Some(uniform), Some(pipeline)) = (
+        let (Some(_), Some(coverage), Some(style_gpu), Some(pipeline)) = (
             mask.style,
             masks.sample(entity, mask.handle),
-            gpu.uniforms.get(&(entity, mask.handle)),
-            gpu.composite.get(&target.main_texture_format()),
+            gpu.styles.get(&(entity, mask.handle)),
+            gpu.composite
+                .get(&target.main_texture_format())
+                .and_then(|id| cache.get_render_pipeline(*id)),
         ) else {
             continue;
         };
         let pyramid = gpu.pyramids.get(&coverage.id());
-        if let (Some(pyramid), Some(blur)) = (pyramid, &gpu.blur)
-            && blurred.insert(coverage.id())
-        {
-            for level in &pyramid.levels {
-                fullscreen(&mut context, &level.view, blur, &level.binding);
+        if let Some(pyramid) = pyramid {
+            let Some(blur) = gpu.blur.and_then(|id| cache.get_render_pipeline(id)) else {
+                continue;
+            };
+            if blurred.insert(coverage.id()) {
+                for level in &pyramid.levels {
+                    fullscreen(&mut context, &level.view, blur, &level.binding);
+                }
             }
         }
-        if style.glow_radius == 0.0 {
-            style.glow[3] = 0.0;
-        }
-        let halo = if style.glow[3] > 0.0 {
-            pyramid
-                .map(|pyramid| &pyramid.levels[halo_level(style.glow_radius)].view)
-                .unwrap_or(coverage)
-        } else {
-            coverage
+        let Some(binding) = style_gpu.binding(target.main_texture_view().id()) else {
+            continue;
         };
         let post = target.post_process_write();
-        let binding = binding(
-            context.render_device(),
-            cache,
-            &gpu.sampler,
-            uniform,
-            post.source,
-            &[coverage, halo],
-        );
-        fullscreen(&mut context, post.destination, pipeline, &binding);
+        fullscreen(&mut context, post.destination, pipeline, binding);
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod resource_tests;

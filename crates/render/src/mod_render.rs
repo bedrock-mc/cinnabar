@@ -40,6 +40,7 @@ struct Installed;
 fn install(app: &mut App) {
     app.init_resource::<ModRenderScene>();
     crate::pipeline_warmup::register_pending::<passes::PassGpu>(app);
+    crate::pipeline_warmup::register::<composition::CompositionGpu>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
