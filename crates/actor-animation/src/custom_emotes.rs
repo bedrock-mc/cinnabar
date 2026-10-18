@@ -254,9 +254,8 @@ fn pair(
                 );
                 let mut shared = *rest;
                 shared.rotation = quat_multiply(rotation, rest.rotation);
-                for axis in 0..3 {
-                    shared.translation_scale[axis] =
-                        body[index].translation_scale[axis] + offset[axis];
+                for (axis, offset) in offset.into_iter().enumerate() {
+                    shared.translation_scale[axis] = body[index].translation_scale[axis] + offset;
                 }
                 *target = Some(shared);
             }
