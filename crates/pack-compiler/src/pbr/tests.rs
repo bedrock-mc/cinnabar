@@ -466,6 +466,71 @@ fn normal_mips_are_unit_vectors_and_unresolved_detail_raises_roughness() {
 }
 
 #[test]
+fn labpbr_categories_ignore_transparent_texels_but_keep_overlay_mask_texels() {
+    for (visible, hidden) in [
+        ([20, 0, 64, 30], [237, 0, 64, 200]),
+        ([237, 0, 64, 200], [20, 0, 64, 30]),
+    ] {
+        let color = RgbaImage::from_fn(2, 2, |x, _| {
+            Rgba([255, 255, 255, if x == 0 { 255 } else { 0 }])
+        });
+        let material = RgbaImage::from_fn(2, 2, |x, _| Rgba(if x == 0 { visible } else { hidden }));
+        for overlay_mask in [false, true] {
+            let mip = build_pbr_mips(
+                &surface(
+                    color.clone(),
+                    rgba([128, 128, 255, 128]),
+                    material.clone(),
+                    PBR_REF_MATERIAL | PBR_REF_LABPBR,
+                ),
+                2,
+                false,
+                overlay_mask,
+            )
+            .unwrap();
+            let expected = if overlay_mask {
+                [237, 0, 64, 200]
+            } else {
+                visible
+            };
+            assert_eq!(mip.material[1].rgba8[0], expected[0]);
+            assert_eq!(mip.material[1].rgba8[3], expected[3]);
+        }
+    }
+}
+
+#[test]
+fn labpbr_category_averages_and_metal_modes_use_opacity_weights() {
+    for (values, expected) in [([20, 100, 20, 100], 40), ([230, 237, 230, 237], 230)] {
+        let color = RgbaImage::from_fn(2, 2, |x, _| {
+            Rgba([255, 255, 255, if x == 0 { 255 } else { 85 }])
+        });
+        let material = RgbaImage::from_fn(2, 2, |x, y| {
+            Rgba([
+                values[(y * 2 + x) as usize],
+                0,
+                64,
+                if x == 0 { 100 } else { 200 },
+            ])
+        });
+        let mip = build_pbr_mips(
+            &surface(
+                color,
+                rgba([128, 128, 255, 128]),
+                material,
+                PBR_REF_MATERIAL | PBR_REF_LABPBR,
+            ),
+            2,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(mip.material[1].rgba8[0], expected);
+        assert_eq!(mip.material[1].rgba8[3], 125);
+    }
+}
+
+#[test]
 fn image_bytes_identify_jpeg_payloads_even_when_the_file_suffix_is_png() {
     let directory = tempfile::tempdir().unwrap();
     save(

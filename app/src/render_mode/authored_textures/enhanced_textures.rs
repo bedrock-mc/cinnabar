@@ -43,6 +43,13 @@ fn sources(
     let mut references = BTreeMap::<(String, String, u32, u32), Source>::new();
     for (key, alias) in keys.aliases() {
         for &id in keys.materials(key) {
+            // This resolver admits only the catalog's variant-zero source.
+            if keys.material_source(id).is_some_and(|source| {
+                source.key.as_ref() != key || source.variant != 0 || source.path.as_ref() != alias
+            }) || keys.flipbook_selector(id) != (0, 0)
+            {
+                continue;
+            }
             let Some(material) = runtime.materials().get(id as usize) else {
                 continue;
             };
@@ -460,6 +467,59 @@ mod tests {
         assert_eq!(matched[0].texture, runtime.materials()[0].texture.raw());
         assert_eq!(matched[0].frame, 0);
         assert_eq!(matched[0].count, 1);
+    }
+
+    #[test]
+    fn unsupported_material_variants_keep_their_carrier_fallback() {
+        let (runtime, _) = shared_carrier();
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
+        for (alias, pixel) in [
+            ("primary", [20u8, 80, 140, 255]),
+            ("secondary", [140, 80, 20, 255]),
+        ] {
+            ImageBuffer::from_pixel(2, 2, Rgba(pixel))
+                .save(root.path().join(format!("textures/blocks/{alias}.png")))
+                .unwrap();
+        }
+        std::fs::write(root.path().join("textures/terrain_texture.json"), br#"{
+            "texture_data":{"fixture":{"textures":["textures/blocks/primary","textures/blocks/secondary"]}}
+        }"#).unwrap();
+        for (variant, path, selector_only) in [
+            (1, "textures/blocks/secondary", false),
+            (0, "textures/blocks/secondary", false),
+            (1, "textures/blocks/primary", true),
+        ] {
+            let mut keys = MaterialKeys::from_entries([(1, "fixture"), (2, "fixture")])
+                .with_aliases([("fixture", "textures/blocks/primary")]);
+            if selector_only {
+                keys = keys.with_flipbook_selectors([(2, (variant, 0))]);
+            } else {
+                keys = keys.with_sources(
+                    [],
+                    [(
+                        2,
+                        assets::material_keys::MaterialTextureSource {
+                            key: "fixture".into(),
+                            variant,
+                            path: path.into(),
+                            raster: format!("{path}.png").into(),
+                            baked_tint: None,
+                        },
+                    )],
+                    [],
+                );
+            }
+            let pack = PbrPack::new(root.path(), None).with_terrain_aliases(keys.aliases());
+            let (payload, _) = load(sources(&runtime, &keys), &[pack]);
+            let maps = payload.unwrap().into_assets().unwrap();
+            assert_eq!(albedo(&maps, &runtime, 1), Some([20, 80, 140, 255]));
+            assert_eq!(
+                albedo(&maps, &runtime, 2),
+                None,
+                "unsupported variant must retain its carrier"
+            );
+        }
     }
 
     /// Carrier layers above the old 11-bit range must not alias lower table slots.

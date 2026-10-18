@@ -122,6 +122,77 @@ fn published(app: &App) -> (ChunkTextureAssetIdentity, BufferId, BufferId) {
     )
 }
 
+/// Authored changes must publish and resume streaming while old terrain remains allocated.
+#[cfg(feature = "enhanced")]
+#[test]
+fn authored_updates_preserve_resident_and_retired_terrain_and_resume_uploads() {
+    let (mut app, instances) = publication_app();
+    app.world_mut().despawn(instances[1].0);
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    assert!(
+        !app.world()
+            .resource::<ChunkGpuArena>()
+            .retired_allocations
+            .is_empty()
+    );
+    let carrier = app.world().resource::<ChunkTextureAssets>().clone();
+    let authored = || {
+        let array = TextureArray {
+            layers: 1,
+            mips: Box::new([assets::texture::TextureMip {
+                size: 1,
+                rgba8: Box::new([128; 4]),
+            }]),
+        };
+        Arc::new(
+            EnhancedTextureAssets::new(
+                [array.clone(), array.clone()],
+                [array.clone(), array.clone()],
+                [array.clone(), array],
+                vec![u32::MAX; EnhancedTextureAssets::REFERENCE_BASE_WORDS].into_boxed_slice(),
+            )
+            .unwrap(),
+        )
+    };
+    for (index, maps) in [Some(authored()), Some(authored()), None]
+        .into_iter()
+        .enumerate()
+    {
+        let before = published(&app);
+        let candidate = carrier.with_updated_enhanced(maps.clone());
+        app.insert_resource(candidate.clone());
+        app.world_mut()
+            .run_system_once(prepare_chunk_texture_assets)
+            .unwrap();
+        let after = published(&app);
+        assert_eq!(after.0, candidate.identity());
+        assert_eq!((after.1, after.2), (before.1, before.2));
+        let gpu = app.world().resource::<ChunkGpuTextureAssets>();
+        assert!(gpu.authored_pending.is_none());
+        assert_eq!(
+            gpu.prepared.as_ref().unwrap().authored_source.is_some(),
+            maps.is_some()
+        );
+        let mut next = instances[0].1.clone();
+        next.key.x = 10 + index as i32;
+        next.origin = render_scene::chunk::chunk_origin(next.key);
+        let next = app.world_mut().spawn(next).id();
+        app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+        assert!(app.world().get::<GpuChunkAllocation>(next).is_some());
+        assert!(
+            app.world()
+                .get::<GpuChunkAllocation>(instances[0].0)
+                .is_some()
+        );
+        assert!(
+            !app.world()
+                .resource::<ChunkGpuArena>()
+                .retired_allocations
+                .is_empty()
+        );
+    }
+}
+
 /// Arms the production retirement fence without acknowledging its GPU completion.
 fn arm_retirements(app: &mut App) -> (TransparentRetirementFence, u64) {
     let fence = app.world().resource::<TransparentRetirementFence>().clone();

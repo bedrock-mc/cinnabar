@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 use super::{LOW_PBR_TILE_SIZE, Source};
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
-// Includes material-owned alias references and terrain atlas tints.
-const MAGIC: &[u8; 8] = b"CINPBR13";
+// Includes conservative variant admission and opacity-weighted LabPBR categories.
+const MAGIC: &[u8; 8] = b"CINPBR14";
 const MAX_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 static OVERSIZED_CACHE_WARNED: AtomicBool = AtomicBool::new(false);
 

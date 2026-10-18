@@ -57,8 +57,9 @@ pub(super) fn build_carrier_texture_assets(
     Some((prepared, stats))
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(all(test, not(feature = "enhanced")))]
+#[path = "texture_upload/tests.rs"]
+mod atlas_tests;
 
 /// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
 pub(in crate::chunk) fn build_chunk_texture_assets(

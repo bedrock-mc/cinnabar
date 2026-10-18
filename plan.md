@@ -1086,6 +1086,8 @@ screen-effect parity remain incomplete.
   table (`crates/pack-compiler/src/pbr/sources/names.rs`, baselined in the architecture gate).
   Replace it with a generated Java/Bedrock mapping shared with shader-pack block IDs.
   Independent authored animation timing remains incomplete; frames use the carrier clock.
+  State and positional variants outside the variant-zero source retain carrier artwork
+  until authored variant resolution is implemented.
 
 ## Anvil screen
 

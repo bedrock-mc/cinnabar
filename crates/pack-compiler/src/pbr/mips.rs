@@ -204,26 +204,45 @@ fn encode(
     (mip(color), mip(normal), mip(material))
 }
 
-/// Filters a categorical channel without averaging across its threshold.
-fn categorical(values: [f32; 4], threshold: f32) -> f32 {
-    let above = values.iter().filter(|value| **value >= threshold).count();
-    let take_above = above >= 2;
+/// Selects the category with most coverage, then filters only its visible values.
+fn categorical(values: [f32; 4], weights: [f32; 4], above: [bool; 4], discrete: bool) -> f32 {
+    let total = weights.iter().sum::<f32>();
+    if total <= 0.000001 {
+        return values[0];
+    }
+    let above_weight = weights
+        .iter()
+        .zip(above)
+        .filter(|(_, above)| *above)
+        .map(|(weight, _)| weight)
+        .sum::<f32>();
+    let take_above = above_weight >= total * 0.5;
     let selected = || {
         values
             .iter()
             .copied()
-            .filter(|value| (*value >= threshold) == take_above)
+            .zip(weights)
+            .zip(above)
+            .filter(|((_, weight), above)| *weight > 0.0 && *above == take_above)
+            .map(|(sample, _)| sample)
     };
-    if take_above {
+    if take_above && discrete {
         selected()
-            .max_by_key(|candidate| {
-                selected()
-                    .filter(|value| (*value - *candidate).abs() < 0.001)
-                    .count()
+            .map(|(candidate, _)| {
+                let coverage = selected()
+                    .filter(|(value, _)| (*value - candidate).abs() < 0.001)
+                    .map(|(_, weight)| weight)
+                    .sum::<f32>();
+                (candidate, coverage)
             })
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(value, _)| value)
             .unwrap_or(values[0])
     } else {
-        selected().sum::<f32>() / selected().count().max(1) as f32
+        selected()
+            .map(|(value, weight)| value * weight)
+            .sum::<f32>()
+            / selected().map(|(_, weight)| weight).sum::<f32>()
     }
 }
 
@@ -288,18 +307,16 @@ fn downsample(working: &Working, side: u32, lab: bool, overlay_mask: bool) -> Wo
         let mut result = std::array::from_fn(|channel| weighted(x, y, channel, &working.material));
         if lab {
             let points = coordinates(x, y);
+            let weights = points.map(|(x, y)| weight(x, y));
+            let metal = points.map(|(x, y)| working.material.get_pixel(x, y)[0]);
             result[0] = categorical(
-                points.map(|(x, y)| working.material.get_pixel(x, y)[0]),
-                230.0 / 255.0,
+                metal,
+                weights,
+                metal.map(|value| value >= 230.0 / 255.0),
+                true,
             );
             let blue = points.map(|(x, y)| working.material.get_pixel(x, y)[3]);
-            let sss = blue.iter().filter(|value| **value > 64.0 / 255.0).count() >= 2;
-            let selected = || {
-                blue.iter()
-                    .filter(|value| (**value > 64.0 / 255.0) == sss)
-                    .copied()
-            };
-            result[3] = selected().sum::<f32>() / selected().count().max(1) as f32;
+            result[3] = categorical(blue, weights, blue.map(|value| value > 64.0 / 255.0), false);
         }
         Rgba(result)
     });

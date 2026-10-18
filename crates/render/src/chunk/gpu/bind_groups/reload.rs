@@ -120,12 +120,20 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     {
         gpu_assets.authored_pending = None;
     }
+    #[cfg(feature = "enhanced")]
+    let authored_only = gpu_assets
+        .prepared
+        .as_ref()
+        .is_some_and(|prepared| authored_upload::same_carrier(prepared.identity, identity));
+    #[cfg(not(feature = "enhanced"))]
+    let authored_only = false;
     // Bootstrap may publish without an optional reload transaction.
     if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity)
         && requested
             .as_ref()
             .is_none_or(|candidate| candidate.assets().identity() != identity)
         && (gpu_assets.prepared.is_none()
+            || authored_only
             || arena.allocations.is_empty() && arena.retired_allocations.is_empty())
     {
         gpu_assets.attempted_identity = Some(identity);
