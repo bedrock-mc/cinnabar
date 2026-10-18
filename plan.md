@@ -4167,10 +4167,12 @@ Desktop button transitions retain backend arrival order through binding resoluti
 Each selection, pick, attack and use edge is attempted once in its own frame. A
 refused edge is discarded without retaining its target, movement pose or selected
 item. Accepted mining and release carriers stay with their gameplay owners and
-cannot restore an earlier held-button sample. Held actions use current input and
-refresh targeting without another press. Each new use press clears the previous
-block-interaction result before attack vetoes are applied. Hotbar send closures
-leave pending terminal controls to classify the session shutdown.
+cannot restore an earlier held-button sample. Held actions read button state at
+the consumed event cursor and refresh targeting without another press. A consumed
+attack release stops mining even while a later pick waits for movement. Each new
+use press clears the previous block-interaction result before attack vetoes are
+applied. Hotbar send closures leave pending terminal controls to classify the
+session shutdown.
 
 The client bounds each physical burst at `semantic_input::MAX_PENDING_ACTION_EVENTS`;
 overflow cancels unadmitted gestures and suppresses held actions until a complete

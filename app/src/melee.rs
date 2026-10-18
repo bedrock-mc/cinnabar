@@ -276,20 +276,11 @@ fn maintain_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
-    let maintenance_pending = context
-        .ordered
-        .as_deref()
-        .is_some_and(|ordered| ordered.maintenance_pending(&context.input));
     let attack_held = active
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
+            &context.input,
             Action::Attack,
-            if maintenance_pending {
-                // Continue accepted mining without observing a later button-up yet.
-                mining.destroying_target().is_some()
-            } else {
-                context.input.phase(Action::Attack).held
-            },
         );
     let wants_target =
         active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());

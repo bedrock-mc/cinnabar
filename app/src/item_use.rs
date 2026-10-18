@@ -177,8 +177,8 @@ fn produce_use(
     let held = admitted
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
+            &context.input,
             Action::Use,
-            use_phase.held,
         );
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);

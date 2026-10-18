@@ -97,8 +97,9 @@ fn ordered_frame_local_overflow_cannot_restore_a_cancelled_attack() {
     assert!(!crate::ordered_interactions::held(
         app.world()
             .get_resource::<crate::ordered_interactions::InteractionRuntime>(),
+        app.world()
+            .resource::<client_state::SemanticInputSnapshot>(),
         Action::Attack,
-        false,
     ));
     captured.drain();
     attack_progress_tests::ticks(app.world_mut(), 102, 105);
@@ -106,8 +107,9 @@ fn ordered_frame_local_overflow_cannot_restore_a_cancelled_attack() {
     assert!(!crate::ordered_interactions::held(
         app.world()
             .get_resource::<crate::ordered_interactions::InteractionRuntime>(),
+        app.world()
+            .resource::<client_state::SemanticInputSnapshot>(),
         Action::Attack,
-        false,
     ));
     assert!(
         captured

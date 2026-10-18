@@ -57,6 +57,14 @@ impl SemanticInputRouter {
                 sample.released[action as usize] = false;
             }
         }
+        let initial = without_quarantined_controls(
+            &state,
+            &self.quarantined_controls,
+            &[],
+            &[],
+            &self.settings,
+        );
+        output.set_initial_buttons(ActionButtons::new(self.sample(&initial, mode).active));
         for event in events.events() {
             let previous = state.clone();
             let keyboard = state

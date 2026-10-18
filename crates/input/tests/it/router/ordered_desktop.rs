@@ -71,6 +71,32 @@ fn ordered_desktop_repeats_and_mixed_buttons_preserve_arrival_order() {
 }
 
 #[test]
+fn ordered_desktop_held_state_follows_the_consumed_cursor() {
+    let mut router = SemanticInputRouter::default();
+    resolve(&mut router, vec![1], &[(1, true)]);
+    let snapshot = resolve(
+        &mut router,
+        vec![1],
+        &[(3, true), (3, false), (1, false), (1, true)],
+    );
+    let ordered = snapshot.ordered.as_ref().unwrap();
+    assert_eq!(
+        (0..=ordered.events().len())
+            .map(|cursor| ordered.buttons_at(cursor).held(Action::Attack))
+            .collect::<Vec<_>>(),
+        [true, true, true, false, true]
+    );
+    let held = resolve(&mut router, vec![1], &[]);
+    assert!(
+        held.ordered
+            .as_ref()
+            .unwrap()
+            .buttons_at(0)
+            .held(Action::Attack)
+    );
+}
+
+#[test]
 fn ordered_desktop_consumed_control_rearms_on_its_release_within_a_batch() {
     let mut router = SemanticInputRouter::default();
     router.consume_control(PhysicalControl::MouseButton(1));

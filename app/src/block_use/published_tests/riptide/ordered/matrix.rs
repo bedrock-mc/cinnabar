@@ -10,6 +10,7 @@ use protocol::test_support::{packets::equipment, transactions::observe_transacti
 enum Edge {
     Press,
     Release,
+    ConsumedRelease,
     AssistedRelease,
     Pick,
     Hotbar,
@@ -148,6 +149,7 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
         for edge in [
             Edge::Press,
             Edge::Release,
+            Edge::ConsumedRelease,
             Edge::AssistedRelease,
             Edge::Pick,
             Edge::Hotbar,
@@ -173,7 +175,7 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                 world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
                 respawn::use_button(&mut world, false);
             }
-            if matches!(edge, Edge::Release) {
+            if matches!(edge, Edge::Release | Edge::ConsumedRelease) {
                 attack_progress_tests::buttons(&mut world, vec![1, 2]);
                 world
                     .run_system_cached(crate::melee::prepare_melee)
@@ -193,6 +195,9 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                         .destroying_target()
                         .is_some()
                 );
+                if matches!(edge, Edge::ConsumedRelease) {
+                    tick(&mut world);
+                }
             }
             let origin = world.resource::<InteractionOriginSnapshot>().clone();
             if matches!(boundary, Boundary::EarlyCapture) {
@@ -249,6 +254,9 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                 {}
             }
             let mut events = semantic_input::DesktopEvents::default();
+            if matches!(edge, Edge::ConsumedRelease) {
+                button(&mut events, 1, false);
+            }
             button(&mut events, 3, true);
             button(&mut events, 3, false);
             let mut held = vec![2];
@@ -258,6 +266,7 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                     held.push(1);
                 }
                 Edge::Release => button(&mut events, 1, false),
+                Edge::ConsumedRelease => {}
                 Edge::AssistedRelease => {
                     button(&mut events, 2, false);
                     held.clear();
@@ -291,8 +300,18 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                 !world.resource::<ItemUseRuntime>().has_pending_release(),
                 "maintenance observed a later release: {boundary:?}, {edge:?}"
             );
+            let before_pick = |packet: &protocol::Packet| {
+                let actions = protocol::test_support::packets::input_block_actions(packet);
+                !interaction(packet)
+                    || (matches!(edge, Edge::ConsumedRelease)
+                        && !actions.is_empty()
+                        && actions.iter().all(|action| {
+                            action.0 == protocol::BlockActionKind::AbortDestroy.wire_value()
+                        }))
+            };
+            let mut sent = captured.drain();
             assert!(
-                captured.drain().iter().all(|packet| !interaction(packet)),
+                sent.iter().all(before_pick),
                 "a later effect passed the prefix: {boundary:?}, {edge:?}"
             );
             assert!(
@@ -306,6 +325,17 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                         .destroying_target()
                         .is_some(),
                     "a later button-up must not abort before the pick: {boundary:?}"
+                );
+            }
+            if matches!(edge, Edge::ConsumedRelease)
+                && matches!(boundary, Boundary::EarlyCapture | Boundary::PostCamera)
+            {
+                assert!(
+                    world
+                        .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
+                        .destroying_target()
+                        .is_none(),
+                    "a consumed button-up must stop mining before the pick: {boundary:?}"
                 );
             }
             world.insert_resource(origin);
@@ -326,7 +356,7 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
             world
                 .run_system_cached(crate::item_use::produce_item_use)
                 .unwrap();
-            let mut sent = captured.drain();
+            sent.extend(captured.drain());
             tick(&mut world);
             world
                 .run_system_cached(crate::melee::prepare_melee)
@@ -354,7 +384,7 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                     panic!("the deferred prefix disappeared: {boundary:?}, {edge:?}")
                 });
             assert!(
-                sent[..first_pick].iter().all(|packet| !interaction(packet)),
+                sent[..first_pick].iter().all(before_pick),
                 "a later effect preceded the pick: {boundary:?}, {edge:?}"
             );
             if matches!(edge, Edge::AssistedRelease) {
@@ -367,13 +397,13 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                     "the deferred release must finish exactly once: {boundary:?}"
                 );
             }
-            if matches!(edge, Edge::Release) {
+            if matches!(edge, Edge::Release | Edge::ConsumedRelease) {
                 assert!(
                     world
                         .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
                         .destroying_target()
                         .is_none(),
-                    "the release must stop mining after the pick: {boundary:?}"
+                    "the consumed release must stop mining: {boundary:?}, {edge:?}"
                 );
             }
             let following_effect = match edge {
@@ -384,12 +414,12 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
                         })
                     })
                 }
-                Edge::Release | Edge::Mining => sent
+                Edge::Release | Edge::ConsumedRelease | Edge::Mining => sent
                     .iter()
                     .flat_map(protocol::test_support::packets::input_block_actions)
                     .any(|action| {
                         action.0
-                            == if matches!(edge, Edge::Release) {
+                            == if matches!(edge, Edge::Release | Edge::ConsumedRelease) {
                                 protocol::BlockActionKind::AbortDestroy.wire_value()
                             } else {
                                 protocol::BlockActionKind::StartDestroy.wire_value()

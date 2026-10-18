@@ -95,12 +95,25 @@ pub struct ActionEvent {
 /// Events finalized under the frame's bindings, context and authority.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OrderedActions {
+    initial_buttons: ActionButtons,
     events: Vec<ActionEvent>,
     overflowed: bool,
     neutral: bool,
 }
 
 impl OrderedActions {
+    /// Records the resolved held state before the first desktop transition.
+    pub(crate) fn set_initial_buttons(&mut self, buttons: ActionButtons) {
+        self.initial_buttons = buttons;
+    }
+
+    /// Returns held state after the consumed prefix, clamping past the batch end.
+    pub fn buttons_at(&self, consumed: usize) -> ActionButtons {
+        self.events[..consumed.min(self.events.len())]
+            .last()
+            .map_or(self.initial_buttons, |event| event.buttons)
+    }
+
     /// Records physical neutrality independently of filtered Boolean action projections.
     pub(crate) fn set_neutral(&mut self, neutral: bool) {
         self.neutral = neutral;

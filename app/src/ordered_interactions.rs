@@ -113,13 +113,19 @@ fn maintenance_carrier_pending(world: &World) -> bool {
             .is_some()
 }
 
-/// Reads current held state, suppressing it until an incomplete sample returns to neutral.
+/// Reads held state at the consumed cursor, suppressing incomplete physical samples.
 pub(crate) fn held(
     runtime: Option<&InteractionRuntime>,
-    _action: Action,
-    final_held: bool,
+    input: &SemanticInputSnapshot,
+    action: Action,
 ) -> bool {
-    !is_blocked(runtime) && final_held
+    !is_blocked(runtime)
+        && runtime
+            .zip(input.snapshot().and_then(|input| input.ordered.as_ref()))
+            .map_or_else(
+                || input.phase(action).held,
+                |(runtime, ordered)| ordered.buttons_at(runtime.ingested).held(action),
+            )
 }
 
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
