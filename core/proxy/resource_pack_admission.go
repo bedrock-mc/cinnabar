@@ -29,9 +29,9 @@ const (
 	// packs that Cinnabar cannot truthfully apply yet.
 	PackAdmissionRequiredUnsupported PackAdmissionFailureReason = iota + 1
 
-	maxSelectedResourcePacks          = 32
-	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
-	maxResourcePackArchiveBytes       = 64 * 1024 * 1024
+	maxSelectedResourcePacks          = bridgecontract.MaxSelectedPacks
+	maxSelectedResourcePackTotalBytes = bridgecontract.MaxSelectedPackBytes
+	maxResourcePackArchiveBytes       = bridgecontract.MaxPackArchiveBytes
 	// Transfer sizes may differ from their offer, so downloads are bounded
 	// separately: gophertunnel holds every downloaded pack in memory until the
 	// handoff is captured, and past this ceiling the dial is cancelled.
