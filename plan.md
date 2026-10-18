@@ -264,6 +264,10 @@ transport teardown. New play waits for the old handler to finish while retaining
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+Browser CI checks the web crates on wasm and runs the JavaScript edge suites. Shared
+Go/Rust control fixtures cover Hello, Welcome, account, progress and error events.
+The devtool static bundle command matches the locked wasm-bindgen version and includes
+the canonical delivery index; TLS renewal reloads without dropping relay accounts.
 Browser Dressing Room adapters provide a session-only catalog, bounded file-picker admission and
 frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
 inputs use the native validators and content identities. Browser imports are lost when the
@@ -10211,3 +10215,9 @@ Sign edits retain existing trailing blank lines and line breaks entered before c
 Unused editor rows do not add line breaks to the outbound text. The regression checks
 encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
 length limits, structured text and complete editor behavior remain incomplete.
+## Near-contact collision faces
+
+Swept collision clipping and overlap recovery share the same face-contact tolerance.
+Tiny overlaps no longer create a landing against an adjacent wall or an unsolicited
+separation move. Larger penetrations still resolve. This bounded geometry correction
+does not close complete collision-engine, terrain or current-version movement parity.
