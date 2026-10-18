@@ -1,6 +1,7 @@
 //! Camera-independent line expansion; the host shader resolves width and near-plane clipping.
 use super::*;
 use bytemuck::{Pod, Zeroable};
+use mod_api::drawing::ROUND_SEGMENTS;
 
 /// Every field is a complete WGSL vec4; layout is checked against the host shader in render.
 #[repr(C)]
@@ -15,23 +16,6 @@ pub struct GpuVertex {
     pub data: [f32; 4],
     pub shape: [f32; 4],
 }
-/// Fixed host tessellation for a round join or semicircular end cap.
-pub const ROUND_SEGMENTS: usize = 8;
-
-/// Bounds every selectable line style once during geometry admission.
-pub(super) fn expanded_vertices(
-    vertices: usize,
-    indices: usize,
-    polyline: bool,
-    closed: bool,
-) -> usize {
-    if !polyline {
-        return indices;
-    }
-    let segments = vertices - usize::from(!closed);
-    segments * 6 + segments * ROUND_SEGMENTS * 3 + if closed { 0 } else { ROUND_SEGMENTS * 6 }
-}
-
 /// Builds a single immutable GPU mesh shared by all placements and line styles.
 pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
     let mut output = Vec::with_capacity(geometry.expanded_vertices);

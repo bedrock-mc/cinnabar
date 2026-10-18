@@ -231,6 +231,19 @@ fn generated_arrow_wings_and_local_points_respect_contract_extent() {
 }
 
 #[test]
+fn sdk_shapes_reject_excessive_expansion() {
+    for result in [
+        circle(1., 10_000, COLOR),
+        sphere_wireframe(1., 3_000, COLOR),
+    ] {
+        let Err(error) = result else {
+            panic!("SDK accepted geometry beyond the expansion limit");
+        };
+        assert_eq!(error.code, ErrorCode::BudgetExceeded);
+    }
+}
+
+#[test]
 fn excessive_subdivisions_fail_before_allocating_and_use_owner_limits() {
     for result in [
         circle(1., u32::MAX, COLOR),
@@ -243,6 +256,12 @@ fn excessive_subdivisions_fail_before_allocating_and_use_owner_limits() {
         MAX_DRAW_MUTATION_BYTES.min(MAX_DRAW_GEOMETRY_BYTES)
             / (std::mem::size_of::<Vertex>() + std::mem::size_of::<f32>()),
     );
+    let max_vertices = (3..=max_vertices)
+        .take_while(|&vertices| {
+            expanded_vertices(vertices, 0, true, true) <= MAX_DRAW_EXPANDED_VERTICES
+        })
+        .last()
+        .unwrap();
     let max_vertices = u32::try_from(max_vertices).unwrap();
     assert!(circle(1., max_vertices, COLOR).is_ok());
     assert_eq!(

@@ -5,6 +5,21 @@ pub use crate::bindings::cinnabar::world_draw::drawing as api;
 
 pub mod shapes;
 
+/// Fixed host tessellation for a round join or semicircular end cap.
+pub const ROUND_SEGMENTS: usize = 8;
+
+/// Bounds expanded GPU vertices for all selectable styles, saturating on count overflow.
+/// Callers validate topology separately; repeated polyline points still consume this budget.
+pub fn expanded_vertices(vertices: usize, indices: usize, polyline: bool, closed: bool) -> usize {
+    if !polyline {
+        return indices;
+    }
+    let segments = vertices.saturating_sub(usize::from(!closed));
+    segments
+        .saturating_mul(6 + ROUND_SEGMENTS * 3)
+        .saturating_add(if closed { 0 } else { ROUND_SEGMENTS * 6 })
+}
+
 /// Places retained geometry with depth testing, white tint and an identity transform.
 /// Set width and width mode explicitly when a polyline needs a different stroke.
 pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {

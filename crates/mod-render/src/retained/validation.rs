@@ -19,7 +19,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         return Err(error(ErrorCode::Invalid, "geometry topology or vertex"));
     }
     let expanded_vertices =
-        mesh::expanded_vertices(vertices.len(), indices.len(), polyline, closed);
+        drawing::expanded_vertices(vertices.len(), indices.len(), polyline, closed);
     if expanded_vertices > MAX_DRAW_EXPANDED_VERTICES {
         return Err(error(ErrorCode::BudgetExceeded, "expanded vertices"));
     }

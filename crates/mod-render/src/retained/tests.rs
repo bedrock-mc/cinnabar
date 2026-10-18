@@ -1,5 +1,6 @@
 use super::*;
 
+mod sdk;
 pub(super) mod work;
 
 /// Makes a reusable unit triangle with distinct vertex colours.
