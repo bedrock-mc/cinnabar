@@ -194,6 +194,7 @@ fn refused_ordered_press_does_not_survive_publication() {
             AttackFrame {
                 attack: Some((Crosshair::Block, press.clone())),
                 mining_target: None,
+                allow_mining_start: true,
                 attack_held: false,
                 authority: crate::survival_mining::BlockBreakingAuthority::Server,
                 now_millis: now,

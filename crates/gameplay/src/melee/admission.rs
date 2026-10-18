@@ -14,6 +14,8 @@ pub struct AttackFrame<'a> {
     pub mining_target: Option<&'a crate::survival_mining::DestroyTarget>,
     /// Current button state, independent of queued presses and target eligibility.
     pub attack_held: bool,
+    /// Existing progress and cleanup continue while fresh held mining is fenced.
+    pub allow_mining_start: bool,
     pub authority: BlockBreakingAuthority,
     pub now_millis: u64,
     pub local_runtime_id: u64,
@@ -227,21 +229,12 @@ fn admit(
         return result;
     }
     // Only a fresh mining start waits; existing progress, aborts and held delay still advance.
-    let held_input = if frame.attack_held {
+    let input = if !frame.attack_held {
+        DestroyInput::Released
+    } else if frame.allow_mining_start && !runtime.queue.pending() {
         DestroyInput::Held(frame.mining_target)
     } else {
-        DestroyInput::Released
-    };
-    let input = match held_input {
-        DestroyInput::Held(Some(target))
-            if runtime.queue.pending()
-                && mining
-                    .destroying_target()
-                    .is_none_or(|(position, _)| position != target.position) =>
-        {
-            DestroyInput::Held(None)
-        }
-        input => input,
+        DestroyInput::Continue(frame.mining_target)
     };
     let unsent = mining.step_ticks(
         movement,

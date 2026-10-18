@@ -179,6 +179,8 @@ pub enum DestroyInput<'a> {
     Released,
     /// Held, aimed at this block or at nothing destroyable.
     Held(Option<&'a DestroyTarget>),
+    /// Held input may continue the current block, but cannot start or retarget mining.
+    Continue(Option<&'a DestroyTarget>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -242,11 +244,16 @@ impl DestroyMachine {
         let delayed = self.delay > 0;
         self.delay = self.delay.saturating_sub(1);
         let target = match input {
-            DestroyInput::Held(Some(target)) => {
+            DestroyInput::Held(Some(target)) | DestroyInput::Continue(Some(target))
+                if !matches!(input, DestroyInput::Continue(_))
+                    || self
+                        .destroying_target()
+                        .is_some_and(|(position, _)| position == target.position) =>
+            {
                 payload.swing = true;
                 target
             }
-            DestroyInput::Released | DestroyInput::Held(None) => {
+            DestroyInput::Released | DestroyInput::Held(_) | DestroyInput::Continue(_) => {
                 if input == DestroyInput::Released {
                     // Releasing clears the destroy delay, as in vanilla.
                     self.delay = 0;
@@ -457,7 +464,9 @@ impl SurvivalMiningRuntime {
             if ticker.attach_survival_mining(tick, payload) {
                 broken.into_iter().for_each(&mut predict_break);
                 if let Some(position) = broken {
-                    if let DestroyInput::Held(Some(target)) = input {
+                    if let DestroyInput::Held(Some(target)) | DestroyInput::Continue(Some(target)) =
+                        input
+                    {
                         self.break_cues.push(BlockBreakCue::Break {
                             position,
                             block_runtime_id: target.runtime_id as i32,

@@ -112,6 +112,7 @@ pub(crate) fn press(
         gameplay::melee::AttackFrame {
             attack: Some((picked.crosshair, press.clone())),
             mining_target: destroy.as_ref(),
+            allow_mining_start: true,
             attack_held: input.edge.buttons.held(Action::Attack),
             authority,
             now_millis: now,

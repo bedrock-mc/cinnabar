@@ -206,12 +206,13 @@ fn maintain_attacks(
         ResMut<MeleeRuntime>,
         ResMut<client_interaction::survival_mining::SurvivalMiningRuntime>,
         ResMut<SwingTracker>,
+        Res<client_interaction::item_use::ItemUseRuntime>,
     ),
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     mut cues: bevy::prelude::MessageWriter<client_audio::audio::LocalBlockCue>,
 ) {
-    let (mut runtime, mut mining, mut swings) = state;
+    let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let attack = (|| {
         if context
@@ -307,6 +308,8 @@ fn maintain_attacks(
     let effects = &context.effects;
     let network = &context.network;
     let world = &mut context.client_world;
+    let allow_mining_start = context.ordered.is_none()
+        || !crate::ordered_interactions::release_pending(&item_use, &movement);
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,
@@ -316,6 +319,7 @@ fn maintain_attacks(
             attack,
             mining_target: destroy.as_ref(),
             attack_held,
+            allow_mining_start,
             authority,
             now_millis,
             local_runtime_id,

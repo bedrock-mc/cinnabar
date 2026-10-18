@@ -48,16 +48,21 @@ pub(crate) fn pending(world: &World) -> bool {
     let Some(runtime) = world.get_resource::<InteractionRuntime>() else {
         return false;
     };
-    is_blocked(Some(runtime))
-        || world
-            .get_resource::<MeleeRuntime>()
-            .is_some_and(|runtime| runtime.has_queued_work())
-        || world
-            .get_resource::<MovementTicker>()
-            .is_some_and(|movement| movement.has_held_release())
-        || world
-            .get_resource::<ItemUseRuntime>()
-            .is_some_and(|runtime| runtime.has_pending_release())
+    is_blocked(Some(runtime)) || accepted_work_pending(world)
+}
+
+/// Keeps new actions behind an accepted release before and after movement owns its carrier.
+pub(crate) fn release_pending(item_use: &ItemUseRuntime, movement: &MovementTicker) -> bool {
+    item_use.has_pending_release() || movement.has_held_release()
+}
+
+/// Reads the gameplay owners shared by pressed actions and held placement.
+fn accepted_work_pending(world: &World) -> bool {
+    world.resource::<MeleeRuntime>().has_queued_work()
+        || release_pending(
+            world.resource::<ItemUseRuntime>(),
+            world.resource::<MovementTicker>(),
+        )
 }
 
 /// Reads current held state, suppressing it until an incomplete sample returns to neutral.
@@ -209,12 +214,10 @@ pub(crate) fn drain(world: &mut World) {
     {
         let context = capture(world, &snapshot);
         for edge in tail.iter().copied() {
-            if world.resource::<MovementTicker>().has_held_release()
-                || world.resource::<ItemUseRuntime>().has_pending_release()
+            if accepted_work_pending(world)
                 || !world
                     .resource::<MovementTicker>()
                     .accepts_block_interactions()
-                || world.resource::<MeleeRuntime>().has_queued_work()
             {
                 break;
             }
@@ -265,17 +268,16 @@ fn dispatch(world: &mut World, input: InteractionInput) {
                 .expect("ordered pick admission");
         }
         action
-            if edge.pressed && client_interaction::hotbar::slot_for_action(action, 0).is_some() =>
+            if edge.pressed
+                && client_interaction::hotbar::slot_for_action(action, 0).is_some()
+                && world
+                    .resource::<MovementTicker>()
+                    .between_ticks_sample()
+                    .is_some() =>
         {
-            if world
-                .resource::<MovementTicker>()
-                .between_ticks_sample()
-                .is_some()
-            {
-                world
-                    .run_system_cached_with(crate::hotbar::ordered::select, action)
-                    .expect("ordered selection admission");
-            }
+            world
+                .run_system_cached_with(crate::hotbar::ordered::select, action)
+                .expect("ordered selection admission");
         }
         _ => {}
     }

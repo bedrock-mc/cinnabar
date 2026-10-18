@@ -13,11 +13,19 @@ fn release_and_select(world: &mut World, release: bool) {
         });
     }
     events.push(semantic_input::DesktopEvent::Scroll { next: true });
+    ordered_frame(world, events, Vec::new());
+}
+
+/// Runs one complete desktop batch through the production ordered pre-physics adapter.
+fn ordered_frame(world: &mut World, events: semantic_input::DesktopEvents, mouse_buttons: Vec<u8>) {
     let snapshot = world
         .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
         .route_and_finalize(semantic_input::DeviceFrame {
             desktop_events: Some(events),
-            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame::default()),
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_buttons,
+                ..Default::default()
+            }),
             ..Default::default()
         })
         .unwrap();
@@ -27,10 +35,9 @@ fn release_and_select(world: &mut World, release: bool) {
     world.run_system_cached(produce_block_use).unwrap();
 }
 
-#[test]
-fn ordered_riptide_observed_release_precedes_later_selection() {
-    let (mut world, mut captured) =
-        respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+/// Captures an accepted charge's release before a movement carrier can be staged.
+fn observed_release() -> (World, client_session::CapturedPackets) {
+    let (mut world, captured) = respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
     world.init_resource::<crate::melee::MeleeTarget>();
     world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
@@ -66,6 +73,12 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
             )
     );
     assert!(!world.resource::<MovementTicker>().has_held_release());
+    (world, captured)
+}
+
+#[test]
+fn ordered_riptide_observed_release_precedes_later_selection() {
+    let (mut world, mut captured) = observed_release();
     release_and_select(&mut world, true);
     assert_eq!(
         world
@@ -115,5 +128,66 @@ fn ordered_riptide_observed_release_precedes_later_selection() {
             .filter_map(protocol::test_support::packets::equipment)
             .count(),
         1
+    );
+}
+
+#[test]
+fn ordered_riptide_observed_release_precedes_fresh_held_mining() {
+    let (mut world, mut captured) = observed_release();
+    let mut events = semantic_input::DesktopEvents::default();
+    for (button, pressed) in [(2, false), (1, true)] {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(button),
+            pressed,
+            modifiers: semantic_input::ModifierChord::default(),
+        });
+    }
+    ordered_frame(&mut world, events, vec![1]);
+    tick(&mut world);
+    world
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    world
+        .run_system_cached(crate::item_use::prepare_item_release)
+        .unwrap();
+    flush_and_acknowledge(&mut world);
+    let facing = captured.drain();
+    assert!(
+        facing
+            .iter()
+            .flat_map(protocol::test_support::packets::input_block_actions)
+            .all(|action| action.0 != protocol::BlockActionKind::StartDestroy.wire_value()),
+        "fresh held mining must not overtake the accepted charged release"
+    );
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    let release = captured.drain();
+    assert_eq!(
+        release
+            .iter()
+            .filter_map(protocol::test_support::transactions::observe_transaction)
+            .filter(|tx| tx.release().is_some())
+            .count(),
+        1
+    );
+    tick(&mut world);
+    world
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    flush_and_acknowledge(&mut world);
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .flat_map(protocol::test_support::packets::input_block_actions)
+            .any(|action| action.0 == protocol::BlockActionKind::StartDestroy.wire_value()),
+        "the current held input can start mining after release completion"
     );
 }
