@@ -445,6 +445,15 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Ordered desktop interactions now attempt each edge only in its input frame.
+Refused presses retain no proposal or movement reservation. Gameplay owners retain
+accepted mining and release work, while overload recovery suppresses current held
+input until neutrality. Scrolling preserves per-control suppression, and accepted
+item uses can end before neutrality without starting another use. Regression coverage
+exercises per-frame admission, use resolution and pending controls. Live input
+acceptance, overload timing and camera sampling remain incomplete;
+no completion gate advances.
+
 Selected transaction descriptor regressions cover optional stack-ID omission while
 preserving item contents, inventory action IDs and legacy requests. The shared
 embedded movement payload uses the same conversion. Admission, dynamic actions,

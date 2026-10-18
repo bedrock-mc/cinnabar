@@ -67,6 +67,13 @@ impl FinalizedInput {
             return false;
         }
         attack.pressed = true;
+        if let Some(ordered) = snapshot.ordered.as_mut() {
+            ordered.push(crate::ActionEvent {
+                action: Action::Attack,
+                pressed: true,
+                buttons: crate::ActionButtons::new(snapshot.phases.map(|phase| phase.held)),
+            });
+        }
         true
     }
 
@@ -93,6 +100,7 @@ mod tests {
         analogue_movement: [f32; 2],
     ) -> FinalizedInput {
         FinalizedInput(Some(ActionSnapshot {
+            ordered: None,
             frame_sequence: crate::identity::InputSequence::new(1),
             authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
             movement,

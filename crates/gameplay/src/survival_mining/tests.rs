@@ -130,9 +130,10 @@ impl MiningAdmission {
             crate::melee::AttackFrame {
                 attack,
                 mining_target: match input {
-                    DestroyInput::Held(target) => target,
+                    DestroyInput::Held(target) | DestroyInput::Continue(target) => target,
                     DestroyInput::Released => None,
                 },
+                allow_mining_start: true,
                 attack_held: !matches!(input, DestroyInput::Released),
                 authority,
                 now_millis: 1,
@@ -1085,4 +1086,52 @@ fn held_tool(identifier: &str) -> Option<HeldTool> {
             .unwrap()
             .by_identifier(identifier)?,
     )
+}
+
+#[test]
+fn continuing_held_input_preserves_progress_without_starting_or_retargeting() {
+    let first = target([1, 2, 3], "minecraft:stone", None);
+    let other = target([2, 2, 3], "minecraft:stone", None);
+    let mut machine = DestroyMachine::default();
+    assert!(
+        machine
+            .step(DestroyInput::Continue(Some(&first)), STILL, Server)
+            .actions
+            .is_empty()
+    );
+    assert_eq!(machine.destroying_target(), None);
+    machine.step(DestroyInput::Held(Some(&first)), STILL, Server);
+    let before = machine.clone();
+    let progress = machine.step(DestroyInput::Continue(Some(&first)), STILL, Server);
+    assert_ne!(
+        machine, before,
+        "the accepted destroy must continue advancing"
+    );
+    assert!(
+        progress
+            .actions
+            .iter()
+            .all(|action| action.kind != protocol::BlockActionKind::StartDestroy)
+    );
+    let cancelled = machine.step(DestroyInput::Continue(Some(&other)), STILL, Server);
+    assert!(
+        cancelled
+            .actions
+            .iter()
+            .any(|action| action.kind == protocol::BlockActionKind::AbortDestroy)
+    );
+    assert!(
+        cancelled
+            .actions
+            .iter()
+            .all(|action| action.kind != protocol::BlockActionKind::StartDestroy)
+    );
+    assert_eq!(machine.destroying_target(), None);
+    let fresh = machine.step(DestroyInput::Held(Some(&other)), STILL, Server);
+    assert!(
+        fresh
+            .actions
+            .iter()
+            .any(|action| action.kind == protocol::BlockActionKind::StartDestroy)
+    );
 }

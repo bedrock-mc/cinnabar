@@ -6,15 +6,16 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Local, Query, Real, Res, ResMut, Resource, Time, Window, With},
+    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_interaction::melee::{MeleeRuntime, SwingTracker};
 use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 
-mod crosshair;
+pub(crate) mod crosshair;
 mod hover;
+pub(crate) mod ordered;
 use crosshair::resolve_crosshair;
 
 use crate::interaction_override::ModInteraction;
@@ -35,13 +36,31 @@ use gameplay::melee::{PressContext, press_admission, swing_duration};
 /// Retained frame picks shared by immediate attacks and tick-time hover reports.
 #[derive(Resource, Default)]
 pub(crate) struct MeleeTarget {
-    attack: Option<crosshair::ResolvedTarget>,
+    frames: crosshair::FrameInputs,
+    /// Input identity of the last successfully resolved frame.
+    prepared: Option<(
+        semantic_input::identity::InputAuthorityGeneration,
+        semantic_input::identity::InputSequence,
+        simulation_clock::identity::PositionAuthorityGeneration,
+    )>,
+    pub(crate) attack: Option<crosshair::ResolvedTarget>,
     pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
+}
+
+impl MeleeTarget {
+    /// Reports whether the current published inputs belong to this movement authority.
+    pub(crate) fn has_published_inputs(
+        &self,
+        position: simulation_clock::identity::PositionAuthorityGeneration,
+    ) -> bool {
+        self.frames.has_current(position)
+    }
 }
 
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
     pub(crate) input: Res<'w, SemanticInputSnapshot>,
+    ordered: Option<Res<'w, crate::ordered_interactions::InteractionRuntime>>,
     pub(crate) origin: Res<'w, InteractionOriginSnapshot>,
     pub(crate) ui: Res<'w, UiRuntimeResource>,
     pub(crate) focus: Res<'w, client_state::ScreenFocus>,
@@ -66,17 +85,33 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
-    mut frames: Local<crosshair::FrameInputs>,
 ) {
+    let ordered = context
+        .input
+        .snapshot()
+        .filter(|input| input.ordered.is_some());
+    let identity = context.input.snapshot().map(|input| {
+        (
+            input.authority_generation,
+            input.frame_sequence,
+            movement.interaction_authority_identity().1,
+        )
+    });
+    if ordered.is_some() && target.prepared == identity {
+        return;
+    }
     target.attack = None;
     target.hover = None;
-    frames.publish(&context, movement.interaction_authority_identity().1);
+    target
+        .frames
+        .publish(&context, movement.interaction_authority_identity().1);
     let picked = resolve_crosshair(
         &player_runtime,
         &context,
-        &frames,
+        &target.frames,
         movement.interaction_authority_identity().1,
     );
+    target.prepared = picked.and(identity);
     if let Some(picked) = picked {
         // Earlier queued movement must drain before this frame's first local tick.
         let first_tick = movement
@@ -120,6 +155,18 @@ pub(crate) fn prepare_melee(
         runtime.cancel();
         return;
     }
+    if ordered.is_some() {
+        target.attack = picked;
+        if !crate::ordered_interactions::is_blocked(context.ordered.as_deref())
+            && let Some(picked) = picked
+        {
+            runtime.observe_attack_target(
+                picked.crosshair,
+                item_timing.is_some_and(|timing| timing.piercing_weapon),
+            );
+        }
+        return;
+    }
     let pending = runtime.observe_input(attack.pressed, attack.held);
     // A position-authority change is resolving; the press waits for it.
     if !movement.accepts_block_interactions() {
@@ -143,8 +190,19 @@ pub(crate) fn prepare_melee(
     target.attack = Some(picked);
 }
 
+/// Drains ordered presses before advancing this frame's held mining work once.
+pub(crate) fn produce_attacks(world: &mut bevy::prelude::World) {
+    crate::ordered_interactions::drain(
+        world,
+        crate::ordered_interactions::DispatchPhase::BeforeMovement,
+    );
+    world
+        .run_system_cached(maintain_attacks)
+        .expect("attack maintenance resources");
+}
+
 /// Admits attack presses and their mining carriers through one ordered queue.
-pub(crate) fn produce_attacks(
+fn maintain_attacks(
     mut player: ResMut<client_state::PlayerRuntime>,
     mut context: MeleeContext,
     target: Res<MeleeTarget>,
@@ -152,14 +210,22 @@ pub(crate) fn produce_attacks(
         ResMut<MeleeRuntime>,
         ResMut<client_interaction::survival_mining::SurvivalMiningRuntime>,
         ResMut<SwingTracker>,
+        Res<client_interaction::item_use::ItemUseRuntime>,
     ),
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     mut cues: bevy::prelude::MessageWriter<client_audio::audio::LocalBlockCue>,
 ) {
-    let (mut runtime, mut mining, mut swings) = state;
+    let (mut runtime, mut mining, mut swings, item_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let attack = (|| {
+        if context
+            .input
+            .snapshot()
+            .is_some_and(|input| input.ordered.is_some())
+        {
+            return None;
+        }
         let picked = target.attack?;
         let input = context.input.snapshot()?;
         let stream = context.client_world.stream.as_ref()?;
@@ -210,7 +276,12 @@ pub(crate) fn produce_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
-    let attack_held = active && context.input.phase(Action::Attack).held;
+    let attack_held = active
+        && crate::ordered_interactions::held(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Attack,
+        );
     let wants_target =
         active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
     let destroy = if wants_target {
@@ -218,6 +289,7 @@ pub(crate) fn produce_attacks(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
+                &context.origin,
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
@@ -241,6 +313,10 @@ pub(crate) fn produce_attacks(
     let effects = &context.effects;
     let network = &context.network;
     let world = &mut context.client_world;
+    let allow_mining_start = context.ordered.as_deref().is_none_or(|ordered| {
+        !ordered.maintenance_pending(&context.input)
+            && !crate::ordered_interactions::release_pending(&item_use, &movement)
+    });
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,
@@ -250,6 +326,7 @@ pub(crate) fn produce_attacks(
             attack,
             mining_target: destroy.as_ref(),
             attack_held,
+            allow_mining_start,
             authority,
             now_millis,
             local_runtime_id,

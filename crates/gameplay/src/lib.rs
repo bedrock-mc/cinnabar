@@ -7,6 +7,7 @@ pub mod item_use;
 pub mod melee;
 pub mod mining;
 pub mod movement;
+pub mod ordered_interactions;
 mod placement_connections;
 mod placement_custom;
 mod placement_doors;

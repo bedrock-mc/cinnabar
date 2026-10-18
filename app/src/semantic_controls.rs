@@ -69,6 +69,7 @@ impl SemanticInputRuntime {
             .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
+        frame.desktop_events = None;
         // The router keeps these events; activity comparisons need only the held state.
         for controller in &mut frame.controllers {
             controller.button_edges = Default::default();

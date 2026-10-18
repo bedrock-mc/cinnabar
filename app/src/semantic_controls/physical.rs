@@ -16,6 +16,7 @@ use semantic_input::{
 };
 
 use crate::camera::mouse_input_active;
+mod ordered;
 use {
     super::{SemanticInputRuntime, SemanticTouchTargets},
     client_state::SemanticInputSnapshot,
@@ -42,7 +43,7 @@ pub(crate) struct SemanticRouteState {
 
 #[derive(SystemParam)]
 pub(crate) struct SemanticPhysicalInputs<'w, 's> {
-    window: Single<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
+    window: Single<'w, 's, (Entity, &'static Window, &'static CursorOptions), With<PrimaryWindow>>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
     mouse_motion: Res<'w, AccumulatedMouseMotion>,
@@ -57,8 +58,15 @@ pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
     mut pending: ResMut<PendingDeviceFrame>,
     mut input_gated: bevy::prelude::Local<bool>,
+    events: Option<Res<bevy::prelude::Messages<bevy::window::WindowEvent>>>,
+    mut cursor: bevy::prelude::Local<bevy::ecs::message::MessageCursor<bevy::window::WindowEvent>>,
 ) {
-    let translated = translate_device_frame(inputs);
+    let ordered = ordered::collect(&inputs, events.as_deref(), &mut cursor);
+    let mut translated = translate_device_frame(inputs);
+    if let Some((events, lost)) = ordered {
+        translated.frame.window_focus_lost |= lost;
+        translated.frame.desktop_events = Some(events);
+    }
     let gated = translated.frame.window_focus_lost;
     if gated && !*input_gated {
         bevy::log::info!("held inputs released: window focus or input availability lost");
@@ -177,7 +185,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         focus,
         driven,
     } = inputs;
-    let (window, cursor) = window.into_inner();
+    let (_, window, cursor) = window.into_inner();
     let focused = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     let captured = mouse_input_active(window, cursor, focus.as_deref(), driven.is_some());

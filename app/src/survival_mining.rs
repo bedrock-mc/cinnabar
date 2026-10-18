@@ -15,10 +15,11 @@ use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
 
-/// Freezes the destroy facts used when the shared queue admits a block press.
+/// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
+    origin: &client_presentation::local_player::InteractionOriginSnapshot,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -34,7 +35,7 @@ pub(crate) fn observe_destroy_target(
     let selection = hand_interaction_selection(player_runtime)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
-        &context.origin,
+        origin,
         ui,
         &context.client_world,
         &context.collisions,

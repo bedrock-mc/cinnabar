@@ -108,6 +108,15 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
         let (handle, packets) = client_session::NetworkHandle::stub_capturing_packets();
         (handle.into(), packets)
     }
+    /// Captures a bounded production FIFO for admission backpressure tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn stub_capturing_packets_with_capacity(
+        capacity: usize,
+    ) -> (Self, client_session::CapturedPackets) {
+        let (handle, packets) =
+            client_session::NetworkHandle::stub_capturing_packets_with_capacity(capacity);
+        (handle.into(), packets)
+    }
 }
 
 /// Submits the current frame's packet batch before waiting for the next frame.
