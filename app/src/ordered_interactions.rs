@@ -2,9 +2,7 @@
 
 use bevy::prelude::*;
 use client_interaction::{
-    block_use::{BlockUseRuntime, FramePick},
-    item_use::ItemUseRuntime,
-    melee::MeleeRuntime,
+    block_use::BlockUseRuntime, item_use::ItemUseRuntime, melee::MeleeRuntime,
     movement::MovementTicker,
 };
 use client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose};
@@ -64,7 +62,6 @@ pub(crate) struct CapturedContext {
 /// Geometry and context are retained once per batch, without its event vector.
 struct CapturedFrame {
     context: CapturedContext,
-    pick: Option<FramePick>,
     attack: crate::melee::ordered::CapturedAttack,
     selection_authority: inventory::SelectionAuthority,
     policy: AdmissionPolicy,
@@ -161,10 +158,6 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> Arc<CapturedFrame> {
     let attack = world
         .run_system_cached(crate::melee::ordered::capture)
         .expect("published attack pick");
-    let authority = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
-    let pick = world.resource::<BlockUseRuntime>().pick(authority);
     let aim = world
         .get_resource::<client_presentation::aim_assist::AimAssistFrame>()
         .zip(world.get_resource::<client_presentation::camera::ServerCameraView>())
@@ -179,7 +172,6 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> Arc<CapturedFrame> {
             view: *world.resource::<LocalViewPose>(),
             aim,
         },
-        pick,
         attack,
         selection_authority: world
             .resource::<client_state::PlayerRuntime>()
@@ -367,7 +359,7 @@ pub(crate) fn drain(world: &mut World) {
             edge,
             context: source.context.clone(),
         };
-        let step = dispatch(world, work, input, &source);
+        let step = dispatch(world, work, input);
         match step.progress {
             Progress::Complete => runtime.buttons = edge.buttons,
             Progress::Pending | Progress::Carrier => {
@@ -389,12 +381,7 @@ pub(crate) fn drain(world: &mut World) {
 }
 
 /// Dispatches one event to its owner, without rerunning a frame producer or held maintenance.
-fn dispatch(
-    world: &mut World,
-    work: Work,
-    input: InteractionInput,
-    source: &CapturedFrame,
-) -> Step<Work> {
+fn dispatch(world: &mut World, work: Work, input: InteractionInput) -> Step<Work> {
     let edge = input.edge;
     if edge.action != Action::Use
         && !world
@@ -443,7 +430,7 @@ fn dispatch(
                 let block = world
                     .run_system_cached_with(
                         crate::block_use::ordered::step,
-                        (attempt.block, (source.pick, input.clone())),
+                        (attempt.block, input.clone()),
                     )
                     .expect("ordered block admission");
                 attempt.block = block.attempt;

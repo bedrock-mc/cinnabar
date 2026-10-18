@@ -267,3 +267,62 @@ fn ordered_mouse_retry_inputs_mode_change_preserves_an_accepted_mining_carrier()
     );
     assert!(!crate::ordered_interactions::pending(app.world()));
 }
+
+#[test]
+fn ordered_mouse_retry_inputs_missing_pick_recovers_before_the_next_selection() {
+    for actor in [false, true] {
+        let (mut app, mut captured) = app_fixture(8);
+        if !actor {
+            remove_actor(app.world_mut());
+            clear_block(app.world_mut());
+            item_use_tests::hold_snowball(app.world_mut());
+        }
+        let authority = app
+            .world()
+            .resource::<MovementTicker>()
+            .interaction_authority_identity();
+        app.world_mut()
+            .resource_mut::<BlockUseRuntime>()
+            .retain_pick(&InteractionOriginSnapshot::default(), authority);
+        tap(app.world_mut(), MouseButton::Right);
+        next_slot(app.world_mut());
+        frame(&mut app);
+        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(
+            captured
+                .drain()
+                .iter()
+                .all(|packet| observe_transaction(packet).is_none())
+        );
+        app.world_mut()
+            .run_system_cached(client_interaction::block_use::retain_block_use_pick)
+            .unwrap();
+        let mut sent = Vec::new();
+        for _ in 0..3 {
+            frame(&mut app);
+            sent.extend(captured.drain());
+        }
+        assert_eq!(
+            sent.iter()
+                .filter_map(observe_transaction)
+                .filter(|tx| {
+                    if actor {
+                        tx.actor_use().is_some()
+                    } else {
+                        tx.item_use().is_some()
+                    }
+                })
+                .count(),
+            1,
+            "a newly published pick must release the original use edge; actor={actor}"
+        );
+        assert_eq!(
+            sent.iter()
+                .filter_map(equipment)
+                .map(|e| e.selected_slot)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        assert!(!crate::ordered_interactions::pending(app.world()));
+    }
+}

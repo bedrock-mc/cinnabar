@@ -36,6 +36,7 @@ impl FrozenBuild {
         &self,
         player: &client_state::PlayerRuntime,
         context: &BlockUseContext,
+        movement: &MovementTicker,
     ) -> bool {
         let identity = self
             .plan
@@ -48,20 +49,24 @@ impl FrozenBuild {
         ) && self
             .plan
             .as_ref()
-            .is_none_or(|plan| self.placement_current(player, context, &plan.value))
+            .is_none_or(|plan| self.placement_current(player, context, movement, &plan.value))
     }
 
-    /// Checks the original placement against current actor boxes without replacing its proposal.
+    /// Checks the original placement against current local and remote actor boxes.
     fn placement_current(
         &self,
         player: &client_state::PlayerRuntime,
         context: &BlockUseContext,
+        movement: &MovementTicker,
         plan: &BuildPlan,
     ) -> bool {
         if plan.local_use != LocalUse::Place {
             return true;
         }
-        let Some(stream) = context.client_world.stream.as_ref() else {
+        let (Some(stream), Some(current)) = (
+            context.client_world.stream.as_ref(),
+            movement.build_action_state(),
+        ) else {
             return false;
         };
         let world = PaletteWorld::new(
@@ -74,8 +79,8 @@ impl FrozenBuild {
             context,
             &world,
             &self.observed,
-            self.state.position,
-            self.state.sneaking,
+            current.position,
+            current.sneaking,
         );
         if let Some(placement) = predicted_placement(
             &context.collisions,
@@ -276,7 +281,7 @@ pub(crate) fn advance(
     let Some(plan) = attempt.plan.as_ref() else {
         return false;
     };
-    if !attempt.current(player_runtime, context) {
+    if !attempt.current(player_runtime, context, movement) {
         return false;
     }
     let plan = &plan.value;

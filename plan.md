@@ -4155,9 +4155,11 @@ quarantines new gestures until a complete neutral sample. This resource policy a
 its overload timing remain provisional and incomplete. Full parity for global camera
 sampling, other input modes and device-specific chords remains incomplete. The existing
 published camera phase is preserved. Retries revalidate current mode, capabilities and
-target evidence while keeping the original movement pose. Held targeting refreshes
-without another press. Focused interaction regressions pass; live acceptance remains
-incomplete.
+target evidence while keeping the original movement pose. A waiting use reads the
+current authority-matched pick before preparing its proposal. Placement retries check
+the local player's current position and stance along with remote actor boxes. Held
+targeting refreshes without another press. Focused interaction regressions pass;
+live acceptance remains incomplete.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the

@@ -1,5 +1,6 @@
 //! Retained placement evidence includes every world column read before transport refusal.
 use super::*;
+use gameplay::movement::MovementEffectSource;
 
 const CLICKED: [i32; 3] = [15, 2, 14];
 const DESTINATION: [i32; 3] = [16, 2, 14];
@@ -184,15 +185,15 @@ fn assert_cancelled(app: &mut App, captured: &mut client_session::CapturedPacket
         frame(app);
         let packets = captured.drain();
         assert!(
-            packets.iter().all(|p| equipment(p).is_none()),
-            "accepted selection must not replay"
-        );
-        assert!(
             packets
                 .iter()
                 .filter_map(observe_transaction)
                 .all(|tx| tx.item_use().is_none()),
             "obsolete placement must not be admitted or retargeted"
+        );
+        assert!(
+            packets.iter().all(|p| equipment(p).is_none()),
+            "accepted selection must not replay"
         );
         assert_eq!(
             destination_revision(app.world()),
@@ -210,10 +211,57 @@ fn assert_cancelled(app: &mut App, captured: &mut client_session::CapturedPacket
     );
 }
 
+/// Publishes a completed local movement sample without changing position authority.
+fn complete_movement(world: &mut World, position: [f32; 3], sneaking: bool) {
+    let tick = world.resource::<MovementTicker>().completed_tick() + 1;
+    let mut sample = gameplay::test_support::survival_mining::completed(tick);
+    sample.position = position;
+    sample.sneaking = sneaking;
+    sample.input.sneak_down = sneaking;
+    sample.input.sneak.held = sneaking;
+    sample.processed.sneaking = sneaking;
+    world
+        .resource_mut::<MovementTicker>()
+        .enqueue_completed_physics(sample)
+        .unwrap();
+    world
+        .resource_mut::<LocalMovementEffectTimeline>()
+        .commit_successful_tick();
+}
+
+#[test]
+fn ordered_mouse_retry_validation_local_player_entering_destination_cancels_placement() {
+    let (mut app, mut captured) = boundary_fixture();
+    refuse_placement(&mut app, &mut captured);
+    complete_movement(app.world_mut(), [16.5, NETWORK_POSITION[1], 14.5], false);
+    assert_cancelled(&mut app, &mut captured);
+    assert_eq!(
+        cell(app.world(), DESTINATION).unwrap(),
+        block_id("minecraft:air")
+    );
+}
+
+#[test]
+fn ordered_mouse_retry_validation_standing_into_destination_cancels_placement() {
+    let (mut app, mut captured) = boundary_fixture();
+    let below = [16.5, protocol::PLAYER_NETWORK_OFFSET + 0.3, 14.5];
+    complete_movement(app.world_mut(), below, true);
+    flush_movement(app.world_mut());
+    captured.drain();
+    refuse_placement(&mut app, &mut captured);
+    complete_movement(app.world_mut(), below, false);
+    assert_cancelled(&mut app, &mut captured);
+    assert_eq!(
+        cell(app.world(), DESTINATION).unwrap(),
+        block_id("minecraft:air")
+    );
+}
+
 #[test]
 fn ordered_mouse_world_unchanged_boundary_placement_retries_once_with_original_pose() {
     let (mut app, mut captured) = boundary_fixture();
     refuse_placement(&mut app, &mut captured);
+    complete_movement(app.world_mut(), [19.5, NETWORK_POSITION[1], 16.5], false);
     let mut sent = Vec::new();
     for _ in 0..3 {
         frame(&mut app);
@@ -236,7 +284,12 @@ fn ordered_mouse_world_unchanged_boundary_placement_retries_once_with_original_p
     assert_eq!(uses[0].position, CLICKED);
     assert_eq!(uses[0].face, 5);
     assert_eq!(uses[0].from_position, NETWORK_POSITION);
-    assert!(sent.iter().all(|p| equipment(p).is_none()));
+    assert!(
+        sent.iter()
+            .filter_map(equipment)
+            .all(|report| { report.selected_slot == 1 && report.count == 63 }),
+        "a new movement tick may announce the consumed stack without repeating selection"
+    );
     assert_eq!(
         cell(app.world(), DESTINATION).unwrap(),
         block_id("minecraft:stone")

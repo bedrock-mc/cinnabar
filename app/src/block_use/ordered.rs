@@ -28,13 +28,7 @@ enum Proposal {
 
 /// Attempts only this edge, returning the same proposal when transport or evidence must wait.
 pub(crate) fn step(
-    In((mut attempt, (pick, input))): In<(
-        BlockAttempt,
-        (
-            Option<FramePick>,
-            crate::ordered_interactions::InteractionInput,
-        ),
-    )>,
+    In((mut attempt, input)): In<(BlockAttempt, crate::ordered_interactions::InteractionInput)>,
     mut player: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
@@ -86,7 +80,10 @@ pub(crate) fn step(
     let selection = observation.selection.clone();
     runtime.selection_changed(&selection);
     if attempt.proposal.is_none() {
-        let (Some(state), Some(pick)) = (movement.build_action_state(), pick) else {
+        let (Some(state), Some(pick)) = (
+            movement.build_action_state(),
+            runtime.pick(movement.interaction_authority_identity()),
+        ) else {
             return Step::new(attempt, Progress::Pending);
         };
         let game_mode = player.facts.player_game_mode();
@@ -145,7 +142,7 @@ pub(crate) fn step(
         }
     }
     if let Some(Proposal::Block(build)) = &attempt.proposal
-        && !build.current(&player, &context)
+        && !build.current(&player, &context, &movement)
     {
         attempt.cancelled = true;
         runtime.clear_press();
