@@ -543,7 +543,10 @@ fn ordered_mouse_retry_validation_actor_reach_change_cancels_a_creative_attack()
             frame(&mut app);
             sent.extend(actor_order(&mut captured));
         }
-        assert_eq!(sent.len(), usize::from(!change_mode));
+        assert!(
+            sent.is_empty(),
+            "a refused tap expires even when reach stays unchanged"
+        );
         assert!(
             sent.iter()
                 .all(|(action, _)| *action == ActorUseAction::Attack)

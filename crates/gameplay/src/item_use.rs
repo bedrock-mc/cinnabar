@@ -233,6 +233,11 @@ impl ItemUseRuntime {
         self.active.is_some() && (!held || self.release_pending)
     }
 
+    /// Reports an observed release that still belongs to the accepted use.
+    pub const fn has_pending_release(&self) -> bool {
+        self.release_pending
+    }
+
     /// Returns the first release-facing decision while its packet still awaits admission.
     pub fn riptide_release_facing(&self) -> Option<RiptideFacing> {
         self.riptide_release.as_ref().map(|release| release.facing)

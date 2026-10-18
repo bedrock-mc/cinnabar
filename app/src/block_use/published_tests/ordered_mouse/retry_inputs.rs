@@ -264,6 +264,16 @@ fn ordered_mouse_retry_inputs_mode_change_preserves_an_accepted_mining_carrier()
             .is_some(),
         "already accepted mining must still publish its movement carrier"
     );
+    frame(&mut app);
+    assert!(
+        captured
+            .drain()
+            .iter()
+            .flat_map(protocol::test_support::packets::input_block_actions)
+            .next()
+            .is_none(),
+        "accepted mining must not publish twice"
+    );
     assert!(!crate::ordered_interactions::pending(app.world()));
 }
 

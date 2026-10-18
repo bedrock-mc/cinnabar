@@ -43,7 +43,7 @@ pub(crate) fn is_blocked(runtime: Option<&InteractionRuntime>) -> bool {
     runtime.is_some_and(|runtime| runtime.frames.quarantined())
 }
 
-/// Keeps held placement behind accepted work owned by mining and movement.
+/// Keeps held placement behind accepted mining, item-use and movement work.
 pub(crate) fn pending(world: &World) -> bool {
     let Some(runtime) = world.get_resource::<InteractionRuntime>() else {
         return false;
@@ -55,6 +55,9 @@ pub(crate) fn pending(world: &World) -> bool {
         || world
             .get_resource::<MovementTicker>()
             .is_some_and(|movement| movement.has_held_release())
+        || world
+            .get_resource::<ItemUseRuntime>()
+            .is_some_and(|runtime| runtime.has_pending_release())
 }
 
 /// Reads current held state, suppressing it until an incomplete sample returns to neutral.
@@ -207,6 +210,7 @@ pub(crate) fn drain(world: &mut World) {
         let context = capture(world, &snapshot);
         for edge in tail.iter().copied() {
             if world.resource::<MovementTicker>().has_held_release()
+                || world.resource::<ItemUseRuntime>().has_pending_release()
                 || !world
                     .resource::<MovementTicker>()
                     .accepts_block_interactions()
