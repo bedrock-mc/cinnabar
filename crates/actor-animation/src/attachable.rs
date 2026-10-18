@@ -18,6 +18,8 @@ pub struct AttachableAnimationInput<'a> {
     /// Whether the owner belongs to the current game window.
     pub is_local_player: bool,
     pub off_hand: bool,
+    /// Sampled owner main-hand scale, applied by equipment placement outside the item VM.
+    pub held_item_scale: Option<f32>,
     /// A worn model has independent controller state from either held item.
     pub worn: bool,
     /// Armour slot index of a worn model, so each worn piece keeps its own state.
@@ -42,6 +44,17 @@ pub struct AttachableAnimationInput<'a> {
 }
 
 impl AttachableAnimationInput<'_> {
+    /// Keeps owner item scaling independent of offhand and worn item models.
+    pub fn main_hand_scale(self) -> f32 {
+        if self.off_hand || self.worn {
+            1.0
+        } else {
+            self.held_item_scale
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(1.0)
+        }
+    }
+
     /// Selects the rendered hand from the owner's first-person use frame.
     pub fn for_hand(self, off_hand: bool) -> Self {
         if off_hand {

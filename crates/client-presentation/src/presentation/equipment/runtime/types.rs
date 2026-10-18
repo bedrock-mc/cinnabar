@@ -181,6 +181,7 @@ impl EquipmentAnimation<'_> {
     ) -> actor_animation::AttachableAnimationInput<'a> {
         actor_animation::AttachableAnimationInput {
             off_hand,
+            held_item_scale: self.rig.held_item_scale,
             worn: false,
             ..self.worn_input(equipment, assets::ArmorSlot::Helmet, &[])
         }

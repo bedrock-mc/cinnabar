@@ -27,6 +27,9 @@ mod block_reload_tests;
 #[path = "texture_artwork_tests.rs"]
 mod texture_artwork_tests;
 
+#[path = "held_scale_tests.rs"]
+mod held_scale_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;
