@@ -88,6 +88,18 @@ pub const BAMBOO: RandomOffsetComponent = RandomOffsetComponent {
     ],
 };
 
+/// Native short grass and ferns vary horizontally and sink by up to one fifth of a block.
+pub const SHORT_GRASS: RandomOffsetComponent = RandomOffsetComponent {
+    axes: [
+        BAMBOO.axes[0],
+        RandomOffsetAxis {
+            range: [-0.2, 0.0],
+            steps: 16,
+        },
+        BAMBOO.axes[2],
+    ],
+};
+
 /// Pointed dripstone uses a narrower sixteen-step displacement in the X/Z plane.
 pub const POINTED_DRIPSTONE: RandomOffsetComponent = RandomOffsetComponent {
     axes: [

@@ -48,6 +48,7 @@ fn builder<'a>(
     let policy = assets::texture::policy::device_policy();
     Builder {
         fallback: None,
+        base_keys: None,
         catalog: TextureCatalog::new(view, Some(keys)),
         base_assets: Some(base),
         vanilla_carried: Vec::new(),
@@ -83,11 +84,11 @@ fn pixel(overlay: &assets::BlockOverlay, reference: assets::TextureRef) -> [u8; 
 }
 
 #[test]
-fn extensionless_carrier_routes_choose_png_independently_of_cached_tga_order() {
+fn extensionless_carrier_routes_choose_tga_independently_of_cached_png_order() {
     let base = carrier(&[PNG_COLOR, TGA_COLOR], [1; 6], &[0; 4]);
     let keys = donor_keys();
     let view = stack(&[(json!({}), json!({}), vec![])]);
-    for order in [["tga", "bare"], ["bare", "tga"]] {
+    for order in [["png", "bare"], ["bare", "png"]] {
         let mut builder = builder(&view, &base, &keys, 2);
         let mut references = Vec::new();
         for key in order {
@@ -98,7 +99,7 @@ fn extensionless_carrier_routes_choose_png_independently_of_cached_tga_order() {
         for (key, reference) in references {
             assert_eq!(
                 pixel(&compiled.overlay, reference),
-                if key == "bare" { PNG_COLOR } else { TGA_COLOR }
+                if key == "bare" { TGA_COLOR } else { PNG_COLOR }
             );
         }
     }
@@ -110,14 +111,14 @@ fn full_arrays_do_not_substitute_a_cached_lower_priority_carrier_filename() {
     let keys = donor_keys();
     let view = stack(&[(json!({}), json!({}), vec![])]);
     let mut builder = builder(&view, &base, &keys, 1);
-    for key in ["tga", "fill_a", "fill_b"] {
+    for key in ["png", "fill_a", "fill_b"] {
         builder.carrier_slot(route(key), &keys).unwrap();
     }
     let attempts = builder.catalog.decode_attempts.get();
     assert!(builder.carrier_slot(route("bare"), &keys).is_none());
     assert_eq!(builder.gaps.saturated_textures, 1);
     assert_eq!(builder.catalog.decode_attempts.get(), attempts);
-    assert!(builder.carrier_slot(route("tga"), &keys).is_some());
+    assert!(builder.carrier_slot(route("png"), &keys).is_some());
 }
 
 #[test]
@@ -127,11 +128,11 @@ fn full_arrays_reuse_the_cached_winning_carrier_filename() {
     let view = stack(&[(json!({}), json!({}), vec![])]);
     let mut builder = builder(&view, &base, &keys, 1);
     let first = builder.carrier_slot(route("bare"), &keys).unwrap();
-    for key in ["tga", "fill_a"] {
+    for key in ["png", "fill_a"] {
         builder.carrier_slot(route(key), &keys).unwrap();
     }
     let attempts = builder.catalog.decode_attempts.get();
-    let reused = builder.carrier_slot(route("png"), &keys).unwrap();
+    let reused = builder.carrier_slot(route("tga"), &keys).unwrap();
     assert_eq!((reused.page, reused.layer), (first.page, first.layer));
     assert_eq!(builder.catalog.decode_attempts.get(), attempts);
     assert_eq!(builder.gaps.saturated_textures, 0);

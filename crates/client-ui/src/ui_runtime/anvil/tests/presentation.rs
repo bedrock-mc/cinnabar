@@ -162,7 +162,7 @@ fn potion_name_prefill_tracks_the_metadata_and_the_displayed_name() {
         ("minecraft:swiftness", "Swiftness"),
     ] {
         let metadata = u32::try_from(
-            assets::POTION_DESCRIPTORS
+            assets::potion::POTION_DESCRIPTORS
                 .iter()
                 .position(|potion| potion.identifier == identifier)
                 .unwrap(),

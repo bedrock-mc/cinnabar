@@ -14,6 +14,11 @@ def manifest():
     return json.loads((HERE / "release-assets.json").read_text())
 
 
+def download_assets(config):
+    """All installer downloads, including platforms installed outside the desktop updater."""
+    return config["assets"] | config["manual_assets"]
+
+
 def render_installer():
     config = manifest()
     template = (HERE / "install.sh.in").read_text()
@@ -41,7 +46,7 @@ def checksum(directory, version, symbols=True):
     """Checksums the release; `symbols` is False only for a source build without split debug info
     (release-symbols.py has-symbols), which publishes no symbol archives."""
     config = manifest()
-    expected = [name for arches in config["assets"].values() for name in arches.values()]
+    expected = [name for arches in download_assets(config).values() for name in arches.values()]
     expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
     if symbols:
         expected.extend(symbols_archive(config, version, platform, arch)
@@ -103,7 +108,7 @@ def main():
                            help="the source build has no split debug info, so no symbol archives")
     args = parser.parse_args()
     if args.command == "asset":
-        print(manifest()["assets"][args.platform][args.arch])
+        print(download_assets(manifest())[args.platform][args.arch])
     elif args.command == "env":
         config = manifest()
         for key, field in [("INSTALL_SCRIPT", "install_script"), ("CHECKSUM_ASSET", "checksums"),
@@ -121,8 +126,9 @@ def main():
         if args.platform:
             if not args.version:
                 parser.error("a platform requires --version for its symbol archive")
-            print(f'RELEASE_ASSET={config["assets"][args.platform][args.arch]}')
-            print(f"SYMBOLS_ASSET={symbols_archive(config, args.version, args.platform, args.arch)}")
+            print(f'RELEASE_ASSET={download_assets(config)[args.platform][args.arch]}')
+            if args.platform in config["assets"]:
+                print(f"SYMBOLS_ASSET={symbols_archive(config, args.version, args.platform, args.arch)}")
             if args.platform == "windows":
                 print(f'AUXILIARY_ASSET={config["update_assets"][args.platform][args.arch]}')
     elif args.command == "update-payloads":

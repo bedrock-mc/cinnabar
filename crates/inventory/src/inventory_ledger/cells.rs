@@ -82,20 +82,66 @@ pub(super) struct Held {
     /// The stack identity before predictions and responses reassigned its wire ID.
     /// Whole moves retain it; splits and fresh slot writes start a new identity.
     pub(super) source_stack_id: Option<i32>,
+    /// The first retained cell, separating siblings with the same wire identity.
+    pub(super) source_origin: Option<Cell>,
     pub(super) overlay: Option<StackResponseOverlay>,
     /// The accepted request that installed this held value's server stack identity.
     pub(super) acknowledged_request_id: Option<i32>,
 }
 
 impl Held {
+    /// Whether both values descend from the same retained stack across wire renaming.
+    pub(super) fn same_source(&self, other: &Self) -> bool {
+        self.source_stack_id.is_some()
+            && self.source_stack_id == other.source_stack_id
+            && self.source_origin == other.source_origin
+    }
+
+    /// Whether both values retain the same source and item data across wire renaming.
+    pub(super) fn same_source_item(&self, other: &Self) -> bool {
+        self.same_source(other)
+            && super::PlayerInventoryLedger::same_item(&self.stack, &other.stack)
+    }
+
+    /// Names a prediction, assigning newly split stacks a distinct creation cell.
+    pub(super) fn bind_prediction(&mut self, request_id: i32, cell: Cell) {
+        if self.source_stack_id.is_none() {
+            self.source_stack_id = Some(request_id);
+            self.source_origin = Some(cell);
+        }
+        self.stack.stack_network_id = request_id;
+    }
+
+    /// Binds a fresh value's origin once; whole moves preserve its existing origin.
+    fn with_origin(mut self, cell: Cell) -> Self {
+        self.source_origin.get_or_insert(cell);
+        self
+    }
+
     /// `None` for an empty wire stack; empty cells are never retained as values.
     pub(super) fn new(stack: &NetworkItemStack) -> Option<Self> {
         (!stack.is_empty()).then(|| Self {
             source_stack_id: Some(stack.stack_network_id),
+            source_origin: None,
             stack: stack.clone(),
             overlay: None,
             acknowledged_request_id: None,
         })
+    }
+
+    /// Inherits materialized item data without changing count, wire identity or lineage.
+    /// Returns whether NBT, its digest or the response overlay changed.
+    pub(super) fn inherit_item_data(&mut self, source: &Self) -> bool {
+        if self.stack.extra_data == source.stack.extra_data
+            && self.stack.nbt_digest == source.stack.nbt_digest
+            && self.overlay == source.overlay
+        {
+            return false;
+        }
+        self.stack.extra_data = Arc::clone(&source.stack.extra_data);
+        self.stack.nbt_digest = source.stack.nbt_digest;
+        self.overlay = source.overlay.clone();
+        true
     }
 }
 
@@ -165,7 +211,7 @@ impl Cells {
     pub(super) fn set(&mut self, cell: Cell, value: Option<Held>) -> bool {
         match self.entry(cell) {
             Some(entry) => {
-                *entry = value;
+                *entry = value.map(|held| held.with_origin(cell));
                 true
             }
             None => false,
@@ -189,12 +235,28 @@ impl Cells {
     }
 
     pub(super) fn replace_storage(&mut self, slots: &[NetworkItemStack]) {
-        self.storage = Arc::new(slots.iter().map(Held::new).collect());
+        self.storage = Arc::new(
+            slots
+                .iter()
+                .enumerate()
+                .map(|(slot, stack)| {
+                    Held::new(stack).map(|held| held.with_origin(Cell::Storage(slot as u8)))
+                })
+                .collect(),
+        );
     }
 
     /// Replaces the player container, including its authoritative extent.
     pub(super) fn replace_player(&mut self, slots: &[NetworkItemStack]) {
-        self.player = Arc::new(slots.iter().map(Held::new).collect());
+        self.player = Arc::new(
+            slots
+                .iter()
+                .enumerate()
+                .map(|(slot, stack)| {
+                    Held::new(stack).map(|held| held.with_origin(Cell::Inventory(slot as u8)))
+                })
+                .collect(),
+        );
     }
 
     /// The currently retained player container extent.
@@ -215,6 +277,11 @@ impl Cells {
 
     pub(super) fn clear_storage(&mut self) {
         self.storage = Arc::default();
+    }
+
+    /// Discards the preview owned by a screen without changing actual ingredients.
+    pub(super) fn clear_result(&mut self) {
+        self.created_output = None;
     }
 
     /// Empties every screen input, grid cell and the created output.

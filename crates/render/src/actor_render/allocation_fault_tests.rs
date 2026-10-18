@@ -69,13 +69,13 @@ pub(crate) fn fixture() -> App {
     app.add_plugins(ActorRenderPlugin);
     crate::lighting::install(&mut app);
     app.finish();
-    let _view_shader = app
-        .world_mut()
-        .resource_mut::<Assets<Shader>>()
-        .add(Shader::from_wesl(
-            crate::shader_source::VIEW,
-            "embedded://bevy_render/view.wesl",
-        ));
+    let _view_shader =
+        app.world_mut()
+            .resource_mut::<Assets<Shader>>()
+            .add(crate::shader_safety::from_wesl(
+                crate::shader_source::VIEW,
+                "embedded://bevy_render/view.wesl",
+            ));
     let shaders = app
         .world()
         .resource::<Assets<Shader>>()
@@ -277,7 +277,7 @@ fn fail_at(label: &'static str, occurrence: usize) -> (impl Drop, Rc<RefCell<Vec
     let calls = Rc::new(RefCell::new(Vec::new()));
     let observed = Rc::clone(&calls);
     let mut matched = 0;
-    let hook = allocation::inject(move |owner, _| {
+    let hook = gpu_allocation::inject(move |owner, _| {
         observed.borrow_mut().push(owner.to_owned());
         if owner != label {
             return false;

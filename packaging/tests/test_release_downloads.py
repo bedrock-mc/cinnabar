@@ -39,6 +39,10 @@ class ReleaseDownloadsTests(unittest.TestCase):
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["assets"].items()
         }
+        self.config["manual_assets"] = {
+            platform: {arch: "fixture-" + name for arch, name in arches.items()}
+            for platform, arches in self.config["manual_assets"].items()
+        }
         self.config["update_assets"] = {
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["update_assets"].items()
@@ -62,6 +66,8 @@ class ReleaseDownloadsTests(unittest.TestCase):
     def required_assets(self):
         return [
             name for arches in self.config["assets"].values() for name in arches.values()
+        ] + [
+            name for arches in self.config["manual_assets"].values() for name in arches.values()
         ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [
             self.symbol_archive(platform, arch)
             for platform, arches in self.config["assets"].items() for arch in arches
@@ -139,7 +145,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
                     self.assertIn(f"{platform}-{arch}", name)
 
     def test_asset_commands_follow_the_manifest(self):
-        for platform, arches in self.config["assets"].items():
+        for platform, arches in (self.config["assets"] | self.config["manual_assets"]).items():
             for arch, name in arches.items():
                 with self.subTest(platform=platform, arch=arch):
                     result = self.run_helper("asset", platform, arch)
@@ -194,6 +200,20 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 self.assertEqual(values["UPDATE_MANIFEST"], release["manifest"])
                 self.assertEqual(values["UPDATE_MANIFEST_TAG"],
                                  "v1.2.3" if release["track"] == "tagged" else release["tag"])
+
+    def test_manual_installers_have_downloads_without_desktop_symbol_archives(self):
+        """Manual platforms publish required downloads without joining the desktop symbol pipeline."""
+        for platform, arches in self.config["manual_assets"].items():
+            for arch, name in arches.items():
+                with self.subTest(platform=platform, arch=arch):
+                    result = self.run_helper("env", platform, arch, "--version", self.version)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+                    self.assertEqual(values["RELEASE_ASSET"], name)
+                    self.assertNotIn("SYMBOLS_ASSET", values)
+        self.populate()
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_unpublished_stable_and_missing_version_tags_are_rejected(self):
         for args in [("env", "--channel", "stable", "--tag", "v1.2.3"),

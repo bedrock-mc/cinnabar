@@ -212,6 +212,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			channels = ext
 		}
 		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		// Building the server registered its crafting recipes, after the helpers first loaded
+		// without them: each loads again with them.
+		for id := range exps.sups {
+			if err := host.Reload(id); err != nil {
+				logger.Error("experience reload with the server's recipes failed", "experience", id, "err", err)
+			}
+		}
 		running.Go(func() { host.Run(runCtx) })
 		running.Go(func() { exps.store.RunFlusher(runCtx) })
 		cmds.pause = func(paused bool) {

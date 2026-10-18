@@ -67,7 +67,7 @@ pub struct ScreenView<'a> {
     /// The crafter block's `triggered_bit`.
     pub crafter_powered: Option<bool>,
     pub furnace_book_open: bool,
-    pub furnace_tab: Option<u8>,
+    pub furnace_tab: Option<i32>,
     pub creative_tab: u8,
     /// Creative's wide list stands in for its recipe book layout.
     pub creative_wide: bool,
@@ -129,6 +129,8 @@ pub struct ContainerFrame<'a> {
     pub offhand_durability: Option<f32>,
     /// The held stack's icon.
     pub cursor_icon: Option<IconRef>,
+    /// Remaining durability of the presented cursor stack, including server corrections.
+    pub cursor_durability: Option<f32>,
     /// Output icons of the stonecutter's recipe cells.
     pub recipe_icons: &'a [Option<IconRef>],
     /// The result a recipe screen would produce now.

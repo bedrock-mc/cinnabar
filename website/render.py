@@ -24,6 +24,10 @@ def build(repository, output):
     )
     config["nightly_base"] = repository_url + "/releases/download/nightly/"
     config["nightly_install_command"] = config["install_command"] + " -s -- --channel nightly"
+    contract = json.loads((repository / "crates/bridge/data/contract.json").read_text())
+    api_origin = next(value["value"] for value in contract["constants"]
+                      if value["rust_name"] == "CINNABAR_API_BASE_URL")
+    config["online_count_url"] = api_origin.rstrip("/") + "/v1/presence/count"
     icon = (repository / "packaging/icons/cinnabar.svg").read_text()
     red = ET.fromstring(icon).find("{http://www.w3.org/2000/svg}rect").attrib["fill"]
     page = (HERE / "index.html.in").read_text()
@@ -34,6 +38,7 @@ def build(repository, output):
     (output / "index.html").write_text(page)
     (output / "downloads.js").write_text("window.CINNABAR_DOWNLOADS = " + json.dumps(config) + ";\n")
     shutil.copyfile(HERE / "app.js", output / "app.js")
+    shutil.copyfile(HERE / "presence.js", output / "presence.js")
     shutil.copyfile(repository / "assets/branding/title.png", output / "title.png")
     rng = random.Random(27)
     colors = ["#1c221d", "#202620", "#242a23", "#262d25", "#1f251f"]

@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 5,
   "items": [
     {
       "id": "cinnabar:bunny_ears",
@@ -105,6 +105,82 @@
       },
       "geometry_id": "geometry.cinnabar.devil_horns",
       "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:dragon_wings",
+      "slot": "back",
+      "display_name": "Dragon wings",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/84ab59a9098af9e8e3e7173c029dad3a87b025ed4b8af86a7faa32ea962d1f22",
+          "sha256": "84ab59a9098af9e8e3e7173c029dad3a87b025ed4b8af86a7faa32ea962d1f22",
+          "bytes": 281503
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "sha256": "e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "bytes": 172
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/1ce640d1f3c5849f73364f9efaf2a730b46d497923f7d59d8b85d61bc87347bc",
+          "sha256": "1ce640d1f3c5849f73364f9efaf2a730b46d497923f7d59d8b85d61bc87347bc",
+          "bytes": 3469
+        }
+      },
+      "geometry_id": "geometry.cinnabar.dragon_wings",
+      "attachment_bone": "body",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:shoulder_parrot",
+      "slot": "pet",
+      "display_name": "Shoulder parrot",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/f2e63dba7ab6463df83b494337d8b5cbe87d39849d89b92a3d3b1b1ebe03f563",
+          "sha256": "f2e63dba7ab6463df83b494337d8b5cbe87d39849d89b92a3d3b1b1ebe03f563",
+          "bytes": 20278
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/ca9ecc78beab3dbb9a67d9911b81b1fdb408a098904c04f58a307f0e3caf97c1",
+          "sha256": "ca9ecc78beab3dbb9a67d9911b81b1fdb408a098904c04f58a307f0e3caf97c1",
+          "bytes": 186
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/a20796403587346b1032e979e0e5e5d6358aab1e3bff921fe30e537687720392",
+          "sha256": "a20796403587346b1032e979e0e5e5d6358aab1e3bff921fe30e537687720392",
+          "bytes": 40749
+        }
+      },
+      "geometry_id": "geometry.cinnabar.shoulder_parrot",
+      "attachment_bone": "body",
       "offset": [
         0,
         0,

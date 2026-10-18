@@ -24,6 +24,8 @@ use crate::hud_renderers::{HudPaint, HudRenderer, HungerAnimation};
 
 mod chat;
 #[cfg(test)]
+mod color_tests;
+#[cfg(test)]
 mod crisp_tests;
 #[cfg(test)]
 mod image_tests;
@@ -109,6 +111,8 @@ pub struct HudScreens {
     clocks: BTreeMap<String, f64>,
     opacity: Option<i32>,
     bindings: HudBindings,
+    /// Presentation color kept separate from the factory and collection message inputs.
+    chat_color: Option<char>,
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
@@ -158,6 +162,7 @@ impl HudScreens {
         let data = match model {
             None => Arc::clone(&self.crosshair_data),
             Some((model, changes, opacity)) => {
+                self.chat_color = model.chat_color;
                 if changes.text {
                     self.model_clocks = hud_clocks(model);
                 }
@@ -207,7 +212,17 @@ impl HudScreens {
         let hunger_animation = std::cell::RefCell::new(&mut self.hunger_animation);
         let advance_hunger =
             |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
+        let color = self.chat_color;
+        let history = Reference::HudChatGridItem
+            .as_str()
+            .rsplit('.')
+            .next()
+            .unwrap_or_default();
+        let text_color = |node: &json_ui::DrawNode| {
+            crate::settings_chat::message_color(&node.key, history, color)
+        };
         let art = ScreenArt {
+            text_color: Some(&text_color),
             nearest_sampling: true,
             clocks: Some(&self.clocks),
             ..ScreenArt::default()

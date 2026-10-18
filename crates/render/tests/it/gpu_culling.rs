@@ -940,7 +940,7 @@ impl Raster {
         atmosphere[20] = 60.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
         let table = render_model::LightmapInputs::default().build();
-        let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+        let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
         let atlas = if terrain.alpha_cutout {
             solid_terrain_raster::alpha_pattern_texture(gpu)
         } else {

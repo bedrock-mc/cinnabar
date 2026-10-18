@@ -246,7 +246,7 @@ pub(super) fn upload_geometry(
     ) {
         return false;
     }
-    let Some(spans) = crate::actor::gpu::allocation::buffer_with_data(
+    let Some(spans) = crate::gpu_allocation::buffer_with_data(
         device,
         queue,
         "first-person rig spans",

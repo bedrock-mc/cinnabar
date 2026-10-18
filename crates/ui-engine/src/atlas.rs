@@ -28,6 +28,7 @@ pub mod jobs;
 mod local_sources;
 mod oversized;
 pub use oversized::OversizedTextures;
+mod client_rasters;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
@@ -274,6 +275,8 @@ impl Page {
 /// and a full atlas evicts its least recently drawn page.
 #[derive(Default)]
 pub struct ServerAtlas {
+    /// Prepared client artwork, owned by the screen rather than the pack stack.
+    client_rasters: BTreeMap<String, UiTexturePage>,
     /// Images read up front, by path stem.
     sources: BTreeMap<String, Source>,
     /// Sidecars read up front, by path stem, whether or not the pack has the image.
@@ -598,6 +601,9 @@ impl ServerAtlas {
     /// Pixel size of a vanilla image or a downloaded URL, reading or requesting
     /// it on first use.
     pub fn fallback_size(&self, key: &str) -> Option<[f64; 2]> {
+        if let Some(image) = self.client_rasters.get(key) {
+            return Some(image.dimensions().map(f64::from));
+        }
         self.fallback(key)
             .as_ref()
             .map(|source| source.size.map(f64::from))
@@ -705,6 +711,10 @@ impl ServerAtlas {
         }
         // Small backdrops and animation strips must precede expensive artwork.
         missing.sort_by_cached_key(|key| {
+            if let Some(image) = self.client_rasters.get(*key) {
+                let [w, h] = image.dimensions();
+                return (u64::from(w) * u64::from(h), *key);
+            }
             let area = self
                 .image(key)
                 .or_else(|| self.fallback(key))
@@ -745,16 +755,21 @@ impl ServerAtlas {
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
     /// while its decode is still on a worker or waits for a later frame.
     fn place(&mut self, key: &str, within_budget: bool) -> Option<usize> {
-        let source = match self.image(key) {
-            Some(source) => source,
-            None => self.fallback(key)?,
+        let (size, rgba) = if let Some(image) = self.client_rasters.get(key) {
+            (image.dimensions(), Arc::new(image.pixels().to_vec()))
+        } else {
+            let source = match self.image(key) {
+                Some(source) => source,
+                None => self.fallback(key)?,
+            };
+            if source.packed != source.size {
+                self.oversized.insert(key, &source.bytes);
+            }
+            let size = source.packed;
+            let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
+            let rgba = self.decodes.get(key, &source, decode_on)?;
+            (size, rgba)
         };
-        if source.packed != source.size {
-            self.oversized.insert(key, &source.bytes);
-        }
-        let size = source.packed;
-        let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
-        let rgba = self.decodes.get(key, &source, decode_on)?;
         let (index, origin) = self.slot(size)?;
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
@@ -799,7 +814,13 @@ impl ServerAtlas {
             .min_by_key(|(_, page)| page.used)?;
         let page = &mut self.pages[index];
         for key in page.keys.drain(..) {
-            self.resident.remove(&key);
+            if self
+                .resident
+                .get(&key)
+                .is_some_and(|slot| usize::from(slot.page) == index)
+            {
+                self.resident.remove(&key);
+            }
         }
         page.pixels.fill(0);
         page.cursor = [0; 3];

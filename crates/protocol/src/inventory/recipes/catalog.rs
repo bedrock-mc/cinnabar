@@ -1,7 +1,7 @@
 use super::{
     budget::{Credits, MAX_RECORDS, Permit},
     model::{Batch, RecipeHandle, RecipeUpdate},
-    screen::{ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
+    screen::{BrewingRecipe, ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
 };
 use std::{mem::size_of, sync::Arc};
 
@@ -65,6 +65,14 @@ impl RecipeCatalog {
         self.storage
             .as_ref()
             .map_or(&[][..], |storage| storage.screen.recipes.as_slice())
+    }
+
+    /// The brewing stand's recipes.
+    #[must_use]
+    pub fn brewing_recipes(&self) -> &[BrewingRecipe] {
+        self.storage
+            .as_ref()
+            .map_or(&[][..], |storage| storage.screen.brewing.as_slice())
     }
 
     /// Every retained recipe of one screen kind.

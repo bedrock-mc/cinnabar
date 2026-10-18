@@ -207,6 +207,11 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
+The user-consented `players` and `camera` grants remain available in multiplayer
+independently of drawing-session negotiation. They do not grant entity,
+terrain, highlighting or drawing permissions; those retain their separate
+consent and session limits.
+
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads
 (`CINNABAR_MOD_TERRAIN=1`) are described in [mod-terrain-api.md](mod-terrain-api.md). A snapshot contains the actor session, dimension, local subject
@@ -847,7 +852,11 @@ namespace. A build script calls `experience_sdk::declarations::generate_mod("mod
 `templates::*` and `keys::*` with `experience_sdk::include_declarations!()`.
 `CINNABAR_MOD_PACKAGE` grants what the manifest asks for, plus the environment opt-ins a bare
 component gets; in a set, each package permission needs both the manifest's ask and the entry's
-grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet. On reload, the new
+grant (`screen`, `items`, `recipes`, `keys`, `settings`, `inventory`). `settings` gives the
+`settings` interface its companion file. `inventory` also needs `CINNABAR_MOD_INVENTORY=1` and
+grants the `inventory` interface: `creative-take` (Creative only, an item of the creative
+content) and `fill-recipe` (a crafting recipe, once, onto the cursor), each the request the
+creative catalog or the recipe book makes, at most four per callback. On reload, the new
 manifest narrows the original loader authorization again; an entry cannot gain an ungranted
 permission by changing its manifest.
 
@@ -868,7 +877,9 @@ report the vanilla screen name, the root size and GUI scale, the GUI rect, the e
 the view's bounds, in GUI units; opening, closing or resizing the view delivers
 `screen-changed`. Templates,
 data binding (`set-collection`, `set-value`, `set-text`) and their limits are the client part
-modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box. Rows bind
+modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box,
+`held-modifiers` reports the modifiers held with the event being delivered and
+`elapsed-seconds` is a monotonic clock to animate by. Rows bind
 `#item_id_aux` (network id << 16 | aux) and `item_renderer` draws the item. The mod's atlas
 has its own four dynamic texture pages. With several mods loaded, one owns the screens: the
 earliest in load order with an overlay or view, else the earliest granted `screen`. Only it

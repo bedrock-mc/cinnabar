@@ -126,7 +126,8 @@ impl WorldAuthority {
                 if let ActorEvent::Move(movement) = &mut event {
                     self.resolve_actor_teleport(movement);
                 }
-                let player_list_changed = matches!(&event, ActorEvent::PlayerList(_));
+                let player_list_changed =
+                    matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
