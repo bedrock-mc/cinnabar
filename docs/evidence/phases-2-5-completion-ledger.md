@@ -1,5 +1,14 @@
 # Phases 2-5 Completion Ledger
 
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+
 ## Redstone dust item sprite
 
 A reviewed default binding selects the item-atlas dust sprite, leaving placed

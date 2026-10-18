@@ -264,6 +264,14 @@ transport teardown. New play waits for the old handler to finish while retaining
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+Browser Dressing Room adapters provide a session-only catalog, bounded file-picker admission and
+frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
+inputs use the native validators and content identities. Browser imports are lost when the
+page closes. Native catalogs keep their existing file persistence and worker threads.
+Incomplete: the playable browser host must connect the synchronous import gesture ticket
+and optional starter/cosmetic carriers. Durable browser imports and in-game browser captures
+remain pending; these changes do not close the browser release gate.
+
 The browser account adapter projects checking, device-code prompts, refusals and identity
 into the shared menu. External menu services expose account intents and preference changes
 without native helper launches. Browser preference documents bound saved addressed servers
@@ -1293,6 +1301,13 @@ these changes do not close the movement, camera, or actor parity gates.
   cause. Existing provisional behavior below stays provisional.
 
 ## Held block placement
+
+- Eligible custom blocks predict their admitted state in both palette modes. Enabled
+  placement traits apply the click face, vertical half, body-facing direction and yaw
+  offset while preserving authored property values. Server placing handlers retain
+  authority. Prediction checks the selected state's collision bounds and session IDs.
+  Incomplete: custom placement filters, unrepresented traits and unresolved permutation
+  physics still defer to the server; complete placement parity remains open.
 
 - A steep downward look past a ledge can acquire nearby support before a placement
   line exists. Use and selection share the downward support and preserve its click
@@ -7295,11 +7310,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   simulator was built and no value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
-  `ClientMovementPredictionSync` is sent (fields match vanilla and the pinned gophertunnel) after a server correction is applied, at most once per second, and is
-  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
-  live-test gate item: confirm anti-cheat servers accept the sync; the
-  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
-  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `ClientMovementPredictionSync` becomes due 200 completed client ticks after a
+  server correction. Undefined base attributes send zero; undefined friction,
+  bounciness and air drag modifiers send 1.0/0.0/1.0. All three metadata flag
+  words are retained, with completed local sneak/sprint overlaid. Accepted server
+  posture updates supersede that sample until a new local tick completes, including
+  retries on frames without a completed tick. Standard unscaled walking height
+  follows the same sneak state. Transport refusal leaves the sync due. Other
+  predicted flags, custom/scaled and horizontal-pose sizes, history loss, exact
+  send phase and live server acceptance remain incomplete.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
   not imply prediction and no vehicle simulator exists, so all rides send ordinary player
   input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
@@ -8402,6 +8421,13 @@ and the complete simulator suite pass. Currents, complete swimming travel/drag, 
 attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
+
+Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
+a due packet. Known values and transport-admission retries are retained. Completed local
+sneak/sprint flags and the standard unscaled walking pose height reach a due sync before
+a server echo. Other models and poses retain their supplied sizes. Full correction-state,
+custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
+incomplete.
 
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
@@ -10155,3 +10181,36 @@ material coverage. Depth-tested coverage is filtered before post effects; always
 coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
 observation and through-wall consent until a visibility-filtered target source exists.
 Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
+## Chat editor submission prefixes
+
+Editor submissions remove leading ASCII spaces, tabs and line-control whitespace before
+validation, history and slash-command routing. Trailing whitespace and non-ASCII spaces
+remain intact. Explicit message-queue calls retain their exact-text contract.
+
+Incomplete parity: native blank-line dismissal settings, account safety restrictions,
+platform chat identities and the current command-version value remain unverified.
+## Held-use progress events
+
+Accepted eating and drinking uses report due progress before their movement
+inputs, using the negotiated item identity. Progress admission survives an input
+retry without sending the event twice; release, reselection and life changes end it.
+
+Focused gameplay tests cover timing, cancellation and admission retries. Progress
+pauses while a release awaits retry, and non-consumable cancellation stays with
+the item-use lifecycle. Other animation kinds, block-backed item uses,
+relevant-user-data cancellation, mounted phases and special movement catch-up
+need further parity work. This does not close the complete serverbound parity gate.
+
+## Correction sync posture (incomplete)
+
+Correction-sync packets combine received actor metadata with the completed local
+sneak and sprint states. Undefined attributes retain their wire defaults and refused
+sends remain pending. Other locally predicted flags, bounding-box updates, history
+loss and exact send phase remain open; this does not close movement parity.
+
+## Sign text line breaks
+
+Sign edits retain existing trailing blank lines and line breaks entered before closing.
+Unused editor rows do not add line breaks to the outbound text. The regression checks
+encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
+length limits, structured text and complete editor behavior remain incomplete.
