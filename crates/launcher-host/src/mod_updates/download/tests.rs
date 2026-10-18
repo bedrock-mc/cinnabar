@@ -1,8 +1,5 @@
 use super::*;
-use std::{
-    io::{BufRead, BufReader},
-    net::TcpListener,
-};
+use std::{io::Read, net::TcpListener};
 
 /// Models the public asset API with a content-derived digest.
 fn asset(name: &str, bytes: &[u8]) -> Asset {
@@ -62,11 +59,13 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
     let bytes = bytes.to_vec();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        assert!(
-            BufReader::new(&mut stream)
-                .lines()
-                .any(|line| line.unwrap().is_empty())
-        );
+        // Consume the whole request head before replying.
+        let (mut request, mut chunk) = (Vec::new(), [0; 512]);
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut chunk).unwrap();
+            assert_ne!(read, 0, "request ended before its headers");
+            request.extend_from_slice(&chunk[..read]);
+        }
         // Close-delimited framing exercises the streaming bound without Content-Length.
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
@@ -93,6 +92,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
             revision: 1,
             permission: Arc::new(AtomicU64::new(1)),
             authorization: 1,
+            progress: Progress::default(),
         };
         receive(response, &candidate, "1.1.0", asset, fence, limit).await
     });

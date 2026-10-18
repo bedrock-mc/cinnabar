@@ -129,15 +129,19 @@ struct LoadRequest {
 struct Status {
     component: PathBuf,
     state: String,
+    /// The reload counter actually admitted or rejected, independent of list request IDs.
+    #[serde(default)]
+    reload: Option<u64>,
     #[serde(default)]
     message: Option<String>,
 }
 impl Status {
     /// Bounds guest and file error text before exposing it to the Settings card.
-    fn new(component: PathBuf, state: &str, message: Option<String>) -> Self {
+    fn new(component: PathBuf, state: &str, message: Option<String>, reload: Option<u64>) -> Self {
         Self {
             component,
             state: state.into(),
+            reload,
             message: message.map(|message| status::bounded_message(&message)),
         }
     }
@@ -188,6 +192,7 @@ enum Message {
     },
     Failed {
         component: PathBuf,
+        reload: u64,
         error: String,
     },
     Retry {
@@ -308,9 +313,10 @@ impl Watcher {
         }
     }
     /// Publishes a single instance's trap without revoking any other mod.
-    pub(super) fn quarantine(&self, component: &std::path::Path, error: String) {
+    pub(super) fn quarantine(&self, entry: &Entry, error: String) {
         self.send(Message::Failed {
-            component: component.into(),
+            component: entry.component.clone(),
+            reload: entry.reload,
             error,
         });
     }
