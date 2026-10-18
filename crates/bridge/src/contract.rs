@@ -370,6 +370,20 @@ pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
     "cinnabar.disconnect.deviceClock",
 ];
 
+/// A safe relay refusal code; unrecognized codes use the generic refusal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum RefusalCode {
+    #[serde(rename = "resume_refused")]
+    ResumeRefused,
+    #[serde(rename = "admission_refused")]
+    AdmissionRefused,
+    #[serde(rename = "session_busy")]
+    SessionBusy,
+    #[serde(rename = "refused")]
+    #[serde(other)]
+    Refused,
+}
+
 /// Game mode a world starts players in.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GameMode {
@@ -532,6 +546,9 @@ pub enum AuthState {
 /// Join progress stage reported by the core.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ConnectStage {
+    /// No join is being prepared.
+    #[serde(rename = "")]
+    Idle,
     /// The Realm lookup.
     #[serde(rename = "realm")]
     Realm,

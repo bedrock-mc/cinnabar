@@ -55,6 +55,16 @@ type ItemStackDescriptor =
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
+/// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
+pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
+    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorEvent {
+        target_runtime_id: ActorRuntimeID(runtime_id),
+        event_id: bedrock_protocol_1_26_51::enums::ActorEventType::Feed,
+        data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
+        fire_at_position: None,
+    })
+}
+
 /// Builds the vanilla outbound packet announcing a local hotbar-slot selection.
 ///
 /// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a

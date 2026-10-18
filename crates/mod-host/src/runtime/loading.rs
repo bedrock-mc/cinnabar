@@ -39,6 +39,7 @@ impl Instance {
     /// Initializes a candidate store without changing the published instance. An `extension`
     /// component's instantiation and `init` share `FRAME_FUEL`; a `player-mod` component's
     /// `init`, which may read the whole session, gets `LOAD_FUEL`.
+    #[cfg(test)]
     pub(crate) fn new(
         engine: &Engine,
         bytes: &[u8],
@@ -59,7 +60,7 @@ impl Instance {
     }
 
     /// Installs session limits before instantiation and init can call any import.
-    fn new_with_drawing_policy(
+    pub(crate) fn new_with_drawing_policy(
         engine: &Engine,
         bytes: &[u8],
         grants: ModGrants,

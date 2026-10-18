@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, IconEntry, IconSprite, ItemVisualDefinitionRoute, MAX_ICON_BLOCK_SHEETS,
-    encode_icon_catalog_with_blocks,
+    encode_icon_catalog_with_sources,
 };
 use sha2::{Digest, Sha256};
 
@@ -124,6 +124,13 @@ fn compile(
 
     let mut visual_sprites: Vec<Option<u32>> = Vec::with_capacity(compiled.item_visuals.len());
     for visual in compiled.item_visuals.iter() {
+        // Source filenames remain available even when the item draws an authored model.
+        let source_sprite = match visual.route {
+            ItemVisualDefinitionRoute::Sprite { texture } => {
+                sprite_baker.bake(root, &compiled, texture.source, &mut sprites)?
+            }
+            _ => None,
+        };
         let sprite = if visual.key.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER {
             if let Some(icon) = shield_icon.as_ref() {
                 model_item_visuals += 1;
@@ -137,9 +144,9 @@ fn compile(
             }
         } else {
             match visual.route {
-                ItemVisualDefinitionRoute::Sprite { texture } => {
+                ItemVisualDefinitionRoute::Sprite { .. } => {
                     sprite_visuals += 1;
-                    sprite_baker.bake(root, &compiled, texture.source, &mut sprites)?
+                    source_sprite
                 }
                 ItemVisualDefinitionRoute::BlockItem { .. }
                 | ItemVisualDefinitionRoute::EmptyHand
@@ -235,12 +242,21 @@ fn compile(
         (a.identifier.as_ref(), a.metadata).cmp(&(b.identifier.as_ref(), b.metadata))
     });
 
-    let bytes = encode_icon_catalog_with_blocks(
+    let source_sprites = sprite_baker
+        .sources
+        .iter()
+        .map(|(path, sprite)| assets::icon::IconSource {
+            path: path.clone(),
+            sprite: *sprite,
+        })
+        .collect::<Vec<_>>();
+    let bytes = encode_icon_catalog_with_sources(
         compiled.source_manifest_sha256,
         &sprites,
         &entries,
         &block_sheets,
         &block_models,
+        &source_sprites,
     )?;
     Ok(CompiledIconCarrier {
         report: IconCompileReport {
@@ -270,16 +286,39 @@ fn compile(
 /// A 3D inventory thumbnail of state `visual` of a session block overlay; `None` when it has no
 /// drawable geometry or needs a biome tint.
 #[must_use]
-pub fn overlay_block_icon(overlay: &assets::BlockOverlay, visual: usize) -> Option<IconSprite> {
-    model::Model::overlay(overlay, visual)
+pub fn overlay_block_icon(
+    overlay: &assets::BlockOverlay,
+    visual: usize,
+    base: Option<&assets::RuntimeAssets>,
+) -> Option<IconSprite> {
+    model::Model::overlay(overlay, visual, base, None)
         .ok()
         .map(|model| model.raster())
 }
 
 /// Draws a carried cube from six overlay-local materials without changing its world binding.
 #[must_use]
-pub fn overlay_cube_icon(overlay: &assets::BlockOverlay, faces: [u32; 6]) -> Option<IconSprite> {
-    model::Model::overlay_cube(overlay, faces)
+pub fn overlay_cube_icon(
+    overlay: &assets::BlockOverlay,
+    faces: [u32; 6],
+    base: Option<&assets::RuntimeAssets>,
+) -> Option<IconSprite> {
+    model::Model::overlay_cube(overlay, faces, base)
+        .ok()
+        .map(|model| model.raster())
+}
+
+/// Draws a block thumbnail with explicit carried colours for its biome-tinted materials.
+/// Each material is prepared once and shared by its faces. Unresolved tints and unsupported
+/// material operations still reject the thumbnail.
+#[must_use]
+pub fn overlay_block_icon_with_tint(
+    overlay: &assets::BlockOverlay,
+    visual: usize,
+    base: Option<&assets::RuntimeAssets>,
+    tint: &dyn Fn(u32) -> Option<[u8; 3]>,
+) -> Option<IconSprite> {
+    model::Model::overlay(overlay, visual, base, Some(tint))
         .ok()
         .map(|model| model.raster())
 }

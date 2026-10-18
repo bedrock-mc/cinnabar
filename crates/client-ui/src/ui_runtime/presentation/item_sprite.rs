@@ -37,6 +37,33 @@ impl UiPresentationRuntime {
         carried_cube_pixels(pixels.width, pixels.height, &pixels.rgba8)
     }
 
+    /// Predicts the exact texture-layer cost before a dropped session model is allocated.
+    pub fn session_block_texture_layers(&self, identifier: &str, metadata: u32) -> Option<usize> {
+        self.session_block_sheet(identifier, metadata)?;
+        Some(assets::BlockFace::ALL.len())
+    }
+
+    /// Builds a session block's authored dropped model, retaining cube sheets for plain cubes.
+    pub fn session_block_model(
+        &self,
+        identifier: &str,
+        metadata: u32,
+        sheet: IconRef,
+    ) -> Option<render_model::DroppedItemModel> {
+        if let Some((_, vertices)) = self.session_icons.held_block(identifier, metadata) {
+            let pixels = crop_icon(self, sheet, assets::MAX_TILE_SIZE)?;
+            let sprite = render_model::DroppedItemSprite {
+                width: pixels.width,
+                height: pixels.height,
+                rgba8: pixels.rgba8.into(),
+            };
+            return render_model::equipment::blocks::dropped_model(sprite, &vertices)
+                .map(render_model::DroppedItemModel::Block);
+        }
+        self.block_sheet_cube(sheet)
+            .map(render_model::DroppedItemModel::Cube)
+    }
+
     /// Native carried block faces, not the inventory's projected cube thumbnail or tinted
     /// world materials. Both catalogs must have been built from the same pinned pack.
     pub fn carried_block_cube(

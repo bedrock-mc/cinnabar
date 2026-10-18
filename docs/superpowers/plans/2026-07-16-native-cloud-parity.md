@@ -2,7 +2,7 @@
 
 > **Execution:** Use `superpowers:subagent-driven-development`, strict red-green-refactor TDD,
 > one implementation task at a time, an independent review after each accepted tranche, and
-> immediate pushes to `bedrock-mc/cinnabar:phase2-textures` without rewriting history.
+> immediate pushes to `cinnabar-mc/cinnabar:phase2-textures` without rewriting history.
 
 **Goal:** Replace the rejected preview-source, fixed-grid, opaque cloud behavior with the
 matching Bedrock 1.26.33.1 legacy cloud path while retaining compact immutable geometry.

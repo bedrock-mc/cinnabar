@@ -3,6 +3,8 @@
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
 pub mod launcher;
+#[cfg(any(target_arch = "wasm32", test))]
+mod relay;
 
 use semantic_input::{KEYBOARD_USAGES, KeyboardKey, KeyboardMouseFrame, MAX_MOUSE_BUTTONS};
 #[cfg(target_arch = "wasm32")]
