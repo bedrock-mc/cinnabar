@@ -257,7 +257,13 @@ impl PlayerInventoryLedger {
         held.stack.extra_data = change.to.extra_data().into();
         held.stack.nbt_digest = change.to.nbt_digest();
         self.confirmed.set(cell, Some(held.clone()));
-        self.rebase_predictions(i32::MAX, cell, Some(&before), Some(held));
+        self.rebase_predictions(
+            i32::MAX,
+            cell,
+            Some(&before),
+            Some(held),
+            RollbackAuthority::Known,
+        );
         self.refold();
         true
     }
