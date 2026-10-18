@@ -477,7 +477,7 @@ settings! {
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
         [(SettingPanel::GeneralUpdates, 2)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
-        [(SettingPanel::GeneralUpdates, 3)], [], None, None;
+        [(SettingPanel::GeneralNetwork, 4)], [], None, None;
     OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
         [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
     FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),

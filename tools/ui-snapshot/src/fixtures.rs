@@ -484,6 +484,16 @@ pub const STATES: &[State] = &[
         fixture: || settings_general_toggle(SettingId::EcomodeToggle),
     },
     State {
+        name: "settings-general-mod-updates-passive",
+        size: [1280, 1200],
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::General.definition().name);
+            view.updates.active = false;
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
         name: "settings-general-advanced",
         size: SIZE,
         gui_scale: GUI_SCALE,
