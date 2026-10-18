@@ -27,7 +27,8 @@ fn level_gap(
         .flat_map(|batch| {
             input.indices
                 [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
         })
         .filter(|indices| indices[0] == indices[3] && indices[2] == indices[4])
         .map(|indices| [0, 1, 2, 5].map(|corner| input.vertices[indices[corner] as usize]))

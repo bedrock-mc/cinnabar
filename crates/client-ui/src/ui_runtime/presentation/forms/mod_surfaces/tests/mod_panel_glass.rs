@@ -92,7 +92,7 @@ fn backdrops(input: &UiRenderInput) -> Vec<(UiBackdropPaint, [f32; 4])> {
     {
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
-        for triangle in indices.chunks_exact(3) {
+        for triangle in indices.as_chunks::<3>().0 {
             let paint =
                 UiBackdropPaint::from_overlay(input.vertices[triangle[0] as usize].overlay_color);
             if paints.last().is_none_or(|(previous, _)| *previous != paint) {
