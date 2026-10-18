@@ -335,7 +335,7 @@ fn shared_emotes_override_only_the_matching_remote_lifetime_and_restore_native_o
     let rig = stream.authority().actor_rig(2).unwrap();
     let native = rig.current.to_vec();
     let revision = rig.actor.spawn_revision;
-    let clip = actor_animation::CustomEmote::Twerk;
+    let clip = cosmetics::test_support::playback_emote();
     for java_mode in [false, true] {
         let ordinary =
             sample_shared_bodies(&stream, &artwork, &local_equipment, java_mode, Vec::new());

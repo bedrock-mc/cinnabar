@@ -57,7 +57,7 @@ mod cape;
 pub use cape::CapePreparationQueue;
 mod clock;
 pub mod custom_emotes;
-pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
+pub use custom_emotes::{CustomEmotePose, sample_custom_emote};
 mod evaluation;
 mod geometry;
 mod horse;

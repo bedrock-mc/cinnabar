@@ -4,6 +4,7 @@ use client_runtime::network::NetworkHandle;
 
 #[test]
 fn custom_emotes_keep_the_owned_identity_and_state_off_bedrock() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     h.app.insert_resource(network);
@@ -43,6 +44,7 @@ fn custom_emotes_keep_the_owned_identity_and_state_off_bedrock() {
 
 #[test]
 fn closing_the_wheel_without_a_selection_sends_no_emote() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     h.app.insert_resource(network);

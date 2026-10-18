@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(request["method"], bridge::contract::METHOD_CINNABAR_PLAYERS);
         let response = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0", "id":request["id"],
             "result":{"schema_version":1,"emotes":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff",
-            "emote_id":"cinnabar:twerk","elapsed_ms":42,"valid_for_ms":15000}],"loadouts":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff","revision":1,"slots":[{"slot":"head","item_id":"cinnabar:bunny_ears"}]}]}})).unwrap();
+            "emote_id":"fixture:shared_emote","elapsed_ms":42,"valid_for_ms":15000}],"loadouts":[{"xuid":"11","uuid":"00112233-4455-6677-8899-aabbccddeeff","revision":1,"slots":[{"slot":"head","item_id":"cinnabar:bunny_ears"}]}]}})).unwrap();
         connection
             .write_all(&(response.len() as u32).to_be_bytes())
             .unwrap();

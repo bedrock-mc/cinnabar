@@ -52,7 +52,7 @@ impl UiPresentationRuntime {
         &mut self,
         stream: Option<&chunk_pipeline::WorldStream>,
         swimming: bool,
-        emote: Option<(actor_animation::CustomEmote, f64)>,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
         let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =

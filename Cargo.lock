@@ -121,6 +121,7 @@ name = "actor-animation"
 version = "0.1.20"
 dependencies = [
  "assets",
+ "cosmetics",
  "protocol",
  "protocol-ids",
  "rayon",
@@ -9068,9 +9069,9 @@ dependencies = [
 name = "ui-screens"
 version = "0.1.20"
 dependencies = [
- "actor-animation",
  "assets",
  "bridge",
+ "cosmetics",
  "image",
  "inventory 0.1.20",
  "json-ui",
@@ -9080,6 +9081,7 @@ dependencies = [
  "render-api",
  "render-model",
  "resource-pack",
+ "semantic-input",
  "serde_json",
  "tracing",
  "ui",

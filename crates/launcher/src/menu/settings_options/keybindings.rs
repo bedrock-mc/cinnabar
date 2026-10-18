@@ -337,7 +337,7 @@ impl SettingsOptions {
     }
 }
 
-/// Displays the physical USB control when no layout label is available.
+/// Displays a physical keyboard, mouse or gamepad control without a layout label.
 pub fn key_name(control: PhysicalControl) -> String {
     match control {
         PhysicalControl::KeyboardUsage(code @ 0x04..=0x1d) => {
@@ -370,6 +370,20 @@ pub fn key_name(control: PhysicalControl) -> String {
         PhysicalControl::KeyboardUsage(code @ 0x68..=0x73) => format!("F{}", code - 0x5b),
         PhysicalControl::MouseButton(button) => format!("Mouse {button}"),
         PhysicalControl::KeyboardUsage(code) => format!("Key {code:02X}"),
+        PhysicalControl::GamepadButton(0) => "A".to_owned(),
+        PhysicalControl::GamepadButton(1) => "B".to_owned(),
+        PhysicalControl::GamepadButton(2) => "Y".to_owned(),
+        PhysicalControl::GamepadButton(3) => "X".to_owned(),
+        PhysicalControl::GamepadButton(4) => "LB".to_owned(),
+        PhysicalControl::GamepadButton(5) => "RB".to_owned(),
+        PhysicalControl::GamepadButton(8) => "LS".to_owned(),
+        PhysicalControl::GamepadButton(9) => "RS".to_owned(),
+        PhysicalControl::GamepadButton(11) => "D-pad Up".to_owned(),
+        PhysicalControl::GamepadButton(12) => "D-pad Down".to_owned(),
+        PhysicalControl::GamepadButton(13) => "D-pad Left".to_owned(),
+        PhysicalControl::GamepadButton(14) => "D-pad Right".to_owned(),
+        PhysicalControl::GamepadAxis { axis: 4, .. } => "LT".to_owned(),
+        PhysicalControl::GamepadAxis { axis: 5, .. } => "RT".to_owned(),
         _ => String::new(),
     }
 }

@@ -439,7 +439,7 @@ fn binding(
         "...".to_owned()
     } else if index >= GAMEPAD_OFFSET {
         control
-            .map(gamepad_name)
+            .map(key_name)
             .unwrap_or_else(|| content.word("controllerLayoutScreen.unassigned"))
     } else {
         let mut value = control
@@ -473,27 +473,6 @@ fn binding(
         )?;
     }
     Ok(())
-}
-
-fn gamepad_name(control: semantic_input::PhysicalControl) -> String {
-    use semantic_input::PhysicalControl;
-    match control {
-        PhysicalControl::GamepadButton(0) => "A".to_owned(),
-        PhysicalControl::GamepadButton(1) => "B".to_owned(),
-        PhysicalControl::GamepadButton(2) => "Y".to_owned(),
-        PhysicalControl::GamepadButton(3) => "X".to_owned(),
-        PhysicalControl::GamepadButton(4) => "LB".to_owned(),
-        PhysicalControl::GamepadButton(5) => "RB".to_owned(),
-        PhysicalControl::GamepadButton(8) => "LS".to_owned(),
-        PhysicalControl::GamepadButton(9) => "RS".to_owned(),
-        PhysicalControl::GamepadButton(11) => "D-pad Up".to_owned(),
-        PhysicalControl::GamepadButton(12) => "D-pad Down".to_owned(),
-        PhysicalControl::GamepadButton(13) => "D-pad Left".to_owned(),
-        PhysicalControl::GamepadButton(14) => "D-pad Right".to_owned(),
-        PhysicalControl::GamepadAxis { axis: 4, .. } => "LT".to_owned(),
-        PhysicalControl::GamepadAxis { axis: 5, .. } => "RT".to_owned(),
-        _ => key_name(control),
-    }
 }
 
 fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {

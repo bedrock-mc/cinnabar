@@ -1,11 +1,11 @@
 //! Maps authenticated API identities onto nearby actors in the current world lifetime.
-use actor_animation::CustomEmote;
 use bevy::prelude::Time;
 use bevy::time::Real;
 use bridge::contract::CinnabarPlayerState;
 use chunk_pipeline::WorldStream;
 use client_presentation::actor_publication::{RemoteEmote, RemoteHat};
 use client_ui::ui_runtime::UiRuntime;
+use cosmetics::emotes::Item;
 use launcher_host::launcher_account::LauncherAccount;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ pub(crate) struct State {
     session: Option<u64>,
     refreshed: Option<Duration>,
     reported: Option<Duration>,
-    playback: Option<(CustomEmote, u64)>,
+    playback: Option<(Item, u64)>,
     cosmetics: Vec<cosmetics::Item>,
     peers: Vec<Peer>,
 }
@@ -165,7 +165,7 @@ pub(super) fn exchange(
             .emotes
             .into_iter()
             .filter_map(|emote| {
-                let clip = CustomEmote::from_id(&emote.emote_id)?;
+                let clip = Item::from_id(&emote.emote_id)?;
                 let (peer, actor) = peer(&emote.xuid, &emote.uuid)?;
                 if actor.status.dead || actor.is_sleeping() {
                     return None;

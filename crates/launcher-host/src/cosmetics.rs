@@ -24,7 +24,8 @@ pub fn cached(root: &Path) -> Option<Catalog> {
         return None;
     }
     let catalog: Catalog = serde_json::from_slice(&bytes).ok()?;
-    (catalog.items.len() <= cosmetics::MAX_ITEMS).then_some(catalog)
+    (catalog.items.len() <= cosmetics::MAX_ITEMS && catalog.emotes.len() <= cosmetics::MAX_ITEMS)
+        .then_some(catalog)
 }
 
 /// Downloads a fresh catalog and each supported item's verified assets on a wardrobe worker.
@@ -70,26 +71,48 @@ async fn refresh_at(root: &Path, origin: &str) -> Result<(), String> {
     } else {
         let body = bounded(response, cosmetics::MAX_ASSET_BYTES).await?;
         let catalog: Catalog = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
-        if catalog.items.len() > cosmetics::MAX_ITEMS {
+        if catalog.items.len() > cosmetics::MAX_ITEMS || catalog.emotes.len() > cosmetics::MAX_ITEMS
+        {
             return Err("cosmetics catalog is too large".into());
         }
         (catalog, Some(body))
     };
-    for item in catalog
+    let assets = catalog
         .items
         .iter()
         .filter(|item| cosmetics::supported(item))
-    {
-        for asset in [&item.assets.geometry, &item.assets.texture]
-            .into_iter()
-            .chain(item.assets.animation.iter())
-        {
+        .flat_map(|item| {
+            [&item.assets.geometry, &item.assets.texture]
+                .into_iter()
+                .chain(item.assets.animation.iter())
+                .map(|asset| (asset, false))
+        })
+        .chain(
+            catalog
+                .emotes
+                .iter()
+                .filter(|item| {
+                    let supported = cosmetics::emotes::supported(item);
+                    if !supported {
+                        cosmetics::emotes::reject();
+                        tracing::warn!("unsupported catalog emote skipped");
+                    }
+                    supported
+                })
+                .map(|item| (&item.clip, true)),
+        );
+    for (asset, emote) in assets {
+        let fetched: Result<(), String> = async {
             if read_asset(root, asset).is_some() {
-                continue;
+                return Ok(());
             }
             let url = origin.join(&asset.url).map_err(|error| error.to_string())?;
             if url.origin() != origin.origin() {
-                continue;
+                return if emote {
+                    Err("foreign emote asset origin".into())
+                } else {
+                    Ok(())
+                };
             }
             let response = client
                 .get(url)
@@ -100,7 +123,16 @@ async fn refresh_at(root: &Path, origin: &str) -> Result<(), String> {
             if !asset.verifies(&bytes) {
                 return Err("cosmetic asset digest mismatch".into());
             }
-            write_atomic(&root.join(&asset.sha256), &bytes)?;
+            write_atomic(&root.join(&asset.sha256), &bytes)
+        }
+        .await;
+        if let Err(error) = fetched {
+            if emote {
+                cosmetics::emotes::reject();
+                tracing::warn!(%error, "catalog emote skipped");
+            } else {
+                return Err(error);
+            }
         }
     }
     if let Some(body) = body {
@@ -209,10 +241,18 @@ mod http_tests {
         let root = tempfile::tempdir().unwrap();
         let geometry = b"synthetic geometry";
         let texture = b"synthetic texture";
+        let clip = b"synthetic clip";
+        let clip_asset = asset(clip);
         let geometry_asset = asset(geometry);
         let texture_asset = asset(texture);
         let catalog = Catalog {
             version: 1,
+            emotes: vec![cosmetics::emotes::Descriptor {
+                id: "fixture:cached_clip".into(),
+                display_name: "Clip fixture".into(),
+                free: true,
+                clip: clip_asset.clone(),
+            }],
             items: vec![cosmetics::Descriptor {
                 id: "fixture:cached".into(),
                 slot: "head".into(),
@@ -238,7 +278,7 @@ mod http_tests {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let mut requests = Vec::new();
-            for index in 0..4 {
+            for index in 0..5 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = Vec::new();
                 while !request.ends_with(b"\r\n\r\n") && request.len() < 4096 {
@@ -248,7 +288,7 @@ mod http_tests {
                 }
                 let request = String::from_utf8(request).unwrap();
                 let response = if request.starts_with("GET /v1/cosmetics/catalog ") {
-                    if index == 3 {
+                    if index == 4 {
                         assert!(
                             request
                                 .to_ascii_lowercase()
@@ -262,6 +302,8 @@ mod http_tests {
                     ("200 OK", &geometry[..])
                 } else if request.starts_with(&format!("GET {} ", texture_asset.url)) {
                     ("200 OK", &texture[..])
+                } else if request.starts_with(&format!("GET {} ", clip_asset.url)) {
+                    ("200 OK", &clip[..])
                 } else {
                     ("404 Not Found", &[][..])
                 };
@@ -278,6 +320,10 @@ mod http_tests {
         runtime.block_on(refresh_at(root.path(), &origin)).unwrap();
         runtime.block_on(refresh_at(root.path(), &origin)).unwrap();
         assert_eq!(cached(root.path()).unwrap(), catalog);
-        assert_eq!(server.join().unwrap().len(), 4);
+        assert_eq!(
+            read_asset(root.path(), &catalog.emotes[0].clip).unwrap(),
+            clip
+        );
+        assert_eq!(server.join().unwrap().len(), 5);
     }
 }

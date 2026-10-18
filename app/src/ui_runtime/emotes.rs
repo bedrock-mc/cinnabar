@@ -38,6 +38,7 @@ type SlotPreferences = [Option<String>; EMOTE_SLOT_COUNT];
 pub(crate) struct ObservedEmotes {
     identity: Option<(u64, u64, i32, u64)>,
     preferences: Option<Option<SlotPreferences>>,
+    catalog_generation: u64,
     pointer: Option<UiPoint>,
     modifiers: ButtonInput<KeyCode>,
 }
@@ -99,7 +100,11 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     }
     if let Some(menu) = input.menu.as_deref() {
         let preferences = menu.settings_snapshot().0.emote_slots().cloned();
-        if input.observed.preferences.as_ref() != Some(&preferences) {
+        let generation = cosmetics::emotes::Item::generation();
+        if input.observed.preferences.as_ref() != Some(&preferences)
+            || input.observed.catalog_generation != generation
+        {
+            input.observed.catalog_generation = generation;
             input
                 .runtime
                 .emotes_mut()
@@ -243,7 +248,11 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
         }
-        if let Some(slot) = slot_key(event.key_code) {
+        if event.key_code == KeyCode::KeyC {
+            input.runtime.emotes_mut().change_emotes();
+        } else if event.key_code == KeyCode::Tab && input.runtime.emotes().is_choosing() {
+            input.runtime.emotes_mut().next_catalog_page();
+        } else if let Some(slot) = slot_key(event.key_code) {
             input.runtime.emotes_mut().activate_slot(slot, now);
         } else if let Some(action) = wheel_key(event.key_code) {
             input.runtime.emotes_mut().handle_action(action, now);
@@ -289,6 +298,17 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             dismissed |= !input.runtime.emotes().is_open();
         }
         for pad in input.pads.iter().filter(|_| !toggled) {
+            let mapped = |button| {
+                input.menu.as_deref().map_or(button, |menu| {
+                    gamepad_button(&menu.settings_snapshot().0, button)
+                })
+            };
+            if pad.just_pressed(mapped(GamepadButton::North)) {
+                input.runtime.emotes_mut().change_emotes();
+            }
+            if pad.just_pressed(GamepadButton::RightTrigger) {
+                input.runtime.emotes_mut().next_catalog_page();
+            }
             for (button, action) in [
                 (GamepadButton::South, UiAction::Accept),
                 (GamepadButton::East, UiAction::Cancel),
@@ -297,9 +317,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 (GamepadButton::DPadDown, UiAction::Navigate([0, 1])),
                 (GamepadButton::DPadLeft, UiAction::Navigate([-1, 0])),
             ] {
-                let button = input.menu.as_deref().map_or(button, |menu| {
-                    gamepad_button(&menu.settings_snapshot().0, button)
-                });
+                let button = mapped(button);
                 if pad.just_pressed(button) {
                     if let Some(presentation) = input.presentation.as_deref_mut() {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
