@@ -20,8 +20,8 @@ use crate::{LoadingScreenPhase, Packet, ProtocolError, ServerTransferEvent, Sess
 
 /// Bounds the bytes deferred to play while the spawn prerequisites arrive.
 pub(super) const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
-/// The view radius the client requests before it spawns.
-const STARTUP_CHUNK_RADIUS: u8 = 16;
+/// The fallback view radius when the caller supplies no saved preference.
+pub(super) const DEFAULT_CHUNK_RADIUS: u8 = 16;
 /// The stage a join-time Disconnect names once the session has been handed over.
 const STAGE: &str = "StartGame";
 
@@ -66,6 +66,7 @@ impl DeferredPackets {
 /// as both have arrived, while the sequence keeps reading. Dropping the future cancels it.
 pub(super) async fn await_spawn<R: bridge::FrameRead>(
     transport: &mut SessionTransport<R>,
+    view_distance_chunks: u8,
     on_startup: impl FnOnce(StartGame, ItemRegistry),
 ) -> Result<Spawned, ProtocolError> {
     let mut on_startup = Some(on_startup);
@@ -163,7 +164,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
             );
         }
         if !sent_chunk_radius && runtime_id.is_some() {
-            if let Err(error) = transport.send(&loading_started()).await {
+            if let Err(error) = transport.send(&loading_started(view_distance_chunks)).await {
                 return Err(
                     startup_write_failure(transport, error, super::WRITE_FAILURE_DRAIN).await,
                 );
@@ -186,9 +187,12 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
 }
 
 /// The radius request and loading-start the client sends once StartGame arrives.
-fn loading_started() -> [Packet; 2] {
+fn loading_started(view_distance_chunks: u8) -> [Packet; 2] {
     [
-        crate::request_chunk_radius_packet(STARTUP_CHUNK_RADIUS, STARTUP_CHUNK_RADIUS),
+        crate::request_chunk_radius_packet(
+            view_distance_chunks,
+            render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
+        ),
         crate::loading_screen_packet(LoadingScreenPhase::Start, None),
     ]
 }

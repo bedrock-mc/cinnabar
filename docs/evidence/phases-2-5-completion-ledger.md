@@ -1,5 +1,25 @@
 # Phases 2-5 Completion Ledger
 
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+## Browser release verification
+
+Browser target checks and JavaScript edge suites are CI gates. Go and Rust consume
+shared control fixtures, and devtool builds a staged static bundle with the locked
+binding CLI and canonical carrier delivery index. Certificate renewal retains
+relay sessions and rejects invalid replacements while keeping the last good pair.
+The receive-buffer regression runs on the native test target.
+
+Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
+real-browser acceptance matrix follow gameplay composition. No supported-browser,
+release, parity, memory or hardware performance gate closes from these checks.
+
 ## Redstone dust item sprite
 
 A reviewed default binding selects the item-atlas dust sprite, leaving placed
@@ -140,7 +160,7 @@ performance qualification remain incomplete. No phase or performance gate closes
 |---|---|
 | Owning plan/task | Numbered raster pack skyboxes and optional native vertical placement in `plan.md`; broader atmosphere work remains open. |
 | Deterministic tests | Pack admission and reload dependency regressions in `pack-runtime`, with publication regressions in `app`, cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
-| Review commit | Skybox tranche tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox tranche tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Retained-pack offline GPU views and both Video setting states were inspected. Current-server full-client acceptance remains open. |
 | Performance/resource witness | Existing raster byte, dimension and allocation bounds remain; texture-cache regressions cover stable frames. Live frame and join budgets remain open. |
 | Final status | Open — numbered PNG/TGA/JPEG skyboxes are implemented; HDR/KTX, enhanced rendering and broader atmosphere acceptance remain open. |
@@ -302,6 +322,10 @@ execution of this move are unverified, and it adds no parity evidence.
 
 ## P4.5-ITEM-ACTIONS
 
+Session custom-item regressions cover scalar legacy facts and stack limits,
+shared held/preview/dropped block geometry, carried tint and owner-selected
+external armor models. Broader item-action and custom-content parity stays open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
@@ -365,6 +389,11 @@ the missing overlay against the official client; broader HUD parity remains open
 Plain chat offers `@here` and player-list names; command targets include `@n`.
 Education selectors, selector-expansion permission and cheat gating, selector
 argument completion, and live visual acceptance remain incomplete.
+
+Server-authored message content keeps its parser bindings and hover controls inside
+the client-owned chat placement. Regressions cover retained captions, HUD collection
+rows, pointer entry/exit through pass-through panels, display scaling and zero-sized
+tooltip controls. Native command-edit acceptance and broader JSON-UI parity remain open.
 
 ## P5.4-SCOREBOARD
 
@@ -431,7 +460,11 @@ hardware frame-time and capture acceptance remain open.
 Video quality now reaches terrain meshing, including generation changes for running jobs and
 resource-pack rebuilds. Renderer work is reduced through uploaded native lightmap bytes,
 bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
-single-sample SMAA restoration. Opt-in Metal visibility admission uses fresh current-frame masks.
+SMAA blending into the shared scene samples. Early depth rejection and shared passes across
+deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
+also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
+Opt-in Metal visibility admission uses fresh current-frame masks.
 Target-device frame-rate and full settings parity acceptance remain open; bounded fixtures
 and deterministic work budgets do not close these gates.
 
@@ -453,7 +486,7 @@ and this visible removal closes no settings, UI parity or performance gate.
 |---|---|
 | Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
 | Deterministic tests | Launcher regression covers default-on, old saves, both saved values, subsystem projection and Video reset. Offline JSON-UI regression reaches and renders both toggle states. |
-| Review commit | Skybox option tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox option tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Both offline Video control states were inspected; full settings and current-server acceptance remain open. |
 | Performance/resource witness | Full settings performance witness remains open. |
 | Final status | Open — the skybox option is implemented; the complete settings gate is not closed. |
@@ -571,3 +604,6 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+
+Retained mod drawing has authority and lifetime contracts. Geometry, renderer integration
+and actor attachment remain incomplete and do not close any completion requirement.

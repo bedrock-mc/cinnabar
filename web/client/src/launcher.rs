@@ -98,12 +98,10 @@ impl RelayAccount {
     }
 
     /// Applies typed relay observations; transport failures remain owned by the host.
-    pub fn observe(&mut self, event: &ControlEvent) -> Result<(), &'static str> {
+    pub fn observe(&mut self, event: &ControlEvent) {
         match event {
-            ControlEvent::Account(value) => {
-                let account: Account = serde_json::from_value(value.clone())
-                    .map_err(|_| "Invalid relay account response.")?;
-                let progressed = self.account.as_ref() != Some(&account)
+            ControlEvent::Account(account) => {
+                let progressed = self.account.as_ref() != Some(account)
                     && matches!(
                         account.state,
                         bridge::contract::AuthState::AwaitingCode
@@ -119,22 +117,16 @@ impl RelayAccount {
                     }
                     _ => {}
                 }
-                self.account = Some(account);
+                self.account = Some(account.clone());
             }
-            ControlEvent::Error(reason) => {
-                self.failure = Some(Failure::Refused(match reason.as_str() {
-                    "rate_limited" => "The relay is busy. Wait a moment, then try again.",
-                    "session_busy" => "Leave the server before signing in or out.",
-                    _ => "The relay refused the request. Try again.",
-                }));
+            ControlEvent::RequestRefused(reason) => {
+                self.failure = Some(Failure::Refused(reason.message()));
             }
-            ControlEvent::Connect(value) => {
-                if value["stage"] == "" {
+            ControlEvent::Connect(progress) => {
+                if progress.stage == bridge::contract::ConnectStage::Idle {
                     self.progress = None;
-                    return Ok(());
+                    return;
                 }
-                let progress: bridge::ConnectProgress = serde_json::from_value(value.clone())
-                    .map_err(|_| "Invalid relay join progress.")?;
                 self.progress = Some(match progress.stage {
                     bridge::contract::ConnectStage::Packs => JoinStage::Packs {
                         done: progress.packs_done,
@@ -147,7 +139,6 @@ impl RelayAccount {
             }
             ControlEvent::Keepalive => {}
         }
-        Ok(())
     }
 
     /// Retires transient prompts and identity when the live relay becomes unavailable.

@@ -118,3 +118,38 @@ pub(super) fn append(
         }
     }
 }
+
+static SPRITES: OnceLock<std::collections::HashMap<String, assets::IconSprite>> = OnceLock::new();
+
+/// Retains base sprite pixels by their recorded source filenames for custom item aliases.
+pub(crate) fn set_vanilla_item_sprites(
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) {
+    if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
+        return;
+    }
+    let sprites = icons
+        .sources()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|source| {
+            let sprite = icons.sprites().get(source.sprite as usize)?.clone();
+            Some((source.path.to_string(), sprite))
+        })
+        .collect();
+    let _ = SPRITES.set(sprites);
+}
+
+/// Resolves an absent pack raster against a matching immutable base sprite filename.
+pub(super) fn texture(path: &str) -> Option<pack_runtime::pack_textures::DecodedTexture> {
+    let sprites = SPRITES.get()?;
+    let sprite = pack_runtime::pack_textures::texture_image_paths(path)
+        .into_iter()
+        .find_map(|path| sprites.get(&path.to_ascii_lowercase()))?;
+    Some(pack_runtime::pack_textures::DecodedTexture {
+        width: u32::from(sprite.width),
+        height: u32::from(sprite.height),
+        rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
+    })
+}

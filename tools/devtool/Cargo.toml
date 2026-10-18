@@ -8,6 +8,8 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
+    "Cargo.lock",
+    "web/site/**",
     "packaging/android/AndroidManifest.xml",
     "packaging/android/render-template.sh",
     "packaging/android/runtime.json",
@@ -21,6 +23,7 @@ diagnostics = { path = "../../crates/diagnostics" }
 crash-report = { path = "../../crates/crash-report" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.9"
 csv = "1"
 ctrlc = { version = "3.4", features = ["termination"] }
 quick-xml = "0.39"

@@ -94,7 +94,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: ui_screens::settings_chat::message_text(settings, text.as_ref()),
+                text: bounded_visible_text(text.as_ref()).to_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -135,6 +135,7 @@ pub(super) fn hud_model(
         item_name,
         chat,
         chat_visible,
+        chat_color: ui_screens::settings_chat::default_color(settings),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         sidebar,

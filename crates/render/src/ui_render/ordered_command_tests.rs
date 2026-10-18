@@ -23,6 +23,7 @@ fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_
                         depth_test,
                         depth_write,
                         isolated_depth: false,
+                        attached_depth: false,
                     },
                     &mut descriptor,
                 )

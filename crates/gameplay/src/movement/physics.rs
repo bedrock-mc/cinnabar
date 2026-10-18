@@ -22,6 +22,7 @@ mod eye;
 mod fixed_ticks;
 mod input_requests;
 mod motion_ticks;
+mod posture;
 mod timeline;
 mod visual_correction;
 
@@ -276,6 +277,8 @@ pub struct LocalPhysicsController {
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
+    /// Accepted server posture newer than the latest completed sample.
+    live_posture: ServerControlFlags,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
@@ -320,6 +323,7 @@ impl Default for LocalPhysicsController {
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
+            live_posture: Default::default(),
             riptide_pending: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
@@ -379,6 +383,7 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
+        self.live_posture = Default::default();
         self.riptide_pending = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -443,6 +448,7 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.deferred_corrections = Default::default();
         self.modes.reset();
+        self.live_posture = Default::default();
         self.riptide_pending = None;
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -825,6 +831,7 @@ impl LocalPhysicsController {
                             .expect("completed tick appended a movement sample")
                             .clone(),
                     );
+                    self.live_posture = Default::default();
                     motion_ticks::retain(
                         &mut self.motion_ticks,
                         &mut self.motion_anchor,

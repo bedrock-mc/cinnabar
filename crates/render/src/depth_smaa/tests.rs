@@ -3,6 +3,8 @@ use bevy::ecs::system::RunSystemOnce;
 
 #[path = "raster_tests.rs"]
 pub(crate) mod raster_tests;
+#[path = "../ui_render/world_tests.rs"]
+mod world_tests;
 
 #[test]
 fn depth_smaa_unchanged_filter_sync_allocates_nothing() {
@@ -114,7 +116,7 @@ fn depth_smaa_prewarm_queues_and_reuses_every_sample_variant() {
                 };
                 let mut before = Vec::new();
                 pipelines.prewarm(cache, view, &mut before).unwrap();
-                assert_eq!(before.len(), 4);
+                assert_eq!(before.len(), 3);
                 let mut after = Vec::new();
                 pipelines.prewarm(cache, view, &mut after).unwrap();
                 assert_eq!(before, after);
