@@ -59,8 +59,19 @@ pub(super) struct SentControl {
 #[derive(Debug, Clone, Default)]
 pub(super) struct WindowControl {
     pub desired_open: bool,
+    /// The current window; admitting its close transfers ownership to `sent`.
     pub confirmed: Option<ControlWindow>,
     pub sent: Option<SentControl>,
+}
+
+impl WindowControl {
+    /// Returns the current server window, including a closing one until its answer arrives.
+    pub fn server_window(&self) -> Option<ControlWindow> {
+        self.confirmed.or_else(|| match self.sent?.request {
+            ControlRequest::Close(window) => Some(window),
+            ControlRequest::Open { .. } => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -87,10 +98,14 @@ impl WindowControls {
         }
     }
 
-    /// Records transport admission only when this kind has no outstanding request.
+    /// Transfers a closing window to its transport slot, leaving room for a replacement.
     pub fn sent(&mut self, request: ControlRequest, now_millis: u64) {
-        assert!(self.state(request.kind()).sent.is_none());
-        self.state_mut(request.kind()).sent = Some(SentControl {
+        let state = self.state_mut(request.kind());
+        assert!(state.sent.is_none());
+        if let ControlRequest::Close(window) = request {
+            assert_eq!(state.confirmed.take(), Some(window));
+        }
+        state.sent = Some(SentControl {
             request,
             deadline_millis: now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS),
         });
@@ -102,13 +117,6 @@ impl WindowControls {
             state.sent.is_some_and(|sent| {
                 matches!(sent.request, ControlRequest::Close(window) if window.window_id == window_id)
             })
-        })
-    }
-
-    /// Whether this generation already has a close admitted to transport.
-    pub fn close_admitted(&self, kind: ControlKind, generation: u64) -> bool {
-        self.state(kind).sent.is_some_and(|sent| {
-            matches!(sent.request, ControlRequest::Close(window) if window.generation == generation)
         })
     }
 

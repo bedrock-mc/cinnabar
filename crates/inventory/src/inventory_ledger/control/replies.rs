@@ -3,7 +3,7 @@
 use protocol::{ContainerCloseEvent, ContainerOpenEvent};
 
 use super::{ControlKind, ControlRequest, ControlWindow, SentControl};
-use crate::inventory_ledger::PlayerInventoryLedger;
+use crate::inventory_ledger::{PersonalWindow, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
     /// Releases an admitted open when any supported server window arrives.
@@ -36,7 +36,6 @@ impl PlayerInventoryLedger {
                 self.controls
                     .personal
                     .confirmed
-                    .filter(|_| self.controls.personal.sent.is_none())
                     .filter(|window| window.window_id == window_id)
                     .map(|window| window.generation)
             })
@@ -57,7 +56,7 @@ impl PlayerInventoryLedger {
         self.personal = Some(crate::inventory_ledger::PersonalWindow::Open { generation });
     }
 
-    /// Retires replaced windows, keeping admitted closes' unanswered item requests correlated.
+    /// Retires replaced windows, keeping locally closing windows' admitted item requests correlated.
     pub(in crate::inventory_ledger) fn retire_replaced_windows(
         &mut self,
         retained_personal_generation: Option<u64>,
@@ -65,17 +64,12 @@ impl PlayerInventoryLedger {
         if let Some(personal) = self.personal
             && Some(personal.generation()) != retained_personal_generation
         {
-            let close_admitted = self
-                .controls
-                .close_admitted(ControlKind::Personal, personal.generation());
+            let locally_closing = matches!(personal, PersonalWindow::Closing { .. });
             self.discard_pending_personal_open();
-            self.finish_personal_close(close_admitted);
+            self.finish_personal_close(locally_closing);
         }
-        if let Some(generation) = self.storage_generation() {
-            let close_admitted = self
-                .controls
-                .close_admitted(ControlKind::Storage, generation);
-            self.acknowledge_storage_close(!close_admitted);
+        if let Some(storage) = self.storage.as_ref() {
+            self.acknowledge_storage_close(!storage.closing);
         }
     }
 
@@ -88,7 +82,7 @@ impl PlayerInventoryLedger {
             return;
         }
         for kind in [ControlKind::Personal, ControlKind::Storage] {
-            let Some(window) = self.controls.state(kind).confirmed.filter(|window| {
+            let Some(window) = self.controls.state(kind).server_window().filter(|window| {
                 close.container.window_id == Some(window.window_id)
                     && close.window_type == window.window_type
             }) else {
@@ -135,20 +129,7 @@ impl PlayerInventoryLedger {
         let ControlRequest::Close(window) = sent.request else {
             unreachable!()
         };
-        self.complete_control_close(window, acknowledged);
-    }
-
-    /// Resolves only the confirmed generation targeted by this completed close.
-    pub(in crate::inventory_ledger) fn complete_control_close(
-        &mut self,
-        window: ControlWindow,
-        acknowledged: bool,
-    ) {
         let kind = window.kind();
-        let state = self.controls.state_mut(kind);
-        if state.confirmed == Some(window) {
-            state.confirmed = None;
-        }
         match kind {
             ControlKind::Personal => {
                 if self

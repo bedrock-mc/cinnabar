@@ -23,7 +23,7 @@ impl PlayerInventoryLedger {
         if self.controls.personal.sent.is_none()
             && self.controls.personal.confirmed.is_none()
             && self.controls.personal.desired_open
-            && self.controls.storage.confirmed.is_none()
+            && self.controls.storage.server_window().is_none()
             && let Some(PersonalWindow::Opening {
                 generation,
                 admitted: false,
@@ -66,10 +66,10 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// Restores the screen implied by confirmed state once its outstanding transition resolves.
+    /// Applies the current window's intent independently of older outstanding controls.
     pub(in crate::inventory_ledger) fn reconcile_personal(&mut self) {
         let state = &self.controls.personal;
-        if state.sent.is_some() || self.storage.is_some() {
+        if self.storage.is_some() {
             return;
         }
         match (state.desired_open, state.confirmed) {
@@ -78,7 +78,9 @@ impl PlayerInventoryLedger {
                     generation: window.generation,
                 });
             }
-            (true, None) if self.controls.storage.confirmed.is_none() => {
+            (true, None)
+                if state.sent.is_none() && self.controls.storage.server_window().is_none() =>
+            {
                 if !matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
                     let generation = self.next_open_generation;
                     self.next_open_generation = generation.wrapping_add(1).max(1);
@@ -95,7 +97,7 @@ impl PlayerInventoryLedger {
                     });
                 }
             }
-            (false, None) => self.personal = None,
+            (false, None) if state.sent.is_none() => self.personal = None,
             _ => {}
         }
     }

@@ -1,4 +1,5 @@
 mod authoritative;
+mod current_window;
 mod replacements;
 mod reused_ids;
 
