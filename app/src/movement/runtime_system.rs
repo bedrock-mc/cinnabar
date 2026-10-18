@@ -34,32 +34,6 @@ pub(crate) struct MovementSettings<'w> {
     mods: Option<Res<'w, crate::modding::ModRuntime>>,
 }
 
-impl MovementSettings<'_> {
-    /// Applies native movement overrides to the current user settings, or their defaults.
-    fn gameplay(&self) -> ui::GameplaySettings {
-        let gameplay = self
-            .settings
-            .as_deref()
-            .map(|settings| settings.user_settings_update().1.gameplay)
-            .unwrap_or_default();
-        #[cfg(not(target_arch = "wasm32"))]
-        let gameplay = {
-            let mut gameplay = gameplay;
-            if let Some(policy) = self
-                .mods
-                .as_deref()
-                .and_then(|mods| mods.movement_toggles())
-            {
-                gameplay.toggle_sprint = policy.toggle_sprint;
-                gameplay.toggle_sneak = policy.toggle_sneak;
-                gameplay.always_sprint = policy.always_sprint;
-            }
-            gameplay
-        };
-        gameplay
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
@@ -111,7 +85,25 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
-    let gameplay = settings.gameplay();
+    let gameplay = settings
+        .settings
+        .as_deref()
+        .map(|settings| settings.user_settings_update().1.gameplay)
+        .unwrap_or_default();
+    #[cfg(not(target_arch = "wasm32"))]
+    let gameplay = {
+        let mut gameplay = gameplay;
+        if let Some(policy) = settings
+            .mods
+            .as_deref()
+            .and_then(|mods| mods.movement_toggles())
+        {
+            gameplay.toggle_sprint = policy.toggle_sprint;
+            gameplay.toggle_sneak = policy.toggle_sneak;
+            gameplay.always_sprint = policy.always_sprint;
+        }
+        gameplay
+    };
     let frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
