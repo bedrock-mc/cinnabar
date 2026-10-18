@@ -317,3 +317,83 @@ fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
     store.commit();
     assert_eq!(store.snapshot().instances.len(), allowed);
 }
+
+#[test]
+fn retained_extent_uses_actual_vertices_when_bounds_are_too_conservative() {
+    let mut store = Store::default();
+    let extent = mod_api::MAX_PRIMITIVE_EXTENT_BLOCKS;
+    let geometry = store
+        .create_geometry(GeometrySpec::Triangles {
+            vertices: [[extent, 0., 0.], [0., extent, 0.], [0., 0., extent]]
+                .map(|position| Vertex {
+                    position,
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        })
+        .unwrap();
+    for scale in [[1.; 3], [-1., 1., -1.], [0.5; 3]] {
+        let mut instance = drawing(geometry);
+        instance.transform.scale = scale;
+        instance.transform.translation[0] = extent * (1. - scale[0].abs());
+        store.create(instance, DrawingPermissions::ALL).unwrap();
+    }
+    let mut outside = drawing(geometry);
+    outside.transform.translation[0] = 1.;
+    assert_eq!(
+        store
+            .create(outside, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::Invalid
+    );
+    let mut outside = drawing(geometry);
+    outside.transform.scale[0] = 1.01;
+    assert_eq!(
+        store
+            .create(outside, DrawingPermissions::ALL)
+            .unwrap_err()
+            .code,
+        ErrorCode::Invalid
+    );
+}
+
+/// Expands an admitted polyline with uniform attributes for topology comparisons.
+fn expanded_line(positions: &[[f32; 3]], closed: bool) -> Vec<super::mesh::GpuVertex> {
+    let geometry = super::validation::geometry(GeometrySpec::Polyline {
+        vertices: positions
+            .iter()
+            .map(|&position| Vertex {
+                position,
+                color: [1.; 4],
+                uv: [0.; 2],
+                data: [0.; 4],
+            })
+            .collect(),
+        closed,
+    })
+    .unwrap();
+    super::mesh::build(&geometry)
+}
+
+#[test]
+fn repeated_polyline_points_preserve_caps_and_neighboring_joins() {
+    let a = [0., 0., 0.];
+    let b = [1., 0., 0.];
+    let c = [1., 1., 0.];
+    for points in [vec![a, a, b, c], vec![a, b, b, c], vec![a, b, c, c]] {
+        assert_eq!(
+            expanded_line(&points, false),
+            expanded_line(&[a, b, c], false)
+        );
+    }
+    for points in [vec![a, a, b, c], vec![a, b, b, c], vec![a, b, c, a]] {
+        assert_eq!(
+            expanded_line(&points, true),
+            expanded_line(&[a, b, c], true)
+        );
+    }
+}

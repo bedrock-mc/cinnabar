@@ -50,22 +50,29 @@ pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
         return output;
     }
     let vertices = &geometry.vertices;
-    let segments = vertices.len() - usize::from(!geometry.closed);
+    let segments: Vec<_> = (0..vertices.len() - usize::from(!geometry.closed))
+        .filter_map(|index| {
+            let a = vertices[index];
+            let b = vertices[(index + 1) % vertices.len()];
+            let length = a
+                .position
+                .iter()
+                .zip(b.position)
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            (length > f32::EPSILON).then_some((a, b, length))
+        })
+        .collect();
     let mut distance = 0.;
-    for index in 0..segments {
-        let next = (index + 1) % vertices.len();
-        let a = vertices[index];
-        let b = vertices[next];
-        let length = a
-            .position
-            .iter()
-            .zip(b.position)
-            .map(|(a, b)| (a - b).powi(2))
-            .sum::<f32>()
-            .sqrt();
-        if length <= f32::EPSILON {
-            continue;
-        }
+    for (index, &(a, b, length)) in segments.iter().enumerate() {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|i| segments.get(i))
+            .or_else(|| segments.last().filter(|_| geometry.closed));
+        let following = segments
+            .get(index + 1)
+            .or_else(|| segments.first().filter(|_| geometry.closed));
         let base = GpuVertex {
             a: point(a.position, distance),
             b: point(b.position, distance + length),
@@ -83,24 +90,29 @@ pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
             (1., 1.),
             (0., 1.),
         ] {
+            let neighbor = if t == 0. {
+                previous.map(|s| s.0)
+            } else {
+                following.map(|s| s.1)
+            };
             output.push(GpuVertex {
-                shape: [1., t, side, 0.],
+                c: neighbor.map_or([0.; 4], |v| point(v.position, 0.)),
+                shape: [1., t, side, f32::from(u8::from(neighbor.is_some()))],
                 ..base
             });
         }
         // Full fans are immutable. The instance selects bevel, bounded miter or round joins.
-        if geometry.closed || next + 1 < vertices.len() {
-            let c = vertices[(next + 1) % vertices.len()];
+        if let Some((_, c, _)) = following {
             let joint = GpuVertex {
                 c: point(c.position, 0.),
                 ..base
             };
             fan(&mut output, joint, 3., 1.);
         }
-        if !geometry.closed && index == 0 {
+        if previous.is_none() {
             fan(&mut output, base, 2., 0.);
         }
-        if !geometry.closed && next + 1 == vertices.len() {
+        if following.is_none() {
             fan(&mut output, base, 2., 1.);
         }
         distance += length;

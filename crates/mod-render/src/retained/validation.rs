@@ -157,23 +157,7 @@ pub(super) fn instance(
         || !instance.width.is_finite()
         || instance.width <= 0.
         || instance.width > MAX_PRIMITIVE_EXTENT_BLOCKS
-        || (0..3)
-            .map(|axis| {
-                (geometry.bounds[0][axis]
-                    .abs()
-                    .max(geometry.bounds[1][axis].abs())
-                    * transform.scale[axis])
-                    .powi(2)
-            })
-            .sum::<f32>()
-            .sqrt()
-            + transform
-                .translation
-                .iter()
-                .map(|v| v * v)
-                .sum::<f32>()
-                .sqrt()
-            > MAX_PRIMITIVE_EXTENT_BLOCKS
+        || !extent(geometry, transform)
     {
         return Err(error(
             ErrorCode::Invalid,
@@ -193,6 +177,39 @@ pub(super) fn instance(
         return Err(error(ErrorCode::Invalid, "anchor"));
     }
     Ok(())
+}
+
+/// Accepts conservative bounds quickly, checking actual vertices before rejecting an extent.
+fn extent(geometry: &Geometry, transform: Transform) -> bool {
+    let translation = transform
+        .translation
+        .iter()
+        .map(|v| v * v)
+        .sum::<f32>()
+        .sqrt();
+    let bound = (0..3)
+        .map(|axis| {
+            (geometry.bounds[0][axis]
+                .abs()
+                .max(geometry.bounds[1][axis].abs())
+                * transform.scale[axis])
+                .powi(2)
+        })
+        .sum::<f32>()
+        .sqrt()
+        + translation;
+    bound <= MAX_PRIMITIVE_EXTENT_BLOCKS
+        || geometry.vertices.iter().all(|vertex| {
+            vertex
+                .position
+                .iter()
+                .zip(transform.scale)
+                .map(|(v, s)| (v * s).powi(2))
+                .sum::<f32>()
+                .sqrt()
+                + translation
+                <= MAX_PRIMITIVE_EXTENT_BLOCKS
+        })
 }
 
 /// Requires finite linear RGBA with bounded coverage.
