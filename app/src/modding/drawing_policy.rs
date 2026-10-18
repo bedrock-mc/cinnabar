@@ -80,7 +80,12 @@ fn publish_retained(
     terrain: &world::ChunkStore,
     frame: &mut render_scene::mod_scene::retained::DrawingFrame,
 ) {
-    if let Some(handle) = resources.geometry.keys().next() {
+    if let Some(handle) = resources
+        .geometry
+        .keys()
+        .chain(resources.materials.keys())
+        .next()
+    {
         frame.live_owners.insert((handle.owner, handle.generation));
     }
     for draw in resources.instances.values() {

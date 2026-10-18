@@ -637,6 +637,11 @@ renderer is connected; actor root attachment uses the renderer publication and e
 references. Bone attachment, native output captures and hardware budgets remain incomplete
 and do not close any completion requirement.
 
+Bounded procedural materials and SDK presets use a session animation phase.
+Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover
+animated presets, line joins and scaled geometry. These fixtures do not close
+in-world rendering or hardware budget requirements.
+
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained
 presets preserve their coverage and placement. TypeScript packaging, renderer

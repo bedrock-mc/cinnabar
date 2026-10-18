@@ -10,6 +10,7 @@ use std::{
 };
 
 mod entities;
+mod materials;
 pub mod mesh;
 pub use entities::EntityKey;
 #[cfg(test)]
@@ -130,10 +131,12 @@ pub enum Cap {
     Round,
 }
 
-/// Instances use the shared unlit material; custom material handles are a later extension.
+/// Instances select the shared unlit material or an owner-scoped procedural fragment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instance {
     pub geometry: Handle,
+    pub material: Option<Handle>,
+    pub params: [f32; mod_api::materials::PARAMS],
     pub anchor: Anchor,
     pub transform: Transform,
     pub tint: [f32; 4],
@@ -161,7 +164,7 @@ pub struct DrawError {
     pub detail: &'static str,
 }
 
-/// A successful callback's immutable snapshot. Geometry and instance revisions are separate.
+/// A successful callback's immutable snapshot tracks geometry, materials and instances separately.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Resources {
     pub connection: u64,
@@ -169,8 +172,10 @@ pub struct Resources {
     pub entities: BTreeMap<Handle, EntityKey>,
     pub geometry: BTreeMap<Handle, Arc<Geometry>>,
     pub instances: BTreeMap<Handle, Instance>,
+    pub materials: BTreeMap<Handle, Arc<crate::material::Material>>,
     groups: BTreeMap<String, Vec<Handle>>,
     pub geometry_revision: u64,
+    pub material_revision: u64,
     /// Changes when placements or their entity references change.
     pub instance_revision: u64,
 }
@@ -185,6 +190,8 @@ pub struct Store {
     staged: Option<Resources>,
     mutation_bytes: usize,
     retired: Vec<Arc<Geometry>>,
+    retired_materials: Vec<Arc<crate::material::Material>>,
+    material_compiles: u32,
     entity_candidates: Vec<EntityKey>,
 }
 
@@ -203,6 +210,8 @@ impl Default for Store {
             staged: None,
             mutation_bytes: 0,
             retired: Vec::new(),
+            retired_materials: Vec::new(),
+            material_compiles: 0,
             entity_candidates: Vec::new(),
         }
     }
@@ -228,6 +237,7 @@ impl Store {
     pub fn begin(&mut self) {
         self.staged = None;
         self.mutation_bytes = 0;
+        self.material_compiles = 0;
     }
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
@@ -239,10 +249,13 @@ impl Store {
         };
         if let Some(staged) = staged
             && (staged.geometry_revision != self.committed.geometry_revision
+                || staged.material_revision != self.committed.material_revision
                 || staged.instance_revision != self.committed.instance_revision)
         {
             self.committed = Arc::new(staged);
         }
+        self.retired_materials
+            .retain(|material| Arc::strong_count(material) > 1);
         self.retired
             .retain(|geometry| Arc::strong_count(geometry) > 1);
     }
@@ -262,6 +275,8 @@ impl Store {
         self.committed = Arc::default();
         self.staged = None;
         self.retired.clear();
+        self.retired_materials.clear();
+        self.material_compiles = 0;
         self.entity_candidates.clear();
     }
 
@@ -366,6 +381,7 @@ impl Store {
     pub fn remove(&mut self, handle: Handle) -> Result<(), DrawError> {
         self.check(handle)?;
         let mut retired = None;
+        let mut retired_material = None;
         self.edit(0, |resources| {
             if resources.entities.contains_key(&handle) {
                 if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
@@ -385,6 +401,18 @@ impl Store {
             {
                 return Err(error(ErrorCode::InUse, "geometry"));
             }
+            if resources
+                .instances
+                .values()
+                .any(|instance| instance.material == Some(handle))
+            {
+                return Err(error(ErrorCode::InUse, "material"));
+            }
+            retired_material = resources.materials.remove(&handle);
+            if retired_material.is_some() {
+                resources.material_revision += 1;
+                return Ok(());
+            }
             retired = resources.geometry.remove(&handle);
             if retired.is_none() {
                 return Err(error(ErrorCode::StaleHandle, "resource"));
@@ -392,6 +420,14 @@ impl Store {
             resources.geometry_revision += 1;
             Ok(())
         })?;
+        if let Some(material) = retired_material
+            && !self
+                .retired_materials
+                .iter()
+                .any(|old| Arc::ptr_eq(old, &material))
+        {
+            self.retired_materials.push(material);
+        }
         if let Some(geometry) = retired
             && !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry))
         {
@@ -431,6 +467,7 @@ impl Store {
         let mut candidate = self.base();
         change(&mut candidate)?;
         validation::budget(&candidate, &self.retired)?;
+        self.material_budget(&candidate)?;
         self.mutation_bytes = total;
         self.staged = Some(candidate);
         Ok(())

@@ -567,5 +567,15 @@ fn shelf_mushroom_selection_uses_the_cap_and_preserves_oriented_collision_footpr
             selection.max[2],
             f64::from(source.max_z) * assets::block_shapes::COLLISION_COORDINATE_SCALE
         );
+        let mut changed = input.clone();
+        for boxes in [
+            Box::new([]) as Box<[_]>,
+            Box::new([super::collision_box(UNIT)]),
+        ] {
+            changed.boxes = boxes;
+            let actual = compile(record, &changed);
+            assert_eq!(actual.boxes, changed.boxes);
+            assert_eq!(actual.shapes.unwrap().selection, shapes.selection);
+        }
     }
 }

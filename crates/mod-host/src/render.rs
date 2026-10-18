@@ -126,7 +126,10 @@ impl RenderState {
     /// Copies only the immutable snapshot identity into renderer output.
     fn publish_retained(&mut self) -> bool {
         let snapshot = self.retained.snapshot();
-        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+        if snapshot.geometry.is_empty()
+            && snapshot.instances.is_empty()
+            && snapshot.materials.is_empty()
+        {
             let changed = !self.committed.retained.is_empty();
             self.committed.retained.clear();
             changed

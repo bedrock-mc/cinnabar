@@ -25,6 +25,8 @@ pub fn expanded_vertices(vertices: usize, indices: usize, polyline: bool, closed
 pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {
     api::Instance {
         geometry,
+        material: None,
+        params: crate::materials::Preset::default().0.to_vec(),
         anchor,
         transform: api::Transform {
             translation: (0., 0., 0.),
