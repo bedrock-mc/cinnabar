@@ -97,6 +97,7 @@ fn output(passes: Vec<Pass>, decals: usize) -> RenderOutput {
             decals: vec![decal(); decals],
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 

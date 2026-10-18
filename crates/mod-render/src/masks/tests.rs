@@ -34,6 +34,33 @@ fn masks_cannot_cross_owners_or_resource_kinds() {
 }
 
 #[test]
+fn merging_keeps_masks_and_retained_resources_in_owner_order() {
+    let outputs: Vec<_> = (1..=2)
+        .map(|owner| {
+            let (mut masks, _) = store(owner);
+            masks.create(MaskDepth::Test).unwrap();
+            crate::RenderOutput {
+                masks: masks.commit(),
+                retained: vec![Arc::default()],
+                ..Default::default()
+            }
+        })
+        .collect();
+    let mut merge = crate::RenderMerge::default();
+    let merged = merge.merge(&outputs);
+    assert_eq!(merged.masks.len(), outputs.len());
+    assert_eq!(merged.retained.len(), outputs.len());
+    for (index, output) in outputs.iter().enumerate() {
+        assert_eq!(merged.masks[index], output.masks[0]);
+        assert!(Arc::ptr_eq(&merged.retained[index], &output.retained[0]));
+    }
+    let remaining = merge.merge([&outputs[1]]);
+    assert_eq!(remaining.masks, outputs[1].masks);
+    assert_eq!(remaining.retained.len(), 1);
+    assert!(Arc::ptr_eq(&remaining.retained[0], &outputs[1].retained[0]));
+}
+
+#[test]
 fn selection_is_an_atomic_bounded_union_and_rolls_back() {
     let (mut store, key) = store(1);
     let mask = store.create(MaskDepth::Test).unwrap();

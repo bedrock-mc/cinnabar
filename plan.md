@@ -253,11 +253,16 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+Server archives can use a separate reliable WebTransport stream per join. The handoff receiver
+checks count and byte admission before accepting archives, verifies streamed SHA-256 digests,
+and waits for stream completion before startup. WebSocket keeps serial pack delivery on play.
+Incomplete: connecting this receiver to the playable browser host and browser acceptance remain
+part of the gameplay composition and release gates below.
 One page driver schedules bounded retries with caller time and jitter, and cancels timers
 on suspension or disposal. Explicit retries retain the account after admission or busy
 refusals; expired or refused resume requires a new session. Typed control payloads share
 Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
-finishing a join retires control so the next login obtains a new generation.
+finishing a join resets its play and pack channels while retaining control.
 A valid resume replaces the prior relay controller and cancels its channels even during
 transport teardown. New play waits for the old handler to finish while retaining the account.
 
@@ -9287,6 +9292,13 @@ Stored unspecified layouts resolve to the recipe-book layout on opening. The
 profile-specific forced-layout branch, exact stable-client gameplay acceptance,
 recipe discovery, ghost rendering and other station rules remain incomplete.
 
+2026-10-17 recipe category facts: item registry components retain the legacy
+numeric category with its typed Int and low-byte rules. A valid properties
+compound defaults that fact to zero when the field is absent or has another
+type; ambiguous paths remain unresolved. Recipe-unlock category masks and
+their UI consumers, built-in category defaults, and complete stable-client
+acceptance remain incomplete.
+
 ## Entity interaction and emote starts
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
@@ -10210,11 +10222,36 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+
+### Cache status aggregation and simulation opportunities (2026-10-18, incomplete)
+
+Cache classifications now enter one session outbox shared with the detached writer.
+Simulation opportunities select at most one packet with misses first and the existing
+combined hash limit. A strict five-millisecond exclusion advances even for an empty
+opportunity. Ordinary render flushes do not select status. Idle and terrain-blocked
+frames advance the session clock independently of movement output.
+
+Ready world ingress and admission events no longer wait for status writes. Intake
+pauses at the outbox byte budget, with one bounded candidate allowed to cross it,
+while ready ingress and bounded raw read-ahead keep their existing owners. Selected
+whole batches survive cancellation. Epoch rotation discards only status that has not
+entered the writer FIFO; accepted batches finish once and ordinary packets survive.
+Fast-transfer arming alone does not rotate the outbox.
+
+Regression coverage is written but unrun in this worktree. Compilation, deterministic
+red/green verification, review, complete cache lifecycle parity, unusual pause and
+step timing, and complete current-version callback parity remain open.
+
 ### Retained mod drawing
 
 Drawing permissions and connection fences cover legacy post effects, block highlights and
-unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
-renderer integration and entity anchors are incomplete; no rendering parity or performance
+unfiltered world observations. The retained drawing ABI is versioned separately. Retained
+indexed meshes, polylines, shared instances and callback groups are admitted transactionally
+with per-owner quotas.
+Geometry admission caches conservative position bounds, so shared-instance validation does
+not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
+and snapshot identity determine retained publication.
+Renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
@@ -10223,6 +10260,14 @@ material coverage. Depth-tested coverage is filtered before post effects; always
 coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
 observation and through-wall consent until a visibility-filtered target source exists.
 Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
+
+The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
+polylines, distance-based color gradients, grids and chunk borders directly in the
+generated WIT records. Entity boxes use caller-supplied authorized bounds. Instance
+defaults preserve depth testing. Legacy fixed primitives keep their existing
+paths because the unlit contract does not preserve their procedural coverage and
+placement. Their retained compatibility presets and a generated TypeScript author
+package remain incomplete.
 ## Chat editor submission prefixes
 
 Editor submissions remove leading ASCII spaces, tabs and line-control whitespace before

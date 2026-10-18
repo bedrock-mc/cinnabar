@@ -2,15 +2,13 @@
 
 use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
-use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_PASSES};
+use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
 
-/// Render imports per callback; drawing and per-pass updates need more than other capabilities.
-const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -22,10 +20,11 @@ fn next_revision() -> u64 {
 pub(super) struct RenderState {
     pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
+    pub(super) retained: mod_render::retained::Store,
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
-    calls: u32,
+    calls: usize,
     mask_calls: u32,
     compiles_left: u32,
 }
@@ -35,6 +34,7 @@ impl RenderState {
         Self {
             masks: mod_render::masks::MaskStore::new(next_revision()),
             committed: RenderOutput::default(),
+            retained: Default::default(),
             generation: next_revision(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
@@ -53,29 +53,47 @@ impl RenderState {
         self.generation
     }
 
-    /// Publishes retained masks after any successful callback, including event callbacks.
-    pub(super) fn commit_masks(&mut self) {
-        let masks = self.masks.commit();
-        if masks != self.committed.masks {
-            self.committed.masks = masks;
-            self.generation = next_revision();
-        }
+    /// Starts mask and geometry transactions and restores their import allowances.
+    pub fn begin_callback(&mut self) {
+        self.masks.begin();
+        self.retained.begin();
+        self.calls = 0;
+        self.mask_calls = 0;
     }
 
+    /// Discards earlier immediate output and restores the frame's shader compile allowance.
     pub fn begin_frame(&mut self) {
-        self.masks.begin();
-        self.calls = 0;
+        self.begin_callback();
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
     }
 
+    /// Publishes masks and geometry without replacing the frame's immediate output.
+    pub fn commit_retained(&mut self) {
+        let masks = self.masks.commit();
+        let mut changed = masks != self.committed.masks;
+        self.committed.masks = masks;
+        self.retained.commit();
+        let snapshot = self.retained.snapshot();
+        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+            changed |= !self.committed.retained.is_empty();
+            self.committed.retained.clear();
+        } else if !matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+        {
+            self.committed.retained.clear();
+            self.committed.retained.push(Arc::clone(snapshot));
+            changed = true;
+        }
+        if changed {
+            self.generation = next_revision();
+        }
+    }
+
+    /// Publishes immediate primitives and post effects after a successful frame.
     pub fn commit(&mut self) {
         let primitives = std::mem::take(&mut self.staged_primitives);
         let mut changed = false;
-        let masks = self.masks.commit();
-        changed |= masks != self.committed.masks;
-        self.committed.masks = masks;
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
             changed |= passes != self.committed.passes;
@@ -93,6 +111,7 @@ impl RenderState {
 
     pub fn revoke(&mut self) {
         self.masks.revoke();
+        self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
         if self.committed != RenderOutput::default() {
@@ -116,12 +135,6 @@ impl RenderState {
             bail!("mask import budget exhausted");
         }
         Ok(())
-    }
-
-    /// Starts a retained-mask transaction for any callback without expiring legacy primitives.
-    pub(super) fn begin_masks(&mut self) {
-        self.mask_calls = 0;
-        self.masks.begin();
     }
 
     fn staged(&mut self) -> &mut Vec<Pass> {

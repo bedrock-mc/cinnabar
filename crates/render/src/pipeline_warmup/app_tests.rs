@@ -113,6 +113,7 @@ fn mods(app: &mut App, enabled: bool) {
         masks: Default::default(),
         passes: vec![pass(1, true), pass(2, enabled)],
         primitives: default(),
+        ..Default::default()
     };
     let mut scene = app.world_mut().resource_mut::<ModRenderScene>();
     let generation = scene.generation() + 1;
