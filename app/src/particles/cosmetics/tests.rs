@@ -10,33 +10,9 @@ const EFFECT: &str = r##"{"particle_effect":{"description":{"identifier":"cinnab
  "minecraft:particle_appearance_billboard":{"size":[0.1,0.1],"facing_camera_mode":"lookat_xyz"}}}}"##;
 const IDENTIFIER: &str = "cinnabar_cosmetic:0123456789abcdef_0";
 
-/// Admits a metadata-only catalog item; emitter tracking never reads its rig.
+/// Uses a fully admitted original fixture so every catalog consumer can resolve its rig.
 fn item() -> cosmetics::Item {
-    let asset = cosmetics::Asset {
-        url: "fixture".into(),
-        sha256: "b".repeat(64),
-        bytes: 1,
-    };
-    cosmetics::Item::admit(cosmetics::Descriptor {
-        id: "fixture:emitting".into(),
-        slot: "aura".into(),
-        display_name: "Emitting fixture".into(),
-        tags: Vec::new(),
-        free: true,
-        assets: cosmetics::Assets {
-            geometry: asset.clone(),
-            texture: asset,
-            animation: None,
-        },
-        geometry_id: "geometry.fixture".into(),
-        attachment_bone: "head".into(),
-        offset: [0.0; 3],
-        render_flags: cosmetics::RenderFlags {
-            double_sided: false,
-            emissive: false,
-        },
-    })
-    .unwrap()
+    render_model::hats::fixture::crown()
 }
 
 /// A placement of the fixture effect on one actor at `x`.

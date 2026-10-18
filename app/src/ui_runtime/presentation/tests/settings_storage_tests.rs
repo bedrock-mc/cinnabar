@@ -1,19 +1,18 @@
 //! Storage presentation reads the actual app installation layout.
 use client_ui::test_support::{draw_menu_actions as draw, settings_view as settings};
-use launcher::menu::{MenuAction, MenuDialog, settings_storage::StorageAction};
+use launcher::menu::{
+    MenuAction, MenuDialog, settings_options::SettingId, settings_storage::StorageAction,
+};
 use std::sync::Arc;
 
 #[test]
 fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
-    else {
-        eprintln!(
-            "skipping settings_storage_has_real_categories_and_confirmed_cache_delete: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    let mut presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+        client_ui::test_support::pack_harness::font(),
+    )
+    .unwrap();
     let layout = launcher::test_support::scratch("storage-ui");
     std::fs::create_dir_all(layout.resource_pack_cache_dir()).unwrap();
     std::fs::write(
@@ -22,6 +21,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     )
     .unwrap();
     let mut view = settings();
+    Arc::make_mut(&mut view.settings_options).set(SettingId::ScreenAnimations.index(), 0);
     view.settings_section = launcher::menu::settings_storage::SECTION_INDEX;
     view.storage = Arc::new(launcher_host::settings_storage::read_storage(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
@@ -30,6 +30,23 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
         actions.contains(&MenuAction::SettingsStorage(StorageAction::RequestClear)),
         "{actions:?}"
     );
+    let clear = client_ui::test_support::menu_hit_targets(&presentation)
+        .iter()
+        .find(|(action, _)| *action == MenuAction::SettingsStorage(StorageAction::RequestClear))
+        .unwrap()
+        .1;
+    assert!(
+        presentation.scroll_menu(
+            ui::UiPoint::new(
+                (clear.min().x() + clear.max().x()) / 2.0,
+                (clear.min().y() + clear.max().y()) / 2.0,
+            )
+            .unwrap(),
+            -4096.0,
+            true,
+        )
+    );
+    let actions = draw(&player_runtime, &mut presentation, &view);
     assert!(
         actions.contains(&MenuAction::SettingsStorage(
             StorageAction::RequestScreenshots
