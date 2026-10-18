@@ -8607,6 +8607,16 @@ Rendered survival/creative selected-name geometry is inspected at the owner's
 Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
 local evidence paths and verification state.
 
+Recipe unlock packets now have a retained authority foundation: exact names and
+contexts survive recipe admission, additions resolve against the ordered catalog,
+and explicit membership survives ordinary catalog clears while a new session
+resets it. Unsupported crafting shapes and furnace-family identities remain
+addressable. Duplicate names across eligible tags are conservatively unresolved;
+exact tag priority and synthesized multi-recipe identities remain incomplete.
+This foundation does not gate existing manual or book consumers. Game-rule
+consumers, category masks, toast presentation, exact player lifecycle and stable
+live acceptance remain incomplete.
+
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
