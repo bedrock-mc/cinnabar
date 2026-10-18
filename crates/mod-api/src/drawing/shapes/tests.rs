@@ -255,10 +255,22 @@ fn excessive_subdivisions_fail_before_allocating_and_use_owner_limits() {
             .code,
         ErrorCode::BudgetExceeded
     );
-    let cells = u32::try_from(MAX_DRAW_GEOMETRIES).unwrap();
-    assert!(grid([1.; 2], [cells - 3, 1], COLOR).is_ok());
-    assert_eq!(
-        grid([1.; 2], [cells - 2, 1], COLOR).unwrap_err().code,
-        ErrorCode::BudgetExceeded
-    );
+}
+
+#[test]
+fn grid_admission_respects_the_callback_import_budget() {
+    let max_lines = crate::MAX_RENDER_CALLS.min(MAX_DRAW_GEOMETRIES);
+    let max_lines = u32::try_from(max_lines).unwrap();
+    for cells in [[max_lines - 3, 1], [1, max_lines - 3]] {
+        assert_eq!(
+            grid([1.; 2], cells, COLOR).unwrap().len(),
+            max_lines as usize
+        );
+    }
+    for cells in [[max_lines - 2, 1], [1, max_lines - 2]] {
+        assert_eq!(
+            grid([1.; 2], cells, COLOR).unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+    }
 }

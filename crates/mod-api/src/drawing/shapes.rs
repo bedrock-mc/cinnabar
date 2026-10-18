@@ -3,12 +3,12 @@
 //! Each result contains independent polylines, with no connecting segments between them.
 //! Upload each geometry once with `api::create_geometry`, then reuse its handle in instances.
 //! Builders perform no observation or host calls. Host admission and aggregate quotas remain
-//! authoritative, including when other resources already occupy the owner's budget.
+//! authoritative, including earlier imports in the callback and the owner's other resources.
 
 use super::api::{DrawError, ErrorCode, GeometrySpec, Polyline, Vertex};
 use crate::{
     MAX_DRAW_COLOR_COMPONENT, MAX_DRAW_GEOMETRIES, MAX_DRAW_GEOMETRY_BYTES,
-    MAX_DRAW_MUTATION_BYTES, MAX_DRAW_VERTICES, MAX_PRIMITIVE_EXTENT_BLOCKS,
+    MAX_DRAW_MUTATION_BYTES, MAX_DRAW_VERTICES, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_CALLS,
 };
 
 #[cfg(test)]
@@ -219,7 +219,7 @@ pub fn chunk_border(
 /// Rejects a shape that cannot fit an otherwise empty owner and callback before allocation.
 fn budget(lines: usize, vertices: usize) -> Result<(), DrawError> {
     let bytes = vertices.checked_mul(std::mem::size_of::<Vertex>() + std::mem::size_of::<f32>());
-    if lines > MAX_DRAW_GEOMETRIES
+    if lines > MAX_DRAW_GEOMETRIES.min(MAX_RENDER_CALLS)
         || vertices > MAX_DRAW_VERTICES
         || bytes.is_none_or(|b| b > MAX_DRAW_GEOMETRY_BYTES || b > MAX_DRAW_MUTATION_BYTES)
     {

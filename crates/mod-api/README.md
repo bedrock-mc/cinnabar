@@ -24,6 +24,8 @@ zero. Line width, joins and caps belong to each instance. Builders reject invali
 dimensions, non-finite values, out-of-range colors and shapes that exceed an empty
 owner's geometry or callback budget. Limits come from `mod-api`; host validation
 also accounts for the owner's other resources and instance transforms.
+Uploading each geometry uses one import. Other drawing and render imports in the
+same callback share that allowance.
 
 For example, these statements can run during an authorized mod callback:
 
