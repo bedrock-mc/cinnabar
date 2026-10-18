@@ -1,20 +1,33 @@
 //! App systems driving client-ui; the app retains system ordering and services.
 use client_shell::ui_resources::UiRuntimeResource;
-use client_ui::ui_runtime::{UiRuntime, inventory_drag};
+use client_ui::ui_runtime::UiRuntime;
+#[cfg(not(target_arch = "wasm32"))]
+use client_ui::ui_runtime::inventory_drag;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod emotes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod forms;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod gameplay_touch;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod interaction;
+pub(crate) mod outbound;
 pub mod presentation;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod scene_stack;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sign_editor;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod touch_pointer;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
-    flush_chat_network, flush_inventory_network, inventory::drive_world_inventory_keys,
+    inventory::drive_world_inventory_keys,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use sign_editor::drive_sign_editor;
 
 #[cfg(test)]

@@ -266,6 +266,31 @@ finishing a join resets its play and pack channels while retaining control.
 A valid resume replaces the prior relay controller and cancels its channels even during
 transport teardown. New play waits for the old handler to finish while retaining the account.
 
+The browser entry accepts verified memory carriers and an optional bundled font, then builds
+shared world, actor, movement and HUD owners on the page canvas. A server-address field opens
+one relay play lease through the existing login and packet pump. Disconnect retires gameplay
+authority; bounded server transfers open fresh play generations. Canvas input enters the same
+semantic router. Native pacing, processes, signing, disk caches and menu services remain native.
+Renderer, geometry, UI preparation and retired snapshots use bounded browser job slots.
+Pending cloud windows yield until their exact geometry is ready. WebGPU reports allocation
+errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
+
+The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
+The existing decoder and mixer feed Web Audio. Headless Chrome with Metal WebGPU fetches
+encoded ranges, plays nonzero game samples after a canvas gesture, suspends on cached
+navigation, resumes on another gesture and closes its stream once on final disposal.
+Native owner checks and a wasm artifact pass. The host boots, renders an offline world's
+terrain and HUD, and moves its player. WebSocket transfer, disconnect and rejoin pass.
+Incomplete: interactive inventory/chat/forms controls, initial terrain latency, shader output
+comparisons, audio parity and indivisible job costs remain unverified. Cached navigation retains
+page resources and restores relay controls with an unexpired capability. No browser release
+or parity gate closes here.
+
+The browser account adapter projects device-code prompts, refusals and identity into the shared
+menu. External services expose account intents and preference changes without native helper
+launches. Browser preferences bound saved servers and GUI scale; storage failures are reported.
+The sign-in gesture bridge validates links and removes listeners on teardown. Wiring these
+menu, gesture and persistence handoffs into the running browser host remains incomplete.
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
@@ -1090,6 +1115,21 @@ screen-effect parity remain incomplete.
   cardinal orientation. The base, rim, stem and head replace the provisional single cuboid.
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
+
+## Authored terrain materials
+
+- Optional authored maps decode texture sets, MER/MERS and explicit LabPBR 1.3.
+  Joint material mip generation preserves cutout coverage and filters normals and roughness.
+  Local packs can reuse a content-addressed decode cache. GPU uploads retain carrier
+  resources and publish complete authored maps after bounded transfers.
+- Enhanced remains hard-disabled, so normal sessions do not load these packs or change
+  rendered output. Renderer integration and visual/performance acceptance remain incomplete.
+- Incomplete: Java LabPBR files pair with Bedrock textures through a provisional name
+  table (`crates/pack-compiler/src/pbr/sources/names.rs`, baselined in the architecture gate).
+  Replace it with a generated Java/Bedrock mapping shared with shader-pack block IDs.
+  Independent authored animation timing remains incomplete; frames use the carrier clock.
+  State and positional variants outside the variant-zero source retain carrier artwork
+  until authored variant resolution is implemented.
 
 ## Anvil screen
 
@@ -2121,7 +2161,8 @@ not close a parity or visual acceptance gate.
 - Loom banner inputs check the admitted item identity and typed root Type. Grindstone inputs
   require an enchantment List or admitted damageability without a true Unbreakable Byte.
   Valid durability components retain a zero Int maximum as damageable, without a durability bar
-  or positive repair maximum. Inventory and world registry admission share that maximum rule. Registry changes retire placements or fallback routes whose
+  or positive repair maximum. Inventory and world registry admission share that maximum rule.
+  Registry changes retire placements or fallback routes whose
   admission changes. Cancelling unsent gestures restores the sparse owners they replaced,
   including empty cursor ownership; server rejection keeps its separate response behavior.
   Registry-dependent malformed component loading and remaining station membership checks
@@ -7892,6 +7933,12 @@ the interaction parity gate.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Selected transaction descriptors omit the optional stack network ID for actor use,
+block use/destroy, air use, item-directed attack and release, including the shared
+embedded movement payload. Serialization regressions preserve item contents and
+inventory action identities. Admission, dynamic actions, NBT rewriting and combined
+runtime acceptance remain incomplete; this bounded correction closes no parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid
@@ -7995,6 +8042,24 @@ Dragonfly restores the local host with the selected mode, and native and contain
 apply the selected mode to existing worlds. The local-world parity gate remains provisional.
 
 ## Phase 8 — Audio, polish, packaging
+
+**Optional mod updates:** Components can declare a GitHub latest-release WASM URL
+for automatic background updates, or a repository URL for notifications alone.
+The launch-scoped worker compares stable SemVer tags, caches repository checks,
+and bounds API responses, asset downloads and redirects. Exact assets require a
+verified SHA-256, matching embedded version/source and host compatibility before
+atomic replacement of an unchanged managed file. Settings and grants persist;
+the existing watcher reloads enabled mods. Separate General settings disable
+automatic installation or all mod checks, including in passive app-updater builds.
+The per-mod Update button downloads and installs the exact WASM in-app when
+automatic installation is off. Pack-compatible progress reports bytes, percentage,
+smoothed speed and ETA, then verification, installation and reload. Reload completes
+only on the new runtime acknowledgement; duplicate presses are rejected and failures
+can be retried without changing the automatic preference.
+Regressions cover metadata, versions, cancellation, stale sources, download
+integrity and unchanged permissions/settings. Offline home and Mods-tab captures
+pass at desktop and small window sizes; live automatic-update acceptance remains
+incomplete.
 
 **Rain ambience:** completed weather ticks now admit overlapping finite rain
 sounds from loaded warm precipitation columns. Sample density follows rain
@@ -8525,6 +8590,26 @@ scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
 
+### Sub-chunk request batching (incomplete serverbound parity)
+
+Sub-chunk dispatch now groups the stable admitted intent prefix into one request.
+It samples the current published render camera when its session, stream and dimension
+owners match, otherwise the current actor position. Horizontal coordinates floor to
+16-block cells; the vertical origin stays zero. Absolute member positions keep their
+admitted order, including sparse negative heights and multiple columns. Each axis
+admits offsets from -127 through 127, and one packet holds at most 8,192 members.
+The per-frame budget still counts column intents and bounds the flattening work.
+Wrong-dimension and unencodable demands retire without declaring terrain loaded.
+Transport refusal restores current intents in order; successful writes confirm one
+immutable packet membership and arm response deadlines only for its current demands.
+
+This implements the bounded 26.30 request origin, ordering and grouping contract.
+The existing timeout, retry, recovery and queue capacities remain local policy and
+are explicitly incomplete for native parity. Global request discovery, the complete
+camera writer phase, broader native retry policy, later client versions, and live
+streaming and join acceptance remain open. Regression coverage is authored;
+final verification and independent review are pending.
+
 ### Between-frames world servicing (incomplete native acceptance)
 
 The production client lends `WorldStream` to a `stream-service` thread after each frame's
@@ -8559,8 +8644,26 @@ Rendered survival/creative selected-name geometry is inspected at the owner's
 Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
 local evidence paths and verification state.
 
+Recipe unlock packets now have a retained authority foundation: exact names and
+contexts survive recipe admission, additions resolve against the ordered catalog,
+and explicit membership survives ordinary catalog clears while a new session
+resets it. Unsupported crafting shapes and furnace-family identities remain
+addressable. Duplicate names across eligible tags are conservatively unresolved;
+exact tag priority and synthesized multi-recipe identities remain incomplete.
+Startup and later crafting rules now reach the committed inventory frontier.
+Manual results check exact recipe discovery when both recipe unlocking and
+limited crafting are enabled. The book distinguishes absent discovery state
+from an empty component, and nonempty search can show locked recipes
+when limited crafting is off. Their selection remains guarded. Book actions recheck the current recipe handle
+and discovery; rule and unlock changes invalidate retained output previews.
+Book rows aggregate ingredient availability across same-output variants separately
+from the candidate's discovery permission, and selection rechecks that permission.
+Initial discovery-state absence is provisional; player creation, respawn and
+listener ordering still require verification. Category masks, toast presentation,
+complete book variant ranking and stable live acceptance remain incomplete.
+
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
-limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+complete recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
 
@@ -9335,6 +9438,19 @@ Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery remain incomplete; the full furnace parity gate stays open.
+
+2026-10-17 inventory preferences: protocol 2193 inventory-option updates enter
+ordered startup/play ingress and remain session-owned. Classic personal inventories
+and crafting tables snapshot the complete tuple, resolve their own active layout,
+and preserve the inactive layout. Tabs use explicit UI/wire conversion. Changed
+controls save immediately without echoing incoming updates; queued older choices
+cannot suppress a later selection. Filtering defaults to false, with a creative
+model bypass that preserves the saved toggle. The carrier renders Classic's wide
+recipe list, and right-tab selection bindings are supplied. Pocket presentation,
+input-profile selection, persistent profile storage, recipe-unlock category guards,
+full right-panel presentation, additional search-related saves, and stable-client
+visual acceptance remain incomplete;
+these changes do not close the inventory parity gate.
 
 2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
 inventory ingress and retain separate player choices for furnace, blast furnace
@@ -10303,19 +10419,34 @@ step timing, and complete current-version callback parity remain open.
 Drawing permissions and connection fences cover legacy post effects, block highlights and
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained
 indexed meshes, polylines, shared instances and callback groups are admitted transactionally
-with per-owner quotas.
-Geometry admission caches conservative position bounds, so shared-instance validation does
-not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
-and snapshot identity determine retained publication.
-Renderer integration and entity anchors are incomplete; no rendering parity or performance
-gate is closed by these contracts.
+with per-owner quotas. The shared unlit renderer reuses meshes and updates view-relative
+instances. Geometry admission validates each vertex once and caches box and sphere bounds,
+payload bytes and expanded vertex counts. Instance validation uses only cached facts;
+nonuniform scales use conservative extent bounds. Callbacks without resource changes
+preserve snapshots without allocating; separate geometry, material and instance revisions
+and snapshot identity determine retained publication. Entity root anchors use exact
+owner-issued spawn references and the actor renderer publication. Missing roots hide,
+while confirmed despawns release their instances.
+
+Procedural materials add fixed per-instance parameters, a wrapped real-time session clock,
+SDK presets and owner-scoped fragment-only WGSL with compile and cost bounds. World
+emission participates in enabled HDR bloom; render-mode-independent halos require the
+separate mask path. Deterministic lifecycle, shader and animation capture tests cover these
+contracts. Bone anchors, in-world native output captures and hardware budgets remain
+incomplete; no rendering parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
 vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
 material coverage. Depth-tested coverage is filtered before post effects; always-visible
 coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
 observation and through-wall consent until a visibility-filtered target source exists.
-Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
+Bounded host outlines and shared downsampled halos compose display-space colours after grading,
+independently of world bloom. Loading waits for the shared blur and both scene-format composites,
+even before a selection is published. Styles retain bindings for both scene textures until
+their coverage, halo, sampler or scene inputs change. Custom post effects declare only their
+owner's masks and need separate post authority. Incomplete: in-world Enhanced bloom on/off,
+hand/UI ordering acceptance, resolution-transition captures and hardware budget measurements.
+Offscreen tests do not close those live or performance gates.
 
 The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
 polylines, distance-based color gradients, grids and chunk borders directly in the
@@ -10351,6 +10482,14 @@ sneak and sprint states. Undefined attributes retain their wire defaults and ref
 sends remain pending. Other locally predicted flags, bounding-box updates, history
 loss and exact send phase remain open; this does not close movement parity.
 
+## Local actor presentation flags (incomplete)
+
+Local animation flags are retained separately from received gameplay metadata.
+Visual held-item use and locomotion poses cannot change correction-sync flags.
+Nametags, player previews, hands and the paperdoll read the rendering state.
+
+Accepted local held-use and glide/swim/crawl projection, replay authority and exact
+send phase remain incomplete. This separation does not close movement parity.
 ## Sign text line breaks
 
 Sign edits retain existing trailing blank lines and line breaks entered before closing.

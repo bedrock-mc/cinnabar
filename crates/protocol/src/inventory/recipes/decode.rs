@@ -3,6 +3,7 @@ use super::{
     budget::{Credits, MAX_UPDATE_BYTES},
     crafting::RecipeOutput,
     grammar,
+    identity::{RecipeIdentity, RecipeUnlockingContext},
     model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
     screen::{
@@ -30,10 +31,12 @@ pub(super) fn decode_with_credits(
         let mut brewing_count = 0usize;
         let mut screen_brewing_count = 0usize;
         let mut recipe_count = 0usize;
+        let mut identities_count = 0usize;
         let (clear, _) = grammar::walk(
             &mut reader,
-            |_, candidate| {
+            |_, candidate, identity| {
                 recipe_count += 1;
+                identities_count += usize::from(identity.is_some());
                 retained_names += candidate.map_or(0, |candidate| {
                     candidate
                         .ingredients
@@ -80,6 +83,9 @@ pub(super) fn decode_with_credits(
             .and_then(|n| {
                 n.checked_add(screen_brewing_count.checked_mul(size_of::<BrewingRecipe>())?)
             })
+            .and_then(|n| {
+                n.checked_add(identities_count.checked_mul(size_of::<RecipeIdentity>() + 64)?)
+            })
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -96,6 +102,10 @@ pub(super) fn decode_with_credits(
         brewing
             .try_reserve_exact(brewing_count)
             .map_err(|_| Refusal::Policy)?;
+        let mut identities = Vec::new();
+        identities
+            .try_reserve_exact(identities_count)
+            .map_err(|_| Refusal::Policy)?;
         let mut screens = ScreenRecipes::default();
         screens
             .recipes
@@ -111,7 +121,19 @@ pub(super) fn decode_with_credits(
             .map_err(|_| Refusal::Policy)?;
         grammar::walk(
             &mut reader,
-            |id, candidate| {
+            |id, candidate, identity| {
+                let identity_index = if let Some(identity) = identity {
+                    let index = identities.len();
+                    identities.push(RecipeIdentity {
+                        name: owned_text(identity.name)?,
+                        tag: owned_text(identity.tag)?,
+                        context: RecipeUnlockingContext::from_index(identity.context),
+                        network_id: id,
+                    });
+                    Some(index)
+                } else {
+                    None
+                };
                 let recipe = if let Some(candidate) = candidate {
                     let mut ingredients: [Option<Ingredient>; MAX_INGREDIENTS] =
                         std::array::from_fn(|_| None);
@@ -142,7 +164,11 @@ pub(super) fn decode_with_credits(
                 } else {
                     None
                 };
-                records.push(Record { id, recipe });
+                records.push(Record {
+                    id,
+                    recipe,
+                    identity_index,
+                });
                 Ok(())
             },
             |item| {
@@ -231,6 +257,7 @@ pub(super) fn decode_with_credits(
         Ok(RecipeUpdate {
             batch: Some(Arc::new(Batch {
                 records,
+                identities,
                 screen: screens,
                 brewing,
                 clear,
@@ -243,6 +270,15 @@ pub(super) fn decode_with_credits(
         Err(Refusal::Policy) => Ok(RecipeUpdate::unavailable()),
         Err(Refusal::Wire) => Err(super::super::InventoryPacketError::MalformedWire),
     }
+}
+
+/// Copies text only after the complete decoded batch has reserved its allocation credit.
+fn owned_text(value: &str) -> Result<String, Refusal> {
+    let mut text = String::new();
+    text.try_reserve_exact(value.len())
+        .map_err(|_| Refusal::Policy)?;
+    text.push_str(value);
+    Ok(text)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 //! Coordinates optional atlas preparation before the main world publishes new material IDs.
-use super::{ChunkRenderInstance, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use super::{ChunkRenderInstance, ChunkTextureAssets, ChunkTextureBindingIdentity};
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::{Arc, Mutex};
 
@@ -55,7 +55,7 @@ impl ChunkTextureReload {
         if state
             .requested
             .as_ref()
-            .is_none_or(|current| current.identity() != assets.identity())
+            .is_none_or(|current| current.binding_identity() != assets.binding_identity())
         {
             state.requested = Some(assets);
             state.geometry = None;
@@ -79,7 +79,7 @@ impl ChunkTextureReload {
         if state
             .requested
             .as_ref()
-            .is_some_and(|current| current.identity() == assets.identity())
+            .is_some_and(|current| current.binding_identity() == assets.binding_identity())
             && state.geometry.is_some()
         {
             return;
@@ -146,12 +146,12 @@ impl ChunkTextureReload {
     }
 
     /// Reports whether this candidate is fully built, without blocking either world.
-    pub fn status(&self, identity: ChunkTextureAssetIdentity) -> Option<Result<(), String>> {
+    pub fn status(&self, identity: ChunkTextureBindingIdentity) -> Option<Result<(), String>> {
         let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if state
             .requested
             .as_ref()
-            .is_none_or(|assets| assets.identity() != identity)
+            .is_none_or(|assets| assets.binding_identity() != identity)
         {
             return None;
         }
@@ -159,12 +159,12 @@ impl ChunkTextureReload {
     }
 
     /// Retires abandoned requests while preserving an atlas awaiting publication extraction.
-    pub fn cancel_except(&self, published: ChunkTextureAssetIdentity) {
+    pub fn cancel_except(&self, published: ChunkTextureBindingIdentity) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if state
             .requested
             .as_ref()
-            .is_none_or(|assets| assets.identity() != published)
+            .is_none_or(|assets| assets.binding_identity() != published)
         {
             state.requested = None;
             state.geometry = None;
@@ -205,11 +205,11 @@ impl ChunkTextureReload {
     pub fn accepts(
         &self,
         request: &ChunkTexturePreparation,
-        selected: ChunkTextureAssetIdentity,
+        selected: ChunkTextureBindingIdentity,
     ) -> bool {
         let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         request.epoch == state.geometry_epoch
-            && (state.is_current(request) || request.assets.identity() == selected)
+            && (state.is_current(request) || request.assets.binding_identity() == selected)
     }
 
     /// Completes only this exact attempt; cancelled or superseded work cannot complete a retry.

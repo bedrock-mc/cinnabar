@@ -1,3 +1,7 @@
+#[cfg(target_arch = "wasm32")]
+use super::compile_execution::scope;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::scope;
 use std::sync::Arc;
 
 use resource_pack::{LayeredPackView, PackAdmission};
@@ -134,11 +138,11 @@ pub(super) fn prepare_join(
     bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
     let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
+    #[cfg(not(target_arch = "wasm32"))]
     if preparation.has_applied_packs() {
-        chunk_pipeline::on_idle_world_cores(prepare)
-    } else {
-        prepare()
+        return chunk_pipeline::on_idle_world_cores(prepare);
     }
+    prepare()
 }
 
 /// [`prepare_join`] against an explicit set of kept stacks.
@@ -297,7 +301,7 @@ fn compile_application(
     let mut block_entity_art = None;
     // The entity compile checks cancellation between its own steps, as it outlasts the rest.
     let mut entities_stopped = false;
-    rayon::scope(|scope| {
+    scope(|scope| {
         scope.spawn(|_| {
             block_entity_art = compile_part(
                 &stack,
@@ -590,6 +594,7 @@ pub(crate) fn await_overlay_texture_device() {
 /// Publishes the active device's array limit to pack preparation workers at startup.
 pub(crate) fn initialize_overlay_texture_limit(
     device: Option<bevy::prelude::Res<bevy::render::renderer::RenderDevice>>,
+    memory: Option<bevy::prelude::Res<crate::host_memory::HostMemory>>,
 ) {
     let max_dimension_2d = device.as_ref().map_or_else(
         || wgpu::Limits::default().max_texture_dimension_2d,
@@ -598,7 +603,10 @@ pub(crate) fn initialize_overlay_texture_limit(
     assets::texture::policy::set_device_policy(max_dimension_2d);
     assets::texture::policy::set_terrain_device_policy(
         max_dimension_2d,
-        resource_pack::subpacks::device_memory_tier(launcher_host::memory::physical_bytes()),
+        resource_pack::subpacks::device_memory_tier(memory.map_or_else(
+            || crate::host_memory::HostMemory::default().0,
+            |memory| memory.0,
+        )),
     );
     let limit = device.map_or_else(
         || wgpu::Limits::default().max_texture_array_layers,

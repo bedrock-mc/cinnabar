@@ -3,7 +3,7 @@
     clippy::print_stdout,
     reason = "the manifest tool writes the delivery index JSON to stdout"
 )]
-use assets::carriers::startup::delivery::DeliveryManifest;
+use assets::carriers::{self, startup::delivery::DeliveryManifest};
 use std::path::PathBuf;
 
 /// Writes only carrier identities and sizes; compiled game assets stay local.
@@ -18,9 +18,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(flag), Some(destination), None) if flag == "--copy-to" => {
             let destination = PathBuf::from(destination);
             // Check admission before copying, then hash the delivered files themselves.
-            DeliveryManifest::from_directory(&directory)?;
+            let manifest = DeliveryManifest::from_directory(&directory)?;
             std::fs::create_dir(&destination)?;
-            for carrier in assets::carriers::startup::delivery::startup_carriers() {
+            // The sound bank is served by ranges, outside the eager-download index.
+            let bank = std::iter::once(&carriers::AUDIO_BANK)
+                .filter(|carrier| directory.join(carrier.output).is_file());
+            for carrier in manifest.carriers().chain(bank) {
                 std::fs::copy(
                     directory.join(carrier.output),
                     destination.join(carrier.output),

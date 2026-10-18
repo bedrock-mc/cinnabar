@@ -171,6 +171,56 @@ mod session {
         time.time.0
     }
 
+    /// Options received during spawn retain their position in the play ingress stream.
+    #[tokio::test]
+    async fn inventory_options_survive_startup_and_reach_world_ingress() {
+        let options = Packet::new(packets::SetPlayerInventoryOptions::default());
+        let Pair { transport, .. } = &mut handed_off(
+            "inventory-options-startup",
+            &[vec![
+                options,
+                registry("minecraft:shield", 355),
+                radius(16),
+                player_spawn(),
+                crate::inventory_options_packet(crate::InventoryOptions {
+                    filtering: true,
+                    ..Default::default()
+                }),
+                set_time(9),
+            ]],
+        )
+        .await;
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .unwrap();
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("options packet")
+        };
+        let event =
+            crate::login::decode_world_raw_with(raw, 0, crate::login::decode_test_raw).unwrap();
+        assert!(
+            matches!(event, Some(crate::WorldEvent::Inventory(_))),
+            "inventory options must reach play ingress"
+        );
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("radius packet")
+        };
+        assert_eq!(raw.id, PacketId::ChunkRadiusUpdated);
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("later options packet")
+        };
+        assert_eq!(
+            crate::login::decode_world_raw_with(raw, 0, crate::login::decode_test_raw).unwrap(),
+            Some(crate::WorldEvent::Inventory(
+                crate::InventoryEvent::Options(crate::InventoryOptions {
+                    filtering: true,
+                    ..Default::default()
+                })
+            ))
+        );
+        assert_eq!(next_time(transport).await, 9);
+    }
+
     /// A terminal core message of `kind` with its JSON body.
     fn terminal(kind: u8, json: &str) -> Vec<u8> {
         let mut message = vec![kind];

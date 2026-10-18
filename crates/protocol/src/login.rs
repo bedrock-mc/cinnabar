@@ -781,6 +781,13 @@ fn decode_world_raw_with(
             update,
         ))));
     }
+    if raw.id == PacketId::UnlockedRecipes {
+        let update = crate::decode_recipe_unlocks(raw.body())
+            .map_err(crate::world::WorldPacketError::from)?;
+        return Ok(Some(WorldEvent::Inventory(
+            crate::InventoryEvent::RecipeUnlocks(update),
+        )));
+    }
     // Play decodes only the packets world normalization consumes; the rest stay undecoded.
     if !crate::world::routes_world_packet(raw.id) {
         return Ok(None);

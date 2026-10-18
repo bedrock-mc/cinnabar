@@ -17,6 +17,9 @@ pub use session::{
     prepare_network, session_failure_display,
 };
 
+/// Maximum automatic redirects before the player must request a fresh join.
+pub const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
+
 /// Optional observations at the original transport publication boundaries.
 #[derive(Clone, Copy)]
 pub struct SessionTrace {

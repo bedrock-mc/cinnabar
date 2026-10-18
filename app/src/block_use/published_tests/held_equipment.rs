@@ -138,31 +138,34 @@ fn retry_events(packets: &[protocol::Packet]) -> Vec<RetryEvent> {
 /// Changes known backing counts without changing held item identity.
 fn retry_counts(world: &mut World, main: u16, off: u16) {
     let mut player = world.resource_mut::<client_state::PlayerRuntime>();
-    let backing = player.selected_stack().unwrap().clone();
-    for (window_id, count) in [
-        (protocol::PLAYER_INVENTORY_WINDOW_ID, main),
-        (protocol::OFFHAND_WINDOW_ID, off),
-    ] {
-        let mut stack = backing.clone();
-        stack.count = count;
-        let event = if window_id == protocol::OFFHAND_WINDOW_ID {
-            protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
-                container: protocol::ContainerIdentity::window(window_id),
-                slots: [stack].into(),
-                storage_item: protocol::NetworkItemStack::empty(),
-            })
-        } else {
-            protocol::InventoryEvent::Slot(protocol::InventorySlotEvent {
+    let mut stack = player.selected_stack().unwrap().clone();
+    stack.count = main;
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Slot(
+            protocol::InventorySlotEvent {
                 identity: protocol::SlotIdentity {
-                    container: protocol::ContainerIdentity::window(window_id),
+                    container: protocol::ContainerIdentity::window(
+                        protocol::PLAYER_INVENTORY_WINDOW_ID,
+                    ),
                     slot: 0,
                 },
-                stack,
+                stack: stack.clone(),
                 storage_item: None,
-            })
-        };
-        player.inventory.ledger_mut().apply(&event);
-    }
+            },
+        ));
+    stack.count = off;
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                slots: [stack].into(),
+                storage_item: protocol::NetworkItemStack::empty(),
+            },
+        ));
 }
 
 /// Establishes accepted baseline equipment through the production schedule.

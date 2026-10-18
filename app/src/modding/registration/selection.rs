@@ -82,10 +82,10 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
         .into_iter()
         .map(|entry| {
             let recorded = statuses.as_ref().and_then(|statuses| {
-                statuses
-                    .mods
-                    .iter()
-                    .find(|status| same_path(&status.component, &entry.component))
+                statuses.mods.iter().find(|status| {
+                    same_path(&status.component, &entry.component)
+                        && status.reload == Some(entry.reload)
+                })
             });
             let status = match recorded {
                 Some(recorded) if recorded.state == "loaded" => Status::Running,

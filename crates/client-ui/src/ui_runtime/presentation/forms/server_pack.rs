@@ -53,25 +53,24 @@ impl ServerUiPack {
         };
         let catalog = Arc::new(layered.pack);
         // HUD art and screen policies each read only the finished catalog.
-        let ((), settings) = rayon::join(
-            || {
-                let _zone = tracing::info_span!("ui.prepare.hud_textures").entered();
-                let textures = super::hud::prepare(&catalog);
-                if let Some(view) = &self.view {
-                    ui_engine::prepared::keep_textures(
-                        &catalog,
-                        PrereadTextures::read(view, &textures),
-                    );
-                }
-            },
-            || {
-                let _zone = tracing::info_span!("ui.prepare.screen_settings").entered();
-                PreparedScreenSettings::new(
-                    catalog.clone(),
-                    ui_screens::menu_screens::retail_context(),
-                )
-            },
-        );
+        let textures = || {
+            let _zone = tracing::info_span!("ui.prepare.hud_textures").entered();
+            let textures = super::hud::prepare(&catalog);
+            if let Some(view) = &self.view {
+                ui_engine::prepared::keep_textures(
+                    &catalog,
+                    PrereadTextures::read(view, &textures),
+                );
+            }
+        };
+        let settings = || {
+            let _zone = tracing::info_span!("ui.prepare.screen_settings").entered();
+            PreparedScreenSettings::new(catalog.clone(), ui_screens::menu_screens::retail_context())
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let ((), settings) = rayon::join(textures, settings);
+        #[cfg(target_arch = "wasm32")]
+        let ((), settings) = (textures(), settings());
         prepared.screen_settings = Some(Arc::new(settings));
         prepared.catalog = Some(catalog);
         prepared.builtin_screen_catalog = layered.builtin_screens.map(Arc::new);

@@ -17,7 +17,7 @@ mod crosshair;
 mod hover;
 use crosshair::resolve_crosshair;
 
-use crate::modding::interaction::ModInteraction;
+use crate::interaction_override::ModInteraction;
 use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
