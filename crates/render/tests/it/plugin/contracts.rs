@@ -39,7 +39,7 @@ fn sort_key(
     ViewSortKey::try_new(
         camera.map(|value| value as f32),
         visible,
-        texture_identity(assets as usize, assets),
+        texture_assets(assets as usize, assets).identity(),
         meshing::ChunkBiomeTintIdentity::new(tint, tint),
     )
     .unwrap()
@@ -234,7 +234,7 @@ fn conflicting_duplicate_visible_allocation_is_rejected() {
         ViewSortKey::try_new(
             [0.0, 0.0, 0.0],
             vec![allocation(key, 1, 8), allocation(key, 2, 16)],
-            texture_identity(1, 1),
+            texture_assets(1, 1).identity(),
             meshing::ChunkBiomeTintIdentity::new(1, 1),
         ),
         Err(TransparentSortError::ConflictingAllocation { key })
@@ -249,7 +249,7 @@ fn sort_key_tracks_quantized_position_only_while_water_is_near() {
         ViewSortKey::try_new(
             camera,
             visible.clone(),
-            texture_identity(1, 1),
+            texture_assets(1, 1).identity(),
             meshing::ChunkBiomeTintIdentity::new(1, 1),
         )
         .unwrap()

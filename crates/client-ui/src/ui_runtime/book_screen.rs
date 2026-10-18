@@ -199,11 +199,13 @@ impl BookState {
 }
 
 impl UiRuntime {
-    /// Queues a client packet for the next network flush.
-    pub fn queue_client_packet(&mut self, packet: Packet) {
-        if self.client_packets.len() < MAX_QUEUED_CLIENT_PACKETS {
-            self.client_packets.push_back(packet);
+    /// Queues a client packet for the next flush; returns false when the queue is full.
+    pub fn queue_client_packet(&mut self, packet: Packet) -> bool {
+        if self.client_packets.len() >= MAX_QUEUED_CLIENT_PACKETS {
+            return false;
         }
+        self.client_packets.push_back(packet);
+        true
     }
 
     pub fn take_client_packet(&mut self) -> Option<Packet> {
@@ -224,7 +226,7 @@ impl UiRuntime {
         self.chat_focused = false;
     }
 
-    /// Handles the selected book, opening it only after any initialization is admitted.
+    /// Opens the selected backing book after its item-use transaction is admitted.
     /// A rejected send leaves the book closed and its inventory stack unchanged.
     pub fn open_held_book(
         &mut self,
@@ -235,7 +237,7 @@ impl UiRuntime {
         let Some(slot) = player_runtime.selected_hotbar_slot() else {
             return false;
         };
-        let Some(stack) = player_runtime.inventory.ledger().displayed_stack(slot) else {
+        let Some(stack) = player_runtime.selected_backing_stack() else {
             return false;
         };
         let Some(entry) = player_runtime
@@ -259,23 +261,25 @@ impl UiRuntime {
             book.title.as_deref().unwrap_or_default().to_owned(),
             book.author.as_deref().unwrap_or_default().to_owned(),
         );
-        if editable && protocol::book_needs_init(&stack.extra_data) {
-            let ledger = player_runtime.inventory.ledger();
-            if ledger.slot_pending(slot)
-                || ledger.resync_required()
-                || player_runtime
-                    .inventory
-                    .pending_hotbar_selection()
-                    .is_some()
-            {
-                return true;
-            }
-            let Some((position, revision)) = position.zip(ledger.authoritative_slot_revision(slot))
-            else {
-                return true;
-            };
-            let Ok(from) =
-                protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+        if player_runtime
+            .inventory
+            .pending_hotbar_selection()
+            .is_some()
+        {
+            return true;
+        }
+        let Some(position) = position else {
+            return true;
+        };
+        let Ok(from) = protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+        else {
+            return true;
+        };
+        let initialization = if editable && protocol::book_needs_init(&stack.extra_data) {
+            let Some(revision) = player_runtime
+                .inventory
+                .ledger()
+                .authoritative_slot_revision(slot)
             else {
                 return true;
             };
@@ -284,24 +288,31 @@ impl UiRuntime {
             else {
                 return true;
             };
-            let Ok(packet) = protocol::click_air_packet(
-                protocol::HeldItemRequest {
-                    selected_slot: slot,
-                    selected_item: from,
-                    player_position: position,
-                },
-                Some(change.clone()),
-            ) else {
-                return true;
-            };
-            if !send(packet)
-                || !player_runtime
-                    .inventory
-                    .ledger_mut()
-                    .settle_use_slot_change(slot, revision, &change)
-            {
-                return true;
-            }
+            Some((revision, change))
+        } else {
+            None
+        };
+        let Ok(packet) = protocol::click_air_packet(
+            protocol::HeldItemRequest {
+                hand: protocol::ItemUseHand::Mainhand,
+                selected_slot: slot,
+                selected_item: from,
+                player_position: position,
+            },
+            initialization.as_ref().map(|(_, change)| change.clone()),
+        ) else {
+            return true;
+        };
+        if !send(packet) {
+            return true;
+        }
+        if let Some((revision, change)) = initialization
+            && !player_runtime
+                .inventory
+                .ledger_mut()
+                .settle_use_slot_change(slot, revision, &change)
+        {
+            return true;
         }
         self.open_book(state);
         true

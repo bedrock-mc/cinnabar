@@ -43,7 +43,7 @@ fn local_fixture_with(
     let mut geometries = compiled.geometries.into_vec();
     geometries.push(layer_geometry);
     compiled.geometries = geometries.into();
-    compiled.rig_bindings[0].render_controller = 4;
+    compiled.rig_bindings[0].render_controller = Some(4);
     compiled.rig_bindings[0].pre_animation = None;
     compiled.animation_clips[0].symbol = 3;
     compiled.animation_clips[0].anim_time_update = authored_clock.then_some(2);

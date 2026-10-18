@@ -42,7 +42,7 @@ fn swelling_geometry(active: bool) -> assets::CompiledEntityAssets {
         },
     );
     compiled.symbols = symbols.into();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.animation_clips[0].symbol += 1;
     let mut keys = compiled.animation_keyframes.to_vec();
     let mut key = keys[0];

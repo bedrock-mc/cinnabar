@@ -336,6 +336,7 @@ impl UiPresentationRuntime {
             // Every screen has painted: retire animation state nothing touched.
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
+            self.sync_visible_cosmetic_previews(&nodes);
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),

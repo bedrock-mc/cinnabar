@@ -124,7 +124,12 @@ pub fn player() -> Result<PlayerState, String> {
         .inventory
         .synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
     player.inventory.drain_pending_inventory();
-    if player.inventory.book_recipes(false, 0, usize::MAX).len() != 1 {
+    if player
+        .inventory
+        .book_recipes(false, false, 0, usize::MAX)
+        .len()
+        != 1
+    {
         return Err("craft fixture recipe was not committed".into());
     }
     let ledger = player.inventory.ledger_mut();

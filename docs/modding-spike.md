@@ -112,6 +112,68 @@ icon must be one PNG within the limits above that decodes completely; otherwise
 the card shows the placeholder. Metadata and icons are read by parsing the file
 only, and their content never causes a load to fail.
 
+### Optional GitHub mod updates
+
+Authors can opt into automatic updates by appending one top-level UTF-8 custom
+section `cinnabar:extension/update-url@1` (`mod_api::UPDATE_URL_SECTION`). Its
+contents identify the exact WASM asset on the latest stable GitHub release:
+
+```text
+https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm
+```
+
+The HTTPS URL must use that path, a public GitHub repository, and an ASCII asset
+name ending in `.wasm`. URL queries, credentials, fragments and nested paths are
+rejected. The URL is bounded to 512 bytes, with an asset name up to 128 bytes.
+Missing, duplicate, nested or invalid sections disable automatic updates without
+affecting the mod's loading. The component also needs a standard `version`
+section containing SemVer, and each release must retain the same update URL.
+
+For notifications alone, authors can instead append
+`cinnabar:extension/update-repository@1`
+(`mod_api::UPDATE_REPOSITORY_SECTION`) containing the public repository URL,
+such as `https://github.com/example/zoom-plus`. Repository URLs up to 256 bytes
+accept an optional `.git` suffix or trailing slash. When both sections are
+present, the download URL selects the repository.
+
+On launch, Cinnabar checks opted-in repositories in the background and compares
+the latest release tag, such as `v1.3.0`, with the installed version. Drafts,
+prereleases, equal/older versions and non-SemVer tags are skipped. Each repository
+is checked once per session, including newly imported mods; network work is
+limited to 32 repositories and 32 automatic download attempts per launch.
+Missing releases, network failures and API limits leave the installed mod usable.
+These public requests use no GitHub login or token.
+
+With automatic installation enabled, Cinnabar selects the exact named release
+asset and downloads its immutable GitHub asset ID. The asset must have GitHub's
+SHA-256 digest and fit the host's component size limit. Cinnabar checks the hash,
+component compatibility, declared source and embedded version before atomically
+replacing the unchanged file in the managed mods folder. Settings companions and
+registration, including permission grants, are preserved. Enabled mods reload
+through the existing source watcher, which retains the running instance if
+activation fails. Disabled mods stay disabled. Components registered outside the
+managed mods folder can show notifications but are not replaced automatically.
+
+A newer release shows the launcher's corner update card. **View mod updates**
+opens **Settings → Mods**. For mods with a WASM download URL, **Update** downloads,
+validates, replaces and reloads the component inside Cinnabar. It works even when
+automatic installation is off. Its live progress uses the pack downloader's byte
+units, rolling speed estimate and ETA, with a percentage and byte progress bar.
+The stages distinguish **Downloading**, **Verifying**, **Installing** and
+**Reloading**. Installation and reload use an indeterminate indicator rather than
+a fabricated percentage; enabled mods stay busy until the runtime acknowledges
+the new instance. Duplicate presses are blocked until completion or failure. Download or installation failures leave the
+existing file in place, show an error and allow another attempt. Repository-only
+notification sources retain **View release**, which opens GitHub because they do
+not identify an installable file. Successful installs report their version on the
+Mods tab and clear the available-update notice. App updates take priority in the corner.
+
+Players can disable **Install mod updates automatically** in **Settings →
+General** while retaining notifications, or disable **Check for mod updates**
+to stop both checks and downloads. Both mod settings work independently of the
+app updater, including development builds. Mods without either declaration make
+no update requests.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one
@@ -206,6 +268,11 @@ CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
 On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
+
+The user-consented `players` and `camera` grants remain available in multiplayer
+independently of drawing-session negotiation. They do not grant entity,
+terrain, highlighting or drawing permissions; those retain their separate
+consent and session limits.
 
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads
@@ -847,7 +914,11 @@ namespace. A build script calls `experience_sdk::declarations::generate_mod("mod
 `templates::*` and `keys::*` with `experience_sdk::include_declarations!()`.
 `CINNABAR_MOD_PACKAGE` grants what the manifest asks for, plus the environment opt-ins a bare
 component gets; in a set, each package permission needs both the manifest's ask and the entry's
-grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet. On reload, the new
+grant (`screen`, `items`, `recipes`, `keys`, `settings`, `inventory`). `settings` gives the
+`settings` interface its companion file. `inventory` also needs `CINNABAR_MOD_INVENTORY=1` and
+grants the `inventory` interface: `creative-take` (Creative only, an item of the creative
+content) and `fill-recipe` (a crafting recipe, once, onto the cursor), each the request the
+creative catalog or the recipe book makes, at most four per callback. On reload, the new
 manifest narrows the original loader authorization again; an entry cannot gain an ungranted
 permission by changing its manifest.
 
@@ -868,7 +939,9 @@ report the vanilla screen name, the root size and GUI scale, the GUI rect, the e
 the view's bounds, in GUI units; opening, closing or resizing the view delivers
 `screen-changed`. Templates,
 data binding (`set-collection`, `set-value`, `set-text`) and their limits are the client part
-modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box. Rows bind
+modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box,
+`held-modifiers` reports the modifiers held with the event being delivered and
+`elapsed-seconds` is a monotonic clock to animate by. Rows bind
 `#item_id_aux` (network id << 16 | aux) and `item_renderer` draws the item. The mod's atlas
 has its own four dynamic texture pages. With several mods loaded, one owns the screens: the
 earliest in load order with an overlay or view, else the earliest granted `screen`. Only it
@@ -886,10 +959,9 @@ screen show, with no packet, world or account access. Known gaps: CraftingData c
 smelting at the 1.26.x target, brewing is skipped, and a recipe with a Molang, complex,
 deferred or int-id ingredient is dropped by the decoder.
 
-This package is the one definition client parts use too. SP5's planned `items.lookup` for
-client WIT 1.2 is `cinnabar:session/items.lookup`: the `server-bundle` world imports
+This package is the one definition client parts use too: the `server-bundle` world imports
 `cinnabar:session/items@0.1.0` from this same file (as a further WIT path, the way mod-api
-reads `client/deps/server-experience`) instead of restating it in `capabilities.wit`.
+reads `client/deps/server-experience`) under the `items` permission.
 
 **Keys.** While a container screen or the view is up and no edit box is selected, a press of
 a declared key that vanilla's container screen does not use (the inventory and drop

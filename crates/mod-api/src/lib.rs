@@ -40,6 +40,8 @@ pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
 /// Bounded control and settings payloads for personal components.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
+/// Inventory requests one player-mod callback may make.
+pub const MAX_INVENTORY_REQUESTS: usize = 4;
 /// Optional top-level component data containing one existing personal panel bundle.
 pub const PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@1";
 /// Optional top-level component data containing one outline font for the personal panel.
@@ -63,10 +65,14 @@ pub const MAX_MENU_TITLE_BYTES: usize = 64;
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
 /// Optional top-level PNG shown beside the component in the Mods library.
 pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Optional top-level HTTPS GitHub repository URL enabling mod release notifications.
+pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
+/// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
+pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
-/// Every versioned static section recognized by the local component loader.
+/// Every presentation asset section stripped from executable component bytes.
 pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
@@ -108,6 +114,8 @@ pub const MAX_LOADED_MODS: usize = 4;
 
 /// Render capability budgets, per instance or per committed callback.
 pub const MAX_RENDER_PASSES: usize = 8;
+/// Render and retained drawing imports allowed in one callback, including denied calls.
+pub const MAX_RENDER_CALLS: usize = 32;
 /// Shader validations allowed in one frame callback; `init` may compile every pass.
 pub const MAX_PASS_COMPILES_PER_FRAME: u32 = 1;
 pub const MAX_PASS_NAME_BYTES: usize = 32;
@@ -154,6 +162,7 @@ pub mod bindings {
             "wit",
         ],
         world: "cinnabar:extension/extension@0.1.0",
+        generate_all,
         pub_export_macro: true,
     });
 }
@@ -190,3 +199,41 @@ pub const MAX_COMBAT_READ_EVENTS: usize = 4;
 
 /// Total regular frame-callback fuel shared across all local mods.
 pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;
+
+/// World drawing authority and generation-safe resource tokens.
+pub mod drawing;
+
+/// Retained drawing budgets per owner; aggregate capacity is reserved for every loaded mod.
+pub const MAX_DRAW_INSTANCES: usize = 1024;
+pub const MAX_DRAW_GEOMETRIES: usize = 256;
+pub const MAX_DRAW_VERTICES: usize = 65_536;
+pub const MAX_DRAW_INDICES: usize = 196_608;
+pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
+pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
+
+/// Bounds host-expanded GPU topology independently of source vertex and index counts.
+pub const MAX_DRAW_EXPANDED_VERTICES: usize = MAX_DRAW_INDICES;
+
+/// Current actor observations and retained actor references, per drawing owner.
+pub const MAX_DRAW_ENTITIES: usize = MAX_OBSERVED_ACTORS;
+
+/// Caps submitted vertex work as well as resident mesh sizes, including repeated instances.
+pub const MAX_DRAW_VERTEX_WORK: usize = MAX_DRAW_EXPANDED_VERTICES * 4;
+
+/// Largest linear RGBA component admitted by retained unlit drawing.
+pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;
+
+/// Procedural drawing presets and the fixed material parameter contract.
+pub mod materials;
+/// Retained custom materials per owner, including renderer-retiring resources.
+pub const MAX_DRAW_MATERIALS: usize = 8;
+/// Custom material validation attempts per callback, including rejected sources.
+pub const MAX_MATERIAL_COMPILES_PER_CALLBACK: u32 = 1;
+/// New native material pipeline compilations across all mods in one render frame.
+pub const MAX_MATERIAL_PIPELINE_COMPILES_PER_FRAME: usize = 1;
+/// Material admission uses the same source and expression ceilings as post effects.
+pub const MAX_MATERIAL_SHADER_BYTES: usize = MAX_SHADER_BYTES;
+pub const MAX_MATERIAL_SHADER_EXPRESSIONS: u32 = MAX_SHADER_EXPRESSIONS;
+/// Largest linear emission component delivered to the world HDR pipeline.
+pub const MAX_MATERIAL_EMISSION: f32 = 16.0;

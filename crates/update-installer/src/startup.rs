@@ -34,7 +34,7 @@ pub fn client_command(target: &Path) -> Command {
     #[cfg(target_os = "macos")]
     let executable = target.join("Contents/MacOS/cinnabar");
     #[cfg(windows)]
-    let executable = target.join("cinnabar.exe");
+    let executable = target.join(update_manifest::runtime::executable("CLIENT", "windows"));
     #[cfg(not(any(target_os = "macos", windows)))]
     let executable = target.to_owned();
     let mut command = Command::new(executable);
@@ -182,7 +182,7 @@ impl Tree {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
-        let child = command.spawn()?;
+        let child = crate::privilege::normal_user(|| command.spawn())?;
         // The client starts setup only after it initializes, well after this assignment.
         #[cfg(windows)]
         let job = job::Job::assign(&child).ok();

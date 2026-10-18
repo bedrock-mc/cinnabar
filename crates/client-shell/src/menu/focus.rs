@@ -376,7 +376,7 @@ impl MenuRuntime {
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::SettingsSupport(_) => vec![MenuAction::DismissDialog],
-                MenuDialog::StorageError => vec![MenuAction::DismissDialog],
+                MenuDialog::StorageError | MenuDialog::Notice => vec![MenuAction::DismissDialog],
                 MenuDialog::StorageDelete => vec![
                     MenuAction::SettingsStorage(
                         launcher::menu::settings_storage::StorageAction::ConfirmDelete,

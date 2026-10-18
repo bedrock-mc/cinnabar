@@ -1,7 +1,8 @@
 use super::{
     budget::{Credits, MAX_RECORDS, Permit},
+    identity::{self, RecipeIdentityHandle},
     model::{Batch, RecipeHandle, RecipeUpdate},
-    screen::{ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
+    screen::{BrewingRecipe, ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
 };
 use std::{mem::size_of, sync::Arc};
 
@@ -20,6 +21,7 @@ struct Entry {
 struct CatalogEntries {
     // Drop merged views before their source owners can release decoded-name credits.
     screen: ScreenRecipes,
+    identities: Vec<RecipeIdentityHandle>,
     entries: Vec<Entry>,
     _permit: Permit,
 }
@@ -67,6 +69,14 @@ impl RecipeCatalog {
             .map_or(&[][..], |storage| storage.screen.recipes.as_slice())
     }
 
+    /// The brewing stand's recipes.
+    #[must_use]
+    pub fn brewing_recipes(&self) -> &[BrewingRecipe] {
+        self.storage
+            .as_ref()
+            .map_or(&[][..], |storage| storage.screen.brewing.as_slice())
+    }
+
     /// Every retained recipe of one screen kind.
     pub fn screen_recipes(&self, kind: ScreenRecipeKind) -> impl Iterator<Item = &ScreenRecipe> {
         self.screen_recipe_entries()
@@ -86,6 +96,26 @@ impl RecipeCatalog {
             .filter(|multi| multi.is_repair());
         let repair = repairs.next()?;
         repairs.next().is_none().then_some(repair.id)
+    }
+
+    /// Named metadata, including records outside the supported crafting domain.
+    pub fn recipe_identities(&self) -> impl Iterator<Item = &super::identity::RecipeIdentity> {
+        self.storage
+            .iter()
+            .flat_map(|storage| &storage.identities)
+            .map(RecipeIdentityHandle::identity)
+    }
+
+    /// Resolves one exact eligible name. Cross-tag ambiguity remains unsupported.
+    pub fn resolve_unlock_identifier(&self, name: &str) -> Option<RecipeIdentityHandle> {
+        let identities = &self.storage.as_ref()?.identities;
+        let start = identities.partition_point(|entry| entry.identity().identifier() < name);
+        let mut matches = identities[start..]
+            .iter()
+            .take_while(|entry| entry.identity().identifier() == name)
+            .filter(|entry| entry.identity().accepts_unlocks());
+        let first = matches.next()?;
+        matches.next().is_none().then(|| first.clone())
     }
 
     pub fn revision(&self) -> u64 {
@@ -127,7 +157,7 @@ impl RecipeCatalog {
     pub fn apply(&mut self, session: u64, sequence: u64, update: &RecipeUpdate) -> bool {
         self.apply_with_credits(session, sequence, update, &Credits::shared())
     }
-    fn apply_with_credits(
+    pub(super) fn apply_with_credits(
         &mut self,
         session: u64,
         sequence: u64,
@@ -160,6 +190,13 @@ impl RecipeCatalog {
                 return true;
             }
         };
+        let old_identities = if batch.clear {
+            &[][..]
+        } else {
+            self.storage
+                .as_ref()
+                .map_or(&[][..], |storage| &storage.identities[..])
+        };
         let charge = capacity
             .checked_mul(size_of::<Entry>())
             .and_then(|n| {
@@ -172,6 +209,12 @@ impl RecipeCatalog {
                         .map_or(&empty, |storage| &storage.screen)
                 };
                 n.checked_add(screens::merged_charge(old, &batch.screen, &batch.records)?)
+            })
+            .and_then(|n| {
+                n.checked_add(
+                    identity::merged_capacity(old_identities, batch)?
+                        .checked_mul(size_of::<RecipeIdentityHandle>())?,
+                )
             })
             .and_then(|n| n.checked_add(MERGE_METADATA_BYTES));
         let Some(permit) = charge.and_then(|n| credits.reserve(n)) else {
@@ -229,7 +272,12 @@ impl RecipeCatalog {
             self.retire();
             return true;
         };
+        let Some(identities) = identity::merge(old_identities, batch) else {
+            self.retire();
+            return true;
+        };
         self.storage = Some(Arc::new(CatalogEntries {
+            identities,
             entries: merged,
             screen,
             _permit: permit,
@@ -249,8 +297,11 @@ mod tests {
     fn update(owner: &Arc<Credits>, clear: bool) -> RecipeUpdate {
         RecipeUpdate {
             batch: Some(Arc::new(Batch {
+                brewing: Vec::new(),
+                identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: vec![Record {
+                    identity_index: None,
                     id: 17,
                     recipe: Some(Recipe {
                         width: 1,
@@ -276,7 +327,11 @@ mod tests {
 
     #[test]
     fn sorted_view_merge_keeps_omitted_ids_and_removes_interleaved_tombstones() {
-        let records = [2, 3, 6, 8].map(|id| Record { id, recipe: None });
+        let records = [2, 3, 6, 8].map(|id| Record {
+            id,
+            recipe: None,
+            identity_index: None,
+        });
         let result: Vec<_> = screens::merged_views(&[1, 3, 5, 8, 9], &[2, 6], &records, |id| *id)
             .copied()
             .collect();
@@ -397,9 +452,15 @@ mod tests {
         let permit = owner.reserve(charge).unwrap();
         let replacement = RecipeUpdate {
             batch: Some(Arc::new(Batch {
+                brewing: Vec::new(),
+                identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: (100..100 + MAX_RECORDS as u32)
-                    .map(|id| Record { id, recipe: None })
+                    .map(|id| Record {
+                        id,
+                        recipe: None,
+                        identity_index: None,
+                    })
                     .collect(),
                 clear: false,
                 _permit: permit,

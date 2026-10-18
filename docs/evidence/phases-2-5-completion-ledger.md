@@ -1,5 +1,53 @@
 # Phases 2-5 Completion Ledger
 
+## Browser host composition
+
+The browser host uses verified memory carriers, the shared game frame and HUD, injected
+session I/O and canvas input. Native owner checks and a wasm artifact pass. Headless Chrome with
+Metal WebGPU boots, renders an offline world's terrain and HUD, and moves its player. WebSocket
+transfer, disconnect and rejoin pass. Audio ranges feed the existing decoder and Web Audio mixer;
+real nonzero playback, gesture activation, cached suspension/resume and single-close disposal
+pass. Initial terrain latency, interactive UI controls, audio parity and hardware budgets remain
+incomplete. This adds no completed parity or browser-release gate.
+transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
+delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
+browser-release gate.
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers read the separate animation state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+## Browser release verification
+
+Browser target checks and JavaScript edge suites are CI gates. Go and Rust consume
+shared control fixtures, and devtool builds a staged static bundle with the locked
+binding CLI and canonical carrier delivery index. Certificate renewal retains
+relay sessions and rejects invalid replacements while keeping the last good pair.
+The receive-buffer regression runs on the native test target.
+
+Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
+real-browser acceptance matrix follow gameplay composition. No supported-browser,
+release, parity, memory or hardware performance gate closes from these checks.
+
+## Redstone dust item sprite
+
+A reviewed default binding selects the item-atlas dust sprite, leaving placed
+wire and redstone-block rendering separate. Owning regressions cover authored
+sprite pixels, carrier roundtrips and absent-atlas fallback. Native and current
+before frames confirm the wrong icon and invisible held item. Rebuilt carriers
+show the correct dust sprite in the fixed hotbar and hand. All 308 owning tests
+and focused checks pass; other geometry and item-parity gates remain open.
+
 ## Command-block terrain materials
 
 Facing and conditional selectors now retain their front/back panels, oriented
@@ -28,23 +76,22 @@ BDS frames reproduce the missing tops and verify the corrected surfaces against
 the official Android client. Broader liquid parity and hardware performance gates
 remain open.
 
-## Original wardrobe hats
+## Catalog cosmetics
 
-Local headwear has an independent persisted selection, a wardrobe gallery and shared
-head attachment geometry for world and HUD presentation. Bunny ears use bounded,
-elapsed-time wind motion distributed across continuous upper-half surface rings.
-Stepped pixel surfaces attach directly to the head, with compact square gallery previews.
-Shared-edge regression coverage prevents joint gaps. This adds no Bedrock parity claim;
-Linux wardrobe and in-world standing and forward-motion rendering were inspected
-with software Vulkan. Hardware performance qualification remains incomplete.
+A domain catalog replaces the fixed hat list. Independent slot selections persist locally;
+ETag catalog caching and SHA-256 asset admission precede geometry or texture decoding.
+Original bunny ears use bounded authored joint motion. Every slot follows its declared
+attachment bone and offset, and the HUD shares local motion with world presentation.
+Saved hats migrate into the head slot without overriding current choices. Visible thumbnails
+and equipped textures share the artwork budget; stable gallery frames and cosmetic motion
+retain their catalog and raster caches. Cosmetic layers are separate from skins, flames and
+render-controller layers, with boundaries derived from the supported slot count.
 
-The original jeweled crown rests on the head with a shorter stepped silhouette.
-Its band and jewels stay within the standard head width and depth. Its rigid
-pose, editable export and original texture are covered by model tests; Linux Vulkan
-in-world fit was inspected. Authenticated nearby hat exchange extends the existing emote
-connection, with actor-lifetime checks, bounded leases and shared cosmetic textures.
-API and client implementation are local. API deployment and live authenticated
-multi-account acceptance remain incomplete; no broader parity or performance gate advances.
+Session loadouts use authenticated mutual nearby subscriptions with account revision
+ordering and server-side ownership validation. Loadouts have no emote lease. The current
+catalog is free for every account. API and client implementation require API-first rollout;
+live authenticated multi-account acceptance, payments, moderation and hardware qualification
+remain incomplete. No broader parity or performance gate advances.
 
 Settings mod cards now show permission summaries, explicit requested-grant consent
 and a compact customization grid. Capability metadata supplies gameplay warnings;
@@ -130,11 +177,11 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
+| Review commit | Independent review is pending. |
+| Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
+| Performance/resource witness | Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE
@@ -143,7 +190,7 @@ performance qualification remain incomplete. No phase or performance gate closes
 |---|---|
 | Owning plan/task | Numbered raster pack skyboxes and optional native vertical placement in `plan.md`; broader atmosphere work remains open. |
 | Deterministic tests | Pack admission and reload dependency regressions in `pack-runtime`, with publication regressions in `app`, cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
-| Review commit | Skybox tranche tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox tranche tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Retained-pack offline GPU views and both Video setting states were inspected. Current-server full-client acceptance remains open. |
 | Performance/resource witness | Existing raster byte, dimension and allocation bounds remain; texture-cache regressions cover stable frames. Live frame and join budgets remain open. |
 | Final status | Open — numbered PNG/TGA/JPEG skyboxes are implemented; HDR/KTX, enhanced rendering and broader atmosphere acceptance remain open. |
@@ -272,6 +319,10 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Sulfur-cube material states and content-pinned shell opacity have alias, carrier
+roundtrip and custom-raster exclusion regressions. Absorbed-block attachment
+placement remains open; no complete actor parity claim.
+
 Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
 matched pack frames, authored sword display transforms and first-person face shading
 remain open in `plan.md`.
@@ -300,6 +351,10 @@ Tests that drive actor authority stay in `client-world`. Compilation and
 execution of this move are unverified, and it adds no parity evidence.
 
 ## P4.5-ITEM-ACTIONS
+
+Session custom-item regressions cover scalar legacy facts and stack limits,
+shared held/preview/dropped block geometry, carried tint and owner-selected
+external armor models. Broader item-action and custom-content parity stays open.
 
 | Field | Evidence |
 |---|---|
@@ -331,6 +386,10 @@ vocabulary. Screen routing and core form/context consumers use those names;
 remaining controller migrations and stale-name corrections are incomplete.
 This adds no live visual evidence and leaves the UI acceptance gate open.
 
+Cube inventory thumbnails and alpha-tested GUI meshes share the canonical outward
+faces. Regressions cover projected surface orientation, transparent front holes and
+retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
+
 ## P5.2-HUD
 
 | Field | Evidence |
@@ -341,6 +400,10 @@ This adds no live visual evidence and leaves the UI acceptance gate open.
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Attack-category cooldown shading has owning timer and hotbar-publication regressions
+for admission rollback, shared categories and expiry. A local spear jab reproduces
+the missing overlay against the official client; broader HUD parity remains open.
 
 ## P5.3-CHAT
 
@@ -357,6 +420,11 @@ Plain chat offers `@here` and player-list names; command targets include `@n`.
 Education selectors, selector-expansion permission and cheat gating, selector
 argument completion, and live visual acceptance remain incomplete.
 
+Server-authored message content keeps its parser bindings and hover controls inside
+the client-owned chat placement. Regressions cover retained captions, HUD collection
+rows, pointer entry/exit through pass-through panels, display scaling and zero-sized
+tooltip controls. Native command-edit acceptance and broader JSON-UI parity remain open.
+
 ## P5.4-SCOREBOARD
 
 | Field | Evidence |
@@ -370,6 +438,11 @@ argument completion, and live visual acceptance remain incomplete.
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Selected transaction descriptor regressions cover optional stack-ID omission while
+preserving item contents, inventory action IDs and legacy requests. The shared
+embedded movement payload uses the same conversion. Admission, dynamic actions,
+NBT rewriting and combined runtime acceptance remain incomplete.
+
 Block and actor rays share float normalization. Block traversal and clipping use
 rounded float segments; placement bounds and click coordinates stay in float
 precision. CI must verify the new rounding regressions. Block tie/union rules,
@@ -381,7 +454,7 @@ occlusion share rounded intercept distances. CI verification remains pending.
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |
-| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. |
+| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. Inventory regressions cover packet routing, whole transaction rejection, owned response data, active close inputs and selected-item use after close; complete inventory parity remains open. |
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
@@ -419,6 +492,17 @@ hardware frame-time and capture acceptance remain open.
 | Performance/resource witness | No displayed-frame performance acceptance from hidden debug captures; ordinary Enhanced remains disabled |
 | Final status | Open |
 
+Video quality now reaches terrain meshing, including generation changes for running jobs and
+resource-pack rebuilds. Renderer work is reduced through uploaded native lightmap bytes,
+bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
+SMAA blending into the shared scene samples. Early depth rejection and shared passes across
+deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
+also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
+Opt-in Metal visibility admission uses fresh current-frame masks.
+Target-device frame-rate and full settings parity acceptance remain open; bounded fixtures
+and deterministic work budgets do not close these gates.
+
 ## P5.8-SETTINGS
 
 Minecraft import adds explicit consent, per-profile preview, schema-checked option
@@ -437,7 +521,7 @@ and this visible removal closes no settings, UI parity or performance gate.
 |---|---|
 | Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
 | Deterministic tests | Launcher regression covers default-on, old saves, both saved values, subsystem projection and Video reset. Offline JSON-UI regression reaches and renders both toggle states. |
-| Review commit | Skybox option tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Review commit | Skybox option tracked in [#632](https://github.com/cinnabar-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Both offline Video control states were inspected; full settings and current-server acceptance remain open. |
 | Performance/resource witness | Full settings performance witness remains open. |
 | Final status | Open — the skybox option is implemented; the complete settings gate is not closed. |
@@ -555,3 +639,25 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+
+Retained mod drawing has authority and lifetime contracts. Geometry admission validates
+vertices once and caches extent and quota facts for every shared instance and callback
+group. Extent checks use conservative box and sphere bounds without revisiting vertices.
+Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
+renderer is connected; actor root attachment uses the renderer publication and exact spawn
+references. Bone attachment, native output captures and hardware budgets remain incomplete
+and do not close any completion requirement.
+
+Bounded procedural materials and SDK presets use a session animation phase.
+Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover
+animated presets, line joins and scaled geometry. These fixtures do not close
+in-world rendering or hardware budget requirements.
+
+The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
+instance defaults. Legacy compatibility paths remain in place until retained
+presets preserve their coverage and placement. TypeScript packaging, renderer
+acceptance and hardware performance gates remain incomplete.
+
+Host-composed outlines and halos use admitted actor masks. Custom effects declare their
+own mask bindings. In-world ordering, resolution transitions and hardware budgets remain
+incomplete in `plan.md`; these additions close no rendering or performance gate.

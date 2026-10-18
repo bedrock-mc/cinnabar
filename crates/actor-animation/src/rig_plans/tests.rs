@@ -63,7 +63,7 @@ fn controller_catalog() -> Arc<RuntimeEntityAssets> {
     compiled.geometries[0].source_index += 1;
     compiled.animation_clips[0].source += 1;
     compiled.rig_bindings[0].entity_symbol += 1;
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     for candidate in &mut compiled.render.candidates {
         candidate.source += 1;
     }

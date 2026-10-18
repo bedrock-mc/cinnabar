@@ -1,9 +1,14 @@
+#[cfg(test)]
+mod armour_tests;
 mod bodies;
+#[cfg(test)]
+mod cape_tests;
 mod commit;
 mod flames;
 mod geometry;
 mod hand_frame;
 mod hats;
+pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
@@ -54,7 +59,7 @@ pub struct ActorWorld<'a> {
 
 /// Gameplay and screen observations captured at the actor preparation boundary.
 pub struct ActorFrameInput {
-    pub hat: Option<render_api::Hat>,
+    pub cosmetics: Vec<cosmetics::Item>,
     /// Authenticated nearby hats bound to current actor lifetimes.
     pub remote_hats: Vec<RemoteHat>,
     pub local_feed: Option<LocalPlayerFeed>,
@@ -83,7 +88,7 @@ pub struct RemoteEmote {
 pub struct RemoteHat {
     pub runtime_id: u64,
     pub spawn_revision: u64,
-    pub hat: render_api::Hat,
+    pub hat: cosmetics::Item,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -136,6 +141,7 @@ pub struct ActorFramePublication<'w, 's> {
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
+    cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -148,6 +154,9 @@ pub fn prepare_actor_render_frame(
 ) {
     let state = &mut *params.state;
     let Some(input) = state.input.take() else {
+        if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+            placements.0.clear();
+        }
         return;
     };
     let step = state
@@ -284,6 +293,11 @@ pub fn prepare_actor_render_frame(
         .hat_state
         .attach(&mut batch, stream, &input.remote_hats, &mut params.scene);
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+        state
+            .hat_state
+            .place_emitters(&batch, step.partial_tick, &mut placements.0);
+    }
     state
         .body_scratch
         .recycle(bodies.java_posed, bodies.remote_skin_layers);

@@ -6,26 +6,23 @@
 use protocol::StackRequestAction;
 
 use super::cells::Cell;
-use super::gesture::{
-    StackRequestActionKind, Submission, counted_merge, counted_transfer, has_meaningful_overlay,
-};
+use super::gesture::{StackRequestActionKind, Submission, counted_merge, counted_transfer};
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
 use super::registry::{OccupiedStackRelation, entry_capacity};
-use super::{
-    InventoryGestureError, InventoryPendingState, PLAYER_INVENTORY_SLOT_COUNT,
-    PlayerInventoryLedger,
-};
+use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
+    /// Enumerates the active returnable inputs followed by the shared cursor.
+    fn close_return_cells(&self) -> impl Iterator<Item = Cell> {
+        screen_input_cells(self.window_kind()).chain(std::iter::once(Cell::Cursor))
+    }
+
     /// Build every return against one staged ledger, so an identity, pressure,
     /// or capacity failure cannot publish a partial cleanup or lose an input.
     pub(super) fn return_crafting_on_close(&mut self) -> Result<bool, InventoryGestureError> {
         let cells: Vec<Cell> = self
-            .crafting_grid()
-            .slots()
-            .map(Cell::Craft)
-            .chain(std::iter::once(Cell::Cursor))
+            .close_return_cells()
             .filter(|cell| self.view().get(*cell).is_some())
             .collect();
         if cells.is_empty() {
@@ -33,7 +30,10 @@ impl PlayerInventoryLedger {
             // still holds ingredients. Do not cancel that request on close.
             return Ok(self.close_return_needed());
         }
-        if self.known.iter().any(|known| !known) {
+        if self.known[..self.confirmed.player_len()]
+            .iter()
+            .any(|known| !known)
+        {
             return Err(InventoryGestureError::ResyncRequired);
         }
         let mut staged = self.clone();
@@ -55,7 +55,8 @@ impl PlayerInventoryLedger {
         let mut actions = Vec::new();
         let mut groups = Vec::new();
         let (mut distinct, mut registry_bound) = (false, false);
-        let candidates: Vec<Cell> = (0..PLAYER_INVENTORY_SLOT_COUNT)
+        let candidates: Vec<Cell> = (0..self.confirmed.player_len())
+            .filter(|slot| self.known[*slot])
             .map(|slot| Cell::Inventory(slot as u8))
             .collect();
         for cell in &candidates {
@@ -65,14 +66,11 @@ impl PlayerInventoryLedger {
             let Some(into) = self.view().get(*cell) else {
                 continue;
             };
-            if self.awaiting_identity(into)
-                || has_meaningful_overlay(from.overlay.as_ref())
-                || has_meaningful_overlay(into.overlay.as_ref())
-            {
+            if self.awaiting_identity(into) {
                 continue;
             }
             let OccupiedStackRelation::Compatible { capacity } =
-                self.occupied_stack_relation(&from.stack, &into.stack)
+                self.occupied_stack_relation(&from, into)
             else {
                 continue;
             };
@@ -153,20 +151,28 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn close_return_needed(&self) -> bool {
-        self.view().get(Cell::Cursor).is_some()
-            || self
-                .crafting_grid()
-                .slots()
-                .any(|slot| self.view().get(Cell::Craft(slot)).is_some())
-            || self.queue.iter().any(|request| {
-                request
-                    .touched()
-                    .any(|cell| matches!(cell, Cell::Craft(_) | Cell::Cursor))
-            })
+        self.close_return_cells().any(|cell| {
+            self.view().get(cell).is_some()
+                || self.queue.iter().any(|request| request.touches(cell))
+        })
     }
 
     pub(super) fn note_close_return_failure(&self, error: InventoryGestureError) {
         tracing::warn!(target: "cinnabar::inventory_requests",
             ?error, "inventory closed without returning its inputs");
     }
+}
+
+/// Enumerates only the temporary inputs belonging to the selected screen.
+pub(super) fn screen_input_cells(kind: Option<protocol::WindowKind>) -> impl Iterator<Item = Cell> {
+    let grid = match kind {
+        None => Some(super::crafting::CraftingGrid::Personal),
+        Some(protocol::WindowKind::Workbench) => Some(super::crafting::CraftingGrid::Workbench),
+        _ => None,
+    };
+    let inputs = kind.map_or(&[][..], super::screen_actions::input_slots);
+    grid.into_iter()
+        .flat_map(super::crafting::CraftingGrid::slots)
+        .chain(inputs.iter().copied())
+        .map(Cell::Craft)
 }

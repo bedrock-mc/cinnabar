@@ -573,7 +573,7 @@ fn swell_controlled_assignment_taints_later_unconditional_bone_channels() {
                 },
             );
             compiled.symbols = symbols.into();
-            compiled.rig_bindings[0].render_controller += 1;
+            *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
             let mut child = compiled.geometries[0].bones[0].clone();
             child.name = "second".into();
             child.parent = None;

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedbiome "github.com/cinnabar-mc/protocolgen/generated/data/biome"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 // exportCompilerFacts emits source identities and library facts without client admission or movement policy.

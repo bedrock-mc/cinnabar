@@ -85,20 +85,6 @@ impl EquipmentRuntime {
         true
     }
 
-    /// Authored pack attachables and held items Java never had keep their own hand animation.
-    pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
-        if self.uses_native_item_mesh(identifier) {
-            return false;
-        }
-        self.binding_source(identifier)
-            .and_then(|(catalog, from_pack)| {
-                catalog
-                    .binding(identifier)
-                    .map(|binding| keep_authored_hand(identifier, binding.category, from_pack))
-            })
-            .unwrap_or(false)
-    }
-
     /// The main-hand item placed by Java's first-person stack in camera space.
     pub fn first_person_java_item(
         &mut self,
@@ -154,7 +140,11 @@ pub fn java_draws_attachable(identifier: &str) -> bool {
 }
 
 /// Server-pack attachables own their hand poses, including replacements for Java's bow.
-fn keep_authored_hand(identifier: &str, category: EquipmentCategory, from_pack: bool) -> bool {
+pub(super) fn keep_authored_hand(
+    identifier: &str,
+    category: EquipmentCategory,
+    from_pack: bool,
+) -> bool {
     matches!(
         category,
         EquipmentCategory::Held | EquipmentCategory::Shield

@@ -139,10 +139,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     // A selected CPU atlas can outlive a session reset. Keep old draw tables coherent,
     // while the physical-removal and completion-fence work above continues to drain.
     if textures.as_ref().is_some_and(|textures| {
-        textures
-            .prepared
-            .as_ref()
-            .is_none_or(|prepared| prepared.identity != texture_assets.identity())
+        textures.prepared.as_ref().is_none_or(|prepared| {
+            !super::bind_groups::same_carrier(prepared.identity, texture_assets.binding_identity())
+        })
     }) {
         fairness.recover_untracked = true;
         *upload_stats = ChunkGpuUploadStats::default();

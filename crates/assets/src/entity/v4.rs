@@ -248,12 +248,17 @@ pub struct EntityRigBinding {
     /// The admitted placement and target-rotation contract for this exact rig.
     pub placement_frame: super::placement::EntityPlacementFrame,
     pub entity_symbol: u32,
-    pub render_controller: u32,
+    /// Absent when only an attachable owner condition can be compiled locally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render_controller: Option<u32>,
     pub first_geometry: u32,
     pub geometry_count: u16,
     pub fallback: EntityRigFallback,
     pub initialize: Option<u32>,
     pub pre_animation: Option<u32>,
+    /// Item-to-attachable condition, evaluated with the equipment owner as query context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_condition: Option<u32>,
     pub scale: EntityGeometryScalar,
     /// `scale`, `scaleX`, `scaleY` and `scaleZ` expressions when any is authored as Molang or
     /// per axis; `scale` then holds only the constant fallback.
@@ -412,21 +417,6 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub fn rig_bindings(&self) -> &[EntityRigBinding] {
         &self.rig_bindings
-    }
-
-    /// The unambiguous animated attachable rig with this authored identifier.
-    #[must_use]
-    pub fn attachable_rig_binding(&self, identifier: &str) -> Option<usize> {
-        let mut matches = self.rig_bindings.iter().enumerate().filter(|(_, rig)| {
-            self.symbols
-                .get(rig.entity_symbol as usize)
-                .is_some_and(|symbol| {
-                    symbol.kind == EntityAssetKind::Attachable
-                        && symbol.identifier.as_ref() == identifier
-                })
-        });
-        let (index, _) = matches.next()?;
-        matches.next().is_none().then_some(index)
     }
 
     #[must_use]

@@ -24,8 +24,13 @@ func (server *Server) serveCinnabarPlayers(conn net.Conn, id uint64, raw json.Ra
 	if updates.Emotes == nil {
 		updates.Emotes = []bridgecontract.CinnabarRemoteEmote{}
 	}
-	if updates.Hats == nil {
-		updates.Hats = []bridgecontract.CinnabarRemoteHat{}
+	for i := range updates.Loadouts {
+		if updates.Loadouts[i].Slots == nil {
+			updates.Loadouts[i].Slots = []bridgecontract.CinnabarCosmeticSlot{}
+		}
+	}
+	if updates.Loadouts == nil {
+		updates.Loadouts = []bridgecontract.CinnabarRemoteLoadout{}
 	}
 	return reply.ok(struct {
 		SchemaVersion uint32 `json:"schema_version"`

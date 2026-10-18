@@ -232,7 +232,7 @@ impl SessionLog {
     /// Follows this log's owned file through rotation for fatal-signal output.
     #[cfg(unix)]
     pub(crate) fn follow_on_signal(&mut self) -> io::Result<()> {
-        crate::console::signal_drain::publish_log(self.file.as_ref().unwrap())?;
+        crate::console::native::signal_drain::publish_log(self.file.as_ref().unwrap())?;
         self.signal_log = true;
         Ok(())
     }
@@ -252,7 +252,7 @@ impl SessionLog {
         file.write_all(&self.header)?;
         #[cfg(unix)]
         if self.signal_log {
-            crate::console::signal_drain::publish_log(&file)?;
+            crate::console::native::signal_drain::publish_log(&file)?;
         }
         self.bytes = self.header.len() as u64;
         self.file = Some(file);

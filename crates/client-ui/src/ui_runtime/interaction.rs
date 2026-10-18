@@ -149,11 +149,8 @@ pub fn dispatch_inventory_key(
         && presentation::inventory_pointer::InventoryScreen::of_runtime(player_runtime, runtime)
             == presentation::inventory_pointer::InventoryScreen::Creative
     {
-        let total = super::inventory_actions::visible_creative_entries(
-            runtime.inventory_ledger(player_runtime),
-            runtime,
-        )
-        .len();
+        let total =
+            super::inventory_actions::visible_creative_entries(player_runtime, runtime).len();
         runtime.screen_state_mut().scroll_creative(rows, total);
         return None;
     }
@@ -208,6 +205,22 @@ pub fn dispatch_inventory_hotbar(
         runtime
             .inventory_ledger_mut(player_runtime)
             .begin_hotbar_swap(target, slot),
+    )
+}
+
+/// Applies a resolved hotbar binding over a player cell of a client part's modal, which shows
+/// the player's cells with no inventory window open.
+pub fn dispatch_modal_hotbar(
+    player_runtime: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    hit: InventoryCellHit,
+    slot: u8,
+) -> Option<Result<i32, InventoryGestureError>> {
+    let target = super::inventory_actions::gesture_target(hit)?;
+    Some(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .begin_windowless_hotbar_swap(target, slot),
     )
 }
 

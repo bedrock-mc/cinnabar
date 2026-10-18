@@ -57,11 +57,28 @@ impl MultiRecipe {
     }
 }
 
+/// One item of a brewing recipe, by network id; a container change takes any `aux`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrewingItem {
+    pub network_id: i32,
+    pub aux: Option<i32>,
+}
+
+/// A brewing stand recipe: the potion vector's, or a container change's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrewingRecipe {
+    pub input: BrewingItem,
+    pub reagent: BrewingItem,
+    pub output: BrewingItem,
+}
+
 /// Everything one CraftingData update advertises for the screens.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScreenRecipes {
     pub recipes: Vec<ScreenRecipe>,
     pub multi: Vec<MultiRecipe>,
+    /// The brewing stand's recipes; an update without any keeps the retained ones.
+    pub brewing: Vec<BrewingRecipe>,
     /// Station recipes skipped because their inputs or output cannot be represented.
     pub skipped: usize,
 }

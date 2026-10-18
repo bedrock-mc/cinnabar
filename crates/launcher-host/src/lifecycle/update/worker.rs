@@ -494,7 +494,7 @@ pub(super) fn offer_switch(state: &mut State) {
     );
 }
 
-/// Publishes only a verified artifact and the non-elevating permission decision.
+/// Publishes a verified artifact with the platform's supported installation path.
 fn publish(stage: PathBuf, reader: File, selected: Selection, switch_now: bool, generation: u64) {
     let newer = update_manifest::select::newer_build(
         &selected.manifest.version,
@@ -506,7 +506,7 @@ fn publish(stage: PathBuf, reader: File, selected: Selection, switch_now: bool, 
     let writable = newer
         && handoff::installed_target()
             .and_then(|target| update_installer::target::access(&target))
-            .is_ok_and(|access| access == update_installer::target::Access::Writable);
+            .is_ok_and(update_installer::target::Access::permits_update);
     if let Ok(mut state) = STATE.lock() {
         state.offer(
             Ready::new(stage, reader, selected, switch_now, writable),

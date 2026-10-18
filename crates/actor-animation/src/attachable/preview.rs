@@ -47,13 +47,13 @@ impl AttachableState {
         state.clip_clocks = evaluated.clip_clocks;
         state.current = evaluated.pose;
         state.scale = evaluated.scale;
+        state.initialized = true;
+        state.reset_pending = false;
+        state.completed_tick = tick;
         let Some(render) = evaluated.render else {
             return false;
         };
         state.render = render;
-        state.initialized = true;
-        state.reset_pending = false;
-        state.completed_tick = tick;
         true
     }
 

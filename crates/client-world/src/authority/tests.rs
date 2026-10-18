@@ -360,6 +360,7 @@ fn death_and_hud_rules_commit_in_one_ui_envelope() {
                 weather_cycle: None,
                 hud,
                 death,
+                crafting: Default::default(),
             }),
             Some(7),
         )
@@ -485,7 +486,9 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
     let definitions = CustomBlocks {
         blocks: Arc::from([
             CustomBlock {
+                state_physics_complete: false,
                 state_physics: Default::default(),
+                player_interact: false,
                 name: "example:plain".into(),
                 tags: Default::default(),
                 state_count: 1,
@@ -496,7 +499,9 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 visual: Arc::default(),
             },
             CustomBlock {
+                state_physics_complete: false,
                 state_physics: Default::default(),
+                player_interact: false,
                 name: "example:powered".into(),
                 tags: Default::default(),
                 state_count: 2,
@@ -625,7 +630,9 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
 
 fn plain_identity_block(name: &str) -> CustomBlock {
     CustomBlock {
+        state_physics_complete: false,
         state_physics: Default::default(),
+        player_interact: false,
         name: name.into(),
         tags: Default::default(),
         state_count: 1,
@@ -747,7 +754,9 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
                 collision_boxes: None,
                 selection: CustomSelection::Default,
                 friction: None,
+                state_physics_complete: false,
                 state_physics: Default::default(),
+                player_interact: false,
                 tags: Default::default(),
                 visual: Arc::default(),
             }]),

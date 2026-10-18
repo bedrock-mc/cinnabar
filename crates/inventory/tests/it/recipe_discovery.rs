@@ -70,7 +70,6 @@ fn ingredient_discovery_does_not_discard_manual_crafting_and_signed_block_bits_s
                 identifier: "minecraft:oak_log",
                 metadata: 0,
                 count: 8,
-                plain: true,
                 tags: &[],
             });
             let CraftGridMatch::Unique(matched) = match_crafting_grid(&catalog, width, &grid)
@@ -99,6 +98,7 @@ fn discovery_ingredients_still_obey_nested_decode_bounds() {
     let update = CraftingDataFixture {
         recipes: vec![recipe],
         clear_recipes: false,
+        ..Default::default()
     }
     .update();
     assert!(update.is_unavailable());

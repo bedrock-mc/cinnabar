@@ -6,9 +6,10 @@ mod geometry;
 mod ids;
 mod locator;
 mod rig;
-pub use locator::{ActorEmitterTransform, sampled_locator_transform};
+pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
 mod skin;
 mod skin_poly_mesh;
+pub mod skin_portrait;
 mod surface;
 mod texel_fit;
 mod texture_mesh;
@@ -19,8 +20,8 @@ pub use asset_geometry::{
     geometry_from_runtime_assets, pack_geometries, resolve_geometry_bones, skin_geometry,
 };
 pub use biped::{
-    ActorVertex, STANDARD_BIPED_VERTEX_COUNT, standard_biped_overlay_vertices,
-    standard_biped_vertices,
+    ActorVertex, STANDARD_BIPED_BONES, STANDARD_BIPED_VERTEX_COUNT,
+    standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use geometry::{ONE_SIDED_BACK_UV, append_entity_cube_vertices};
 pub use ids::{
@@ -64,13 +65,13 @@ pub use glint::{
 };
 
 pub use frame::{
-    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
-    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
-    MAX_ACTOR_POSE_BONES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, pack_actor_light, pack_actor_light_without_lightmap,
-    pack_overlay_rgba8,
+    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
+    ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
+    ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_POSE_BONES,
+    MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible, actor_rig_submission_is_visible,
+    pack_actor_light, pack_actor_light_without_lightmap, pack_overlay_rgba8,
 };
 
 pub use skin_slots::{ActorSkinResidency, ResidentSkin, pack_skin_slot};

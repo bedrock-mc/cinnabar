@@ -106,7 +106,12 @@ impl ActorStore {
         roster
     }
 
-    /// How many players [`Self::player_list_usernames`] would list, without allocating.
+    /// Borrows the retained skin of a listed UUID, whether or not its actor has spawned.
+    pub(crate) fn player_list_skin(&self, uuid: &[u8; 16]) -> Option<&PlayerSkin> {
+        self.players.get(uuid).map(|profile| &profile.skin)
+    }
+
+    /// Counts named entries in the authoritative roster.
     pub(crate) fn player_list_count(&self) -> usize {
         self.players
             .values()

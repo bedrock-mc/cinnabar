@@ -6,7 +6,7 @@ use crate as render_api;
 mod actor_raster;
 mod alpha_coverage;
 mod depth_smaa;
-#[cfg(test)]
+#[cfg(any(test, feature = "publication-test-support"))]
 #[path = "../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 pub use depth_smaa::DepthSmaaPlugin;
@@ -32,6 +32,7 @@ mod chunk;
 
 mod cloud_render;
 mod device_poll;
+pub mod device_settings;
 
 mod enhanced;
 mod entity_shadow_render;
@@ -39,13 +40,18 @@ pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
+mod gpu_allocation;
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 
 mod dropped_item_render;
+mod frame_boundary;
 mod hand_rig_render;
+pub use frame_boundary::{FrameEnd, FrameStart};
+#[cfg(not(target_arch = "wasm32"))]
 mod input_pacing;
-pub use input_pacing::{FrameEnd, FramePacing, FrameStart, InputPacingPlugin};
+#[cfg(not(target_arch = "wasm32"))]
+pub use input_pacing::{FramePacing, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
@@ -115,6 +121,14 @@ use meshing::{
 pub use actor::gpu::storage_binding_bytes as actor_storage_binding_bytes;
 pub use actor::material::blend_state as actor_material_blend_state;
 pub use actor_render::ActorRenderPlugin;
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::equipment_test_support::{
+    EquipmentPreparation, PreparedEquipmentDraw, equipment_pixels,
+};
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{
+    PublicationActorPreparation, publication_actor_preparation,
+};
 
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};
@@ -157,3 +171,9 @@ pub mod startup_presentation;
 mod queue_review_support;
 
 mod runtime_profile_trace;
+
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{PreparedActorDraw, prepare_actor_test_frame};
+
+#[cfg(target_arch = "wasm32")]
+pub mod browser_jobs;

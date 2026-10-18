@@ -1,6 +1,19 @@
 //! Book commits retain edits while the transport is full.
 use super::*;
 
+#[path = "book_screen_tests/backing.rs"]
+mod backing;
+
+/// Allocates this fixture's written-book ID after the protocol test registry.
+fn written_book_network_id() -> i32 {
+    protocol::vanilla_item_registry()
+        .iter()
+        .map(|entry| entry.network_id)
+        .max()
+        .unwrap()
+        + 1
+}
+
 /// Publishes a fresh writable book without requiring a resource carrier.
 fn held_book() -> (player_state::PlayerState, UiRuntime) {
     let mut player = player_state::PlayerState::new(1);
@@ -8,7 +21,15 @@ fn held_book() -> (player_state::PlayerState, UiRuntime) {
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let runtime = UiRuntime::new(1);
-    let entries = protocol::vanilla_item_registry();
+    let mut entries = protocol::vanilla_item_registry().to_vec();
+    let mut written = entries
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:writable_book")
+        .unwrap()
+        .clone();
+    written.identifier = "minecraft:written_book".into();
+    written.network_id = written_book_network_id();
+    entries.push(written);
     let network_id = entries
         .iter()
         .find(|entry| entry.identifier.as_ref() == "minecraft:writable_book")
@@ -18,7 +39,9 @@ fn held_book() -> (player_state::PlayerState, UiRuntime) {
     ledger.apply(&protocol::InventoryEvent::Authority(
         protocol::InventoryAuthority::Server,
     ));
-    ledger.apply_registry(&protocol::ItemRegistryEvent { entries });
+    ledger.apply_registry(&protocol::ItemRegistryEvent {
+        entries: entries.into(),
+    });
     ledger.apply(&protocol::InventoryEvent::Content(
         protocol::InventoryContentEvent {
             container: protocol::ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
@@ -66,16 +89,26 @@ fn book_opening_waits_for_admission_and_initializes_only_once() {
         .clone();
     assert!(!protocol::book_needs_init(&initialized.extra_data));
     runtime.finish_book(&mut player, false);
-    assert!(runtime.open_held_book(&mut player, None, |_| panic!(
-        "initialized book must not send initialization again"
-    )));
+    assert!(
+        runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |packet| {
+            packets.push(packet);
+            true
+        })
+    );
+    assert!(
+        protocol::test_support::transactions::observe_transaction(&packets[1])
+            .unwrap()
+            .actions
+            .is_empty(),
+        "an initialized book uses the item without another initialization"
+    );
     runtime.screen.book.as_mut().unwrap().type_text("saved");
     runtime.finish_book(&mut player, false);
     packets.push(runtime.take_client_packet().unwrap());
     assert!(runtime.take_client_packet().is_none());
     assert!(protocol::test_support::transactions::observe_transaction(&packets[0]).is_some());
     assert_eq!(
-        packets[1].kind(),
+        packets[2].kind(),
         protocol::book_edit_packet(0, &BookEdit::DeletePage { page: 1 })
             .unwrap()
             .kind()
@@ -284,4 +317,36 @@ fn a_retired_session_discards_its_pending_book_and_screen_packets() {
     player_runtime.begin_session(2);
     runtime.begin_session(2);
     assert!(runtime.take_client_packet().is_none());
+}
+
+/// A server restatement of an initialized book keeps its client-owned editor visible.
+#[test]
+fn review_regression_inventory_updates_preserve_the_book_screen() {
+    let (mut player, mut runtime) = held_book();
+    assert!(runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |_| true));
+    let initialized = player
+        .inventory
+        .ledger()
+        .displayed_stack(0)
+        .unwrap()
+        .clone();
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            1,
+            protocol::InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: protocol::ContainerIdentity::window(0),
+                    slot: 0,
+                },
+                stack: initialized,
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert!(runtime.inventory_open());
+    assert!(runtime.screen.book.as_ref().unwrap().editable);
+    assert!(!player.inventory.ledger().personal_inventory_desired_open());
 }

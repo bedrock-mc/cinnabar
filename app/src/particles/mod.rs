@@ -4,6 +4,7 @@
 mod actors;
 mod ambient;
 mod carrier;
+mod cosmetics;
 mod drive;
 mod tiles;
 mod world_adapter;

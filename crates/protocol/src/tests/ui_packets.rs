@@ -735,7 +735,7 @@ fn valid_button_images_are_retained_by_kind_without_changing_indexes() {
     let packets::Packet::ModalFormResponse(response) = *response.data else {
         panic!("response packet")
     };
-    assert_eq!(response.json_response, Some("1".into()));
+    assert_eq!(response.json_response, Some("1\n".into()));
 }
 
 #[test]
@@ -768,8 +768,8 @@ fn modal_and_custom_form_responses_round_trip() {
     // Modal button1/button2 answer with true/false, not an index.
     let yes = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(true));
     let no = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(false));
-    assert_eq!(json_of(&yes), Some("true"));
-    assert_eq!(json_of(&no), Some("false"));
+    assert_eq!(json_of(&yes), Some("true\n"));
+    assert_eq!(json_of(&no), Some("false\n"));
 
     // A custom form answers with an ordered JSON array of typed values; a null holds
     // a non-input element's slot.
@@ -784,7 +784,7 @@ fn modal_and_custom_form_responses_round_trip() {
             CustomFormValue::Input("Steve".into()),
         ],
     );
-    assert_eq!(json_of(&submit), Some(r#"[null,true,3.5,2,1,"Steve"]"#));
+    assert_eq!(json_of(&submit), Some("[null,true,3.5,2,1,\"Steve\"]\n"));
 
     // The custom answer survives an encode/decode wire round trip.
     submit.header.from_subclient = 1;
@@ -903,15 +903,15 @@ fn oversized_form_titles_fail_the_shared_ui_text_budget() {
 #[test]
 fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     // Submitting button 2 of form 7: batch header, length, packet id 101, then
-    // id, present(1), len 1, '2', cancel absent(0).
+    // id, present(1), len 2, '2' and its line break, cancel absent(0).
     let submit = modal_form_submit_response(7, ModalFormResponseSelection::ButtonIndex(2));
     assert_eq!(
         protocol::encode(&submit).unwrap().as_ref(),
-        &[0xfe, 0x06, 101, 0x07, 0x01, 0x01, b'2', 0x00]
+        &[0xfe, 0x07, 101, 0x07, 0x01, 0x02, b'2', b'\n', 0x00]
     );
     let direct = ModalFormResponse {
         form_id: wire::VarUInt(7),
-        json_response: Some("2".into()),
+        json_response: Some("2\n".into()),
         form_cancel_reason: None,
     };
     assert_eq!(
@@ -1077,4 +1077,42 @@ fn custom_form_elements_start_from_vanilla_defaults() {
             if placeholder.as_ref() == "name" && default.is_empty()
     ));
     assert_eq!(FormNumber::new(f64::NAN), None);
+}
+
+/// Submitted scalars retain the line terminator inside the encoded JSON string.
+#[test]
+fn form_response_payloads_terminate_scalar_json() {
+    for (selection, expected) in [
+        (ModalFormResponseSelection::ButtonIndex(2), "2\n"),
+        (ModalFormResponseSelection::ModalButton(true), "true\n"),
+        (ModalFormResponseSelection::ModalButton(false), "false\n"),
+    ] {
+        let bytes = protocol::encode(&modal_form_submit_response(7, selection)).unwrap();
+        let packet = decode_batch(bytes).unwrap().pop().unwrap();
+        let packets::Packet::ModalFormResponse(response) = *packet.data else {
+            panic!("expected form response");
+        };
+        assert_eq!(response.json_response, Some(expected.into()));
+        assert!(response.form_cancel_reason.is_none());
+    }
+}
+
+/// A submitted array has one final newline while preserving its typed values and escaped input.
+#[test]
+fn form_response_payloads_terminate_custom_json() {
+    let values = [
+        CustomFormValue::Null,
+        CustomFormValue::Toggle(false),
+        CustomFormValue::Input("one\ntwo".into()),
+    ];
+    let bytes = protocol::encode(&custom_form_submit_response(9, &values)).unwrap();
+    let packet = decode_batch(bytes).unwrap().pop().unwrap();
+    let packets::Packet::ModalFormResponse(response) = *packet.data else {
+        panic!("expected form response");
+    };
+    assert_eq!(
+        response.json_response,
+        Some("[null,false,\"one\\ntwo\"]\n".into())
+    );
+    assert!(response.form_cancel_reason.is_none());
 }

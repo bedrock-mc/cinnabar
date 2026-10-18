@@ -1,7 +1,10 @@
 use bevy::prelude::Resource;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
+#[cfg(not(target_arch = "wasm32"))]
 mod disk;
+#[cfg(not(target_arch = "wasm32"))]
 pub use disk::CLIENT_BLOB_DISK_CAP_BYTES;
 
 /// The verified blob cache shared by every network session in this process.
@@ -10,6 +13,7 @@ pub struct ClientBlobCacheOwner(protocol::ClientBlobCache);
 
 impl ClientBlobCacheOwner {
     /// Starts background disk storage and warming without delaying client startup.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn persistent(path: PathBuf) -> Self {
         Self(disk::start(path, protocol::BlobCacheLimits::default()))
     }

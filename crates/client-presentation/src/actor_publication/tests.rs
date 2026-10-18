@@ -970,6 +970,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
             kind: crate::presentation::equipment::HeldKind::Sprite,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         ..Default::default()
     };

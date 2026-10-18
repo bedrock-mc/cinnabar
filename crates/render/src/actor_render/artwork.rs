@@ -10,7 +10,7 @@ use {
 
 #[path = "artwork_cache.rs"]
 mod cache;
-use crate::actor::gpu::allocation;
+use crate::gpu_allocation;
 use cache::{TextureCache, TextureKey};
 
 #[derive(Clone)]
@@ -69,7 +69,7 @@ impl GpuGlint {
         else {
             return false;
         };
-        let Some(view) = allocation::checked(device, "actor glint view", 0, || {
+        let Some(view) = gpu_allocation::checked(device, "actor glint view", 0, || {
             texture.create_view(&TextureViewDescriptor::default())
         }) else {
             return false;
@@ -193,6 +193,18 @@ impl GpuArtwork {
         true
     }
 
+    /// Reports whether this page binds the exact immutable pixels supplied by the publication.
+    #[cfg(feature = "publication-test-support")]
+    pub(super) fn page_is_bound(
+        &self,
+        page: ActorArtworkPageId,
+        source: &render_model::ActorTexturePage,
+    ) -> bool {
+        self.pages
+            .get(usize::from(page) - 1)
+            .is_some_and(|page| page.bind_group.is_some() && page.source.shares_pixels_with(source))
+    }
+
     /// Buffer and glint replacements invalidate bindings without discarding page textures.
     pub fn invalidate_bindings(&mut self) {
         for page in &mut self.pages {
@@ -210,7 +222,7 @@ fn allocate_page(
     reduce: bool,
 ) -> Option<GpuArtworkPage> {
     let texture = upload_or_reduce(device, queue, page, "immutable actor page", reduce)?;
-    let view = allocation::checked(device, "actor page view", 0, || {
+    let view = gpu_allocation::checked(device, "actor page view", 0, || {
         texture.create_view(&TextureViewDescriptor {
             dimension: Some(TextureViewDimension::D2Array),
             ..default()
@@ -271,7 +283,7 @@ fn upload_page(
         height: u32::from(page.height),
         depth_or_array_layers: page.layers,
     };
-    let texture = allocation::checked(device, label, page.rgba8.len() as u64, || {
+    let texture = gpu_allocation::checked(device, label, page.rgba8.len() as u64, || {
         device.create_texture(&TextureDescriptor {
             label: Some(label),
             size,
@@ -285,7 +297,7 @@ fn upload_page(
     })?;
     #[cfg(test)]
     work_tests::record_upload(page.rgba8.len());
-    allocation::checked(device, "actor page upload", page.rgba8.len() as u64, || {
+    gpu_allocation::checked(device, "actor page upload", page.rgba8.len() as u64, || {
         queue.profiled_write_texture(
             TexelCopyTextureInfo {
                 texture: &texture,

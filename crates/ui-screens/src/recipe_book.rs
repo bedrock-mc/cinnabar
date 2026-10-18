@@ -4,11 +4,15 @@
 
 mod cache;
 #[cfg(test)]
+mod discovery_tests;
+#[cfg(test)]
 mod tests;
 pub use cache::BookCache;
 
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
-use protocol::{CreativeGroup, CreativeItem, NetworkItemStack, RecipeHandle};
+use protocol::{
+    CreativeGroup, CreativeItem, InventoryLayout, InventoryRightTab, InventoryTab, NetworkItemStack,
+};
 use serde_json::Value;
 
 use crate::container_actions::{InventoryCellHit, SEARCH_TAB, Widget};
@@ -28,21 +32,6 @@ pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
     binding
 }
 
-/// Vanilla crafting screen variables: radio indexes of the tabs
-/// and layout toggles.
-const INDEXES: [(&str, u64); 9] = [
-    ("construction_index", 1),
-    ("equipment_index", 2),
-    ("items_index", 3),
-    ("nature_index", 4),
-    ("search_index", 5),
-    ("survival_index", 6),
-    ("survival_layout_index", 1),
-    ("recipe_book_layout_index", 2),
-    ("creative_layout_index", 3),
-];
-/// Screen-state tabs by radio index: construction, equipment, items, nature, search.
-const TABS: [(u64, u8); 5] = [(1, 0), (2, 2), (3, 3), (4, 1), (5, SEARCH_TAB)];
 /// Tab labels by screen-state tab; the search tab's label is provisional.
 const TAB_LABELS: [&str; 5] = [
     "craftingScreen.tab.construction",
@@ -59,11 +48,11 @@ const ITEM_BACKGROUND: &str = "textures/ui/recipe_book_item_bg";
 const GROUP_FOLDED: &str = "textures/ui/recipe_book_light_button";
 const GROUP_UNFOLDED: &str = "textures/ui/recipe_book_dark_button_pressed";
 const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
-/// A recipe the inventory cannot supply (`FilterResult::Disable`).
+/// A recipe output whose ingredients the inventory cannot supply.
 const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// One entry of the recipe book: in creative a catalog item or a named group's
-/// head, else a recipe the player can craft now.
+/// head, else a grouped recipe output and its current material availability.
 pub enum BookEntry<'a> {
     Creative {
         item: &'a CreativeItem,
@@ -75,7 +64,7 @@ pub enum BookEntry<'a> {
         group: &'a CreativeGroup,
         expanded: bool,
     },
-    Recipe(RecipeHandle),
+    Recipe(inventory::BookRecipe),
     Furnace(&'a protocol::ScreenRecipe),
 }
 
@@ -86,7 +75,7 @@ impl BookEntry<'_> {
             Self::Creative { item, .. } => item.stack.clone(),
             Self::Group { group, .. } => group.icon.clone().unwrap_or_default(),
             Self::Recipe(recipe) => {
-                let output = recipe.output();
+                let output = recipe.recipe.output();
                 NetworkItemStack {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),
@@ -102,7 +91,29 @@ impl BookEntry<'_> {
 
 /// The crafting screens' static variables.
 pub(crate) fn context(mut context: Context) -> Context {
-    for (name, index) in INDEXES {
+    for (name, index) in [
+        ("construction_index", InventoryTab::Construction.index()),
+        ("equipment_index", InventoryTab::Equipment.index()),
+        ("items_index", InventoryTab::Items.index()),
+        ("nature_index", InventoryTab::Nature.index()),
+        ("search_index", InventoryTab::Search.index()),
+        ("survival_index", InventoryTab::Survival.index()),
+        (
+            "survival_layout_index",
+            InventoryLayout::InventoryOnly.index(),
+        ),
+        (
+            "recipe_book_layout_index",
+            InventoryLayout::RecipeBook.index(),
+        ),
+        (
+            "creative_layout_index",
+            InventoryLayout::RecipeBookOnly.index(),
+        ),
+        ("fullscreen_index", InventoryRightTab::Fullscreen.index()),
+        ("crafting_index", InventoryRightTab::Crafting.index()),
+        ("armor_index", InventoryRightTab::Armor.index()),
+    ] {
         context = context.with_var(name, Value::from(index));
     }
     context
@@ -120,43 +131,13 @@ pub fn book_data(
     let creative =
         source.player().facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     let state = source.screen();
-    let tab = state.creative_tab;
-    let wide = shown && creative && state.creative_wide;
-    for (name, value) in [
-        ("#is_survival_layout", !shown),
-        ("#is_recipe_book_layout", shown && !wide),
-        ("#is_creative_layout", wide),
-        ("#is_creative_mode", creative),
-        ("#is_creative_layout_button_visible", creative),
-        (
-            "#is_creative_and_recipe_book_layout",
-            creative && shown && !wide,
-        ),
-        ("#is_creative_and_creative_layout", wide),
-        ("#filtering_enabled", source.recipe_filtering()),
-        ("#is_left_tab_inventory", !shown),
-        ("#construction_tab_visible", true),
-        ("#equipment_tab_visible", true),
-        ("#items_tab_visible", true),
-        ("#nature_tab_visible", true),
-        ("#is_left_tab_construct", tab == 0),
-        ("#is_left_tab_nature", tab == 1),
-        ("#is_left_tab_equipment", tab == 2),
-        ("#is_left_tab_items", tab == 3),
-        ("#is_left_tab_search", tab == SEARCH_TAB),
-    ] {
-        data.set_global(name, Scalar::Bool(value));
-    }
-    let layout = match (shown, wide) {
-        (false, _) => 1,
-        (true, false) => 2,
-        (true, true) => 3,
-    };
-    data.select_radio("layout_toggle", layout);
-    if let Some((index, _)) = TABS.iter().find(|(_, java)| *java == tab) {
-        data.select_radio("navigation_tab", *index as usize);
-    }
-    let label = TAB_LABELS[usize::from(tab.min(SEARCH_TAB))];
+    let controller = state.inventory;
+    let tab = controller.options.left_tab;
+    option_bindings(data, controller, creative, shown);
+    let label = crate::container_actions::inventory_tab_ui(tab)
+        .and_then(|tab| TAB_LABELS.get(usize::from(tab)))
+        .copied()
+        .unwrap_or("craftingScreen.tab.allItems");
     let label = source
         .translation(label)
         .map_or_else(|| label.to_owned(), |text| text.to_string());
@@ -209,6 +190,69 @@ pub fn book_data(
     data.set_shared_collection(COLLECTION, items);
 }
 
+/// Publishes navigation and layout choices independently of recipe row availability.
+fn option_bindings(
+    data: &mut DataSource,
+    controller: inventory::InventoryController,
+    creative: bool,
+    shown: bool,
+) {
+    let options = controller.options;
+    let tab = options.left_tab;
+    let wide = shown
+        && controller.allows_recipe_book_only(creative)
+        && controller.layout() == InventoryLayout::RecipeBookOnly;
+    for (name, value) in [
+        ("#is_survival_layout", !shown),
+        ("#is_recipe_book_layout", shown && !wide),
+        ("#is_creative_layout", wide),
+        ("#is_creative_mode", creative),
+        (
+            "#is_creative_layout_button_visible",
+            controller.allows_recipe_book_only(creative),
+        ),
+        (
+            "#is_creative_and_recipe_book_layout",
+            creative && shown && !wide,
+        ),
+        ("#is_creative_and_creative_layout", wide),
+        ("#filtering_enabled", options.filtering),
+        ("#is_left_tab_inventory", tab == InventoryTab::Survival),
+        (
+            "#is_right_tab_fullscreen",
+            options.right_tab == InventoryRightTab::Fullscreen,
+        ),
+        (
+            "#is_right_tab_crafting",
+            options.right_tab == InventoryRightTab::Crafting,
+        ),
+        (
+            "#is_right_tab_armor",
+            options.right_tab == InventoryRightTab::Armor,
+        ),
+        ("#construction_tab_visible", true),
+        ("#equipment_tab_visible", true),
+        ("#items_tab_visible", true),
+        ("#nature_tab_visible", true),
+        ("#is_left_tab_construct", tab == InventoryTab::Construction),
+        ("#is_left_tab_nature", tab == InventoryTab::Nature),
+        ("#is_left_tab_equipment", tab == InventoryTab::Equipment),
+        ("#is_left_tab_items", tab == InventoryTab::Items),
+        ("#is_left_tab_search", tab == InventoryTab::Search),
+    ] {
+        data.set_global(name, Scalar::Bool(value));
+    }
+    if let Ok(layout) = usize::try_from(controller.layout().index()) {
+        data.select_radio("layout_toggle", layout);
+    }
+    if let Ok(index) = usize::try_from(tab.index()) {
+        data.select_radio("navigation_tab", index);
+    }
+    if let Ok(index) = usize::try_from(options.right_tab.index()) {
+        data.select_radio("right_inventory_navigation_tab", index);
+    }
+}
+
 /// `#container_item_modifier`: a folded group head shows the expand icon (2),
 /// an unfolded one the collapse icon (1), anything else neither.
 fn modifier(entry: &BookEntry<'_>) -> i64 {
@@ -221,17 +265,30 @@ fn modifier(entry: &BookEntry<'_>) -> i64 {
     }
 }
 
+/// Chooses a row's appearance from material availability and group state.
 fn background(source: &dyn ContainerSource, entry: &BookEntry<'_>) -> &'static str {
     match entry {
-        BookEntry::Recipe(recipe) if !source.player().inventory.ledger().can_auto_craft(recipe) => {
-            RECIPE_DISABLED
-        }
+        BookEntry::Recipe(recipe) => recipe_background(source.player(), recipe),
         BookEntry::Group {
             expanded: false, ..
         } => GROUP_FOLDED,
         BookEntry::Group { expanded: true, .. } => GROUP_UNFOLDED,
         BookEntry::Creative { grouped: true, .. } => GROUP_ITEM,
         _ => ITEM_BACKGROUND,
+    }
+}
+
+/// Selects a recipe row's background independently of group and selection artwork.
+fn recipe_background(
+    player: &player_state::PlayerState,
+    recipe: &inventory::BookRecipe,
+) -> &'static str {
+    if recipe.craftable
+        || player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
+    {
+        ITEM_BACKGROUND
+    } else {
+        RECIPE_DISABLED
     }
 }
 
@@ -250,15 +307,25 @@ pub(crate) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellH
         return Some(InventoryCellHit::Widget(Widget::RecipeFilter));
     }
     let group = region.group_index? as u64;
-    match region.control_name.as_deref()? {
+    navigation_hit(region.control_name.as_deref()?, group)
+}
+
+/// Converts a navigation radio into the client control that owns its selection.
+fn navigation_hit(control: &str, group: u64) -> Option<InventoryCellHit> {
+    match control {
         "navigation_tab" => {
-            let (_, tab) = TABS.iter().find(|(index, _)| *index == group)?;
-            Some(if *tab == SEARCH_TAB {
+            let tab = crate::container_actions::inventory_tab_ui(InventoryTab::from_index(
+                i32::try_from(group).ok()?,
+            ))?;
+            Some(if tab == SEARCH_TAB {
                 InventoryCellHit::CreativeSearch
             } else {
-                InventoryCellHit::CreativeTab(*tab)
+                InventoryCellHit::CreativeTab(tab)
             })
         }
+        "right_inventory_navigation_tab" => Some(InventoryCellHit::Widget(
+            Widget::InventoryRightTab(u8::try_from(group).ok()?),
+        )),
         "layout_toggle" => Some(InventoryCellHit::Widget(Widget::InventoryLayout(
             u8::try_from(group).ok()?,
         ))),

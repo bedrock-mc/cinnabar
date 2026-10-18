@@ -1,5 +1,117 @@
 use super::*;
 
+use crate::{
+    atlas::ServerAtlas,
+    engine::{
+        FormEngine, ScreenArt,
+        screen::{PaintFrame, ScreenRegistry},
+    },
+    sources::{ImageWork, RemoteImage, RemoteSource},
+    test_support::fixture_font,
+    text_metrics::TextMetrics,
+};
+use assets::{RuntimeUiAssets, encode_ui_catalog};
+use json_ui::{Catalog, Context, DataSource};
+use std::sync::Arc;
+use ui::{DpiScale, SafeArea, TextLayoutCache, UiVisual};
+
+struct Offline;
+impl RemoteSource for Offline {
+    /// Tooltip fixtures never request downloads.
+    fn state(&self, _: &str) -> RemoteImage {
+        RemoteImage::Failed
+    }
+}
+
+#[test]
+fn zero_sized_hover_control_paints_a_tooltip_at_the_pointer() {
+    static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop()));
+    let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
+    let mut engine = FormEngine::new(
+        Arc::new(RuntimeUiAssets::decode(&bytes).unwrap()),
+        Catalog::default(),
+        0,
+        registry,
+        Arc::new(Offline),
+        ImageWork::inline(),
+    );
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([20, 10, 30, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    engine.set_server_atlas(
+        ServerAtlas::new(
+            &[
+                (format!("{BACKGROUND_TEXTURE}.png"), png),
+                (
+                    format!("{BACKGROUND_TEXTURE}.json"),
+                    br#"{"nineslice_size":4,"base_size":[16,16]}"#.to_vec(),
+                ),
+            ],
+            None,
+            1,
+        )
+        .with_image_work(ImageWork::inline()),
+        1,
+    );
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/fixture.json",
+        &serde_json::json!({"namespace":"fixture","tooltip":{
+        "type":"custom","renderer":RENDERER,"size":[0,0],"allow_clipping":false,
+        "property_bag":{"#hover_text":"Details"}}})
+        .to_string(),
+    );
+    let root = json_ui::resolve(&catalog, "fixture.tooltip", &Context::desktop())
+        .control
+        .unwrap();
+    let root = json_ui::bind(&root, &DataSource::new(), &json_ui::EmptyLibrary);
+    let font = fixture_font();
+    let mut nodes = Vec::new();
+    let mut next = 1;
+    engine
+        .draw(
+            ScreenArt {
+                pointer: Some([40.0, 50.0]),
+                ..Default::default()
+            },
+            &mut PaintFrame {
+                layouts: &mut TextLayoutCache::new(4, 1 << 20),
+                font: &font,
+                metrics: TextMetrics::for_viewport(
+                    [1280, 720],
+                    DpiScale::new(1.0).unwrap(),
+                    Some(2),
+                ),
+                solid_page: 0,
+                safe_area: SafeArea::ZERO,
+                content: [1280.0, 720.0],
+                translate: &|_| None,
+                language: [0; 3],
+                now: 0.0,
+                nodes: &mut nodes,
+                next: &mut next,
+                renderers: &mut [],
+            },
+            |env, size| Some(json_ui::render_bound(root, size, env, &Default::default())),
+        )
+        .unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|node| matches!(node.visual(), UiVisual::Text { .. })),
+        "zero-sized hover controls still paint text"
+    );
+    assert_eq!(
+        nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+            .count(),
+        9
+    );
+}
+
 #[test]
 fn native_font_height_uses_minimum_only_for_first_line_and_pitch_for_newlines() {
     let default = WIDTH_EXTRA;

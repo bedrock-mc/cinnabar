@@ -59,7 +59,9 @@ pub(crate) fn multitexture_rigs(
         .map(|rig| {
             source(rig.entity_symbol)
                 .is_some_and(|source| matches(&policy().multitexture_entities, source))
-                && source(rig.render_controller)
+                && rig
+                    .render_controller
+                    .and_then(source)
                     .is_some_and(|source| matches(&policy().multitexture_controllers, source))
         })
         .collect()

@@ -44,7 +44,10 @@ impl ItemUseRuntime {
         let max_use_ticks = self.active_timing().map_or_else(
             // A crossbow's maximum use duration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
-            || match selected_air_use_with_projectile(player_runtime, stream, Some(None)) {
+            || match player_runtime
+                .selected_stack()
+                .and_then(|stack| selection::air_use_for_stack(stack, stream, Some(None)))
+            {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
                 _ => 0,
             },
@@ -56,8 +59,9 @@ impl ItemUseRuntime {
         let selected = player_runtime
             .selected_stack()
             .and_then(|stack| stream.authority().canonical_item_stack(stack));
-        let projectile = self
-            .selected_projectile(player_runtime, ui)
+        let projectile = player_runtime
+            .selected_hotbar_slot()
+            .and_then(|slot| self.slot_projectile(player_runtime, ui, slot))
             .unwrap_or_else(|| {
                 selected
                     .as_ref()
@@ -160,7 +164,7 @@ impl ItemUseRuntime {
             slot,
             ui.inventory_ledger(player_runtime)
                 .authoritative_slot_revision(slot)?,
-            player_runtime.selected_stack()?,
+            player_runtime.selected_backing_stack()?,
         )
     }
     /// Resolves a charge prediction against an authoritative inventory slot.

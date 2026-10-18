@@ -19,7 +19,9 @@ const TAG_COMPOUND: u8 = 10;
 #[derive(Debug)]
 pub(crate) enum Nbt {
     Byte(i8),
+    Short(i64),
     Int(i64),
+    Long(i64),
     Float(f64),
     String(String),
     Other,
@@ -66,8 +68,16 @@ impl Nbt {
     pub(crate) fn number(&self) -> Option<f64> {
         match self {
             Self::Byte(value) => Some(f64::from(*value)),
-            Self::Int(value) => Some(*value as f64),
+            Self::Short(value) | Self::Int(value) | Self::Long(value) => Some(*value as f64),
             Self::Float(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Reads only an Int tag within its signed 32-bit range, without numeric coercion.
+    pub(crate) fn int32(&self) -> Option<i32> {
+        match self {
+            Self::Int(value) => i32::try_from(*value).ok(),
             _ => None,
         }
     }
@@ -134,10 +144,10 @@ impl NbtReader<'_> {
             1 => Nbt::Byte(self.u8()? as i8),
             2 => {
                 let bytes = self.take(2)?;
-                Nbt::Int(i64::from(i16::from_le_bytes([bytes[0], bytes[1]])))
+                Nbt::Short(i64::from(i16::from_le_bytes([bytes[0], bytes[1]])))
             }
             3 => Nbt::Int(zigzag(self.var_u64(5)?)),
-            4 => Nbt::Int(zigzag(self.var_u64(10)?)),
+            4 => Nbt::Long(zigzag(self.var_u64(10)?)),
             5 => Nbt::Float(f64::from(f32::from_le_bytes(
                 self.take(4)?.try_into().ok()?,
             ))),

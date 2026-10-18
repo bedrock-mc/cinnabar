@@ -165,7 +165,11 @@ mod tests {
         );
         assert_eq!(
             presence_target("friend_xuid/2535400000000000", false),
-            joinable(Destination::FriendWorld, "friend_xuid/2535400000000000", None)
+            joinable(
+                Destination::FriendWorld,
+                "friend_xuid/2535400000000000",
+                None
+            )
         );
         let experience = format!("{}fixture", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
         assert_eq!(

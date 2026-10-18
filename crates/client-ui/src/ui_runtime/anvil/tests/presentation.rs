@@ -52,8 +52,8 @@ pub(super) fn correct_target(
 }
 
 #[test]
-fn response_corrections_drive_repair_cost_and_name_without_replacing_nbt() {
-    for (damage, material_used) in [(-1, 3), (0, 0), (100, 1), (800, 3)] {
+fn response_corrections_drive_repair_cost_name_and_retained_nbt() {
+    for (damage, material_used) in [(-1, 0), (0, 0), (100, 1), (800, 3)] {
         let (mut runtime, mut player) = anvil();
         runtime.sync_anvil_name(&player);
         correct_target(&mut runtime, &mut player, damage, "Server blade");
@@ -64,9 +64,9 @@ fn response_corrections_drive_repair_cost_and_name_without_replacing_nbt() {
             .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
             .unwrap();
         assert_eq!(
-            protocol::item_stack_damage(target),
-            Some(1000),
-            "NBT remains stale"
+            protocol::item_extra_damage_value(&target.extra_data),
+            Some(damage),
+            "the response rewrites the retained damage tag"
         );
         let preview = runtime.anvil_preview(&player);
         if material_used == 0 {
@@ -162,7 +162,7 @@ fn potion_name_prefill_tracks_the_metadata_and_the_displayed_name() {
         ("minecraft:swiftness", "Swiftness"),
     ] {
         let metadata = u32::try_from(
-            assets::POTION_DESCRIPTORS
+            assets::potion::POTION_DESCRIPTORS
                 .iter()
                 .position(|potion| potion.identifier == identifier)
                 .unwrap(),
@@ -831,7 +831,10 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
         authoritative.clone(),
     );
     assert_eq!(runtime.anvil_output(&player), Some(authoritative.clone()));
-    assert!(hovered_stack(&player, &runtime).is_some());
+    assert_eq!(
+        hovered_stack(&player, &runtime),
+        Some((authoritative, None))
+    );
 }
 
 /// Opens an anvil with a registered component weapon and a sharpness book.

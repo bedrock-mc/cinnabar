@@ -3,7 +3,8 @@ use super::EntityGeometryBone;
 
 impl EntityGeometryBone {
     /// A same-name child appends cubes to its inherited part; only explicit `reset: true`
-    /// removes the inherited cubes. Bone properties are resolved separately by each caller.
+    /// removes the inherited cubes. A nonzero bone inflate replaces the inflation of inherited
+    /// cubes before the child's own cubes append. Other bone properties are resolved by callers.
     ///
     /// Reset rewinds
     /// the cube vector's end, then authored cubes append at its existing end. The pinned
@@ -23,6 +24,15 @@ impl EntityGeometryBone {
         if child.reset == Some(true) {
             self.cubes = Box::default();
         }
+        let inflate = child.inflate.or(self.inflate);
+        if let Some(inflate) =
+            inflate.filter(|inflate| *inflate != super::EntityGeometryScalar::ZERO)
+        {
+            for cube in &mut self.cubes {
+                cube.inflate = inflate;
+            }
+        }
+        self.inflate = inflate;
         if !child.cubes.is_empty() {
             let mut cubes = std::mem::take(&mut self.cubes).into_vec();
             cubes.extend_from_slice(&child.cubes);
@@ -102,5 +112,62 @@ mod tests {
         child.reset = Some(true);
         assert_eq!(base.append_inherited_cubes(&child, maximum), Some(maximum));
         assert_eq!(base.cubes, child.cubes);
+    }
+}
+
+#[cfg(test)]
+mod inflation_tests {
+    use super::*;
+    use crate::EntityGeometryScalar as Scalar;
+
+    /// Builds one resolved cube with an optional bone default for inheritance tests.
+    fn bone(default: Option<f32>, cube: f32) -> EntityGeometryBone {
+        let source = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
+            "description":{"identifier":"geometry.fixture"},
+            "bones":[{"name":"body","cubes":[{
+                "origin":[0,0,0],"size":[2,2,2],"inflate":cube
+            }]}]
+        }]});
+        let mut bone = crate::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.fixture"}}"#,
+            &source.to_string(),
+        )
+        .unwrap()
+        .unwrap()
+        .bones[0]
+            .clone();
+        bone.inflate = default.map(|value| Scalar::new(value).unwrap());
+        bone
+    }
+
+    #[test]
+    fn inherited_cubes_take_the_effective_nonzero_bone_inflation_before_append() {
+        for (child_default, previous, expected) in [
+            (None, 0.0, 0.25),
+            (Some(0.0), 0.75, 0.75),
+            (Some(0.5), 0.0, 0.5),
+        ] {
+            let mut base = bone(Some(0.25), previous);
+            let child = bone(child_default, 0.1);
+            base.append_inherited_cubes(&child, 2).unwrap();
+            assert_eq!(base.cubes[0].inflate.get(), expected);
+            assert_eq!(
+                base.cubes[1].inflate.get(),
+                0.1,
+                "new cubes retain their own override"
+            );
+        }
+    }
+
+    #[test]
+    fn inflation_override_preserves_budget_rejection_and_reset() {
+        let mut base = bone(None, 0.0);
+        let mut child = bone(Some(1.0), 0.5);
+        let original = base.clone();
+        assert_eq!(base.append_inherited_cubes(&child, 1), None);
+        assert_eq!(base, original);
+        child.reset = Some(true);
+        assert_eq!(base.append_inherited_cubes(&child, 1), Some(1));
+        assert_eq!(base.cubes[0].inflate.get(), 0.5);
     }
 }

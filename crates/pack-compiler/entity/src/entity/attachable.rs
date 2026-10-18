@@ -1,10 +1,8 @@
 //! `minecraft:attachable` ingestion: item identifier -> entity-catalog geometry,
 //! texture, material, render controller, and any literal display transform.
 //!
-//! Armor ships a mob variant (`geometry.humanoid.armor.*`, uncollected) and a
-//! `.player.json` variant selected by `query.owner_identifier == 'minecraft:player'`
-//! (`geometry.player.armor.*`, collected); the player variant wins so its geometry
-//! resolves in-catalog. Transforms are populated only from pure-numeric bone
+//! Owner-specific definitions remain separate until the wearer selects one.
+//! Transforms are populated only from pure-numeric bone
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
@@ -50,7 +48,7 @@ pub(super) struct ItemTransforms {
 struct ParsedAttachable {
     resources: assets::equipment::EquipmentResources,
     item_identifier: Box<str>,
-    prefer: bool,
+    attachable_identifier: Box<str>,
     geometry: Box<str>,
     texture: Box<str>,
     material: Box<str>,
@@ -78,7 +76,7 @@ pub(super) fn compile_bindings(
     let animation_sources = animation_source_index(symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
-    let mut chosen = BTreeMap::<Box<str>, ParsedAttachable>::new();
+    let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
     for (path, bytes) in payloads {
         if !path.starts_with("attachables/") {
             continue;
@@ -98,13 +96,13 @@ pub(super) fn compile_bindings(
             Err(_) if lenient => continue,
             Err(error) => return Err(error),
         };
-        match chosen.get(&parsed.item_identifier) {
-            // The player variant wins so its collected geometry resolves in-catalog.
-            Some(existing) if existing.prefer && !parsed.prefer => {}
-            _ => {
-                chosen.insert(parsed.item_identifier.clone(), parsed);
-            }
-        }
+        chosen.insert(
+            (
+                parsed.item_identifier.clone(),
+                parsed.attachable_identifier.clone(),
+            ),
+            parsed,
+        );
     }
     if chosen.len() > MAX_EQUIPMENT_BINDINGS {
         if !lenient {
@@ -124,12 +122,13 @@ pub(super) fn compile_bindings(
     Ok(bindings.into_boxed_slice())
 }
 
-/// Literal transforms keyed by item identifier, for `item::compile`.
+/// Ordinary definitions supply item defaults; owner mappings stay in the runtime catalog.
 pub(super) fn transform_lookup(
     bindings: &[EquipmentBinding],
 ) -> BTreeMap<Box<str>, ItemTransforms> {
     bindings
         .iter()
+        .filter(|binding| binding.attachable.is_none())
         .map(|binding| {
             (
                 binding.identifier.clone(),
@@ -225,6 +224,8 @@ fn binding(
         poses: parsed.poses,
         dropped: EquipmentTransform::NeedsMeasurement,
         category,
+        attachable: (parsed.attachable_identifier != parsed.item_identifier)
+            .then_some(parsed.attachable_identifier),
         identifier: parsed.item_identifier,
     })
 }
@@ -276,7 +277,13 @@ fn parse_attachable(
     controller_resources: Option<&ControllerResources>,
 ) -> Result<ParsedAttachable, AttachableError> {
     let description = parse_description(value)?;
-    let (item_identifier, prefer) = item_binding(description)?;
+    let item_identifier = item_binding(description)?;
+    let attachable_identifier = bounded_identifier(
+        description
+            .get("identifier")
+            .and_then(Value::as_str)
+            .ok_or(AttachableError::Malformed)?,
+    )?;
     let animations = description.get("animations").and_then(Value::as_object);
     let geometry = named_resource(
         description,
@@ -321,7 +328,7 @@ fn parse_attachable(
             animation_sources,
         ),
         item_identifier,
-        prefer,
+        attachable_identifier,
     })
 }
 
@@ -337,20 +344,20 @@ fn parse_description(value: &Value) -> Result<&Value, AttachableError> {
         .ok_or(AttachableError::Malformed)
 }
 
-/// The item id the attachable binds to, and whether it is the player variant.
-fn item_binding(description: &Value) -> Result<(Box<str>, bool), AttachableError> {
+/// Reads the item identity independently of the authored definition name.
+fn item_binding(description: &Value) -> Result<Box<str>, AttachableError> {
     if let Some(item) = description.get("item").and_then(Value::as_object) {
         let mut keys = item.keys();
         let (Some(identifier), None) = (keys.next(), keys.next()) else {
             return Err(AttachableError::Malformed);
         };
-        return Ok((bounded_identifier(identifier)?, true));
+        return bounded_identifier(identifier);
     }
     let identifier = description
         .get("identifier")
         .and_then(Value::as_str)
         .ok_or(AttachableError::Malformed)?;
-    Ok((bounded_identifier(identifier)?, false))
+    bounded_identifier(identifier)
 }
 
 fn first_render_controller(description: &Value) -> Result<Box<str>, AttachableError> {

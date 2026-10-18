@@ -1,5 +1,8 @@
 //! Conservative rectangle eligibility; no implicit texture wrapping.
-use crate::{EntityGeometry, EntityGeometryUv, validate_entity_geometry_inheritance};
+use crate::{
+    EntityGeometry, EntityGeometryBone, EntityGeometryUv, MAX_ENTITY_GEOMETRY_BONES,
+    MAX_ENTITY_GEOMETRY_CUBES, validate_entity_geometry_inheritance,
+};
 
 // Inspect the exact linked programs, not a producer-supplied qualification flag.
 pub fn neutral_actor_pose_mode(
@@ -114,7 +117,7 @@ pub fn neutral_actor_geometry_uvs_are_supported(
     })
 }
 
-/// Row-major texels of a `width` x `height` raster that the faces of `index` and its ancestors
+/// Row-major texels of a `width` x `height` raster that the resolved faces of `index`
 /// can sample under point sampling; `None` when its UVs are not
 /// [supported](neutral_actor_geometry_uvs_are_supported).
 pub fn neutral_actor_geometry_sampled_texels(
@@ -149,8 +152,8 @@ pub fn neutral_actor_geometry_sampled_texels(
     Some(sampled)
 }
 
-/// Calls `visit` with each cube's UV `(origin, size)` rectangle, ancestors included, in
-/// declared texture units; false when the geometry is malformed or `visit` rejects a rectangle.
+/// Calls `visit` with each resolved cube's UV `(origin, size)` rectangle in declared
+/// texture units; false when the geometry is malformed or `visit` rejects a rectangle.
 fn for_each_uv_rectangle(
     geometries: &[EntityGeometry],
     index: usize,
@@ -162,72 +165,98 @@ fn for_each_uv_rectangle(
     if geometry.texture_width == 0 || geometry.texture_height == 0 {
         return false;
     }
-    let Ok(parents) = validate_entity_geometry_inheritance(geometries) else {
+    let Some(bones) = resolved_uv_bones(geometries, index) else {
         return false;
     };
-    let mut current = index;
-    for _ in 0..=geometries.len() {
-        let Some(geometry) = geometries.get(current) else {
+    for cube in bones.iter().flat_map(|bone| &bone.cubes) {
+        let [x, y, z] = cube.size.map(|value| value.get());
+        if [x, y, z]
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+        {
             return false;
-        };
-        // Ancestor cubes are checked conservatively even when later overridden.
-        // This may reject unused art; it cannot admit an unverified wrap route.
-        for cube in geometry.bones.iter().flat_map(|bone| &bone.cubes) {
-            let [x, y, z] = cube.size.map(|value| value.get());
-            if [x, y, z]
-                .iter()
-                .any(|value| !value.is_finite() || *value < 0.0)
-            {
-                return false;
+        }
+        let valid = match &cube.uv {
+            EntityGeometryUv::Box(origin) => {
+                // Box side UVs and top/bottom U coordinates include depth. Fish
+                // fins have negative origins in unused, degenerate faces.
+                // Validate the faces with area, not the entire unfolded box.
+                let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
+                let [u, v] = origin.map(|value| value.get());
+                let inflate = cube.inflate.get();
+                let (origin, envelope) = if x + 2.0 * inflate == 0.0 {
+                    ([u, v + z_uv], [2.0 * z_uv, y_uv])
+                } else if y + 2.0 * inflate == 0.0 {
+                    ([u + z_uv, v], [2.0 * x_uv, z_uv])
+                } else if z + 2.0 * inflate == 0.0 {
+                    // Preserve the camera-facing item plane's north rectangle.
+                    ([u, v], [x_uv, y_uv])
+                } else {
+                    ([u, v], [2.0 * x_uv + 2.0 * z_uv, y_uv + z_uv])
+                };
+                visit(origin, envelope)
             }
-            let valid = match &cube.uv {
-                EntityGeometryUv::Box(origin) => {
-                    // Box side UVs and top/bottom U coordinates include depth. Fish
-                    // fins have negative origins in unused, degenerate faces.
-                    // Validate the faces with area, not the entire unfolded box.
-                    let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
-                    let [u, v] = origin.map(|value| value.get());
-                    let inflate = cube.inflate.get();
-                    let (origin, envelope) = if x + 2.0 * inflate == 0.0 {
-                        ([u, v + z_uv], [2.0 * z_uv, y_uv])
-                    } else if y + 2.0 * inflate == 0.0 {
-                        ([u + z_uv, v], [2.0 * x_uv, z_uv])
-                    } else if z + 2.0 * inflate == 0.0 {
-                        // Preserve the camera-facing item plane's north rectangle.
-                        ([u, v], [x_uv, y_uv])
-                    } else {
-                        ([u, v], [2.0 * x_uv + 2.0 * z_uv, y_uv + z_uv])
-                    };
-                    visit(origin, envelope)
+            EntityGeometryUv::Faces(faces) => [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down,
+            ]
+            .into_iter()
+            .zip(cube.face_uv_dimensions())
+            .all(|(face, dimensions)| {
+                face.as_ref().is_none_or(|face| {
+                    visit(
+                        face.uv.map(|value| value.get()),
+                        face.uv_size
+                            .map_or(dimensions, |size| size.map(|value| value.get())),
+                    )
+                })
+            }),
+        };
+        if !valid {
+            return false;
+        }
+    }
+    true
+}
+
+/// Resolves cube inflation and reset through the same bone merge used by meshes.
+fn resolved_uv_bones(
+    geometries: &[EntityGeometry],
+    index: usize,
+) -> Option<Vec<EntityGeometryBone>> {
+    let parents = validate_entity_geometry_inheritance(geometries).ok()?;
+    let mut chain = Vec::new();
+    let mut current = Some(index);
+    while let Some(index) = current {
+        chain.push(geometries.get(index)?);
+        current = *parents.get(index)?;
+    }
+    let mut bones: Vec<EntityGeometryBone> = Vec::new();
+    let mut cube_count = 0usize;
+    for geometry in chain.into_iter().rev() {
+        for child in &geometry.bones {
+            if let Some(base) = bones
+                .iter_mut()
+                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
+            {
+                let other_cubes = cube_count - base.cubes.len();
+                cube_count = other_cubes
+                    + base
+                        .append_inherited_cubes(child, MAX_ENTITY_GEOMETRY_CUBES - other_cubes)?;
+            } else {
+                cube_count = cube_count
+                    .checked_add(child.cubes.len())
+                    .filter(|count| *count <= MAX_ENTITY_GEOMETRY_CUBES)?;
+                if bones.len() >= MAX_ENTITY_GEOMETRY_BONES {
+                    return None;
                 }
-                EntityGeometryUv::Faces(faces) => [
-                    &faces.north,
-                    &faces.south,
-                    &faces.east,
-                    &faces.west,
-                    &faces.up,
-                    &faces.down,
-                ]
-                .into_iter()
-                .zip(cube.face_uv_dimensions())
-                .all(|(face, dimensions)| {
-                    face.as_ref().is_none_or(|face| {
-                        visit(
-                            face.uv.map(|value| value.get()),
-                            face.uv_size
-                                .map_or(dimensions, |size| size.map(|value| value.get())),
-                        )
-                    })
-                }),
-            };
-            if !valid {
-                return false;
+                bones.push(child.clone());
             }
         }
-        let Some(parent) = parents.get(current).copied().flatten() else {
-            return true;
-        };
-        current = parent;
     }
-    false
+    Some(bones)
 }

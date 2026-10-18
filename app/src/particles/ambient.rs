@@ -1,12 +1,13 @@
 //! Fixed-tick ambient block animation triggers.
 //! Other blocks' ambient animation and unclassified native materials remain unsupported.
 
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Duration};
+use web_time::Instant;
 
-use assets::{BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, facts::presentation::AmbientBlock};
+use assets::{
+    BLOCK_VISUAL_VARIANT_SEASONAL_LEAF,
+    facts::{ParticleEffect, presentation::AmbientBlock},
+};
 use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
@@ -27,15 +28,21 @@ mod diagnostics;
 mod fire;
 mod portal;
 
+#[derive(Clone, Copy)]
+struct AmbientKind {
+    block: AmbientBlock,
+    leaf: Option<ParticleEffect>,
+}
+
 #[derive(Default)]
 pub(super) struct AmbientParticles {
     sampler: Sampler,
     random: AmbientRandom,
     accumulated_nanos: u128,
     diagnostics: diagnostics::Diagnostics,
-    /// What each sampled runtime id is to the fire and portal callbacks, in `kinds_mode`'s ids;
+    /// What each sampled runtime id is to the ambient callbacks, in `kinds_mode`'s ids;
     /// the session's palette is fixed, so it is looked up once instead of on every sample.
-    kinds: HashMap<u32, AmbientBlock>,
+    kinds: HashMap<u32, AmbientKind>,
     kinds_mode: Option<assets::NetworkIdMode>,
 }
 
@@ -61,7 +68,10 @@ impl AmbientParticles {
         system: &mut ParticleSystem,
     ) {
         let due = self.due_ticks(elapsed);
-        let leaf_effect_present = system.has_effect(LEAF_EFFECT);
+        let leaf_effect_present = ParticleEffect::ALL.iter().any(|effect| {
+            assets::facts::presentation::is_leaf_particle(*effect)
+                && system.has_effect(effect.identifier())
+        });
         let fire_effect_present = system.has_effect(FIRE_SMOKE_EFFECT);
         let effect_present =
             leaf_effect_present || fire_effect_present || portal::effects_present(system);
@@ -93,18 +103,21 @@ impl AmbientParticles {
                 let Some(runtime_id) = world.block_runtime_id(block) else {
                     continue;
                 };
-                let kind = *self
-                    .kinds
-                    .entry(runtime_id)
-                    .or_insert_with(|| collisions.block_facts(mode, runtime_id).ambient);
-                if fire_effect_present && kind == AmbientBlock::Fire {
+                let kind = *self.kinds.entry(runtime_id).or_insert_with(|| {
+                    let facts = collisions.block_facts(mode, runtime_id);
+                    AmbientKind {
+                        block: facts.ambient,
+                        leaf: facts.leaf_particle,
+                    }
+                });
+                if fire_effect_present && kind.block == AmbientBlock::Fire {
                     self.try_fire(block, stream, world, collisions, system);
                 }
                 if leaf_effect_present {
-                    self.try_leaf(block, runtime_id, stream, world, system);
+                    self.try_leaf(block, runtime_id, kind.leaf, stream, world, system);
                 }
                 // Legacy block callbacks use only the nearest sample cohort.
-                if kind == AmbientBlock::Portal && index < particles::ambient::MIN_SAMPLES {
+                if kind.block == AmbientBlock::Portal && index < particles::ambient::MIN_SAMPLES {
                     self.try_portal(block, runtime_id, stream, system);
                 }
             }
@@ -142,15 +155,24 @@ impl AmbientParticles {
         &mut self,
         block: [i32; 3],
         runtime_id: u32,
+        specialized: Option<ParticleEffect>,
         stream: &WorldStream,
         world: &StreamParticleWorld<'_>,
         system: &mut ParticleSystem,
     ) {
         let mode = stream.network_id_mode();
         let leaf = stream.runtime_assets().resolve(mode, runtime_id);
-        // This source-backed carrier route contains the seven standard biome
-        // tinted families; specialized/fixed-colour leaves need their own params.
-        if !leaf.is_known() || leaf.variant() & BLOCK_VISUAL_VARIANT_SEASONAL_LEAF == 0 {
+        if !leaf.is_known() {
+            return;
+        }
+        let effect = if let Some(effect) = specialized {
+            effect.identifier()
+        } else if leaf.variant() & BLOCK_VISUAL_VARIANT_SEASONAL_LEAF != 0 {
+            LEAF_EFFECT
+        } else {
+            return;
+        };
+        if !system.has_effect(effect) {
             return;
         }
         if self.diagnostics.enabled {
@@ -180,9 +202,13 @@ impl AmbientParticles {
             .runtime_assets()
             .material(leaf.face(assets::BlockFace::Down).material_id())
             .flags;
-        let color = color::leaf_tint(stream, world, flags, block);
+        let color = if specialized.is_some() {
+            [1.0; 4]
+        } else {
+            color::leaf_tint(stream, world, flags, block)
+        };
         let before = self.diagnostics.enabled.then(|| system.live_particles());
-        let accepted = system.spawn_biome_tinted(LEAF_EFFECT, block, color);
+        let accepted = system.spawn_biome_tinted(effect, block, color);
         if let Some(before) = before {
             self.diagnostics.accepted_requests += u64::from(accepted.is_some());
             self.diagnostics.emitted_lower_bound +=

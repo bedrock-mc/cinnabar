@@ -45,6 +45,7 @@ fn stack(identifier: &str, leather: bool, enchanted: bool) -> WornItem {
         kind: HeldKind::Other,
         dye_rgb: leather.then_some(0x00_33_cc_66),
         enchanted,
+        glint: Default::default(),
     }
 }
 
@@ -79,7 +80,9 @@ fn all_worn_slots_keep_dye_and_glint_with_legacy_precedence_over_java() {
             for java in [false, true] {
                 input.java = java.then_some(JavaGrip { blocking: false });
                 for profile in [CombatVisuals::Modern, CombatVisuals::Legacy112] {
-                    let layers = runtime.layers_for_profile(&body, &input, profile, None);
+                    let layers = runtime
+                        .layers_for_profile(&body, &input, profile, None)
+                        .layers;
                     assert_eq!(layers.len(), input.armor.len() + 2);
                     for layer in layers {
                         let id = layer.submission.input.identity.layer;
@@ -180,17 +183,19 @@ fn worn_controllers_keep_explicit_overlay_and_suppression() {
         let owner = owner();
         let names = [Box::<str>::from("head")];
         let rig = owner_rig(&owner, &names, 7);
-        let layers = runtime.layers_for_profile(
-            &body,
-            &input,
-            CombatVisuals::Legacy112,
-            Some(EquipmentAnimation {
-                owner: &owner,
-                rig: &rig,
-                frame_alpha: 0.5,
-                delta_seconds: 0.025,
-            }),
-        );
+        let layers = runtime
+            .layers_for_profile(
+                &body,
+                &input,
+                CombatVisuals::Legacy112,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 0.5,
+                    delta_seconds: 0.025,
+                }),
+            )
+            .layers;
         assert_eq!(layers.len(), 1);
         let worn = &layers[0].submission;
         if suppressed {
@@ -322,17 +327,19 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
                     for java in [false, true] {
                         input.java = java.then_some(JavaGrip { blocking: false });
                         for profile in [CombatVisuals::Legacy112, CombatVisuals::Modern] {
-                            let layers = runtime.layers_for_profile(
-                                &body,
-                                &input,
-                                profile,
-                                Some(EquipmentAnimation {
-                                    owner: &owner,
-                                    rig: &rig,
-                                    frame_alpha: 0.5,
-                                    delta_seconds: 0.025,
-                                }),
-                            );
+                            let layers = runtime
+                                .layers_for_profile(
+                                    &body,
+                                    &input,
+                                    profile,
+                                    Some(EquipmentAnimation {
+                                        owner: &owner,
+                                        rig: &rig,
+                                        frame_alpha: 0.5,
+                                        delta_seconds: 0.025,
+                                    }),
+                                )
+                                .layers;
                             assert_eq!(layers.len(), 1);
                             let worn = &layers[0].submission;
                             let legacy = profile == CombatVisuals::Legacy112;

@@ -52,6 +52,7 @@ fn collision_flags_use_the_native_float_epsilon_boundary() {
             Aabb::player_at(Vec3::new(0.0, 1.0, 0.0)),
             Vec3::new(f64::from(speed), 0.0, 0.0),
             false,
+            false,
         )
         .unwrap();
         assert_eq!(motion.resolved.x, 0.0);
@@ -113,6 +114,26 @@ fn distant_position_rounding_does_not_change_motion_or_invent_collisions() {
     assert_eq!(result.velocity.z, f64::from(0.02_f32 * 0.91_f32));
     assert_eq!(result.velocity.y, f64::from(-0.08_f32 * 0.98_f32));
     assert_eq!(result.collisions, super::AxisCollisions::default());
+}
+
+#[test]
+fn explicit_position_rebuilds_faces_without_resetting_motion() {
+    use crate::{Aabb, PLAYER_HEIGHT, PlayerState};
+
+    let origin = Vec3::new(0.0, 1.0, f64::from(0.1_f32));
+    let motion = Vec3::new(0.0, 0.0, f64::from(0.1_f32));
+    let bounds = Aabb::player_at(origin).translated(motion);
+    let mut state = PlayerState::new(origin + motion);
+    state.velocity = motion;
+    state.retain_collision_box(bounds, PLAYER_HEIGHT);
+    let rebuilt = Aabb::player_at(state.position);
+    assert_ne!(bounds, rebuilt);
+    assert_eq!(state.collision_box(PLAYER_HEIGHT), bounds);
+
+    state.set_position(state.position);
+
+    assert_eq!(state.collision_box(PLAYER_HEIGHT), rebuilt);
+    assert_eq!(state.velocity, motion);
 }
 
 #[test]

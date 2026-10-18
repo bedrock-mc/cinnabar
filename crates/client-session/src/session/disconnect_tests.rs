@@ -91,7 +91,11 @@ async fn send_failure_reports_the_local_send_origin() {
             interaction: None,
         })
         .unwrap();
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (_shutdown, shutdown_rx) = watch::channel(false);
 

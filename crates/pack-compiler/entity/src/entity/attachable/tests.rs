@@ -104,7 +104,7 @@ fn trident_carries_literal_first_and_third_person_transforms() {
 }
 
 #[test]
-fn player_armor_variant_wins_and_resolves_in_catalog() {
+fn owner_armor_variants_are_retained_with_the_player_geometry_in_catalog() {
     let payloads = payloads(&[
         ("attachables/diamond_helmet.json", HELMET_MOB),
         ("attachables/diamond_helmet.player.json", HELMET_PLAYER),
@@ -112,8 +112,8 @@ fn player_armor_variant_wins_and_resolves_in_catalog() {
     // Only the player geometry is collected; the mob geometry is external.
     let symbols = symbols(&[(EntityAssetKind::Geometry, "geometry.player.armor.helmet", 0)]);
     let bindings = compile_bindings(&payloads, &symbols, &[], &BTreeMap::new(), false).unwrap();
-    assert_eq!(bindings.len(), 1);
-    let helmet = &bindings[0];
+    assert_eq!(bindings.len(), 2);
+    let helmet = &bindings[1];
     assert_eq!(helmet.identifier.as_ref(), "minecraft:diamond_helmet");
     assert_eq!(
         helmet.geometry.identifier.as_ref(),

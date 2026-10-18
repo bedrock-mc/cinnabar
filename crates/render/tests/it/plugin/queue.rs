@@ -455,7 +455,7 @@ fn packed_chunk_shader_parses_and_validates() {
 fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../../src/lighting.wesl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
-    assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
+    assert!(lighting.contains("world_lightmap.raw[sample & 255u].rgb"));
     for (shader, liquid) in [
         (include_str!("../../../src/chunk.wesl"), false),
         (include_str!("../../../src/model.wesl"), false),
@@ -501,7 +501,7 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
         assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,
-            "light_colour"
+            "native_light_texel"
         ));
         assert!(entry_points_call_function(
             &module,

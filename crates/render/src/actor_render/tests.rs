@@ -30,6 +30,9 @@ mod pipeline_material_gpu_tests;
 #[path = "frame_order_tests.rs"]
 mod frame_order_tests;
 
+#[path = "allocation_fault_tests.rs"]
+pub(crate) mod allocation_fault_tests;
+
 /// A residency holding one standard-raster skin in class 0, layer 0.
 fn one_resident_skin() -> Arc<render_model::ActorSkinResidency> {
     let skin = render_api::SkinRgba8::from(vec![255; render_model::STANDARD_SKIN_BYTES]);
@@ -433,7 +436,7 @@ fn initial_actor_allocation_failure_leaves_the_app_running_without_actor_resourc
         let mut app = app_with_noop_render_sub_app();
         app.add_plugins(ActorRenderPlugin);
         app.finish();
-        let _failure = super::allocation::inject(move |owner, _| owner == label);
+        let _failure = crate::gpu_allocation::inject(move |owner, _| owner == label);
         let world = app.sub_app_mut(RenderApp).world_mut();
         world
             .resource_mut::<bevy::ecs::schedule::Schedules>()
@@ -457,7 +460,7 @@ fn initial_actor_allocation_failure_still_prepares_actor_pipelines() {
     app.add_plugins(ActorRenderPlugin);
     app.finish();
     let _failure =
-        super::allocation::inject(|owner, _| owner == "bounded shared actor instance arena");
+        crate::gpu_allocation::inject(|owner, _| owner == "bounded shared actor instance arena");
     let world = app.sub_app_mut(RenderApp).world_mut();
     let device = world.resource::<RenderDevice>().clone();
     world.insert_resource(PipelineCache::new(device, false));
@@ -504,7 +507,7 @@ fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency()
     let next = Arc::new(next);
     let uploaded = gpu.uploaded_bytes;
     {
-        let _failure = super::allocation::inject(|owner, _| owner == "player skin class array");
+        let _failure = crate::gpu_allocation::inject(|owner, _| owner == "player skin class array");
         gpu.sync(&next, &device, &queue);
     }
     assert!(!gpu.is_synced(&next));
@@ -758,7 +761,7 @@ fn failed_actor_buffer_publications_skip_draws_and_later_publications_recover() 
             );
         }
         {
-            let _failure = super::allocation::inject(move |owner, _| owner == label);
+            let _failure = crate::gpu_allocation::inject(move |owner, _| owner == label);
             world
                 .run_system_once(super::prepare_actor_resources)
                 .unwrap();

@@ -1,5 +1,14 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "external_armor_tests.rs"]
+mod external_armor_tests;
+
+#[path = "session_model_tests.rs"]
+mod session_model_tests;
+
+#[path = "geometry_admission_tests.rs"]
+mod geometry_admission_tests;
+
 #[path = "missing_artwork_tests.rs"]
 mod missing_artwork_tests;
 
@@ -290,6 +299,7 @@ fn block_fixture_with_visuals(
         kind: HeldKind::Block(visual),
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     (runtime, body, item)

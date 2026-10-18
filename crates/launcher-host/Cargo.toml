@@ -16,6 +16,7 @@ reads = [
 test-support = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
 crash-handler = "0.8.1"

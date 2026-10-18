@@ -12,10 +12,19 @@ pub const COMPONENT: &str = "mod.wasm";
 #[serde(rename_all = "snake_case")]
 pub enum ModPermission {
     Screen,
+    WorldDraw,
+    EntityObserve,
+    EntityHighlight,
+    RenderThroughWalls,
+    RenderMaterial,
+    RenderPost,
+
     Items,
     Recipes,
     Keys,
     Inventory,
+    /// The mod's bounded settings file (the `settings` interface).
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]

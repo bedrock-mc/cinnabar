@@ -54,6 +54,7 @@ members = [
     "crates/server-experience",
     "crates/render",
     "crates/render-api",
+    "crates/cosmetics",
     "crates/test-alloc",
     "crates/test-time",
     "crates/render-model",
@@ -134,6 +135,7 @@ image = { version = "0.25", default-features = false, features = ["bmp", "gif", 
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = "0.7"
+web-time = "1.1"
 bytes = "1"
 futures = "0.3"
 anyhow = "1"
@@ -155,13 +157,13 @@ wit-component = "=0.247.0"
 
 # Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 
-wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "0e46223e2f127e09866feddaf6e2ae6f46044886" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 
 [profile.dev]
 opt-level = 1

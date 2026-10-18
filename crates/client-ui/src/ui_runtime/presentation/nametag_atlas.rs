@@ -662,7 +662,7 @@ mod tests {
         let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(256, 1 << 20);
         let mut atlas = NametagAtlas::default();
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for index in 0..100 {
             let text = Arc::from(format!("Player {index}"));
             atlas

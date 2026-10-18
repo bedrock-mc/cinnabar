@@ -26,6 +26,7 @@ json-ui = { path = "../json-ui" }
 launcher = { path = "../launcher" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
+render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack", default-features = false }
 serde_json = "1"
@@ -36,6 +37,7 @@ url = "2"
 
 [dev-dependencies]
 image.workspace = true
+protocol = { path = "../protocol", features = ["test-support"] }
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 
 [lints]

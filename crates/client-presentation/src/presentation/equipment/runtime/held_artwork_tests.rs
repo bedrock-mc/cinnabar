@@ -99,68 +99,22 @@ fn shared_pack_geometry_keeps_each_items_resolved_fallback_silhouette() {
 
 #[test]
 fn java_raster_frame_uses_the_bows_artwork_after_another_item_warms_the_shared_mesh() {
-    let (mut runtime, pages) = startup_runtime(shared_items(false));
-    let body = player_body(&mut runtime);
-    let owner = owner();
-    let names = [Box::from("rightItem")];
-    let rig = owner_rig(&owner, &names);
-    let (entities, catalog) = pack_catalog(shared_items(true));
-    let (_, mut locations) =
-        pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
-    locations.fill(None);
-    runtime.set_pack_layer(Some((Arc::clone(&entities), Some(catalog), locations)));
-    let input = held("fixture:other");
-    runtime
-        .first_person_attachable(
-            &body,
-            input.main.as_ref().unwrap(),
-            &owner,
-            &rig,
-            actor_animation::AttachableAnimationInput {
-                first_person: true,
-                ..Default::default()
-            },
-            None,
-        )
-        .unwrap();
-    let bow = held("minecraft:bow");
-    let hand = render_model::java_animation::JavaHand {
-        swing: 0.0,
-        equip: 1.0,
-        using: None,
-    };
-    let selected = runtime
-        .first_person_attachable(
-            &body,
-            bow.main.as_ref().unwrap(),
-            &owner,
-            &rig,
-            actor_animation::AttachableAnimationInput {
-                first_person: true,
-                ..Default::default()
-            },
-            Some(hand),
-        )
-        .unwrap();
-    assert!(selected.camera_space);
-    let (_, base) = pack_catalog(shared_items(false));
-    let texture = base
-        .texture(&base.binding("minecraft:bow").unwrap().texture.identifier)
-        .unwrap();
-    let index = render_model::find_geometry_index(&entities, "geometry.held").unwrap();
-    let (frame, _) =
-        render_model::attachable_raster_frame(&entities, index as usize, texture).unwrap();
-    let expected = render_model::java_animation::first_person_item(
-        hand,
-        render_model::java_animation::JavaItemMesh::Raster {
-            width: texture.width,
-            height: texture.height,
-        },
-        false,
-    ) * frame.inverse();
-    assert!(selected.java_camera.unwrap().abs_diff_eq(expected, 1e-5));
-    assert_ne!(
-        selected.presentation.submission.input.rig,
+    for pack_definitions in [false, true] {
+        let (mut runtime, pages) = startup_runtime(shared_items(false));
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        let names = [Box::from("rightItem")];
+        let rig = owner_rig(&owner, &names);
+        let mut files = shared_items(true);
+        if !pack_definitions {
+            files.retain(|(path, _)| !path.starts_with("attachables/"));
+        }
+        let (entities, catalog) = pack_catalog(files);
+        let (_, mut locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        locations.fill(None);
+        runtime.set_pack_layer(Some((Arc::clone(&entities), Some(catalog), locations)));
+        let input = held("fixture:other");
         runtime
             .first_person_attachable(
                 &body,
@@ -171,12 +125,68 @@ fn java_raster_frame_uses_the_bows_artwork_after_another_item_warms_the_shared_m
                     first_person: true,
                     ..Default::default()
                 },
-                None
+                None,
             )
-            .unwrap()
-            .presentation
-            .submission
-            .input
-            .rig
-    );
+            .unwrap();
+        let bow = held("minecraft:bow");
+        let hand = render_model::java_animation::JavaHand {
+            swing: 0.0,
+            equip: 1.0,
+            using: None,
+        };
+        let selected = runtime
+            .first_person_attachable(
+                &body,
+                bow.main.as_ref().unwrap(),
+                &owner,
+                &rig,
+                actor_animation::AttachableAnimationInput {
+                    first_person: true,
+                    ..Default::default()
+                },
+                Some(hand),
+            )
+            .unwrap();
+        assert_eq!(selected.camera_space, !pack_definitions);
+        if !pack_definitions {
+            let (_, base) = pack_catalog(shared_items(false));
+            let texture = base
+                .texture(&base.binding("minecraft:bow").unwrap().texture.identifier)
+                .unwrap();
+            let index = render_model::find_geometry_index(&entities, "geometry.held").unwrap();
+            let (frame, _) =
+                render_model::attachable_raster_frame(&entities, index as usize, texture).unwrap();
+            let expected = render_model::java_animation::first_person_item(
+                hand,
+                render_model::java_animation::JavaItemMesh::Raster {
+                    width: texture.width,
+                    height: texture.height,
+                },
+                false,
+            ) * frame.inverse();
+            assert!(selected.java_camera.unwrap().abs_diff_eq(expected, 1e-5));
+        } else {
+            assert!(selected.java_camera.is_none());
+        }
+        assert_ne!(
+            selected.presentation.submission.input.rig,
+            runtime
+                .first_person_attachable(
+                    &body,
+                    input.main.as_ref().unwrap(),
+                    &owner,
+                    &rig,
+                    actor_animation::AttachableAnimationInput {
+                        first_person: true,
+                        ..Default::default()
+                    },
+                    None
+                )
+                .unwrap()
+                .presentation
+                .submission
+                .input
+                .rig
+        );
+    }
 }

@@ -413,6 +413,13 @@
           "type": "u64",
           "optional": false,
           "skip": false
+        },
+        {
+          "name": "personal_mods",
+          "go": "PersonalMods",
+          "type": "BTreeSet<String>",
+          "optional": true,
+          "skip": true
         }
       ]
     },
@@ -1212,6 +1219,48 @@
           "go": "PermissionMedia",
           "json": "media",
           "implemented": false
+        },
+        {
+          "rust": "Items",
+          "go": "PermissionItems",
+          "json": "items",
+          "implemented": false
+        },
+        {
+          "rust": "WorldDraw",
+          "go": "PermissionWorldDraw",
+          "json": "world_draw",
+          "implemented": true
+        },
+        {
+          "rust": "EntityObserve",
+          "go": "PermissionEntityObserve",
+          "json": "entity_observe",
+          "implemented": true
+        },
+        {
+          "rust": "EntityHighlight",
+          "go": "PermissionEntityHighlight",
+          "json": "entity_highlight",
+          "implemented": true
+        },
+        {
+          "rust": "RenderThroughWalls",
+          "go": "PermissionRenderThroughWalls",
+          "json": "render_through_walls",
+          "implemented": true
+        },
+        {
+          "rust": "RenderMaterial",
+          "go": "PermissionRenderMaterial",
+          "json": "render_material",
+          "implemented": true
+        },
+        {
+          "rust": "RenderPost",
+          "go": "PermissionRenderPost",
+          "json": "render_post",
+          "implemented": true
         }
       ]
     },

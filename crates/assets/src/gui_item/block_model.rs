@@ -3,14 +3,22 @@
 
 use crate::{
     BlockFace, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_DISABLE_AO,
-    MATERIAL_FLAG_ISOTROPIC, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    Material, ModelQuad, ModelTemplate, TextureArray, VisualKind,
+    MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_ISOTROPIC, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, Material, ModelQuad, ModelTemplate, TextureArray, VisualKind,
 };
 
 use super::CUBE_FACES;
 
 /// Largest material tile side drawn; session overlays resample to at most 128.
 pub const MAX_GUI_TILE_SIDE: usize = 128;
+
+/// Flags whose material texels can be sampled without unresolved tint or UV transforms.
+/// Lighting flags are retained for the renderer and do not alter the stored pixels.
+pub const GUI_BLOCK_MATERIAL_FLAGS: u32 = MATERIAL_FLAG_ALPHA_BLEND
+    | MATERIAL_FLAG_ALPHA_CUTOUT
+    | MATERIAL_FLAG_ISOTROPIC
+    | MATERIAL_FLAG_DISABLE_AO
+    | MATERIAL_FLAG_DISABLE_FACE_DIMMING;
 
 /// One textured quad of a block item, in block units with tile-relative UVs.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,8 +36,8 @@ pub enum GuiBlockReject {
     Texture,
 }
 
-/// The quads a block item of this shape draws: a cube's six faces, or its template's quads, a
-/// fence showing its post with east and west arms (connection mask 2 | 8).
+/// The quads a block item draws: a cube's camera-facing GUI surfaces, or its template's quads,
+/// with a fence showing its post and east/west arms (connection mask 2 | 8).
 pub fn block_item_quads(
     kind: VisualKind,
     faces: [u32; 6],
@@ -40,8 +48,7 @@ pub fn block_item_quads(
     let mut out = Vec::new();
     match (kind, template) {
         (VisualKind::Cube, _) => {
-            for face in BlockFace::ALL {
-                let (corners, uvs) = cube_face(face);
+            for (face, corners, uvs, _) in CUBE_FACES {
                 out.push(GuiBlockQuad {
                     corners,
                     uvs,
@@ -102,8 +109,7 @@ pub fn material_tile<'a>(
         return Err(GuiBlockReject::Material);
     }
     let material = materials.get(id as usize).ok_or(GuiBlockReject::Material)?;
-    let alpha = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT;
-    if material.flags & !(alpha | MATERIAL_FLAG_ISOTROPIC | MATERIAL_FLAG_DISABLE_AO) != 0 {
+    if material.flags & !GUI_BLOCK_MATERIAL_FLAGS != 0 {
         return Err(GuiBlockReject::Material);
     }
     let array = array(material.texture.page()).ok_or(GuiBlockReject::Texture)?;
@@ -181,6 +187,22 @@ mod tests {
     use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
 
     #[test]
+    fn cube_gui_surfaces_face_the_inventory_camera() {
+        let faces = BlockFace::ALL.map(|face| face as u32 + 1);
+        let quads = block_item_quads(VisualKind::Cube, faces, None, &[], &[]).unwrap();
+        for quad in &quads {
+            let [a, b, c, _] = quad.corners.map(super::super::project_cube);
+            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            assert!(
+                area < 0.0,
+                "rear material {} is visible through the icon",
+                quad.material
+            );
+        }
+        assert_eq!(quads.len(), CUBE_FACES.len());
+    }
+
+    #[test]
     fn gui_materials_preserve_tiles_and_alpha_modes() {
         let array = TextureArray {
             layers: 1,
@@ -216,5 +238,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn lighting_flags_preserve_material_tiles_without_admitting_unresolved_tint() {
+        let array = TextureArray {
+            layers: 1,
+            mips: vec![crate::TextureMip {
+                size: 1,
+                rgba8: vec![20, 40, 60, 255].into(),
+            }]
+            .into(),
+        };
+        for flags in [
+            MATERIAL_FLAG_ALPHA_CUTOUT | crate::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+            MATERIAL_FLAG_DISABLE_AO | crate::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+        ] {
+            let materials = [
+                Material::unvaried(),
+                Material {
+                    flags,
+                    ..Material::unvaried()
+                },
+            ];
+            let (pixels, side, blend) = material_tile(&materials, 1, |_| Some(&array)).unwrap();
+            assert_eq!(pixels, &[20, 40, 60, 255]);
+            assert_eq!(side, 1);
+            assert!(!blend);
+        }
+        let materials = [
+            Material::unvaried(),
+            Material {
+                flags: crate::MATERIAL_FLAG_GRASS_TINT,
+                ..Material::unvaried()
+            },
+        ];
+        assert_eq!(
+            material_tile(&materials, 1, |_| Some(&array)),
+            Err(GuiBlockReject::Material)
+        );
     }
 }

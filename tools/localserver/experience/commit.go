@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -128,6 +129,13 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
+	for _, update := range plan.updates {
+		pos := update.Pos.cube()
+		// A later op of the result may have replaced the block; only its own block is updated.
+		if b, ok := tx.Block(pos).(Block); ok && b.t.exp == exp {
+			tx.ScheduleBlockUpdate(pos, b, time.Duration(update.Ticks)*tickDuration)
+		}
+	}
 	var sends []*SendClientOp
 	for _, op := range ops {
 		switch {
@@ -191,10 +199,14 @@ type itemDrop struct {
 
 // commitPlan is what validate found the ops to write, in their order.
 type commitPlan struct {
-	writes []dataWrite
-	slots  []slotWrite
-	drops  []itemDrop
+	writes  []dataWrite
+	slots   []slotWrite
+	drops   []itemDrop
+	updates []*ScheduleUpdateOp
 }
+
+// tickDuration is one game tick, which a scheduled update counts in.
+const tickDuration = time.Second / 20
 
 // slotsCurrent checks that every slot the result writes still holds the stack its snapshot did.
 func slotsCurrent(actor world.Entity, snap snapshot, slots []slotWrite) error {
@@ -376,6 +388,22 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: op %d: %v", errInvalid, i, err)
 			}
 			plan.drops = append(plan.drops, itemDrop{pos: op.DropItem.Pos.cube(), stack: stack})
+		case op.ScheduleUpdate != nil:
+			c, err := writable(i, op.ScheduleUpdate.Pos, true)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			switch ticks := op.ScheduleUpdate.Ticks; {
+			case !c.owned:
+				return commitPlan{}, fmt.Errorf("%w: op %d schedules an update of %s, which is not its own block",
+					errInvalid, i, c.id)
+			case ticks == 0 || ticks > maxScheduleTicks:
+				return commitPlan{}, fmt.Errorf("%w: op %d schedules an update %d ticks on, 1 to %d",
+					errInvalid, i, ticks, maxScheduleTicks)
+			case len(plan.updates) == maxScheduledUpdates:
+				return commitPlan{}, fmt.Errorf("%w: more than %d scheduled updates", errInvalid, maxScheduledUpdates)
+			}
+			plan.updates = append(plan.updates, op.ScheduleUpdate)
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}

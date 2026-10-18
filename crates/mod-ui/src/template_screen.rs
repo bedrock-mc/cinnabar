@@ -11,9 +11,8 @@ use json_ui::{
     PointerInput, Scalar, ScreenEvent, ViewState,
 };
 use server_experience::{
-    manifest::template_root,
     policy::MAX_UI_VALUES,
-    screen::{self, GuiSize},
+    screen::{self, GuiSize, template_root},
 };
 
 use ui_engine::frame::EngineFrame;
@@ -127,6 +126,8 @@ pub(super) struct TemplateScreen {
     secondary: Option<String>,
     /// An edit box to select once drawn, by `text_box_name`.
     pending_focus: Option<String>,
+    /// The `now` of the last edit pass, the clock the selected box's caret blinks on.
+    blink_clock: Option<f64>,
 }
 
 /// What one frame of input did to a template screen's edit boxes.
@@ -148,6 +149,7 @@ impl TemplateScreen {
             self.frame = None;
             self.dispatcher = Dispatcher::default();
             self.reported.clear();
+            self.blink_clock = None;
         }
         let changed = self.revision != Some(modal.revision);
         if changed {
@@ -209,6 +211,12 @@ impl TemplateScreen {
         };
         let hits = &frame.hits;
         let point = point.map(|point| virtual_point(frame, point));
+        // The selected box's caret blinks on the edit component's interval, as vanilla's does.
+        let delta = self.blink_clock.map_or(0.0, |last| (now - last).max(0.0));
+        self.blink_clock = Some(now);
+        if delta > 0.0 {
+            self.dispatcher.tick(hits, &mut self.view, delta);
+        }
         let mut events = Vec::new();
         let on_box = point.is_some_and(|point| {
             hits.iter()
@@ -227,14 +235,18 @@ impl TemplateScreen {
             };
             self.dispatcher.pointer(hits, &mut self.view, pointer);
             (self.view.hovered, self.view.pressed) = (hovered, held);
-            let press = ButtonInput {
-                id: "button.menu_select",
-                down: true,
-                point,
-                mode: InputMode::Mouse,
-                now,
-            };
-            events.extend(self.dispatcher.button(hits, &mut self.view, press).events);
+            // The release follows at once: the dispatcher takes only a press after a release as a
+            // new interaction, so a press without one would leave the box deaf to the next.
+            for down in [true, false] {
+                let edge = ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point,
+                    mode: InputMode::Mouse,
+                    now,
+                };
+                events.extend(self.dispatcher.button(hits, &mut self.view, edge).events);
+            }
         }
         for text in typed {
             events.extend(
@@ -325,6 +337,14 @@ impl TemplateScreen {
                     || secondary_target(region).is_some())
                 && region.contains(point)
         })
+    }
+
+    /// The collection and row of the topmost drawn cell under window-logical `point`, as the
+    /// container screens hit-test their slots.
+    pub(super) fn cell_at(&self, point: [f32; 2]) -> Option<(&str, usize)> {
+        let frame = self.frame.as_ref()?;
+        let region = json_ui::hit_test(&frame.hits, virtual_point(frame, point))?;
+        Some((region.collection.as_deref()?, region.collection_index?))
     }
 
     /// Tracks a left press and returns the control id and collection row of a press released
@@ -511,7 +531,10 @@ impl TemplateScreen {
             frame.origin[0] + ((x + width / 2.0) as f32) * frame.scale,
             frame.origin[1] + ((y + height / 2.0) as f32) * frame.scale,
         ];
-        let _ = self.edit(Some(point), true, &[], false, 0.0);
+        // A selection outside the frame's input keeps the caret's clock.
+        let clock = self.blink_clock;
+        let _ = self.edit(Some(point), true, &[], false, clock.unwrap_or(0.0));
+        self.blink_clock = clock;
     }
 }
 

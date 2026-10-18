@@ -15,7 +15,17 @@ pub const APPLICATION_ID_ENV: &str = "CINNABAR_DISCORD_APPLICATION_ID";
 pub const DEFAULT_APPLICATION_ID: u64 = 1557101333037711371;
 
 /// Original icon served from an immutable version of the public repository.
-pub const LARGE_IMAGE_URL: &str = "https://raw.githubusercontent.com/bedrock-mc/cinnabar/0f96fadfe4f9bb7c450147f2462d4a5d654da7f2/assets/branding/icon.png";
+pub static LARGE_IMAGE_URL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../packaging/release-assets.json"))
+            .expect("release asset manifest must be valid");
+    let repository = manifest["repository"]
+        .as_str()
+        .expect("release asset manifest must name the repository");
+    format!(
+        "https://raw.githubusercontent.com/{repository}/0f96fadfe4f9bb7c450147f2462d4a5d654da7f2/assets/branding/icon.png"
+    )
+});
 
 /// `0` explicitly disables presence; other values must be nonzero numeric application IDs.
 pub fn application_id(value: Option<&str>) -> Result<Option<u64>, &'static str> {
@@ -130,7 +140,7 @@ impl State {
             .state(state)
             .assets(|assets| {
                 let assets = assets
-                    .large_image(LARGE_IMAGE_URL)
+                    .large_image(LARGE_IMAGE_URL.as_str())
                     .large_text(launcher::PRODUCT_NAME);
                 match badge {
                     Some(badge) => {

@@ -84,7 +84,7 @@ fn authored_attachables_are_collected_without_loose_base_bindings() {
 }
 
 #[test]
-fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
+fn changing_mob_geometry_keeps_both_owner_armour_variants() {
     let item = "fixture:chestplate";
     let texture = "textures/items/fixture_armor";
     let player_geometry = "geometry.fixture.player.chestplate";
@@ -157,7 +157,15 @@ fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
             startup
                 .equipment_bindings
                 .iter()
-                .find(|binding| binding.identifier.as_ref() == item)
+                .filter(|binding| { binding.identifier.as_ref() == item })
+                .count(),
+            2
+        );
+        assert_eq!(
+            startup
+                .equipment_bindings
+                .iter()
+                .find(|binding| binding.attachable_identifier() == format!("{item}.player"))
                 .unwrap()
                 .geometry
                 .identifier
@@ -176,10 +184,18 @@ fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
         ))
         .unwrap()
         .unwrap();
+        assert_eq!(
+            compiled
+                .equipment_bindings
+                .iter()
+                .filter(|binding| { binding.identifier.as_ref() == item })
+                .count(),
+            2
+        );
         let binding = compiled
             .equipment_bindings
             .iter()
-            .find(|binding| binding.identifier.as_ref() == item)
+            .find(|binding| binding.attachable_identifier() == format!("{item}.player"))
             .unwrap();
         assert_eq!(binding.geometry.identifier.as_ref(), player_geometry);
         assert!(

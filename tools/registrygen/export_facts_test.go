@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 // TestBlockFactExportsLiquidContainment keeps source booleans intact across the language boundary.

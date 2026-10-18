@@ -7,6 +7,9 @@ use launcher::menu::{MenuScreen, MenuView};
 pub(super) struct GalleryRequest {
     skins: Arc<[DressingRoomSkin]>,
     capes: Arc<[DressingRoomCape]>,
+    catalog_generation: u64,
+    equipped: Vec<cosmetics::Item>,
+    cosmetic_indices: Vec<usize>,
     section: DressingRoomSection,
     selected: Option<usize>,
     selected_cape: Option<usize>,
@@ -16,10 +19,20 @@ pub(super) struct GalleryRequest {
 }
 
 impl GalleryRequest {
-    pub(super) fn capture(view: &MenuView, skins: &[usize], capes: &[usize]) -> Option<Self> {
+    /// Retains changed gallery inputs once, including visible and equipped cosmetics.
+    pub(super) fn capture(
+        view: &MenuView,
+        skins: &[usize],
+        capes: &[usize],
+        cosmetics: &[usize],
+        equipped: &[cosmetics::Item],
+    ) -> Option<Self> {
         (view.screen == MenuScreen::DressingRoom).then(|| Self {
             skins: view.dressing_room.skins.clone(),
             capes: view.dressing_room.capes.clone(),
+            catalog_generation: cosmetics::Item::generation(),
+            equipped: equipped.to_vec(),
+            cosmetic_indices: cosmetics.to_vec(),
             section: view.dressing_room.section,
             selected: view.dressing_room.selected,
             selected_cape: view.dressing_room.selected_cape,
@@ -29,10 +42,21 @@ impl GalleryRequest {
         })
     }
 
-    pub(super) fn matches(&self, view: &MenuView, skins: &[usize], capes: &[usize]) -> bool {
+    /// Compares an unchanged gallery without allocating or cloning the catalog.
+    pub(super) fn matches(
+        &self,
+        view: &MenuView,
+        skins: &[usize],
+        capes: &[usize],
+        cosmetics: &[usize],
+        equipped: &[cosmetics::Item],
+    ) -> bool {
         view.screen == MenuScreen::DressingRoom
             && Arc::ptr_eq(&self.skins, &view.dressing_room.skins)
             && Arc::ptr_eq(&self.capes, &view.dressing_room.capes)
+            && self.catalog_generation == cosmetics::Item::generation()
+            && self.equipped == equipped
+            && self.cosmetic_indices == cosmetics
             && self.section == view.dressing_room.section
             && self.selected == view.dressing_room.selected
             && self.selected_cape == view.dressing_room.selected_cape

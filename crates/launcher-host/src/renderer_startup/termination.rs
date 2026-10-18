@@ -6,10 +6,22 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
+/// Releases the OS lock when its owner finishes, including across inherited descriptors.
+pub(super) struct Lease(pub(super) fs::File);
+
+impl Drop for Lease {
+    /// Unlocks before closing so a child awaiting exec cannot retain the parent's lease.
+    fn drop(&mut self) {
+        if let Err(error) = self.0.unlock() {
+            tracing::warn!(%error, "could not release renderer startup lease");
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Active {
     terminating: bool,
-    leases: Vec<(PathBuf, Weak<fs::File>)>,
+    leases: Vec<(PathBuf, Weak<Lease>)>,
 }
 
 static ACTIVE: Mutex<Active> = Mutex::new(Active {
@@ -19,7 +31,7 @@ static ACTIVE: Mutex<Active> = Mutex::new(Active {
 
 impl Active {
     /// Records ownership without extending the OS lease beyond the startup guard.
-    pub(super) fn register(&mut self, root: &Path, lease: &Arc<fs::File>) {
+    pub(super) fn register(&mut self, root: &Path, lease: &Arc<Lease>) {
         self.leases.retain(|(_, lease)| lease.strong_count() != 0);
         self.leases.push((root.to_owned(), Arc::downgrade(lease)));
     }

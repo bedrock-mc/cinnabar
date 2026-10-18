@@ -41,7 +41,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         clip.source += 1;
     }
     compiled.rig_bindings[0].entity_symbol += 1;
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     for candidate in &mut compiled.render.candidates {
         candidate.source += 1;
     }

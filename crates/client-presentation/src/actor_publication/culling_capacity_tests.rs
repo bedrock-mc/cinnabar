@@ -258,7 +258,7 @@ fn view() -> render_model::ActorCullView {
 /// Samples only remote bodies, leaving local hand and movement ownership untouched.
 fn input() -> ActorFrameInput {
     ActorFrameInput {
-        hat: None,
+        cosmetics: Vec::new(),
         local_feed: None,
         predicted_eye: None,
         predicted_feet: None,

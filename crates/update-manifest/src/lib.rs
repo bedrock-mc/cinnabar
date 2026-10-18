@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(not(target_arch = "wasm32"))]
 use ring::{
     rand::{SecureRandom, SystemRandom},
     signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey},
@@ -14,8 +15,9 @@ use time::OffsetDateTime;
 pub mod build;
 pub mod channel;
 pub mod platforms;
+pub mod runtime;
 pub mod select;
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 mod wire;
 pub use platforms::platform_key;
@@ -120,6 +122,7 @@ pub struct Verdict {
 }
 
 /// The signed, unexpired manifest in `envelope_json` when a trusted key signed it.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify(
     envelope_json: &[u8],
     keys: &TrustedKeys,
@@ -193,6 +196,7 @@ pub fn parse_keys(list: &str) -> Result<TrustedKeys, Error> {
 }
 
 /// Serializes `manifest` and wraps it in an envelope signed by the key derived from `seed`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn sign(manifest: &Manifest, key_id: &str, seed: &[u8]) -> Result<Vec<u8>, Error> {
     let pair = key_pair(seed)?;
     let payload = serde_json::to_vec(manifest).map_err(Error::Encode)?;
@@ -205,6 +209,7 @@ pub fn sign(manifest: &Manifest, key_id: &str, seed: &[u8]) -> Result<Vec<u8>, E
 }
 
 /// A fresh random signing seed.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn generate_seed() -> Result<[u8; KEY_BYTES], Error> {
     let mut seed = [0; KEY_BYTES];
     SystemRandom::new()
@@ -214,11 +219,13 @@ pub fn generate_seed() -> Result<[u8; KEY_BYTES], Error> {
 }
 
 /// The public key a trusted-key list carries for `seed`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn public_key(seed: &[u8]) -> Result<[u8; KEY_BYTES], Error> {
     let pair = key_pair(seed)?;
     <[u8; KEY_BYTES]>::try_from(pair.public_key().as_ref()).map_err(|_| Error::SigningKey)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn key_pair(seed: &[u8]) -> Result<Ed25519KeyPair, Error> {
     if seed.len() != KEY_BYTES {
         return Err(Error::SigningKey);

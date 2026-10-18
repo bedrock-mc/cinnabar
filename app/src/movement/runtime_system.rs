@@ -2,7 +2,7 @@
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
@@ -44,6 +44,7 @@ pub(crate) fn advance_local_physics(
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
+    movement_effects.begin_frame();
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
     }

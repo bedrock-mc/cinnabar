@@ -35,11 +35,21 @@ pub struct Draw<'a> {
 }
 
 pub struct RasterState {
+    /// Initial background for mask and colour witnesses.
+    pub clear_color: wgpu::Color,
+    /// Optional production actor fragment selected by the actor raster fixture.
+    pub actor_fragment: Option<&'static str>,
+    /// Optional dissolve companion, rendered with its independent coverage parameter.
+    pub actor_companion: Option<render_model::ActorMaterial>,
+    /// Optional attachment retained for a later pass to sample or probe.
+    pub depth_target: Option<wgpu::Texture>,
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
     pub write_mask: wgpu::ColorWrites,
     pub multisample: wgpu::MultisampleState,
+    /// Optional per-draw polygon offsets, applied after clipping and rasterization.
+    pub depth_biases: Vec<wgpu::DepthBiasState>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -57,11 +67,16 @@ struct RasterConfiguration<'a> {
 impl Default for RasterState {
     fn default() -> Self {
         Self {
+            clear_color: CLEAR_COLOR,
+            actor_fragment: None,
+            actor_companion: None,
+            depth_target: None,
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
+            depth_biases: Vec::new(),
         }
     }
 }
@@ -94,6 +109,18 @@ fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) 
 }
 
 impl Gpu {
+    /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
+    pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
+        let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
+            .try_into()
+            .expect("256 RGBA light entries");
+        let table = render_model::LightmapUniform::new(*raw);
+        self.buffer(
+            bytemuck::cast_slice(bytemuck::bytes_of(&table)),
+            wgpu::BufferUsages::UNIFORM,
+        )
+    }
+
     /// Creates a physical device for explicitly requested snapshot fixtures.
     pub fn new() -> Option<Self> {
         Self::for_fixture("native GPU snapshot")
@@ -384,11 +411,13 @@ impl Gpu {
                 state.multisample.count,
             )
         });
-        let depth = texture(
-            wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-            state.multisample.count,
-        );
+        let depth = state.depth_target.clone().unwrap_or_else(|| {
+            texture(
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                state.multisample.count,
+            )
+        });
         let view = target.create_view(&Default::default());
         let multisampled_view = multisampled
             .as_ref()
@@ -419,7 +448,7 @@ impl Gpu {
                         depth_write_enabled: Some(draw.write_depth),
                         depth_compare: Some(state.depth_compare),
                         stencil: Default::default(),
-                        bias: Default::default(),
+                        bias: state.depth_biases.get(index).copied().unwrap_or_default(),
                     }),
                     multisample: state.multisample,
                     fragment: Some(wgpu::FragmentState {
@@ -448,7 +477,7 @@ impl Gpu {
                     resolve_target: multisampled_view.as_ref().map(|_| &view),
                     ops: wgpu::Operations {
                         load: if index == 0 {
-                            wgpu::LoadOp::Clear(CLEAR_COLOR)
+                            wgpu::LoadOp::Clear(state.clear_color)
                         } else {
                             wgpu::LoadOp::Load
                         },
@@ -516,6 +545,7 @@ impl Gpu {
 }
 
 /// Saves diagnostic pixels outside git when an offline snapshot run requests them.
+#[cfg(test)]
 pub fn save(name: &str, pixels: &[u8]) {
     if let Some(directory) = std::env::var_os("CINNABAR_REVIEW_SNAPSHOT_DIR") {
         image::save_buffer(

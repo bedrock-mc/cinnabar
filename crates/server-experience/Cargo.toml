@@ -12,26 +12,28 @@ reads = [
 ]
 
 [features]
-default = []
-developer-media = ["dep:matroska-demuxer", "dep:dav1d", "dep:opus"]
+default = ["host"]
+data = ["dep:serde", "dep:serde_json"]
+host = ["data","dep:reqwest", "dep:ring", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tokio", "dep:url", "dep:zip", "dep:libc"]
+developer-media = ["host", "dep:matroska-demuxer", "dep:dav1d", "dep:opus"]
 
 [dependencies]
 anyhow.workspace = true
 protocol = { path = "../protocol" }
-reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
-ring = "=0.17.14"
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
-sha2.workspace = true
-tokio.workspace = true
-url = "=2.5.8"
-zip = { version = "=7.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"], optional = true }
+ring = { version = "=0.17.14", optional = true }
+serde = { version = "=1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.150", optional = true }
+sha2 = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+url = { version = "=2.5.8", optional = true }
+zip = { version = "=7.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 matroska-demuxer = { version = "=0.8.1", optional = true }
 dav1d = { version = "=0.11.1", optional = true }
 opus = { version = "=0.4.0", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.186"
+libc = { version = "0.2.186", optional = true }
 
 [dev-dependencies]
 test-time = { path = "../test-time" }

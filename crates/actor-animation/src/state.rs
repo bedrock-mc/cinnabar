@@ -130,7 +130,7 @@ pub(super) struct ActorTickInput {
 pub(super) struct EvaluatedState {
     pub(super) pose: Vec<BoneTransform>,
     pub(super) skin_layers: Vec<SkinRenderLayer>,
-    /// `None` when the render controllers ran out of budget, keeping the last choice.
+    /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,
     pub(super) scale: Option<[f32; 4]>,
     pub(super) controllers: Vec<ControllerState>,
