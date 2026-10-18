@@ -198,6 +198,9 @@ fn selection(
     mask: &mod_render::masks::Mask,
     gpu: &ActorGpu,
 ) -> Option<Vec<crate::actor::gpu::ActorDrawSpan>> {
+    if gpu.instance_count == 0 {
+        return None;
+    }
     let mut draws = Vec::new();
     let mut vertices = 0u64;
     for span in &gpu.spans {
@@ -227,14 +230,14 @@ fn selection(
 
 /// Reclaims revoked owners/views before charging a complete frame's attachments.
 fn prepare(
-    scene: Res<render_scene::ModRenderScene>,
+    scene: Option<Res<render_scene::ModRenderScene>>,
     gpu: Option<Res<ActorGpu>>,
     mut masks: ResMut<MaskGpu>,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     views: Query<(Entity, &Msaa, &ViewDepthStencilTexture, &ViewTarget)>,
 ) {
-    let Some(gpu) = gpu else {
+    let (Some(scene), Some(gpu)) = (scene, gpu) else {
         masks.targets.clear();
         return;
     };

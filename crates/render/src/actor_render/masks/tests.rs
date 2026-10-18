@@ -1,4 +1,85 @@
 use super::*;
+use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+
+#[test]
+fn actor_only_renderer_draws_without_a_mod_scene() {
+    let mut app = fixture();
+    assert!(
+        !app.sub_app(RenderApp)
+            .world()
+            .contains_resource::<render_scene::ModRenderScene>()
+    );
+    let frame = publication(1, &[20], 1);
+    assert_eq!(draw_frame(&mut app, &frame).len(), 1);
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<MaskGpu>()
+            .targets
+            .is_empty()
+    );
+}
+
+#[test]
+fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
+    let mut app = fixture();
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .init_resource::<render_scene::ModRenderScene>();
+    let control = publication(1, &[20], 1);
+    assert_eq!(draw_frame(&mut app, &control).len(), 1);
+    let identity = &control.rig.manifest[0].identity;
+    let mut mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        depth: MaskDepth::Test,
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    assert!(mask.authorized());
+    assert_eq!(
+        selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>())
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let mut next = control;
+    next.rig.frame_generation += 1;
+    let fault = gpu_allocation::inject(|owner, _| owner == "actor instance and bone upload");
+    assert!(draw_frame(&mut app, &next).is_empty());
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(gpu.instance_count, 0);
+    assert!(!gpu.spans.is_empty() && !gpu.manifest.is_empty());
+    assert!(gpu.artwork_current && gpu.artwork.pages[0].bind_group.is_some());
+    for depth in [MaskDepth::Test, MaskDepth::Always] {
+        mask.depth = depth;
+        assert!(selection(&mask, gpu).is_none(), "{depth:?}");
+    }
+
+    drop(fault);
+    next.rig.frame_generation += 1;
+    assert_eq!(draw_frame(&mut app, &next).len(), 1);
+    assert_eq!(
+        selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>())
+            .unwrap()
+            .len(),
+        1
+    );
+}
 
 #[test]
 fn mask_pipeline_cannot_inherit_an_actors_depth_bypass_or_write_world_depth() {
@@ -124,7 +205,11 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
             },
         );
         assert!(
-            !pixels.chunks_exact(4).any(|pixel| pixel[0] == 255),
+            !pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] == 255),
             "transparent texels must not become silhouette pixels"
         );
     }
