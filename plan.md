@@ -10103,3 +10103,13 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+
+
+### Keep mouse boating requests independent of forward motion
+
+Mouse boating no longer derives both paddle request bits from forward motion.
+Side steering retains its existing requests. The other device modes retain
+their provisional mapping. Independent simultaneous digital paddle requests,
+input locks, mapping transitions, correction replay and full current-version
+vehicle input parity remain incomplete. This change closes only the bounded
+forward-motion flag mismatch; it is not a full vehicle parity gate.
