@@ -92,3 +92,15 @@ fn catalog_clip_identifiers_fit_the_emote_wire_vocabulary() {
         MAX_ITEMS
     );
 }
+
+#[test]
+fn admitted_key_rotations_are_unit_length_at_constant_and_exact_key_times() {
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../core/cinnabarapi/schema/emote-clips.json"
+    ))
+    .unwrap();
+    let mut value = cases[0]["clip"].clone();
+    value["tracks"][0]["keys"][0]["rotation"] = serde_json::json!([0.0, 0.0, 0.0, 0.9999]);
+    let clip = Clip::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(clip.tracks[0].keys[0].rotation, [0.0, 0.0, 0.0, 1.0]);
+}

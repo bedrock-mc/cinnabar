@@ -90,12 +90,12 @@ pub fn max_bytes() -> usize {
 }
 
 impl Clip {
-    /// Rejects unknown versions, malformed channels and every schema or cross-field budget violation.
+    /// Rejects malformed or over-budget channels, then normalizes validated rotations for playback.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
         if bytes.len() > max_bytes() {
             return None;
         }
-        let clip: Self = serde_json::from_slice(bytes).ok()?;
+        let mut clip: Self = serde_json::from_slice(bytes).ok()?;
         let defs = &schema()["$defs"];
         let properties = &defs["EmoteClip"]["properties"];
         if u64::from(clip.version) != properties["version"]["const"].as_u64()?
@@ -145,6 +145,17 @@ impl Clip {
                 {
                     return None;
                 }
+            }
+        }
+        for track in &mut clip.tracks {
+            for key in &mut track.keys {
+                let length = key
+                    .rotation
+                    .iter()
+                    .map(|value| value * value)
+                    .sum::<f64>()
+                    .sqrt();
+                key.rotation = key.rotation.map(|value| value / length);
             }
         }
         Some(clip)
