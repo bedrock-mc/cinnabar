@@ -66,7 +66,10 @@ fn empty_callbacks_allocate_nothing_and_preserve_the_snapshot() {
     let (_, allocations) = test_alloc::count(|| {
         for _ in 0..8 {
             store.begin();
+            assert!(store.staged.is_none());
+            assert_eq!(store.mutation_bytes, 0);
             store.commit();
+            assert!(store.staged.is_none());
         }
     });
     assert_eq!(allocations, 0);
@@ -113,7 +116,7 @@ fn cached_bounds_cover_signed_and_nonuniform_transforms() {
 }
 
 #[test]
-fn unchanged_instance_updates_preserve_snapshot_identity_and_revisions() {
+fn unchanged_instance_updates_stage_nothing_and_allocate_nothing() {
     let mut store = Store::default();
     let geometry = store.create_geometry(large_mesh()).unwrap();
     let instance = drawing(geometry);
@@ -122,11 +125,18 @@ fn unchanged_instance_updates_preserve_snapshot_identity_and_revisions() {
         .unwrap();
     store.commit();
     let before = Arc::clone(store.snapshot());
-    store.begin();
-    store
-        .update(handle, instance, DrawingPermissions::ALL)
-        .unwrap();
-    store.commit();
+    let (_, allocations) = test_alloc::count(|| {
+        for _ in 0..8 {
+            store.begin();
+            store
+                .update(handle, instance.clone(), DrawingPermissions::ALL)
+                .unwrap();
+            assert!(store.staged.is_none());
+            assert_eq!(store.mutation_bytes, 0);
+            store.commit();
+        }
+    });
+    assert_eq!(allocations, 0);
     assert!(Arc::ptr_eq(&before, store.snapshot()));
     assert_eq!(before.geometry_revision, store.snapshot().geometry_revision);
     assert_eq!(before.instance_revision, store.snapshot().instance_revision);

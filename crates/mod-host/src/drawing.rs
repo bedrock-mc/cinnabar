@@ -262,6 +262,39 @@ mod tests {
             wit::ErrorCode::StaleHandle
         );
     }
+
+    #[test]
+    fn geometry_uploads_share_the_callback_import_budget() {
+        let mut state = State::new(
+            crate::ModGrants {
+                world_draw: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        state.render.begin_frame();
+        for _ in 0..mod_api::MAX_RENDER_CALLS {
+            state.create_geometry(triangle()).unwrap().unwrap();
+        }
+        state.render.commit_retained();
+        assert_eq!(
+            state.render.output().retained[0].geometry.len(),
+            mod_api::MAX_RENDER_CALLS
+        );
+
+        let error = state.create_geometry(triangle()).unwrap_err();
+        assert!(format!("{error:#}").contains("render import budget exhausted"));
+
+        state.render.revoke();
+        state.render.begin_frame();
+        state.capabilities().unwrap();
+        for _ in 1..mod_api::MAX_RENDER_CALLS {
+            state.create_geometry(triangle()).unwrap().unwrap();
+        }
+        assert!(state.create_geometry(triangle()).is_err());
+    }
+
     #[test]
     fn capability_query_covers_the_generated_contract() {
         let fields = DrawingPermissions::NAMES
