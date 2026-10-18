@@ -12,7 +12,7 @@ import (
 	"slices"
 	"sort"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 )
 
 type v2193BlockProjectionManifest struct {
@@ -259,7 +259,7 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 		fmt.Fprintf(twinHash, "%s\x00%s\x00%s\x00", name, v2193Twins[name].twin, v2193Twins[name].item)
 	}
 	manifest := v2193BlockProjectionManifest{Schema: v2193BlockManifestSchema, GameVersion: v2193GameVersion, Protocol: v2193BlockProtocol}
-	manifest.Source.Module = "github.com/bedrock-mc/protocolgen/generated/data"
+	manifest.Source.Module = shared.ModulePath
 	manifest.Source.SourceLockSHA256, manifest.Source.CloudburstRef = shared.SourceLockSHA256, shared.CloudburstRef
 	manifest.Allowlist.Path, manifest.Allowlist.SHA256 = v2193RetailItemsPath, v2193RetailItemsSHA256
 	manifest.Projection.States, manifest.Projection.LegacyExactStates = len(projected), stats.legacy

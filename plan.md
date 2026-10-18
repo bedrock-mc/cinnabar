@@ -253,6 +253,13 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+One page driver schedules bounded retries with caller time and jitter, and cancels timers
+on suspension or disposal. Explicit retries retain the account after admission or busy
+refusals; expired or refused resume requires a new session. Typed control payloads share
+Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
+finishing a join retires control so the next login obtains a new generation.
+A valid resume replaces the prior relay controller and cancels its channels even during
+transport teardown. New play waits for the old handler to finish while retaining the account.
 
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
@@ -764,6 +771,9 @@ which misreports the builtin vertex index under nonzero base vertices.
 The Go core, local server, and fixture generator share a reviewed transport revision with
 corrected handshake addresses and probe cadence, connected control framing, reliability
 and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+The consumers now also include the merged fresh-entropy GUID, offline reply validation,
+final MTU selection, retry deadline, and split-memory fixes. A wire regression exercises
+the effective dependency, and manifest checks keep the three Go module pins together.
 
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
@@ -835,6 +845,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Login names omit the legacy ThirdPartyNameOnly marker while preserving ThirdPartyName.
+  Complete claim presence, ordering and platform lifecycle parity remain incomplete.
 - Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
   image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
@@ -4641,8 +4653,8 @@ remain in the production build. The checkpoint is pushed through `2759e46d`;
 hosted run `34088016127` passed every job, including Windows acceptance,
 macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
-A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
-unavailable until the next session; broader timeout recovery remains incomplete.
+Open timeouts release local admission, and later server opens supply their actual
+window IDs. Broader timeout and reconnect behavior still needs live qualification.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
@@ -7240,7 +7252,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Locomotion, travel and replay share the preceding spin's compact liquid probe, including glide entry.
   Respawn search and ready anchors discard
   retained releases, active item-use charges, temporary use modifiers and pending launches from
-  the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
+  the old life, including their reserved input flags and facing. Item-use producers wait for
+  respawn completion before accepting new uses. Each distinct ready control retains a completion
+  before later server controls, including repeated positions; transport retries do not duplicate it.
+  Full respawn input suppression and tick continuity remain incomplete.
   Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
@@ -10059,6 +10074,30 @@ it despawns or is replaced. Preserve the signed unique-ID bits while normalizing
 the incoming dialogue. Full NPC component admission, opening-command dispatch,
 server-close targeting and exact-current timing parity remain incomplete.
 
+## Inventory opening while mounted
+
+Inventory input resolves a retained mount through live actor authority and sends its runtime
+ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
+request. The chosen runtime ID survives transport delay. Supported server window opens
+are handled without request correlation, including replies received after cancellation,
+timeout, or a changed target. An open settles the pending input without retaining reply
+history or sending a rejection close. Personal opens supersede storage; storage opens
+keep the active personal screen guard.
+Open timeouts release local admission without closing a guessed window ID.
+Item requests and admitted user closes retain their window generations for settlement.
+Full mount container, vehicle input and platform-specific inventory-opening guards
+remain incomplete.
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass, including a join selection above the advertised byte. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
+
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
 with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
@@ -10092,3 +10131,29 @@ policy. Selection retains the oriented collision footprint and selects the cap.
 This does not close the general vegetation, lighting or component-model parity
 gates; arbitrary component permutations and mushroom movement responses remain
 incomplete.
+
+
+## Session custom item models and legacy declarations
+
+Legacy registry items admit declared stack limits and retain scalar durability,
+intrinsic shine and use-duration components. Custom block items share their
+authored inventory geometry and material sheets across camera hands, player
+equipment, inventory previews and dropped items. Resolved carried grass tint
+is baked into the sheet while alpha remains unchanged. Unsupported UV wrapping,
+material counts and unresolved tints retain the existing sprite fallback.
+
+Custom wearables referring to recognized native external armor models select
+a drawable model through the startup catalog's owner-specific armor definitions.
+Unrecognized missing models remain unresolved. The original custom texture and
+wearable slot continue to own the worn draw.
+
+Original synthetic regressions cover legacy facts, both hands, artwork replacement,
+preview and dropped geometry, tint, external model selection and unknown models.
+Broader custom-content parity and performance gates remain open; these changes
+do not close them.
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
+renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.
