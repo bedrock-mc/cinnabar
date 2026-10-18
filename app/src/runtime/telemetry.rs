@@ -8,6 +8,7 @@ use acceptance::publication_evidence::{
     present_mode_identity, publication_line_if_changed, sha256_identity_from_hex_or_text,
 };
 use client_runtime::network::NetworkHandle;
+use web_time::Instant;
 mod attribution;
 mod held_equipment;
 use attribution::DiagnosticAttributionLogState;
@@ -18,10 +19,7 @@ use held_equipment::HeldEquipmentSchedule;
 use bevy::prelude::{Transform, With};
 #[cfg(feature = "acceptance")]
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
-use std::{
-    fmt::Write as _,
-    time::{Duration, Instant},
-};
+use std::{fmt::Write as _, time::Duration};
 
 use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},

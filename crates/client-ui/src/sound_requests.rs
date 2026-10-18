@@ -20,13 +20,13 @@ pub fn ui_control_sound(sound: &json_ui::ControlSound) {
     if !interface_sound_enabled(&sound.name) {
         return;
     }
-    static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
+    static LAST_PLAYED: std::sync::Mutex<Vec<(String, web_time::Instant)>> =
         std::sync::Mutex::new(Vec::new());
     if sound.min_seconds > 0.0 {
         let mut played = LAST_PLAYED
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         match played.iter().position(|(name, _)| *name == sound.name) {
             Some(index)
                 if now.duration_since(played[index].1).as_secs_f32() < sound.min_seconds =>

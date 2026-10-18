@@ -29,7 +29,7 @@ pub fn renders_game(
 ) -> bool {
     match (ui, menu, presentation) {
         (Some(ui), Some(menu), Some(presentation)) => {
-            presentation.renders_game_behind(player_runtime, ui, menu)
+            presentation.renders_game_behind(player_runtime, ui, Some(menu))
         }
         _ => !menu.is_some_and(MenuRuntime::uses_panorama),
     }

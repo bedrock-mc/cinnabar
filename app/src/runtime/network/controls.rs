@@ -1,10 +1,10 @@
 use super::{PackReload, session::NetworkControlEvent};
 use crate::{
+    game_session::quiesce_local_player,
     runtime::{
         shutdown::record_fatal_error,
         world::{ClientWorld, TransferNotice},
     },
-    session::quiesce_local_player,
 };
 use bevy::{
     log::{error, info, warn},

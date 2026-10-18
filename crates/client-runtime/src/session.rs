@@ -35,6 +35,7 @@ pub fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
 
 /// Drops retired world and pack snapshots on a worker to avoid frame-thread destruction.
 /// Falls back to dropping here only when the worker cannot start.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn release_off_frame(retired: impl Send + 'static) {
     let spawned = std::thread::Builder::new()
         .name("session-release".to_owned())
@@ -42,6 +43,12 @@ pub fn release_off_frame(retired: impl Send + 'static) {
     if let Err(error) = spawned {
         bevy::log::warn!("session release thread unavailable, released on the frame: {error}");
     }
+}
+
+/// Retires snapshots through the browser's bounded event-loop driver.
+#[cfg(target_arch = "wasm32")]
+pub fn release_off_frame(retired: impl Send + 'static) {
+    crate::browser_jobs::retire(move || drop(retired));
 }
 
 #[cfg(test)]

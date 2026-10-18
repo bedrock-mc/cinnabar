@@ -24,7 +24,7 @@ use ui::UiPoint;
 
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
             collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,

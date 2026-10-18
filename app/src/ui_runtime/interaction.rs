@@ -1,5 +1,3 @@
-use crate::runtime::network::resource_packs::PackApplication;
-use client_runtime::network::NetworkHandle;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -45,8 +43,8 @@ use client_shell::{
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
 use client_ui::ui_runtime::interaction::{
-    ChatFlushError, PointerRouter, PressRoute, dispatch_chat_ui_action, dispatch_inventory_hotbar,
-    flush_chat_sends, flush_inventory_send, is_chat_edit_shortcut, paste_chat_shortcut,
+    PointerRouter, PressRoute, dispatch_chat_ui_action, dispatch_inventory_hotbar,
+    is_chat_edit_shortcut, paste_chat_shortcut,
 };
 use input_capture::{
     ordered_pointer_presses, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
@@ -67,83 +65,6 @@ pub(crate) fn dispatch_bound_inventory_hotbar(
         matched = true;
     }
     matched
-}
-
-pub(crate) fn flush_inventory_network(
-    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    time: Res<Time<Real>>,
-    mut runtime: ResMut<UiRuntimeResource>,
-    network: Res<NetworkHandle<PackApplication>>,
-) {
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    match flush_inventory_send(&mut player_runtime, &mut runtime, now_millis, |packet| {
-        network.send_inventory_packet(packet)
-    }) {
-        Ok(_) | Err(client_session::PacketSendError::Full(_)) => {}
-        Err(client_session::PacketSendError::Closed(_)) => {
-            runtime.inventory_transport_closed(&mut player_runtime);
-        }
-    }
-    while let Some(packet) = runtime.take_client_packet() {
-        match network.send_inventory_packet(packet) {
-            Ok(()) => {}
-            Err(client_session::PacketSendError::Full(packet)) => {
-                runtime.requeue_client_packet(packet);
-                break;
-            }
-            Err(client_session::PacketSendError::Closed(_)) => break,
-        }
-    }
-}
-
-pub(crate) fn flush_chat_network(
-    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
-    mut runtime: ResMut<UiRuntimeResource>,
-    network: Res<NetworkHandle<PackApplication>>,
-    mut fatal_error: ResMut<crate::runtime::shutdown::FatalError>,
-) {
-    runtime.service_pending_chat_autocomplete(&player_runtime);
-    if network.closed_command_has_pending_control() {
-        return;
-    }
-    let runtime_id = runtime.local_runtime_id(&player_runtime);
-    runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
-    match flush_chat_sends(
-        &mut runtime,
-        8,
-        |session, sequence, action, packet| match network
-            .send_chat_packet(session, sequence, action, packet)
-        {
-            Err(client_session::PacketSendError::Closed(packet))
-                if network.closed_command_has_pending_control() =>
-            {
-                Err(client_session::PacketSendError::Full(packet))
-            }
-            result => result,
-        },
-    ) {
-        Ok(_) | Err(ChatFlushError::Transport(client_session::PacketSendError::Full(_))) => {}
-        Err(ChatFlushError::Transport(client_session::PacketSendError::Closed(_))) => {
-            crate::runtime::shutdown::record_fatal_error(
-                &mut fatal_error.0,
-                "chat send failed because the network command channel closed".to_owned(),
-            );
-        }
-        Err(ChatFlushError::Packet(error)) => {
-            crate::runtime::shutdown::record_fatal_error(
-                &mut fatal_error.0,
-                format!("queued chat packet became invalid: {error}"),
-            );
-        }
-        Err(ChatFlushError::SessionChanged { expected, actual }) => {
-            crate::runtime::shutdown::record_fatal_error(
-                &mut fatal_error.0,
-                format!(
-                    "queued chat packet crossed a session boundary: expected {expected}, got {actual}"
-                ),
-            );
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -337,7 +258,7 @@ pub(crate) fn drive_chat_keyboard_input(
     mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     (emote_input, driven, world): (
-        Option<Res<super::emotes::EmoteInputConsumed>>,
+        Option<Res<client_state::EmoteInputConsumed>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
