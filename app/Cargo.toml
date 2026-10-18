@@ -93,6 +93,7 @@ gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
+tempfile = "3"
 update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 player-state = { path = "../crates/player-state" }
@@ -175,7 +176,6 @@ launcher-host = { path = "../crates/launcher-host", features = ["test-support"] 
 launcher = { path = "../crates/launcher", features = ["test-support"] }
 test-time = { path = "../crates/test-time" }
 wit-component.workspace = true
-tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }
 acceptance = { path = "../crates/acceptance", features = ["test-support"] }
 client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }
