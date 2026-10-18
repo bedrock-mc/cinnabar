@@ -489,7 +489,7 @@ impl DroppedItemPublisher<'_, '_> {
                 camera,
                 frustum: frustum.as_ref(),
             };
-            let session_cube = icons
+            let session_block = icons
                 .session_block_sheet(identifier, view.item.identity.metadata)
                 .and_then(|sheet| {
                     preparation.model(
@@ -499,13 +499,24 @@ impl DroppedItemPublisher<'_, '_> {
                         |cache| {
                             cache.model(
                                 ModelKey::session_block(sheet),
-                                || Some(BlockFace::ALL.len()),
-                                || icons.block_sheet_cube(sheet).map(DroppedItemModel::Cube),
+                                || {
+                                    icons.session_block_texture_layers(
+                                        identifier,
+                                        view.item.identity.metadata,
+                                    )
+                                },
+                                || {
+                                    icons.session_block_model(
+                                        identifier,
+                                        view.item.identity.metadata,
+                                        sheet,
+                                    )
+                                },
                             )
                         },
                     )
                 });
-            let cube = session_cube.or_else(|| {
+            let cube = session_block.or_else(|| {
                 block_id.zip(assets).and_then(|((mode, id), assets)| {
                     let hashed = mode == NetworkIdMode::Hashed;
                     preparation

@@ -10093,3 +10093,23 @@ policy. Selection retains the oriented collision footprint and selects the cap.
 This does not close the general vegetation, lighting or component-model parity
 gates; arbitrary component permutations and mushroom movement responses remain
 incomplete.
+
+
+## Session custom item models and legacy declarations
+
+Legacy registry items admit declared stack limits and retain scalar durability,
+intrinsic shine and use-duration components. Custom block items share their
+authored inventory geometry and material sheets across camera hands, player
+equipment, inventory previews and dropped items. Resolved carried grass tint
+is baked into the sheet while alpha remains unchanged. Unsupported UV wrapping,
+material counts and unresolved tints retain the existing sprite fallback.
+
+Custom wearables referring to recognized native external armor models select
+a drawable model through the startup catalog's owner-specific armor definitions.
+Unrecognized missing models remain unresolved. The original custom texture and
+wearable slot continue to own the worn draw.
+
+Original synthetic regressions cover legacy facts, both hands, artwork replacement,
+preview and dropped geometry, tint, external model selection and unknown models.
+Broader custom-content parity and performance gates remain open; these changes
+do not close them.
