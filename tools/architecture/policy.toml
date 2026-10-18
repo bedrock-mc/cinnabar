@@ -430,7 +430,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api"]
+allowed_dependencies = ["mod-api", "test-alloc"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 

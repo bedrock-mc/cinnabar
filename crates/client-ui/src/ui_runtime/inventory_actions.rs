@@ -383,6 +383,9 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         hit: InventoryCellHit,
     ) -> Outcome {
+        if hit == InventoryCellHit::CraftOutput {
+            return self.output_click(player_runtime, false);
+        }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
         };
@@ -897,3 +900,7 @@ impl UiRuntime {
         self.begin_crafting_into(player_runtime, CraftSink::Player(slot))
     }
 }
+
+#[cfg(test)]
+#[path = "inventory_actions/tests.rs"]
+mod tests;

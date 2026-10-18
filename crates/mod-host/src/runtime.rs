@@ -44,6 +44,8 @@ mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
 mod loading;
+#[path = "masks.rs"]
+mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -843,7 +845,7 @@ fn commit(store: &mut Store<State>) {
 }
 
 /// Publishes retained drawing, label, visual time, panel, settings and screen changes.
-/// Immediate primitives, post effects, camera and command output belong to `frame` alone;
+/// Immediate primitives, camera and command output belong to `frame` alone;
 /// an event's staged changes to those outputs are dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();

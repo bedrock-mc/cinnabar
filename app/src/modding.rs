@@ -369,11 +369,23 @@ fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
     ui: Res<UiRuntimeResource>,
-    mut drawing_frame: ResMut<render_scene::mod_scene::retained::DrawingFrame>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
-        drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
+        let needs_targets = (0..extension.hosts.host_count())
+            .any(|index| extension.hosts.host(index).grants().entity_highlight);
+        let targets = actors
+            .as_deref()
+            .filter(|_| needs_targets)
+            .map(render_scene::mod_scene::mask_targets)
+            .unwrap_or_default();
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .publish_mask_targets(&targets);
+        }
         extension.hosts.begin_frame();
     }
 }
@@ -402,7 +414,6 @@ type ModOutputs<'w> = (
 struct ModObservation<'w, 's> {
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
-    drawing_frame: ResMut<'w, render_scene::mod_scene::retained::DrawingFrame>,
     cameras: Query<
         'w,
         's,
@@ -440,7 +451,6 @@ fn drive_mod(
     let ModObservation {
         watcher,
         render_scene,
-        mut drawing_frame,
         cameras,
         mut frame_rate,
         mut module_observer,
@@ -573,7 +583,6 @@ fn drive_mod(
             );
         }
     }
-    drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension), Some(&ui));

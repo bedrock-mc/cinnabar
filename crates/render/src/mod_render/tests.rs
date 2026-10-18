@@ -17,6 +17,7 @@ fn pass(name: &str, revision: u64) -> Pass {
         name: name.into(),
         order: 0,
         depth: false,
+        masks: Vec::new(),
         source: GRADE.into(),
         shader: mod_render::shader::compose(GRADE, false).unwrap().into(),
         revision,
@@ -43,6 +44,7 @@ fn applying_output_rebuilds_geometry_only_on_change() {
     let mut scene = ModRenderScene::default();
     let primitives = Arc::new(decal());
     let output = RenderOutput {
+        masks: Default::default(),
         passes: vec![pass("a", 7)],
         primitives: Arc::clone(&primitives),
         ..Default::default()
@@ -180,6 +182,7 @@ fn primitives_queue_one_late_transparent_item_only_when_present() {
     assert!(fixture::items(&app, view).is_empty());
     app.world_mut().resource_mut::<ModRenderScene>().apply(
         &RenderOutput {
+            masks: Default::default(),
             passes: Vec::new(),
             primitives: Arc::new(decal()),
             ..Default::default()
@@ -228,6 +231,7 @@ fn replaced_passes_release_their_pipelines() {
     for revision in 1..=20 {
         scene.apply(
             &RenderOutput {
+                masks: Default::default(),
                 passes: vec![pass("a", revision)],
                 primitives: Default::default(),
                 ..Default::default()
@@ -269,6 +273,7 @@ fn primitives_queue_on_the_frame_they_first_arrive() {
     let mut scene = ModRenderScene::default();
     scene.apply(
         &RenderOutput {
+            masks: Default::default(),
             passes: Vec::new(),
             primitives: Arc::new(decal()),
             ..Default::default()
@@ -307,6 +312,7 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
         let mut scene = ModRenderScene::default();
         scene.apply(
             &RenderOutput {
+                masks: Default::default(),
                 passes: Vec::new(),
                 primitives: Arc::new(decal()),
                 ..Default::default()

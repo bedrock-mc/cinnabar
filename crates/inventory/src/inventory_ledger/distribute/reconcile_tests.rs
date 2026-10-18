@@ -222,3 +222,114 @@ fn same_item_added_to_cursor_is_not_taken_into_the_retained_split() {
     }
     assert_eq!(ledger.cursor_stack().unwrap().count, 5);
 }
+
+/// A same-item count reduction limits retained drag contributions without preventing a new hover.
+#[test]
+fn parity_requests_drag_after_same_item_count_reduction() {
+    if assets::facts::ItemFacts::builtin().is_err() {
+        eprintln!("missing-fixture: builtin item facts carrier");
+        return;
+    }
+    let mut ledger = personal_ledger(&[]);
+    set_cursor(&mut ledger, stack(60, 10));
+    let mut drag = None;
+    ledger
+        .advance_distribute(&mut drag, &targets(&[9, 10]), DistributeMode::Even)
+        .unwrap();
+    accept_initial_split(&mut ledger);
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+            slot: 9,
+        },
+        stack: stack(201, 3),
+        storage_item: None,
+    }));
+    ledger
+        .advance_distribute(&mut drag, &targets(&[9, 10, 11]), DistributeMode::Even)
+        .expect("same-item count reduction can clamp contributions and continue");
+    let count: u16 = [9, 10, 11]
+        .into_iter()
+        .filter_map(|slot| ledger.displayed_stack(slot))
+        .map(|stack| stack.count)
+        .sum::<u16>()
+        + ledger.cursor_stack().map_or(0, |stack| stack.count);
+    assert_eq!(count, 8);
+}
+
+/// A corrected display name does not prevent an otherwise ordinary even drag.
+#[test]
+fn named_cursor_can_distribute_across_empty_cells() {
+    let mut ledger = personal_ledger(&[]);
+    set_cursor(&mut ledger, stack(60, 8));
+    ledger.set_confirmed_overlay(
+        Cell::Cursor,
+        StackResponseOverlay {
+            custom_name: Some(Arc::from("Named apples")),
+            ..Default::default()
+        },
+    );
+    let mut drag = None;
+    ledger
+        .advance_distribute(
+            &mut drag,
+            &[InventoryTarget::Player(0), InventoryTarget::Player(1)],
+            DistributeMode::Even,
+        )
+        .unwrap();
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 4);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 4);
+    assert!(ledger.cursor_stack().is_none());
+}
+
+/// A server reduction consumes drag contributions before the stack's pre-drag contents.
+#[test]
+fn authority_reduction_preserves_preexisting_drag_destination_items() {
+    let mut ledger = personal_ledger(&[(9, stack(201, 10))]);
+    set_cursor(&mut ledger, stack(60, 8));
+    let mut drag = None;
+    ledger
+        .advance_distribute(&mut drag, &targets(&[9, 10]), DistributeMode::Even)
+        .unwrap();
+    let requests: Vec<_> = ledger
+        .queue
+        .iter()
+        .map(|request| request.request_id)
+        .collect();
+    assert_eq!(requests.len(), 2);
+    accept(
+        &mut ledger,
+        requests[0],
+        &[
+            (CONTAINER_NAME_INVENTORY, 9, 14, 201),
+            (CONTAINER_NAME_CURSOR, 0, 4, 60),
+        ],
+    );
+    accept(
+        &mut ledger,
+        requests[1],
+        &[
+            (CONTAINER_NAME_INVENTORY, 10, 4, 202),
+            (CONTAINER_NAME_CURSOR, 0, 0, 0),
+        ],
+    );
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+            slot: 9,
+        },
+        stack: stack(201, 11),
+        storage_item: None,
+    }));
+    ledger
+        .advance_distribute(&mut drag, &targets(&[9, 10, 11]), DistributeMode::Even)
+        .unwrap();
+    assert!(ledger.displayed_stack(9).unwrap().count >= 10);
+    let total: u16 = [9, 10, 11]
+        .into_iter()
+        .filter_map(|slot| ledger.displayed_stack(slot))
+        .map(|stack| stack.count)
+        .sum::<u16>()
+        + ledger.cursor_stack().map_or(0, |stack| stack.count);
+    assert_eq!(total, 15);
+}

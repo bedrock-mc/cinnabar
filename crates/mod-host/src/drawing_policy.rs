@@ -46,11 +46,11 @@ impl ModGrants {
         grants.render_post &= policy.render_post;
         grants.render &= policy.world_draw;
         grants.render_depth &= policy.render_post;
-        // Existing observations are not occlusion filtered. Deny them before disclosure.
+        // Player poses retain their independent gameplay consent. Unfiltered entity
+        // and terrain observations still require the session's drawing authority.
         let protected = policy.entity_observe
             && policy.render_through_walls
             && (session.local || (self.entity_observe && self.render_through_walls));
-        grants.players &= protected;
         grants.entities &= protected;
         grants.terrain &=
             policy.render_through_walls && (session.local || self.render_through_walls);
@@ -93,7 +93,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remote_default_denies_protected_producers_but_keeps_plain_geometry() {
+    fn remote_default_preserves_player_consent_but_denies_protected_drawing() {
         let grants = ModGrants {
             render: true,
             players: true,
@@ -112,8 +112,8 @@ mod tests {
             },
             ..Default::default()
         });
-        assert!(effective.render && effective.hud);
-        assert!(!effective.players && !effective.entities && !effective.terrain);
+        assert!(effective.render && effective.hud && effective.players);
+        assert!(!effective.entities && !effective.terrain);
         assert!(!effective.block_highlights && !effective.render_depth);
         assert_eq!(
             grants.for_drawing_session(DrawingSession {

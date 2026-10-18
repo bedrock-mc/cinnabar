@@ -13,6 +13,7 @@ use protocol::{
 
 use super::*;
 
+mod action_scopes;
 mod auto_allocation;
 
 const LOG: i32 = 6;
@@ -454,15 +455,15 @@ fn workbench_crafts_three_by_three_from_its_grid() {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 
@@ -790,9 +791,9 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     );
 }
 
-/// A workbench close acknowledgement that overtakes its return still lets the return apply.
+/// A retired workbench request cannot commit its predicted ingredient return.
 #[test]
-fn workbench_close_ack_before_the_return_response_applies_the_return() {
+fn workbench_close_ack_retires_the_unanswered_return() {
     let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
     workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
     workbench.request_storage_close();
@@ -818,11 +819,13 @@ fn workbench_close_ack_before_the_return_response_applies_the_return() {
             ),
         ],
     );
+    assert_eq!(workbench.displayed_stack(0).map(|stack| stack.count), None);
     assert_eq!(
-        workbench.displayed_stack(0).map(|stack| stack.count),
+        workbench
+            .target_stack(InventoryTarget::Craft(36))
+            .map(|stack| stack.count),
         Some(1)
     );
-    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
     assert!(!workbench.resync_required());
 }
 
@@ -953,7 +956,7 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(!ledger.personal_inventory_desired_open());
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
 
-    // The stranded ingredient awaits the server, but the reopened screen still closes.
+    // A later close builds a fresh return from the still-confirmed ingredient.
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(20));
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
@@ -965,6 +968,9 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(ledger.personal_inventory_desired_open());
     ledger.request_personal_close();
     assert!(!ledger.personal_inventory_desired_open());
+    let (returning, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", returning.kind()), "ItemStackRequestPacket");
+    assert!(ledger.mark_transport_enqueued(30));
     let (close, _) = ledger.pending_batch().unwrap().unwrap();
     assert_eq!(format!("{:?}", close.kind()), "ContainerClosePacket");
 }

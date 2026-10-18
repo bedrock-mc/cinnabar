@@ -207,6 +207,11 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
+The user-consented `players` and `camera` grants remain available in multiplayer
+independently of drawing-session negotiation. They do not grant entity,
+terrain, highlighting or drawing permissions; those retain their separate
+consent and session limits.
+
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads
 (`CINNABAR_MOD_TERRAIN=1`) are described in [mod-terrain-api.md](mod-terrain-api.md). A snapshot contains the actor session, dimension, local subject

@@ -9,7 +9,6 @@ use std::{
     },
 };
 
-pub mod mesh;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -40,11 +39,12 @@ pub enum GeometrySpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
     pub vertices: Arc<[Vertex]>,
-    pub bounds: [[f32; 3]; 2],
     pub indices: Arc<[u32]>,
     pub distances: Arc<[f32]>,
     pub closed: bool,
     pub polyline: bool,
+    /// Absolute position bounds computed at admission for constant-cost instance checks.
+    max_position: [f32; 3],
 }
 
 /// An actor reference includes both the drawing owner and the actor's spawn generation.
@@ -147,8 +147,6 @@ pub struct DrawError {
 /// A successful callback's immutable snapshot. Geometry and instance revisions are separate.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Resources {
-    pub connection: u64,
-    pub dimension: i32,
     pub geometry: BTreeMap<Handle, Arc<Geometry>>,
     pub instances: BTreeMap<Handle, Instance>,
     groups: BTreeMap<String, Vec<Handle>>,
@@ -188,16 +186,6 @@ impl Default for Store {
 }
 
 impl Store {
-    /// Binds snapshots to the trusted connection before the guest initializes resources.
-    pub fn bind_session(&mut self, connection: u64, dimension: i32) {
-        self.revoke();
-        self.committed = Arc::new(Resources {
-            connection,
-            dimension,
-            ..Default::default()
-        });
-    }
-
     /// Returns the last successful callback without copying its resources.
     pub fn snapshot(&self) -> &Arc<Resources> {
         &self.committed
@@ -211,8 +199,15 @@ impl Store {
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
     pub fn commit(&mut self) {
-        let staged = self.staged.take().unwrap_or_else(|| self.base());
-        if staged != *self.committed {
+        let staged = match self.staged.take() {
+            Some(staged) => Some(staged),
+            None if self.committed.groups.is_empty() => None,
+            None => Some(self.base()),
+        };
+        if let Some(staged) = staged
+            && (staged.geometry_revision != self.committed.geometry_revision
+                || staged.instance_revision != self.committed.instance_revision)
+        {
             self.committed = Arc::new(staged);
         }
         self.retired
@@ -273,6 +268,16 @@ impl Store {
         permissions: DrawingPermissions,
     ) -> Result<(), DrawError> {
         self.check(handle)?;
+        // An unchanged resubmission must not clone the resource maps every frame.
+        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let expiring = self.staged.is_none()
+            && current
+                .groups
+                .values()
+                .any(|handles| handles.contains(&handle));
+        if !expiring && current.instances.get(&handle) == Some(&instance) {
+            return validation::instance(&instance, current, permissions);
+        }
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));

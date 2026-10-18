@@ -297,7 +297,9 @@ fn wrap_inbound_world_event(
 enum NetworkCommand {
     FinishLoading,
     /// Ends the frame: everything queued since the previous flush leaves as one batch.
-    FlushFrame,
+    FlushFrame {
+        cache_opportunity: bool,
+    },
     Send {
         packet: Packet,
         sub_chunk: Option<SubChunkRequestSend>,
@@ -384,10 +386,21 @@ impl<P> NetworkHandle<P> {
     }
 
     /// Ends the frame's batch without waiting for capacity or another frame.
-    /// A frame that accepted no commands sends nothing.
+    /// A clean frame submits only a retained simulation opportunity.
     pub fn flush_frame(&self) {
         let _ = self.flush_latency_reply();
-        self.unflushed.lock().expect("outbound frame lock").flush();
+        self.unflushed
+            .lock()
+            .expect("outbound frame lock")
+            .flush(&self.commands);
+    }
+
+    /// Records normal simulation progress independently of player movement and packet traffic.
+    pub fn advance_simulation(&self, elapsed: Duration) {
+        self.unflushed
+            .lock()
+            .expect("outbound frame lock")
+            .advance_simulation(elapsed);
     }
 
     /// A live Bevy app still owns a network resource while it is sitting at

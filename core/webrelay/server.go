@@ -246,26 +246,19 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 			stream.CancelRead(0)
 		}
 	})
-	playing := make(chan struct{}, 1)
 	for {
 		stream, err := transport.AcceptStream(ctx)
 		if err != nil {
 			return
 		}
 		conn := &transportConn{Stream: stream, session: transport}
-		select {
-		case playing <- struct{}{}:
-		default:
-			conn.abort()
-			continue
-		}
 		request, err := readHello(conn, bridgecontract.RelayChannelPlay)
 		if err != nil {
-			<-playing
 			conn.abort()
 			continue
 		}
-		workers.Go(func() { defer func() { <-playing }(); relay.runPlay(ctx, conn, client, controller, request) })
+		// Leave replacement streams in QUIC's bounded accept queue until teardown completes.
+		relay.runPlay(ctx, conn, client, controller, request)
 	}
 }
 
@@ -294,7 +287,7 @@ func (relay *Relay) transportServer(tlsConfig *tls.Config, address string) *webt
 		Handler: mux, MaxHeaderBytes: bridgecontract.RelayControlBytes, QUICConfig: &quic.Config{
 			MaxIncomingStreams: 8, MaxIncomingUniStreams: 4, MaxStreamReceiveWindow: playMessageLimit, MaxConnectionReceiveWindow: 2 * playMessageLimit,
 			HandshakeIdleTimeout: helloTimeout, MaxIdleTimeout: 2 * keepAliveInterval}},
-		Config: &webtransport.Config{MaxIncomingStreams: 2, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
+		Config: &webtransport.Config{MaxIncomingStreams: bridgecontract.RelayBidirectionalStreams, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
 	mux.HandleFunc(bridgecontract.RelayTransportPath, func(w http.ResponseWriter, r *http.Request) { relay.serveTransport(w, r, wt) })
 	return wt
 }

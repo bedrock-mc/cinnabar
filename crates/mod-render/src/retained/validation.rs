@@ -10,12 +10,18 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     if vertices.len() > MAX_DRAW_VERTICES || indices.len() > MAX_DRAW_INDICES {
         return Err(error(ErrorCode::BudgetExceeded, "geometry elements"));
     }
+    let mut max_position = [0_f32; 3];
     if vertices.len() < if polyline { 2 } else { 3 }
         || (!polyline && (indices.is_empty() || !indices.len().is_multiple_of(3)))
         || indices
             .iter()
             .any(|&index| index as usize >= vertices.len())
         || vertices.iter().any(|v| {
+            #[cfg(test)]
+            super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
+            for (max, position) in max_position.iter_mut().zip(v.position) {
+                *max = max.max(position.abs());
+            }
             !v.position
                 .iter()
                 .chain(&v.uv)
@@ -44,27 +50,14 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
             distances.push(distance);
         }
     }
-    let bounds = std::array::from_fn(|side| {
-        std::array::from_fn(|axis| {
-            vertices
-                .iter()
-                .map(|v| v.position[axis])
-                .reduce(if side == 0 { f32::min } else { f32::max })
-                .expect("validated nonempty geometry")
-        })
-    });
-    let geometry = Geometry {
-        bounds,
+    Ok(Geometry {
         vertices: vertices.into(),
         indices: indices.into(),
         distances: distances.into(),
         closed,
         polyline,
-    };
-    if mesh::expanded_vertices(&geometry) > MAX_DRAW_EXPANDED_VERTICES {
-        return Err(error(ErrorCode::BudgetExceeded, "expanded vertices"));
-    }
-    Ok(geometry)
+        max_position,
+    })
 }
 
 /// Measures admitted immutable payloads; shared instances never multiply geometry charges.
@@ -84,21 +77,7 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
                 && !resources.geometry.values().any(|live| Arc::ptr_eq(g, live))
         }))
         .collect();
-    let vertex_work = resources
-        .instances
-        .values()
-        .try_fold(0usize, |sum, instance| {
-            let geometry = resources.geometry.get(&instance.geometry)?;
-            sum.checked_add(mesh::expanded_vertices(geometry))
-        })
-        .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
     for (amount, limit, label) in [
-        (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
-        (
-            geometries.iter().map(|g| mesh::expanded_vertices(g)).sum(),
-            MAX_DRAW_EXPANDED_VERTICES,
-            "expanded vertices",
-        ),
         (geometries.len(), MAX_DRAW_GEOMETRIES, "geometries"),
         (resources.instances.len(), MAX_DRAW_INSTANCES, "instances"),
         (
@@ -157,7 +136,20 @@ pub(super) fn instance(
         || !instance.width.is_finite()
         || instance.width <= 0.
         || instance.width > MAX_PRIMITIVE_EXTENT_BLOCKS
-        || !extent(geometry, transform)
+        || geometry
+            .max_position
+            .iter()
+            .zip(transform.scale)
+            .map(|(v, s)| (v * s).powi(2))
+            .sum::<f32>()
+            .sqrt()
+            + transform
+                .translation
+                .iter()
+                .map(|v| v * v)
+                .sum::<f32>()
+                .sqrt()
+            > MAX_PRIMITIVE_EXTENT_BLOCKS
     {
         return Err(error(
             ErrorCode::Invalid,
@@ -179,42 +171,9 @@ pub(super) fn instance(
     Ok(())
 }
 
-/// Accepts conservative bounds quickly, checking actual vertices before rejecting an extent.
-fn extent(geometry: &Geometry, transform: Transform) -> bool {
-    let translation = transform
-        .translation
-        .iter()
-        .map(|v| v * v)
-        .sum::<f32>()
-        .sqrt();
-    let bound = (0..3)
-        .map(|axis| {
-            (geometry.bounds[0][axis]
-                .abs()
-                .max(geometry.bounds[1][axis].abs())
-                * transform.scale[axis])
-                .powi(2)
-        })
-        .sum::<f32>()
-        .sqrt()
-        + translation;
-    bound <= MAX_PRIMITIVE_EXTENT_BLOCKS
-        || geometry.vertices.iter().all(|vertex| {
-            vertex
-                .position
-                .iter()
-                .zip(transform.scale)
-                .map(|(v, s)| (v * s).powi(2))
-                .sum::<f32>()
-                .sqrt()
-                + translation
-                <= MAX_PRIMITIVE_EXTENT_BLOCKS
-        })
-}
-
 /// Requires finite linear RGBA with bounded coverage.
 fn color(color: [f32; 4]) -> bool {
     color
         .iter()
-        .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+        .all(|v| v.is_finite() && (0. ..=MAX_DRAW_COLOR_COMPONENT).contains(v))
 }

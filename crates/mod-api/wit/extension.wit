@@ -481,6 +481,7 @@ interface terrain {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import cinnabar:world-draw/masks@0.1.0;
     import terrain;
     import player-state;
     import item-use;

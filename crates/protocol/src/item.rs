@@ -28,7 +28,8 @@ mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
 mod nbt_equal;
-mod registry_capacity;
+mod registry_properties;
+mod user_data;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
 pub use banner::{ItemBannerPattern, item_banner_patterns};
@@ -40,8 +41,9 @@ pub use display::{
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_filtered_custom_name, item_repair_cost,
 };
+pub use user_data::item_user_data_equal;
 
 /// The single item shape 1.26.40 puts on the wire.
 ///
@@ -130,6 +132,12 @@ pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
 /// [`item_stack_damage`] over a stack's raw extra data.
 #[must_use]
 pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
+    item_extra_damage_value(extra_data).and_then(|value| u32::try_from(value).ok())
+}
+
+/// Reads a retained integer `Damage` value, including signed corrections.
+#[must_use]
+pub fn item_extra_damage_value(extra_data: &[u8]) -> Option<i32> {
     root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 
@@ -140,6 +148,16 @@ pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
         let mut cursor = nbt;
         root_tag(&mut cursor, 1, b"Unbreakable")
             .is_some_and(|mut value| read_u8(&mut value).is_some_and(|byte| byte != 0))
+    })
+}
+
+/// Whether retained item data locks the item into its current slot.
+#[must_use]
+pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
+    decode_extra_nbt(extra_data).is_some_and(|nbt| {
+        let mut cursor = nbt;
+        root_tag(&mut cursor, 1, b"minecraft:item_lock")
+            .is_some_and(|mut value| read_u8(&mut value) == Some(1))
     })
 }
 
@@ -217,6 +235,11 @@ fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8
         return None;
     }
     skip_le_string(cursor)?;
+    compound_field(cursor, tag, wanted)
+}
+
+/// Finds one typed entry in a compound body, leaving its payload borrowed.
+fn compound_field<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
     loop {
         let entry = read_u8(cursor)?;
         if entry == 0 {
@@ -252,7 +275,7 @@ fn decode_extra_nbt(extra: &[u8]) -> Option<&[u8]> {
 }
 
 /// Walks one fixed little-endian NBT compound root for an integer `Damage`.
-fn root_damage_tag(nbt: &[u8]) -> Option<u32> {
+fn root_damage_tag(nbt: &[u8]) -> Option<i32> {
     let mut cursor = nbt;
     if read_u8(&mut cursor)? != 10 {
         return None;
@@ -269,7 +292,7 @@ fn root_damage_tag(nbt: &[u8]) -> Option<u32> {
         cursor = cursor.get(name_len..)?;
         if is_damage {
             let value = i32::from_le_bytes(cursor.get(..4)?.try_into().ok()?);
-            return u32::try_from(value).ok();
+            return Some(value);
         }
         skip_le_payload(&mut cursor, tag, 0)?;
     }
@@ -299,9 +322,9 @@ fn skip_le_string(cursor: &mut &[u8]) -> Option<()> {
     Some(())
 }
 
-const MAX_ITEM_NBT_WALK_DEPTH: u8 = 16;
+const MAX_ITEM_NBT_WALK_DEPTH: u32 = wire::MAX_NBT_DEPTH;
 
-fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u8) -> Option<()> {
+fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u32) -> Option<()> {
     if depth > MAX_ITEM_NBT_WALK_DEPTH {
         return None;
     }
@@ -318,6 +341,20 @@ fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u8) -> Option<()> {
         9 => {
             let element = read_u8(cursor)?;
             let count = usize::try_from(read_i32_le(cursor)?).ok()?;
+            if count != 0 && depth == MAX_ITEM_NBT_WALK_DEPTH {
+                return None;
+            }
+            let width = match element {
+                1 => Some(1usize),
+                2 => Some(2),
+                3 | 5 => Some(4),
+                4 | 6 => Some(8),
+                _ => None,
+            };
+            if let Some(width) = width {
+                *cursor = cursor.get(count.checked_mul(width)?..)?;
+                return Some(());
+            }
             for _ in 0..count {
                 skip_le_payload(cursor, element, depth.checked_add(1)?)?;
             }
@@ -679,11 +716,11 @@ pub(crate) fn normalize_item_registry(
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
         let canonical_empty_component_data =
-            component_bytes == registry_capacity::CANONICAL_EMPTY_COMPONENT_DATA;
+            component_bytes == registry_properties::CANONICAL_EMPTY_COMPONENT_DATA;
         let negotiated_max_stack_size = if matches!(version, ItemRegistryVersion::Unknown(_)) {
             None
         } else {
-            registry_capacity::negotiated_max_stack_size(&component_bytes)
+            registry_properties::negotiated_max_stack_size(&component_bytes)
         };
         let entry = ItemRegistryEntry {
             identifier: Arc::from(item.item_name.to_string_lossy()),
@@ -695,7 +732,7 @@ pub(crate) fn normalize_item_registry(
             negotiated_max_stack_size,
             canonical_empty_component_data,
             item_tags: if item.is_component_based {
-                registry_capacity::declared_item_tags(&component_bytes).into()
+                registry_properties::declared_item_tags(&component_bytes).into()
             } else {
                 Arc::from([])
             },

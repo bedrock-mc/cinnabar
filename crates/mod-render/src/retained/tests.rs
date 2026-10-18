@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) mod work;
+
 /// Makes a reusable unit triangle with distinct vertex colours.
 fn mesh() -> GeometrySpec {
     GeometrySpec::Triangles {
@@ -265,135 +267,22 @@ fn instance_overflow_has_a_typed_error_and_does_not_truncate() {
 }
 
 #[test]
-fn triangle_expansion_preserves_indices_and_zero_length_lines_emit_nothing() {
+fn unchanged_updates_stage_nothing_and_keep_the_snapshot() {
     let mut store = Store::default();
-    let triangle = store.create_geometry(mesh()).unwrap();
-    let vertex = Vertex {
-        position: [0.; 3],
-        color: [1.; 4],
-        uv: [0.; 2],
-        data: [0.; 4],
-    };
-    let line = store
-        .create_geometry(GeometrySpec::Polyline {
-            vertices: vec![vertex; 3],
-            closed: false,
-        })
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let id = store
+        .create(drawing(geometry), DrawingPermissions::ALL)
         .unwrap();
     store.commit();
-    let expanded = super::mesh::build(&store.snapshot().geometry[&triangle]);
-    assert_eq!(expanded.len(), 3);
-    assert_eq!(expanded[1].a[..3], [1., 0., 0.]);
-    assert!(super::mesh::build(&store.snapshot().geometry[&line]).is_empty());
-}
-
-#[test]
-fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
-    let mut store = Store::default();
-    let GeometrySpec::Triangles { vertices, .. } = mesh() else {
-        unreachable!()
-    };
-    let indices = [0, 1, 2]
-        .into_iter()
-        .cycle()
-        .take(mod_api::MAX_DRAW_INDICES)
-        .collect();
-    let geometry = store
-        .create_geometry(GeometrySpec::Triangles { vertices, indices })
-        .unwrap();
-    let allowed = mod_api::MAX_DRAW_VERTEX_WORK / mod_api::MAX_DRAW_INDICES;
-    for _ in 0..allowed {
+    let before = Arc::clone(store.snapshot());
+    store.begin();
+    for _ in 0..32 {
         store
-            .create(drawing(geometry), DrawingPermissions::ALL)
+            .update(id, drawing(geometry), DrawingPermissions::ALL)
             .unwrap();
     }
-    assert_eq!(
-        store
-            .create(drawing(geometry), DrawingPermissions::ALL)
-            .unwrap_err()
-            .detail,
-        "vertex work"
-    );
+    assert!(store.staged.is_none());
+    assert_eq!(store.mutation_bytes, 0);
     store.commit();
-    assert_eq!(store.snapshot().instances.len(), allowed);
-}
-
-#[test]
-fn retained_extent_uses_actual_vertices_when_bounds_are_too_conservative() {
-    let mut store = Store::default();
-    let extent = mod_api::MAX_PRIMITIVE_EXTENT_BLOCKS;
-    let geometry = store
-        .create_geometry(GeometrySpec::Triangles {
-            vertices: [[extent, 0., 0.], [0., extent, 0.], [0., 0., extent]]
-                .map(|position| Vertex {
-                    position,
-                    color: [1.; 4],
-                    uv: [0.; 2],
-                    data: [0.; 4],
-                })
-                .to_vec(),
-            indices: vec![0, 1, 2],
-        })
-        .unwrap();
-    for scale in [[1.; 3], [-1., 1., -1.], [0.5; 3]] {
-        let mut instance = drawing(geometry);
-        instance.transform.scale = scale;
-        instance.transform.translation[0] = extent * (1. - scale[0].abs());
-        store.create(instance, DrawingPermissions::ALL).unwrap();
-    }
-    let mut outside = drawing(geometry);
-    outside.transform.translation[0] = 1.;
-    assert_eq!(
-        store
-            .create(outside, DrawingPermissions::ALL)
-            .unwrap_err()
-            .code,
-        ErrorCode::Invalid
-    );
-    let mut outside = drawing(geometry);
-    outside.transform.scale[0] = 1.01;
-    assert_eq!(
-        store
-            .create(outside, DrawingPermissions::ALL)
-            .unwrap_err()
-            .code,
-        ErrorCode::Invalid
-    );
-}
-
-/// Expands an admitted polyline with uniform attributes for topology comparisons.
-fn expanded_line(positions: &[[f32; 3]], closed: bool) -> Vec<super::mesh::GpuVertex> {
-    let geometry = super::validation::geometry(GeometrySpec::Polyline {
-        vertices: positions
-            .iter()
-            .map(|&position| Vertex {
-                position,
-                color: [1.; 4],
-                uv: [0.; 2],
-                data: [0.; 4],
-            })
-            .collect(),
-        closed,
-    })
-    .unwrap();
-    super::mesh::build(&geometry)
-}
-
-#[test]
-fn repeated_polyline_points_preserve_caps_and_neighboring_joins() {
-    let a = [0., 0., 0.];
-    let b = [1., 0., 0.];
-    let c = [1., 1., 0.];
-    for points in [vec![a, a, b, c], vec![a, b, b, c], vec![a, b, c, c]] {
-        assert_eq!(
-            expanded_line(&points, false),
-            expanded_line(&[a, b, c], false)
-        );
-    }
-    for points in [vec![a, a, b, c], vec![a, b, b, c], vec![a, b, c, a]] {
-        assert_eq!(
-            expanded_line(&points, true),
-            expanded_line(&[a, b, c], true)
-        );
-    }
+    assert!(Arc::ptr_eq(&before, store.snapshot()));
 }
