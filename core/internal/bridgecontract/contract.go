@@ -31,8 +31,14 @@ const (
 	RelayVersion = 2
 	// RelayControlBytes: Largest relay Hello or control JSON payload in bytes.
 	RelayControlBytes = 4096
-	// RelayPlayMessageBytes: Largest WebSocket play message and upload burst in bytes.
+	// RelayPlayMessageBytes: Largest WebSocket play message in bytes.
 	RelayPlayMessageBytes = 8388608
+	// QueuedFrames: Maximum queued reliable frames or browser receive chunks.
+	QueuedFrames = 16
+	// RelayQueuedFrameBytes: Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+	RelayQueuedFrameBytes = 8388608
+	// RelayUploadBurstBytes: Upload rate limiter burst, independent of message and queue limits.
+	RelayUploadBurstBytes = 8388608
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
 	// RelayControlRefillMillis: Time to replenish one relay control request; busy sign-out retries wait at least this long.

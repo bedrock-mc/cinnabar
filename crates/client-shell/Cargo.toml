@@ -54,6 +54,11 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "M
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ash = "0.38"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.104"
+wasm-bindgen = "0.2.127"
+wasm-bindgen-futures = "0.4.77"
+
 [dev-dependencies]
 render-model = { path = "../render-model", features = ["test-support"] }
 launcher = { path = "../launcher", features = ["test-support"] }

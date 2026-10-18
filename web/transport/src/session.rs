@@ -9,7 +9,7 @@ use crate::{Channel, CloseReason, RelayTransport};
 use bridge::{
     BridgeCodec,
     contract::{
-        MAX_FRAME_LEN, RELAY_CONTROL_BYTES, RELAY_PLAY_MESSAGE_BYTES, RELAY_VERSION, RefusalCode,
+        MAX_FRAME_LEN, RELAY_CONTROL_BYTES, RELAY_QUEUED_FRAME_BYTES, RELAY_VERSION, RefusalCode,
     },
 };
 use bytes::Bytes;
@@ -344,7 +344,7 @@ impl<T: RelayTransport> Session<T> {
                     read,
                     write,
                     MAX_FRAME_LEN,
-                    RELAY_PLAY_MESSAGE_BYTES,
+                    RELAY_QUEUED_FRAME_BYTES,
                 );
                 Ok((
                     reader,

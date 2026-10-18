@@ -101,15 +101,6 @@ impl RelayTransport for Transport {
             control: matches!(channel, Channel::Control),
         })
     }
-    fn max_datagram_size(&self) -> Option<usize> {
-        None
-    }
-    async fn send_datagram(&mut self, _: &[u8]) -> Result<(), CloseReason> {
-        Err(CloseReason::Protocol)
-    }
-    async fn recv_datagram(&mut self) -> Result<Option<Vec<u8>>, CloseReason> {
-        Ok(None)
-    }
     fn close(&mut self, _: CloseReason) {
         self.0.closes.set(self.0.closes.get() + 1);
     }

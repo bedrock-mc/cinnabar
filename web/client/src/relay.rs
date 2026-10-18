@@ -25,6 +25,43 @@ const SIGN_OUT_RETRY_DELAY: Duration =
 
 use crate::play;
 
+/// Keeps play admission and reconnect policy in the same sign-out transition.
+#[derive(Clone, Copy)]
+enum Admission {
+    Open,
+    SigningOut {
+        deadline: Duration,
+        retry_at: Option<Duration>,
+    },
+    Halted,
+}
+
+impl Admission {
+    /// Returns the bounded sign-out exchange while new play sessions are blocked.
+    fn sign_out(self) -> Option<(Duration, Option<Duration>)> {
+        match self {
+            Self::SigningOut { deadline, retry_at } => Some((deadline, retry_at)),
+            _ => None,
+        }
+    }
+
+    /// Ends a pending exchange while keeping automatic reconnects halted.
+    fn finish_sign_out(self) -> Self {
+        match self {
+            Self::SigningOut { .. } => Self::Halted,
+            _ => self,
+        }
+    }
+
+    /// Resumes reconnects without interrupting a pending sign-out exchange.
+    fn reconnect(self) -> Self {
+        match self {
+            Self::Halted => Self::Open,
+            _ => self,
+        }
+    }
+}
+
 /// Explicit UI intent; restoring a page retains its account capability.
 #[derive(Clone, Copy, Default)]
 pub(crate) enum Refresh {
@@ -102,11 +139,9 @@ pub(crate) async fn run<H: Host>(
 ) {
     let mut session = Session::new();
     let mut cancelled = cancelled.fuse();
-    let mut halted = false;
+    let admission = Cell::new(Admission::Open);
     let mut requested: Option<play::Request<<H::Transport as RelayTransport>::Stream>> = None;
     let mut playing: Option<play::Active> = None;
-    let sign_out_deadline = Cell::new(None::<Duration>);
-    let mut sign_out_retry_at = None;
     let mut generation = 0;
     loop {
         intent.ready.set(
@@ -114,7 +149,7 @@ pub(crate) async fn run<H: Host>(
                 && requested.is_none()
                 && playing.is_none()
                 && !paused.get()
-                && sign_out_deadline.get().is_none()
+                && admission.get().sign_out().is_none()
                 && generation == intent.generation.get(),
         );
         let ready = matches!(session.state(), State::Ready(_) | State::Playing(_));
@@ -122,7 +157,9 @@ pub(crate) async fn run<H: Host>(
         let opening = requested.is_some();
         let parked = paused.get()
             || (!ready
-                && ((halted && !session.has_account_intent()) || session.next_retry().is_err()));
+                && ((!matches!(admission.get(), Admission::Open)
+                    && !session.has_account_intent())
+                    || session.next_retry().is_err()));
         enum Action<S> {
             Dispose,
             Lifecycle,
@@ -183,9 +220,8 @@ pub(crate) async fn run<H: Host>(
                 }
                 if ready {
                     let event = session.next_event(|| host.now());
-                    let event = if let Some(deadline) = sign_out_deadline.get() {
-                        let wake = sign_out_retry_at
-                            .map_or(deadline, |retry: Duration| retry.min(deadline));
+                    let event = if let Some((deadline, retry_at)) = admission.get().sign_out() {
+                        let wake = retry_at.map_or(deadline, |retry| retry.min(deadline));
                         match bridge::tasks::until(
                             event,
                             host.sleep(wake.saturating_sub(host.now())),
@@ -194,7 +230,10 @@ pub(crate) async fn run<H: Host>(
                         {
                             Ok(event) => event?,
                             Err(_) if host.now() < deadline => {
-                                sign_out_retry_at = None;
+                                admission.set(Admission::SigningOut {
+                                    deadline,
+                                    retry_at: None,
+                                });
                                 session.desire_account(AccountOperation::SignOut);
                                 return Ok(());
                             }
@@ -203,7 +242,7 @@ pub(crate) async fn run<H: Host>(
                     } else {
                         event.await?
                     };
-                    if sign_out_deadline.get().is_some()
+                    if let Some((deadline, _)) = admission.get().sign_out()
                         && matches!(
                             event,
                             ControlEvent::RequestRefused(RequestRefusal::Refused(
@@ -211,7 +250,10 @@ pub(crate) async fn run<H: Host>(
                             ))
                         )
                     {
-                        sign_out_retry_at = Some(host.now().saturating_add(SIGN_OUT_RETRY_DELAY));
+                        admission.set(Admission::SigningOut {
+                            deadline,
+                            retry_at: Some(host.now().saturating_add(SIGN_OUT_RETRY_DELAY)),
+                        });
                         return Ok(());
                     }
                     host.account().borrow_mut().observe(&event);
@@ -222,8 +264,7 @@ pub(crate) async fn run<H: Host>(
                                 bridge::contract::AuthState::SignedOut
                                     | bridge::contract::AuthState::Failed
                             ) {
-                                sign_out_deadline.set(None);
-                                sign_out_retry_at = None;
+                                admission.set(admission.get().finish_sign_out());
                             }
                             host.observe(
                                 serde_json::json!({"state": account.state, "account": account}),
@@ -287,7 +328,7 @@ pub(crate) async fn run<H: Host>(
                         if writing || opening { std::future::pending().await } else { joins.next().await }
                     }.fuse() => Action::Join(request),
                     _ = async {
-                        if writing || sign_out_deadline.get().is_some() { return std::future::pending().await; }
+                        if writing || admission.get().sign_out().is_some() { return std::future::pending().await; }
                         match playing.as_mut() {
                             Some(active) => { let _ = (&mut active.finished).await; }
                             None => std::future::pending().await,
@@ -312,7 +353,7 @@ pub(crate) async fn run<H: Host>(
                     {
                         while changed.try_recv().is_ok() {}
                         intent.refresh.set(Refresh::None);
-                        halted = false;
+                        admission.set(admission.get().reconnect());
                     }
                     _ => break action,
                 }
@@ -325,7 +366,11 @@ pub(crate) async fn run<H: Host>(
             Action::Dispose | Action::Account(None) => break,
             Action::Join(None) => break,
             Action::Join(Some(request)) => {
-                if matches!(session.state(), State::Ready(_)) && playing.is_none() {
+                if matches!(session.state(), State::Ready(_))
+                    && playing.is_none()
+                    && admission.get().sign_out().is_none()
+                {
+                    admission.set(Admission::Open);
                     requested = Some(request);
                 } else {
                     let _ = request.reply.send(Err(CloseReason::Protocol));
@@ -339,20 +384,19 @@ pub(crate) async fn run<H: Host>(
                 while changed.try_recv().is_ok() {}
                 session.close(CloseReason::Transport);
                 playing = None;
-                sign_out_deadline.set(None);
-                sign_out_retry_at = None;
+                admission.set(admission.get().finish_sign_out());
                 let refresh = intent.refresh.replace(Refresh::None);
                 if generation != intent.generation.get() {
                     generation = intent.generation.get();
                     session.fresh_session();
                     host.account().borrow_mut().fresh_session();
-                    halted = false;
+                    admission.set(Admission::Open);
                 } else {
                     host.account().borrow_mut().disconnected();
                     match refresh {
                         Refresh::Reconnect => {
                             session.restart_retries();
-                            halted = false;
+                            admission.set(admission.get().reconnect());
                         }
                         Refresh::None | Refresh::Fresh => {}
                     }
@@ -364,8 +408,7 @@ pub(crate) async fn run<H: Host>(
             Action::Step(Err(reason)) => {
                 session.close(reason);
                 playing = None;
-                sign_out_deadline.set(None);
-                sign_out_retry_at = None;
+                admission.set(admission.get().finish_sign_out());
                 host.account().borrow_mut().disconnected();
                 if let Some(code) = session.refusal() {
                     host.observe(serde_json::json!({"state": "refused", "code": code, "error": connection_refusal_message(code)}));
@@ -382,11 +425,24 @@ pub(crate) async fn run<H: Host>(
                 .filter(|command| command.generation == generation)
                 .last();
             if let Some(command) = latest {
-                halted = command.operation == AccountOperation::SignOut;
-                sign_out_deadline.set(halted.then(|| host.now().saturating_add(CONTROL_DEADLINE)));
-                sign_out_retry_at = None;
-                if halted && let Some(active) = playing.as_mut() {
-                    active.cancel.take();
+                match command.operation {
+                    AccountOperation::SignOut => {
+                        admission.set(Admission::SigningOut {
+                            deadline: host.now().saturating_add(CONTROL_DEADLINE),
+                            retry_at: None,
+                        });
+                        for request in requested
+                            .take()
+                            .into_iter()
+                            .chain(std::iter::from_fn(|| joins.try_recv().ok()))
+                        {
+                            let _ = request.reply.send(Err(CloseReason::Protocol));
+                        }
+                        if let Some(active) = playing.as_mut() {
+                            active.cancel.take();
+                        }
+                    }
+                    AccountOperation::SignIn => admission.set(Admission::Open),
                 }
                 session.desire_account(command.operation);
                 host.account()

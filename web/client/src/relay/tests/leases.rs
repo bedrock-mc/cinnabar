@@ -401,6 +401,63 @@ fn busy_sign_out_waits_for_the_control_request_refill() {
 }
 
 #[test]
+fn sign_out_rejects_queued_and_new_joins_until_confirmation() {
+    let intent = Rc::new(Intent::default());
+    let host = Rc::new(Observations::default());
+    host.live.set(true);
+    let (mut commands, pending) = mpsc::channel(4);
+    let (mut joins, join_requests) = mpsc::channel(1);
+    let (_lifecycle, changed) = mpsc::channel(1);
+    let (_cancel, cancelled) = oneshot::channel();
+    let mut task = Box::pin(run(
+        FakeHost(Rc::clone(&host)),
+        pending,
+        join_requests,
+        changed,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&intent),
+        cancelled,
+    ));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    commands
+        .try_send(intent.account(AccountOperation::SignOut))
+        .unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(matches!(
+        response.now_or_never(),
+        Some(Ok(Err(CloseReason::Protocol)))
+    ));
+    assert!(!intent.ready.get());
+    for busy in [false, true] {
+        if busy {
+            deliver(&host, json!({"type":"error", "error":"session_busy"}));
+            assert!(task.as_mut().poll(&mut cx).is_pending());
+        }
+        let (reply, response) = oneshot::channel();
+        joins.try_send(play::Request { reply }).unwrap();
+        assert!(task.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(
+            response.now_or_never(),
+            Some(Ok(Err(CloseReason::Protocol)))
+        ));
+        assert_eq!(host.opens.get(), 1, "sign-out must not start gameplay");
+    }
+    deliver(
+        &host,
+        json!({"type":"account", "account":{"state":"signed_out"}}),
+    );
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(intent.ready.get());
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(matches!(response.now_or_never(), Some(Ok(Ok(_)))));
+}
+
+#[test]
 fn browser_sign_out_confirmation_restores_offline_play_readiness() {
     let intent = Rc::new(Intent::default());
     let host = Rc::new(Observations::default());
@@ -437,5 +494,23 @@ fn browser_sign_out_confirmation_restores_offline_play_readiness() {
     let (reply, response) = oneshot::channel();
     joins.try_send(play::Request { reply }).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_pending());
+    let lease = response.now_or_never().unwrap().unwrap().unwrap();
+    let first_play = requests(&host).last().unwrap().clone();
+    drop(lease);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    host.now.set(Duration::from_millis(1250));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        intent.ready.get(),
+        "offline play must reconnect after ending"
+    );
+    let (reply, response) = oneshot::channel();
+    joins.try_send(play::Request { reply }).unwrap();
+    assert!(task.as_mut().poll(&mut cx).is_pending());
     assert!(matches!(response.now_or_never(), Some(Ok(Ok(_)))));
+    assert_ne!(
+        requests(&host).last().unwrap()["generation"],
+        first_play["generation"],
+        "the next join needs a fresh control generation"
+    );
 }

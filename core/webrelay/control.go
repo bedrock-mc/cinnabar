@@ -255,7 +255,7 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 	defer session.endPlay()
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
-	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, playMessageLimit)}
+	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, bridgecontract.RelayUploadBurstBytes)}
 	// Provider and server errors can contain private addresses; control receives only refusal codes.
 	_ = handler.ServeConn(ctx, limited)
 }

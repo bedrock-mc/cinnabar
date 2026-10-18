@@ -13,6 +13,9 @@ use launcher::install_layout::InstallLayout;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod catalog;
 
+/// Session-only fallback entries retain the identity supplied by the browser host.
+const SESSION_SKIN_ID_PREFIX: &str = "session:";
+
 /// The local player's client-authored skin and stable local uuid. Cheap to clone (Arc-backed):
 /// `local_uuid` keys the synthetic self profile the client-world stream inserts when the server
 /// never echoes the local player onto the player list.
@@ -191,6 +194,12 @@ impl LocalPlayerSkin {
 /// Maps catalog selection to its pack identity using the persisted image name for imports.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn selected_skin_id(selected: &launcher::dressing_room::DressingRoomSkin) -> String {
+    if !selected.imported
+        && selected.path.is_empty()
+        && let Some(id) = selected.id.strip_prefix(SESSION_SKIN_ID_PREFIX)
+    {
+        return id.to_owned();
+    }
     if let Some(name) = selected.id.strip_prefix("vanilla:") {
         return protocol::builtin_skin_id(name);
     }

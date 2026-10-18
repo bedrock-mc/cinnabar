@@ -15,7 +15,10 @@
     {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."},
     {"rust_name": "RELAY_VERSION", "go_name": "RelayVersion", "value": 2, "rust_type": "u32", "doc": "Browser relay protocol version."},
     {"rust_name": "RELAY_CONTROL_BYTES", "go_name": "RelayControlBytes", "value": 4096, "rust_type": "usize", "doc": "Largest relay Hello or control JSON payload in bytes."},
-    {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message and upload burst in bytes."},
+    {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message in bytes."},
+    {"rust_name": "QUEUED_FRAMES", "go_name": "QueuedFrames", "value": 16, "rust_type": "usize", "doc": "Maximum queued reliable frames or browser receive chunks."},
+    {"rust_name": "RELAY_QUEUED_FRAME_BYTES", "go_name": "RelayQueuedFrameBytes", "value": 8388608, "rust_type": "usize", "doc": "Ordinary browser frame queue budget; a larger bridge frame is admitted alone."},
+    {"rust_name": "RELAY_UPLOAD_BURST_BYTES", "go_name": "RelayUploadBurstBytes", "value": 8388608, "rust_type": "usize", "doc": "Upload rate limiter burst, independent of message and queue limits."},
     {"rust_name": "RELAY_KEEPALIVE_SECONDS", "go_name": "RelayKeepAliveSeconds", "value": 30, "rust_type": "u32", "doc": "Interval between control keepalives."},
     {"rust_name": "RELAY_CONTROL_REFILL_MILLIS", "go_name": "RelayControlRefillMillis", "value": 1000, "rust_type": "u32", "doc": "Time to replenish one relay control request; busy sign-out retries wait at least this long."},
     {"rust_name": "RELAY_TRANSPORT_PATH", "go_name": "RelayTransportPath", "value": "/v2/transport", "rust_type": "str", "doc": "WebTransport Extended CONNECT route."},
@@ -533,7 +536,9 @@
       {"type": "error", "error": "admission_refused"},
       {"type": "error", "error": "session_busy"},
       {"type": "error", "error": "refused"},
-      {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120}
+      {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
+      {"type": "account", "account": {"state": "signed_out"}},
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}}
     ]
   }
 }
