@@ -1,6 +1,7 @@
 //! Admitted gameplay consumption shared by retained response and rollback history.
 
 use super::cells::{Cell, Held};
+use super::overlay::DeltaGroup;
 use super::queue::RollbackAuthority;
 use super::{InventoryPendingState, PendingRequest, PlayerInventoryLedger};
 
@@ -71,7 +72,15 @@ impl PendingRequest {
                             })
                             .all(|group| group.retains_item_at(prediction.cell)))
             })
-            .map(|prediction| prediction.cell)
+            .map(|prediction| {
+                prediction
+                    .before
+                    .as_ref()
+                    .filter(|_| prediction.held.is_none())
+                    .map_or(prediction.cell, |before| {
+                        self.transferred_consumption_cell(prediction.cell, before.stack.count)
+                    })
+            })
             .collect();
         if let Some(mining) = &self.mining
             && mining.retains_source_item(source)
@@ -111,6 +120,26 @@ impl PendingRequest {
                 consume_snapshot(&mut prediction.held, source, rename, name);
             }
         }
+    }
+
+    /// Finds the transfer containing the last unconsumed item of an emptied source.
+    fn transferred_consumption_cell(&self, cell: Cell, mut remaining: u16) -> Cell {
+        for group in &self.groups {
+            if let DeltaGroup::Transfer {
+                source,
+                destination,
+                amount,
+                ..
+            } = group
+                && *source == cell
+            {
+                if remaining <= *amount {
+                    return *destination;
+                }
+                remaining -= amount;
+            }
+        }
+        cell
     }
 }
 
