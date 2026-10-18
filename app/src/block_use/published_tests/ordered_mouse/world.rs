@@ -71,7 +71,8 @@ fn held_count(world: &World) -> u16 {
     world
         .resource::<BlockUseRuntime>()
         .inventory
-        .selection(&selection, revision)
+        .predicted_selection(&selection, revision)
+        .unwrap_or(selection)
         .item
         .count()
 }
