@@ -4,7 +4,7 @@
 
 The local rig retains animation flags separately from gameplay metadata. Visual
 item use and locomotion poses no longer author correction-sync flag words.
-Rendering consumers retain the same visual state. Accepted local held-use and
+Rendering consumers read the separate animation state. Accepted local held-use and
 glide/swim/crawl projection, replay authority and send-phase parity remain open.
 
 ## Correction-sync posture retries
