@@ -45,6 +45,7 @@ fn install(app: &mut App) {
         return;
     };
     if render_app.world().contains_resource::<Installed>() {
+        crate::actor_render::masks::install_graph(app.sub_app_mut(RenderApp).world_mut());
         passes::install_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }

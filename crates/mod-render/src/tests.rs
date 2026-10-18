@@ -91,6 +91,7 @@ fn pass(name: &str, order: i32, revision: u64) -> Pass {
 
 fn output(passes: Vec<Pass>, decals: usize) -> RenderOutput {
     RenderOutput {
+        masks: Default::default(),
         passes,
         primitives: Arc::new(Primitives {
             decals: vec![decal(); decals],

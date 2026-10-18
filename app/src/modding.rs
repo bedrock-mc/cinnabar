@@ -370,10 +370,24 @@ fn begin_mod_frame(
     gameplay: gameplay::GameplayContext,
     ui: Res<UiRuntimeResource>,
     mut drawing_frame: ResMut<render_scene::mod_scene::retained::DrawingFrame>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
         drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
+        let needs_targets = (0..extension.hosts.host_count())
+            .any(|index| extension.hosts.host(index).grants().entity_highlight);
+        let targets = actors
+            .as_deref()
+            .filter(|_| needs_targets)
+            .map(render_scene::mod_scene::mask_targets)
+            .unwrap_or_default();
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .publish_mask_targets(&targets);
+        }
         extension.hosts.begin_frame();
     }
 }

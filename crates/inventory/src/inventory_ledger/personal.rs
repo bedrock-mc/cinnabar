@@ -24,6 +24,12 @@ impl PlayerInventoryLedger {
         self.controls.personal.desired_open
     }
 
+    /// Whether the current storage-screen intent still wants its interface visible.
+    #[must_use]
+    pub const fn storage_inventory_desired_open(&self) -> bool {
+        self.controls.storage.desired_open
+    }
+
     /// Admits personal gestures only while the latest intent still wants this screen open.
     pub(super) fn personal_generation_for_gesture(&self) -> Option<u64> {
         if !self.controls.personal.desired_open {

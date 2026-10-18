@@ -53,14 +53,14 @@ fn read_name<'a>(cursor: &mut &'a [u8]) -> Option<&'a [u8]> {
 }
 
 /// Borrows one payload using the existing bounded item NBT walker.
-fn take_payload<'a>(cursor: &mut &'a [u8], tag: u8, depth: u8) -> Option<&'a [u8]> {
+fn take_payload<'a>(cursor: &mut &'a [u8], tag: u8, depth: u32) -> Option<&'a [u8]> {
     let start = *cursor;
     skip_le_payload(cursor, tag, depth)?;
     start.get(..start.len() - cursor.len())
 }
 
 /// Reads unique compound entries in name order without copying payload bytes.
-fn entries(mut cursor: &[u8], depth: u8) -> Option<Vec<CompoundEntry<'_>>> {
+fn entries(mut cursor: &[u8], depth: u32) -> Option<Vec<CompoundEntry<'_>>> {
     let mut fields = Vec::new();
     loop {
         let tag = read_u8(&mut cursor)?;
@@ -82,7 +82,7 @@ fn entries(mut cursor: &[u8], depth: u8) -> Option<Vec<CompoundEntry<'_>>> {
 }
 
 /// Compares matching tag types, keeping list order and numeric float equality.
-fn same_payload(tag: u8, a: &[u8], b: &[u8], depth: u8) -> Option<bool> {
+fn same_payload(tag: u8, a: &[u8], b: &[u8], depth: u32) -> Option<bool> {
     if depth > super::MAX_ITEM_NBT_WALK_DEPTH {
         return None;
     }

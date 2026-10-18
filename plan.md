@@ -2077,6 +2077,33 @@ not close a parity or visual acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Inventory authority and cursor cleanup
+
+- Ordinary container updates use the open window ID and its manager indices. UI-window
+  updates use raw UI slots, and registered containers use their full key and relative
+  indices. Invalid normal transactions publish no valid sibling updates.
+- Full player snapshots retire removed slots. Accepted request corrections use their owned
+  snapshots, skip unrelated containers, and retain corrected names and damage in item data.
+  Supported typed item data compares independently of compound and restriction-list order.
+- Closing a screen returns its active temporary inputs and cursor, drops what does not fit,
+  and keeps unrelated inactive inputs from blocking world interaction. Named stacks can
+  merge and drag; a drag clamps contributions after an authoritative decrease.
+- A normal close acknowledgement retires that screen's unanswered requests without
+  committing their predictions. HUD mining requests retain their separate ownership,
+  and HUD/crafting observers follow the admitted packet and backing state.
+  Enchant selection leaves item mutation unpredicted until its complete result pipeline
+  is implemented; it does not keep an unchanged input as a predicted result.
+- Manual crafting can fill a compatible occupied destination and selects fitting work
+  within a bounded result scope. Placement checks are shared by gesture builders.
+- Server UI result previews remain admitted for existing screen consumers. Moving their
+  ownership to locally generated station previews is incomplete and must preserve result
+  display and taking together.
+- Incomplete: full crafting batches and remainders, enchanting prediction and availability,
+  creative secondary actions, mode-dependent removal, all station membership rules,
+  complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
+  pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
+  parity gate.
+
 ## Item stack sizes
 
 - DataDriven entries use component stack sizes even for known item names. They use
@@ -10147,7 +10174,8 @@ timeout, or a changed target. An open settles the pending input without retainin
 history or sending a rejection close. Personal opens supersede storage; storage opens
 keep the active personal screen guard.
 Open timeouts release local admission without closing a guessed window ID.
-Item requests and admitted user closes retain their window generations for settlement.
+Item requests owned by a screen retire when it is destroyed.
+Admitted user closes retain their generation so late replies cannot close a replacement.
 Full mount container, vehicle input and platform-specific inventory-opening guards
 remain incomplete.
 ## Selected view radius during startup
@@ -10253,11 +10281,21 @@ unfiltered world observations. The retained drawing ABI is versioned separately.
 shared instances and callback groups are admitted transactionally with per-owner quotas.
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained indexed meshes, polylines,
 shared instances and callback groups are admitted transactionally with per-owner quotas.
+unfiltered world observations. The retained drawing ABI is versioned separately. Retained
+indexed meshes, polylines, shared instances and callback groups are admitted transactionally
+with per-owner quotas.
 Geometry admission caches conservative position bounds, so shared-instance validation does
 not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
 and snapshot identity determine retained publication.
 Renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
+
+Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
+vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
+material coverage. Depth-tested coverage is filtered before post effects; always-visible
+coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
+observation and through-wall consent until a visibility-filtered target source exists.
+Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
 
 The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
 polylines, distance-based color gradients, grids and chunk borders directly in the

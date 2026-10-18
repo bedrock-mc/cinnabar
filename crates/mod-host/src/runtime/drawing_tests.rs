@@ -1,10 +1,11 @@
 use super::*;
 use cinnabar::world_draw::drawing::{self as wit, Host as _};
+use cinnabar::world_draw::masks;
 
 /// Creates a guest whose callbacks let the test exercise the host transaction boundary.
 fn instance() -> Instance {
     let (engine, _ticker) = crate::execution::engine().unwrap();
-    Instance::new(
+    let mut instance = Instance::new(
         &engine,
         br#"(component
             (core module $m (func (export "init")) (func (export "frame")))
@@ -19,7 +20,100 @@ fn instance() -> Instance {
         Declared::default(),
         None,
     )
-    .unwrap()
+    .unwrap();
+    instance
+        .store
+        .data_mut()
+        .render
+        .masks
+        .bind(mod_api::drawing::DrawingSession {
+            connection: 1,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+            ..Default::default()
+        });
+    instance
+}
+
+#[test]
+fn event_masks_and_geometry_publish_together() {
+    let mut instance = instance();
+    let mut masks = Vec::new();
+    for fuel in [CALLBACK_FUEL, FRAME_FUEL] {
+        if fuel == FRAME_FUEL {
+            instance.begin_frame();
+        }
+        let before = instance.render().1;
+        instance
+            .run(
+                fuel,
+                if fuel == FRAME_FUEL {
+                    commit
+                } else {
+                    commit_event
+                },
+                |_, store| {
+                    let state = store.data_mut();
+                    state.create_geometry(mesh(3))?.unwrap();
+                    masks.push(masks::Host::create(state, masks::DepthPolicy::Test)?.unwrap());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(instance.render().0.masks.len(), masks.len());
+        assert_eq!(instance.render().0.retained[0].geometry.len(), masks.len());
+        assert_ne!(instance.render().1, before);
+    }
+    let before = instance.render().1;
+    let resources = Arc::clone(&instance.render().0.retained[0]);
+    let selections = Arc::clone(&instance.render().0.masks);
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, _| Ok(()))
+        .unwrap();
+    assert_eq!(instance.render().1, before);
+    assert!(Arc::ptr_eq(&resources, &instance.render().0.retained[0]));
+    assert!(Arc::ptr_eq(&selections, &instance.render().0.masks));
+
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, store| {
+            for mask in masks {
+                masks::Host::remove(store.data_mut(), mask)?.unwrap();
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert!(instance.render().0.masks.is_empty());
+    assert!(Arc::ptr_eq(&resources, &instance.render().0.retained[0]));
+    assert_ne!(instance.render().1, before);
+}
+
+#[test]
+fn mask_and_geometry_import_budgets_reset_for_each_event() {
+    let mut instance = instance();
+    for fuel in [CALLBACK_FUEL, LOAD_FUEL, FRAME_FUEL] {
+        if fuel == FRAME_FUEL {
+            instance.begin_frame();
+        }
+        instance
+            .run(
+                fuel,
+                if fuel == FRAME_FUEL {
+                    commit
+                } else {
+                    commit_event
+                },
+                |_, store| {
+                    let state = store.data_mut();
+                    for _ in 0..mod_api::drawing::MAX_MASK_CALLS {
+                        assert!(masks::Host::entity(state, 1)?.is_err());
+                    }
+                    for _ in 0..mod_api::MAX_RENDER_CALLS {
+                        state.capabilities()?;
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 }
 
 /// Creates bounded mesh input with enough vertices to test callback mutation accounting.
@@ -149,20 +243,24 @@ fn event_geometry_preserves_the_frames_legacy_primitives() {
 }
 
 #[test]
-fn a_trapped_event_revokes_committed_and_staged_geometry() {
+fn a_trapped_event_revokes_committed_and_staged_geometry_and_masks() {
     let mut instance = instance();
     instance
         .run(CALLBACK_FUEL, commit_event, |_, store| {
             store.data_mut().create_geometry(mesh(3))?.unwrap();
+            masks::Host::create(store.data_mut(), masks::DepthPolicy::Test)?.unwrap();
             Ok(())
         })
         .unwrap();
     assert_eq!(instance.render().0.retained[0].geometry.len(), 1);
+    assert_eq!(instance.render().0.masks.len(), 1);
     let result = instance.run(CALLBACK_FUEL, commit_event, |_, store| {
         store.data_mut().create_geometry(mesh(3))?.unwrap();
+        masks::Host::create(store.data_mut(), masks::DepthPolicy::Always)?.unwrap();
         bail!("guest trap after staging geometry")
     });
     assert!(result.is_err());
     assert!(!instance.is_active());
     assert!(instance.render().0.retained.is_empty());
+    assert!(instance.render().0.masks.is_empty());
 }
