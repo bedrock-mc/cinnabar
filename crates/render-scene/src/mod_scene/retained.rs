@@ -114,7 +114,7 @@ pub fn visible(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mod_render::retained::*;
+    use mod_render::retained::{Blend, Depth, Transform};
     /// Supplies a bounded identity drawing for anchor-resolution probes.
     fn instance(anchor: Anchor) -> Instance {
         Instance {
