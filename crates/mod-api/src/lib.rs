@@ -223,3 +223,17 @@ pub const MAX_DRAW_VERTEX_WORK: usize = MAX_DRAW_EXPANDED_VERTICES * 4;
 
 /// Largest linear RGBA component admitted by retained unlit drawing.
 pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;
+
+/// Procedural drawing presets and the fixed material parameter contract.
+pub mod materials;
+/// Retained custom materials per owner, including renderer-retiring resources.
+pub const MAX_DRAW_MATERIALS: usize = 8;
+/// Custom material validation attempts per callback, including rejected sources.
+pub const MAX_MATERIAL_COMPILES_PER_CALLBACK: u32 = 1;
+/// New native material pipeline compilations across all mods in one render frame.
+pub const MAX_MATERIAL_PIPELINE_COMPILES_PER_FRAME: usize = 1;
+/// Material admission uses the same source and expression ceilings as post effects.
+pub const MAX_MATERIAL_SHADER_BYTES: usize = MAX_SHADER_BYTES;
+pub const MAX_MATERIAL_SHADER_EXPRESSIONS: u32 = MAX_SHADER_EXPRESSIONS;
+/// Largest linear emission component delivered to the world HDR pipeline.
+pub const MAX_MATERIAL_EMISSION: f32 = 16.0;

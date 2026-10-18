@@ -1,12 +1,13 @@
-use super::{SHADER, gpu::Gpu};
+use super::{
+    SHADER,
+    gpu::{CameraFrame, Gpu},
+    materials::Materials,
+};
 use bevy::{
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{
-            SystemParamItem,
-            lifetimeless::{Read, SRes},
-        },
+        system::{SystemParamItem, lifetimeless::SRes},
     },
     prelude::*,
     render::{
@@ -15,7 +16,6 @@ use bevy::{
         },
         render_resource::*,
         renderer::RenderDevice,
-        view::{ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 use mod_render::retained::mesh::GpuVertex;
@@ -49,7 +49,7 @@ impl FromWorld for Pipeline {
             },
             fragment: Some(FragmentState {
                 shader: SHADER,
-                entry_point: Some("fragment".into()),
+                entry_point: Some("material_fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
@@ -79,11 +79,11 @@ pub(super) fn layout() -> BindGroupLayoutDescriptor {
         &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(ViewUniform::min_size()),
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<CameraFrame>() as u64),
                 },
                 count: None,
             },
@@ -119,30 +119,48 @@ impl Specializer<RenderPipeline> for Specialization {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
-        descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(if key.always {
+        descriptor.depth_stencil = Some(depth(key));
+        descriptor.fragment.as_mut().unwrap().targets = vec![Some(target(key))];
+        Ok(key)
+    }
+}
+
+/// Applies the same host-owned depth state to shared and procedural pipelines.
+pub(super) fn depth(key: Key) -> DepthStencilState {
+    DepthStencilState {
+        format: CORE_3D_DEPTH_FORMAT,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(if key.always {
             CompareFunction::Always
         } else {
             CompareFunction::GreaterEqual
-        });
-        let target = descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap();
-        target.format = if key.hdr {
+        }),
+        stencil: default(),
+        bias: default(),
+    }
+}
+
+/// Shares HDR format and premultiplied/additive blend semantics across material tiers.
+pub(super) fn target(key: Key) -> ColorTargetState {
+    ColorTargetState {
+        format: if key.hdr {
             render_scene::SCENE_HDR_FORMAT
         } else {
             render_scene::SCENE_COLOR_FORMAT
-        };
-        if key.additive {
-            target.blend = Some(BlendState {
+        },
+        blend: Some(if key.additive {
+            BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::One,
                     dst_factor: BlendFactor::One,
                     operation: BlendOperation::Add,
                 },
                 alpha: BlendComponent::OVER,
-            });
-        }
-        Ok(key)
+            }
+        } else {
+            BlendState::PREMULTIPLIED_ALPHA_BLENDING
+        }),
+        write_mask: ColorWrites::ALL,
     }
 }
 
@@ -151,22 +169,10 @@ pub(super) fn bindings(
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
     pipeline: Res<Pipeline>,
-    uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<Gpu>,
 ) {
     let Gpu { meshes, views, .. } = &mut *gpu;
-    let Some(binding) = uniforms.uniforms.binding() else {
-        for view in views.values_mut() {
-            view.bindings.clear();
-        }
-        return;
-    };
-    let buffer_id = uniforms.uniforms.buffer().map(|buffer| buffer.id());
     for view in views.values_mut() {
-        if view.view_buffer != buffer_id {
-            view.bindings.clear();
-            view.view_buffer = buffer_id;
-        }
         view.bindings
             .retain(|handle, _| meshes.contains_key(handle));
         for batch in &view.batches {
@@ -180,7 +186,7 @@ pub(super) fn bindings(
                     &[
                         BindGroupEntry {
                             binding: 0,
-                            resource: binding.clone(),
+                            resource: view.frame.as_entire_binding(),
                         },
                         BindGroupEntry {
                             binding: 1,
@@ -203,18 +209,20 @@ pub(super) type Draw = crate::gpu_timing::GpuDrawSpan<
 >;
 pub(super) struct DrawBatch;
 impl RenderCommand<Transparent3d> for DrawBatch {
-    type Param = SRes<Gpu>;
-    type ViewQuery = Read<ViewUniformOffset>;
+    type Param = (SRes<Gpu>, SRes<Materials>);
+    type ViewQuery = ();
     type ItemQuery = ();
     /// Draws one compatible consecutive group from shared immutable geometry.
     fn render<'w>(
         item: &Transparent3d,
-        offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _: ROQueryItem<'w, '_, Self::ViewQuery>,
         _: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let (gpu, materials) = gpu;
         let gpu = gpu.into_inner();
+        let materials = materials.into_inner();
         let Some(view) = gpu.views.get(&item.entity()) else {
             return RenderCommandResult::Skip;
         };
@@ -227,7 +235,13 @@ impl RenderCommand<Transparent3d> for DrawBatch {
         ) else {
             return RenderCommandResult::Skip;
         };
-        pass.set_bind_group(0, binding, &[offset.offset]);
+        if let Some(handle) = batch.material {
+            let Some(pipeline) = materials.ready(handle, batch.key) else {
+                return RenderCommandResult::Skip;
+            };
+            pass.set_render_pipeline(pipeline);
+        }
+        pass.set_bind_group(0, binding, &[]);
         pass.draw(0..mesh.count, batch.instances.clone());
         RenderCommandResult::Success
     }

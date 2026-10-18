@@ -2,10 +2,7 @@ use super::*;
 use bevy::{
     core_pipeline::core_3d::Transparent3d,
     ecs::system::SystemState,
-    render::{
-        render_phase::{RenderCommand, RenderCommandResult, TrackedRenderPass},
-        view::ViewUniformOffset,
-    },
+    render::render_phase::{RenderCommand, RenderCommandResult, TrackedRenderPass},
 };
 
 #[test]
@@ -18,6 +15,8 @@ fn retained_draws_record_mod_gpu_timing() {
         .insert_resource(queue.clone())
         .init_resource::<gpu::Gpu>()
         .init_resource::<pipeline::Pipeline>()
+        .init_resource::<materials::Materials>()
+        .init_resource::<clock::AnimationClock>()
         .insert_resource(DrawingFrame {
             connection: 1,
             ..default()
@@ -54,7 +53,10 @@ fn retained_draws_record_mod_gpu_timing() {
         .retained = vec![store.snapshot().clone()];
     app.world_mut().run_system_once(gpu::queue).unwrap();
 
-    let source = crate::shader_source::standalone(include_str!("drawing.wesl"), &[]);
+    let source = materials::source(
+        &mod_render::material::module(mod_render::material::BUILTIN),
+        include_str!("drawing.wgsl"),
+    );
     let mut cache = app.world_mut().resource_mut::<PipelineCache>();
     cache.set_shader(
         SHADER.id(),
@@ -76,48 +78,10 @@ fn retained_draws_record_mod_gpu_timing() {
         );
     }
 
-    let uniform = device.create_buffer(&BufferDescriptor {
-        label: Some("retained timing view"),
-        size: bevy::render::view::ViewUniform::min_size().get(),
-        usage: BufferUsages::UNIFORM,
-        mapped_at_creation: false,
-    });
-    let layout = app
-        .world()
-        .resource::<PipelineCache>()
-        .get_bind_group_layout(&pipeline::layout());
-    app.world_mut().resource_scope(|_, mut gpu: Mut<gpu::Gpu>| {
-        let gpu::Gpu { meshes, views, .. } = &mut *gpu;
-        for prepared in views.values_mut() {
-            for batch in &prepared.batches {
-                prepared.bindings.insert(
-                    batch.geometry,
-                    device.create_bind_group(
-                        "retained timing bindings",
-                        &layout,
-                        &[
-                            BindGroupEntry {
-                                binding: 0,
-                                resource: uniform.as_entire_binding(),
-                            },
-                            BindGroupEntry {
-                                binding: 1,
-                                resource: meshes[&batch.geometry].buffer.as_entire_binding(),
-                            },
-                            BindGroupEntry {
-                                binding: 2,
-                                resource: prepared.buffer.as_entire_binding(),
-                            },
-                        ],
-                    ),
-                );
-            }
-        }
-    });
+    app.world_mut().run_system_once(pipeline::bindings).unwrap();
     let stages = crate::gpu_timing::tests::draw_stages(app.world_mut(), |world| {
         let mut state =
             SystemState::<<pipeline::Draw as RenderCommand<Transparent3d>>::Param>::new(world);
-        let offset = ViewUniformOffset { offset: 0 };
         let textures = [
             render_scene::SCENE_COLOR_FORMAT,
             bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
@@ -163,13 +127,7 @@ fn retained_draws_record_mod_gpu_timing() {
             .unwrap();
         for item in items.items.values() {
             assert!(matches!(
-                pipeline::Draw::render(
-                    item,
-                    ((), &offset),
-                    None,
-                    state.get(world).unwrap(),
-                    &mut pass
-                ),
+                pipeline::Draw::render(item, ((), ()), None, state.get(world).unwrap(), &mut pass),
                 RenderCommandResult::Success
             ));
         }

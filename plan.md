@@ -10406,11 +10406,17 @@ with per-owner quotas. The shared unlit renderer reuses meshes and updates view-
 instances. Geometry admission validates each vertex once and caches box and sphere bounds,
 payload bytes and expanded vertex counts. Instance validation uses only cached facts;
 nonuniform scales use conservative extent bounds. Callbacks without resource changes
-preserve snapshots without allocating; revisions and snapshot identity determine retained
-publication. Entity root anchors use exact owner-issued spawn references and the actor
-renderer publication. Missing roots hide, while confirmed despawns release their instances.
-Bone anchors, native output captures and hardware budgets remain incomplete; no rendering
-parity or performance gate is closed by these contracts.
+preserve snapshots without allocating; separate geometry, material and instance revisions
+and snapshot identity determine retained publication. Entity root anchors use exact
+owner-issued spawn references and the actor renderer publication. Missing roots hide,
+while confirmed despawns release their instances.
+
+Procedural materials add fixed per-instance parameters, a wrapped real-time session clock,
+SDK presets and owner-scoped fragment-only WGSL with compile and cost bounds. World
+emission participates in enabled HDR bloom; render-mode-independent halos require the
+separate mask path. Deterministic lifecycle, shader and animation capture tests cover these
+contracts. Bone anchors, in-world native output captures and hardware budgets remain
+incomplete; no rendering parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
 vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
