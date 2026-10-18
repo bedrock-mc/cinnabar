@@ -36,7 +36,7 @@ pub(super) fn source(fragment: &str, vertex: &str) -> String {
 }
 
 impl Materials {
-    /// Releases native pipelines and shader references on removal, revocation or session end.
+    /// Retires removed materials and collects finished compiles even without visible batches.
     pub fn retain(&mut self, resources: &[&Arc<Resources>]) {
         let removed: Vec<_> = self
             .entries
@@ -47,6 +47,15 @@ impl Materials {
         for handle in removed {
             if let Some(entry) = self.entries.remove(&handle) {
                 self.retired.push(entry);
+            }
+        }
+        for entry in self.entries.values_mut() {
+            for state in entry.variants.values_mut() {
+                if let State::Creating(task) = state
+                    && let Some(result) = bevy::tasks::futures::check_ready(task)
+                {
+                    *state = result.map_or(State::Failed, State::Ready);
+                }
             }
         }
     }
@@ -83,13 +92,6 @@ impl Materials {
                 State::Creating(AsyncComputeTaskPool::get().spawn(task))
             };
             slot.insert(state);
-        }
-        if let Some(State::Creating(task)) = entry.variants.get_mut(&key)
-            && let Some(result) = bevy::tasks::futures::check_ready(task)
-        {
-            entry
-                .variants
-                .insert(key, result.map_or(State::Failed, State::Ready));
         }
         matches!(entry.variants.get(&key), Some(State::Ready(_)))
     }
@@ -174,6 +176,67 @@ impl crate::pipeline_warmup::PendingPipelines for Materials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipeline_warmup::PendingPipelines as _;
+
+    #[test]
+    fn completed_hidden_variants_stop_blocking_readiness() {
+        let pool = bevy::tasks::TaskPoolBuilder::new().num_threads(0).build();
+        let material = Arc::new(Material { shader: "".into() });
+        let handle = DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        };
+        let key = Key {
+            msaa: Msaa::Off,
+            hdr: false,
+            always: false,
+            additive: false,
+        };
+        let variants = [
+            key,
+            Key {
+                always: true,
+                ..key
+            },
+        ]
+        .into_iter()
+        .map(|key| (key, State::Creating(pool.spawn_local(async { None }))))
+        .collect();
+        let mut materials = Materials::default();
+        materials.entries.insert(
+            handle,
+            Entry {
+                _material: material.clone(),
+                variants,
+            },
+        );
+        let mut resources = Resources::default();
+        resources.materials.insert(handle, material);
+        let resources = Arc::new(resources);
+        assert!(resources.instances.is_empty());
+        materials.retain(&[&resources]);
+        assert!(materials.pending());
+
+        pool.with_local_executor(|executor| assert!(executor.try_tick()));
+        materials.retain(&[&resources]);
+        assert!(materials.pending(), "one variant is still compiling");
+
+        pool.with_local_executor(|executor| assert!(executor.try_tick()));
+        materials.retain(&[&resources]);
+        assert!(materials.entries.contains_key(&handle));
+        assert!(
+            !materials.pending(),
+            "completed variants must release readiness without visible batches"
+        );
+        assert!(
+            materials.entries[&handle]
+                .variants
+                .values()
+                .all(|state| matches!(state, State::Failed))
+        );
+    }
+
     #[test]
     fn removed_materials_stay_charged_until_frame_retirement() {
         let material = Arc::new(Material { shader: "".into() });
