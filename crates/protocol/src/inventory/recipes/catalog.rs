@@ -300,6 +300,7 @@ mod tests {
                 identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: vec![Record {
+                    identity_index: None,
                     id: 17,
                     recipe: Some(Recipe {
                         width: 1,
@@ -325,7 +326,11 @@ mod tests {
 
     #[test]
     fn sorted_view_merge_keeps_omitted_ids_and_removes_interleaved_tombstones() {
-        let records = [2, 3, 6, 8].map(|id| Record { id, recipe: None });
+        let records = [2, 3, 6, 8].map(|id| Record {
+            id,
+            recipe: None,
+            identity_index: None,
+        });
         let result: Vec<_> = screens::merged_views(&[1, 3, 5, 8, 9], &[2, 6], &records, |id| *id)
             .copied()
             .collect();
@@ -449,7 +454,11 @@ mod tests {
                 identities: Vec::new(),
                 screen: ScreenRecipes::default(),
                 records: (100..100 + MAX_RECORDS as u32)
-                    .map(|id| Record { id, recipe: None })
+                    .map(|id| Record {
+                        id,
+                        recipe: None,
+                        identity_index: None,
+                    })
                     .collect(),
                 clear: false,
                 _permit: permit,

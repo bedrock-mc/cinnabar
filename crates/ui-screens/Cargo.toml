@@ -37,6 +37,7 @@ url = "2"
 
 [dev-dependencies]
 image.workspace = true
+protocol = { path = "../protocol", features = ["test-support"] }
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 
 [lints]

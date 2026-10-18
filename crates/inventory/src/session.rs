@@ -89,6 +89,21 @@ impl InventorySession {
         self.crafting_authority.recipe_unlocks()
     }
 
+    /// Complete recipe-discovery rules at the committed inventory frontier.
+    pub fn crafting_rules(&self) -> Option<protocol::CraftingRules> {
+        self.crafting_authority.crafting_rules()
+    }
+
+    /// Changes whenever committed crafting policy or its input authority changes.
+    pub fn crafting_revision(&self) -> u64 {
+        self.crafting_authority.revision()
+    }
+
+    /// Publishes the StartGame rule defaults before deferred play observations.
+    pub fn publish_crafting_rules_bootstrap(&mut self, rules: protocol::CraftingRules) {
+        self.crafting_authority.bootstrap_rules(rules);
+    }
+
     /// The connection generation that owns every retained value.
     pub const fn session_id(&self) -> u64 {
         self.session_id

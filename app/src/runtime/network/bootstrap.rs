@@ -96,6 +96,7 @@ pub(super) fn apply(
         hardcore,
         hud_rules,
         death_rules,
+        crafting_rules,
         mut packs,
         terrain_before_spawn,
         level_identity,
@@ -199,6 +200,9 @@ pub(super) fn apply(
     ui_runtime.set_hardcore(hardcore);
     ui_runtime.apply_hud_rules(hud_rules);
     ui_runtime.apply_death_rules(death_rules);
+    player_runtime
+        .inventory
+        .publish_crafting_rules_bootstrap(crafting_rules);
     if replacing_session {
         debug!("replaced StartGame environment session");
     }
