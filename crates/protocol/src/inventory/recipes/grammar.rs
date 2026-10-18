@@ -40,6 +40,12 @@ pub(super) enum ScreenItem<'a> {
         uuid: [u8; 16],
         id: u32,
     },
+    Identity {
+        name: &'a str,
+        tag: &'a str,
+        context: i32,
+        id: u32,
+    },
     /// A station recipe outside the supported input shape.
     Skipped,
     Brewing(super::screen::BrewingRecipe),
@@ -119,30 +125,33 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     )
 }
 
-fn unlock(reader: &mut Reader<'_>) -> ReadResult<()> {
+/// Reads discovery context without using it as a recipe admission gate.
+fn unlock(reader: &mut Reader<'_>) -> ReadResult<i32> {
     if reader.byte()? == 0 {
-        return Ok(());
+        return Ok(0);
     }
     // Discovery requirements belong to the recipe book/unlocked-recipe state,
     // not recipe admission. Native manual crafting checks unlock authority only
     // under the limited-crafting rules. Retain the recipe and traverse these
     // optional fields with the same bounds, without declaring it unlocked.
-    reader.int()?;
+    let context = reader.int()?;
     if reader.byte()? != 0 {
         let count = reader.count(64)?;
         for _ in 0..count {
             ingredient(reader)?;
         }
     }
-    Ok(())
+    Ok(context)
 }
 
+/// Traverses a named recipe and reports its identity independently of craft support.
 fn normal<'a>(
     reader: &mut Reader<'a>,
     shaped: bool,
     eligible: bool,
+    identity: &mut impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
 ) -> ReadResult<(u32, Option<Candidate<'a>>, Option<ScreenRecord<'a>>, bool)> {
-    reader.string()?;
+    let name = reader.text()?;
     let (width, height) = if shaped {
         (reader.int()?, reader.int()?)
     } else {
@@ -182,11 +191,27 @@ fn normal<'a>(
         }
     }
     reader.take(16)?;
-    let block = reader.string()?;
+    let tag = reader.text()?;
+    let block = tag.unwrap_or("");
     let priority = reader.int()?;
     let mirror = shaped && reader.byte()? != 0;
-    unlock(reader)?;
+    let context = unlock(reader)?;
     let id = reader.uint()?;
+    // Keep unsupported ingredients, output data and large shapes addressable by name.
+    // Missing network IDs/results and inconsistent shapes never enter this identity view.
+    if id != 0
+        && results > 0
+        && (!shaped
+            || (width >= 0 && height >= 0 && width.checked_mul(height) == Some(count as i32)))
+        && let (Some(name), Some(tag)) = (name, tag)
+    {
+        identity(ScreenItem::Identity {
+            name,
+            tag,
+            context,
+            id,
+        })?;
+    }
     valid &= id != 0;
     let screen_kind = match block {
         "stonecutter" => Some(ScreenRecipeKind::Stonecutter),
@@ -259,8 +284,12 @@ pub(super) fn walk<'a>(
         for _ in 0..count {
             match family {
                 0 | 1 | 3 | 4 | 5 => {
-                    let (id, candidate, screen_recipe, skipped) =
-                        normal(reader, matches!(family, 0 | 5), matches!(family, 0 | 1))?;
+                    let (id, candidate, screen_recipe, skipped) = normal(
+                        reader,
+                        matches!(family, 0 | 5),
+                        matches!(family, 0 | 1),
+                        &mut screen,
+                    )?;
                     if skipped {
                         screen(ScreenItem::Skipped)?;
                     }
@@ -276,14 +305,24 @@ pub(super) fn walk<'a>(
                     record(id, None)?;
                 }
                 6 | 7 => {
-                    reader.string()?;
+                    let name = reader.text()?;
                     let mut ingredients = [Ingredient::default(); 3];
                     for slot in &mut ingredients {
                         *slot = ingredient(reader)?;
                     }
                     let result = if family == 6 { output(reader)? } else { None };
-                    reader.string()?;
+                    let tag = reader.text()?;
                     let id = reader.uint()?;
+                    if id != 0
+                        && let (Some(name), Some(tag)) = (name, tag)
+                    {
+                        screen(ScreenItem::Identity {
+                            name,
+                            tag,
+                            context: 0,
+                            id,
+                        })?;
+                    }
                     let sound = ingredients.iter().all(|item| item.valid && item.count == 1)
                         && id != 0
                         && (family == 7 || result.is_some());

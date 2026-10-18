@@ -238,6 +238,7 @@ pub const MAX_ENCHANT_OPTIONS: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
     Recipes(recipes::RecipeUpdate),
+    RecipeUnlocks(recipes::RecipeUnlockUpdate),
     Authority(InventoryAuthority),
     Content(InventoryContentEvent),
     Slot(InventorySlotEvent),

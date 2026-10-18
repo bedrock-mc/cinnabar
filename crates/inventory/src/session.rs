@@ -84,6 +84,11 @@ impl InventorySession {
         }
     }
 
+    /// Explicit recipe-name authority at the committed inventory frontier.
+    pub fn recipe_unlocks(&self) -> &protocol::RecipeUnlockState {
+        self.crafting_authority.recipe_unlocks()
+    }
+
     /// The connection generation that owns every retained value.
     pub const fn session_id(&self) -> u64 {
         self.session_id

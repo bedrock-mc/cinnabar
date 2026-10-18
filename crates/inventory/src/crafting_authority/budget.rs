@@ -612,4 +612,87 @@ mod tests {
         );
         assert_eq!(credits.used.load(Ordering::Acquire), 0);
     }
+
+    #[test]
+    fn allocation_loss_retires_unstaged_and_deferred_unlock_removals() {
+        use protocol::{
+            ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
+            test_support::recipes::{
+                CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+                recipe_unlock_event,
+            },
+        };
+        for deferred_tail in [false, true] {
+            let credits = Arc::new(Credits {
+                maximum: MAX_RETAINED_BYTES,
+                used: AtomicUsize::new(0),
+            });
+            let mut runtime = crate::InventorySession::new(1);
+            runtime.crafting_authority =
+                super::super::CraftingAuthority::with_credits(1, Arc::clone(&credits));
+            let update = CraftingDataFixture {
+                recipes: vec![RecipeFixture {
+                    net_id: 1,
+                    ..RecipeFixture::shapeless(
+                        "test:budget",
+                        vec![IngredientFixture::named("test:input", 0)],
+                        vec![OutputFixture::new(7, 1)],
+                    )
+                }],
+                clear_recipes: true,
+                ..Default::default()
+            }
+            .update();
+            runtime
+                .enqueue_inventory_event(1, 1, InventoryEvent::Recipes(update))
+                .unwrap();
+            runtime
+                .enqueue_inventory_event(1, 2, recipe_unlock_event(2, &["test:budget"]))
+                .unwrap();
+            runtime.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+            runtime.drain_pending_inventory();
+            assert!(runtime.recipe_unlocks().contains("test:budget"));
+            let snapshot = runtime.clone();
+            runtime
+                .enqueue_inventory_event(
+                    1,
+                    3,
+                    InventoryEvent::Slot(InventorySlotEvent {
+                        identity: SlotIdentity {
+                            container: ContainerIdentity {
+                                window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                                slot_type: Some(0),
+                                dynamic_id: None,
+                            },
+                            slot: 28,
+                        },
+                        stack: NetworkItemStack::empty(),
+                        storage_item: None,
+                    }),
+                )
+                .unwrap();
+            runtime
+                .enqueue_inventory_event(1, 4, recipe_unlock_event(3, &["test:budget"]))
+                .unwrap();
+            if deferred_tail {
+                assert!(runtime.apply_next().is_some());
+                assert!(runtime.apply_next().is_some());
+            }
+            let occupied = credits
+                .reserve(MAX_RETAINED_BYTES - credits.used.load(Ordering::Acquire))
+                .unwrap();
+            runtime.synchronize_crafting_frontier(
+                1,
+                Some((1, 0, Some(if deferred_tail { 3 } else { 4 }))),
+            );
+            runtime.drain_pending_inventory();
+            assert!(runtime.pending_inventory.is_empty());
+            assert!(!runtime.recipe_unlocks().contains("test:budget"));
+            assert!(snapshot.recipe_unlocks().contains("test:budget"));
+            drop(occupied);
+            drop(runtime);
+            drop(snapshot);
+            assert_eq!(credits.used.load(Ordering::Acquire), 0);
+        }
+    }
 }
