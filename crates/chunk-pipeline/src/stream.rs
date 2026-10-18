@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use web_time::Instant;
 // Keyed stream state uses hashbrown's seeded foldhash: SipHash dominated frame-thread lookups.
 use hashbrown::{HashMap, HashSet};
 use std::{
@@ -7,7 +8,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use ::meshing::{

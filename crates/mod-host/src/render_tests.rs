@@ -2,6 +2,56 @@ use super::*;
 use crate::ModGrants;
 use wit::Host as _;
 
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+#[test]
+fn retained_publication_allocates_nothing_for_empty_callbacks() {
+    use mod_render::retained::{GeometrySpec, Vertex};
+
+    let mut render = RenderState::new();
+    let geometry = render
+        .retained
+        .create_geometry(GeometrySpec::Triangles {
+            vertices: vec![
+                Vertex {
+                    position: [0.; 3],
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                };
+                mod_api::MAX_DRAW_VERTICES / 4
+            ],
+            indices: vec![0, 1, 2],
+        })
+        .unwrap();
+    render.commit_retained();
+    let generation = render.generation();
+    let before = Arc::clone(&render.output().retained[0]);
+    let (_, allocations) = test_alloc::count(|| {
+        for _ in 0..8 {
+            render.begin_callback();
+            render.commit_retained();
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(render.generation(), generation);
+    assert!(Arc::ptr_eq(&before, &render.output().retained[0]));
+
+    render.begin_callback();
+    render.retained.remove(geometry).unwrap();
+    render.commit_retained();
+    assert!(render.output().retained.is_empty());
+    assert_ne!(render.generation(), generation);
+    let generation = render.generation();
+    let (_, allocations) = test_alloc::count(|| {
+        render.begin_callback();
+        render.commit_retained();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(render.generation(), generation);
+}
+
 fn state() -> State {
     let grants = ModGrants {
         render: true,
@@ -96,4 +146,37 @@ fn solid_lines_share_the_legacy_ribbon_budget() {
         state.render.staged_primitives.ribbons.len(),
         mod_api::MAX_RENDER_RIBBONS
     );
+}
+
+#[test]
+fn legacy_post_imports_cannot_bypass_remote_policy() {
+    let mut state = state();
+    state.drawing_policy = Some(mod_api::drawing::DrawingSession {
+        connection: 1,
+        permissions: mod_api::drawing::DrawingPermissions {
+            world_draw: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert!(
+        state
+            .register_pass(wit::PassSpec {
+                name: "grade".into(),
+                order: 0,
+                source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }".into(),
+                depth: false,
+            })
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        state
+            .update_pass("grade".into(), true, vec![])
+            .unwrap()
+            .is_err()
+    );
+    assert!(state.remove_pass("grade".into()).unwrap().is_err());
+    state.render.commit();
+    assert!(state.render.output().passes.is_empty());
 }

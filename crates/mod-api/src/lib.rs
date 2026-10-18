@@ -65,10 +65,14 @@ pub const MAX_MENU_TITLE_BYTES: usize = 64;
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
 /// Optional top-level PNG shown beside the component in the Mods library.
 pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Optional top-level HTTPS GitHub repository URL enabling mod release notifications.
+pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
+/// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
+pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
-/// Every versioned static section recognized by the local component loader.
+/// Every presentation asset section stripped from executable component bytes.
 pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
@@ -110,6 +114,8 @@ pub const MAX_LOADED_MODS: usize = 4;
 
 /// Render capability budgets, per instance or per committed callback.
 pub const MAX_RENDER_PASSES: usize = 8;
+/// Render and retained drawing imports allowed in one callback, including denied calls.
+pub const MAX_RENDER_CALLS: usize = 32;
 /// Shader validations allowed in one frame callback; `init` may compile every pass.
 pub const MAX_PASS_COMPILES_PER_FRAME: u32 = 1;
 pub const MAX_PASS_NAME_BYTES: usize = 32;
@@ -156,6 +162,7 @@ pub mod bindings {
             "wit",
         ],
         world: "cinnabar:extension/extension@0.1.0",
+        generate_all,
         pub_export_macro: true,
     });
 }
@@ -192,3 +199,17 @@ pub const MAX_COMBAT_READ_EVENTS: usize = 4;
 
 /// Total regular frame-callback fuel shared across all local mods.
 pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;
+
+/// World drawing authority and generation-safe resource tokens.
+pub mod drawing;
+
+/// Retained drawing budgets per owner; aggregate capacity is reserved for every loaded mod.
+pub const MAX_DRAW_INSTANCES: usize = 1024;
+pub const MAX_DRAW_GEOMETRIES: usize = 256;
+pub const MAX_DRAW_VERTICES: usize = 65_536;
+pub const MAX_DRAW_INDICES: usize = 196_608;
+pub const MAX_DRAW_GEOMETRY_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_DRAW_MUTATION_BYTES: usize = 1024 * 1024;
+pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
+/// Largest linear RGBA component admitted by retained unlit drawing.
+pub const MAX_DRAW_COLOR_COMPONENT: f32 = 1.0;

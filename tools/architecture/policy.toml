@@ -65,8 +65,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "web-client"
 path = "web/client"
-allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "launcher"]
-forbidden_dependencies = ["cinnabar", "launcher-host", "bevy", "wgpu"]
+allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "app", "launcher", "protocol", "client-session", "client-audio"]
+forbidden_dependencies = ["launcher-host", "bevy", "wgpu"]
 
 [[crates]]
 name = "web-transport"
@@ -430,7 +430,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api"]
+allowed_dependencies = ["mod-api", "test-alloc"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
@@ -1344,6 +1344,11 @@ vocabularies = [
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = []
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/web.rs"
+literal = "web"
+reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"

@@ -10,6 +10,7 @@ use std::mem::size_of;
 mod artwork;
 mod bones;
 mod dissolve;
+pub(crate) mod masks;
 pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
@@ -156,6 +157,7 @@ fn install_actor_render(app: &mut App) {
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
+    masks::install(app.sub_app_mut(RenderApp));
 }
 
 #[derive(Resource)]
@@ -784,14 +786,14 @@ fn submit_actor_presented_frame(
         reserved: true,
         acknowledged: false,
     });
-    let present_returned_at = std::time::Instant::now();
+    let present_returned_at = web_time::Instant::now();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
     crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
-            callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+            callback_gate.publish_reserved(token, present_returned_at, web_time::Instant::now());
         callback_witness.observe_submit(ActorSubmitWitness {
             drawn_frame: true,
             exact: true,

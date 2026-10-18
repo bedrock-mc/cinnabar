@@ -221,9 +221,20 @@ pub(crate) fn prepare_cloud_records(
                 uploaded_bytes = work.uploaded_bytes
             );
             let _guard = span.enter();
-            let (mesh, waited) = prepared
-                .mesh_cache
-                .get(runtime, viewport, above, *diagnostics);
+            let Some((mesh, waited)) =
+                prepared
+                    .mesh_cache
+                    .get(runtime, viewport, above, *diagnostics)
+            else {
+                prepared.record_count = 0;
+                prepared.prepared_identity = None;
+                prepared.geometry_diagnostic = None;
+                prepared.bind_group = None;
+                prepared
+                    .mesh_cache
+                    .prefetch(runtime, viewport, *diagnostics);
+                continue;
+            };
             let records = &mesh.records;
             let bytes = bytemuck::cast_slice::<ViewportCloudQuad, u8>(records);
             if !bytes.is_empty() {

@@ -13,6 +13,7 @@ enhanced-diagnostics = ["render-model/enhanced-diagnostics"]
 tracy = ["dep:tracy-client"]
 
 [dependencies]
+web-time.workspace = true
 test-alloc = { path = "../test-alloc", optional = true }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }

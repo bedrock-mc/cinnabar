@@ -253,9 +253,9 @@ fn correction_before_fenced_probe_applies_this_frame() {
     assert_eq!(replies, 1);
 }
 
-/// The probe and its earlier impulse reach a submitted batch during authority application.
+/// Reconciliation admits the echo after its impulse without splitting the ordinary frame.
 #[test]
-fn latency_reply_is_submitted_in_the_frame_that_applies_its_predecessor() {
+fn latency_reply_shares_the_frame_that_applies_its_predecessor() {
     let mut app = app();
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
@@ -296,12 +296,23 @@ fn latency_reply_is_submitted_in_the_frame_that_applies_its_predecessor() {
             .y,
         f64::from(0.4_f32)
     );
+    assert!(packets.take_flushed_frame().is_none());
+    let later = protocol::network_stack_latency_reply(778);
+    let network = app.world().resource::<NetworkHandle<PackApplication>>();
+    network.send_packet(later.clone()).unwrap();
+    assert!(packets.take_flushed_frame().is_none());
+    network.flush_frame();
     let sent = packets
         .take_flushed_frame()
-        .expect("the reply must leave before the frame-end flush");
-    assert_eq!(sent.len(), 1);
+        .expect("the ordinary frame delimiter submits both packets");
+    assert_eq!(sent.len(), 2);
     assert_eq!(
         protocol::encode(&sent[0]).unwrap(),
         protocol::encode(&protocol::network_stack_latency_reply(777)).unwrap()
     );
+    assert_eq!(
+        protocol::encode(&sent[1]).unwrap(),
+        protocol::encode(&later).unwrap()
+    );
+    assert!(packets.take_flushed_frame().is_none());
 }

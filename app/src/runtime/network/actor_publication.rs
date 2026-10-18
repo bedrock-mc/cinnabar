@@ -1,4 +1,5 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
+#[cfg(not(target_arch = "wasm32"))]
 mod shared_players;
 #[cfg(test)]
 use bevy::prelude::IntoScheduleConfigs;
@@ -49,7 +50,10 @@ pub(crate) struct ActorObservations<'w> {
     settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, client_interaction::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntimeResource>>,
+    #[cfg(not(target_arch = "wasm32"))]
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
     ui_presentation: Option<Res<'w, UiPresentationResource>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,
@@ -57,6 +61,7 @@ pub(crate) struct ActorObservations<'w> {
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
+    #[cfg(not(target_arch = "wasm32"))]
     account: Option<Res<'w, client_shell::menu::launcher_account::LauncherAccount>>,
 }
 
@@ -97,7 +102,7 @@ pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
-    mut shared_state: Local<shared_players::State>,
+    #[cfg(not(target_arch = "wasm32"))] mut shared_state: Local<shared_players::State>,
     mut fluids: Local<client_presentation::actor_sampling::ActorFluidSampler>,
 ) {
     let ActorObservations {
@@ -109,7 +114,10 @@ pub(crate) fn advance_actor_frame(
         settings,
         effects,
         ui,
+        #[cfg(not(target_arch = "wasm32"))]
         menu,
+        #[cfg(target_arch = "wasm32")]
+        options,
         ui_presentation,
         collisions,
         item_use,
@@ -117,6 +125,7 @@ pub(crate) fn advance_actor_frame(
         movement,
         time,
         profiler,
+        #[cfg(not(target_arch = "wasm32"))]
         account,
     } = observations;
     let _timer = profiler
@@ -164,6 +173,7 @@ pub(crate) fn advance_actor_frame(
         physics.render_eye_position(),
         physics.render_feet_position(),
     );
+    #[cfg(not(target_arch = "wasm32"))]
     let shared = shared_players::exchange(
         stream,
         ui.as_deref().map(|ui| &ui.0),
@@ -172,46 +182,65 @@ pub(crate) fn advance_actor_frame(
         &time,
         &mut shared_state,
     );
-    let input = ActorFrameInput {
-        cosmetics: skin.cosmetics.clone(),
-        local_feed,
-        predicted_eye,
-        predicted_feet,
-        local_equipment,
-        swing_progress: None,
-        // Resolving the screen policy is UI work, attributed as such inside actor publication.
-        renders_game: {
-            let _ui = profiler
-                .as_deref()
-                .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
-            client_shell::screen_policy::renders_game(
-                &player,
-                ui.as_deref().map(|ui| &ui.0),
-                menu.as_deref(),
-                ui_presentation
+    let input =
+        ActorFrameInput {
+            cosmetics: skin.cosmetics.clone(),
+            local_feed,
+            predicted_eye,
+            predicted_feet,
+            local_equipment,
+            swing_progress: None,
+            // Resolving the screen policy is UI work, attributed as such inside actor publication.
+            renders_game: {
+                let _ui = profiler
                     .as_deref()
-                    .map(|presentation| &presentation.0),
-            )
-        },
-        remote_emotes: shared.emotes,
-        remote_hats: shared.hats,
-        custom_emote: ui
-            .as_deref()
-            .and_then(|ui| ui.emotes().playback())
-            .map(|playback| {
-                let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-                (playback.emote, playback.elapsed(now))
-            }),
-        hide_hand: menu.as_ref().is_some_and(|menu| {
-            let settings = menu.settings_snapshot().0;
-            !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
-                settings.value(SettingId::HideHud) != 0,
-                settings.value(SettingId::HideHand) != 0,
-                player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
-            )
-            .hand
-        }),
-    };
+                    .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
+                #[cfg(not(target_arch = "wasm32"))]
+                let renders_game = client_shell::screen_policy::renders_game(
+                    &player,
+                    ui.as_deref().map(|ui| &ui.0),
+                    menu.as_deref(),
+                    ui_presentation
+                        .as_deref()
+                        .map(|presentation| &presentation.0),
+                );
+                #[cfg(target_arch = "wasm32")]
+                let renders_game = ui.as_deref().zip(ui_presentation.as_deref()).is_none_or(
+                    |(ui, presentation)| presentation.renders_game_behind(&player, &ui.0, None),
+                );
+                renders_game
+            },
+            #[cfg(not(target_arch = "wasm32"))]
+            remote_emotes: shared.emotes,
+            #[cfg(not(target_arch = "wasm32"))]
+            remote_hats: shared.hats,
+            #[cfg(target_arch = "wasm32")]
+            remote_emotes: Vec::new(),
+            #[cfg(target_arch = "wasm32")]
+            remote_hats: Vec::new(),
+            custom_emote: ui
+                .as_deref()
+                .and_then(|ui| ui.emotes().playback())
+                .map(|playback| {
+                    let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    (playback.emote, playback.elapsed(now))
+                }),
+            hide_hand: {
+                #[cfg(not(target_arch = "wasm32"))]
+                let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+                #[cfg(target_arch = "wasm32")]
+                let options = Some(std::sync::Arc::clone(&options.0));
+                options.is_some_and(|settings| {
+                    !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+                        settings.value(SettingId::HideHud) != 0,
+                        settings.value(SettingId::HideHand) != 0,
+                        player.facts.player_game_mode()
+                            == Some(protocol::PlayerGameMode::Spectator),
+                    )
+                    .hand
+                })
+            },
+        };
     if let Some(stream) = world.stream.as_mut() {
         stream.set_local_motion_authority(
             movement
@@ -289,13 +318,17 @@ pub(crate) struct ActorFinalObservations<'w> {
 /// storage binding of its GPU holds.
 pub(crate) fn initialize_actor_geometry_budget(
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
+    memory: Option<bevy::prelude::Res<crate::host_memory::HostMemory>>,
     scene: Option<ResMut<render_scene::ActorRenderScene>>,
 ) {
     let (Some(device), Some(mut scene)) = (device, scene) else {
         return;
     };
     scene.set_geometry_budget(
-        resource_pack::subpacks::device_memory_tier(launcher_host::memory::physical_bytes()),
+        resource_pack::subpacks::device_memory_tier(memory.map_or_else(
+            || crate::host_memory::HostMemory::default().0,
+            |memory| memory.0,
+        )),
         render::actor_storage_binding_bytes(&device),
     );
 }

@@ -1,5 +1,37 @@
 # Phases 2-5 Completion Ledger
 
+## Browser host composition
+
+The browser host uses verified memory carriers, the shared game frame and HUD, injected
+session I/O and canvas input. Native owner checks and a wasm artifact pass. Headless Chrome with
+Metal WebGPU boots, renders an offline world's terrain and HUD, and moves its player. WebSocket
+transfer, disconnect and rejoin pass. Audio ranges feed the existing decoder and Web Audio mixer;
+real nonzero playback, gesture activation, cached suspension/resume and single-close disposal
+pass. Initial terrain latency, interactive UI controls, audio parity and hardware budgets remain
+incomplete. This adds no completed parity or browser-release gate.
+transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
+delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
+browser-release gate.
+## Correction-sync posture retries
+
+Correction syncs retain accepted server sneak/sprint updates newer than the last
+completed movement sample, including walking height and retries without a new
+tick. Sparse updates preserve the other posture flag; a completed local tick
+replaces the retained update. Regression coverage includes transport refusal and
+input-latch consumption. Other prediction-sync metadata, pose sizes, exact send
+phase and live server acceptance remain incomplete.
+## Browser release verification
+
+Browser target checks and JavaScript edge suites are CI gates. Go and Rust consume
+shared control fixtures, and devtool builds a staged static bundle with the locked
+binding CLI and canonical carrier delivery index. Certificate renewal retains
+relay sessions and rejects invalid replacements while keeping the last good pair.
+The receive-buffer regression runs on the native test target.
+
+Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
+real-browser acceptance matrix follow gameplay composition. No supported-browser,
+release, parity, memory or hardware performance gate closes from these checks.
+
 ## Redstone dust item sprite
 
 A reviewed default binding selects the item-atlas dust sprite, leaving placed
@@ -399,7 +431,7 @@ occlusion share rounded intercept distances. CI verification remains pending.
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |
-| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. |
+| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. Inventory regressions cover packet routing, whole transaction rejection, owned response data, active close inputs and selected-item use after close; complete inventory parity remains open. |
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
@@ -584,3 +616,19 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+
+Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
+and actor attachment remain incomplete and do not close any completion requirement.
+
+The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
+instance defaults. Legacy compatibility paths remain in place until retained
+presets preserve their coverage and placement. TypeScript packaging, renderer
+acceptance and hardware performance gates remain incomplete.
+Retained mod drawing has authority and lifetime contracts. Retained geometry and instance
+transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
+Renderer integration and actor attachment remain incomplete and do not close any completion
+requirement.
+
+Host-composed outlines and halos use admitted actor masks. Custom effects declare their
+own mask bindings. In-world ordering, resolution transitions and hardware budgets remain
+incomplete in `plan.md`; these additions close no rendering or performance gate.

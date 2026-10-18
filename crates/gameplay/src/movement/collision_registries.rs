@@ -13,6 +13,7 @@ use sim::{
 use thiserror::Error;
 
 mod multipart;
+mod placement;
 mod selection;
 mod session_palette;
 mod sleeping;
@@ -21,6 +22,8 @@ mod tags;
 /// Interaction facts shared by both runtime identity spaces.
 #[derive(Debug, Clone)]
 struct InteractionBlock {
+    /// Shared custom definition and palette index; native records use compiled metadata.
+    custom_state: Option<(Arc<protocol::CustomBlock>, u32)>,
     identifier: Arc<str>,
     facts: assets::facts::BlockFact,
     full_cube: bool,
@@ -146,11 +149,15 @@ impl PhysicsCollisionRegistries {
             records,
             expected_protocol,
         )?;
-        // The identity carries the decoder's exact stamped wire protocol so
-        // the registries never claim a protocol the carrier did not declare;
-        // the explicit `expected_protocol` argument keeps every construction
-        // site on the shared active-content authority instead of a hidden
-        // legacy default.
+        Self::from_decoded(records, &physics)
+    }
+
+    /// Builds collision views from the exact block records used to validate `physics`.
+    pub fn from_decoded(
+        records: &[RegistryRecord],
+        physics: &assets::PhysicsRegistry,
+    ) -> Result<Self, PhysicsCollisionRegistryError> {
+        // The registry retains the protocol and digest already validated by its decoder.
         let sequential_identity = CollisionRegistryIdentity {
             protocol: physics.protocol(),
             id_space: CollisionIdSpace::Sequential,
@@ -174,7 +181,10 @@ impl PhysicsCollisionRegistries {
         for record in records {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
-                .expect("strict PREG decoder covers every supplied BREG record");
+                .ok_or_else(|| assets::AssetError::InvalidPhysicsRegistry {
+                    detail: "physics registry does not cover the block records; run make assets"
+                        .into(),
+                })?;
             let shapes =
                 fact.shapes
                     .as_ref()
@@ -195,6 +205,7 @@ impl PhysicsCollisionRegistries {
             )
             .ok();
             let binding = InteractionBlock {
+                custom_state: None,
                 identifier: Arc::from(record.name.as_ref()),
                 facts: block_facts.get(record.sequential_id),
                 full_cube,
@@ -383,11 +394,13 @@ impl PhysicsCollisionRegistries {
                 next = next.checked_add(block.state_count)?;
                 continue;
             }
+            let definition = Arc::new(block.clone());
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 Arc::make_mut(&mut self.interaction_blocks).insert(
                     next,
                     InteractionBlock {
+                        custom_state: Some((Arc::clone(&definition), state)),
                         identifier: Arc::clone(&block.name),
                         facts: custom_block_facts(block),
                         full_cube: custom_block_is_full_cube(&effective),
@@ -427,6 +440,7 @@ impl PhysicsCollisionRegistries {
             Arc::make_mut(&mut self.hashed_interaction_blocks).remove(&hash);
         }
         for block in custom.blocks.iter() {
+            let definition = Arc::new(block.clone());
             for (index, state) in block.hashed_states().into_iter().enumerate() {
                 if self.hashed.contains_runtime_id(state.hash) {
                     continue;
@@ -441,6 +455,7 @@ impl PhysicsCollisionRegistries {
                     Arc::make_mut(&mut self.hashed_interaction_blocks).insert(
                         state.hash,
                         InteractionBlock {
+                            custom_state: Some((Arc::clone(&definition), index as u32)),
                             identifier: Arc::clone(&block.name),
                             facts: custom_block_facts(block),
                             full_cube: custom_block_is_full_cube(&effective),

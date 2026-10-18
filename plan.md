@@ -253,10 +253,59 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+Server archives can use a separate reliable WebTransport stream per join. The handoff receiver
+checks count and byte admission before accepting archives, verifies streamed SHA-256 digests,
+and waits for stream completion before startup. WebSocket keeps serial pack delivery on play.
+Incomplete: connecting this receiver to the playable browser host and browser acceptance remain
+part of the gameplay composition and release gates below.
+One page driver schedules bounded retries with caller time and jitter, and cancels timers
+on suspension or disposal. Explicit retries retain the account after admission or busy
+refusals; expired or refused resume requires a new session. Typed control payloads share
+Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
+finishing a join resets its play and pack channels while retaining control.
+A valid resume replaces the prior relay controller and cancels its channels even during
+transport teardown. New play waits for the old handler to finish while retaining the account.
 
+The browser entry accepts verified memory carriers and an optional bundled font, then builds
+shared world, actor, movement and HUD owners on the page canvas. A server-address field opens
+one relay play lease through the existing login and packet pump. Disconnect retires gameplay
+authority; bounded server transfers open fresh play generations. Canvas input enters the same
+semantic router. Native pacing, processes, signing, disk caches and menu services remain native.
+Renderer, geometry, UI preparation and retired snapshots use bounded browser job slots.
+Pending cloud windows yield until their exact geometry is ready. WebGPU reports allocation
+errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
+
+The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
+The existing decoder and mixer feed Web Audio. Headless Chrome with Metal WebGPU fetches
+encoded ranges, plays nonzero game samples after a canvas gesture, suspends on cached
+navigation, resumes on another gesture and closes its stream once on final disposal.
+Native owner checks and a wasm artifact pass. The host boots, renders an offline world's
+terrain and HUD, and moves its player. WebSocket transfer, disconnect and rejoin pass.
+Incomplete: interactive inventory/chat/forms controls, initial terrain latency, shader output
+comparisons, audio parity and indivisible job costs remain unverified. Cached navigation retains
+page resources and restores relay controls with an unexpired capability. No browser release
+or parity gate closes here.
+
+The browser account adapter projects device-code prompts, refusals and identity into the shared
+menu. External services expose account intents and preference changes without native helper
+launches. Browser preferences bound saved servers and GUI scale; storage failures are reported.
+The sign-in gesture bridge validates links and removes listeners on teardown. Wiring these
+menu, gesture and persistence handoffs into the running browser host remains incomplete.
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
+Browser CI checks the web crates on wasm and runs the JavaScript edge suites. Shared
+Go/Rust control fixtures cover Hello, Welcome, account, progress and error events.
+The devtool static bundle command matches the locked wasm-bindgen version and includes
+the canonical delivery index; TLS renewal reloads without dropping relay accounts.
+Browser Dressing Room adapters provide a session-only catalog, bounded file-picker admission and
+frame-sliced imports and preview preparation. PNG, companion geometry JSON and skin-pack
+inputs use the native validators and content identities. Browser imports are lost when the
+page closes. Native catalogs keep their existing file persistence and worker threads.
+Incomplete: the playable browser host must connect the synchronous import gesture ticket
+and optional starter/cosmetic carriers. Durable browser imports and in-game browser captures
+remain pending; these changes do not close the browser release gate.
+
 The browser account adapter projects checking, device-code prompts, refusals and identity
 into the shared menu. External menu services expose account intents and preference changes
 without native helper launches. Browser preference documents bound saved addressed servers
@@ -764,6 +813,9 @@ which misreports the builtin vertex index under nonzero base vertices.
 The Go core, local server, and fixture generator share a reviewed transport revision with
 corrected handshake addresses and probe cadence, connected control framing, reliability
 and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+The consumers now also include the merged fresh-entropy GUID, offline reply validation,
+final MTU selection, retry deadline, and split-memory fixes. A wire regression exercises
+the effective dependency, and manifest checks keep the three Go module pins together.
 
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
@@ -835,6 +887,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Login names omit the legacy ThirdPartyNameOnly marker while preserving ThirdPartyName.
+  Complete claim presence, ordering and platform lifecycle parity remain incomplete.
 - Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
   image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
@@ -1281,6 +1335,13 @@ these changes do not close the movement, camera, or actor parity gates.
   cause. Existing provisional behavior below stays provisional.
 
 ## Held block placement
+
+- Eligible custom blocks predict their admitted state in both palette modes. Enabled
+  placement traits apply the click face, vertical half, body-facing direction and yaw
+  offset while preserving authored property values. Server placing handlers retain
+  authority. Prediction checks the selected state's collision bounds and session IDs.
+  Incomplete: custom placement filters, unrepresented traits and unresolved permutation
+  physics still defer to the server; complete placement parity remains open.
 
 - A steep downward look past a ledge can acquire nearby support before a placement
   line exists. Use and selection share the downward support and preserve its click
@@ -2040,6 +2101,37 @@ not close a parity or visual acceptance gate.
   capture confirms which desktop clicks raise it; the Shift+right binding follows the
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
+
+## Inventory authority and cursor cleanup
+
+- Ordinary container updates use the open window ID and its manager indices. UI-window
+  updates use raw UI slots, and registered containers use their full key and relative
+  indices. Invalid normal transactions publish no valid sibling updates.
+- Full player snapshots retire removed slots. Accepted request corrections use their owned
+  snapshots, skip unrelated containers, and retain corrected names and damage in item data.
+  Supported typed item data compares independently of compound and restriction-list order.
+- Closing a screen returns its active temporary inputs and cursor, drops what does not fit,
+  and keeps unrelated inactive inputs from blocking world interaction. Named stacks can
+  merge and drag; a drag clamps contributions after an authoritative decrease.
+- A normal close acknowledgement retires that screen's unanswered requests without
+  committing their predictions. HUD mining requests retain their separate ownership,
+  and HUD/crafting observers follow the admitted packet and backing state.
+  Enchant selection leaves item mutation unpredicted until its complete result pipeline
+  is implemented; it does not keep an unchanged input as a predicted result.
+- Manual crafting fills compatible destinations through repeated bounded result scopes.
+  Each scope declares its per-craft output once. Explicit counts remain atomic when they
+  do not fit; craft-all stops at available destination space.
+- Secondary creative catalog clicks create one item with an empty cursor and destroy one
+  with a held selection. Typed item locks apply to ordinary player removal, storage and
+  station placement, drops, destruction and consumption.
+- Server UI result previews remain admitted for existing screen consumers. Moving their
+  ownership to locally generated station previews is incomplete and must preserve result
+  display and taking together.
+- Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
+  effective ability and mode-dependent removal, all station membership rules,
+  complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
+  pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
+  parity gate.
 
 ## Item stack sizes
 
@@ -4641,8 +4733,8 @@ remain in the production build. The checkpoint is pushed through `2759e46d`;
 hosted run `34088016127` passed every job, including Windows acceptance,
 macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
-A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
-unavailable until the next session; broader timeout recovery remains incomplete.
+Open timeouts release local admission, and later server opens supply their actual
+window IDs. Broader timeout and reconnect behavior still needs live qualification.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
@@ -4924,6 +5016,17 @@ Sol-high review passed for each tranche. These commits close only their bounded 
 defects; cache ordering/timing, selected-store unification, item rendering, inventory-preview
 geometry and animation, broader actor behavior, exact chunk retention, and native/live acceptance
 remain open.
+
+Held-equipment publication now also notices same-slot count, item-data and depletion changes at
+the local input tick boundary. Accepted sends retain their comparison state across frame retries;
+stack network IDs alone do not trigger a resend, and session changes reset that state. Older
+queued movement drains before a later tick publishes changed equipment. Changed offhand stacks
+publish after mainhand updates. Held-item comparisons ignore compound entry order and root
+names, retain list order and item-data trailers, and use numeric float equality. Malformed,
+oversized or unsupported data keeps strict byte comparison. General inventory merging is
+unchanged. Either descriptor's wildcard auxiliary matches the other's value while retaining
+the other identity checks. Auxiliary normalization, asymmetric block identity, charged-item
+identity, unsupported NBT and full packet timing parity remain incomplete.
 
 The 2026-08-21 parallel audit additionally confirmed the existing version-coherence, resource-pack,
 post-login transfer, movement/input/pose, actor/viewmodel, audio, menu/settings/touch, auth recovery,
@@ -7283,11 +7386,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   simulator was built and no value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
-  `ClientMovementPredictionSync` is sent (fields match vanilla and the pinned gophertunnel) after a server correction is applied, at most once per second, and is
-  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
-  live-test gate item: confirm anti-cheat servers accept the sync; the
-  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
-  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `ClientMovementPredictionSync` becomes due 200 completed client ticks after a
+  server correction. Undefined base attributes send zero; undefined friction,
+  bounciness and air drag modifiers send 1.0/0.0/1.0. All three metadata flag
+  words are retained, with completed local sneak/sprint overlaid. Accepted server
+  posture updates supersede that sample until a new local tick completes, including
+  retries on frames without a completed tick. Standard unscaled walking height
+  follows the same sneak state. Transport refusal leaves the sync due. Other
+  predicted flags, custom/scaled and horizontal-pose sizes, history loss, exact
+  send phase and live server acceptance remain incomplete.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
   not imply prediction and no vehicle simulator exists, so all rides send ordinary player
   input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
@@ -7890,6 +7997,24 @@ apply the selected mode to existing worlds. The local-world parity gate remains 
 
 ## Phase 8 — Audio, polish, packaging
 
+**Optional mod updates:** Components can declare a GitHub latest-release WASM URL
+for automatic background updates, or a repository URL for notifications alone.
+The launch-scoped worker compares stable SemVer tags, caches repository checks,
+and bounds API responses, asset downloads and redirects. Exact assets require a
+verified SHA-256, matching embedded version/source and host compatibility before
+atomic replacement of an unchanged managed file. Settings and grants persist;
+the existing watcher reloads enabled mods. Separate General settings disable
+automatic installation or all mod checks, including in passive app-updater builds.
+The per-mod Update button downloads and installs the exact WASM in-app when
+automatic installation is off. Pack-compatible progress reports bytes, percentage,
+smoothed speed and ETA, then verification, installation and reload. Reload completes
+only on the new runtime acknowledgement; duplicate presses are rejected and failures
+can be retried without changing the automatic preference.
+Regressions cover metadata, versions, cancellation, stale sources, download
+integrity and unchanged permissions/settings. Offline home and Mods-tab captures
+pass at desktop and small window sizes; live automatic-update acceptance remains
+incomplete.
+
 **Rain ambience:** completed weather ticks now admit overlapping finite rain
 sounds from loaded warm precipitation columns. Sample density follows rain
 strength and the graphics setting; sheltered rain uses reduced volume and pitch.
@@ -8390,6 +8515,17 @@ and the complete simulator suite pass. Currents, complete swimming travel/drag, 
 attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
+
+Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
+a due packet. Known values and transport-admission retries are retained. Completed local
+sneak/sprint flags and the standard unscaled walking pose height reach a due sync before
+a server echo. Other models and poses retain their supplied sizes. Full correction-state,
+custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
+incomplete.
+Alternate locomotion now uses the same ground-contact rule as ordinary movement: a vertical
+collision grounds only a downward request; without that collision, prior ground survives only
+an exact zero vertical request. Tiny positive or negative requests clear it. Complete locomotion
+and packet-timing parity remain incomplete.
 
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
@@ -9250,6 +9386,13 @@ Stored unspecified layouts resolve to the recipe-book layout on opening. The
 profile-specific forced-layout branch, exact stable-client gameplay acceptance,
 recipe discovery, ghost rendering and other station rules remain incomplete.
 
+2026-10-17 recipe category facts: item registry components retain the legacy
+numeric category with its typed Int and low-byte rules. A valid properties
+compound defaults that fact to zero when the field is absent or has another
+type; ambiguous paths remain unresolved. Recipe-unlock category masks and
+their UI consumers, built-in category defaults, and complete stable-client
+acceptance remain incomplete.
+
 ## Entity interaction and emote starts
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
@@ -10073,6 +10216,54 @@ but exact-current seasonal material selection remains unverified. Mixed model
 materials are outside this change. The raster and descriptor regressions are
 written but unrun; this does not close a renderer parity or frame-budget gate.
 
+## Submitted server form JSON
+
+Menu, modal and custom form submissions include the final newline inside the response
+JSON string. Cancellation replies retain their absent response value. Encoded packet
+regressions cover scalar answers, arrays and escaped text. Full numeric formatting,
+string escaping and form admission/lifetime parity remain incomplete.
+### Resolve NPC reply targets through their admitted actor lifetime
+
+NPC dialogue carries a unique ID; action and closing replies use the runtime ID
+of the actor resolved when the dialogue was admitted. Recheck that actor's full
+lifetime before each enqueue, including retries, and retire replies locally when
+it despawns or is replaced. Preserve the signed unique-ID bits while normalizing
+the incoming dialogue. Full NPC component admission, opening-command dispatch,
+server-close targeting and exact-current timing parity remain incomplete.
+
+## Inventory opening while mounted
+
+Inventory input resolves a retained mount through live actor authority and sends its runtime
+ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
+request. The chosen runtime ID survives transport delay. Supported server window opens
+are handled without request correlation, including replies received after cancellation,
+timeout, or a changed target. An open settles the pending input without retaining reply
+history or sending a rejection close. Personal opens supersede storage; storage opens
+keep the active personal screen guard.
+Open timeouts release local admission without closing a guessed window ID.
+Item requests owned by a screen retire when it is destroyed.
+Admitted user closes retain their generation so late replies cannot close a replacement.
+Full mount container, vehicle input and platform-specific inventory-opening guards
+remain incomplete.
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass, including a join selection above the advertised byte. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
+
+### Latency reply batching
+
+Ordinary latency echoes retain FIFO admission and join the current outbound frame.
+A full command queue retains the echo and submits the reserved frame delimiter,
+then retries the echo without allowing later packets to pass it. Exact async
+receive/present phase, compression representation and transport jitter remain
+incomplete.
+
 2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
 material instances now bind stateless builtin crosses, including red shrubs,
 with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
@@ -10126,3 +10317,126 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+
+### Cache status aggregation and simulation opportunities (2026-10-18, incomplete)
+
+Cache classifications now enter one session outbox shared with the detached writer.
+Simulation opportunities select at most one packet with misses first and the existing
+combined hash limit. A strict five-millisecond exclusion advances even for an empty
+opportunity. Ordinary render flushes do not select status. Idle and terrain-blocked
+frames advance the session clock independently of movement output.
+
+Ready world ingress and admission events no longer wait for status writes. Intake
+pauses at the outbox byte budget, with one bounded candidate allowed to cross it,
+while ready ingress and bounded raw read-ahead keep their existing owners. Selected
+whole batches survive cancellation. Epoch rotation discards only status that has not
+entered the writer FIFO; accepted batches finish once and ordinary packets survive.
+Fast-transfer arming alone does not rotate the outbox.
+
+Regression coverage is written but unrun in this worktree. Compilation, deterministic
+red/green verification, review, complete cache lifecycle parity, unusual pause and
+step timing, and complete current-version callback parity remain open.
+
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Retained
+indexed meshes, polylines, shared instances and callback groups are admitted transactionally
+with per-owner quotas.
+Geometry admission caches conservative position bounds, so shared-instance validation does
+not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
+and snapshot identity determine retained publication.
+Renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.
+
+Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
+vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
+material coverage. Depth-tested coverage is filtered before post effects; always-visible
+coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
+observation and through-wall consent until a visibility-filtered target source exists.
+Bounded host outlines and shared downsampled halos compose display-space colours after grading,
+independently of world bloom. Loading waits for the shared blur and both scene-format composites,
+even before a selection is published. Styles retain bindings for both scene textures until
+their coverage, halo, sampler or scene inputs change. Custom post effects declare only their
+owner's masks and need separate post authority. Incomplete: in-world Enhanced bloom on/off,
+hand/UI ordering acceptance, resolution-transition captures and hardware budget measurements.
+Offscreen tests do not close those live or performance gates.
+
+The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
+polylines, distance-based color gradients, grids and chunk borders directly in the
+generated WIT records. Entity boxes use caller-supplied authorized bounds. Instance
+defaults preserve depth testing. Legacy fixed primitives keep their existing
+paths because the unlit contract does not preserve their procedural coverage and
+placement. Their retained compatibility presets and a generated TypeScript author
+package remain incomplete.
+## Chat editor submission prefixes
+
+Editor submissions remove leading ASCII spaces, tabs and line-control whitespace before
+validation, history and slash-command routing. Trailing whitespace and non-ASCII spaces
+remain intact. Explicit message-queue calls retain their exact-text contract.
+
+Incomplete parity: native blank-line dismissal settings, account safety restrictions,
+platform chat identities and the current command-version value remain unverified.
+## Held-use progress events
+
+Accepted eating and drinking uses report due progress before their movement
+inputs, using the negotiated item identity. Progress admission survives an input
+retry without sending the event twice; release, reselection and life changes end it.
+
+Focused gameplay tests cover timing, cancellation and admission retries. Progress
+pauses while a release awaits retry, and non-consumable cancellation stays with
+the item-use lifecycle. Other animation kinds, block-backed item uses,
+relevant-user-data cancellation, mounted phases and special movement catch-up
+need further parity work. This does not close the complete serverbound parity gate.
+
+## Correction sync posture (incomplete)
+
+Correction-sync packets combine received actor metadata with the completed local
+sneak and sprint states. Undefined attributes retain their wire defaults and refused
+sends remain pending. Other locally predicted flags, bounding-box updates, history
+loss and exact send phase remain open; this does not close movement parity.
+
+## Sign text line breaks
+
+Sign edits retain existing trailing blank lines and line breaks entered before closing.
+Unused editor rows do not add line breaks to the outbound text. The regression checks
+encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
+length limits, structured text and complete editor behavior remain incomplete.
+## Near-contact collision faces
+
+Swept collision clipping and overlap recovery share the same face-contact tolerance.
+Tiny overlaps no longer create a landing against an adjacent wall or an unsolicited
+separation move. Larger penetrations still resolve. This bounded geometry correction
+does not close complete collision-engine, terrain or current-version movement parity.
+
+### Reject item releases after a selected count change
+
+Releasing after a selected count change now ends the old use without sending a
+release for the replacement stack. Held updates retain their start snapshot, an
+unchanged count still releases, and an already-observed release retains its retry
+policy. Full item identity, unavailable-selection, deferred-release and use-phase
+parity remain incomplete.
+### Keep custom playback out of native emote input
+
+Custom emotes continue through their render overlay and Cinnabar API. They no
+longer start or cancel the native movement-input emote duration. An adapter
+regression checks the serialized next input during local playback and restarts.
+Native Marketplace admission, identity, cancellation and timing parity remain
+incomplete.
+### Retain an active loading screen across dimension replacements
+
+Overlapping dimension requests from the same player reuse the active loading
+screen. Only a present replacement ID updates that screen; pending replacements
+coalesce before the update. A new player or session starts a separate lifetime.
+The final report retains the active ID through transport retries. Full loading
+screen, respawn, startup and presentation timing parity remain incomplete.
+
+
+### Keep mouse boating requests independent of forward motion
+
+Mouse boating no longer derives both paddle request bits from forward motion.
+Side steering retains its existing requests. The other device modes retain
+their provisional mapping. Independent simultaneous digital paddle requests,
+input locks, mapping transitions, correction replay and full current-version
+vehicle input parity remain incomplete. This change closes only the bounded
+forward-motion flag mismatch; it is not a full vehicle parity gate.

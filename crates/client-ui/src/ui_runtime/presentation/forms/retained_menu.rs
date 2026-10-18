@@ -19,6 +19,10 @@ pub(in crate::ui_runtime::presentation) struct RetainedMenu {
 impl UiPresentationRuntime {
     /// Only launcher scenes with no live overlay or continuously animated preview are retained.
     fn retainable_menu(&self, runtime: &UiRuntime) -> Option<&MenuView> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if runtime.experiences.active || runtime.experiences.holds_world_entry() {
+            return None;
+        }
         let view = self.menu_view.as_deref()?;
         (view.visible
             && !view.over_world
@@ -32,6 +36,12 @@ impl UiPresentationRuntime {
             && view.key_remap.is_none()
             && !view.connecting
             && view.local.progress.is_none()
+            && !(view.screen == MenuScreen::Settings
+                && view.settings_section
+                    == launcher::menu::settings_sections::SettingSection::Mods
+                        .definition()
+                        .index
+                && !view.mods.library.update_progress.is_empty())
             && view.disconnect_message.is_none()
             && !view.auth_state.awaiting_browser()
             && !(view.screen == MenuScreen::Home
@@ -51,8 +61,6 @@ impl UiPresentationRuntime {
             && !runtime.forms.owns_input()
             && !runtime.credits.owns_input()
             && runtime.hud.toasts().is_empty()
-            && !runtime.experiences.active
-            && !runtime.experiences.holds_world_entry()
             && !self.screens.mod_ui.mod_panel_painting()
             && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)
@@ -111,5 +119,47 @@ impl UiPresentationRuntime {
             look: self.screens.oreui.look,
             offsets: self.menu_scrolls.offsets().clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod mod_update_tests {
+    use super::*;
+    use launcher::{
+        menu::settings_sections::SettingSection,
+        mods::{UpdatePhase, UpdateProgress},
+    };
+
+    #[test]
+    fn visible_mod_update_activity_keeps_frames_live_until_completion() {
+        let mut presentation =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        let runtime = UiRuntime::new(0);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = MenuScreen::Settings;
+        view.settings_section = SettingSection::Mods.definition().index;
+        Arc::make_mut(&mut view.mods).library.update_progress =
+            vec![UpdateProgress::stage(1, UpdatePhase::Reloading)];
+        presentation.set_menu_view(Some(view.clone()));
+        assert!(
+            presentation.retainable_menu(&runtime).is_none(),
+            "the activity indicator must keep animating while reloading"
+        );
+        view.settings_section = SettingSection::General.definition().index;
+        presentation.set_menu_view(Some(view.clone()));
+        assert!(
+            presentation.retainable_menu(&runtime).is_some(),
+            "hidden progress does not animate another settings page"
+        );
+        view.settings_section = SettingSection::Mods.definition().index;
+        Arc::make_mut(&mut view.mods)
+            .library
+            .update_progress
+            .clear();
+        presentation.set_menu_view(Some(view));
+        assert!(
+            presentation.retainable_menu(&runtime).is_some(),
+            "completed mod updates restore frame retention"
+        );
     }
 }

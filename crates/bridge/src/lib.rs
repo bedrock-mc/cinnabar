@@ -3,16 +3,18 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod account;
 mod account_data;
+mod player_identity;
 pub use account_data::{
     Account, Artwork, ConnectProgress, MessageEvent, Person, ProfileAchievement,
     ProfileAchievements, ProfileStatistics,
 };
+pub use player_identity::{valid_cinnabar_uuid, valid_cinnabar_xuid};
 #[cfg(not(target_arch = "wasm32"))]
 mod cinnabar_api;
 #[cfg(not(target_arch = "wasm32"))]
 pub use cinnabar_api::{
     CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
-    sync_cinnabar_players, valid_cinnabar_uuid, valid_cinnabar_xuid,
+    sync_cinnabar_players,
 };
 /// Shared values and wire enums for the Rust and Go bridge.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -63,7 +65,7 @@ pub use error::BridgeError;
 pub use framed::BridgeCodec;
 #[cfg(not(target_arch = "wasm32"))]
 pub use framed::FramedStream;
-pub use framed::{FrameQueue, FrameRead, FramedReader};
+pub use framed::{FrameQueue, FrameRead, FrameWritten, FramedReader};
 #[cfg(not(target_arch = "wasm32"))]
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,

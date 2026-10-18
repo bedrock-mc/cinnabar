@@ -69,7 +69,7 @@ impl ClientRandomId {
     }
 }
 
-/// The player's own settings a login reports, as vanilla's client takes them at join.
+/// Player settings captured once for login claims and the spawn sequence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoginSettings {
     /// The active UI language, in the `en_US` form of its lang file.
@@ -84,6 +84,8 @@ pub struct LoginSettings {
     pub graphics_mode: u8,
     /// Whether the player has enabled profanity filtering.
     pub filter_profanity: bool,
+    /// The selected view radius used by the first spawn request, not a login claim.
+    pub view_distance_chunks: u8,
     /// Trusted local archive directory, never sent in the upstream login claims.
     pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
@@ -97,6 +99,7 @@ impl Default for LoginSettings {
             memory_tier: SUPER_HIGH_MEMORY_TIER,
             graphics_mode: 1,
             filter_profanity: false,
+            view_distance_chunks: super::startup::DEFAULT_CHUNK_RADIUS,
             resource_pack_cache_dir: None,
         }
     }
@@ -160,7 +163,6 @@ pub(crate) fn login_client_data(
         "PlayFabId": "",
         "ServerAddress": "",
         "ThirdPartyName": display_name,
-        "ThirdPartyNameOnly": false,
         "UIProfile": 0,
     });
     let skin_claims = json!({
@@ -551,6 +553,21 @@ mod tests {
                 Some(filter_profanity),
                 "the selected preference must be present, including false"
             );
+        }
+    }
+
+    /// Modern login names omit the legacy name-only marker, including an offline name.
+    #[test]
+    fn claims_omit_the_legacy_name_only_marker() {
+        for name in ["Fixture", "Player Name", "测试"] {
+            let claims = login_client_data(
+                name,
+                ClientRandomId::new(-7).unwrap(),
+                None,
+                &LoginSettings::default(),
+            );
+            assert_eq!(claims["ThirdPartyName"], name);
+            assert!(claims.get("ThirdPartyNameOnly").is_none());
         }
     }
 

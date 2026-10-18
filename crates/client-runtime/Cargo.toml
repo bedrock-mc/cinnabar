@@ -9,6 +9,7 @@ publish = false
 test-support = ["client-session/test-support"]
 
 [dependencies]
+web-time.workspace = true
 env-compat = { path = "../env-compat" }
 anyhow.workspace = true
 bevy.workspace = true
@@ -19,17 +20,19 @@ client-state = { path = "../client-state" }
 client-ui = { path = "../client-ui" }
 client-world = { path = "../client-world" }
 diagnostics = { path = "../diagnostics" }
-launcher-host = { path = "../launcher-host" }
 meshing = { path = "../meshing" }
 pack-runtime = { path = "../pack-runtime" }
 protocol = { path = "../protocol" }
-redb = "4.3"
 tracing.workspace = true
 render = { path = "../render" }
 render-scene = { path = "../render-scene" }
 render-api = { path = "../render-api" }
 simulation-clock = { path = "../simulation-clock" }
 tokio.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+launcher-host = { path = "../launcher-host" }
+redb = "4.3"
 
 [dev-dependencies]
 protocol-ids = { path = "../protocol-ids" }

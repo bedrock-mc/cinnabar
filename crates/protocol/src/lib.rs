@@ -177,14 +177,16 @@ pub use item::{
     ItemRegistryEvent, ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
     KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_banner_patterns, item_book, item_bundle_id,
-    item_charged_projectile, item_custom_color, item_display, item_enchantment_level,
-    item_extra_damage, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns, item_book,
+    item_bundle_id, item_charged_projectile, item_custom_color, item_display,
+    item_enchantment_level, item_extra_damage, item_extra_damage_value, item_extra_unbreakable,
+    item_has_enchantment_list, item_stack_damage, item_use_progress_packet,
+    offhand_equipment_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,
+    item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
@@ -193,8 +195,8 @@ pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
     JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
     PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
-    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier,
-    network_stack_latency_reply,
+    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, WebSessionReader,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -251,7 +253,7 @@ pub use world::{
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
     ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockPhysics, CustomBlockVisuals,
     CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomPhysicalComponents, CustomSelection, CustomStateAxis,
+    CustomPermutation, CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis,
     CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
     DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,

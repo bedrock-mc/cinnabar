@@ -203,7 +203,7 @@ fn attack_admission_assisted_touch_target_within_both_limits_is_retained() {
 #[test]
 fn attack_admission_assisted_target_cannot_bypass_a_shorter_personal_reach() {
     let (mut world, mut captured) = assisted_fixture(1.5, true);
-    world.insert_resource(crate::modding::interaction::ModInteraction {
+    world.insert_resource(crate::interaction_override::ModInteraction {
         attack_reach: Some(1.0),
         ..Default::default()
     });
