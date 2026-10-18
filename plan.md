@@ -779,6 +779,14 @@ the handle sprite. Owning regressions and the focused crate check pass; the
 missing-part regression fails on the previous envelope model.
 Rendered/input acceptance, native-server placement and broader parity remain incomplete.
 
+## Flowerbed stem tint
+
+Flowerbed stems use biome grass tint while petals retain their sprite colours.
+Original-art compiler coverage checks every registered flowerbed state and the
+carrier roundtrip. The focused check and local BDS rendering with a rebuilt
+carrier pass against the official client's green stems. Broader terrain parity
+and hardware performance gates stay open.
+
 ## Bubble column terrain geometry
 
 Bubble columns compile separate outer and inner side shells with directional
