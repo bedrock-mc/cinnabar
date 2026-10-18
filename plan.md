@@ -1,3 +1,36 @@
+## Custom block and item texture inheritance
+
+Custom terrain aliases resolve their selected filenames against server packs and the
+installed carrier, retaining destination tint and UV sampling. Inventory thumbnails and
+cube sheets can read borrowed base-page materials. Standalone custom item icons can inherit
+base sprite files without creating replacements for ordinary vanilla items. The icon
+carrier retains raw source-filename bindings independently of processed thumbnails,
+including nonzero atlas variants and original mask alpha; older carriers require `make assets`.
+Isolated item texels admit ambient-occlusion and face-dimming flags; baked thumbnails
+honor disabled face dimming. GUI cubes that cannot retain this flag keep their unshaded
+thumbnail while their carried face sheet remains available. Grass-tinted thumbnails use the winning carried-grass
+overlay colour from the installed pack and server stack; other unresolved tint operations
+remain rejected. Each thumbnail prepares its material texels once and shares processed
+pixels between model faces.
+Block inventory geometry and materials use `minecraft:item_visual` descriptions when
+present, independently of placed-state transforms and world palette offsets. Compound
+placement traits with enabled-state lists retain complete state identities.
+
+Incomplete: full native comparison, additional carried tint families, non-cube custom items held as authored
+three-dimensional models, and hardware performance qualification. These rendering fixes
+do not close a parity gate.
+
+## Server-authored chat content
+
+Server message subtrees retain their parser bindings, custom definitions and hover controls
+inside the built-in chat placement. View-bound text survives retained factory refreshes.
+Open chat supplies hover feedback through non-consuming input panels and positions native
+tooltips at the pointer; zero-sized tooltip controls paint outside their layout rectangles.
+Regression fixtures cover refreshes, changed captions, hover entry/exit and display scaling.
+The reported pack was exercised offline with anonymous message text. Native version-matched
+input and command-edit acceptance and broader JSON-UI parity remain incomplete; no parity
+or performance gate closes here.
+
 ## Catalog cosmetics
 
 The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and independent
@@ -220,6 +253,13 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+One page driver schedules bounded retries with caller time and jitter, and cancels timers
+on suspension or disposal. Explicit retries retain the account after admission or busy
+refusals; expired or refused resume requires a new session. Typed control payloads share
+Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
+finishing a join retires control so the next login obtains a new generation.
+A valid resume replaces the prior relay controller and cancels its channels even during
+transport teardown. New play waits for the old handler to finish while retaining the account.
 
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
@@ -731,6 +771,9 @@ which misreports the builtin vertex index under nonzero base vertices.
 The Go core, local server, and fixture generator share a reviewed transport revision with
 corrected handshake addresses and probe cadence, connected control framing, reliability
 and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+The consumers now also include the merged fresh-entropy GUID, offline reply validation,
+final MTU selection, retry deadline, and split-memory fixes. A wire regression exercises
+the effective dependency, and manifest checks keep the three Go module pins together.
 
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
@@ -802,6 +845,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Login names omit the legacy ThirdPartyNameOnly marker while preserving ThirdPartyName.
+  Complete claim presence, ordering and platform lifecycle parity remain incomplete.
 - Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
   image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
@@ -2079,9 +2124,15 @@ not close a parity or visual acceptance gate.
   search while preserving rim-edge rounding and the existing draw order. Uniform sky
   colour conversions run at vertices. Actor readiness polls retained unique pipelines, and retained UI
   layers reuse composite bindings across both scene ping-pong views.
-- Single-sample SMAA writes its filtered result directly into the shared scene, removing
-  the extra restoration copy. The main scene transfer still preserves encoded material
-  blending and post-processing colour ownership.
+- SMAA writes its filtered result directly into every shared scene sample, removing the
+  restoration copy or draw. Depth edge detection rejects pixels below both edge thresholds
+  before reading the slope neighbours. Deferred nametags do not split otherwise compatible
+  transparent passes; their sharp text draws share one later pass in the same order.
+  The main scene transfer still preserves encoded material blending and post-processing
+  colour ownership. Native regression fixtures compare direct and restored LDR/HDR colour
+  with partial-sample overlays. World-projected UI shares compatible depth attachments across
+  material modes, with unchanged authored order and a separate-pass fallback while pipelines
+  compile. Native comparisons preserve LDR/HDR pixels at one and four samples.
 - Incomplete: these bounded native fixtures and work-count checks do not establish the
   MacBook Neo frame-rate gain or close the live frame, join, streaming or settings parity
   gates. Simple Graphics precipitation and stock Fancy Skies behavior remain unverified.
@@ -4602,8 +4653,8 @@ remain in the production build. The checkpoint is pushed through `2759e46d`;
 hosted run `34088016127` passed every job, including Windows acceptance,
 macOS workspace tests, and all desktop compile targets.
 The personal window ID is server-assigned and is retained from its open response.
-A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
-unavailable until the next session; broader timeout recovery remains incomplete.
+Open timeouts release local admission, and later server opens supply their actual
+window IDs. Broader timeout and reconnect behavior still needs live qualification.
 Offline reconnect currently generates a new player UUID, so reconnecting with the
 same display name is not a valid persistence witness. Block-item artwork, broader
 inventory gestures, and full inventory visual parity remain open.
@@ -4749,22 +4800,25 @@ project from the reviewed protocol-1001 records in three classes: 15,963 exact
 keys, 3,440 states that differ only by the new `minecraft:connection_*` /
 `minecraft:corner` keys (fences, panes, bars, stairs, trip wire), and 2,026
 states of 119 new retail blocks borrowed from reviewed schema-identical twins
-(poplar family, wool/concrete slabs and stairs, red shrub). 662 states are
+(poplar family, wool/concrete slabs and stairs, red shrub), plus eight shelf
+mushroom states admitted with authored geometry. 654 states are
 reserved. Retail item, biome (adds `dappled_forest`) and item-capacity tables are
 re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
 - The client still derives fence/pane/stair/trip-wire shapes from neighbours and
   ignores the server-sent 1.26.50 connection and corner states.
 - Twinned blocks use their twin's model, collision, light and friction; their
   own collision/light are unverified against the reference client.
-- `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
-  source and stay reserved (invisible, passable).
+- `straw_bed` (retail in 1.26.50) stays reserved (invisible, passable). Shelf
+  mushrooms now retain their source identities and collision, and compile the
+  pack-authored small/large models with all four facing transforms. Their bounce
+  and fall-damage responses remain **incomplete** in the movement census.
 - The pinned pack is bedrock-samples `v1.26.50.4` (release). New blocks draw
   their own pack textures through their twin's model family, and
   `dappled_forest` compiles its own biome rule (absent atmosphere/lighting
   components fall back to the default settings). All thirteen wood shelves now
-  compile recessed models with facing and powered front selection. Still
-  diagnostic: `red_shrub` (data-driven block whose texture lives only
-  in its behaviour-pack `material_instances`). The legacy icon crosswalk is
+  compile recessed models with facing and powered front selection. `red_shrub`
+  now consumes its behavior-pack cross geometry and material binding, including
+  its own texture, single-sided faces and disabled ambient occlusion. The legacy icon crosswalk is
   still the 26.30 client's, so poplar boats, cushions, and the poplar door and
   hanging-sign icons lack their sprite routes.
 
@@ -7198,7 +7252,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Locomotion, travel and replay share the preceding spin's compact liquid probe, including glide entry.
   Respawn search and ready anchors discard
   retained releases, active item-use charges, temporary use modifiers and pending launches from
-  the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
+  the old life, including their reserved input flags and facing. Item-use producers wait for
+  respawn completion before accepting new uses. Each distinct ready control retains a completion
+  before later server controls, including repeated positions; transport retries do not duplicate it.
+  Full respawn input suppression and tick continuity remain incomplete.
   Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
@@ -10014,3 +10071,87 @@ Menu, modal and custom form submissions include the final newline inside the res
 JSON string. Cancellation replies retain their absent response value. Encoded packet
 regressions cover scalar answers, arrays and escaped text. Full numeric formatting,
 string escaping and form admission/lifetime parity remain incomplete.
+
+## Inventory opening while mounted
+
+Inventory input resolves a retained mount through live actor authority and sends its runtime
+ID instead of the local player's ID. On-foot and unresolved mounts retain the personal
+request. The chosen runtime ID survives transport delay. Supported server window opens
+are handled without request correlation, including replies received after cancellation,
+timeout, or a changed target. An open settles the pending input without retaining reply
+history or sending a rejection close. Personal opens supersede storage; storage opens
+keep the active personal screen guard.
+Open timeouts release local admission without closing a guessed window ID.
+Item requests and admitted user closes retain their window generations for settlement.
+Full mount container, vehicle input and platform-specific inventory-opening guards
+remain incomplete.
+## Selected view radius during startup
+
+The join captures the saved render distance and uses it in the first chunk-radius
+request after StartGame. Startup and live updates share the existing request
+builder, so the selected radius stays separate from the advertised capability.
+Regression coverage exercises saved preferences with a hidden menu and the
+core-to-client spawn sequence, including a selection above the advertised byte.
+The focused startup and join suites, saved-setting checks and both owner checks
+pass, including a join selection above the advertised byte. Platform-specific
+scaling, duplicate update timing and full startup packet parity remain incomplete.
+
+2026-10-17 autumn foliage rendering (implemented, uncommitted): behavior-pack
+material instances now bind stateless builtin crosses, including red shrubs,
+with inset front/back planes and authored alpha/AO policy. Numeric leaf facts
+select species-authored falling particles through the pinned vocabulary; their
+pack motion and tint remain authoritative. Static particle texture UVs clamp
+within their own atlas rectangle, preserving atlas-relative terrain particles.
+Sugar cane uses narrower full-height cross planes shared by every growth state,
+with no random segment offsets. Its shared tint facts now select the grass biome
+colour, which remains attached when the compiler imports fallback alpha policy.
+
+The optimized client and world carrier were rebuilt. Hidden local-BDS captures
+confirm textured shrub crosses replacing diagnostic cubes, falling poplar leaves,
+and narrower cane geometry. Three focused compiler regressions passed; the added
+leaf-fact and GPU sampling regressions remain unrun. Specialized leaf emission
+probability still requires current-client confirmation; broad foliage parity
+remains INCOMPLETE. The cane tint regression failed before the correction and
+passes afterward for every growth state in both ID modes. The registry compiler
+reproduces the complete facts expansion with unchanged block/light carriers;
+local daylight captures confirm the corrected biome colour.
+
+
+**Short grass and shelf mushrooms (2026-10-17, local changes).** Short grass and
+fern use narrow crossed planes and a deterministic, column-seeded three-axis
+displacement shared by rendering and picking. Extensionless terrain textures
+prefer TGA over PNG in the offline compiler and runtime pack loader; explicit
+filenames retain their selected format. This restores the brighter short-grass
+art supplied alongside the darker PNG. Shelf mushroom states are admitted from
+the source registry, with bounded behavior-pack permutation resolution and
+shared geometry parsing for their growth sizes, facing, face UVs and material
+policy. Selection retains the oriented collision footprint and selects the cap.
+This does not close the general vegetation, lighting or component-model parity
+gates; arbitrary component permutations and mushroom movement responses remain
+incomplete.
+
+
+## Session custom item models and legacy declarations
+
+Legacy registry items admit declared stack limits and retain scalar durability,
+intrinsic shine and use-duration components. Custom block items share their
+authored inventory geometry and material sheets across camera hands, player
+equipment, inventory previews and dropped items. Resolved carried grass tint
+is baked into the sheet while alpha remains unchanged. Unsupported UV wrapping,
+material counts and unresolved tints retain the existing sprite fallback.
+
+Custom wearables referring to recognized native external armor models select
+a drawable model through the startup catalog's owner-specific armor definitions.
+Unrecognized missing models remain unresolved. The original custom texture and
+wearable slot continue to own the worn draw.
+
+Original synthetic regressions cover legacy facts, both hands, artwork replacement,
+preview and dropped geometry, tint, external model selection and unknown models.
+Broader custom-content parity and performance gates remain open; these changes
+do not close them.
+### Retained mod drawing
+
+Drawing permissions and connection fences cover legacy post effects, block highlights and
+unfiltered world observations. The retained drawing ABI is versioned separately. Geometry,
+renderer integration and entity anchors are incomplete; no rendering parity or performance
+gate is closed by these contracts.

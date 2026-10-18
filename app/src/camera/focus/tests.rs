@@ -665,7 +665,7 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
             runtime
                 .publish_local_runtime_id(&mut player, 1, 42)
                 .unwrap();
-            runtime.toggle_inventory(&mut player);
+            runtime.toggle_inventory(&mut player, None);
         });
     assert!(app.world().resource::<UiRuntimeResource>().inventory_open());
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;

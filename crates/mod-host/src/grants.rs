@@ -106,6 +106,24 @@ grants! {
     /// Allows sandboxed post passes and bounded world primitives.
     #[permission("Rendering", false)]
     pub render: bool,
+    /// Allows bounded retained world geometry.
+    #[permission("World drawing", false)]
+    pub world_draw: bool,
+    /// Allows session-authorized actor observations.
+    #[permission("Entity observation", false)]
+    pub entity_observe: bool,
+    /// Allows drawing attached to authorized actors.
+    #[permission("Entity highlights", false)]
+    pub entity_highlight: bool,
+    /// Allows elevated drawing and protected world observations.
+    #[permission("Through walls", false)]
+    pub render_through_walls: bool,
+    /// Allows bounded procedural drawing materials.
+    #[permission("Drawing materials", false)]
+    pub render_material: bool,
+    /// Allows sandboxed scene post effects.
+    #[permission("Post effects", false)]
+    pub render_post: bool,
     /// Lets render passes read scene depth.
     #[permission("Scene depth", false)]
     pub render_depth: bool,

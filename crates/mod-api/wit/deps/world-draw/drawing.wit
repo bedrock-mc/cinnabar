@@ -1,0 +1,12 @@
+package cinnabar:world-draw@0.1.0;
+
+/// Owner and connection scoped resources. Every mutation is a callback transaction.
+interface drawing {
+    flags permissions {
+        world-draw, entity-observe, entity-highlight, render-through-walls,
+        render-material, render-post,
+    }
+    record handle { owner: u64, generation: u64, slot: u64 }
+    enum error-code { denied, invalid, budget-exceeded, stale-handle, unsupported, in-use }
+    record draw-error { code: error-code, detail: string }
+}

@@ -11,13 +11,19 @@ type Read = Result<Option<Vec<u8>>, String>;
 pub(super) struct Inputs {
     pub(super) font: Read,
     pub(super) ui: Read,
+    pub(super) settings: super::admission::SettingsSeed,
 }
 
 impl Inputs {
-    /// Reads both applicable overrides so repairing either changes a rejected candidate's identity.
+    /// Captures override bytes and the exact preference input before guest initialization.
     pub(super) fn read(request: &Request) -> Self {
         let controls = request.source.grants.controls;
         Self {
+            settings: super::admission::settings_seed(
+                request.source.grants.settings,
+                request.settings.as_ref(),
+                &request.source.location.settings_anchor(),
+            ),
             font: read(
                 request.source.font.as_deref().filter(|_| controls),
                 font::MAX_SOURCE_BYTES,
@@ -29,7 +35,7 @@ impl Inputs {
         }
     }
 
-    /// Frames all effective source inputs, including read failures and committed preference seeds.
+    /// Frames source policy and override outcomes without rereading any file.
     pub(super) fn fingerprint(
         &self,
         request: &Request,
@@ -52,20 +58,6 @@ impl Inputs {
                 path.map_or(&[], |path| path.as_os_str().as_encoded_bytes()),
             );
             outcome(&mut digest, result);
-        }
-        if request.source.grants.settings {
-            if let Some((path, json)) = &request.settings {
-                digest.update([1]);
-                field(&mut digest, path.as_os_str().as_encoded_bytes());
-                field(&mut digest, json.as_bytes());
-            } else {
-                digest.update([2]);
-                let path = mod_host::settings_companion(&request.source.component);
-                field(&mut digest, path.as_os_str().as_encoded_bytes());
-                outcome(&mut digest, &read(Some(&path), mod_api::MAX_SETTINGS_BYTES));
-            }
-        } else {
-            digest.update([0]);
         }
         Ok(digest.finalize().into())
     }

@@ -260,6 +260,9 @@ pub(crate) fn entry_capacity_with_base(
             Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE)
         };
     }
+    if stack_component && vanilla.is_none() && entry.version == ItemRegistryVersion::Legacy {
+        return components.and_then(|components| components.max_stack_size_component);
+    }
     if stack_component {
         // The top-level stack component's effect on plain and vanilla items is unresolved.
         return None;
@@ -424,6 +427,40 @@ mod tests {
             ))),
             None
         );
+    }
+
+    #[test]
+    fn custom_content_legacy_items_use_declared_stack_capacity() {
+        for size in [1, 16, 64] {
+            let legacy = ItemRegistryEntry {
+                version: ItemRegistryVersion::Legacy,
+                components: Some(Arc::new(ItemComponents {
+                    max_stack_size: Some(size),
+                    max_stack_size_component: Some(size),
+                    max_stack_size_component_declared: true,
+                    ..Default::default()
+                })),
+                ..entry("fixture:legacy", false, None)
+            };
+            assert_eq!(entry_capacity(&legacy), Some(size));
+        }
+    }
+
+    #[test]
+    fn custom_content_legacy_scalar_capacity_is_independent_from_item_properties() {
+        let legacy = ItemRegistryEntry {
+            version: ItemRegistryVersion::Legacy,
+            negotiated_max_stack_size: Some(64),
+            components: Some(Arc::new(ItemComponents {
+                max_stack_size: Some(64),
+                max_stack_size_component: Some(1),
+                max_stack_size_component_declared: true,
+                item_properties_declared: true,
+                ..Default::default()
+            })),
+            ..entry("fixture:legacy", false, None)
+        };
+        assert_eq!(entry_capacity(&legacy), Some(1));
     }
 
     // A server block's own item is the BlockItem its block registers: not component based, no

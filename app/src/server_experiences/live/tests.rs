@@ -90,6 +90,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     let packages = (0..count)
         .map(|i| PackageOffer {
