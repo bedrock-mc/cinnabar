@@ -71,7 +71,7 @@ pub(super) struct OutboundRuntime<O, P, F, W> {
 
 struct QueuedPacket {
     packet: Packet,
-    sub_chunk: Option<protocol::SubChunkRequestReceipt>,
+    sub_chunk: Option<SubChunkRequestReceipt>,
     chat: Option<ChatPacketSend>,
     physics: Option<PhysicsSendIdentity>,
     physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
@@ -93,7 +93,7 @@ impl QueuedPacket {
 
 /// What to publish for one packet once its batch is written.
 struct Receipt {
-    sub_chunk: Option<protocol::SubChunkRequestReceipt>,
+    sub_chunk: Option<SubChunkRequestReceipt>,
     chat: Option<ChatPacketSend>,
     physics: Option<PhysicsSendIdentity>,
     trace_line: Option<String>,

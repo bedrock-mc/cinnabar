@@ -39,11 +39,28 @@ mod authored_reference_tests {
             "duplicate keys are ambiguous"
         );
         words[start + EnhancedTextureAssets::REFERENCE_OVERRIDE_WORDS] = 2;
-        words[start + 1] = 1 << 30;
-        assert!(
-            !EnhancedTextureAssets::references_are_valid(&words),
-            "keys contain only carrier bits"
-        );
+        for page in 0..assets::MAX_TEXTURE_PAGES as u32 {
+            words[start + 1] = TextureRef::new(page, assets::TEXTURE_LAYER_MASK)
+                .unwrap()
+                .raw();
+            assert!(EnhancedTextureAssets::references_are_valid(&words));
+        }
+        let carrier_bits =
+            (assets::TEXTURE_PAGE_MASK << assets::TEXTURE_PAGE_SHIFT) | assets::TEXTURE_LAYER_MASK;
+        for bit in 0..u32::BITS {
+            let raw = 1 << bit;
+            if raw & carrier_bits == 0 {
+                words[start + 1] = raw;
+                assert!(
+                    !EnhancedTextureAssets::references_are_valid(&words),
+                    "keys reject invalid carrier bits: {raw:#010x}"
+                );
+            }
+        }
+        for page in assets::MAX_TEXTURE_PAGES as u32..=assets::TEXTURE_PAGE_MASK {
+            words[start + 1] = page << assets::TEXTURE_PAGE_SHIFT;
+            assert!(!EnhancedTextureAssets::references_are_valid(&words));
+        }
     }
 }
 

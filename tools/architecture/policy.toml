@@ -196,9 +196,9 @@ test_support_features = ["test-support"]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support", "runtime-profile", "benchmark-mimalloc"]
-allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "far-terrain", "meshing", "assets", "world", "render-api", "test-time", "protocol", "protocol-ids"]
-# Protocol owns outbound request encoding and transport receipt records.
-forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "wgpu"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "far-terrain", "meshing", "assets", "world", "render-api", "test-time", "protocol-ids"]
+# Protocol is permitted only in fixtures; production consumes admitted world and publication contracts.
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -225,7 +225,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "render-api", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

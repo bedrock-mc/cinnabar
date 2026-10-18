@@ -2611,6 +2611,7 @@ dependencies = [
  "crossbeam-channel",
  "protocol",
  "protocol-ids",
+ "render-api",
  "serde_json",
  "server-experience",
  "simulation-clock",

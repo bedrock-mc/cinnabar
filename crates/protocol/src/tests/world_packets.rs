@@ -1,4 +1,5 @@
 use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
+use render_api::sub_chunk_requests::MAX_SUB_CHUNK_COLUMN_HEIGHT;
 
 #[path = "world_packets/block_sync.rs"]
 mod block_sync;
@@ -29,9 +30,9 @@ use bedrock_protocol_1_26_51::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_COLUMN_HEIGHT, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 
 /// `LevelEventStartRaining`, from gophertunnel `packet/level_event.go`

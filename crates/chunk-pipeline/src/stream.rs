@@ -23,13 +23,13 @@ use assets::{
 use client_world::ingestion::vanilla_dimension_range;
 use client_world::ingestion::{
     BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
-    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
-    SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent,
+    LevelChunkMode, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SyncedBlockUpdateEvent,
+    WorldBootstrap, WorldEvent,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
-use protocol::{
+use render_api::sub_chunk_requests::{
     MAX_SUB_CHUNK_COLUMN_HEIGHT, MAX_SUB_CHUNK_REQUESTS, SubChunkRequestMember,
-    SubChunkRequestReceipt, request_sub_chunks, sub_chunk_request_offset,
+    SubChunkRequestReceipt, sub_chunk_request_offset,
 };
 use thiserror::Error;
 use world::{
