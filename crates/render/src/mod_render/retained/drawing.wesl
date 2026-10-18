@@ -45,12 +45,12 @@ fn miter(n0: vec2<f32>, n1: vec2<f32>, bounded: bool) -> vec2<f32> {
     if bounded { extent = min(MITER_LIMIT, extent); }
     return bisector * extent;
 }
-/// Keeps the inner intersection within both adjacent clipped segment lengths.
+/// Gives each endpoint join at most half of either adjacent clipped segment.
 fn inner_miter(n0: vec2<f32>, n1: vec2<f32>, lengths: vec2<f32>, radius: f32) -> vec2<f32> {
     let corner = miter(n0,n1,false);
     let advance = abs(n0.x*corner.y-n0.y*corner.x)*radius;
-    // Projected coordinates span twice the pixel distance used by the stroke radius.
-    let available = min(lengths.x,lengths.y)*0.5;
+    // Projected lengths are twice their pixel length; neighboring joins share each segment.
+    let available = min(lengths.x,lengths.y)*0.25;
     return corner * min(1.0,available/max(advance,1e-5));
 }
 @vertex

@@ -5,7 +5,7 @@ use render_scene::mod_scene::retained::GpuInstance;
 
 /// Renders an admitted line through the production vertex and fragment shaders.
 fn line(gpu: &Gpu, positions: &[[f32; 3]], join: f32, blend: wgpu::BlendState) -> Vec<u8> {
-    transformed_line(gpu, positions, Mat4::IDENTITY, join, blend)
+    transformed_line(gpu, positions, Mat4::IDENTITY, 20., join, blend)
 }
 
 /// Renders local geometry with the same placement transform used by retained instances.
@@ -13,6 +13,7 @@ fn transformed_line(
     gpu: &Gpu,
     positions: &[[f32; 3]],
     transform: Mat4,
+    width: f32,
     join: f32,
     blend: wgpu::BlendState,
 ) -> Vec<u8> {
@@ -43,7 +44,7 @@ fn transformed_line(
     let instance = GpuInstance {
         transform: transform.to_cols_array_2d(),
         tint: [1.; 4],
-        line: [20., 1., join, 1.],
+        line: [width, 1., join, 1.],
     };
     let instances = gpu.buffer(
         bytemuck::cast_slice(&[instance]),
@@ -93,6 +94,7 @@ fn scaled_small_polyline_renders_the_same_stroke_as_world_sized_geometry() {
         &gpu,
         &[[0.; 3], [1e-8, 0., 0.]],
         Mat4::from_translation(Vec3::new(-0.5, 0., 0.5)) * Mat4::from_scale(Vec3::new(1e8, 1., 1.)),
+        20.,
         0.,
         blend,
     );
@@ -151,6 +153,54 @@ fn polyline_joins_cover_each_sample_once_for_alpha_and_additive_blending() {
                         );
                     }
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn consecutive_short_segment_joins_cover_each_sample_once() {
+    let Some(gpu) = Gpu::for_fixture("retained consecutive short joins") else {
+        return;
+    };
+    let additive = wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent::OVER,
+    };
+    for blend in [wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING, additive] {
+        for join in [0., 1., 2.] {
+            for sign in [1., -1.] {
+                // Pixel-space legs are 100, 10 and 100 pixels long with a 20-pixel radius.
+                let positions = [[-100., 0.], [0., 0.], [0., 10.], [100., 10.]]
+                    .map(|[x, y]| [x / 128., y * sign / 128., 0.5]);
+                let pixels = transformed_line(&gpu, &positions, Mat4::IDENTITY, 40., join, blend);
+                if join == 0.
+                    && sign > 0.
+                    && blend == wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING
+                {
+                    gpu_snapshot::save("retained-consecutive-short-joins", &pixels);
+                }
+                let expected = pixel(&pixels, 70, 128)[0];
+                assert!(
+                    expected > pixel(&pixels, 0, 0)[0],
+                    "stroke must remain visible"
+                );
+                assert!(
+                    pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|p| p[0] <= expected + 1),
+                    "consecutive joins blended twice: join={join}, sign={sign}, blend={blend:?}"
+                );
+                assert_eq!(
+                    pixel(&pixels, 128, if sign > 0. { 122 } else { 133 })[0],
+                    expected
+                );
             }
         }
     }
