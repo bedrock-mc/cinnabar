@@ -166,22 +166,15 @@ impl MemoryCarriers {
         .map(Arc::new)
     }
 
-    /// Admits an optional audio catalog only when its decoder and pinned source agree.
-    fn audio(&self) -> Result<Option<Arc<crate::RuntimeAudioCatalog>>, DeliveryError> {
-        let Some(bytes) = self.bytes.get(carriers::AUDIO.name) else {
-            return Ok(None);
-        };
-        let audio = crate::RuntimeAudioCatalog::decode(bytes).map_err(|error| {
-            DeliveryError(format!("invalid {}: {error}", carriers::AUDIO.output))
-        })?;
-        if audio.source_manifest_sha256()
-            != canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
-        {
-            return Err(DeliveryError(
-                "audio carrier source identity mismatch".into(),
-            ));
-        }
-        Ok(Some(Arc::new(audio)))
+    /// Keeps startup muted when the optional catalog is absent, invalid or from another source.
+    fn audio(&self) -> Option<Arc<crate::RuntimeAudioCatalog>> {
+        crate::RuntimeAudioCatalog::decode(self.read(&carriers::AUDIO).ok()?)
+            .ok()
+            .filter(|audio| {
+                audio.source_manifest_sha256()
+                    == canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
+            })
+            .map(Arc::new)
     }
 
     /// Verifies size and SHA-256 before publishing bytes; failed replacements retain old data.
@@ -258,7 +251,7 @@ impl MemoryCarriers {
                 protocol,
             )?;
             Ok(StartupCarriers {
-                audio: self.audio()?,
+                audio: self.audio(),
                 font: self.font(),
                 world: Arc::new(world),
                 item_facts,
@@ -329,31 +322,41 @@ mod tests {
     }
 
     #[test]
-    fn optional_audio_requires_valid_bytes_and_the_pinned_source() {
+    fn absent_optional_audio_keeps_startup_muted() {
         let missing = MemoryCarriers::new(manifest(b"unused")).unwrap();
-        assert!(missing.audio().unwrap().is_none());
+        assert!(missing.audio().is_none());
+    }
+
+    #[test]
+    fn valid_optional_audio_uses_the_pinned_catalog() {
         let pinned = canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes());
-        for (bytes, accepted) in [
-            (
-                crate::encode_audio_catalog(pinned, [0; 32], &[]).unwrap(),
-                true,
-            ),
-            (
-                crate::encode_audio_catalog([0; 32], [0; 32], &[]).unwrap(),
-                false,
-            ),
-            (b"invalid audio".to_vec(), false),
-        ] {
-            let mut index = manifest(&bytes);
-            index.entries.push(DeliveryEntry {
-                name: carriers::AUDIO.name.into(),
-                bytes: bytes.len() as u64,
-                sha256: Sha256::digest(&bytes).into(),
-            });
-            let mut source = MemoryCarriers::new(index).unwrap();
-            source.insert(carriers::AUDIO.name, bytes).unwrap();
-            assert_eq!(source.audio().is_ok(), accepted);
-        }
+        let source = delivered_audio(crate::encode_audio_catalog(pinned, [0; 32], &[]).unwrap());
+        assert_eq!(source.audio().unwrap().source_manifest_sha256(), pinned);
+    }
+
+    /// Delivers audio with a matching transport digest so catalog validation decides admission.
+    fn delivered_audio(bytes: Vec<u8>) -> MemoryCarriers {
+        let mut index = manifest(b"unused");
+        index.entries.push(DeliveryEntry {
+            name: carriers::AUDIO.name.into(),
+            bytes: bytes.len() as u64,
+            sha256: Sha256::digest(&bytes).into(),
+        });
+        let mut source = MemoryCarriers::new(index).unwrap();
+        source.insert(carriers::AUDIO.name, bytes).unwrap();
+        source
+    }
+
+    #[test]
+    fn malformed_optional_audio_keeps_startup_muted() {
+        let source = delivered_audio(b"invalid audio".to_vec());
+        assert!(source.audio().is_none());
+    }
+
+    #[test]
+    fn stale_optional_audio_keeps_startup_muted() {
+        let source = delivered_audio(crate::encode_audio_catalog([0; 32], [0; 32], &[]).unwrap());
+        assert!(source.audio().is_none());
     }
     #[test]
     fn optional_font_is_indexed_but_unknown_or_duplicate_entries_are_rejected() {
