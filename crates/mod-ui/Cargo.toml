@@ -14,7 +14,7 @@ glam.workspace = true
 json-ui = { path = "../json-ui" }
 render-model = { path = "../render-model" }
 serde_json = "1"
-server-experience = { path = "../server-experience" }
+server-experience = { path = "../server-experience", default-features = false, features = ["data"] }
 tracing.workspace = true
 ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }

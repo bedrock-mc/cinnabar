@@ -40,6 +40,7 @@ pub struct StartupSettings {
     pub inventory_authority: InventoryAuthority,
     pub hud_rules: HudRules,
     pub death_rules: DeathRules,
+    pub crafting_rules: crate::CraftingRules,
     pub player_game_mode: PlayerGameMode,
     /// The world default, which a later level-default sentinel resolves against.
     pub world_default_game_mode: GameModeUpdate,
@@ -83,6 +84,7 @@ impl GameData {
                 },
                 hud_rules: HudRules::from_start_game(start_game),
                 death_rules: DeathRules::from_start_game(start_game),
+                crafting_rules: crate::CraftingRules::from_start_game(start_game),
                 player_game_mode: PlayerGameMode::from_start_game(start_game),
                 world_default_game_mode: PlayerGameMode::world_default_update_from_start_game(
                     start_game,

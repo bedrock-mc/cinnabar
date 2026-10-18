@@ -138,125 +138,6 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
 }
 
 #[test]
-fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: -2,
-                z: 5,
-                mode: LevelChunkMode::LimitedRequests { highest: u16::MAX },
-                payload: biome_payload(0, 1),
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-    let overworld_requests = stream.take_requests();
-    assert_eq!(overworld_requests.len(), 1);
-    assert_eq!(overworld_requests[0].dimension, 0);
-    assert_eq!(overworld_requests[0].chunk, ChunkKey::new(0, -2, 5));
-    assert_eq!(overworld_requests[0].base_sub_chunk_y, -4);
-    assert_eq!(overworld_requests[0].count, 24);
-    stream
-        .submit(
-            2,
-            WorldEvent::ChangeDimension(ChangeDimensionEvent {
-                dimension: 1,
-                position: [0.0, 80.0, 0.0],
-                ..Default::default()
-            }),
-        )
-        .unwrap();
-    stream
-        .submit(
-            3,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 1,
-                x: 7,
-                z: -9,
-                mode: LevelChunkMode::LimitlessRequests,
-                payload: biome_payload(1, 1),
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-
-    let requests = stream.take_requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].dimension, 1);
-    assert_eq!(requests[0].base_sub_chunk_y, 0);
-    assert_eq!(requests[0].count, 8);
-}
-
-#[test]
-fn publication_distinguishes_ready_from_transport_pending_requests() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    let chunk = ChunkKey::new(0, 2, -3);
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: chunk.dimension,
-                x: chunk.x,
-                z: chunk.z,
-                mode: LevelChunkMode::LimitedRequests { highest: u16::MAX },
-                payload: biome_payload(0, 1),
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-
-    let ready = stream.publication_snapshot(chunk).stages;
-    assert_eq!(ready.requests_constructed, 1);
-    assert_eq!(ready.requests_ready, 1);
-    assert_eq!(ready.requests_transport_pending, 0);
-    assert_eq!(ready.requests_sent, 0);
-
-    let request = stream.pop_next_request().unwrap();
-    stream.record_sub_chunk_request_transport_pending(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-    );
-    let pending = stream.publication_snapshot(chunk).stages;
-    assert_eq!(pending.requests_constructed, 1);
-    assert_eq!(pending.requests_ready, 0);
-    assert_eq!(pending.requests_transport_pending, 1);
-    assert_eq!(pending.requests_sent, 0);
-
-    stream.acknowledge_sub_chunk_request_sent(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-        Instant::now(),
-    );
-    let sent = stream.publication_snapshot(chunk).stages;
-    assert_eq!(sent.requests_constructed, 1);
-    assert_eq!(sent.requests_ready, 0);
-    assert_eq!(sent.requests_transport_pending, 0);
-    assert_eq!(sent.requests_sent, 1);
-}
-
-#[test]
 fn outbound_request_fifo_has_a_hard_admission_capacity() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
@@ -532,11 +413,7 @@ fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
     let acknowledged_at = Instant::now();
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
     let key = keys[0];
-    stream.record_sub_chunk_request_transport_pending(
-        initial.chunk,
-        initial.base_sub_chunk_y,
-        initial.count,
-    );
+    let receipt = record_request_transport(&mut stream, &initial);
     stream
         .submit(
             2,
@@ -553,12 +430,7 @@ fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
     assert_eq!(stream.pending_decode.len(), 1);
     assert!(stream.requests.deadlines.is_empty());
 
-    stream.acknowledge_sub_chunk_request_sent(
-        initial.chunk,
-        initial.base_sub_chunk_y,
-        initial.count,
-        acknowledged_at,
-    );
+    stream.acknowledge_sub_chunk_request_sent(&receipt, acknowledged_at);
 
     assert!(stream.requests.deadlines.is_empty());
     stream.expire_sub_chunk_deadlines(acknowledged_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);

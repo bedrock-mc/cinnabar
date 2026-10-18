@@ -41,7 +41,7 @@ impl bevy::prelude::Plugin for RendererSetup {
     /// Keeps GL on the same display as Bevy's windows and installs first-frame recovery.
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
-        device::configure_render_settings(&mut settings);
+        render::device_settings::configure(&mut settings);
         let renderer = guarded::render_plugin(
             app,
             &self.data_root,
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn browser_requests_portable_webgpu_device_settings() {
         let mut settings = WgpuSettings::default();
-        device::configure_render_settings(&mut settings);
+        render::device_settings::configure(&mut settings);
         assert!(matches!(
             settings.priority,
             bevy::render::settings::WgpuSettingsPriority::WebGPU
@@ -78,7 +78,7 @@ mod tests {
             },
             ..Default::default()
         };
-        device::configure_render_settings(&mut settings);
+        render::device_settings::configure(&mut settings);
         assert!(matches!(
             settings.dx12_shader_compiler,
             wgpu::Dx12Compiler::Fxc

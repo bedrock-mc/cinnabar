@@ -13,14 +13,21 @@ use crate::ui_runtime::inventory_actions::recipe_book_entries;
 use ui::IconRef;
 use ui_screens::recipe_book::BookEntry;
 
-/// Uses the mode's default until the player explicitly chooses a layout.
+/// Reads the open controller's active layout, including its context default.
 pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &UiRuntime) -> bool {
     if ui_screens::furnace_book::active(player_runtime) {
-        return runtime.screen_state().furnace_book_open;
+        return runtime
+            .furnace_options(player_runtime)
+            .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook);
     }
-    let creative =
-        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
-    runtime.screen_state().book_open.unwrap_or(creative)
+    runtime
+        .inventory_controller(player_runtime)
+        .is_some_and(|controller| {
+            matches!(
+                controller.layout(),
+                protocol::InventoryLayout::RecipeBook | protocol::InventoryLayout::RecipeBookOnly
+            )
+        })
 }
 
 /// The listed entries' icons, in list order.

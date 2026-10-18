@@ -362,6 +362,10 @@ mod tests {
         assert_eq!(original.texture_key(), revised.texture_key());
         assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
         set.cosmetics = super::super::cosmetic_requests::requested(&[revised], &[], false);
+        let missing = cache.missing(&set);
+        assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
+        assert_eq!(missing.len(), 1);
+        cache.decode(&missing, &set);
         assert!(cache.missing(&set).is_empty());
         let frame = render_model::hats::thumbnail::prepared_frame(revised)
             .expect("new rig bounds despite the texture cache hit");

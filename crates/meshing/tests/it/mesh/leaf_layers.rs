@@ -272,11 +272,7 @@ fn deep_leaf_predicate_and_shared_plane_cross_every_primary_subchunk_boundary() 
             let neighbour = seasonal_leaf_chunk(mode, &[(adjacent, 1)]);
             let offset = std::array::from_fn(|test_axis| {
                 if test_axis == axis {
-                    if negative {
-                        -1
-                    } else {
-                        1
-                    }
+                    if negative { -1 } else { 1 }
                 } else {
                     0
                 }
@@ -312,5 +308,53 @@ fn deep_leaf_predicate_and_shared_plane_cross_every_primary_subchunk_boundary() 
             );
             assert_leaf_layer(&open, &assets, origin, false);
         }
+    }
+}
+
+#[test]
+fn opaque_leaves_use_solid_materials_and_remove_both_shared_faces() {
+    let assets = seasonal_leaf_fixture();
+    let classifier = BlockClassifier::new(0);
+    let origin = [8, 8, 8];
+    for face in Face::ALL {
+        let neighbour = leaf_neighbour(origin, face);
+        let chunk = seasonal_leaf_chunk(NetworkIdMode::Sequential, &[(origin, 1), (neighbour, 1)]);
+        let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &classifier,
+            &assets,
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&chunk),
+            &meshing::FullBrightLightSampler,
+            meshing::MeshOptions {
+                rendering: meshing::MeshRenderSettings {
+                    transparent_leaves: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        assert_leaf_layer(&mesh, &assets, origin, true);
+        assert_leaf_layer(&mesh, &assets, neighbour, true);
+        let shared_axis = match face {
+            Face::NegativeX | Face::PositiveX => 0,
+            Face::NegativeY | Face::PositiveY => 1,
+            _ => 2,
+        };
+        let plane = origin[shared_axis].max(neighbour[shared_axis]);
+        assert!(
+            !mesh.cube_quads().iter().any(|quad| {
+                let same_axis = match quad.face() {
+                    Face::NegativeX | Face::PositiveX => 0,
+                    Face::NegativeY | Face::PositiveY => 1,
+                    _ => 2,
+                };
+                let positive = matches!(
+                    quad.face(),
+                    Face::PositiveX | Face::PositiveY | Face::PositiveZ
+                );
+                same_axis == shared_axis && quad.origin()[shared_axis] + u8::from(positive) == plane
+            }),
+            "{face:?} shared plane must disappear"
+        );
     }
 }

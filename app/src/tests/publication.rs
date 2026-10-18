@@ -1,3 +1,4 @@
+use crate::game_frame::configure_client_frame_schedule;
 use std::time::Duration;
 
 use bevy::{
@@ -16,8 +17,8 @@ use crate::runtime::movement_evidence::emit_movement_evidence;
 use crate::runtime::shutdown::finish_acceptance_run;
 use crate::runtime::telemetry::send_player_auth_inputs;
 use crate::runtime::world::{
-    drive_world_stream, mesh_change_has_publication_permit, reconcile_world_stream_before_physics,
-    update_camera_medium,
+    camera_environment::update_camera_medium, drive_world_stream,
+    mesh_change_has_publication_permit, reconcile_world_stream_before_physics,
 };
 use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -31,8 +32,8 @@ use client_runtime::publication::{
 };
 use {
     crate::app::{
-        configure_client_frame_schedule, configure_client_production_frame_systems,
-        configure_client_runtime_frame_systems, session::configure_finish_system,
+        configure_client_production_frame_systems, configure_client_runtime_frame_systems,
+        session::configure_finish_system,
     },
     client_state::ClientFrameSet,
 };

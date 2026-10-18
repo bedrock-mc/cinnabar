@@ -1,39 +1,70 @@
 //! Browser-local control driver and verified asset download admission.
+use crate::relay::{self, AccountCommand, Host, Intent, Refresh};
 use assets::carriers::startup::delivery::{DeliveryManifest, MemoryCarriers, startup_carriers};
-use futures::{
-    FutureExt, StreamExt,
-    channel::{mpsc, oneshot},
+use futures::channel::{mpsc, oneshot};
+use js_sys::Function;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
 };
-use js_sys::{Function, Promise};
-use std::{cell::Cell, rc::Rc, time::Duration};
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
-use web_transport::{
-    CloseReason,
-    browser::BrowserTransport,
-    session::{AccountOperation, ControlEvent, Session},
-};
+use wasm_bindgen::prelude::{JsError, JsValue, wasm_bindgen};
+use wasm_bindgen_futures::spawn_local;
+use web_transport::{CloseReason, browser::BrowserTransport, session::AccountOperation};
 
-#[wasm_bindgen(module = "/../site/edges.mjs")]
-extern "C" {
-    fn milliseconds() -> f64;
-    fn delay(ms: u32) -> Promise;
-}
+mod audio;
+mod game;
+mod timer;
+pub use audio::SoundSource;
+pub use game::Game;
+
 /// Samples the browser's monotonic clock only at the platform edge.
 fn now() -> Duration {
-    Duration::from_secs_f64(milliseconds().max(0.0) / 1000.0)
+    Duration::from_secs_f64(timer::milliseconds().max(0.0) / 1000.0)
 }
-/// Supplies a browser deadline to the shared transport selector.
-async fn deadline() {
-    let _ = JsFuture::from(delay(10_000)).await;
+
+/// Supplies browser services to the one shared page driver.
+struct BrowserHost {
+    origin: String,
+    observe: Function,
+    account: Rc<RefCell<crate::launcher::RelayAccount>>,
+}
+impl Host for BrowserHost {
+    type Transport = BrowserTransport;
+    fn now(&self) -> Duration {
+        now()
+    }
+    fn jitter(&self) -> Duration {
+        Duration::from_secs_f64(js_sys::Math::random() * 0.5)
+    }
+    fn sleep(&self, duration: Duration) -> impl std::future::Future<Output = ()> {
+        timer::sleep(duration)
+    }
+    fn transports(&self) -> Result<(Option<BrowserTransport>, BrowserTransport), CloseReason> {
+        Ok((
+            BrowserTransport::new(&self.origin, true).ok(),
+            BrowserTransport::new(&self.origin, false)?,
+        ))
+    }
+    fn observe(&self, value: serde_json::Value) {
+        emit(&self.observe, value);
+    }
+    fn account(&self) -> &RefCell<crate::launcher::RelayAccount> {
+        &self.account
+    }
 }
 
 /// Owns bounded account commands; dropping the page cancels its controller.
 #[wasm_bindgen]
 pub struct Page {
-    commands: mpsc::Sender<AccountOperation>,
+    ready: Rc<Cell<bool>>,
+    account: Rc<RefCell<crate::launcher::RelayAccount>>,
+    observe: Function,
+    commands: mpsc::Sender<AccountCommand>,
+    joins: mpsc::Sender<crate::play::Request<web_transport::browser::BrowserStream>>,
     lifecycle: mpsc::Sender<()>,
     suspended: Rc<Cell<bool>>,
+    intent: Rc<Intent>,
     _cancel: oneshot::Sender<()>,
 }
 
@@ -42,103 +73,62 @@ impl Page {
     /// Opens QUIC first and falls back through the existing transport selector.
     #[wasm_bindgen(constructor)]
     pub fn new(origin: &str, observe: Function) -> Result<Page, JsError> {
-        let origin = origin.to_owned();
-        let (commands, mut pending) = mpsc::channel(4);
-        let (lifecycle, mut changed) = mpsc::channel(1);
+        let intent = Rc::new(Intent::default());
+        let ready = Rc::clone(&intent.ready);
+        let account = Rc::new(RefCell::new(crate::launcher::RelayAccount::default()));
+        let (commands, pending) = mpsc::channel(4);
+        let (joins, requests) = mpsc::channel(1);
+        let (lifecycle, changed) = mpsc::channel(1);
         let suspended = Rc::new(Cell::new(false));
-        let paused = Rc::clone(&suspended);
         let (cancel, cancelled) = oneshot::channel();
-        spawn_local(async move {
-            let mut session = Session::new();
-            let mut cancelled = cancelled.fuse();
-            let mut parked = false;
-            loop {
-                if paused.get() || parked {
-                    futures::select_biased! {
-                        _ = cancelled => break,
-                        signal = changed.next().fuse() => {
-                            if signal.is_none() { break; }
-                            while changed.try_recv().is_ok() {}
-                            parked = false;
-                            continue;
-                        }
-                    }
-                }
-                let run = {
-                    let drive = async {
-                        let quic = BrowserTransport::new(&origin, true).ok();
-                        let socket = BrowserTransport::new(&origin, false)?;
-                        web_transport::select(&mut session, quic, || socket, now, deadline).await?;
-                        while let Ok(operation) = pending.try_recv() {
-                            session.desire_account(operation);
-                        }
-                        session.flush_account().await?;
-                        loop {
-                            let command = {
-                                let event = session.next_event(now).fuse();
-                                let command = pending.next().fuse();
-                                futures::pin_mut!(event, command);
-                                futures::select! {
-                                    command = command => command,
-                                    event = event => {
-                                        match event? {
-                                            ControlEvent::Account(value) => {
-                                                let account: bridge::contract::AuthState = serde_json::from_value(value["state"].clone()).map_err(|_| CloseReason::Protocol)?;
-                                                emit(&observe, serde_json::json!({"state": account, "account": value}));
-                                            }
-                                            ControlEvent::Connect(value) => emit(&observe, serde_json::json!({"connect": value})),
-                                            ControlEvent::Error(_) => emit(&observe, serde_json::json!({"error": "relay refused request"})),
-                                            ControlEvent::Keepalive => {}
-                                        }
-                                        continue;
-                                    }
-                                }
-                            };
-                            match command {
-                                Some(mut operation) => {
-                                    while let Ok(next) = pending.try_recv() {
-                                        operation = next;
-                                    }
-                                    session.desire_account(operation);
-                                    session.flush_account().await?;
-                                }
-                                None => return Ok::<(), CloseReason>(()),
-                            }
-                        }
-                    };
-                    futures::pin_mut!(drive);
-                    futures::select_biased! {
-                        _ = cancelled => break,
-                        signal = changed.next().fuse() => {
-                            if signal.is_none() { break; }
-                            while changed.try_recv().is_ok() {}
-                            None
-                        },
-                        result = drive.fuse() => Some(result),
-                    }
-                };
-                session.close(CloseReason::Transport);
-                if run.is_some() {
-                    parked = true;
-                    emit(&observe, serde_json::json!({"state": "disconnected"}));
-                }
-            }
-            session.close(CloseReason::Cancelled);
-        });
+        spawn_local(relay::run(
+            BrowserHost {
+                origin: origin.to_owned(),
+                observe: observe.clone(),
+                account: Rc::clone(&account),
+            },
+            pending,
+            requests,
+            changed,
+            Rc::clone(&suspended),
+            Rc::clone(&intent),
+            cancelled,
+        ));
         Ok(Page {
+            ready,
+            account,
+            observe,
             commands,
+            joins,
             lifecycle,
             suspended,
+            intent,
             _cancel: cancel,
         })
     }
+    /// Retries control with this page's retained account capability.
+    pub fn reconnect(&mut self) {
+        self.intent.request(Refresh::Reconnect);
+        let _ = self.lifecycle.try_send(());
+    }
+    /// Starts an explicitly fresh account session after resume was refused or expired.
+    pub fn fresh_session(&mut self) {
+        self.account.borrow_mut().fresh_session();
+        self.intent.request(Refresh::Fresh);
+        let _ = self.lifecycle.try_send(());
+    }
     /// Coalesces sign-in intent in the shared controller after bounded command admission.
     pub fn sign_in(&mut self) -> Result<(), JsError> {
-        self.command(AccountOperation::SignIn)
+        self.account_intent(::launcher::menu::auth::AccountIntent::SignIn)
     }
     /// Signs out through the same relay control channel.
     pub fn sign_out(&mut self) -> Result<(), JsError> {
-        self.command(AccountOperation::SignOut)
+        self.account_intent(::launcher::menu::auth::AccountIntent::SignOut)
+    }
+
+    /// Cancels pending sign-in even if its device code has not arrived yet.
+    pub fn cancel_sign_in(&mut self) -> Result<(), JsError> {
+        self.account_intent(::launcher::menu::auth::AccountIntent::Cancel)
     }
 
     /// Retains resume capability while cached navigation closes the live relay transport.
@@ -152,15 +142,60 @@ impl Page {
     }
 }
 impl Page {
+    /// Requests ordered play I/O from the page's one account and reconnect driver.
+    pub async fn open_play(
+        &mut self,
+    ) -> Result<crate::play::Lease<web_transport::browser::BrowserStream>, CloseReason> {
+        let (reply, response) = oneshot::channel();
+        self.joins
+            .try_send(crate::play::Request { reply })
+            .map_err(|_| CloseReason::Transport)?;
+        response.await.map_err(|_| CloseReason::Cancelled)?
+    }
+
+    /// Admits a menu intent before updating presentation; full queues remain visible failures.
+    pub fn account_intent(
+        &mut self,
+        intent: ::launcher::menu::auth::AccountIntent,
+    ) -> Result<(), JsError> {
+        let mut next = self.account.borrow().clone();
+        next.request(intent);
+        if let Some(operation) = next.take_operation() {
+            self.command(operation)?;
+        }
+        *self.account.borrow_mut() = next;
+        Ok(())
+    }
+
+    /// Supplies plain account data to the game host without putting JS handles in resources.
+    pub fn menu_account(
+        &self,
+    ) -> (
+        ::launcher::menu::auth::AuthState,
+        ::launcher::menu::view::MenuProfile,
+        Option<::launcher::menu::view::JoinStage>,
+    ) {
+        let account = self.account.borrow();
+        (account.state(), account.profile(), account.join_stage())
+    }
+
+    /// Reports operation failures without changing a confirmed signed-in identity.
+    pub fn menu_account_error(&self) -> Option<String> {
+        self.account.borrow().operation_error().map(str::to_owned)
+    }
+
     /// Refuses additional UI actions while the controller's command slot is full.
     fn command(&mut self, operation: AccountOperation) -> Result<(), JsError> {
         self.commands
-            .try_send(operation)
+            .try_send(self.intent.account(operation))
             .map_err(|_| JsError::new("relay busy or disconnected"))
     }
 
     /// Coalesces lifecycle changes even when the bounded wake slot is already occupied.
     fn set_suspended(&mut self, suspended: bool) {
+        if suspended {
+            self.ready.set(false);
+        }
         self.suspended.set(suspended);
         let _ = self.lifecycle.try_send(());
     }
@@ -189,11 +224,19 @@ impl Carriers {
             .map(|source| Self { source })
             .map_err(error)
     }
-    /// Supplies canonical filenames; JS never maintains a carrier list.
+    /// Supplies canonical filenames and delivery requirements from the startup carrier set.
     pub fn entries(&self) -> String {
         serde_json::to_string(
-            &startup_carriers()
-                .map(|carrier| (carrier.name, carrier.output))
+            &self
+                .source
+                .entries()
+                .map(|carrier| {
+                    (
+                        carrier.name,
+                        carrier.output,
+                        startup_carriers().any(|required| required.name == carrier.name),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
         .expect("carrier strings")
@@ -205,6 +248,44 @@ impl Carriers {
     /// Runs all authoritative carrier and cross-carrier startup validators.
     pub fn validate(&self) -> Result<(), JsError> {
         self.source.decode_startup().map(|_| ()).map_err(error)
+    }
+
+    /// Transfers verified startup carriers to the game host and starts the existing canvas.
+    pub fn boot(
+        self,
+        canvas: String,
+        input: &crate::BrowserInput,
+        identity: i64,
+        audio: Option<SoundSource>,
+    ) -> Result<Game, JsError> {
+        console_error_panic_hook::set_once();
+        let startup = self.into_startup().map_err(error)?;
+        let identity = protocol::ClientRandomId::new(identity)
+            .ok_or_else(|| JsError::new("invalid client identity"))?;
+        let mut input = input.clone();
+        let (bank, audio_task) = match audio {
+            Some(audio) => {
+                let (bank, task) = audio.start(startup.audio.clone());
+                (Some(bank), Some(task))
+            }
+            None => (None, None),
+        };
+        let output = if bank.is_some() {
+            client_audio::named_audio::AudioDevice::open_default_once()
+        } else {
+            client_audio::named_audio::AudioDevice::disabled()
+        };
+        let audio = output.browser_audio();
+        let host = cinnabar::browser::run(
+            startup,
+            canvas,
+            identity,
+            Box::new(move || input.take_device()),
+            bank,
+            output,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(Game::new(host, audio, audio_task))
     }
 }
 /// Presents a carrier validation failure with the canonical rebuild hint.

@@ -598,15 +598,15 @@ impl UiPresentationRuntime {
 
 /// Wall-clock seconds since the Unix epoch, which live-event countdowns run to.
 pub(super) fn unix_seconds() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs() as i64)
 }
 
 /// A seed that picks this launch's splash from the wall clock's sub-second nanoseconds.
 fn splash_seed() -> usize {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.subsec_nanos() as usize)
 }
 

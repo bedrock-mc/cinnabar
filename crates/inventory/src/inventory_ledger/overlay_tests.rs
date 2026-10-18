@@ -1,15 +1,17 @@
 //! Native sparse prediction and response contracts.
 
+mod lifetimes;
+mod materialization;
 #[path = "overlay_tests/sparse.rs"]
 mod sparse;
 
 use std::sync::Arc;
 
 use protocol::{
-    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR, ContainerIdentity,
-    ContainerOpenEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
-    ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackRequestAction, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR, ContainerCloseEvent,
+    ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
+    InventorySlotEvent, ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackRequestAction,
+    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 
 use super::*;
@@ -35,15 +37,15 @@ fn player_content(slots: &[(usize, NetworkItemStack)]) -> InventoryEvent {
     })
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 
@@ -472,10 +474,9 @@ fn transport_pressure_drops_only_unsent_requests() {
     ledger.note_transport_pressure(20 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert_eq!(ledger.pending_request_count(), 1);
     assert_eq!(ledger.pending_request_id(), Some(admitted));
-    assert!(
-        ledger.cursor_stack().is_none(),
-        "discarded latest unsent owner does not resurrect an older snapshot"
-    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, admitted);
+    assert!(ledger.displayed_stack(0).is_none());
     assert!(!ledger.resync_required());
 }
 
@@ -613,4 +614,318 @@ fn timeouts_skip_accepted_requests_and_gate_only_their_surfaces() {
     );
     respond(&mut ledger, head, StackResponseStatus::Accepted, Vec::new());
     assert!(!ledger.resync_required());
+}
+
+/// An accepted screen response cannot correct a requested cell that has no sparse owner.
+#[test]
+fn parity_requests_unowned_response_cell_is_skipped() {
+    let untouched = stack(7, 77, 4);
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (1, untouched.clone())]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            1,
+            2,
+            78,
+        )],
+    );
+    assert_eq!(
+        ledger.displayed_stack(1),
+        Some(&untouched),
+        "unowned requested cell must stay unchanged"
+    );
+}
+
+/// A screen correction with a nonempty count needs a positive server stack identity.
+#[test]
+fn parity_requests_screen_response_rejects_legacy_identity() {
+    let original = stack(6, 10, 4);
+    let mut ledger = open_ledger(&[(0, original.clone())]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    let legacy_id = protocol::next_legacy_request_id().unwrap();
+    assert!(protocol::is_legacy_request_id(legacy_id));
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+            0,
+            3,
+            legacy_id,
+        )],
+    );
+    assert_eq!(
+        ledger.displayed_stack(0),
+        Some(&original),
+        "invalid screen response must leave backing truth"
+    );
+}
+
+/// Requested and destination addresses select the item snapshot and backing write separately.
+#[test]
+fn parity_requests_response_remap_preserves_original_fields() {
+    let mut ledger = open_ledger(&[(20, stack(6, 10, 4)), (0, stack(7, 11, 1))]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(20)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 2, 12);
+    let slot = &mut Arc::make_mut(&mut reply.slots)[0];
+    slot.hotbar_slot = 20;
+    slot.custom_name = Arc::from("Original probe label");
+    slot.filtered_custom_name = Arc::from("Filtered probe label");
+    slot.durability_correction = 3;
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![reply],
+    );
+    let held = ledger.displayed_stack(0).unwrap();
+    assert_eq!(
+        (held.network_id, held.count, held.stack_network_id),
+        (6, 2, 12)
+    );
+    let overlay = ledger.slot_overlay(0).unwrap();
+    assert_eq!(overlay.custom_name.as_deref(), Some("Original probe label"));
+    assert_eq!(
+        overlay.filtered_custom_name.as_deref(),
+        Some("Filtered probe label")
+    );
+    assert_eq!(overlay.durability_correction, Some(3));
+}
+
+/// Close cleanup and its admitted predecessor retain separate rejection correlation.
+#[test]
+fn parity_requests_close_rejection_dependency_matrix() {
+    for reject_take in [false, true] {
+        for close_first in [false, true] {
+            let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+            let take = ledger.begin_click(0).unwrap();
+            send_all(&mut ledger);
+            ledger.request_personal_close();
+            let cleanup = ledger.newest_request().expect("cleanup").request_id;
+            assert_ne!(cleanup, take);
+            send_all(&mut ledger);
+            let ack = InventoryEvent::Close(ContainerCloseEvent {
+                container: ContainerIdentity::window(2),
+                window_type: protocol::NO_CONTAINER_WINDOW_TYPE,
+                server_initiated: false,
+            });
+            if close_first {
+                ledger.apply(&ack);
+            }
+            respond(
+                &mut ledger,
+                take,
+                if reject_take {
+                    StackResponseStatus::Rejected
+                } else {
+                    StackResponseStatus::Accepted
+                },
+                if reject_take {
+                    vec![]
+                } else {
+                    vec![
+                        correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+                        correction(CONTAINER_NAME_CURSOR, 0, 4, 10),
+                    ]
+                },
+            );
+            respond(&mut ledger, cleanup, StackResponseStatus::Rejected, vec![]);
+            if !close_first {
+                ledger.apply(&ack);
+            }
+            assert_eq!(ledger.pending_request_count(), 0);
+            let player_count: u16 = (0..PLAYER_INVENTORY_SLOT_COUNT as u8)
+                .filter_map(|slot| ledger.displayed_stack(slot))
+                .map(|stack| stack.count)
+                .sum();
+            let cursor_count = ledger.cursor_stack().map_or(0, |stack| stack.count);
+            assert_eq!(
+                player_count + cursor_count,
+                4,
+                "rejection must retain items in player or cursor: take={reject_take} close={close_first}"
+            );
+            assert!(
+                !ledger.resync_required() || ledger.cursor_stack().is_some(),
+                "any recovery must have a retained item or a named authority requirement"
+            );
+        }
+    }
+}
+
+/// A late complete refresh retires timed-out prediction ownership before the next gesture.
+#[test]
+fn parity_requests_timeout_refresh_uses_latest_server_identity() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 8))]);
+    ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 7);
+    assert!(ledger.resync_required());
+    ledger.apply(&slot_push(0, stack(6, 77, 8)));
+    assert!(
+        ledger.resync_required(),
+        "a single player slot is not a complete surface refresh"
+    );
+    ledger.apply(&player_content(&[(0, stack(6, 77, 8))]));
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.pending_request_count(), 0);
+    ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    let StackRequestAction::Drop { source, .. } = ledger.newest_action().unwrap() else {
+        panic!("drop");
+    };
+    assert_eq!(source.stack_network_id, 77);
+}
+
+/// An unknown response container cannot discard valid corrections or lock the cursor.
+#[test]
+fn parity_requests_unknown_container_preserves_valid_cursor_corrections() {
+    let original = stack(6, 10, 4);
+    let mut ledger = open_ledger(&[(0, original.clone())]);
+    let request = ledger.begin_click(0).unwrap();
+    send_all(&mut ledger);
+    let mut unknown = correction(protocol::CONTAINER_NAME_LEVEL_ENTITY, 2, 1, 99);
+    unknown.container.dynamic_id = Some(900);
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![
+            unknown,
+            correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+            correction(CONTAINER_NAME_CURSOR, 0, 4, 10),
+        ],
+    );
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.cursor_stack().unwrap().count, original.count);
+    assert!(ledger.displayed_stack(0).is_none());
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(ledger.begin_click(1).is_ok());
+}
+
+/// Builds item data with independent name fields, damage and unrelated retained data.
+fn response_item_data(damage: i32, name: &str, filtered: Option<&str>) -> Arc<[u8]> {
+    /// Encodes one fixed little-endian NBT string.
+    fn string(out: &mut Vec<u8>, text: &str) {
+        out.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        out.extend_from_slice(text.as_bytes());
+    }
+    let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 10];
+    string(&mut extra, "display");
+    for (key, value) in [("Name", Some(name)), ("FilteredName", filtered)] {
+        if let Some(value) = value {
+            extra.push(8);
+            string(&mut extra, key);
+            string(&mut extra, value);
+        }
+    }
+    extra.push(0);
+    for (key, value) in [("Damage", damage), ("RepairCost", 9)] {
+        extra.push(3);
+        string(&mut extra, key);
+        extra.extend_from_slice(&value.to_le_bytes());
+    }
+    extra.push(0);
+    extra.extend_from_slice(&[0; 8]);
+    extra.into()
+}
+
+/// Accepted response fields materialize typed identity while empty original names stay untouched.
+#[test]
+fn accepted_response_updates_retained_item_identity() {
+    use sha2::{Digest, Sha256};
+    let mut failures = Vec::new();
+    for (name, filtered, damage, expected_name, expected_filtered) in [
+        ("New", "", 5, "New", None),
+        ("New", "Filtered new", 5, "New", Some("Filtered new")),
+        ("", "Ignored", 5, "Old", Some("Filtered old")),
+        ("", "", 0, "Old", Some("Filtered old")),
+        ("", "", 65535, "Old", Some("Filtered old")),
+        ("", "", 65543, "Old", Some("Filtered old")),
+        ("", "", 32768, "Old", Some("Filtered old")),
+    ] {
+        let mut original = stack(6, 10, 4);
+        original.extra_data = response_item_data(5, "Old", Some("Filtered old"));
+        original.nbt_digest = Sha256::digest(&original.extra_data).into();
+        let mut ledger = open_ledger(&[(0, original)]);
+        let request = ledger
+            .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+            .unwrap();
+        send_all(&mut ledger);
+        let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 3, 12);
+        let slot = &mut Arc::make_mut(&mut reply.slots)[0];
+        slot.custom_name = Arc::from(name);
+        slot.filtered_custom_name = Arc::from(filtered);
+        slot.durability_correction = damage;
+        respond(
+            &mut ledger,
+            request,
+            StackResponseStatus::Accepted,
+            vec![reply],
+        );
+        let retained = ledger.displayed_stack(0).unwrap();
+        let expected =
+            response_item_data(i32::from(damage as i16), expected_name, expected_filtered);
+        let equal = retained.extra_data == expected;
+        eprintln!(
+            "IDENTITY name={name:?} filtered={filtered:?} damage={damage} raw_matches={equal}"
+        );
+        assert_eq!(
+            retained.nbt_digest,
+            <[u8; 32]>::from(Sha256::digest(&retained.extra_data))
+        );
+        if !equal {
+            failures.push((name, filtered, damage));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// A filtered-only response cannot replace either half of the retained name.
+#[test]
+fn empty_original_response_name_preserves_filtered_identity() {
+    use sha2::{Digest, Sha256};
+    let mut original = stack(6, 10, 4);
+    original.extra_data = response_item_data(5, "Old", Some("Filtered old"));
+    original.nbt_digest = Sha256::digest(&original.extra_data).into();
+    let mut ledger = open_ledger(&[(0, original)]);
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    send_all(&mut ledger);
+    let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 3, 12);
+    let slot = &mut Arc::make_mut(&mut reply.slots)[0];
+    slot.custom_name = Arc::from("");
+    slot.filtered_custom_name = Arc::from("Ignored");
+    slot.durability_correction = 5;
+    respond(
+        &mut ledger,
+        request,
+        StackResponseStatus::Accepted,
+        vec![reply],
+    );
+    let overlay = ledger.presented_slot_overlay(0).unwrap();
+    eprintln!(
+        "FILTERED_ONLY name={:?} filtered={:?}",
+        overlay.custom_name, overlay.filtered_custom_name
+    );
+    assert!(overlay.custom_name.is_none());
+    assert!(overlay.filtered_custom_name.is_none());
 }

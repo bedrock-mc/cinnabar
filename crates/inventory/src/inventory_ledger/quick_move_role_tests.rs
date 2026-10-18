@@ -10,6 +10,9 @@ use serde::Deserialize;
 
 use super::*;
 
+#[path = "quick_move_role_tests/station_counts.rs"]
+mod station_counts;
+
 const SOURCE_SLOT: u8 = 20;
 
 /// Starts a server-backed player inventory with one registered item and known UI cells.
@@ -328,11 +331,11 @@ fn component_items_do_not_inherit_smithing_roles_from_a_stock_name() {
 }
 
 #[test]
-fn negotiated_banner_tag_routes_a_custom_item_to_the_loom() {
+fn a_banner_tag_does_not_replace_the_loom_item_identity() {
     let entry = tagged_entry("custom:standard", "minecraft:banner", None);
     let mut ledger = ledger(&entry, 11);
     open(&mut ledger, protocol::WINDOW_TYPE_LOOM);
-    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(9));
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
 }
 
 #[test]
@@ -415,20 +418,6 @@ fn registry_role_changes_retire_unsent_quick_moves_and_restore_the_source() {
             "minecraft:trim_materials",
             InventoryTarget::Player(0),
             InventoryTarget::Craft(52),
-        ),
-        (
-            protocol::WINDOW_TYPE_LOOM,
-            "minecraft:banner",
-            "minecraft:is_food",
-            InventoryTarget::Craft(9),
-            InventoryTarget::Player(0),
-        ),
-        (
-            protocol::WINDOW_TYPE_LOOM,
-            "minecraft:is_food",
-            "minecraft:banner",
-            InventoryTarget::Player(0),
-            InventoryTarget::Craft(9),
         ),
         (
             protocol::WINDOW_TYPE_HORSE,
@@ -681,3 +670,90 @@ fn fact_dependent_moves_keep_requests_when_destinations_do_not_change() {
         assert!(ledger.pending_batch().unwrap().is_some());
     }
 }
+
+/// Checks admission for manually placing an unrelated item into a station input.
+#[test]
+fn parity_actions_manual_station_placement_rejects_foreign_items() {
+    for (window, target) in [
+        (
+            protocol::WINDOW_TYPE_ENCHANTMENT,
+            InventoryTarget::Craft(15),
+        ),
+        (protocol::WINDOW_TYPE_BEACON, InventoryTarget::Craft(27)),
+    ] {
+        let entry = registered("minecraft:dirt");
+        let mut ledger = ledger(&entry, 0);
+        open(&mut ledger, window);
+        ledger.begin_click(SOURCE_SLOT).unwrap();
+        let queued = ledger.pending_request_count();
+        let result = ledger.begin_target_gesture(target, CellGesture::Click);
+        assert!(
+            result.is_err(),
+            "foreign manual placement admitted for {target:?}: {result:?}"
+        );
+        assert_eq!(ledger.pending_request_count(), queued);
+    }
+}
+
+/// Checks the one-item limit on a manually filled enchanting input.
+#[test]
+fn parity_actions_manual_enchant_input_has_one_item_limit() {
+    let entry = registered("minecraft:dirt");
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_ENCHANTMENT);
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[usize::from(SOURCE_SLOT)] = NetworkItemStack {
+        network_id: entry.network_id,
+        stack_network_id: 100,
+        count: 5,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&content(ContainerIdentity::window(0), slots));
+    ledger.begin_click(SOURCE_SLOT).unwrap();
+    ledger
+        .begin_target_gesture(InventoryTarget::Craft(14), CellGesture::Click)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(14))
+            .unwrap()
+            .count,
+        1
+    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+}
+
+/// Checks whether local station close emits a return for an occupied station input.
+#[test]
+fn parity_actions_close_returns_enchanting_input() {
+    let entry = registered("minecraft:diamond_sword");
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_ENCHANTMENT);
+    let mut slots = vec![NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+    slots[14] = NetworkItemStack {
+        network_id: entry.network_id,
+        stack_network_id: 101,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+        slots,
+    ));
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(14))
+            .unwrap()
+            .count,
+        1
+    );
+    ledger.request_storage_close();
+    assert!(
+        ledger.newest_request().is_some(),
+        "close must return the occupied station input"
+    );
+    assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_none());
+}
+
+#[path = "quick_move_role_tests/station_inputs.rs"]
+mod station_inputs;

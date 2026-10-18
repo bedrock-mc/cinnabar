@@ -34,10 +34,11 @@ func (relay *Relay) rotateLocked(session *webSession, retain string, now time.Ti
 
 // acknowledge accepts only the current, unexpired bearer. Echoing it prevents a delayed pong
 // from acknowledging a later replacement that the browser has not received.
-func (relay *Relay) acknowledge(session *webSession, token string, now time.Time) bool {
+func (relay *Relay) acknowledge(controller *sessionController, token string, now time.Time) bool {
 	relay.mu.Lock()
 	defer relay.mu.Unlock()
-	if token != session.token || relay.resumeLocked(token, now) != session {
+	session := controller.session
+	if session.controller != controller || controller.ctx.Err() != nil || token != session.token || relay.resumeLocked(token, now) != session {
 		return false
 	}
 	session.tokenPending = false

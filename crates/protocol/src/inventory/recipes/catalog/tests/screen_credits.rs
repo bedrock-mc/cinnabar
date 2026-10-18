@@ -147,7 +147,7 @@ fn refused_station_merge_retires_current_authority_without_changing_a_snapshot()
 }
 
 #[test]
-fn tombstones_and_duplicate_ids_release_replaced_station_names() {
+fn numeric_tombstones_retire_station_entries_but_keep_named_batch_credit() {
     for ids in [&[5][..], &[5, 5][..]] {
         let owner = Credits::isolated(LIMIT);
         let mut current = RecipeCatalog::default();
@@ -168,8 +168,18 @@ fn tombstones_and_duplicate_ids_release_replaced_station_names() {
         );
         assert!(current.apply_with_credits(1, 2, &replacement, &owner));
         assert!(current.screen_recipe_entries().is_empty());
-        assert!(name.upgrade().is_none());
+        assert!(current.recipe_identities().any(|identity| {
+            identity.identifier() == "test:station"
+                && identity.tag() == "stonecutter"
+                && identity.network_id() == 5
+        }));
+        assert!(name.upgrade().is_some());
         drop(replacement);
+        let clear = stations(&owner, true, &[], "stonecutter");
+        assert!(current.apply_with_credits(1, 3, &clear, &owner));
+        assert!(current.recipe_identities().next().is_none());
+        assert!(name.upgrade().is_none());
+        drop(clear);
         drop(current);
         assert_eq!(owner.used(), 0);
     }

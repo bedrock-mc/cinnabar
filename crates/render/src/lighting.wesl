@@ -101,17 +101,20 @@ fn tint_to_linear(rgba: vec4<f32>) -> vec4<f32> {
     return vec4(select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045)), rgba.a);
 }
 
-@group(1) @binding(0) var<uniform> world_lightmap: array<vec4<f32>, 256>;
+struct LightmapUniform {
+    raw: array<vec4<f32>, 256>,
+    native: array<vec4<f32>, 256>,
+}
+@group(1) @binding(0) var<uniform> world_lightmap: LightmapUniform;
 
 // Both nibbles address the same environment table in every ordinary world pass.
 fn light_colour(sample: u32) -> vec3<f32> {
-    return world_lightmap[sample & 255u].rgb;
+    return world_lightmap.raw[sample & 255u].rgb;
 }
 
-// The vanilla classic light texture stores RGB truncated to bytes before
-// lookups read it.
+// Native consumers read the byte-truncated table prepared once at upload.
 fn native_light_texel(sample: u32) -> vec3<f32> {
-    return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
+    return world_lightmap.native[sample & 255u].rgb;
 }
 
 // Current terrain emitters pack two four-bit levels. Installed near-version

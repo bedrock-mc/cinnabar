@@ -20,7 +20,7 @@ use client_ui::ui_runtime::UiRuntime;
 use diagnostics::metrics::MetricsCollector;
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         runtime::{
             network::session::NetworkControlEvent,
             shutdown::{FatalError, record_fatal_error},
@@ -203,6 +203,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         )))
         .insert_resource(ClientWorld::default())
         .init_resource::<FatalError>()
+        .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .insert_resource(movement)
         .insert_resource(physics)
         .insert_resource(AcceptanceRun::new(None, None, false, false))
@@ -297,6 +298,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         )))
         .insert_resource(ClientWorld::default())
         .init_resource::<FatalError>()
+        .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .insert_resource(movement)
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(AcceptanceRun::new(None, None, false, false))

@@ -10,18 +10,23 @@ button { padding: .6rem 1rem; } canvas { display: block; width: 100%; height: 40
 a { color: #a9dad2; }
 </style>
 <h1>Browser client setup</h1>
-<p>This preview verifies assets and connects account controls. Gameplay is not available yet.</p>
+<p>Start the client with a verified asset directory, connect your relay, then join a server. Click the game to capture the mouse; press Escape to release it.</p>
 <label>Relay origin <input id="relay" type="url" placeholder="Uses this page's HTTPS origin"></label>
 <button id="connect">Connect relay</button>
+<button id="fresh">New session</button>
 <button id="sign-in">Sign in</button> <button id="sign-out">Sign out</button>
 <p id="device" hidden>Open <a id="verification" target="_blank" rel="noopener noreferrer">the verification page</a> and enter <strong id="code"></strong>.</p>
 <label>Asset directory <input id="assets" type="url" placeholder="HTTPS directory ending in /"></label>
-<button id="prepare">Verify assets</button>
+<button id="prepare">Start client</button>
+<label>Server address <input id="server" placeholder="Server address and optional port" maxlength="255"></label>
+<button id="join" disabled>Join server</button> <button id="disconnect" disabled>Disconnect</button>
 <p id="status" role="status">Loading browser module…</p>
+<p id="audio-status" role="status"></p>
 <canvas id="game" aria-label="Client canvas"></canvas>
 <script type="module">
-import init, { Page, Carriers, BrowserInput, manifest_limit } from "./pkg/web_client.js";
-import { boundedBytes, canvasEdges, pageLifecycle } from "./edges.mjs";
+import init, { Page, Carriers, BrowserInput, SoundSource, sound_bank_filename, sound_bank_header_bytes, sound_bank_prefix_bytes, manifest_limit } from "./pkg/web_client.js";
+import { boundedBytes, downloadCarriers, canvasEdges, pageLifecycle } from "./edges.mjs";
+import { openSoundBank } from "./audio.mjs";
 /** Finds a page control by its stable DOM identifier. */
 const element = (id) => document.getElementById(id);
 const status = element("status");
@@ -42,46 +47,75 @@ function observe(json) {
 }
 
 /** Loads startup assets from an HTTPS directory using Rust's canonical names and validators. */
-async function prepare() {
+async function prepare(input) {
   const base = new URL(element("assets").value);
   if (base.protocol !== "https:" || !base.pathname.endsWith("/")) throw new Error("Use an HTTPS asset directory ending in /");
   const manifestResponse = await fetch(new URL("manifest.json", base), { credentials: "omit" });
   if (!manifestResponse.ok) throw new Error("Delivery manifest unavailable");
   const manifest = JSON.parse(new TextDecoder().decode(await boundedBytes(manifestResponse, manifest_limit(), false)));
-  const carriers = new Carriers(JSON.stringify(manifest));
+  let carriers = new Carriers(JSON.stringify(manifest));
+  let audio;
   try {
-    for (const [name, path] of JSON.parse(carriers.entries())) {
-      const entry = manifest.entries.find((entry) => entry.name === name);
-      const response = await fetch(new URL(path, base), { credentials: "omit" });
-      carriers.insert(name, await boundedBytes(response, entry.bytes));
+    await downloadCarriers(carriers, manifest, base);
+    const prepared = carriers;
+    carriers = null;
+    const identity = crypto.getRandomValues(new BigInt64Array(1))[0] || 1n;
+    try {
+      const bank = await openSoundBank(new URL(sound_bank_filename(), base), sound_bank_header_bytes(), sound_bank_prefix_bytes);
+      audio = new SoundSource(bank.prefix, bank.total, bank.source);
+      element("audio-status").textContent = "Click the game to enable sound.";
+    } catch (error) {
+      element("audio-status").textContent = `Sound unavailable: ${error.message}`;
     }
-    carriers.validate();
-    status.textContent = "Assets verified. Gameplay integration is pending.";
-  } finally { carriers.free(); }
+    const sound = audio;
+    audio = undefined;
+    return prepared.boot("#game", input, identity, sound);
+  } finally { carriers?.free(); audio?.free(); }
 }
 
 try {
   await init();
   let page;
+  let game;
+  let pageOrigin;
   element("connect").onclick = () => {
     try {
       const relay = new URL(element("relay").value || location.origin);
       if (relay.protocol !== "https:") throw new Error("Relay requires HTTPS");
-      page?.free(); page = new Page(relay.origin, observe);
+      if (page && pageOrigin === relay.origin) page.reconnect();
+      else { page?.free(); page = new Page(relay.origin, observe); pageOrigin = relay.origin; }
     } catch (error) { status.textContent = error.message; }
   };
+  element("fresh").onclick = () => page?.fresh_session();
   element("sign-in").onclick = () => { try { page?.sign_in(); } catch (error) { status.textContent = error.message; } };
   element("sign-out").onclick = () => { try { page?.sign_out(); } catch (error) { status.textContent = error.message; } };
   element("prepare").onclick = async () => {
     element("prepare").disabled = true;
-    try { await prepare(); } catch (error) { status.textContent = error.message; }
-    finally { element("prepare").disabled = false; }
+    try {
+      game = await prepare(input);
+      element("join").disabled = false;
+      element("disconnect").disabled = false;
+      status.textContent = "Client started. Connect the relay, then join a server.";
+    } catch (error) { status.textContent = error.message; }
+    finally { element("prepare").disabled = Boolean(game); }
   };
+  element("join").onclick = () => {
+    try {
+      if (!page) throw new Error("Connect the relay first");
+      game?.join(page, element("server").value);
+    } catch (error) { status.textContent = error.message; }
+  };
+  element("disconnect").onclick = () => game?.disconnect();
   const input = new BrowserInput();
-  const audio = new AudioContext();
+  const audio = {
+    /** Resumes the context retained by the game's output device. */
+    resume: () => game?.resume_audio() || Promise.resolve(),
+    /** Suspends that same context during cached navigation. */
+    suspend: () => game?.suspend_audio() || Promise.resolve(),
+  };
   const stop = canvasEdges(element("game"), input, audio);
   pageLifecycle(input, audio, () => page, () => {
-    stop(); input.free(); page?.free(); audio.close().catch(() => {});
+    stop(); game?.free(); input.free(); page?.free();
   });
 } catch (error) { status.textContent = error.message; }
 
