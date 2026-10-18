@@ -253,11 +253,16 @@ explicit gradients computed before rejection.
 Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
+Server archives can use a separate reliable WebTransport stream per join. The handoff receiver
+checks count and byte admission before accepting archives, verifies streamed SHA-256 digests,
+and waits for stream completion before startup. WebSocket keeps serial pack delivery on play.
+Incomplete: connecting this receiver to the playable browser host and browser acceptance remain
+part of the gameplay composition and release gates below.
 One page driver schedules bounded retries with caller time and jitter, and cancels timers
 on suspension or disposal. Explicit retries retain the account after admission or busy
 refusals; expired or refused resume requires a new session. Typed control payloads share
 Go/Rust wire fixtures, including idle join progress. Play opening has a host deadline;
-finishing a join retires control so the next login obtains a new generation.
+finishing a join resets its play and pack channels while retaining control.
 A valid resume replaces the prior relay controller and cancels its channels even during
 transport teardown. New play waits for the old handler to finish while retaining the account.
 
