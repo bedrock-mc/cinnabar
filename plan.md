@@ -10217,3 +10217,11 @@ Swept collision clipping and overlap recovery share the same face-contact tolera
 Tiny overlaps no longer create a landing against an adjacent wall or an unsolicited
 separation move. Larger penetrations still resolve. This bounded geometry correction
 does not close complete collision-engine, terrain or current-version movement parity.
+
+### Reject item releases after a selected count change
+
+Releasing after a selected count change now ends the old use without sending a
+release for the replacement stack. Held updates retain their start snapshot, an
+unchanged count still releases, and an already-observed release retains its retry
+policy. Full item identity, unavailable-selection, deferred-release and use-phase
+parity remain incomplete.
