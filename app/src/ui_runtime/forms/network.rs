@@ -10,6 +10,7 @@ pub(crate) fn flush_server_form_network(
     player: Res<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    world: Option<Res<crate::runtime::world::ClientWorld>>,
 ) {
     let session = runtime.session_id();
     // Terminal controls retire the session before another enqueue attempt.
@@ -49,14 +50,25 @@ pub(crate) fn flush_server_form_network(
             .send_form_packet(session, protocol::server_settings_request_packet())
             .is_ok()
     });
-    let _ = flush_form_response(&mut runtime, |packet| {
-        network
-            .send_form_packet(session, packet)
-            .map_err(|error| match error {
-                PacketSendError::Full(_) => FormTransportError::Full,
-                PacketSendError::Closed(_) => FormTransportError::Closed,
-            })
-    });
+    let _ = flush_form_response(
+        &mut runtime,
+        |actor| {
+            world
+                .as_ref()
+                .and_then(|world| world.stream.as_ref())
+                .is_some_and(|stream| {
+                    stream.authority().actor_lifetime(actor.runtime_id) == Some(actor)
+                })
+        },
+        |packet| {
+            network
+                .send_form_packet(session, packet)
+                .map_err(|error| match error {
+                    PacketSendError::Full(_) => FormTransportError::Full,
+                    PacketSendError::Closed(_) => FormTransportError::Closed,
+                })
+        },
+    );
 }
 
 #[cfg(test)]
