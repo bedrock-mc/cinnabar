@@ -44,13 +44,12 @@ fn catalog(recipes: Vec<RecipeFixture>) -> RecipeCatalog {
     catalog
 }
 
-/// Represent one ordinary, plain grid item.
+/// Represents one ordinary ingredient descriptor.
 fn item(identifier: &str) -> Option<CraftGridItem<'_>> {
     Some(CraftGridItem {
         identifier,
         metadata: 0,
         count: 1,
-        plain: true,
         tags: &[],
     })
 }
@@ -122,9 +121,9 @@ fn shapeless_recipes_assign_each_cell_once() {
     }
 }
 
-/// Tags, item data and metadata never match loosely; two recipes are ambiguous.
+/// Unknown tags and wrong metadata cannot match; equal-priority different outputs are ambiguous.
 #[test]
-fn tags_data_and_duplicates_fail_closed() {
+fn tags_metadata_and_duplicates_fail_closed() {
     let mut unknown = recipe(1, 1, false, &[Some("custom:unknown_tag")]);
     unknown.ingredients[0].descriptor[0].0 = "item_tag".into();
     let catalog_with_tag = catalog(vec![unknown]);
@@ -151,16 +150,12 @@ fn tags_data_and_duplicates_fail_closed() {
         CraftGridMatch::Ambiguous
     ));
     let single = catalog(vec![recipe(1, 1, false, &[Some("a:x")])]);
-    let mut data = item("a:x");
-    data.as_mut().unwrap().plain = false;
     let mut variant = item("a:x");
     variant.as_mut().unwrap().metadata = 1;
-    for cell in [data, variant] {
-        assert!(matches!(
-            match_crafting_grid(&single, 2, &[cell, None, None, None]),
-            CraftGridMatch::NoMatch
-        ));
-    }
+    assert!(matches!(
+        match_crafting_grid(&single, 2, &[variant, None, None, None]),
+        CraftGridMatch::NoMatch
+    ));
     assert!(matches!(
         match_crafting_grid(
             &RecipeCatalog::default(),

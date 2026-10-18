@@ -181,7 +181,11 @@ fn run_case(name: &str, wire: Option<Bytes>, hold_world: bool) {
                     interaction: None,
                 })
                 .unwrap();
-            commands.try_send(NetworkCommand::FlushFrame).unwrap();
+            commands
+                .try_send(NetworkCommand::FlushFrame {
+                    cache_opportunity: false,
+                })
+                .unwrap();
             let sent = sent_rx.recv_timeout(Duration::from_secs(2)).unwrap();
             assert_eq!(sent.wire, expected, "movement bytes changed at tick {tick}");
             queued.push(sent.selected - started);

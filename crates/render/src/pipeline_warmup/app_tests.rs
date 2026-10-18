@@ -100,6 +100,7 @@ fn pass(revision: u64, enabled: bool) -> mod_render::Pass {
         name: format!("grade-{revision}"),
         order: 0,
         depth: false,
+        masks: Vec::new(),
         source: GRADE.into(),
         shader: mod_render::shader::compose(GRADE, false).unwrap().into(),
         revision,
@@ -110,8 +111,10 @@ fn pass(revision: u64, enabled: bool) -> mod_render::Pass {
 
 fn mods(app: &mut App, enabled: bool) {
     let output = mod_render::RenderOutput {
+        masks: Default::default(),
         passes: vec![pass(1, true), pass(2, enabled)],
         primitives: default(),
+        ..Default::default()
     };
     let mut scene = app.world_mut().resource_mut::<ModRenderScene>();
     let generation = scene.generation() + 1;

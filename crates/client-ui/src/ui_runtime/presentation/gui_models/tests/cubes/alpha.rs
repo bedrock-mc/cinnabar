@@ -50,6 +50,26 @@ pub(super) fn world(flags: [u32; 6]) -> RuntimeAssets {
 }
 
 #[test]
+fn carried_cubes_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
+    for face in BlockFace::ALL {
+        let mut flags = [0; 6];
+        flags[face as usize] = assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
+        let (mut presentation, entities) = catalog_for(ITEM, 255, 255);
+        presentation
+            .set_gui_models(&world(flags), &entities)
+            .unwrap();
+        let icon = presentation
+            .item_icon(ITEM, 0)
+            .expect("thumbnail remains available");
+        assert!(!presentation.gui_models.models.contains_key(&icon_key(icon)));
+        let mut nodes = [control(icon, 255, false)];
+        let original = nodes.clone();
+        presentation.apply_gui_models(&mut nodes);
+        assert_eq!(nodes, original, "the slot retains its baked thumbnail");
+    }
+}
+
+#[test]
 fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
     let threshold = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD;
     for flags in [0, assets::MATERIAL_FLAG_ALPHA_CUTOUT] {

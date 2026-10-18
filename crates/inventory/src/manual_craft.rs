@@ -89,7 +89,6 @@ pub(crate) fn validate_grid<'a>(
             (Some(expected), Some(stack)) => {
                 if stack.count() < u16::from(expected.count())
                     || !expected.accepts_metadata(stack.metadata())
-                    || !protocol::empty_recipe_extra(stack.extra_data())
                     || lookup(stack.network_id())?.identifier.as_ref() != expected.name()
                 {
                     return Err(ManualCraftError::Unsupported);
@@ -135,6 +134,7 @@ impl ManualCraftPlan {
             if let (Some(count), Some(input)) = (counts[index], input) {
                 if input.slot != 28 + index as u8
                     || input.stack.stack_network_id() <= 0
+                    || crate::item_permissions::special_removal_locked(input.stack.extra_data())
                     || consume
                         .iter()
                         .flatten()

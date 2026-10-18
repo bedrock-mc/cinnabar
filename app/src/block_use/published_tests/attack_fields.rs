@@ -151,11 +151,14 @@ fn attack_fields_sample_the_current_slot_and_full_held_descriptor() {
         (actor.item.network_id, actor.item.count, actor.item.metadata),
         (300, 16, 0)
     );
-    assert_eq!(actor.item.stack_network_id, Some(5));
+    assert_eq!(actor.item.stack_network_id, None);
     assert_eq!(actor.item.block_runtime_id, 0);
     assert_eq!(tx.legacy_request_id, 0);
     assert!(tx.legacy_set_slots.is_none());
     assert!(tx.actions.is_empty());
+    let player = world.resource::<client_state::PlayerRuntime>();
+    let selected = player.inventory.ledger().displayed_stack(3).unwrap();
+    assert_eq!(selected.stack_network_id, 5);
 }
 
 #[test]

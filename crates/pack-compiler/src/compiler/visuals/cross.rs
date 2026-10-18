@@ -5,7 +5,7 @@ use {super::super::*, assets::BlockFace};
 
 /// Fixed-point inset of an ordinary nine-tenths-width plant sprite.
 pub(in crate::compiler) const PLANT_INSET: i16 = 13;
-/// Fixed-point inset of the narrower berry and pitcher flower sprites.
+/// Fixed-point inset of narrow plant sprites.
 pub(in crate::compiler) const NARROW_PLANT_INSET: i16 = 36;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -14,6 +14,9 @@ pub(in crate::compiler) enum Geometry {
     CropRows,
     Torchflower,
     BerryBush,
+    Reeds,
+    Grass,
+    ComponentCross { single_sided: bool },
 }
 
 pub(in crate::compiler) type TemplateKey = ([u32; 2], Geometry);
@@ -48,11 +51,21 @@ pub(in crate::compiler) fn compile_rule(
         )
     {
         let materials = [material_a, material_b];
-        let geometry = match block_render_fact(&record.name).kind {
-            R::CropRows => Geometry::CropRows,
-            R::Torchflower => Geometry::Torchflower,
-            R::BerryBush => Geometry::BerryBush,
-            _ => Geometry::Diagonal,
+        let geometry = if let Some(material) = inputs.pack.blocks.component_cross(&record.name) {
+            Geometry::ComponentCross {
+                single_sided: material.single_sided,
+            }
+        } else {
+            match block_render_fact(&record.name).kind {
+                R::CropRows => Geometry::CropRows,
+                R::Torchflower => Geometry::Torchflower,
+                R::BerryBush => Geometry::BerryBush,
+                R::GrassCross => Geometry::Grass,
+                _ if shape_traits(record).contains(assets::facts::shape::ShapeTraits::REEDS) => {
+                    Geometry::Reeds
+                }
+                _ => Geometry::Diagonal,
+            }
         };
         let key = (materials, geometry);
         let template = if let Some(&template) = templates.get(&key) {
@@ -62,9 +75,19 @@ pub(in crate::compiler) fn compile_rule(
                 Geometry::CropRows => crop_row_quads(material_a).to_vec(),
                 Geometry::Torchflower => plant_quads(material_a, 256, 0, PLANT_INSET).to_vec(),
                 Geometry::BerryBush => plant_quads(material_a, 256, 0, NARROW_PLANT_INSET).to_vec(),
+                Geometry::Reeds => plant_quads(material_a, 256, 0, NARROW_PLANT_INSET).to_vec(),
+                Geometry::Grass => plant_quads(material_a, 256, 0, NARROW_PLANT_INSET).to_vec(),
                 Geometry::Diagonal => crossed_quads(materials).to_vec(),
+                Geometry::ComponentCross { single_sided } => {
+                    component_cross_quads(material_a, single_sided)
+                }
             };
-            let template = push_model_template(quads, 0, storage.templates, storage.quads)?;
+            let flags = if geometry == Geometry::Grass {
+                assets::MODEL_TEMPLATE_FLAG_SHORT_GRASS
+            } else {
+                0
+            };
+            let template = push_model_template(quads, flags, storage.templates, storage.quads)?;
             templates.insert(key, template);
             template
         };
@@ -74,6 +97,42 @@ pub(in crate::compiler) fn compile_rule(
         visual.variant = variant;
     }
     Ok(CompileRuleResult::Compiled(visual))
+}
+
+/// Reads plant membership from the same shape rules that compile selection bounds.
+fn shape_traits(record: &RegistryRecord) -> assets::facts::shape::ShapeTraits {
+    use assets::facts::{rules, shape::ShapeTraits};
+    let Ok(state) = serde_json::from_str(&record.canonical_state) else {
+        return ShapeTraits::empty();
+    };
+    rules::evaluate(
+        &record.name,
+        &state,
+        record.model_family,
+        record.flags,
+        &rules::policy().block_rules,
+    )
+    .2
+}
+
+/// The built-in cross has inset planes and independently textured front and back faces.
+fn component_cross_quads(material: u32, single_sided: bool) -> Vec<ModelQuad> {
+    let planes = plant_quads(material, 256, 0, PLANT_INSET);
+    if !single_sided {
+        return planes.to_vec();
+    }
+    planes
+        .into_iter()
+        .flat_map(|mut front| {
+            front.flags = 0;
+            let mut back = front;
+            back.positions.swap(0, 1);
+            back.positions.swap(2, 3);
+            // Each authored face reads the whole image from its own outside view.
+            back.uvs = front.uvs;
+            [front, back]
+        })
+        .collect()
 }
 
 /// Emits four full-width crop rows, lowered 1/16 to meet farmland's surface.

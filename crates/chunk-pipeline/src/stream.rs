@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use web_time::Instant;
 // Keyed stream state uses hashbrown's seeded foldhash: SipHash dominated frame-thread lookups.
 use hashbrown::{HashMap, HashSet};
 use std::{
@@ -7,7 +8,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use ::meshing::{
@@ -360,6 +361,8 @@ pub struct WorldStream {
     block_cracks: block_cracks::BlockCracks,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     classifier: BlockClassifier,
+    mesh_render_settings: ::meshing::MeshRenderSettings,
+    mesh_render_revision: u64,
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,

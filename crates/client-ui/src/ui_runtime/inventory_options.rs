@@ -43,8 +43,10 @@ impl UiRuntime {
 
     /// Captures preferences at screen admission without touching pointer or station input state.
     pub(super) fn initialize_inventory_controller(&mut self, player: &player_state::PlayerState) {
-        if self.screen.inventory.is_none() {
-            self.screen.inventory = self.inventory_controller(player);
+        if self.screen.inventory.is_none()
+            && let Some(controller) = self.inventory_controller(player)
+        {
+            self.screen.set_inventory_controller(controller);
         }
     }
 
@@ -77,9 +79,7 @@ impl UiRuntime {
             }
             player.inventory.set_inventory_options(next.options);
         }
-        self.screen.inventory = Some(next);
-        self.screen.container_scroll.clear();
-        self.screen.book_page = 0;
+        self.screen.set_inventory_controller(next);
         Ok(0)
     }
 
@@ -155,14 +155,15 @@ impl UiRuntime {
             controller.options.right_tab = tab
         })
     }
-}
 
-impl super::screen_state::ScreenState {
-    /// Projects the captured left tab into the existing category order.
-    pub fn creative_tab(&self) -> u8 {
-        inventory_tab_ui(self.inventory.map_or(InventoryTab::Search, |controller| {
-            controller.options.left_tab
-        }))
+    /// Projects the resolved controller's left tab into the existing category order.
+    pub fn creative_tab(&self, player: &player_state::PlayerState) -> u8 {
+        inventory_tab_ui(
+            self.inventory_controller(player)
+                .map_or(InventoryTab::Search, |controller| {
+                    controller.options.left_tab
+                }),
+        )
         .unwrap_or(SEARCH_TAB)
     }
 }

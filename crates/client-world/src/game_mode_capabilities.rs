@@ -27,6 +27,42 @@ pub mod ability_bit {
     pub const VERTICAL_FLY_SPEED: u32 = 1 << 19;
 }
 
+/// Known ability-layer identities shared by effective permission consumers.
+pub mod ability_layer {
+    pub const COUNT: usize = 6;
+    pub const BASE: usize = 1;
+    pub const SPECTATOR: usize = super::SPECTATOR_LAYER_TYPE as usize;
+}
+
+/// Spectator ability layer type, per the pinned gophertunnel
+/// `minecraft/protocol/ability.go` (`AbilityLayerTypeSpectator`).
+pub const SPECTATOR_LAYER_TYPE: u16 = 2;
+
+/// Effective server flight and whether local requests may change it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlightAuthority {
+    /// Ordinary layers permit the local flight toggle.
+    Mutable(bool),
+    /// A higher layer keeps its value across local toggle requests.
+    Fixed(bool),
+}
+
+impl Default for FlightAuthority {
+    fn default() -> Self {
+        Self::Mutable(false)
+    }
+}
+
+impl FlightAuthority {
+    /// Returns the effective server value independently of local requests.
+    #[must_use]
+    pub const fn is_flying(self) -> bool {
+        match self {
+            Self::Mutable(value) | Self::Fixed(value) => value,
+        }
+    }
+}
+
 /// The interaction gates one game mode grants, after server ability overrides.
 ///
 /// `attack_reach` is 0.0 exactly when attacking is disallowed. `creative_reach`
@@ -44,7 +80,7 @@ pub struct GameModeCapabilities {
     pub can_use_items: bool,
     pub can_attack: bool,
     pub can_fly: bool,
-    pub flying: bool,
+    pub flight: FlightAuthority,
     pub creative_inventory: bool,
     /// Creative destruction route, independent of the Instabuild ability.
     pub instant_break: bool,
@@ -67,7 +103,7 @@ impl GameModeCapabilities {
                 can_use_items: true,
                 can_attack: true,
                 can_fly: false,
-                flying: false,
+                flight: FlightAuthority::Mutable(false),
                 creative_inventory: false,
                 instant_break: false,
                 invulnerable: false,
@@ -84,7 +120,7 @@ impl GameModeCapabilities {
                 can_use_items: true,
                 can_attack: true,
                 can_fly: true,
-                flying: false,
+                flight: FlightAuthority::Mutable(false),
                 creative_inventory: true,
                 instant_break: true,
                 invulnerable: true,
@@ -103,7 +139,7 @@ impl GameModeCapabilities {
                 can_use_items: true,
                 can_attack: true,
                 can_fly: false,
-                flying: false,
+                flight: FlightAuthority::Mutable(false),
                 creative_inventory: false,
                 instant_break: false,
                 invulnerable: false,
@@ -120,7 +156,7 @@ impl GameModeCapabilities {
                 can_use_items: false,
                 can_attack: false,
                 can_fly: false,
-                flying: true,
+                flight: FlightAuthority::Fixed(true),
                 creative_inventory: false,
                 instant_break: false,
                 invulnerable: true,
@@ -165,8 +201,13 @@ impl GameModeCapabilities {
         if let Some(may_fly) = resolved(ability_bit::MAY_FLY) {
             caps.can_fly = may_fly;
         }
-        if let Some(flying) = resolved(ability_bit::FLYING) {
-            caps.flying = flying;
+        if let Some(layer) = resolved_layer(abilities, ability_bit::FLYING) {
+            let flying = layer.values & ability_bit::FLYING != 0;
+            caps.flight = if layer.layer_type >= SPECTATOR_LAYER_TYPE {
+                FlightAuthority::Fixed(flying)
+            } else {
+                FlightAuthority::Mutable(flying)
+            };
         }
         if let Some(invulnerable) = resolved(ability_bit::INVULNERABLE) {
             caps.invulnerable = invulnerable;
@@ -191,7 +232,7 @@ pub fn resolved_layer(
     let AbilityLayersEvidence::Received(layers) = &update.layers else {
         return None;
     };
-    (0..6).rev().find_map(|kind| {
+    (0..ability_layer::COUNT as u16).rev().find_map(|kind| {
         layers
             .iter()
             .rev()

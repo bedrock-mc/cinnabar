@@ -55,10 +55,8 @@ pub(super) fn creative_page(
     let runtime = items.runtime;
     let presentation = items.presentation;
     if inventory_screen == InventoryScreen::Creative {
-        let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-            runtime.inventory_ledger(player_runtime),
-            runtime,
-        );
+        let entries =
+            crate::ui_runtime::inventory_actions::visible_creative_entries(player_runtime, runtime);
         let first = runtime.screen_state().creative_row * presentation::screens::GRID_COLUMNS;
         for (cell, item) in entries
             .iter()

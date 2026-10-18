@@ -194,7 +194,15 @@ pub fn compile_pack_with_material_keys(
     registry_protocol: u32,
 ) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
-    compile_pack_inner(root, records, light_properties, biomes, registry_protocol)
+    let pack = pack_compile_input::pack::read_pack_with_behavior(root, behavior_pack, records)?;
+    compile_pack_sources(
+        root,
+        pack,
+        records,
+        light_properties,
+        biomes,
+        registry_protocol,
+    )
 }
 
 /// Reads and compiles a bounded animation staging plan without changing the
@@ -252,6 +260,25 @@ fn compile_pack_inner(
     registry_protocol: u32,
 ) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let pack = read_pack(root)?;
+    compile_pack_sources(
+        root,
+        pack,
+        records,
+        light_properties,
+        biomes,
+        registry_protocol,
+    )
+}
+
+/// Compiles already admitted resource and behavior inputs through one material/model pipeline.
+fn compile_pack_sources(
+    root: &Path,
+    pack: PackSources,
+    records: &[RegistryRecord],
+    light_properties: &[LightProperties],
+    biomes: CompiledBiomeAssets,
+    registry_protocol: u32,
+) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     validate_records(records)?;
     let fallback = visuals::fallback::inventory(registry_protocol)?;
 

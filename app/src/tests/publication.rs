@@ -1,3 +1,4 @@
+use crate::game_frame::configure_client_frame_schedule;
 use std::time::Duration;
 
 use bevy::{
@@ -31,8 +32,8 @@ use client_runtime::publication::{
 };
 use {
     crate::app::{
-        configure_client_frame_schedule, configure_client_production_frame_systems,
-        configure_client_runtime_frame_systems, session::configure_finish_system,
+        configure_client_production_frame_systems, configure_client_runtime_frame_systems,
+        session::configure_finish_system,
     },
     client_state::ClientFrameSet,
 };

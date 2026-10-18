@@ -442,6 +442,29 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     return actor_colour(input, front);
 }
 
+@if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)
+@group(2) @binding(0) var mask_dissolve_depth: texture_depth_2d;
+@if(MASK_DISSOLVE_MSAA)
+@group(2) @binding(0) var mask_dissolve_depth: texture_depth_multisampled_2d;
+
+@fragment
+fn actor_mask_fragment(input: VertexOutput, @builtin(front_facing) front: bool,
+    @if(MASK_DISSOLVE_MSAA) @builtin(sample_index) sample_index: u32,
+) -> @location(0) vec4<f32> {
+    // The scene's function owns every material rejection and multisample cutout footprint.
+    let colour = actor_colour(input, front);
+    @if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)
+    let companion_depth = textureLoad(mask_dissolve_depth, vec2<i32>(input.position.xy), 0);
+    @if(MASK_DISSOLVE_MSAA)
+    let companion_depth = textureLoad(mask_dissolve_depth, vec2<i32>(input.position.xy), i32(sample_index));
+    @if(MASK_DISSOLVE)
+    if (companion_depth == 0.0 || input.position.z != companion_depth) { discard; }
+    @if(MASK_BLEND)
+    return vec4(vec3(clamp(colour.a, 0.0, 1.0)), 1.0);
+    @if(!MASK_BLEND)
+    return vec4(vec3(1.0), colour.a);
+}
+
 @if(ACTOR_MOTION)
 // Both frames retain local detail by projecting their actor roots relative to their cameras.
 fn actor_motion_velocity(input: VertexOutput) -> vec2<f32> {

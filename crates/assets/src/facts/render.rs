@@ -89,6 +89,8 @@ pub enum BlockRenderKind {
     DefaultRail,
     CropRows,
     Torchflower,
+    AuthoredModel,
+    GrassCross,
 }
 
 /// Cold identity admission for pack compilation; frame paths retain typed model handles.
@@ -184,7 +186,8 @@ impl BlockRenderKind {
     pub const fn route(self) -> BlockRenderRoute {
         use BlockRenderKind as R;
         let (model, cutout, priority_cutout, overrides_fallback) = match self {
-            R::RespawnAnchor
+            R::AuthoredModel
+            | R::RespawnAnchor
             | R::Shelf
             | R::SeaPickle
             | R::BrewingStand
@@ -194,7 +197,8 @@ impl BlockRenderKind {
             | R::Lever
             | R::EndRod
             | R::LightningRod => (true, true, true, true),
-            R::Chain
+            R::GrassCross
+            | R::Chain
             | R::Ladder
             | R::Seagrass
             | R::Kelp

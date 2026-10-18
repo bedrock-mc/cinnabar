@@ -1,8 +1,9 @@
 //! The menu's presented data: saved servers, catalog cards, and the per-frame
 //! view the renderers draw from.
 
+use crate::download::DownloadTracker;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
@@ -238,92 +239,6 @@ pub struct JoinProgress {
     download: DownloadTracker,
 }
 
-/// Minimum download time before the rate steadies enough to show.
-const DOWNLOAD_RATE_MIN_ELAPSED: Duration = Duration::from_millis(500);
-/// How far back the rate averages, so a stall fades instead of sticking.
-const DOWNLOAD_WINDOW: Duration = Duration::from_secs(3);
-/// Minimum spacing between samples, independent of rendering frequency.
-const DOWNLOAD_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
-/// Sample capacity, with room for the full averaging window.
-const DOWNLOAD_SAMPLES: usize = 16;
-
-/// Rolling average for the current pack download, owned by the join it measures.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct DownloadTracker {
-    samples: [Option<(u64, Instant)>; DOWNLOAD_SAMPLES],
-    len: usize,
-    rate_bytes_per_sec: Option<u64>,
-    eta_secs: Option<u64>,
-}
-
-impl DownloadTracker {
-    /// Clears the sample history and estimates for a new download.
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    /// Samples download progress at a bounded rate and updates its estimates.
-    fn observe(&mut self, received_bytes: u64, total_bytes: u64, now: Instant) {
-        if self.len > 0 {
-            let (last_bytes, last_time) = self.samples[self.len - 1].expect("tracked sample");
-            if received_bytes < last_bytes {
-                // A retry restarts its bytes, so the old window no longer applies.
-                self.reset();
-            } else if now.checked_duration_since(last_time).unwrap_or_default()
-                < DOWNLOAD_SAMPLE_INTERVAL
-            {
-                return;
-            }
-        }
-        if self.len < DOWNLOAD_SAMPLES {
-            self.samples[self.len] = Some((received_bytes, now));
-            self.len += 1;
-        } else {
-            self.samples.copy_within(1..DOWNLOAD_SAMPLES, 0);
-            self.samples[DOWNLOAD_SAMPLES - 1] = Some((received_bytes, now));
-        }
-        // Keep only the trailing window so a stall ages out instead of sticking.
-        while self.len > 1 {
-            let (_, oldest_time) = self.samples[0].expect("tracked sample");
-            if now.checked_duration_since(oldest_time).unwrap_or_default() <= DOWNLOAD_WINDOW {
-                break;
-            }
-            self.samples.copy_within(1..self.len, 0);
-            self.samples[self.len - 1] = None;
-            self.len -= 1;
-        }
-        let (oldest_bytes, oldest_time) = self.samples[0].expect("tracked sample");
-        let (newest_bytes, newest_time) = self.samples[self.len - 1].expect("tracked sample");
-        let elapsed = newest_time
-            .checked_duration_since(oldest_time)
-            .unwrap_or_default();
-        if elapsed < DOWNLOAD_RATE_MIN_ELAPSED {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        let elapsed_secs = elapsed.as_secs_f64();
-        if !elapsed_secs.is_finite() || elapsed_secs <= 0.0 {
-            return;
-        }
-        let delta = newest_bytes.saturating_sub(oldest_bytes);
-        if delta == 0 {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        let rate = (delta as f64 / elapsed_secs) as u64;
-        if rate == 0 {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        self.rate_bytes_per_sec = Some(rate);
-        let remaining = total_bytes.saturating_sub(received_bytes);
-        self.eta_secs = Some(remaining.div_ceil(rate));
-    }
-}
-
 impl JoinProgress {
     pub fn new(kind: JoinKind) -> Self {
         Self {
@@ -373,12 +288,12 @@ impl JoinProgress {
 
     /// Average pack download speed over the trailing window, once it steadies.
     pub fn bytes_per_sec(&self) -> Option<u64> {
-        self.download.rate_bytes_per_sec
+        self.download.bytes_per_sec()
     }
 
     /// Estimated seconds until the pack download completes, once the rate steadies.
     pub fn eta_secs(&self) -> Option<u64> {
-        self.download.eta_secs
+        self.download.eta_secs()
     }
 
     /// Whether vanilla's handler for this stage lets the player cancel.
