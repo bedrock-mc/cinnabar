@@ -1,5 +1,6 @@
 use launcher::menu::settings_options::SettingId;
 mod cancel;
+pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
@@ -9,6 +10,7 @@ mod remapping;
 mod server_list;
 mod settings_pointer;
 
+use clipboard::MenuClipboard;
 use context::MenuInputContext;
 use settings_pointer::{native_release_action, update_slider};
 
@@ -21,16 +23,13 @@ use bevy::{
         mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
         touch::Touches,
     },
-    prelude::{
-        ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Resource, Single,
-        With,
-    },
+    prelude::{ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Single, With},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatClipboard, ChatEditor, ToastPress, UiPoint};
+use ui::{ChatEditor, ToastPress, UiPoint};
 
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use launcher::menu::view::MenuCaret;
 use {super::MenuRuntime, launcher::menu::MenuField};
 
@@ -39,62 +38,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F1, SettingId::HideHud),
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
-
-#[derive(Resource)]
-pub struct MenuClipboard(
-    Box<dyn FnMut(usize) -> Option<String> + Send + Sync + 'static>,
-    Box<dyn FnMut(String) + Send + Sync + 'static>,
-);
-
-impl MenuClipboard {
-    pub fn with_access(
-        reader: impl FnMut(usize) -> Option<String> + Send + Sync + 'static,
-        writer: impl FnMut(String) + Send + Sync + 'static,
-    ) -> Self {
-        Self(Box::new(reader), Box::new(writer))
-    }
-
-    fn read_text_bounded(&mut self, maximum_bytes: usize) -> Option<String> {
-        (self.0)(maximum_bytes)
-    }
-
-    pub fn write_text(&mut self, text: String) {
-        (self.1)(text);
-    }
-}
-
-impl Default for MenuClipboard {
-    fn default() -> Self {
-        let mut reader = PlatformClipboard;
-        let mut writer = PlatformClipboard;
-        Self::with_access(
-            move |maximum_bytes| {
-                reader
-                    .read_text_bounded(maximum_bytes)
-                    .ok()
-                    .flatten()
-                    .map(|text| text.to_string())
-            },
-            move |text| {
-                let _ = writer.write_text(text);
-            },
-        )
-    }
-}
-
-impl ChatClipboard for MenuClipboard {
-    type Error = std::convert::Infallible;
-
-    fn read_text_bounded(
-        &mut self,
-        maximum_bytes: usize,
-    ) -> Result<Option<std::sync::Arc<str>>, Self::Error> {
-        Ok(self
-            .read_text_bounded(maximum_bytes)
-            .filter(|text| text.len() <= maximum_bytes)
-            .map(std::sync::Arc::from))
-    }
-}
 
 #[derive(Default)]
 pub struct MenuModifiers(u8);

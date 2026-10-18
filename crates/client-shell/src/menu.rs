@@ -56,8 +56,9 @@ use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
 use core_process::{auth_cache_path, core_executable};
+pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, MenuClipboard, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
