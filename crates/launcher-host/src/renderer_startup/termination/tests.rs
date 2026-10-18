@@ -114,9 +114,12 @@ fn completed_leases_cannot_cancel_another_startup() {
     first.begin(attempt()).unwrap();
     let mut active = Active::default();
     active.register(root.path(), first.lock.as_ref().unwrap());
+    // A child can retain this descriptor between fork and exec.
+    let inherited_descriptor = first.lock.as_ref().unwrap().0.try_clone().unwrap();
     first.presented().unwrap();
     let mut next = StartupGuard::open(root.path()).unwrap();
     next.begin(attempt()).unwrap();
     active.cancel();
     assert_eq!(StartupGuard::pending(root.path()).unwrap(), Some(attempt()));
+    drop(inherited_descriptor);
 }
