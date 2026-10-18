@@ -99,10 +99,10 @@ pub(crate) fn step(
             return Step::new(attempt, Progress::Complete);
         }
         let clock = RepeatClock::for_state(context.time.elapsed(), &state, game_mode);
-        let mode = protocol_input_mode(input.mode);
+        let mode = protocol_input_mode(input.context.mode);
         if let Some(actor) = actor_use::prepare(
             &context,
-            &input.origin,
+            &input.context.origin,
             &selection,
             game_mode,
             pick,
@@ -115,10 +115,10 @@ pub(crate) fn step(
         } else if let Some(observed) = observe_use_target(
             &player,
             &context,
-            &input.origin,
+            &input.context.origin,
             mode,
             clock.survival,
-            input.identity,
+            input.context.identity,
             movement.interaction_authority_identity().1,
             &runtime,
             Some(pick),
@@ -131,7 +131,7 @@ pub(crate) fn step(
                 ItemUseTrigger::PlayerInput,
                 clock.now,
                 clock,
-                input.view,
+                input.context.view,
             )));
         } else {
             runtime.record(
@@ -145,11 +145,7 @@ pub(crate) fn step(
         }
     }
     if let Some(Proposal::Block(build)) = &attempt.proposal {
-        if !crate::interaction_authority::world_identity_current(
-            &context.client_world,
-            &context.collisions,
-            &build.observation().target.identity,
-        ) {
+        if !build.current(&context) {
             attempt.cancelled = true;
             runtime.clear_press();
             return Step::new(attempt, Progress::Complete);

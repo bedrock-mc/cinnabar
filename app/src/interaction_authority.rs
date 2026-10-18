@@ -183,11 +183,16 @@ pub(crate) fn observe_block_ray_using(
         stream.current_dimension(),
         context,
     );
-    let Some(hit) = choose(&world, vector(ray.origin()), vector(ray.direction()), reach)
-        .map_err(|_| BlockRayUnavailable)?
-    else {
+    let observed = world
+        .observe(|world| choose(world, vector(ray.origin()), vector(ray.direction()), reach))
+        .map_err(|_| BlockRayUnavailable)?;
+    let Some(mut hit) = observed.value.map_err(|_| BlockRayUnavailable)? else {
         return Ok(None);
     };
+    hit.identity = hit
+        .identity
+        .merge(&observed.identity)
+        .map_err(|_| BlockRayUnavailable)?;
     Ok(Some(FrozenBlockObservation {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),

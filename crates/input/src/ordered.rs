@@ -1,6 +1,6 @@
 //! Bounded desktop transitions and their resolved action order.
 
-use crate::{Action, ActionPhase, ActionSnapshot, ModifierChord, PhysicalControl};
+use crate::{Action, ModifierChord, PhysicalControl};
 
 /// Client memory and work budget for one pending burst, independent of device rate.
 pub const MAX_PENDING_ACTION_EVENTS: usize = 256;
@@ -90,24 +90,6 @@ pub struct ActionEvent {
     pub action: Action,
     pub pressed: bool,
     pub buttons: ActionButtons,
-}
-
-impl ActionEvent {
-    /// Projects this already-resolved edge for an interaction owner without routing input again.
-    pub fn project(self, frame: &ActionSnapshot) -> ActionSnapshot {
-        let mut projected = frame.clone();
-        projected.ordered = Some(OrderedActions::default());
-        for (index, phase) in projected.phases.iter_mut().enumerate() {
-            *phase = ActionPhase {
-                held: self.buttons.0[index] && !Action::ALL[index].is_one_shot(),
-                ..Default::default()
-            };
-        }
-        let phase = &mut projected.phases[self.action as usize];
-        phase.pressed = self.pressed;
-        phase.released = !self.pressed;
-        projected
-    }
 }
 
 /// Events finalized under the frame's bindings, context and authority.

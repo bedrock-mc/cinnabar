@@ -166,9 +166,9 @@ pub(crate) fn step_ordered_pick(
             &context,
             &ui,
             input.edge.pressed,
-            input.mode,
-            input.identity,
-            &input.origin,
+            input.context.mode,
+            input.context.identity,
+            &input.context.origin,
         );
     }
     let Some(pick) = attempt.as_ref() else {

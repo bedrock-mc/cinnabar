@@ -154,7 +154,7 @@ pub(crate) fn step(
         attempt.press = Some(PressContext {
             tick: sample.tick,
             player_position: sample.position,
-            input_mode: protocol_input_mode(input.mode),
+            input_mode: protocol_input_mode(input.context.mode),
             local_runtime_id: stream.local_player_runtime_id(),
             selection: Some(selection),
             swing_duration: timing
@@ -180,10 +180,10 @@ pub(crate) fn step(
             attempt.destroy = crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.origin,
+                &input.context.origin,
                 player.facts.game_mode_capabilities(),
-                input.mode,
-                input.identity,
+                input.context.mode,
+                input.context.identity,
                 movement.interaction_authority_identity().1,
             );
         }

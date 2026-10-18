@@ -9,7 +9,7 @@ use gameplay::{
 /// One press/repeat's observed target and pre-tick pose, retained across transport refusal.
 pub(crate) struct FrozenBuild {
     observed: FrozenBlockObservation,
-    plan: Option<BuildPlan>,
+    plan: Option<sim::CollisionQuery<BuildPlan>>,
     pub state: UnsentSampleView,
     pub trigger: ItemUseTrigger,
     pub due: std::time::Duration,
@@ -31,9 +31,17 @@ struct BuildPlan {
 }
 
 impl FrozenBuild {
-    /// Borrows the sole observation retained before and after preparation.
-    pub(super) fn observation(&self) -> &FrozenBlockObservation {
-        &self.observed
+    /// Validates the complete prepared world observation without changing the frozen target.
+    pub(super) fn current(&self, context: &BlockUseContext) -> bool {
+        let identity = self
+            .plan
+            .as_ref()
+            .map_or(&self.observed.ray.world_identity, |plan| &plan.identity);
+        crate::interaction_authority::world_identity_current(
+            &context.client_world,
+            &context.collisions,
+            identity,
+        )
     }
 
     /// Captures immutable press facts; packet and local prediction preparation happens once.
@@ -65,8 +73,8 @@ fn prepare(
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     movement: &MovementTicker,
     attempt: &mut FrozenBuild,
-) -> Option<BuildPlan> {
-    let mut observed = attempt.observation().clone();
+) -> Option<sim::CollisionQuery<BuildPlan>> {
+    let mut observed = attempt.observed.clone();
     let state = &attempt.state;
     let tick = state.tick.saturating_add(1);
     let game_mode = player_runtime.facts.player_game_mode();
@@ -81,55 +89,72 @@ fn prepare(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
-    let surroundings = use_surroundings(context, &observed, state.position, state.sneaking);
-    let mut local_use = LocalUse::resolve(
-        &observed.selection.item,
-        observed.target.position,
-        observed.target.face,
-        &surroundings,
-        &caps,
-    );
-    let placement = (caps.can_build && local_use != LocalUse::Interact)
-        .then(|| {
-            predicted_placement(
-                &context.collisions,
-                stream,
-                observed.selection.item.block_runtime_id(),
-                &observed,
-                &surroundings,
-                attempt.view,
-            )
-        })
-        .flatten();
-    if placement.is_some() && observed.selection.item.count() > 0 {
-        local_use = LocalUse::Place;
-    }
-    let destination = placement.as_ref().map_or_else(
-        || {
-            surroundings
-                .destination(observed.target.position, observed.target.face)
-                .0
-        },
-        |placement| placement.position,
-    );
-    let predicted = placement
-        .filter(|_| local_use == LocalUse::Place)
-        .map(|placement| {
-            std::iter::once((placement.position, 0, placement.block))
-                .chain(
-                    placement
-                        .additional
-                        .into_iter()
-                        .map(|(position, block)| (position, 0, block)),
+    let prepared = PaletteWorld::new(
+        stream.collision_store(),
+        context.collisions.registry(stream.network_id_mode()),
+        stream.current_dimension(),
+        Default::default(),
+    )
+    .observe(|world| {
+        let surroundings =
+            use_surroundings(context, world, &observed, state.position, state.sneaking);
+        let mut local_use = LocalUse::resolve(
+            &observed.selection.item,
+            observed.target.position,
+            observed.target.face,
+            &surroundings,
+            &caps,
+        );
+        let placement = (caps.can_build && local_use != LocalUse::Interact)
+            .then(|| {
+                predicted_placement(
+                    &context.collisions,
+                    stream,
+                    world,
+                    observed.selection.item.block_runtime_id(),
+                    &observed,
+                    &surroundings,
+                    attempt.view,
                 )
-                .collect::<Vec<_>>()
+            })
+            .flatten();
+        if placement.is_some() && observed.selection.item.count() > 0 {
+            local_use = LocalUse::Place;
+        }
+        let destination = placement.as_ref().map_or_else(
+            || {
+                surroundings
+                    .destination(observed.target.position, observed.target.face)
+                    .0
+            },
+            |placement| placement.position,
+        );
+        let predicted = placement
+            .filter(|_| local_use == LocalUse::Place)
+            .map(|placement| {
+                std::iter::once((placement.position, 0, placement.block))
+                    .chain(
+                        placement
+                            .additional
+                            .into_iter()
+                            .map(|(position, block)| (position, 0, block)),
+                    )
+                    .collect::<Vec<_>>()
+            });
+        let predicted = predicted.or_else(|| {
+            (local_use == LocalUse::Interact)
+                .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+                .flatten()
+                .map(|block| vec![(observed.target.position, 0, block)])
         });
-    let predicted = predicted.or_else(|| {
-        (local_use == LocalUse::Interact)
-            .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
-            .flatten()
-            .map(|block| vec![(observed.target.position, 0, block)])
-    });
+        for (position, _, _) in predicted.iter().flatten() {
+            world.primary_runtime_id(*position).ok()?;
+        }
+        Some((local_use, destination, predicted))
+    })
+    .ok()?;
+    let (local_use, destination, predicted) = prepared.value?;
+    let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
     let swing_effects = context
@@ -146,16 +171,19 @@ fn prepare(
                 .prepare_change(&observed.selection, legacy_request_id)
         });
     attempt.observed = observed;
-    Some(BuildPlan {
-        server_selection,
-        inventory_revision,
-        local_use,
-        destination,
-        predicted,
-        local_runtime_id,
-        swing_effects,
-        block_network_id,
-        change,
+    Some(sim::CollisionQuery {
+        identity,
+        value: BuildPlan {
+            server_selection,
+            inventory_revision,
+            local_use,
+            destination,
+            predicted,
+            local_runtime_id,
+            swing_effects,
+            block_network_id,
+            change,
+        },
     })
 }
 
@@ -182,6 +210,10 @@ pub(crate) fn advance(
     let Some(plan) = attempt.plan.as_ref() else {
         return false;
     };
+    if !attempt.current(context) {
+        return false;
+    }
+    let plan = &plan.value;
     let observed = &attempt.observed;
     let state = &attempt.state;
     let trigger = attempt.trigger;

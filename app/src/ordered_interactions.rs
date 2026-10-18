@@ -41,10 +41,16 @@ impl<T> Step<T> {
     }
 }
 
-/// Only the resolved edge and its captured interaction facts cross an admission boundary.
+/// The resolved edge uses one captured context without mirroring its facts.
 #[derive(Clone)]
 pub(crate) struct InteractionInput {
     pub edge: ActionEvent,
+    pub context: CapturedContext,
+}
+
+/// Input authority, pose and assistance captured together before action dispatch.
+#[derive(Clone)]
+pub(crate) struct CapturedContext {
     pub mode: semantic_input::InputMode,
     pub identity: (
         semantic_input::identity::InputAuthorityGeneration,
@@ -55,18 +61,11 @@ pub(crate) struct InteractionInput {
     pub aim: Option<Quat>,
 }
 
-/// Geometry and input identity are captured once per batch, without retaining its event vector.
+/// Geometry and context are retained once per batch, without its event vector.
 struct CapturedFrame {
-    mode: semantic_input::InputMode,
-    identity: (
-        semantic_input::identity::InputAuthorityGeneration,
-        semantic_input::identity::InputSequence,
-    ),
-    origin: InteractionOriginSnapshot,
-    view: LocalViewPose,
+    context: CapturedContext,
     pick: Option<FramePick>,
     attack: crate::melee::ordered::CapturedAttack,
-    aim: Option<Quat>,
     selection_authority: inventory::SelectionAuthority,
 }
 
@@ -155,13 +154,15 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> Arc<CapturedFrame> {
             client_interaction::camera::aim_assist::action_rotation(aim, camera)
         });
     Arc::new(CapturedFrame {
-        mode: input.input_mode,
-        identity: (input.authority_generation, input.frame_sequence),
-        origin: world.resource::<InteractionOriginSnapshot>().clone(),
-        view: *world.resource::<LocalViewPose>(),
+        context: CapturedContext {
+            mode: input.input_mode,
+            identity: (input.authority_generation, input.frame_sequence),
+            origin: world.resource::<InteractionOriginSnapshot>().clone(),
+            view: *world.resource::<LocalViewPose>(),
+            aim,
+        },
         pick,
         attack,
-        aim,
         selection_authority: world
             .resource::<client_state::PlayerRuntime>()
             .inventory
@@ -346,11 +347,7 @@ pub(crate) fn drain(world: &mut World) {
         let Event { edge, source, work } = entry.value;
         let input = InteractionInput {
             edge,
-            mode: source.mode,
-            identity: source.identity,
-            origin: source.origin.clone(),
-            view: source.view,
-            aim: source.aim,
+            context: source.context.clone(),
         };
         let step = dispatch(world, work, input, &source);
         match step.progress {

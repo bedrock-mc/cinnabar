@@ -95,7 +95,7 @@ pub(crate) fn step(
             });
             let release_facing = runtime
                 .riptide_release_facing()
-                .unwrap_or_else(|| riptide::release_facing(input.aim, &input.view));
+                .unwrap_or_else(|| riptide::release_facing(input.context.aim, &input.context.view));
             let policy = frame::FramePolicy {
                 held,
                 before_flush: release_facing.assisted && runtime.is_releasing(held),
@@ -104,7 +104,7 @@ pub(crate) fn step(
                         .delay_fix
                         .as_ref()
                         .is_some_and(|policy| policy.scope == scope),
-                aim_rotation: input.aim,
+                aim_rotation: input.context.aim,
                 release_facing,
             };
             attempt.frozen =
