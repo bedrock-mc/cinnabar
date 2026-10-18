@@ -7283,11 +7283,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   simulator was built and no value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
-  `ClientMovementPredictionSync` is sent (fields match vanilla and the pinned gophertunnel) after a server correction is applied, at most once per second, and is
-  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
-  live-test gate item: confirm anti-cheat servers accept the sync; the
-  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
-  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `ClientMovementPredictionSync` becomes due 200 completed client ticks after a
+  server correction. Undefined base attributes send zero; undefined friction,
+  bounciness and air drag modifiers send 1.0/0.0/1.0. All three metadata flag
+  words are retained, with completed local sneak/sprint overlaid. Accepted server
+  posture updates supersede that sample until a new local tick completes, including
+  retries on frames without a completed tick. Standard unscaled walking height
+  follows the same sneak state. Transport refusal leaves the sync due. Other
+  predicted flags, custom/scaled and horizontal-pose sizes, history loss, exact
+  send phase and live server acceptance remain incomplete.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
   not imply prediction and no vehicle simulator exists, so all rides send ordinary player
   input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
@@ -8390,6 +8394,13 @@ and the complete simulator suite pass. Currents, complete swimming travel/drag, 
 attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
+
+Prediction-sync packets now use the wire defaults for undefined attributes instead of withholding
+a due packet. Known values and transport-admission retries are retained. Completed local
+sneak/sprint flags and the standard unscaled walking pose height reach a due sync before
+a server echo. Other models and poses retain their supplied sizes. Full correction-state,
+custom/scaled and horizontal-pose size prediction, locomotion and packet-order parity remain
+incomplete.
 
 ### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
 
@@ -10106,3 +10117,10 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+
+## Correction sync posture (incomplete)
+
+Correction-sync packets combine received actor metadata with the completed local
+sneak and sprint states. Undefined attributes retain their wire defaults and refused
+sends remain pending. Other locally predicted flags, bounding-box updates, history
+loss and exact send phase remain open; this does not close movement parity.
