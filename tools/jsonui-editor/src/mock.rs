@@ -227,11 +227,12 @@ fn scalar(value: &Value) -> Option<Scalar> {
     }
 }
 
+/// Keeps the optional factory role separate from the row's scalar bindings.
 fn collection_item(item: &BTreeMap<String, Value>) -> CollectionItem {
-    let mut out = CollectionItem {
-        role: item.get("role").and_then(Value::as_str).map(str::to_owned),
-        values: BTreeMap::new(),
-    };
+    let mut out = item
+        .get("role")
+        .and_then(Value::as_str)
+        .map_or_else(CollectionItem::default, CollectionItem::new);
     for (key, value) in item.iter().filter(|(key, _)| key.as_str() != "role") {
         if let Some(scalar) = scalar(value) {
             out.values.insert(hash_name(key), scalar);
@@ -402,6 +403,32 @@ impl MockHud {
                 })
                 .collect(),
             ..HudModel::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Missing roles keep factory fallback behavior while scalars retain their binding names.
+    #[test]
+    fn collection_items_preserve_optional_roles_and_scalar_values() {
+        for role in [None, Some("entry")] {
+            let item = serde_json::from_value(serde_json::json!({
+                "role": role, "count": 7, "#text": "Count", "enabled": true, "nested": {}
+            }))
+            .unwrap();
+            let item = collection_item(&item);
+            assert_eq!(item.role.as_deref(), role);
+            assert_eq!(
+                item.values,
+                BTreeMap::from([
+                    ("#count".into(), Scalar::Num(7.)),
+                    ("#text".into(), Scalar::Text("Count".into())),
+                    ("#enabled".into(), Scalar::Bool(true)),
+                ])
+            );
         }
     }
 }
