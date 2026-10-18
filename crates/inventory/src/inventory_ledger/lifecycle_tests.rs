@@ -460,7 +460,7 @@ fn server_close_of_a_storage_window_is_confirmed_with_a_close() {
 }
 
 #[test]
-fn local_close_before_ack_never_reopens_and_closes_the_late_dynamic_window() {
+fn server_personal_open_after_local_cancellation_reopens_the_assigned_window() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(10));
@@ -469,7 +469,8 @@ fn local_close_before_ack_never_reopens_and_closes_the_late_dynamic_window() {
 
     ledger.apply(&InventoryEvent::Open(personal_open(7)));
 
-    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.personal_inventory_desired_open());
+    assert!(ledger.pending_batch().unwrap().is_none());
     let close = ledger
         .controls
         .personal
@@ -479,7 +480,7 @@ fn local_close_before_ack_never_reopens_and_closes_the_late_dynamic_window() {
 }
 
 #[test]
-fn unexpected_personal_open_and_close_do_not_steal_storage_authority() {
+fn server_personal_open_and_close_replace_storage_authority() {
     let mut ledger = ledger_with_slot_zero();
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(4),
@@ -487,20 +488,20 @@ fn unexpected_personal_open_and_close_do_not_steal_storage_authority() {
         position: [1, 64, 1],
         runtime_entity_id: -1,
     }));
-    let storage_generation = ledger.storage_generation();
     assert!(!ledger.request_personal_open(42));
 
     ledger.apply(&InventoryEvent::Open(personal_open(2)));
-    assert_eq!(ledger.storage_generation(), storage_generation);
-    assert!(ledger.personal.is_none());
-    assert_eq!(ledger.skipped_unknown_containers(), 1);
+    assert!(ledger.storage_generation().is_none());
+    assert!(ledger.personal_inventory_desired_open());
+    assert_eq!(ledger.skipped_unknown_containers(), 0);
 
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(2),
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
         server_initiated: true,
     }));
-    assert_eq!(ledger.storage_generation(), storage_generation);
+    assert!(ledger.storage_generation().is_none());
+    assert!(ledger.personal.is_none());
 }
 
 #[test]

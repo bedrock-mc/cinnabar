@@ -178,7 +178,7 @@ fn book(player_runtime: &mut player_state::PlayerState, signing: bool) -> UiRunt
 
 fn personal(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = session(player_runtime);
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     runtime
 }
 
@@ -708,12 +708,12 @@ fn opening_the_inventory_reuses_the_screen_prepared_while_closed() {
     let prepared = presentation.engine_container_resolves();
     assert_eq!(prepared, 1, "the closed inventory was not prepared");
     for now in [50, 100] {
-        runtime.toggle_inventory(&mut player_runtime);
+        runtime.toggle_inventory(&mut player_runtime, None);
         presentation
             .build(&player_runtime, &runtime, now, [1280, 720], dpi)
             .unwrap();
         assert!(presentation.engine_container_frame().is_some());
-        runtime.toggle_inventory(&mut player_runtime);
+        runtime.toggle_inventory(&mut player_runtime, None);
         presentation
             .build(&player_runtime, &runtime, now + 10, [1280, 720], dpi)
             .unwrap();

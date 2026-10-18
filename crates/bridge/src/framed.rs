@@ -190,6 +190,25 @@ pub struct FramedReader<R = PlatformReadHalf> {
     trace: FrameTrace,
 }
 
+/// Ordered bridge frames and their shared latency-trace identity. Implementations retain
+/// partial input when a receive future is cancelled.
+pub trait FrameRead: Stream<Item = Result<Bytes, BridgeError>> + Unpin {
+    /// Returns the core's connection identity, or zero when tracing is disabled.
+    fn trace_conn(&self) -> u64;
+    /// Shares the handed-off identity with this reader's writer.
+    fn set_trace_conn(&self, id: u64);
+}
+
+impl<R: AsyncRead + Unpin> FrameRead for FramedReader<R> {
+    fn trace_conn(&self) -> u64 {
+        self.trace_conn()
+    }
+
+    fn set_trace_conn(&self, id: u64) {
+        self.set_trace_conn(id);
+    }
+}
+
 impl<R> FramedReader<R> {
     /// The core's latency-trace ID for this connection, or 0 when it is not traced.
     #[must_use]

@@ -40,7 +40,8 @@ fn explicit_filename_carried_aliases_reuse_the_world_raster_at_the_layer_limit()
         assert_eq!(compiled.vanilla_carried.len(), 1);
         let faces = compiled.vanilla_carried[0].faces;
         let sheet =
-            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces).unwrap();
+            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces, None)
+                .unwrap();
         assert!(
             sheet
                 .rgba8
@@ -49,7 +50,7 @@ fn explicit_filename_carried_aliases_reuse_the_world_raster_at_the_layer_limit()
                 .iter()
                 .all(|pixel| *pixel == color)
         );
-        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
+        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces, None).is_some());
         let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
         assert_eq!(material_color(&runtime, 1), color);
     }
@@ -87,7 +88,8 @@ fn resolved_image_aliases_keep_their_grid_and_animation_policies() {
         );
         assert_eq!(material_color(&runtime, 1), if animated { b } else { a });
         let sheet =
-            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces).unwrap();
+            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces, None)
+                .unwrap();
         assert!(
             sheet
                 .rgba8

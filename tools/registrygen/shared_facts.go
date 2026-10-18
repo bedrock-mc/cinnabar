@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
-	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
+	"github.com/cinnabar-mc/protocolgen/generated/data/registry"
 )
 
 // sharedBlockProperties joins by state hash and checks the identifier as well.

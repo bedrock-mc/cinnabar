@@ -9,6 +9,7 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 mod admission;
 pub mod classify;
 mod crossbow;
+mod progress;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
@@ -27,6 +28,7 @@ struct ActiveUse {
     slowdown: f64,
     crossbow: bool,
     riptide: bool,
+    last_progress_tick: Option<u64>,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -470,6 +472,7 @@ impl ItemUseRuntime {
                     slowdown,
                     crossbow: crossbow::is_crossbow(air_use),
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
+                    last_progress_tick: None,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
@@ -592,6 +595,7 @@ impl ActiveUse {
 
 fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItemRequest {
     HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: selection.slot,
         selected_item: selection.item.clone(),
         player_position: frame.position,

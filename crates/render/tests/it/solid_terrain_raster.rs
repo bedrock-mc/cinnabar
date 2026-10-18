@@ -167,7 +167,7 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     atmosphere[20] = 60.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let table = render_model::LightmapInputs::default().build();
-    let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
     let atlas = pattern_texture(&gpu);
     let sampler = gpu.device.create_sampler(&Default::default());
 

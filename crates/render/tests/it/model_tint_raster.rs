@@ -392,10 +392,9 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     atmosphere[19] = 4.0;
     atmosphere[20] = 180.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);
-    let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-        uniform,
-    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
     let atlas = atlas(&gpu);
     let sampler = gpu.device.create_sampler(&Default::default());
     let bindings = [

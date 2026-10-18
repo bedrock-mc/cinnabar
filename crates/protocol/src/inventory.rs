@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bedrock_protocol_1_26_51::enums::{ContainerEnumName, ItemStackNetResult};
 use bedrock_protocol_1_26_51::packets::{
-    ContainerClose, ContainerOpen, ContainerSetData, InventoryContent, InventorySlot,
-    ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
+    ContainerClose, ContainerOpen, ContainerRegistryCleanup, ContainerSetData, InventoryContent,
+    InventorySlot, ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
 };
 use bedrock_protocol_1_26_51::types::FullContainerName;
 use bedrock_protocol_1_26_51::wire;
@@ -22,6 +22,12 @@ pub use container_policy::{
 pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
+};
+mod furnace_options;
+pub(crate) use furnace_options::normalize_furnace_options;
+pub use furnace_options::{
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
 };
 mod client_packets;
 mod legacy;
@@ -235,8 +241,11 @@ pub enum InventoryEvent {
     Response(ItemStackResponseEvent),
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
+    /// Retire only the named entries in the dynamic container registry.
+    RegistryCleanup(Arc<[ContainerIdentity]>),
     Data(ContainerDataEvent),
     EnchantOptions(EnchantOptionsEvent),
+    FurnaceOptions(FurnaceOptionsEvent),
     Creative(CreativeContentEvent),
 }
 
@@ -595,6 +604,18 @@ pub(crate) fn normalize_container_close(
         window_type: raw_window_type(packet.container_type.0)?,
         server_initiated: packet.server_initiated_close,
     }))
+}
+
+/// Preserves full registry keys, including unknown names and optional ID presence.
+pub(crate) fn normalize_container_registry_cleanup(
+    packet: ContainerRegistryCleanup,
+) -> Result<InventoryEvent, InventoryPacketError> {
+    let removed = packet
+        .removed_containers
+        .into_iter()
+        .map(full_container_identity)
+        .collect::<Result<Arc<[_]>, _>>()?;
+    Ok(InventoryEvent::RegistryCleanup(removed))
 }
 
 pub(crate) fn normalize_container_data(

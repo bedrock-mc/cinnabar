@@ -260,6 +260,7 @@ pub(crate) fn send_player_auth_inputs(
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
     effects: Res<client_interaction::movement::LocalMovementEffectTimeline>,
     mut held_equipment: Local<HeldEquipmentSchedule>,
+    mut item_use: Option<ResMut<client_interaction::item_use::ItemUseRuntime>>,
     target: Option<Res<crate::melee::MeleeTarget>>,
     mut hover: bevy::prelude::Local<gameplay::entity_hover::EntityHover>,
     client_world: Res<ClientWorld>,
@@ -308,6 +309,24 @@ pub(crate) fn send_player_auth_inputs(
         return;
     }
     let session = movement.interaction_authority_identity().0;
+    let use_selection = client_interaction::mining::verified_selection(&player_runtime);
+    let use_animation = use_selection
+        .as_ref()
+        .zip(client_world.stream.as_ref())
+        .and_then(|(selected, stream)| {
+            client_interaction::item_use::selection::progress_animation(
+                &player_runtime,
+                stream,
+                selected,
+            )
+        });
+    if let Some(runtime) = item_use.as_deref_mut() {
+        runtime.synchronize(session.get());
+    }
+    let local_runtime_id = client_world
+        .stream
+        .as_ref()
+        .map(|stream| stream.local_player_runtime_id());
     let hover_snapshot = target.as_ref().and_then(|target| target.hover);
     let game_mode = player_runtime.facts.player_game_mode();
     let mut equipment = match player_runtime
@@ -344,6 +363,17 @@ pub(crate) fn send_player_auth_inputs(
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
         |identity, packet, mining_guard, sampled_at| {
+            if let Some(runtime) = item_use.as_deref_mut()
+                && let Some(runtime_id) = local_runtime_id
+            {
+                runtime.send_progress_tick(
+                    identity.tick.get(),
+                    runtime_id,
+                    use_selection.as_ref(),
+                    use_animation,
+                    |packet| network.send_inventory_packet(packet),
+                )?;
+            }
             if let Some((first_tick, snapshot)) = hover_snapshot
                 && identity.tick.get() >= first_tick
             {

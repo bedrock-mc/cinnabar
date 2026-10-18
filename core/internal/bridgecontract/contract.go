@@ -223,6 +223,30 @@ const (
 	MessageArtFore = "fore"
 	// MessageArtFg: Image id marker for fg artwork.
 	MessageArtFg = "fg"
+	// DisconnectKeyCantConnect: Core disconnect message: The core could not join the server.
+	DisconnectKeyCantConnect = "disconnectionScreen.cantConnect"
+	// DisconnectKeyCantConnectToRealm: Core disconnect message: The core could not join the Realm.
+	DisconnectKeyCantConnectToRealm = "disconnectionScreen.cantConnectToRealm"
+	// DisconnectKeyResourcePack: Core disconnect message: The server's resource packs could not be admitted.
+	DisconnectKeyResourcePack = "disconnectionScreen.resourcePack"
+	// DisconnectKeyOutdatedClient: Core disconnect message: The client's protocol or game version is older than the core's.
+	DisconnectKeyOutdatedClient = "disconnectionScreen.outdatedClient"
+	// DisconnectKeyOutdatedServer: Core disconnect message: The client's protocol is newer than the core's.
+	DisconnectKeyOutdatedServer = "disconnectionScreen.outdatedServer"
+	// DisconnectKeyInvalidSkin: Core disconnect message: The client's login data is invalid only because of its skin.
+	DisconnectKeyInvalidSkin = "disconnectionScreen.invalidSkin"
+	// DisconnectKeyInvalidName: Core disconnect message: The client's login data is invalid only because of its player name.
+	DisconnectKeyInvalidName = "disconnectionScreen.invalidName"
+	// DisconnectKeyDeviceClock: Core disconnect message: The sign-in token was rejected because this device's clock is behind.
+	DisconnectKeyDeviceClock = "cinnabar.disconnect.deviceClock"
+	// RelayRefusalResume: A safe relay refusal code; unrecognized codes use the generic refusal. ResumeRefused.
+	RelayRefusalResume = "resume_refused"
+	// RelayRefusalAdmission: A safe relay refusal code; unrecognized codes use the generic refusal. AdmissionRefused.
+	RelayRefusalAdmission = "admission_refused"
+	// RelayRefusalSessionBusy: A safe relay refusal code; unrecognized codes use the generic refusal. SessionBusy.
+	RelayRefusalSessionBusy = "session_busy"
+	// RelayRefusalUnknown: A safe relay refusal code; unrecognized codes use the generic refusal. Refused.
+	RelayRefusalUnknown = "refused"
 	// GameModeSurvival: Game mode a world starts players in. Survival.
 	GameModeSurvival = "survival"
 	// GameModeCreative: Game mode a world starts players in. Creative.
@@ -309,6 +333,8 @@ const (
 	AuthSignedIn = "signed_in"
 	// AuthFailed: Sign-in state of the core. Failed.
 	AuthFailed = "failed"
+	// ConnectStageIdle: Join progress stage reported by the core. Idle.
+	ConnectStageIdle = ""
 	// ConnectStageRealm: Join progress stage reported by the core. Realm.
 	ConnectStageRealm = "realm"
 	// ConnectStagePacks: Join progress stage reported by the core. Packs.
@@ -392,3 +418,6 @@ var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 
 // MessageEventTypes: Messaging report types accepted by the core.
 var MessageEventTypes = [...]string{"Impression", "DeleteAllRead", "ReadAll", "Delete", "Click", "Dismiss", "ControlImpression"}
+
+// CoreDisconnectKeys: Every lang key the core sends as a whole disconnect message.
+var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock"}

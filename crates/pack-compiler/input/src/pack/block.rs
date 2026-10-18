@@ -39,10 +39,21 @@ impl TextureKey {
 #[derive(Debug)]
 pub struct BlockTextureMap {
     pub(super) entries: BTreeMap<Box<str>, BlockSourceEntry>,
+    pub(super) component_crosses: BTreeMap<Box<str>, super::CrossMaterial>,
+    pub(super) component_models: BTreeMap<u32, super::ComponentModel>,
 }
 
 /// Bounded terrain path variants indexed by texture key.
 impl BlockTextureMap {
+    /// State-resolved authored model from the registry used to read this pack.
+    pub fn component_model(&self, record: &RegistryRecord) -> Option<&super::ComponentModel> {
+        self.component_models.get(&record.sequential_id)
+    }
+    /// Authored material policy for a supported behavior-pack cross.
+    pub fn component_cross(&self, identifier: &str) -> Option<super::CrossMaterial> {
+        self.component_crosses.get(identifier).copied()
+    }
+
     /// Returns a block texture key only when the source uses the scalar form.
     #[must_use]
     pub fn get_exact_scalar(&self, block_name: &str) -> Option<&str> {
@@ -239,8 +250,8 @@ struct BlockEntry {
 #[derive(Debug)]
 pub(super) struct BlockSourceEntry {
     pub(super) textures: TextureValue,
-    sound: Option<Value>,
-    extra: BTreeMap<String, Value>,
+    pub(super) sound: Option<Value>,
+    pub(super) extra: BTreeMap<String, Value>,
 }
 
 pub fn resolve_texture_key(
@@ -248,6 +259,9 @@ pub fn resolve_texture_key(
     record: &RegistryRecord,
     face: BlockFace,
 ) -> TextureKey {
+    if let Some(model) = blocks.component_model(record) {
+        return TextureKey::resolved(&model.texture, false);
+    }
     let block_name = record
         .name
         .strip_prefix("minecraft:")
@@ -434,7 +448,11 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
             },
         );
     }
-    Ok(BlockTextureMap { entries })
+    Ok(BlockTextureMap {
+        entries,
+        component_crosses: BTreeMap::new(),
+        component_models: BTreeMap::new(),
+    })
 }
 
 #[derive(Clone, Copy)]

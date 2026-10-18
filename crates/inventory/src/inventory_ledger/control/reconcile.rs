@@ -1,4 +1,4 @@
-use super::{ControlKind, ControlRequest, ControlWindow};
+use super::{ControlKind, ControlRequest};
 use crate::inventory_ledger::{
     InventoryGestureError, PersonalWindow, PlayerInventoryLedger, container_close_packet,
     open_inventory_packet,
@@ -13,27 +13,17 @@ impl PlayerInventoryLedger {
                 continue;
             }
             if let Some(window) = state.confirmed
-                && (!state.desired_open || state.reset_required)
+                && !state.desired_open
                 && self.close_ready()
                 && !self.controls.close_outstanding(window.window_id)
             {
-                // A personal ID may be reused by an active storage window; close storage first.
-                if kind == ControlKind::Personal
-                    && self
-                        .controls
-                        .storage
-                        .confirmed
-                        .is_some_and(|storage| storage.window_id == window.window_id)
-                {
-                    continue;
-                }
                 return Some(ControlRequest::Close(window));
             }
         }
         if self.controls.personal.sent.is_none()
             && self.controls.personal.confirmed.is_none()
             && self.controls.personal.desired_open
-            && self.controls.storage.confirmed.is_none()
+            && self.controls.storage.server_window().is_none()
             && let Some(PersonalWindow::Opening {
                 generation,
                 admitted: false,
@@ -76,14 +66,10 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// Restores the screen implied by confirmed state once its outstanding transition resolves.
+    /// Applies the current window's intent independently of older outstanding controls.
     pub(in crate::inventory_ledger) fn reconcile_personal(&mut self) {
         let state = &self.controls.personal;
-        if state.sent.is_some()
-            || state.reset_required
-            || self.storage.is_some()
-            || self.controls.personal_covered_by_storage_close()
-        {
+        if self.storage.is_some() {
             return;
         }
         match (state.desired_open, state.confirmed) {
@@ -92,7 +78,9 @@ impl PlayerInventoryLedger {
                     generation: window.generation,
                 });
             }
-            (true, None) if self.controls.storage.confirmed.is_none() => {
+            (true, None)
+                if state.sent.is_none() && self.controls.storage.server_window().is_none() =>
+            {
                 if !matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
                     let generation = self.next_open_generation;
                     self.next_open_generation = generation.wrapping_add(1).max(1);
@@ -109,26 +97,9 @@ impl PlayerInventoryLedger {
                     });
                 }
             }
-            (false, None) => self.personal = None,
+            (false, None) if state.sent.is_none() => self.personal = None,
             _ => {}
         }
-    }
-
-    /// Requests closure of a received window through its kind's latest confirmed state.
-    pub(in crate::inventory_ledger) fn reject_window(&mut self, window_id: i32, window_type: i8) {
-        if !super::super::helpers::valid_raw_window_id(window_id) {
-            return;
-        }
-        let generation = self.next_open_generation;
-        self.next_open_generation = generation.wrapping_add(1).max(1);
-        let window = ControlWindow {
-            generation,
-            window_id,
-            window_type,
-        };
-        let state = self.controls.state_mut(window.kind());
-        state.confirmed = Some(window);
-        state.desired_open = false;
     }
 
     /// Resolves deadlines without retaining a barrier that can permanently prevent another open.
@@ -141,17 +112,12 @@ impl PlayerInventoryLedger {
             personal_expired |= kind == ControlKind::Personal && self.personal.is_some();
             match sent.request {
                 ControlRequest::Open { generation, .. } => {
-                    self.controls.personal.confirmed = Some(ControlWindow {
-                        generation,
-                        window_id: protocol::PLAYER_INVENTORY_WINDOW_ID,
-                        window_type: super::super::PERSONAL_INVENTORY_WINDOW_TYPE,
-                    });
-                    self.controls.personal.reset_required = true;
                     let owned_screen = self
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
                     if owned_screen {
                         self.personal = None;
+                        self.controls.personal.desired_open = false;
                     }
                     self.abandon_requests(|pending| {
                         pending.personal_generation == Some(generation)

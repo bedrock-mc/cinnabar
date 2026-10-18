@@ -51,6 +51,13 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             "Close".into(),
             MenuAction::DismissDialog,
         ),
+        MenuDialog::Notice => (
+            crate::PRODUCT_NAME.into(),
+            view.message.clone().unwrap_or_default(),
+            translated(translate, "gui.ok", "OK"),
+            String::new(),
+            MenuAction::DismissDialog,
+        ),
         MenuDialog::SettingsResetGroup(group) => {
             return reset_group(group, translate);
         }
