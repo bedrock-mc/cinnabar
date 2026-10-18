@@ -673,6 +673,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		target.clientData(&dialer.ClientData)
 	}
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
+	if joinprofile.Enabled {
+		var reportPacks func()
+		dialer, reportPacks = withJoinPackProfile(ctx, dialer, connections.logger)
+		defer reportPacks()
+	}
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
 	budget.finish()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot
