@@ -53,7 +53,10 @@ pub(crate) fn drain_committed_ui_before_authority(
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let current_dimension = stream.current_dimension();
     let dimension_epoch = stream.form_dimension_epoch();
-    ui_runtime.experiences.epoch = dimension_epoch;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ui_runtime.experiences.epoch = dimension_epoch;
+    }
     ui_runtime
         .server_forms_mut()
         .synchronize_epoch(session, dimension_epoch);
@@ -77,7 +80,13 @@ pub(crate) fn drain_committed_ui_before_authority(
             // Every message reaches the extension: its ingress drops and counts envelopes of a
             // world epoch it has left, while their sequence numbers stay spent.
             CommittedUiEvent::Experience { event, .. } => {
+                #[cfg(not(target_arch = "wasm32"))]
                 ui_runtime.experiences.receive(&event.bytes, local_millis);
+                #[cfg(target_arch = "wasm32")]
+                bevy::log::debug!(
+                    bytes = event.bytes.len(),
+                    "server extension execution unavailable on this host"
+                );
                 Ok(())
             }
             CommittedUiEvent::LocalAbilities {
@@ -103,6 +112,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                 if event_epoch != dimension_epoch {
                     continue;
                 }
+                // Authority may already include actors spawned after this form.
+                let npc_actor = if let protocol::ServerFormModel::NpcDialogue(npc) = &event.model {
+                    let authority = client_world.stream.as_ref().unwrap().authority();
+                    authority
+                        .actor_by_unique_id(npc.npc_unique_id)
+                        .and_then(|actor| authority.actor_lifetime(actor.runtime_id))
+                        .filter(|actor| actor.spawn_revision <= sequence)
+                } else {
+                    None
+                };
                 ui_runtime
                     .apply(
                         &mut player_runtime,
@@ -114,7 +133,17 @@ pub(crate) fn drain_committed_ui_before_authority(
                             event: protocol::UiEvent::Form(event),
                         },
                     )
-                    .map(|_| ())
+                    .map(|_| {
+                        let store = ui_runtime.server_forms_mut();
+                        if let Some(actor) = npc_actor
+                            && let Some(entry) = store
+                                .active()
+                                .filter(|entry| entry.fifo_sequence() == sequence)
+                        {
+                            let identity = entry.identity;
+                            store.bind_npc_actor(identity, actor);
+                        }
+                    })
             }
             // A generic UI entry must never bypass the form lifetime fence.
             CommittedUiEvent::Ui {

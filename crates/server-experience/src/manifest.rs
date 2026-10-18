@@ -197,7 +197,10 @@ impl Manifest {
     pub fn validate_screens(&self) -> Result<()> {
         ensure!(self.templates.len() <= MAX_TEMPLATES, "too many templates");
         for template in &self.templates {
-            ensure!(template_root(template).is_some(), "invalid template path");
+            ensure!(
+                crate::screen::template_root(template).is_some(),
+                "invalid template path"
+            );
             ensure!(
                 self.files
                     .iter()
@@ -223,17 +226,6 @@ impl Manifest {
 
 /// Where a bundle keeps the images its screens may draw.
 pub const TEXTURE_DIR: &str = "textures/";
-
-/// The control a template file opens as: `ui/terminal.json` opens `terminal` of the bundle's
-/// namespace. `None` for a path that is not one `ui/` file with a JSON-UI name.
-pub fn template_root(path: &str) -> Option<&str> {
-    let name = path.strip_prefix("ui/")?.strip_suffix(".json")?;
-    (!name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
-    .then_some(name)
-}
 
 /// The JSON-UI namespace every template of bundle `id` declares: the id with each character a
 /// JSON-UI name cannot hold replaced by `_`.

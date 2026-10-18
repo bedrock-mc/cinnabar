@@ -197,7 +197,10 @@ pub(super) fn bindings(
     }
 }
 
-pub(super) type Draw = (SetItemPipeline, DrawBatch);
+pub(super) type Draw = crate::gpu_timing::GpuDrawSpan<
+    { render_scene::RuntimeStage::GpuModPrimitives as usize },
+    (SetItemPipeline, DrawBatch),
+>;
 pub(super) struct DrawBatch;
 impl RenderCommand<Transparent3d> for DrawBatch {
     type Param = SRes<Gpu>;

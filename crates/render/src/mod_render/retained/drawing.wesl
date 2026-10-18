@@ -35,6 +35,24 @@ fn direction(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 fn rotate(v: vec2<f32>, angle: f32) -> vec2<f32> {
     return vec2<f32>(v.x*cos(angle)-v.y*sin(angle), v.x*sin(angle)+v.y*cos(angle));
 }
+/// Intersects offset edges; only the outside miter is limited to the selected join style.
+fn miter(n0: vec2<f32>, n1: vec2<f32>, bounded: bool) -> vec2<f32> {
+    let sum = n0+n1;
+    // Reversals have no unique intersection.
+    if dot(sum,sum) < 1e-10 { return n0; }
+    let bisector = normalize(sum);
+    var extent = 1.0/max(abs(dot(bisector,n0)),1e-5);
+    if bounded { extent = min(MITER_LIMIT, extent); }
+    return bisector * extent;
+}
+/// Gives each endpoint join at most half of either adjacent clipped segment.
+fn inner_miter(n0: vec2<f32>, n1: vec2<f32>, lengths: vec2<f32>, radius: f32) -> vec2<f32> {
+    let corner = miter(n0,n1,false);
+    let advance = abs(n0.x*corner.y-n0.y*corner.x)*radius;
+    // Projected lengths are twice their pixel length; neighboring joins share each segment.
+    let available = min(lengths.x,lengths.y)*0.25;
+    return corner * min(1.0,available/max(advance,1e-5));
+}
 @vertex
 fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_index: u32) -> Output {
     let vertex = vertices[index]; let instance = instances[instance_index];
@@ -50,10 +68,34 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
     let tangent = direction(pa, pb); let normal = vec2<f32>(tangent.y, -tangent.x);
     let endpoint = vertex.shape.y;
     var center = mix(pair.a, pair.b, endpoint);
+    var radius = instance.line.x * 0.5;
+    if instance.line.y < 0.5 { radius = radius * abs(view.clip_from_view[1][1]) * viewport.y * 0.5 / center.w; }
+    radius = min(radius, max(viewport.x,viewport.y));
     var offset = normal * vertex.shape.z;
     let t = mix(pair.ta, pair.tb, endpoint);
     output.color = mix(vertex.color_a, vertex.color_b, t) * instance.tint;
-    if vertex.shape.x > 1.5 && vertex.shape.x < 2.5 {
+    if vertex.shape.x < 1.5 && vertex.shape.w > 0.5 {
+        // Only true polyline endpoints get caps; clipped endpoints stay perpendicular.
+        if (endpoint < 0.5 && pair.ta == 0.0) || (endpoint > 0.5 && pair.tb == 1.0) {
+            let c = clip_position(instance, vertex.c.xyz);
+            var neighbor = clip_pair(c, a);
+            if endpoint > 0.5 { neighbor = clip_pair(b, c); }
+            if neighbor.valid {
+                let neighbor_a = neighbor.a.xy/neighbor.a.w*viewport;
+                let neighbor_b = neighbor.b.xy/neighbor.b.w*viewport;
+                let other = direction(neighbor_a, neighbor_b);
+                var incoming = other; var outgoing = tangent;
+                if endpoint > 0.5 { incoming = tangent; outgoing = other; }
+                let turn = incoming.x*outgoing.y-incoming.y*outgoing.x;
+                let side = select(-1.0, 1.0, turn >= 0.0);
+                if vertex.shape.z*side < 0.0 {
+                    let n0 = vec2<f32>(incoming.y,-incoming.x)*side;
+                    let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
+                    offset = -inner_miter(n0,n1,vec2<f32>(length(pb-pa),length(neighbor_b-neighbor_a)),radius);
+                }
+            }
+        }
+    } else if vertex.shape.x > 1.5 && vertex.shape.x < 2.5 {
         if instance.line.w < 0.5 || (endpoint < 0.5 && pair.ta > 0.0) || (endpoint > 0.5 && pair.tb < 1.0) { return output; }
         offset = vec2<f32>(0.0);
         if vertex.shape.z >= 0.0 {
@@ -65,27 +107,25 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
         let c = clip_position(instance, vertex.c.xyz); let next = clip_pair(b, c);
         if !next.valid { return output; }
         center = b;
-        let outgoing = direction(b.xy/b.w*viewport, next.b.xy/next.b.w*viewport);
+        let next_b = next.b.xy/next.b.w*viewport;
+        let outgoing = direction(pb, next_b);
         let turn = tangent.x*outgoing.y-tangent.y*outgoing.x;
         let side = select(-1.0, 1.0, turn >= 0.0);
         let n0 = normal*side; let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
-        offset = vec2<f32>(0.0);
+        // Both segment quads end at this inner corner; the fan owns the remaining wedge.
+        offset = -inner_miter(n0,n1,vec2<f32>(length(pb-pa),length(next_b-pb)),radius);
         if vertex.shape.z >= 0.0 {
             let phase = vertex.shape.z;
             if instance.line.z > 1.5 {
                 offset = rotate(n0, atan2(n0.x*n1.y-n0.y*n1.x, dot(n0,n1))*phase);
             } else if instance.line.z > 0.5 {
-                let bisector = direction(vec2<f32>(0.0), n0+n1);
-                let miter = bisector * min(MITER_LIMIT, 1.0/max(abs(dot(bisector,n0)),1.0/MITER_LIMIT));
-                if phase < 0.5 { offset = mix(n0,miter,phase*2.0); }
-                else { offset = mix(miter,n1,phase*2.0-1.0); }
+                let outer = miter(n0,n1,true);
+                if phase < 0.5 { offset = mix(n0,outer,phase*2.0); }
+                else { offset = mix(outer,n1,phase*2.0-1.0); }
             } else { offset = mix(n0,n1,phase); }
         }
         output.color = vertex.color_b*instance.tint;
     }
-    var radius = instance.line.x * 0.5;
-    if instance.line.y < 0.5 { radius = radius * abs(view.clip_from_view[1][1]) * viewport.y * 0.5 / center.w; }
-    radius = min(radius, max(viewport.x,viewport.y));
     output.position = vec4<f32>(center.xy + offset * radius * 2.0 / viewport * center.w, center.zw);
     return output;
 }

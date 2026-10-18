@@ -154,9 +154,9 @@ fn creative_group_drop_matches_the_icons_retained_user_data() {
         ]),
         skipped: 0,
     }));
-    let mut expected_ledger = ledger.clone();
+    let mut expected_ledger = player.inventory_commands().clone();
     expected_ledger
-        .begin_creative_take(45, CreativeDestination::Drop { whole_stack: false })
+        .begin_creative_take(45, CreativeDestination::Drop, Some(1))
         .unwrap();
     client_ui::ui_runtime::interaction::dispatch_inventory_key(
         &mut player,

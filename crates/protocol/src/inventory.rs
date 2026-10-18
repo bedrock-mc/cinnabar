@@ -436,6 +436,15 @@ impl VerifiedNetworkItemStack {
             user_data_buffer: bytes::Bytes::copy_from_slice(&self.inner.extra_data),
         })
     }
+
+    /// Preserves selected transaction item contents while omitting its optional stack identity.
+    pub(crate) fn into_selected_vendor_item(
+        self,
+    ) -> Result<ItemStackDescriptor, InventoryPacketError> {
+        let mut item = self.into_vendor_item()?;
+        item.net_id_variant = None;
+        Ok(item)
+    }
 }
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.

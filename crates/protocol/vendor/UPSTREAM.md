@@ -3,7 +3,7 @@
 `bedrock-protocol-1-26-51/` is protocolgen's generated Rust contract crate for Bedrock 1.26.51
 (protocol 2193), copied byte for byte with no local patches. Only `protocol` depends on it.
 
-- Generator: https://github.com/bedrock-mc/protocolgen
+- Generator: https://github.com/cinnabar-mc/protocolgen
 - Generator commit: `4e9626abbb51b8fa842f49b4aea0fb4d3c01a682` (`generated/1.26.51/rust-contract`)
 
 The expected protocol, codec contract and manifest fingerprint are pinned once, in

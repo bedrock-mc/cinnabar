@@ -19,3 +19,14 @@ compiler wrapper from Cargo config or the environment. Config-relative wrapper
 paths keep their original meaning. Nested invocations unwrap wrappers from either tool to their
 recorded external target. Each generated wrapper stores that target in its own
 file; different targets have different wrapper paths.
+
+`cargo run -p devtool --locked -- check-web` checks `web-client` and `web-transport`
+on `wasm32-unknown-unknown` and runs both browser JavaScript test suites. Install
+that Rust target and Node.js first.
+
+`cargo run -p devtool --locked -- build-web --assets <compiled-carriers> --out <new-directory> [--release]`
+builds a static browser bundle from the workspace root. It uses the locked
+wasm-bindgen version, installing a matching CLI under `target/web-tools` when needed.
+The output includes the page, bindings, runtime carriers and canonical delivery
+manifest; it must stay outside `web/site` and must not already exist. See
+[relay setup](../../docs/web-relay.md) for HTTPS hosting and current limitations.

@@ -538,11 +538,11 @@ mod tests {
     }
 
     #[test]
-    fn named_containers_project_onto_screen_cells() {
+    fn windowless_responses_project_named_containers_onto_screen_cells() {
         use super::super::ContainerIdentity;
         use super::super::address::{CanonicalCell, project_container_cell};
         let at = |name: u8, dynamic_id: Option<u32>| ContainerIdentity {
-            window_id: Some(5),
+            window_id: None,
             slot_type: Some(name),
             dynamic_id,
         };

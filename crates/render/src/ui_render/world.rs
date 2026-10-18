@@ -2,7 +2,7 @@
 use super::*;
 use bevy::{ecs::query::QueryItem, render::render_resource::RenderPassDepthStencilAttachment};
 
-type UiViewQuery = (
+pub(crate) type UiViewQuery = (
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
     &'static MainEntity,
@@ -31,7 +31,7 @@ pub(super) fn ui_world(
 }
 
 /// Shares projected batches across compatible attachments, preserving material depth behavior.
-fn draw_ui_view(
+pub(crate) fn draw_ui_view(
     view_entity: Entity,
     context: &mut RenderContext,
     (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
@@ -199,7 +199,3 @@ fn world_depth_compatible(
         && depth.texture().sample_count() == color.sample_count()
         && depth.texture().size() == color.size()
 }
-
-#[cfg(test)]
-#[path = "world_tests.rs"]
-mod tests;

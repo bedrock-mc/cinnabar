@@ -189,6 +189,7 @@ async fn check_handed_off_packs(cached: bool) {
     let reference = cached.then(|| serde_json::json!({"path": archive, "sha256": <[u8; 32]>::from(Sha256::digest(b"abcde"))}));
     let settings = LoginSettings {
         resource_pack_cache_dir: Some(cache_root),
+        view_distance_chunks: if cached { 35 } else { 8 },
         ..Default::default()
     };
     let listener = listen(dir.path());
@@ -221,12 +222,19 @@ async fn check_handed_off_packs(cached: bool) {
         }
         core.send(pack_frame(1, b"xyz")).await;
         let spawn_requests = core.receive_packets().await;
-        assert!(
-            spawn_requests
-                .iter()
-                .any(|packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(_))),
-            "the client runs its own spawn sequence"
+        let expected = crate::request_chunk_radius_packet(
+            settings.view_distance_chunks,
+            render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
         );
+        assert_eq!(spawn_requests.len(), 2);
+        assert_eq!(
+            spawn_requests[0], expected,
+            "the first request uses the selected radius"
+        );
+        assert!(matches!(
+            &*spawn_requests[1].data,
+            packets::Packet::ServerboundLoadingScreen(_)
+        ));
         core.send(batch_frame(&spawn_prerequisites())).await;
         core
     };

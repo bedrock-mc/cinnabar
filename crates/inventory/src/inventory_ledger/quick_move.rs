@@ -7,7 +7,6 @@ use super::cells::{Cell, Held};
 use super::equipment::equipment_admission;
 use super::gesture::{
     InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
-    has_meaningful_overlay,
 };
 use super::item_roles;
 use super::registry::{OccupiedStackRelation, entry_capacity};
@@ -41,11 +40,6 @@ impl QuickMoveInput {
             .into_iter()
             .chain(slots.iter().copied().map(Cell::Storage))
     }
-}
-
-/// Cells that hold one item however large the item's stack size is.
-fn slot_limit(cell: Cell) -> Option<u16> {
-    matches!(cell, Cell::Armor(_) | Cell::Craft(14 | 27)).then_some(1)
 }
 
 impl PlayerInventoryLedger {
@@ -98,7 +92,9 @@ impl PlayerInventoryLedger {
         source: u8,
     ) -> Result<i32, InventoryGestureError> {
         let destinations: Vec<_> = (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter(|slot| self.known[usize::from(*slot)])
+            .filter(|slot| {
+                self.known[usize::from(*slot)] && self.confirmed.contains(Cell::Inventory(*slot))
+            })
             .map(Cell::Inventory)
             .collect();
         self.begin_quick_move_into(
@@ -147,18 +143,17 @@ impl PlayerInventoryLedger {
             let Some(into) = self.view().get(*cell) else {
                 continue;
             };
-            if self.awaiting_identity(into)
-                || has_meaningful_overlay(from.overlay.as_ref())
-                || has_meaningful_overlay(into.overlay.as_ref())
-            {
+            if self.awaiting_identity(into) {
                 continue;
             }
             let OccupiedStackRelation::Compatible { capacity } =
-                self.occupied_stack_relation(&from.stack, &into.stack)
+                self.occupied_stack_relation(&from, into)
             else {
                 continue;
             };
-            let limit = slot_limit(*cell).map_or(capacity, |limit| limit.min(capacity));
+            let limit = self
+                .placement_capacity(*cell, &from.stack)
+                .map_or(capacity, |limit| limit.min(capacity));
             let amount = remaining.min(limit.saturating_sub(into.stack.count));
             if amount == 0 {
                 continue;
@@ -186,10 +181,15 @@ impl PlayerInventoryLedger {
             if self.view().get(*cell).is_some() {
                 continue;
             }
-            let limit = slot_limit(*cell).unwrap_or(u16::MAX);
+            let limit = self
+                .placement_capacity(*cell, &from.stack)
+                .unwrap_or(u16::MAX);
             let amount = remaining
                 .min(limit)
                 .min(item_capacity.unwrap_or(remaining).max(1));
+            if amount == 0 {
+                continue;
+            }
             let built = counted_transfer(
                 StackRequestActionKind::Place,
                 source,
@@ -323,7 +323,10 @@ impl PlayerInventoryLedger {
         let stack = &from.stack;
         let player = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
-                .filter(|slot| self.known[usize::from(*slot)])
+                .filter(|slot| {
+                    self.known[usize::from(*slot)]
+                        && self.confirmed.contains(Cell::Inventory(*slot))
+                })
                 .map(Cell::Inventory)
                 .collect()
         };
@@ -365,15 +368,15 @@ impl PlayerInventoryLedger {
             .find(|cell| {
                 self.confirmed.contains(*cell)
                     && self.view().get(*cell).is_none_or(|held| {
-                        if self.awaiting_identity(held)
-                            || has_meaningful_overlay(from.overlay.as_ref())
-                            || has_meaningful_overlay(held.overlay.as_ref())
-                        {
+                        if self.awaiting_identity(held) {
                             return false;
                         }
-                        match self.occupied_stack_relation(stack, &held.stack) {
+                        match self.occupied_stack_relation(from, held) {
                             OccupiedStackRelation::Compatible { capacity } => {
-                                let capacity = slot_limit(*cell).unwrap_or(capacity).min(capacity);
+                                let capacity = self
+                                    .placement_capacity(*cell, &from.stack)
+                                    .unwrap_or(capacity)
+                                    .min(capacity);
                                 held.stack.count < capacity
                             }
                             _ => false,

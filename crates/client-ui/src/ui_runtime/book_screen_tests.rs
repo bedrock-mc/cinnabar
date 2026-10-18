@@ -285,3 +285,35 @@ fn a_retired_session_discards_its_pending_book_and_screen_packets() {
     runtime.begin_session(2);
     assert!(runtime.take_client_packet().is_none());
 }
+
+/// A server restatement of an initialized book keeps its client-owned editor visible.
+#[test]
+fn review_regression_inventory_updates_preserve_the_book_screen() {
+    let (mut player, mut runtime) = held_book();
+    assert!(runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |_| true));
+    let initialized = player
+        .inventory
+        .ledger()
+        .displayed_stack(0)
+        .unwrap()
+        .clone();
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            1,
+            protocol::InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: protocol::ContainerIdentity::window(0),
+                    slot: 0,
+                },
+                stack: initialized,
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert!(runtime.inventory_open());
+    assert!(runtime.screen.book.as_ref().unwrap().editable);
+    assert!(!player.inventory.ledger().personal_inventory_desired_open());
+}

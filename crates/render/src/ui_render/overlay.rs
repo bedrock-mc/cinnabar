@@ -9,7 +9,7 @@ use super::{
     layer::{UiLayerDraw, draw_batches, model_depth_attachment},
 };
 #[path = "world.rs"]
-mod world;
+pub(crate) mod world;
 use bevy::prelude::SystemSet;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},

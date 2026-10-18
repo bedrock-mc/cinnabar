@@ -68,11 +68,11 @@ fn expected_use(hand: ItemUseHand, action: u8) -> Vec<u8> {
     match hand {
         ItemUseHand::Mainhand => {
             out.extend([14, 0]); // Slot seven, then mainhand byte.
-            out.extend([11, 0, 7, 0, 3, 1, 148, 1, 139, 1, 0]);
+            out.extend([11, 0, 7, 0, 3, 0, 139, 1, 0]);
         }
         ItemUseHand::Offhand => {
             out.extend([0, 1]); // Slot zero, then offhand byte.
-            out.extend([13, 0, 3, 0, 3, 1, 170, 1, 139, 1, 0]);
+            out.extend([13, 0, 3, 0, 3, 0, 139, 1, 0]);
         }
     }
     floats(&mut out, &[13.25, 72.625, -28.75]);

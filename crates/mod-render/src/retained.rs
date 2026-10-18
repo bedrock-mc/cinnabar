@@ -38,15 +38,30 @@ pub enum GeometrySpec {
     },
 }
 
-/// Admitted geometry is shared by every referencing instance and snapshot.
+/// Validated geometry and its cached facts stay immutable across instances and snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
-    pub vertices: Arc<[Vertex]>,
-    pub bounds: [[f32; 3]; 2],
-    pub indices: Arc<[u32]>,
-    pub distances: Arc<[f32]>,
-    pub closed: bool,
-    pub polyline: bool,
+    vertices: Arc<[Vertex]>,
+    bounds: [[f32; 3]; 2],
+    indices: Arc<[u32]>,
+    distances: Arc<[f32]>,
+    closed: bool,
+    polyline: bool,
+    radius: f32,
+    bytes: usize,
+    expanded_vertices: usize,
+}
+
+impl Geometry {
+    /// Returns the local position bounds computed during admission.
+    pub fn bounds(&self) -> [[f32; 3]; 2] {
+        self.bounds
+    }
+
+    /// Reports whether line expansion and width handling apply to this geometry.
+    pub fn is_polyline(&self) -> bool {
+        self.polyline
+    }
 }
 
 /// An actor reference includes both the drawing owner and the actor's spawn generation.
@@ -177,7 +192,7 @@ impl Default for Store {
     fn default() -> Self {
         Self {
             owner: NEXT_OWNER
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                     owner.checked_add(1)
                 })
                 .expect("drawing owners exhausted"),
@@ -216,8 +231,15 @@ impl Store {
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
     pub fn commit(&mut self) {
-        let staged = self.staged.take().unwrap_or_else(|| self.base());
-        if staged != *self.committed {
+        let staged = match self.staged.take() {
+            Some(staged) => Some(staged),
+            None if self.committed.groups.is_empty() => None,
+            None => Some(self.base()),
+        };
+        if let Some(staged) = staged
+            && (staged.geometry_revision != self.committed.geometry_revision
+                || staged.instance_revision != self.committed.instance_revision)
+        {
             self.committed = Arc::new(staged);
         }
         self.retired
@@ -245,7 +267,7 @@ impl Store {
     /// Validates and retains an immutable mesh, charging live and retiring resources.
     pub fn create_geometry(&mut self, spec: GeometrySpec) -> Result<Handle, DrawError> {
         let geometry = Arc::new(validation::geometry(spec)?);
-        let bytes = validation::bytes(&geometry);
+        let bytes = geometry.bytes;
         let handle = self.token()?;
         self.edit(bytes, |resources| {
             resources.geometry.insert(handle, geometry);
@@ -279,6 +301,16 @@ impl Store {
         permissions: DrawingPermissions,
     ) -> Result<(), DrawError> {
         self.check(handle)?;
+        // An unchanged resubmission must not clone the resource maps every frame.
+        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let expiring = self.staged.is_none()
+            && current
+                .groups
+                .values()
+                .any(|handles| handles.contains(&handle));
+        if !expiring && current.instances.get(&handle) == Some(&instance) {
+            return validation::instance(&instance, current, permissions);
+        }
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));
@@ -358,10 +390,10 @@ impl Store {
             resources.geometry_revision += 1;
             Ok(())
         })?;
-        if let Some(geometry) = retired {
-            if !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry)) {
-                self.retired.push(geometry);
-            }
+        if let Some(geometry) = retired
+            && !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry))
+        {
+            self.retired.push(geometry);
         }
         Ok(())
     }

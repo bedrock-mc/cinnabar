@@ -112,6 +112,68 @@ icon must be one PNG within the limits above that decodes completely; otherwise
 the card shows the placeholder. Metadata and icons are read by parsing the file
 only, and their content never causes a load to fail.
 
+### Optional GitHub mod updates
+
+Authors can opt into automatic updates by appending one top-level UTF-8 custom
+section `cinnabar:extension/update-url@1` (`mod_api::UPDATE_URL_SECTION`). Its
+contents identify the exact WASM asset on the latest stable GitHub release:
+
+```text
+https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm
+```
+
+The HTTPS URL must use that path, a public GitHub repository, and an ASCII asset
+name ending in `.wasm`. URL queries, credentials, fragments and nested paths are
+rejected. The URL is bounded to 512 bytes, with an asset name up to 128 bytes.
+Missing, duplicate, nested or invalid sections disable automatic updates without
+affecting the mod's loading. The component also needs a standard `version`
+section containing SemVer, and each release must retain the same update URL.
+
+For notifications alone, authors can instead append
+`cinnabar:extension/update-repository@1`
+(`mod_api::UPDATE_REPOSITORY_SECTION`) containing the public repository URL,
+such as `https://github.com/example/zoom-plus`. Repository URLs up to 256 bytes
+accept an optional `.git` suffix or trailing slash. When both sections are
+present, the download URL selects the repository.
+
+On launch, Cinnabar checks opted-in repositories in the background and compares
+the latest release tag, such as `v1.3.0`, with the installed version. Drafts,
+prereleases, equal/older versions and non-SemVer tags are skipped. Each repository
+is checked once per session, including newly imported mods; network work is
+limited to 32 repositories and 32 automatic download attempts per launch.
+Missing releases, network failures and API limits leave the installed mod usable.
+These public requests use no GitHub login or token.
+
+With automatic installation enabled, Cinnabar selects the exact named release
+asset and downloads its immutable GitHub asset ID. The asset must have GitHub's
+SHA-256 digest and fit the host's component size limit. Cinnabar checks the hash,
+component compatibility, declared source and embedded version before atomically
+replacing the unchanged file in the managed mods folder. Settings companions and
+registration, including permission grants, are preserved. Enabled mods reload
+through the existing source watcher, which retains the running instance if
+activation fails. Disabled mods stay disabled. Components registered outside the
+managed mods folder can show notifications but are not replaced automatically.
+
+A newer release shows the launcher's corner update card. **View mod updates**
+opens **Settings → Mods**. For mods with a WASM download URL, **Update** downloads,
+validates, replaces and reloads the component inside Cinnabar. It works even when
+automatic installation is off. Its live progress uses the pack downloader's byte
+units, rolling speed estimate and ETA, with a percentage and byte progress bar.
+The stages distinguish **Downloading**, **Verifying**, **Installing** and
+**Reloading**. Installation and reload use an indeterminate indicator rather than
+a fabricated percentage; enabled mods stay busy until the runtime acknowledges
+the new instance. Duplicate presses are blocked until completion or failure. Download or installation failures leave the
+existing file in place, show an error and allow another attempt. Repository-only
+notification sources retain **View release**, which opens GitHub because they do
+not identify an installable file. Successful installs report their version on the
+Mods tab and clear the available-update notice. App updates take priority in the corner.
+
+Players can disable **Install mod updates automatically** in **Settings →
+General** while retaining notifications, or disable **Check for mod updates**
+to stop both checks and downloads. Both mod settings work independently of the
+app updater, including development builds. Mods without either declaration make
+no update requests.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one
@@ -206,6 +268,11 @@ CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
 On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
+
+The user-consented `players` and `camera` grants remain available in multiplayer
+independently of drawing-session negotiation. They do not grant entity,
+terrain, highlighting or drawing permissions; those retain their separate
+consent and session limits.
 
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads

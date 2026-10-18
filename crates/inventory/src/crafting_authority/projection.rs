@@ -3,16 +3,6 @@ use std::{mem::size_of, num::NonZeroU64, sync::Arc};
 
 use super::budget::{Credits, Permit};
 
-pub(super) fn transaction_cell_index(identity: protocol::SlotIdentity) -> Option<usize> {
-    match protocol::project_container_cell(&identity.container, identity.slot) {
-        Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
-        Some(protocol::CanonicalCell::Cursor) => Some(4),
-        _ => {
-            protocol::personal_craft_slot_index(&identity.container, identity.slot).map(usize::from)
-        }
-    }
-}
-
 pub(super) const MAX_RECORDS: usize = 64;
 
 #[derive(Debug)]
@@ -69,64 +59,35 @@ impl StackOwner {
             .checked_add(64)
     }
 
-    pub(super) fn grid_with_credits(
-        stacks: [&NetworkItemStack; 4],
+    /// Reserves every admitted cell before cloning, publishing no partial batch on refusal.
+    pub(super) fn updates_with_credits<const N: usize>(
+        updates: [Option<Option<&NetworkItemStack>>; N],
         credits: &Arc<Credits>,
-    ) -> Option<[Arc<Self>; 4]> {
-        let charges = [
-            Self::charge(stacks[0])?,
-            Self::charge(stacks[1])?,
-            Self::charge(stacks[2])?,
-            Self::charge(stacks[3])?,
-        ];
-        charges
-            .iter()
-            .try_fold(0usize, |sum, charge| sum.checked_add(*charge))?;
-        // Every permit precedes every stack clone/Arc allocation. On refusal,
-        // already reserved permits drop without publishing a partial grid.
-        let first = credits.reserve(charges[0])?;
-        let second = credits.reserve(charges[1])?;
-        let third = credits.reserve(charges[2])?;
-        let fourth = credits.reserve(charges[3])?;
-        Some(
-            [
-                (stacks[0], first),
-                (stacks[1], second),
-                (stacks[2], third),
-                (stacks[3], fourth),
-            ]
-            .map(|(stack, permit)| {
-                Arc::new(Self {
-                    stack: stack.clone(),
-                    _permit: permit,
-                })
-            }),
-        )
-    }
-
-    pub(super) fn with_credits(
-        stack: &NetworkItemStack,
-        credits: &Arc<Credits>,
-    ) -> Option<Arc<Self>> {
-        let bytes = Self::charge(stack)?;
-        let permit = credits.reserve(bytes)?;
-        Some(Arc::new(Self {
-            stack: stack.clone(),
-            _permit: permit,
+    ) -> Option<[Option<Arc<Self>>; N]> {
+        let empty = NetworkItemStack::empty();
+        let stacks = updates.map(|update| update.map(|stack| stack.unwrap_or(&empty)));
+        let mut permits: [Option<Permit>; N] = std::array::from_fn(|_| None);
+        for (index, stack) in stacks.iter().enumerate() {
+            if let Some(stack) = stack {
+                permits[index] = Some(credits.reserve(Self::charge(stack)?)?);
+            }
+        }
+        Some(std::array::from_fn(|index| {
+            let stack = stacks[index]?;
+            Some(Arc::new(Self {
+                stack: stack.clone(),
+                _permit: permits[index]
+                    .take()
+                    .expect("all admitted cell credits reserved"),
+            }))
         }))
     }
 }
 
 #[derive(Debug, Clone)]
 pub(super) enum Observation {
-    Grid([Arc<StackOwner>; 4]),
-    Cell {
-        index: usize,
-        stack: Arc<StackOwner>,
-    },
-    Cursor(Arc<StackOwner>),
     /// One FIFO transaction can replace several crafting cells and the cursor.
-    Cells([Option<Arc<StackOwner>>; 5]),
+    Cells([Option<Arc<StackOwner>>; crate::inventory_ledger::PERSONAL_UPDATE_COUNT]),
     Registry(Option<Arc<RegistryOwner>>),
     Recipes(protocol::RecipeUpdate),
     Authority(protocol::InventoryAuthority),
@@ -138,7 +99,7 @@ impl Observation {
             Self::Registry(_) => 1,
             Self::Recipes(_) => 2,
             Self::Authority(_) => 4,
-            Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
+            Self::Cells(_) => 0,
         }
     }
 }
