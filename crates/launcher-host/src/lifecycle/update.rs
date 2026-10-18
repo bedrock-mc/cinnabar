@@ -13,7 +13,7 @@ use launcher::{
     install_layout::InstallLayout,
     menu::{
         settings_options::{SETTINGS_FILE, SettingsOptions},
-        updates::{Action, Preferences, Ready as Notice, View},
+        updates::{Action, Preferences, Ready as Notice, Status, View},
     },
 };
 use std::{
@@ -86,6 +86,8 @@ struct State {
     running: bool,
     /// A launch or release notice wants a fresh check regardless of the completion stamp.
     check_now: bool,
+    manual_check: bool,
+    status: Status,
     announcement: Option<Announcement>,
     startup: StartupPhase,
 }
@@ -141,9 +143,25 @@ impl State {
         if !preferences.checks {
             self.announcement = None;
         }
+        self.status = if self.running {
+            Status::Checking
+        } else {
+            Status::Idle
+        };
+        self.manual_check = false;
         self.preferences = preferences;
         self.generation += 1;
         Some(channel_changed)
+    }
+
+    /// Requests a fresh network check without changing the automatic-check preference.
+    fn request_check(&mut self) -> bool {
+        if self.running || self.requested || self.startup != StartupPhase::Complete {
+            return false;
+        }
+        self.manual_check = true;
+        self.check_now = true;
+        true
     }
 
     /// Requests one manual channel switch and replaces the switch offer with download progress.
@@ -165,6 +183,13 @@ impl State {
         if self.generation != generation {
             return true;
         }
+        self.status = if failed {
+            Status::Failed
+        } else if self.status.is_busy() {
+            Status::Idle
+        } else {
+            self.status
+        };
         if switch_now {
             self.switch_now = false;
             self.switch_available = failed;
@@ -203,6 +228,8 @@ impl State {
             generation: 0,
             running: false,
             check_now: false,
+            manual_check: false,
+            status: Status::Idle,
             announcement: None,
             startup: StartupPhase::Preparing,
         }
@@ -355,6 +382,7 @@ pub fn view() -> View {
                 notice.protocol_required = state.protocol_required;
                 notice
             }),
+        status: state.status,
         stable_available: state.stable_available,
         switch_available: state.switch_available,
         message: state.message.clone(),
@@ -374,6 +402,7 @@ pub fn act(action: Action) -> bool {
     let now = OffsetDateTime::now_utc();
     let mut download = None;
     let mut switch = false;
+    let mut check = false;
     let quit = if let Ok(mut state) = STATE.lock() {
         if state.updater.is_none() {
             return false;
@@ -382,6 +411,10 @@ pub fn act(action: Action) -> bool {
             return true;
         }
         match action {
+            Action::CheckNow => {
+                check = state.request_check();
+                false
+            }
             Action::Restart => state.request_restart(now),
             Action::Later => {
                 state.dismissed = true;
@@ -405,6 +438,8 @@ pub fn act(action: Action) -> bool {
     }
     if switch {
         worker::start(true);
+    } else if check {
+        worker::start(false);
     }
     quit
 }
