@@ -9292,6 +9292,13 @@ Stored unspecified layouts resolve to the recipe-book layout on opening. The
 profile-specific forced-layout branch, exact stable-client gameplay acceptance,
 recipe discovery, ghost rendering and other station rules remain incomplete.
 
+2026-10-17 recipe category facts: item registry components retain the legacy
+numeric category with its typed Int and low-byte rules. A valid properties
+compound defaults that fact to zero when the field is absent or has another
+type; ambiguous paths remain unresolved. Recipe-unlock category masks and
+their UI consumers, built-in category defaults, and complete stable-client
+acceptance remain incomplete.
+
 ## Entity interaction and emote starts
 
 Entity-use presses now send the selected stack and fresh actor hit in the input
@@ -10215,6 +10222,26 @@ Original synthetic regressions cover legacy facts, both hands, artwork replaceme
 preview and dropped geometry, tint, external model selection and unknown models.
 Broader custom-content parity and performance gates remain open; these changes
 do not close them.
+
+### Cache status aggregation and simulation opportunities (2026-10-18, incomplete)
+
+Cache classifications now enter one session outbox shared with the detached writer.
+Simulation opportunities select at most one packet with misses first and the existing
+combined hash limit. A strict five-millisecond exclusion advances even for an empty
+opportunity. Ordinary render flushes do not select status. Idle and terrain-blocked
+frames advance the session clock independently of movement output.
+
+Ready world ingress and admission events no longer wait for status writes. Intake
+pauses at the outbox byte budget, with one bounded candidate allowed to cross it,
+while ready ingress and bounded raw read-ahead keep their existing owners. Selected
+whole batches survive cancellation. Epoch rotation discards only status that has not
+entered the writer FIFO; accepted batches finish once and ordinary packets survive.
+Fast-transfer arming alone does not rotate the outbox.
+
+Regression coverage is written but unrun in this worktree. Compilation, deterministic
+red/green verification, review, complete cache lifecycle parity, unusual pause and
+step timing, and complete current-version callback parity remain open.
+
 ### Retained mod drawing
 
 Drawing permissions and connection fences cover legacy post effects, block highlights and
