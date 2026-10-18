@@ -711,6 +711,7 @@ fn tab_list_badges(visible: bool) -> Fixture {
         .map(|(name, badged)| RosterRow {
             name: Arc::from(name),
             badged,
+            annotation: None,
             skin: None,
         })
         .into(),
