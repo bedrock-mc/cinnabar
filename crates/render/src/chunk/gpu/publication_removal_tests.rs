@@ -153,3 +153,84 @@ fn removal_operation_allowance_does_not_masquerade_as_stalled_retirement() {
     assert!(arena.allocations.contains_key(&fresh));
     assert_eq!(arena.retirement_budget.bytes, 0);
 }
+
+/// Empty receipts can finish beside a resident whose GPU ranges cannot retire yet.
+#[test]
+fn absent_air_receipts_finish_while_a_live_removal_waits_for_retirement() {
+    let mut app = publication_app();
+    let resident = app.world_mut().spawn(cube_instance(0, false)).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .retirement_budget = TransparentRetirementBudget::with_limits(0, 0);
+    app.world_mut()
+        .entity_mut(resident)
+        .remove::<ChunkRenderInstance>();
+
+    let keys = [0, 1, 2].map(|x| SubChunkKey::new(0, x, 0, 0));
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(1, keys.len(), 0, keys.len(), config.maximum_frame_items);
+    let removals = app.world().resource::<ChunkGpuRemovalQueue>();
+    for key in keys {
+        removals
+            .push(PendingGpuRemoval {
+                publications: None,
+                kind: render_api::TerrainRemovalKind::Empty,
+                key,
+                token: Some(ChunkUploadToken {
+                    generation: 2,
+                    dirty_since: Instant::now(),
+                }),
+                priority: ChunkUploadPriority::new(0.0),
+                permit: allowance
+                    .try_admit_zero_byte()
+                    .unwrap()
+                    .into_handoff()
+                    .unwrap()
+                    .into_render_entity()
+                    .unwrap(),
+            })
+            .unwrap_or_else(|_| panic!("the removal mailbox has room"));
+    }
+
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+
+    let mut completed = app
+        .world()
+        .resource::<ChunkUploadAcknowledgements>()
+        .drain()
+        .into_iter()
+        .map(|ack| ack.key)
+        .collect::<Vec<_>>();
+    completed.sort_unstable();
+    assert_eq!(completed, keys[1..]);
+    assert_eq!(allowance.live_permits(), 1);
+    assert_eq!(
+        app.world().resource::<ChunkGpuRemovalQueue>().pending_len(),
+        1
+    );
+    assert!(
+        app.world()
+            .resource::<ChunkGpuArena>()
+            .allocations
+            .contains_key(&resident)
+    );
+
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .retirement_budget = TransparentRetirementBudget::with_limits(8, u64::MAX);
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+
+    let completed = app
+        .world()
+        .resource::<ChunkUploadAcknowledgements>()
+        .drain();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].key, keys[0]);
+    assert_eq!(allowance.live_permits(), 0);
+    assert_eq!(
+        app.world().resource::<ChunkGpuRemovalQueue>().pending_len(),
+        0
+    );
+}

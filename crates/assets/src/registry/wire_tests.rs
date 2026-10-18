@@ -219,3 +219,76 @@ fn current_empty_traits_remain_explicit() {
     let records = read_registry_for_protocol(&fixture(), 2193).unwrap();
     assert!(records[0].traits.is_empty());
 }
+
+#[test]
+fn pinned_identity_projection_borrows_exact_text_with_one_allocation() {
+    let bytes = crate::pinned_block_registry_bytes();
+    let protocol = crate::active_content_registry_protocol();
+    let (identities, allocations) =
+        test_alloc::count(|| identity::read_identities(bytes, protocol).unwrap());
+    assert_eq!(allocations, 1, "only the identity index may allocate");
+    let records = read_registry_for_protocol(bytes, protocol).unwrap();
+    assert_eq!(identities.len(), records.len());
+    let byte_range = bytes.as_ptr_range();
+    for (index, (identity, record)) in identities.iter().zip(records.iter()).enumerate() {
+        assert_eq!(identity.sequential_id, record.sequential_id);
+        assert_eq!(identity.sequential_id as usize, index);
+        assert_eq!(identity.name, record.name.as_ref());
+        assert_eq!(identity.canonical_state, record.canonical_state.as_ref());
+        assert!(byte_range.contains(&identity.name.as_ptr()));
+        assert!(byte_range.contains(&identity.canonical_state.as_ptr()));
+        assert_eq!(
+            crate::pinned_block_identity(record.sequential_id),
+            Some((record.name.as_ref(), record.canonical_state.as_ref()))
+        );
+    }
+    assert_eq!(crate::pinned_block_identity(u32::MAX), None);
+}
+
+/// Finds text extents through the same framing reader without assuming fixed payload offsets.
+fn first_identity_text_offsets(bytes: &[u8]) -> (usize, usize) {
+    let mut reader = Reader::new(bytes);
+    reader
+        .read_exact(schema::REGISTRY_MAGIC.len(), "magic")
+        .unwrap();
+    read_registry_metadata(&mut reader).unwrap();
+    let header = read_record_header(&mut reader, false).unwrap();
+    for _ in 0..header.box_count {
+        read_collision_box(&mut reader).unwrap();
+    }
+    let name = bytes.len() - reader.remaining();
+    (name, name + usize::from(header.name_len))
+}
+
+#[test]
+fn identity_projection_checks_text_framing_without_decoding_state_facts() {
+    let bytes = fixture();
+    let (_, state) = first_identity_text_offsets(&bytes);
+    let mut nonsemantic = bytes.clone();
+    nonsemantic[state] = b'!';
+    let identities = identity::read_identities(&nonsemantic, 2193).unwrap();
+    assert!(identities[0].canonical_state.starts_with('!'));
+    assert!(read_registry_for_protocol(&nonsemantic, 2193).is_err());
+    for field in [first_identity_text_offsets(&bytes).0, state] {
+        let mut malformed = bytes.clone();
+        malformed[field] = 0xff;
+        assert!(matches!(
+            identity::read_identities(&malformed, 2193),
+            Err(AssetError::InvalidRegistryUtf8 { .. })
+        ));
+    }
+    assert!(identity::read_identities(&bytes, 0).is_err());
+    assert!(identity::read_identities(&bytes[..bytes.len() - 1], 2193).is_err());
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(matches!(
+        identity::read_identities(&trailing, 2193),
+        Err(AssetError::TrailingRegistryBytes { .. })
+    ));
+    let mut bad_magic = bytes.clone();
+    bad_magic[0] = b'?';
+    assert!(matches!(
+        identity::read_identities(&bad_magic, 2193),
+        Err(AssetError::InvalidRegistryMagic)
+    ));
+}

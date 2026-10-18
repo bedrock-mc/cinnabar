@@ -77,13 +77,12 @@ impl ActorFrameState {
     }
 }
 
-/// Predicts remote poses from the completed local step when available, otherwise the
-/// supplied interval. Live actor publication later consumes the same step.
+/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
     stream: Option<&mut WorldStream>,
     delta: std::time::Duration,
-    local_step: Option<crate::actor_clock::ActorFrameStep>,
 ) {
     let session_id = stream
         .as_ref()
@@ -92,7 +91,7 @@ pub fn advance_actor_motion(
     if state.published_session != session_id {
         state.actor_clock.reset();
     }
-    let step = local_step.unwrap_or_else(|| state.actor_clock.advance(delta));
+    let step = state.actor_clock.advance(delta);
     if let Some(stream) = stream {
         stream.predict_remote_actor_motion(step.ticks);
     }

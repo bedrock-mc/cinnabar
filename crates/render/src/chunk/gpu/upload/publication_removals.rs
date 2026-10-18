@@ -57,18 +57,21 @@ pub(super) fn prepare_publication_removals(
         zero_byte_operations = zero_byte_operations.saturating_add(1);
     }
 
+    let mut live_keys = LiveAllocationKeys::default();
     let completed_removals = gpu_removals.take_ready(maximum_zero_byte_operations, |key| {
         if physically_removed_keys.contains(&key) {
             return true;
         }
-        if arena
-            .allocations
-            .values()
-            .any(|allocation| allocation.gpu.key == key)
-        {
+        if zero_byte_operations >= maximum_zero_byte_operations {
             return false;
         }
-        if zero_byte_operations >= maximum_zero_byte_operations {
+        if live_keys.contains(
+            key,
+            arena
+                .allocations
+                .values()
+                .map(|allocation| allocation.gpu.key),
+        ) {
             return false;
         }
         zero_byte_operations = zero_byte_operations.saturating_add(1);
@@ -111,4 +114,107 @@ pub(super) fn prepare_publication_removals(
         debug_assert!(retired);
     }
     retirement_pressure
+}
+
+/// Uses direct lookups for small passes and shares an index once scans cost a full arena.
+#[derive(Default)]
+struct LiveAllocationKeys {
+    cached: Option<HashSet<SubChunkKey>>,
+    linear_visits: usize,
+}
+
+impl LiveAllocationKeys {
+    /// Indexes the immutable post-retirement keys only after earlier scans visited their count.
+    fn contains(
+        &mut self,
+        key: SubChunkKey,
+        mut allocation_keys: impl ExactSizeIterator<Item = SubChunkKey>,
+    ) -> bool {
+        if let Some(cached) = &self.cached {
+            return cached.contains(&key);
+        }
+        if self.linear_visits >= allocation_keys.len() {
+            let cached = self.cached.insert(allocation_keys.collect());
+            return cached.contains(&key);
+        }
+        let before = allocation_keys.len();
+        let found = allocation_keys.any(|candidate| candidate == key);
+        self.linear_visits = self
+            .linear_visits
+            .saturating_add(before - allocation_keys.len());
+        found
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    /// A single receipt retains the early-exit lookup and allocates no index.
+    #[test]
+    fn one_receipt_keeps_its_direct_lookup() {
+        let keys = (0..1_024)
+            .map(|x| SubChunkKey::new(0, x, 0, 0))
+            .collect::<Vec<_>>();
+        for (key, expected_reads, present) in [
+            (keys[0], 1, true),
+            (SubChunkKey::new(0, 1_024, 0, 0), keys.len(), false),
+        ] {
+            let reads = Cell::new(0);
+            let mut lookup = LiveAllocationKeys::default();
+            assert_eq!(
+                lookup.contains(
+                    key,
+                    keys.iter().copied().inspect(|_| reads.set(reads.get() + 1)),
+                ),
+                present,
+            );
+            assert_eq!(reads.get(), expected_reads);
+            assert!(lookup.cached.is_none());
+        }
+    }
+
+    /// Repeated absent receipts spend one full scan and one shared index construction.
+    #[test]
+    fn air_receipts_share_an_index_after_one_full_scan() {
+        let keys = (0..1_024)
+            .map(|x| SubChunkKey::new(0, x, 0, 0))
+            .collect::<Vec<_>>();
+        let reads = Cell::new(0);
+        let mut lookup = LiveAllocationKeys::default();
+        for x in 1_024..1_280 {
+            assert!(!lookup.contains(
+                SubChunkKey::new(0, x, 0, 0),
+                keys.iter().copied().inspect(|_| reads.set(reads.get() + 1)),
+            ));
+        }
+        assert!(lookup.contains(
+            keys[0],
+            keys.iter().copied().inspect(|_| reads.set(reads.get() + 1)),
+        ));
+        assert_eq!(reads.get(), keys.len() * 2);
+    }
+
+    /// A scan crossing the arena-sized work threshold still bounds total key visits linearly.
+    #[test]
+    fn mixed_receipts_bound_scans_before_indexing() {
+        let keys = (0..1_024)
+            .map(|x| SubChunkKey::new(0, x, 0, 0))
+            .collect::<Vec<_>>();
+        let reads = Cell::new(0);
+        let mut lookup = LiveAllocationKeys::default();
+        for key in
+            std::iter::once(keys[0]).chain((1_024..1_280).map(|x| SubChunkKey::new(0, x, 0, 0)))
+        {
+            assert_eq!(
+                lookup.contains(
+                    key,
+                    keys.iter().copied().inspect(|_| reads.set(reads.get() + 1)),
+                ),
+                key == keys[0],
+            );
+        }
+        assert!(reads.get() <= keys.len() * 3);
+    }
 }
