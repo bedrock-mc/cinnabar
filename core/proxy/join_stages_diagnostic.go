@@ -24,6 +24,7 @@ func withDiagnosticJoinStages(d minecraft.Dialer, logger *slog.Logger) minecraft
 		packet.IDResourcePackDataInfo:        "pack_data_info",
 		packet.IDResourcePackChunkData:       "first_pack_chunk",
 		packet.IDItemRegistry:                "item_registry",
+		packet.IDTransfer:                    "server_transfer",
 		packet.IDRequestChunkRadius:          "chunk_radius_request",
 		packet.IDChunkRadiusUpdated:          "chunk_radius_reply",
 		packet.IDNetworkChunkPublisherUpdate: "first_publisher_update",
