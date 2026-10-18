@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 use super::{LOW_PBR_TILE_SIZE, Source};
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
-// Includes conservative variant admission and opacity-weighted LabPBR categories.
-const MAGIC: &[u8; 8] = b"CINPBR14";
+// Includes inherited atlas tints, opacity-weighted resizing and aligned height detail.
+const MAGIC: &[u8; 8] = b"CINPBR15";
 const MAX_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 static OVERSIZED_CACHE_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -154,6 +154,10 @@ pub(super) fn fingerprint(
             digest.update((source.frame as u64).to_le_bytes());
             digest.update((source.count as u64).to_le_bytes());
             digest.update([u8::from(source.cutout), u8::from(source.overlay_mask)]);
+            digest.update([u8::from(source.baked_tint.is_some())]);
+            if let Some(tint) = source.baked_tint {
+                digest.update(tint);
+            }
         }
     }
     Some(digest.finalize().into())

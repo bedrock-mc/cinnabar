@@ -124,7 +124,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let authored_only = gpu_assets
         .prepared
         .as_ref()
-        .is_some_and(|prepared| authored_upload::same_carrier(prepared.identity, identity));
+        .is_some_and(|prepared| same_carrier(prepared.identity, identity));
     #[cfg(not(feature = "enhanced"))]
     let authored_only = false;
     // Bootstrap may publish without an optional reload transaction.
@@ -228,7 +228,7 @@ fn rebuild_bootstrap_atlas(
     if gpu_assets
         .prepared
         .as_ref()
-        .is_some_and(|prepared| authored_upload::same_carrier(prepared.identity, identity))
+        .is_some_and(|prepared| same_carrier(prepared.identity, identity))
     {
         if let Some(authored) = assets.enhanced() {
             gpu_assets.authored_pending =

@@ -4,6 +4,9 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::render::render_resource::{TextureId, TextureViewId};
 use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority};
 
+#[cfg(feature = "enhanced")]
+mod authored_streaming;
+
 /// The physical atlas resources selected by terrain draw preparation.
 type AtlasResources = (
     ChunkTextureAssetIdentity,

@@ -1,10 +1,14 @@
 use assets::texture::{PBR_REF_LABPBR, TextureMip};
-use image::{ImageBuffer, Luma, Rgba, RgbaImage, imageops::FilterType};
+use image::{ImageBuffer, Luma, Rgba, RgbaImage};
 
 use super::{PbrSurface, decode};
 
+mod normalization;
+use normalization::{resize, resize_categories, resize_weighted};
+
 type FloatImage = ImageBuffer<Rgba<f32>, Vec<f32>>;
 type ScalarImage = ImageBuffer<Luma<f32>, Vec<f32>>;
+const LABPBR_METAL_START: f32 = 230.0 / 255.0;
 
 #[derive(Clone, Debug)]
 pub struct PbrMipLayer {
@@ -47,17 +51,15 @@ fn coverage(image: &RgbaImage) -> f32 {
         / (image.width() * image.height()) as f32
 }
 
-/// Resizes floating-point channels to the requested square layer size.
-fn resize(image: FloatImage, side: u32) -> FloatImage {
-    if image.width() == side && image.height() == side {
-        image
-    } else {
-        image::imageops::resize(&image, side, side, FilterType::Triangle)
-    }
-}
-
 /// Converts color, normals and material channels into their filtering spaces.
 fn prepare(surface: &PbrSurface, side: u32, overlay_mask: bool) -> Working {
+    let opacity = ScalarImage::from_fn(surface.color.width(), surface.color.height(), |x, y| {
+        Luma([if overlay_mask {
+            1.0
+        } else {
+            surface.color.get_pixel(x, y)[3] as f32 / 255.0
+        }])
+    });
     let color = FloatImage::from_fn(surface.color.width(), surface.color.height(), |x, y| {
         let pixel = surface.color.get_pixel(x, y);
         let alpha = pixel[3] as f32 / 255.0;
@@ -93,19 +95,15 @@ fn prepare(surface: &PbrSurface, side: u32, overlay_mask: bool) -> Working {
             ])
         },
     );
-    let mut material = resize(material, side);
+    let mut resized_material = resize_weighted(material.clone(), &opacity, side);
     if surface.flags & PBR_REF_LABPBR != 0 {
-        let nearest = image::imageops::resize(&surface.material, side, side, FilterType::Nearest);
-        for (pixel, exact) in material.pixels_mut().zip(nearest.pixels()) {
-            pixel[0] = exact[0] as f32 / 255.0;
-            pixel[3] = exact[3] as f32 / 255.0;
-        }
+        resize_categories(&material, &opacity, &mut resized_material);
     }
     Working {
         color: resize(color, side),
-        normal: resize(normal, side),
-        ao: image::imageops::resize(&ao, side, side, FilterType::Triangle),
-        material,
+        normal: resize_weighted(normal, &opacity, side),
+        ao: resize_weighted(ao, &opacity, side),
+        material: resized_material,
     }
 }
 
@@ -205,39 +203,38 @@ fn encode(
 }
 
 /// Selects the category with most coverage, then filters only its visible values.
-fn categorical(values: [f32; 4], weights: [f32; 4], above: [bool; 4], discrete: bool) -> f32 {
-    let total = weights.iter().sum::<f32>();
+fn categorical(
+    samples: impl Iterator<Item = (f32, f32)> + Clone,
+    above: impl Fn(f32) -> bool,
+    discrete: bool,
+) -> f32 {
+    let fallback = samples.clone().next().map_or(0.0, |(value, _)| value);
+    let total = samples.clone().map(|(_, weight)| weight).sum::<f32>();
     if total <= 0.000001 {
-        return values[0];
+        return fallback;
     }
-    let above_weight = weights
-        .iter()
-        .zip(above)
-        .filter(|(_, above)| *above)
-        .map(|(weight, _)| weight)
+    let above_weight = samples
+        .clone()
+        .filter(|(value, _)| above(*value))
+        .map(|(_, weight)| weight)
         .sum::<f32>();
     let take_above = above_weight >= total * 0.5;
     let selected = || {
-        values
-            .iter()
-            .copied()
-            .zip(weights)
-            .zip(above)
-            .filter(|((_, weight), above)| *weight > 0.0 && *above == take_above)
-            .map(|(sample, _)| sample)
+        samples
+            .clone()
+            .filter(|(value, weight)| *weight > 0.0 && above(*value) == take_above)
     };
     if take_above && discrete {
-        selected()
-            .map(|(candidate, _)| {
-                let coverage = selected()
-                    .filter(|(value, _)| (*value - candidate).abs() < 0.001)
-                    .map(|(_, weight)| weight)
-                    .sum::<f32>();
-                (candidate, coverage)
-            })
+        let mut coverage = [0.0_f32; u8::MAX as usize + 1];
+        for (value, weight) in selected() {
+            coverage[decode::byte(value) as usize] += weight;
+        }
+        coverage
+            .into_iter()
+            .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(value, _)| value)
-            .unwrap_or(values[0])
+            .map(|(value, _)| value as f32 / 255.0)
+            .unwrap_or(fallback)
     } else {
         selected()
             .map(|(value, weight)| value * weight)
@@ -310,13 +307,16 @@ fn downsample(working: &Working, side: u32, lab: bool, overlay_mask: bool) -> Wo
             let weights = points.map(|(x, y)| weight(x, y));
             let metal = points.map(|(x, y)| working.material.get_pixel(x, y)[0]);
             result[0] = categorical(
-                metal,
-                weights,
-                metal.map(|value| value >= 230.0 / 255.0),
+                metal.into_iter().zip(weights),
+                |value| value >= LABPBR_METAL_START,
                 true,
             );
             let blue = points.map(|(x, y)| working.material.get_pixel(x, y)[3]);
-            result[3] = categorical(blue, weights, blue.map(|value| value > 64.0 / 255.0), false);
+            result[3] = categorical(
+                blue.into_iter().zip(weights),
+                |value| value > 64.0 / 255.0,
+                false,
+            );
         }
         Rgba(result)
     });

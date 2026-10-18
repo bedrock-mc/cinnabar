@@ -253,6 +253,8 @@ pub struct PbrTexture {
     timeline: Vec<u32>,
     height: Option<RgbaImage>,
     source: PbrTextureSource,
+    /// An explicit winning terrain entry replaces the carrier's atlas tint.
+    terrain_override: bool,
 }
 
 /// Image paths refer to pack inputs, before frame extraction and upload resizing.
@@ -308,6 +310,12 @@ impl PbrTexture {
         self.height.is_some()
     }
 
+    /// Returns the carrier tint that remains applicable after the winning terrain override.
+    #[must_use]
+    pub fn inherited_tint(&self, tint: Option<[u8; 3]>) -> Option<[u8; 3]> {
+        tint.filter(|_| !self.terrain_override)
+    }
+
     /// Maps authored frame order onto the carrier's slots; the carrier retains its clock.
     /// Custom frame counts and durations are sampled into those slots, not scheduled independently.
     pub fn frame(
@@ -315,13 +323,27 @@ impl PbrTexture {
         timeline_index: usize,
         timeline_count: usize,
     ) -> Result<PbrSurface, String> {
-        frames::extract(
+        self.frame_with_inherited_tint(timeline_index, timeline_count, None)
+    }
+
+    /// Applies a carrier's atlas tint unless the winning pack declares its own terrain entry.
+    pub fn frame_with_inherited_tint(
+        &self,
+        timeline_index: usize,
+        timeline_count: usize,
+        inherited_tint: Option<[u8; 3]>,
+    ) -> Result<PbrSurface, String> {
+        let mut frame = frames::extract(
             &self.surface,
             self.height.as_ref(),
             &self.timeline,
             timeline_index,
             timeline_count,
-        )
+        )?;
+        if let Some(tint) = self.inherited_tint(inherited_tint) {
+            pack_compile_input::apply_atlas_tint(frame.color.as_mut(), tint);
+        }
+        Ok(frame)
     }
 }
 

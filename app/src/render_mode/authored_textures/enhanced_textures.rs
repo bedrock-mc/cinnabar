@@ -15,6 +15,8 @@ use pack_compiler::pbr::{
 mod audit;
 mod cache;
 mod config;
+#[cfg(test)]
+mod tint_tests;
 
 /// Semicolon- or newline-separated pack directories that replace the local PBR configuration.
 pub(crate) const ENHANCED_PBR_DIR_ENVIRONMENT: &str = "CINNABAR_ENHANCED_PBR_DIR";
@@ -33,6 +35,7 @@ struct Source {
     count: usize,
     cutout: bool,
     overlay_mask: bool,
+    baked_tint: Option<[u8; 3]>,
 }
 
 /// Keeps every alias and material owner until its authored image has been resolved.
@@ -54,6 +57,9 @@ fn sources(
                 continue;
             };
             let overlay_mask = material.flags & assets::MATERIAL_FLAG_OVERLAY_MASK != 0;
+            let baked_tint = keys
+                .material_source(id)
+                .and_then(|source| source.baked_tint);
             let cutout = material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT != 0;
             let animation = (material.animation != NO_ANIMATION)
                 .then(|| runtime.animations().get(material.animation as usize))
@@ -72,6 +78,7 @@ fn sources(
                     count,
                     cutout,
                     overlay_mask,
+                    baked_tint,
                 });
             if let Some(animation) = animation {
                 let start = animation.frame_start as usize;
@@ -100,6 +107,7 @@ fn sources(
                             count,
                             cutout,
                             overlay_mask,
+                            baked_tint,
                         });
                 }
             }
@@ -214,6 +222,7 @@ fn load(
                 source.count,
                 source.cutout,
                 source.overlay_mask,
+                texture.inherited_tint(source.baked_tint),
             );
             let encoded = if let Some(&reference) = completed.get(&key) {
                 reference
@@ -222,9 +231,11 @@ fn load(
                     audit_alias.fallback = true;
                     break;
                 }
-                let mip = texture.frame(source.frame, source.count).and_then(|frame| {
-                    build_pbr_mips(&frame, tile_size, source.cutout, source.overlay_mask)
-                });
+                let mip = texture
+                    .frame_with_inherited_tint(source.frame, source.count, source.baked_tint)
+                    .and_then(|frame| {
+                        build_pbr_mips(&frame, tile_size, source.cutout, source.overlay_mask)
+                    });
                 let mip = match mip {
                     Ok(mip) => mip,
                     Err(error) => {
@@ -335,7 +346,7 @@ mod tests {
     use super::*;
 
     /// Creates two distinct materials that share one carrier image.
-    fn shared_carrier() -> (RuntimeAssets, MaterialKeys) {
+    pub(super) fn shared_carrier() -> (RuntimeAssets, MaterialKeys) {
         let base = RuntimeAssets::diagnostic();
         let material = assets::Material {
             texture: TextureRef::new(1, 0).unwrap(),
@@ -360,7 +371,7 @@ mod tests {
     }
 
     /// Reads an authored layer's first albedo texel through the production reference lookup.
-    fn albedo(
+    pub(super) fn albedo(
         maps: &render_scene::EnhancedTextureAssets,
         runtime: &RuntimeAssets,
         id: u32,

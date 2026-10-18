@@ -299,6 +299,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
         timeline: Vec::new(),
         height,
         source,
+        terrain_override: false,
     })
 }
 
@@ -342,8 +343,9 @@ fn animation(path: &Path) -> Result<Vec<u32>, String> {
 }
 
 /// Applies the shared atlas-space multiplier before frame extraction and mip filtering.
-fn tinted(mut texture: PbrTexture, tint: Option<[u8; 3]>) -> PbrTexture {
-    if let Some(tint) = tint {
+fn tinted(mut texture: PbrTexture, terrain: Option<&terrain::TerrainSource>) -> PbrTexture {
+    texture.terrain_override = terrain.is_some();
+    if let Some(tint) = terrain.and_then(|source| source.tint) {
         pack_compile_input::apply_atlas_tint(texture.surface.color.as_mut(), tint);
     }
     texture
@@ -362,10 +364,9 @@ pub(super) fn load(
             Some(key) => owner.terrain_key_source(key)?,
             None => owner.terrain_source(alias)?,
         };
-        let tint = terrain.and_then(|source| source.tint);
         let alias = terrain.map_or(alias, |source| source.path.as_str());
         if let Some(path) = json_path(owner, alias) {
-            let texture = tinted(texture_set(owner, &path)?, tint);
+            let texture = tinted(texture_set(owner, &path)?, terrain);
             if !prefer_complete || texture.has_complete_material() {
                 return Ok(Some(texture));
             }
@@ -470,8 +471,9 @@ pub(super) fn load(
                 timeline: animation(&color_path)?,
                 height,
                 source,
+                terrain_override: false,
             },
-            tint,
+            terrain,
         );
         if !prefer_complete || texture.has_complete_material() {
             return Ok(Some(texture));

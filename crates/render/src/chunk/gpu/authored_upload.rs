@@ -3,6 +3,8 @@
 use crate::chunk::*;
 use render_scene::{ChunkTextureAssetIdentity, EnhancedTextureAssets};
 
+#[cfg(test)]
+use super::bind_groups::same_carrier;
 use super::bind_groups::{ChunkTextureUploadStats, PreparedChunkTextureAssets};
 
 pub(super) const FRAME_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
@@ -11,14 +13,6 @@ const _: () =
 const _: () = assert!(
     EnhancedTextureAssets::REFERENCE_BASE_WORDS * std::mem::size_of::<u32>() <= FRAME_UPLOAD_BYTES
 );
-
-/// Checks carrier ownership and revision independently of optional authored maps.
-pub(super) fn same_carrier(
-    current: ChunkTextureAssetIdentity,
-    next: ChunkTextureAssetIdentity,
-) -> bool {
-    current.pointer == next.pointer && current.revision == next.revision
-}
 
 #[derive(Clone, Copy, Debug)]
 struct MipTask {

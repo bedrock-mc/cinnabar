@@ -159,6 +159,14 @@ pub(in crate::chunk) fn biome_tint_bind_group_needs_rebuild(
     current != Some(next)
 }
 
+/// Checks carrier ownership and revision independently of optional authored maps.
+pub(super) fn same_carrier(
+    current: ChunkTextureAssetIdentity,
+    next: ChunkTextureAssetIdentity,
+) -> bool {
+    current.pointer == next.pointer && current.revision == next.revision
+}
+
 pub(in crate::chunk) fn prepare_chunk_biome_tints(
     render_device: Res<RenderDevice>,
     source: Res<ChunkBiomeTints>,
@@ -170,7 +178,7 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         && textures
             .prepared
             .as_ref()
-            .is_none_or(|prepared| prepared.identity != assets.identity())
+            .is_none_or(|prepared| !same_carrier(prepared.identity, assets.identity()))
     {
         return;
     }
