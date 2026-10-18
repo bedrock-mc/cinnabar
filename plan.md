@@ -2124,11 +2124,16 @@ not close a parity or visual acceptance gate.
 - Secondary creative catalog clicks create one item with an empty cursor and destroy one
   with a held selection. Typed item locks apply to ordinary player removal, storage and
   station placement, drops, destruction and consumption.
+- Inventory commands capture the actor's current effective permissions. Accepted ability
+  packets replace prior layer definitions, and later mode assignments update their owned
+  layers. Binding armor removal follows actor Creative mode; item creation follows
+  Instabuild. Creative catalog handlers reject stale hits after a mode change, and empty
+  Survival recipe-book clicks preserve the cursor selection.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
 - Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
-  effective ability and mode-dependent removal, all station membership rules,
+  all station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.
@@ -7903,6 +7908,12 @@ the interaction parity gate.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Selected transaction descriptors omit the optional stack network ID for actor use,
+block use/destroy, air use, item-directed attack and release, including the shared
+embedded movement payload. Serialization regressions preserve item contents and
+inventory action identities. Admission, dynamic actions, NBT rewriting and combined
+runtime acceptance remain incomplete; this bounded correction closes no parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid
@@ -10332,12 +10343,13 @@ step timing, and complete current-version callback parity remain open.
 Drawing permissions and connection fences cover legacy post effects, block highlights and
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained
 indexed meshes, polylines, shared instances and callback groups are admitted transactionally
-with per-owner quotas.
-Geometry admission caches conservative position bounds, so shared-instance validation does
-not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
-and snapshot identity determine retained publication.
-Renderer integration and entity anchors are incomplete; no rendering parity or performance
-gate is closed by these contracts.
+with per-owner quotas. The shared unlit renderer reuses meshes and updates view-relative
+instances. Geometry admission validates each vertex once and caches box and sphere bounds,
+payload bytes and expanded vertex counts. Instance validation uses only cached facts;
+nonuniform scales use conservative extent bounds. Callbacks without resource changes
+preserve snapshots without allocating; revisions and snapshot identity determine retained
+publication. Entity anchors, native output captures and hardware budgets remain incomplete;
+no rendering parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
 vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and
@@ -10386,6 +10398,14 @@ sneak and sprint states. Undefined attributes retain their wire defaults and ref
 sends remain pending. Other locally predicted flags, bounding-box updates, history
 loss and exact send phase remain open; this does not close movement parity.
 
+## Local actor presentation flags (incomplete)
+
+Local animation flags are retained separately from received gameplay metadata.
+Visual held-item use and locomotion poses cannot change correction-sync flags.
+Nametags, player previews, hands and the paperdoll read the rendering state.
+
+Accepted local held-use and glide/swim/crawl projection, replay authority and exact
+send phase remain incomplete. This separation does not close movement parity.
 ## Sign text line breaks
 
 Sign edits retain existing trailing blank lines and line breaks entered before closing.

@@ -275,3 +275,110 @@ fn consume_refuses_every_nonzero_typed_item_lock() {
         }
     }
 }
+
+/// Builds ordinary binding NBT using the public full-width editor.
+fn binding(level: i16) -> NetworkItemStack {
+    let mut held = locked(0, 1);
+    held.count = 1;
+    let id = i16::from(protocol_ids::Enchantment::Curseofbinding.wire_value());
+    held.extra_data = edit_item_extra(
+        &held.extra_data,
+        &ItemNbtEdit {
+            enchantments: Some(vec![(id, level)]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    held.nbt_digest = Sha256::digest(&held.extra_data).into();
+    held
+}
+
+#[test]
+fn binding_armor_removal_uses_actor_mode_independently_of_instabuild() {
+    use inventory::inventory_ledger::InventoryPermissions;
+    for creative in [false, true] {
+        for instabuild in [None, Some(false), Some(true)] {
+            for level in [0, 1, 256] {
+                for route in 0..4 {
+                    let Some(mut ledger) = ready(0, locked(0, 1), false, true) else {
+                        return;
+                    };
+                    ledger.set_permissions(InventoryPermissions {
+                        creative,
+                        instabuild,
+                    });
+                    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                        identity: SlotIdentity {
+                            container: ContainerIdentity::window(0),
+                            slot: 0,
+                        },
+                        stack: NetworkItemStack::empty(),
+                        storage_item: None,
+                    }));
+                    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+                        container: ContainerIdentity::window(ARMOR_WINDOW_ID),
+                        slots: [
+                            binding(level),
+                            NetworkItemStack::empty(),
+                            NetworkItemStack::empty(),
+                            NetworkItemStack::empty(),
+                        ]
+                        .into(),
+                        storage_item: NetworkItemStack::empty(),
+                    }));
+                    let target = InventoryTarget::Armor(0);
+                    let result = match route {
+                        0 => ledger.begin_target_gesture(target, CellGesture::Click),
+                        1 => ledger.begin_hotbar_swap(target, 0),
+                        2 => ledger.begin_quick_move(target),
+                        _ => ledger.begin_drop(DropSource::Target(target), Some(1)),
+                    };
+                    if !creative && level > 0 {
+                        assert_eq!(
+                            result,
+                            Err(InventoryGestureError::SlotLocked),
+                            "instabuild={instabuild:?} level={level} route={route}"
+                        );
+                        assert_eq!(ledger.pending_request_count(), 0);
+                    } else {
+                        assert!(
+                            result.is_ok(),
+                            "creative={creative} instabuild={instabuild:?} level={level} route={route}: {result:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn unrelated_display_data_does_not_disable_binding_removal_checks() {
+    let Some(mut ledger) = ready(0, locked(0, 1), false, true) else {
+        return;
+    };
+    let mut held = binding(1);
+    let mut data = held.extra_data.to_vec();
+    let position = data.len() - 9;
+    data.splice(
+        position..position,
+        [1, 7, 0, b'd', b'i', b's', b'p', b'l', b'a', b'y', 1],
+    );
+    held.nbt_digest = Sha256::digest(&data).into();
+    held.extra_data = data.into();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(ARMOR_WINDOW_ID),
+        slots: [
+            held,
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+        ]
+        .into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    assert_eq!(
+        ledger.begin_target_gesture(InventoryTarget::Armor(0), CellGesture::Click),
+        Err(InventoryGestureError::SlotLocked)
+    );
+}

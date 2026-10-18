@@ -38,6 +38,7 @@ mod player_list;
 mod player_skin;
 mod protocol_ids;
 mod raw_text;
+mod selected_descriptors;
 mod sleep_status;
 mod ui_packets;
 mod world_correction_packets;

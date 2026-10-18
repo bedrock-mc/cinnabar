@@ -253,5 +253,13 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
         protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();
     rebuilt.header.from_subclient = 1;
     rebuilt.header.to_subclient = 2;
-    assert_eq!(protocol::encode(&rebuilt).unwrap().as_ref(), fixture);
+    let expected = super::selected_descriptors::without_selected_identity(
+        protocol::decode_batch(bytes::Bytes::from(fixture))
+            .unwrap()
+            .remove(0),
+    );
+    assert_eq!(
+        protocol::encode(&rebuilt).unwrap(),
+        protocol::encode(&expected).unwrap()
+    );
 }

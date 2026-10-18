@@ -17,6 +17,10 @@ impl Instance {
         state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
+        state
+            .render
+            .retained
+            .bind_session(session.connection, session.dimension);
         let mut effective = session;
         effective.permissions = state.grants.drawing_permissions();
         state.render.masks.bind(effective);
@@ -78,6 +82,10 @@ impl Instance {
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
         if let Some(mut session) = policy {
+            state
+                .render
+                .retained
+                .bind_session(session.connection, session.dimension);
             session.permissions = state.grants.drawing_permissions();
             state.render.masks.bind(session);
         }
