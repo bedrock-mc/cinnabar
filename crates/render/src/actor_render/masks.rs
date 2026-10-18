@@ -9,7 +9,7 @@ use bevy::{
         camera::ExtractedCamera,
         render_resource::RenderPassDepthStencilAttachment,
         renderer::{RenderContext, ViewQuery},
-        view::{ViewDepthStencilTexture, ViewTarget},
+        view::ViewDepthStencilTexture,
     },
 };
 use mod_api::drawing::{
@@ -120,6 +120,7 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
 }
 
 /// One view and one owner's immutable-depth mask; every frame clears it before sampling.
+#[derive(Clone)]
 pub(crate) struct MaskTarget {
     texture: Texture,
     render_view: TextureView,
@@ -130,6 +131,7 @@ pub(crate) struct MaskTarget {
     draws: Vec<Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>>,
     frame_generation: u64,
     ready: bool,
+    encoded: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl MaskTarget {
@@ -182,6 +184,7 @@ impl MaskTarget {
             draws: Vec::new(),
             frame_generation: 0,
             ready: false,
+            encoded: Default::default(),
         })
     }
 
@@ -196,6 +199,7 @@ impl MaskTarget {
 pub(crate) struct MaskGpu {
     variants: Variants<RenderPipeline, MaskSpecializer>,
     pub(crate) targets: HashMap<(Entity, DrawingHandle), MaskTarget>,
+    pub(crate) attachment_bytes: u64,
 }
 
 impl FromWorld for MaskGpu {
@@ -207,7 +211,23 @@ impl FromWorld for MaskGpu {
                 actor_pipeline_descriptor(actor_bind_group_layout()),
             ),
             targets: HashMap::new(),
+            attachment_bytes: 0,
         }
+    }
+}
+
+impl MaskGpu {
+    /// Returns only an admitted owner's ready mask in this view; absent masks skip the effect.
+    pub(crate) fn sample(&self, view: Entity, handle: DrawingHandle) -> Option<&TextureView> {
+        let target = self.targets.get(&(view, handle))?;
+        (target.ready && target.encoded.load(std::sync::atomic::Ordering::Relaxed))
+            .then_some(&target.view)
+    }
+
+    /// Allocates consumers before draw encoding; this view is never handed to a guest here.
+    pub(crate) fn planned(&self, view: Entity, handle: DrawingHandle) -> Option<&TextureView> {
+        let target = self.targets.get(&(view, handle))?;
+        target.ready.then_some(&target.view)
     }
 }
 
@@ -260,6 +280,14 @@ fn selected(mask: &mod_render::masks::Mask, identity: &render_model::ActorRender
         })
 }
 
+/// Identical authorized unions and depth policy can share attachments without sharing handles.
+fn compatible(a: &mod_render::masks::Mask, b: &mod_render::masks::Mask) -> bool {
+    a.session.connection == b.session.connection
+        && a.session.dimension == b.session.dimension
+        && a.depth == b.depth
+        && a.entities == b.entities
+}
+
 /// Selects only admitted draw spans, splitting shared spans at authorized entity boundaries.
 fn selection(
     mask: &mod_render::masks::Mask,
@@ -291,16 +319,17 @@ fn selection(
 }
 
 /// Reclaims revoked owners/views before charging a complete frame's attachments.
-fn prepare(
+pub(crate) fn prepare(
     scene: Option<Res<render_scene::ModRenderScene>>,
     gpu: Option<Res<ActorGpu>>,
     mut masks: ResMut<MaskGpu>,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
-    views: Query<(Entity, &Msaa, &ViewDepthStencilTexture, &ViewTarget)>,
+    views: Query<(Entity, &Msaa, &ViewDepthStencilTexture)>,
 ) {
     let (Some(scene), Some(gpu)) = (scene, gpu) else {
         masks.targets.clear();
+        masks.attachment_bytes = 0;
         return;
     };
     let active: Vec<_> = scene
@@ -308,8 +337,14 @@ fn prepare(
         .iter()
         .filter(|mask| mask.authorized() && !mask.entities.is_empty())
         .collect();
+    let mut groups: Vec<&mod_render::masks::Mask> = Vec::new();
+    for mask in &active {
+        if !groups.iter().any(|other| compatible(mask, other)) {
+            groups.push(mask);
+        }
+    }
     // Admit a whole frame or none: load order cannot consume another owner's attachment budget.
-    let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth, _)| {
+    let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth)| {
         let size = depth.texture().size();
         sum.checked_add(
             mod_render::masks::attachment_bytes(
@@ -317,19 +352,34 @@ fn prepare(
                 size.height,
                 depth.texture().sample_count(),
             )?
-            .checked_mul(active.len() as u64)?,
+            .checked_mul(groups.len() as u64)?,
         )
     });
     if bytes.is_none_or(|bytes| bytes > MAX_MASK_ATTACHMENT_BYTES) {
         masks.targets.clear();
+        masks.attachment_bytes = 0;
         return;
     }
-    masks.targets.retain(|(view, handle), _| {
-        views.contains(*view) && active.iter().any(|mask| mask.handle == *handle)
+    masks.attachment_bytes = bytes.unwrap_or(0);
+    // A previous union can split into several groups. Keep each old attachment for
+    // at most one representative before rebuilding this frame's shared aliases.
+    let mut retained = std::collections::HashSet::new();
+    masks.targets.retain(|(view, handle), target| {
+        views.contains(*view)
+            && groups.iter().any(|mask| mask.handle == *handle)
+            && retained.insert((*view, target.view.id()))
     });
-    for (entity, msaa, depth, _) in &views {
+    for (entity, msaa, depth) in &views {
         for mask in &active {
             let key = (entity, mask.handle);
+            if let Some(group) = groups
+                .iter()
+                .find(|group| compatible(mask, group) && group.handle != mask.handle)
+                && let Some(target) = masks.targets.get(&(entity, group.handle)).cloned()
+            {
+                masks.targets.insert(key, target);
+                continue;
+            }
             if masks
                 .targets
                 .get(&key)
@@ -398,6 +448,9 @@ fn prepare(
             target.draws = draws.into_values().collect();
             ready &= target.dissolve_binding.is_some();
             target.ready = ready;
+            target
+                .encoded
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             target.frame_generation = gpu.frame_generation;
         }
     }
@@ -437,8 +490,9 @@ fn draw(
     ) else {
         return Ok(());
     };
+    let mut drawn = std::collections::HashSet::new();
     for ((owner_view, _), target) in &masks.targets {
-        if *owner_view != entity {
+        if *owner_view != entity || !drawn.insert(target.view.id()) {
             continue;
         }
         let attachments = [Some(RenderPassColorAttachment {
@@ -552,6 +606,9 @@ fn draw(
                 }
             }
         }
+        target
+            .encoded
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     Ok(())
 }
