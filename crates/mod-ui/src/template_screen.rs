@@ -11,9 +11,8 @@ use json_ui::{
     PointerInput, Scalar, ScreenEvent, ViewState,
 };
 use server_experience::{
-    manifest::template_root,
     policy::MAX_UI_VALUES,
-    screen::{self, GuiSize},
+    screen::{self, GuiSize, template_root},
 };
 
 use ui_engine::frame::EngineFrame;

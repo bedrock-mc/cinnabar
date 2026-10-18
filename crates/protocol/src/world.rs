@@ -55,7 +55,7 @@ pub use self::clocks::{
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
     CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
-    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
     CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};

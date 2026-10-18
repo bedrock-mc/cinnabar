@@ -388,7 +388,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             )
             .unwrap();
         session
-            .choose(trust::Choice::Once, &mut settings, 0)
+            .choose(policy::Choice::Once, &mut settings, 0)
             .unwrap();
         let session::Control::Hello(hello) =
             serde_json::from_slice(&session.take_outbound().unwrap()).unwrap()

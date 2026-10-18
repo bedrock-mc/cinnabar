@@ -1,9 +1,7 @@
 //! Rate-limited INFO diagnostics for server movement corrections.
 
-use std::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{sync::Mutex, time::Duration};
+use web_time::Instant;
 
 use client_world::{CommittedControlEvent, LocalPlayerFacts};
 use protocol::{MovePlayerMode, PlayerGameMode};

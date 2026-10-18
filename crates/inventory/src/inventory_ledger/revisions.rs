@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn content_restatements_advance_each_retained_player_slot_not_other_surfaces() {
+    fn content_restatements_retire_tail_once_and_advance_retained_slots() {
         let mut ledger = PlayerInventoryLedger::default();
         let content = |window| {
             InventoryEvent::Content(InventoryContentEvent {
@@ -78,7 +78,7 @@ mod tests {
         ledger.apply(&content(0));
         assert_eq!(ledger.authoritative_slot_revision(0), Some(2));
         assert_eq!(ledger.authoritative_slot_revision(1), Some(2));
-        assert_eq!(ledger.authoritative_slot_revision(2), None);
+        assert_eq!(ledger.authoritative_slot_revision(2), Some(1));
         ledger.apply(&content(119));
         assert_eq!(ledger.authoritative_slot_revision(0), Some(2));
     }

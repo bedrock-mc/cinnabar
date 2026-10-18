@@ -79,7 +79,7 @@ grants! {
     /// Allows this instance to replace visual time and local menu branding.
     #[permission("Environment", false)]
     pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
+    /// Allows current-frame remote player and camera pose reads with independent user consent.
     #[permission("Player poses", false)]
     pub players: bool,
     /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.

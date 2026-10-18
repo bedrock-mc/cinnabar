@@ -97,6 +97,14 @@ pub(crate) const VALIDATION_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 /// Returns the complete host-composed module, or a guest-facing rejection.
 pub fn compose(source: &str, depth: bool) -> Result<String, String> {
+    compose_masked(source, depth, 0)
+}
+
+/// Adds only the declared mask slots; all resource and shader-cost checks remain in force.
+pub fn compose_masked(source: &str, depth: bool, masks: usize) -> Result<String, String> {
+    if masks > mod_api::drawing::MAX_MASKS {
+        return Err("mask binding budget exceeded".into());
+    }
     if source.len() > MAX_SHADER_BYTES {
         return Err("shader exceeds byte limit".into());
     }
@@ -105,7 +113,7 @@ pub fn compose(source: &str, depth: bool) -> Result<String, String> {
     std::thread::Builder::new()
         .name("mod shader validation".into())
         .stack_size(VALIDATION_STACK_BYTES)
-        .spawn(move || compose_checked(&source, depth))
+        .spawn(move || compose_checked(&source, depth, masks))
         .map_err(|error| format!("shader validation unavailable: {error}"))?
         .join()
         .map_err(|_| "shader validation failed".to_owned())?
@@ -167,12 +175,25 @@ pub(crate) fn check_statement_tokens(source: &str) -> Result<(), String> {
 }
 
 /// Parses and validates the composed post-pass module before applying its resource contract.
-fn compose_checked(source: &str, depth: bool) -> Result<String, String> {
-    let prelude = if depth {
+fn compose_checked(source: &str, depth: bool, masks: usize) -> Result<String, String> {
+    let mut prelude = if depth {
         format!("{PRELUDE}{DEPTH_PRELUDE}")
     } else {
         PRELUDE.to_owned()
     };
+    if masks != 0 {
+        for index in 0..masks {
+            prelude.push_str(&format!(
+                "\n@group(0) @binding({}) var mask_texture_{index}: texture_2d<f32>;",
+                4 + index
+            ));
+        }
+        prelude.push_str("\nfn mask(index: u32, uv: vec2<f32>) -> f32 { switch index {\n");
+        for index in 0..masks {
+            prelude.push_str(&format!("case {index}u: {{ return textureSampleLevel(mask_texture_{index}, scene_sampler, uv, 0.0).r; }}\n"));
+        }
+        prelude.push_str("default: { return 0.0; } } }\n");
+    }
     let composed = format!("{prelude}\n// guest\n{source}\n// host\n{ENTRIES}");
     let module = naga::front::wgsl::parse_str(&composed).map_err(|error| {
         let line = error.location(&composed).map(|location| {
@@ -189,13 +210,20 @@ fn compose_checked(source: &str, depth: bool) -> Result<String, String> {
     )
     .validate(&module)
     .map_err(|error| format!("shader invalid: {}", error.as_inner()))?;
+    let mut expected = vec![
+        "frame".to_owned(),
+        "scene_sampler".into(),
+        "scene_texture".into(),
+    ];
+    if depth {
+        expected.push("depth_texture".into());
+    }
+    expected.extend((0..masks).map(|index| format!("mask_texture_{index}")));
+    expected.sort_unstable();
+    let expected: Vec<_> = expected.iter().map(String::as_str).collect();
     check_sandbox(
         &module,
-        &if depth {
-            vec!["depth_texture", "frame", "scene_sampler", "scene_texture"]
-        } else {
-            vec!["frame", "scene_sampler", "scene_texture"]
-        },
+        &expected,
         &[FRAGMENT_ENTRY, VERTEX_ENTRY],
         FRAGMENT_ENTRY,
         MAX_SHADER_TEXTURE_SAMPLES,

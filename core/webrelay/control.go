@@ -19,6 +19,7 @@ import (
 
 // hello identifies a reliable channel before any account or play operation.
 type hello struct {
+	Join       uint64   `json:"join,omitempty"`
 	Version    uint32   `json:"version"`
 	Channel    string   `json:"channel"`
 	Channels   []string `json:"channels,omitempty"`
@@ -42,10 +43,7 @@ type controlEvent struct {
 	Error          string                 `json:"error,omitempty"`
 }
 
-const (
-	controlRequestsPerSecond = 1
-	controlRequestBurst      = 4
-)
+const controlRequestBurst = 4
 
 // readJSON admits a nonzero u32 big-endian JSON payload before allocating it.
 func readJSON(conn net.Conn, value any) error {
@@ -114,9 +112,15 @@ func readHello(conn net.Conn, channel string) (hello, error) {
 }
 
 // runControl coalesces account/progress changes and bounds queued errors and silent peers.
-func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.Addr, session *webSession) {
-	ctx, cancel := context.WithCancel(ctx)
+func (relay *Relay) runControl(transportCtx context.Context, conn net.Conn, client netip.Addr, controller *sessionController) {
+	ctx, cancel := context.WithCancel(controller.ctx)
 	defer cancel()
+	stopTransport := context.AfterFunc(transportCtx, cancel)
+	defer stopTransport()
+	if transportCtx.Err() != nil || ctx.Err() != nil {
+		return
+	}
+	session := controller.session
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
 	events := make(chan controlEvent, 4)
@@ -127,7 +131,7 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 	go func() {
 		defer close(readerDone)
 		defer cancel()
-		requests := rate.NewLimiter(controlRequestsPerSecond, controlRequestBurst)
+		requests := rate.NewLimiter(rate.Every(time.Duration(bridgecontract.RelayControlRefillMillis)*time.Millisecond), controlRequestBurst)
 		for {
 			if ctx.Err() != nil {
 				return
@@ -138,16 +142,10 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 			}
 			var err error
 			switch request.Op {
-			case bridgecontract.RelayOpSignIn:
-				if !relay.allow(client) {
-					err = errAdmission
-				} else {
-					err = session.SignIn()
-				}
-			case bridgecontract.RelayOpSignOut:
-				err = session.SignOut()
+			case bridgecontract.RelayOpSignIn, bridgecontract.RelayOpSignOut:
+				err = relay.applyAccount(controller, client, request.Op, time.Now())
 			case bridgecontract.RelayOpPong:
-				if relay.acknowledge(session, request.Resume, time.Now()) &&
+				if relay.acknowledge(controller, request.Resume, time.Now()) &&
 					conn.SetReadDeadline(time.Now().Add(2*keepAliveInterval)) != nil {
 					return
 				}
@@ -165,7 +163,8 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 		}
 	}()
 	defer func() { cancel(); _ = conn.SetDeadline(time.Now()); <-readerDone }()
-	if writeJSON(ctx, conn, relay.welcome(session, false, time.Now())) != nil {
+	welcome, err := relay.welcome(controller, false, time.Now())
+	if err != nil || writeJSON(ctx, conn, welcome) != nil {
 		return
 	}
 	state, changed := session.Auth()
@@ -197,7 +196,11 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 			event = controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &progress}
 		case event = <-events:
 		case <-keepAlive.C:
-			event = relay.welcome(session, true, time.Now())
+			var err error
+			event, err = relay.welcome(controller, true, time.Now())
+			if err != nil {
+				return
+			}
 			event.Type = bridgecontract.RelayEventPing
 		}
 		if writeJSON(ctx, conn, event) != nil {
@@ -206,8 +209,29 @@ func (relay *Relay) runControl(ctx context.Context, conn net.Conn, client netip.
 	}
 }
 
+// applyAccount orders account commands with controller takeover so retired readers cannot mutate it.
+func (relay *Relay) applyAccount(controller *sessionController, client netip.Addr, op string, now time.Time) error {
+	session := controller.session
+	session.commands.Lock()
+	defer session.commands.Unlock()
+	relay.mu.Lock()
+	current := session.controller == controller && controller.ctx.Err() == nil
+	allowed := current && (op != bridgecontract.RelayOpSignIn || relay.allowLocked(client, now))
+	relay.mu.Unlock()
+	if !current {
+		return net.ErrClosed
+	}
+	if !allowed {
+		return errAdmission
+	}
+	if op == bridgecontract.RelayOpSignIn {
+		return session.SignIn()
+	}
+	return session.SignOut()
+}
+
 // runPlay claims one generation and preserves the core's reliable bridge byte stream.
-func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Addr, bound *webSession, request hello) {
+func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Addr, bound *sessionController, request hello) {
 	defer conn.Close()
 	session, controlCtx, err := relay.playSession(bound, request, time.Now())
 	if err != nil || !relay.allow(client) {
@@ -225,16 +249,34 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 		return
 	}
 	defer func() { detach(time.Now()) }()
-	handler, err := session.beginPlay(ctx, controlCtx)
+	handler, err := session.beginPlay(ctx, controlCtx, request.Join)
 	if err != nil {
 		return
 	}
 	defer session.endPlay()
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
-	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, playMessageLimit)}
+	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, bridgecontract.RelayUploadBurstBytes)}
 	// Provider and server errors can contain private addresses; control receives only refusal codes.
-	_ = handler.ServeConn(ctx, limited)
+	if request.Join == 0 {
+		_ = handler.ServeConn(ctx, limited)
+		return
+	}
+	if !session.claimPackJoin(controlCtx, request.Join) {
+		return
+	}
+	delivery := proxy.SessionPackStream{Join: request.Join}
+	if transport, ok := conn.(*transportConn); ok {
+		delivery.Open = func(ctx context.Context) (io.WriteCloser, error) {
+			stream, err := transport.session.OpenUniStreamSync(ctx)
+			if err != nil {
+				return nil, err
+			}
+			context.AfterFunc(ctx, func() { stream.CancelWrite(0) })
+			return stream, nil
+		}
+	}
+	_ = handler.ServeConnWithPacks(ctx, limited, delivery)
 }
 
 // uploadLimitedConn applies upload pacing with the owning transport's cancellation context.
@@ -263,12 +305,12 @@ func (conn *uploadLimitedConn) Read(p []byte) (int, error) {
 func refusal(err error) string {
 	switch {
 	case errors.Is(err, errAdmission):
-		return "admission_refused"
+		return bridgecontract.RelayRefusalAdmission
 	case errors.Is(err, errResume):
-		return "resume_refused"
+		return bridgecontract.RelayRefusalResume
 	case errors.Is(err, errSessionBusy):
-		return "session_busy"
+		return bridgecontract.RelayRefusalSessionBusy
 	default:
-		return "refused"
+		return bridgecontract.RelayRefusalUnknown
 	}
 }

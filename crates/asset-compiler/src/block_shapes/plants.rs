@@ -122,3 +122,37 @@ fn stem(record: &RegistryRecord) -> Option<ShapeBox> {
     }
     Some(shape)
 }
+
+/// Retains the source's oriented wall footprint while selecting the authored shelf cap.
+pub(super) fn shelf_selection(
+    record: &RegistryRecord,
+    shapes: ShapeTraits,
+    input: &assets::BlockPhysicsRecord,
+) -> Option<Box<[ShapeBox]>> {
+    if !shapes.contains(ShapeTraits::SHELF_MUSHROOM) {
+        return None;
+    }
+    let growth = State::read(record)?.number(BlockProperty::Growth)?;
+    let lower = match growth {
+        0 => 0.5,
+        1 => 0.375,
+        _ => return None,
+    };
+    Some(
+        input
+            .boxes
+            .iter()
+            .map(|source| {
+                let scale = assets::block_shapes::COLLISION_COORDINATE_SCALE;
+                let mut shape = ShapeBox::new(
+                    [source.min_x, source.min_y, source.min_z]
+                        .map(|value| f64::from(value) * scale),
+                    [source.max_x, source.max_y, source.max_z]
+                        .map(|value| f64::from(value) * scale),
+                );
+                shape.min[1] = lower;
+                shape
+            })
+            .collect(),
+    )
+}

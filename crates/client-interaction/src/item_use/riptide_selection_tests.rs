@@ -74,7 +74,7 @@ fn fixture(damage: u32) -> (PlayerRuntime, WorldStream) {
     (player, stream)
 }
 
-/// Applies an accepted response to a real outstanding request without replacing its NBT.
+/// Applies an accepted response through a real outstanding request.
 fn correct_damage(player: &mut PlayerRuntime, damage: i32) {
     let ledger = player.inventory.ledger_mut();
     let request_id = ledger.begin_mining_request(SELECTED_SLOT, 1).unwrap();
@@ -113,38 +113,39 @@ fn correct_damage(player: &mut PlayerRuntime, damage: i32) {
 }
 
 #[test]
-fn accepted_damage_stops_a_trident_with_stale_undamaged_nbt() {
+fn accepted_damage_materializes_and_stops_a_trident() {
     let (mut player, stream) = fixture(0);
     assert!(selected_riptide_use(&player, &stream, true).unwrap().usable);
     correct_damage(&mut player, i32::try_from(maximum_damage()).unwrap());
     assert_eq!(
         protocol::item_stack_damage(player.selected_stack().unwrap()),
-        Some(0)
+        Some(maximum_damage())
     );
     assert!(!selected_riptide_use(&player, &stream, true).unwrap().usable);
 }
 
 #[test]
-fn accepted_repair_restores_a_trident_with_stale_broken_nbt() {
+fn accepted_repair_materializes_and_restores_a_trident() {
     let damage = maximum_damage();
     let (mut player, stream) = fixture(damage);
     assert!(!selected_riptide_use(&player, &stream, true).unwrap().usable);
     correct_damage(&mut player, 0);
     assert_eq!(
         protocol::item_stack_damage(player.selected_stack().unwrap()),
-        Some(damage)
+        Some(0)
     );
     assert!(selected_riptide_use(&player, &stream, true).unwrap().usable);
 }
 
 #[test]
-fn invalid_damage_correction_keeps_canonical_trident_usability() {
+fn signed_damage_correction_materializes_in_the_selected_trident() {
     for damage in [0, maximum_damage()] {
         let (mut player, stream) = fixture(damage);
         correct_damage(&mut player, -1);
         assert_eq!(
-            selected_riptide_use(&player, &stream, true).unwrap().usable,
-            damage < maximum_damage()
+            protocol::item_extra_damage_value(&player.selected_stack().unwrap().extra_data),
+            Some(-1)
         );
+        assert!(selected_riptide_use(&player, &stream, true).unwrap().usable);
     }
 }

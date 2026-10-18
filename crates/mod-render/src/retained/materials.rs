@@ -21,6 +21,7 @@ impl Store {
         let handle = self.token()?;
         self.edit(source.len(), |resources| {
             resources.materials.insert(handle, material);
+            resources.material_revision += 1;
             Ok(())
         })?;
         Ok(handle)

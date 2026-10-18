@@ -43,17 +43,21 @@ pub(super) fn install(app: &mut App) {
         .init_resource::<gpu::Gpu>()
         .init_resource::<pipeline::Pipeline>()
         .init_resource::<materials::Materials>()
-        .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>()
-        .add_systems(
-            Render,
-            (
-                gpu::queue
-                    .after(super::primitives::queue)
-                    .run_if(render_scene::panorama::world_passes_enabled)
-                    .in_set(RenderSystems::Queue),
-                pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
-                materials::retire.in_set(crate::device_poll::FrameSubmissions),
-                gpu::retire.in_set(crate::device_poll::FrameSubmissions),
-            ),
-        );
+        .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+    install_systems(app.sub_app_mut(RenderApp));
+}
+
+/// Registers drawing preparation and deferred resource release in the render schedule.
+fn install_systems(app: &mut SubApp) {
+    app.add_systems(
+        Render,
+        (
+            gpu::queue
+                .after(super::primitives::queue)
+                .in_set(RenderSystems::Queue),
+            pipeline::bindings.in_set(RenderSystems::PrepareBindGroups),
+            materials::retire.in_set(crate::device_poll::FrameSubmissions),
+            gpu::retire.in_set(crate::device_poll::FrameSubmissions),
+        ),
+    );
 }

@@ -17,11 +17,11 @@ interface drawing {
     record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
     record block-anchor { dimension: s32, position: tuple<s32, s32, s32> }
     record entity-anchor { entity: handle, body-rotation: bool }
-    variant anchor { world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
+    variant anchor { %world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
     record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
     enum depth { test, always }
     enum blend { premultiplied, additive }
-    enum width-mode { world, pixels }
+    enum width-mode { %world, pixels }
     enum join { bevel, miter, round }
     enum cap { butt, round }
     record instance {
@@ -38,4 +38,23 @@ interface drawing {
     update: func(id: handle, spec: instance) -> result<_, draw-error>;
     replace-frame-group: func(name: string, draws: list<instance>) -> result<_, draw-error>;
     remove: func(id: handle) -> result<_, draw-error>;
+}
+
+/// Retained union silhouettes. Tokens are private to one component and session.
+interface masks {
+    use drawing.{handle, draw-error};
+    enum depth-policy { test, always }
+    record rgba { r: f32, g: f32, b: f32, a: f32 }
+    /// Display-space colours and physical-pixel radii; zero alpha disables a layer.
+    record style { outline: rgba, outline-radius: f32, glow: rgba, glow-radius: f32 }
+    record effect-spec { name: string, order: s32, source: string, masks: list<handle> }
+    /// Resolves an already authorized actor. Unfiltered lookup requires observation authority.
+    entity: func(runtime-id: u64) -> result<handle, draw-error>;
+    create: func(depth: depth-policy) -> result<handle, draw-error>;
+    /// Atomically replaces membership; an empty selection clears coverage.
+    select: func(mask: handle, entities: list<handle>) -> result<_, draw-error>;
+    remove: func(mask: handle) -> result<_, draw-error>;
+    set-style: func(mask: handle, appearance: option<style>) -> result<_, draw-error>;
+    /// Arbitrary sampling also requires the separately negotiated render-post capability.
+    register-effect: func(spec: effect-spec) -> result<_, draw-error>;
 }

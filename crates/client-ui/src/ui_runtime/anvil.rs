@@ -77,6 +77,41 @@ impl AnvilInput {
     }
 }
 
+/// Preserves unchanged names and materializes an overlay pair only when it differs.
+/// An actual rename lets the item editor retire the obsolete filtered name.
+fn anvil_name_edit(
+    extra_data: &[u8],
+    overlay: Option<&inventory::inventory_ledger::StackResponseOverlay>,
+    rename: Option<Option<String>>,
+) -> protocol::ItemNbtEdit {
+    if let Some(name) = rename {
+        return protocol::ItemNbtEdit {
+            custom_name: Some(name),
+            ..Default::default()
+        };
+    }
+    let Some(overlay) = overlay else {
+        return Default::default();
+    };
+    let Some(name) = overlay.custom_name.as_deref() else {
+        return Default::default();
+    };
+    let filtered = overlay
+        .filtered_custom_name
+        .as_deref()
+        .filter(|name| !name.is_empty());
+    if protocol::item_custom_name(extra_data).as_deref() == Some(name)
+        && protocol::item_filtered_custom_name(extra_data).as_deref() == filtered
+    {
+        return Default::default();
+    }
+    protocol::ItemNbtEdit {
+        custom_name: Some(Some(name.to_owned())),
+        filtered_custom_name: Some(filtered.map(str::to_owned)),
+        ..Default::default()
+    }
+}
+
 impl UiRuntime {
     /// The occupied anvil input in UI `slot`, when the item is in the session registry.
     fn anvil_input(
@@ -248,6 +283,12 @@ impl UiRuntime {
             &current_name,
             creative,
         )?;
+        let names = anvil_name_edit(
+            &left.stack.extra_data,
+            self.inventory_ledger(player_runtime)
+                .presented_target_overlay(InventoryTarget::Craft(ANVIL_TARGET_SLOT)),
+            outcome.custom_name.clone(),
+        );
         let extra_data = protocol::edit_item_extra(
             &left.stack.extra_data,
             &protocol::ItemNbtEdit {
@@ -257,12 +298,7 @@ impl UiRuntime {
                     .map(|damage| i32::try_from(damage).unwrap_or(i32::MAX)),
                 repair_cost: Some(outcome.repair_cost),
                 enchantments: outcome.enchantments.clone(),
-                custom_name: outcome.custom_name.clone().or_else(|| {
-                    left.data
-                        .custom_name
-                        .as_ref()
-                        .map(|name| Some(name.to_string()))
-                }),
+                ..names
             },
         )?;
         let mut stack = left.stack;

@@ -75,7 +75,7 @@ fn contextual_content(stacks: [NetworkItemStack; 4]) -> InventoryAuthorityEvent 
 }
 
 #[test]
-fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_authority() {
+fn contextual_grid_and_incremental_cells_share_committed_fifo_with_cursor_authority() {
     let stacks = std::array::from_fn(|index| NetworkItemStack {
         network_id: 6,
         stack_network_id: i32::try_from(101 + index).unwrap(),
@@ -94,7 +94,7 @@ fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_aut
     for (cell, expected) in state.grid.iter().zip(&stacks) {
         assert_eq!(&cell.as_ref().unwrap().stack, expected);
     }
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
     let old = state.clone();
     state.observe(1, 2, &slot(0, 29));
     state.observe(1, 3, &present_slot(13, 30));
@@ -119,7 +119,7 @@ fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_aut
             .iter()
             .all(|cell| cell.as_ref().unwrap().stack.is_empty())
     );
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn contextual_grid_obeys_session_epoch_and_immediate_client_revocation() {
 }
 
 #[test]
-fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_does_not_invent_cursor() {
+fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_restores_cursor_authority() {
     let empty = || contextual_content(std::array::from_fn(|_| NetworkItemStack::empty()));
     let mut state = CraftingAuthority::new(1);
     state.bootstrap(
@@ -182,7 +182,7 @@ fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_does_not_invent_curs
     state.synchronize(Some((1, 0, Some(67))));
     state.advance();
     assert!(state.grid.iter().all(Option::is_some));
-    assert!(state.cursor.is_none());
+    assert!(state.cursor.as_ref().unwrap().stack.is_empty());
     assert!(state.preview().is_none());
 }
 

@@ -324,3 +324,66 @@ fn native_presets_animate_without_replacing_geometry() {
         }
     }
 }
+
+#[test]
+fn hidden_world_reconciles_meshes_and_releases_view_state() {
+    for disconnect in [false, true] {
+        let (mut app, view) = crate::queue_review_support::app();
+        app.add_schedule(Render::base_schedule());
+        crate::device_poll::install(app.main_mut());
+        app.init_resource::<gpu::Gpu>()
+            .init_resource::<pipeline::Pipeline>()
+            .init_resource::<materials::Materials>()
+            .init_resource::<clock::AnimationClock>()
+            .init_resource::<render_scene::panorama::PanoramaScene>()
+            .init_resource::<render_scene::ModRenderScene>()
+            .insert_resource(DrawingFrame {
+                connection: 1,
+                ..default()
+            })
+            .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
+        install_systems(app.main_mut());
+        let (store, _, _) = drawing();
+        let geometry = Arc::downgrade(store.snapshot().geometry.values().next().unwrap());
+        app.world_mut().resource_mut::<DrawingFrame>().live_owners = store
+            .snapshot()
+            .geometry
+            .keys()
+            .map(|h| (h.owner, h.generation))
+            .collect();
+        app.world_mut()
+            .resource_mut::<render_scene::ModRenderScene>()
+            .retained = vec![store.snapshot().clone()];
+        app.world_mut().run_schedule(Render);
+        assert_eq!(app.world().resource::<gpu::Gpu>().meshes.len(), 1);
+        assert!(!app.world().resource::<gpu::Gpu>().views.is_empty());
+
+        app.world_mut()
+            .resource_mut::<render_scene::panorama::PanoramaScene>()
+            .set_game_visible(false);
+        crate::queue_review_support::clear(&mut app, view);
+        if disconnect {
+            app.world_mut().resource_mut::<DrawingFrame>().connection = 0;
+        } else {
+            app.world_mut()
+                .resource_mut::<DrawingFrame>()
+                .live_owners
+                .clear();
+        }
+        app.world_mut().run_schedule(Render);
+        assert!(app.world().resource::<gpu::Gpu>().meshes.is_empty());
+        assert!(app.world().resource::<gpu::Gpu>().views.is_empty());
+        assert!(crate::queue_review_support::items(&app, view).is_empty());
+
+        drop(store);
+        app.world_mut()
+            .resource_mut::<render_scene::ModRenderScene>()
+            .retained
+            .clear();
+        app.world()
+            .resource::<bevy::render::renderer::RenderDevice>()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        assert!(geometry.upgrade().is_none());
+    }
+}

@@ -72,6 +72,7 @@ fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
     shader_source::standalone(&actor, &definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
+        .replace("@group(2) @binding(0)", "@group(0) @binding(22)")
 }
 
 pub(crate) fn raster(
@@ -242,12 +243,56 @@ pub(crate) fn raster_material_in_scene(
     overlay_rgba8: u32,
     tint_rgba8: u32,
     definitions: &[&str],
-    state: gpu_snapshot::RasterState,
+    mut state: gpu_snapshot::RasterState,
 ) -> Vec<u8> {
     assert_eq!(
         scene.texels.len(),
         (scene.texture_size[0] * scene.texture_size[1]) as usize
     );
+    let companion = state.actor_companion.take().map(|material| {
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("actor mask companion fixture"),
+            size: wgpu::Extent3d {
+                width: gpu_snapshot::SNAPSHOT_SIDE,
+                height: gpu_snapshot::SNAPSHOT_SIDE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: state.multisample.count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        raster_material_in_scene(
+            gpu,
+            vertices,
+            material,
+            RasterScene { ..scene },
+            srgb,
+            gamma,
+            light,
+            overlay_rgba8,
+            tint_rgba8,
+            &[],
+            gpu_snapshot::RasterState {
+                depth_target: Some(texture.clone()),
+                multisample: wgpu::MultisampleState {
+                    alpha_to_coverage_enabled: false,
+                    ..state.multisample
+                },
+                ..Default::default()
+            },
+        );
+        texture.create_view(&Default::default())
+    });
+    let mut definitions = definitions.to_vec();
+    if companion.is_some() {
+        definitions.push("MASK_DISSOLVE");
+        if state.multisample.count > 1 {
+            definitions.push("MASK_DISSOLVE_MSAA");
+        }
+    }
     let view = gpu.buffer(
         &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
         wgpu::BufferUsages::UNIFORM,
@@ -266,7 +311,7 @@ pub(crate) fn raster_material_in_scene(
         tint: tint_rgba8,
         multitexture_layers: [u32::MAX; 2],
         material: material.gpu_word(),
-        dissolve_multiplier: 1.0,
+        dissolve_multiplier: material.dissolve_multiplier,
         light_color_multiplier: material.light_color_multiplier,
         glint: material.glint.parameters(),
         ..Default::default()
@@ -392,12 +437,19 @@ pub(crate) fn raster_material_in_scene(
         binding: 14,
         resource: wgpu::BindingResource::TextureView(&glint_view),
     });
+    if let Some(view) = &companion {
+        bindings.push(wgpu::BindGroupEntry {
+            binding: 22,
+            resource: wgpu::BindingResource::TextureView(view),
+        });
+    }
     let draws = [Draw {
-        fragment: "actor_fragment",
+        fragment: state.actor_fragment.unwrap_or("actor_fragment"),
         vertices: 0..vertices.len() as u32,
         bindings: &bindings,
         blend: material.state.and_then(render::actor_material_blend_state),
-        write_depth: material.state.is_none_or(|state| state.depth_write),
+        write_depth: state.actor_fragment.is_none()
+            && material.state.is_none_or(|state| state.depth_write),
     }];
     // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
     let entries: Vec<_> = bindings
@@ -419,13 +471,17 @@ pub(crate) fn raster_material_in_scene(
                     wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
                 }
                 wgpu::BindingResource::TextureView(view) => wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    sample_type: if entry.binding == 22 {
+                        wgpu::TextureSampleType::Depth
+                    } else {
+                        wgpu::TextureSampleType::Float { filterable: true }
+                    },
                     view_dimension: if std::ptr::eq(*view, &skin) {
                         wgpu::TextureViewDimension::D2Array
                     } else {
                         wgpu::TextureViewDimension::D2
                     },
-                    multisampled: false,
+                    multisampled: entry.binding == 22 && state.multisample.count > 1,
                 },
                 _ => panic!("unsupported actor fixture binding"),
             },
@@ -451,14 +507,14 @@ pub(crate) fn raster_material_in_scene(
     };
     if srgb {
         gpu.render_srgb_with_state(
-            &source_with_definitions(gamma, definitions),
+            &source_with_definitions(gamma, &definitions),
             "actor_vertex",
             &draws,
             state,
         )
     } else {
         gpu.render_with_state(
-            &source_with_definitions(gamma, definitions),
+            &source_with_definitions(gamma, &definitions),
             "actor_vertex",
             &draws,
             state,

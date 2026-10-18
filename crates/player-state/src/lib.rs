@@ -25,6 +25,20 @@ impl PlayerState {
         self.facts.begin_session(session);
     }
 
+    /// Refreshes command permissions from current facts before exposing the mutable ledger.
+    pub fn inventory_commands(&mut self) -> &mut inventory::PlayerInventoryLedger {
+        let permissions = inventory::inventory_ledger::InventoryPermissions {
+            creative: self
+                .facts
+                .game_mode_capabilities()
+                .is_some_and(|caps| caps.creative_inventory),
+            instabuild: self.facts.instabuild(),
+        };
+        let ledger = self.inventory.ledger_mut();
+        ledger.set_permissions(permissions);
+        ledger
+    }
+
     /// The selected hotbar slot under the current game mode.
     pub fn selected_hotbar_slot(&self) -> Option<u8> {
         self.inventory

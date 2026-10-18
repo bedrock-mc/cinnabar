@@ -82,6 +82,7 @@ fn buffer(device: &RenderDevice, bytes: usize) -> Buffer {
 pub(super) fn queue(
     scene: Res<ModRenderScene>,
     frame: Res<DrawingFrame>,
+    panorama: Option<Res<render_scene::panorama::PanoramaScene>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -120,8 +121,8 @@ pub(super) fn queue(
             gpu.retired.push(mesh);
         }
     }
-
-    if resources.is_empty() {
+    gpu.views.retain(|entity, _| views.get(*entity).is_ok());
+    if resources.is_empty() || panorama.is_some_and(|scene| !scene.game_visible()) {
         gpu.views.clear();
         return;
     }
@@ -152,7 +153,6 @@ pub(super) fn queue(
             );
         }
     }
-    gpu.views.retain(|entity, _| views.get(*entity).is_ok());
     let draw = functions.read().id::<pipeline::Draw>();
     for (entity, main, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {

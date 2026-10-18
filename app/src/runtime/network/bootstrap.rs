@@ -185,7 +185,10 @@ pub(super) fn apply(
         session_generation,
         std::mem::replace(&mut packs.admission, resource_pack::PackAdmission::None),
     );
-    ui_runtime.experiences.marker = packs.extension_marker.take();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ui_runtime.experiences.marker = packs.extension_marker.take();
+    }
     player_runtime.facts.publish_bootstrap_game_modes(
         player_game_mode,
         world_default_game_mode

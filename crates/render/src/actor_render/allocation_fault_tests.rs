@@ -69,13 +69,13 @@ pub(crate) fn fixture() -> App {
     app.add_plugins(ActorRenderPlugin);
     crate::lighting::install(&mut app);
     app.finish();
-    let _view_shader = app
-        .world_mut()
-        .resource_mut::<Assets<Shader>>()
-        .add(Shader::from_wesl(
-            crate::shader_source::VIEW,
-            "embedded://bevy_render/view.wesl",
-        ));
+    let _view_shader =
+        app.world_mut()
+            .resource_mut::<Assets<Shader>>()
+            .add(crate::shader_safety::from_wesl(
+                crate::shader_source::VIEW,
+                "embedded://bevy_render/view.wesl",
+            ));
     let shaders = app
         .world()
         .resource::<Assets<Shader>>()
