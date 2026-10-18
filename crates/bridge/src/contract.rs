@@ -71,6 +71,9 @@ pub const RELAY_BIDIRECTIONAL_STREAMS: usize = 3;
 /// Interval between control keepalives.
 pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
 
+/// Time to replenish one relay control request; busy sign-out retries wait at least this long.
+pub const RELAY_CONTROL_REFILL_MILLIS: u32 = 1000;
+
 /// WebTransport Extended CONNECT route.
 pub const RELAY_TRANSPORT_PATH: &str = "/v2/transport";
 

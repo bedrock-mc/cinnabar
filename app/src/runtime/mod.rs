@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod frame_profile;
 #[cfg(feature = "acceptance")]
 pub(crate) mod movement_evidence;

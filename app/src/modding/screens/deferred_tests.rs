@@ -6,7 +6,7 @@ use mod_host::CallbackOutcome;
 use server_experience::screen::{GuiSize, Rect, ScreenLayout, Value};
 
 /// Admits a fixture under the frame driver's initial fence before staging screen events.
-fn load_driver_host(path: &std::path::Path) -> ModHost {
+pub(super) fn load_driver_host(path: &std::path::Path) -> ModHost {
     let mut host = ModHost::load_package(path, mod_host::ModGrants::default()).unwrap();
     host.bind_drawing_session(mod_api::drawing::DrawingSession::default());
     assert!(host.reload_if_changed().unwrap());

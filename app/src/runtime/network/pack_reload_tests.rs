@@ -11,11 +11,8 @@ use client_ui::ui_runtime::UiRuntime;
 use pack_runtime::PackInputs;
 use resource_pack::ValidatedPackStack;
 use std::io::Write;
-use std::{
-    io::Cursor,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{io::Cursor, sync::Arc, time::Duration};
+use web_time::Instant;
 
 /// Builds original test data into the same archive admission path used at runtime.
 pub(super) fn stack(files: &[(&str, &[u8])]) -> Arc<ValidatedPackStack> {

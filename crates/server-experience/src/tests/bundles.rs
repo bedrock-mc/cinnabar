@@ -42,7 +42,7 @@ fn archive_files_with_permissions(
         templates: assets
             .iter()
             .map(|(path, _)| *path)
-            .filter(|path| manifest::template_root(path).is_some())
+            .filter(|path| crate::screen::template_root(path).is_some())
             .map(str::to_owned)
             .collect(),
         files: assets

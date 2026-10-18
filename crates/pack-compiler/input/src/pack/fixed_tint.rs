@@ -1,6 +1,14 @@
 use super::terrain::{TerrainPaths, TerrainTextureMap};
 
 impl TerrainTextureMap {
+    /// Iterates supported variant-zero atlas sources with their resolved RGB multipliers.
+    pub fn fixed_tint_sources(&self) -> impl Iterator<Item = (&str, &str, Option<[u8; 3]>)> {
+        self.entries.keys().filter_map(|key| {
+            let (path, tint) = self.fixed_tint_source(key, 0)?;
+            Some((key.as_ref(), path, tint))
+        })
+    }
+
     /// Literal atlas tint, without the distinct alpha-mask overlay operation.
     /// Unknown extensions and malformed colours remain unresolved.
     pub fn fixed_tint_source(&self, key: &str, variant: u32) -> Option<(&str, Option<[u8; 3]>)> {

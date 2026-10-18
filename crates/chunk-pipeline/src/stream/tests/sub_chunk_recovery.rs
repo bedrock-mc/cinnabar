@@ -218,8 +218,7 @@ fn due_recoveries_resume_under_budget_with_a_full_outbound_queue() {
         let chunk = ChunkKey::new(0, 100 + i32::try_from(index).unwrap(), 0);
         stream.requests.queue.push_ready(
             super::super::PendingSubChunkRequest {
-                packet: request_sub_chunk_column(0, chunk.x, chunk.z, keys[0].y, 1).unwrap(),
-                dimension: 0,
+                demand: 0,
                 chunk,
                 base_sub_chunk_y: keys[0].y,
                 count: 1,

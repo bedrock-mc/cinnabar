@@ -15,6 +15,10 @@ wording. Periodic checks continue, and a newer release replaces the waiting one.
 updates when I quit**. Installation on quit is off by default. The in-game pause menu only shows
 a small ready badge; update actions remain in the launcher.
 
+Mods may independently opt into [GitHub release notifications](modding-spike.md#optional-github-update-checks).
+These launch-time checks have a separate **Check for mod updates** setting. A mod
+update uses the same corner card and links to its GitHub release for manual installation.
+
 Beta follows the latest tagged `vX.Y.Z` release. Nightly follows the rolling `nightly`
 prerelease. Stable is reserved for a future release track and stays hidden until that track
 publishes a signed release. Clients from before these channels require one manual install.

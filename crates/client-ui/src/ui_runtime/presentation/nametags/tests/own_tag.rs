@@ -79,6 +79,12 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
     feed.sneaking = true;
     stream.sync_local_player_pose(&feed);
     assert!(own_tag(&stream).unwrap().depth_tested);
+    assert!(
+        crate::ui_runtime::presentation::player_preview::PlayerPreviewPose::of_local_player(Some(
+            &stream
+        ))
+        .sneaking
+    );
     for (index, (flags, expected)) in [
         (0, false),
         (

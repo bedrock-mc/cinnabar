@@ -5,6 +5,7 @@ use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
+use super::presentation::inventory_pointer::InventoryScreen;
 use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
 use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
@@ -74,8 +75,8 @@ pub fn recipe_book_entries<'a>(
     if player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
         && let Some(catalog) = ledger.creative_catalog()
     {
-        let items = visible_creative_entries(ledger, runtime);
-        if state.creative_tab == SEARCH_TAB {
+        let items = visible_creative_entries(player_runtime, runtime);
+        if runtime.creative_tab(player_runtime) == SEARCH_TAB {
             return items
                 .iter()
                 .map(|item| BookEntry::Creative {
@@ -120,9 +121,12 @@ pub fn recipe_book_entries<'a>(
     let shown: std::collections::HashSet<i32> = ledger
         .creative_catalog()
         .map(|catalog| {
-            creative_entries(catalog, state.creative_tab, &state.search, |item| {
-                item_name(ledger, runtime, item)
-            })
+            creative_entries(
+                catalog,
+                runtime.creative_tab(player_runtime),
+                &state.search,
+                |item| item_name(ledger, runtime, item),
+            )
             .iter()
             .map(|item| item.stack.network_id)
             .collect()
@@ -132,7 +136,8 @@ pub fn recipe_book_entries<'a>(
         .book_recipes(player_runtime, 0, usize::MAX)
         .into_iter()
         .filter(|recipe| {
-            ledger.creative_catalog().is_none() || shown.contains(&recipe.output().network_id)
+            ledger.creative_catalog().is_none()
+                || shown.contains(&recipe.recipe.output().network_id)
         })
         .map(BookEntry::Recipe)
         .collect()
@@ -158,24 +163,30 @@ enum Clicked {
 
 /// The catalog entries the creative screen currently lists, in grid order.
 pub fn visible_creative_entries<'a>(
-    ledger: &'a PlayerInventoryLedger,
+    player: &'a player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> super::screen_state::CreativeEntries<'a> {
+    let ledger = runtime.inventory_ledger(player);
     runtime.screen_state().matching_creative_entries(
         ledger,
+        runtime.creative_tab(player),
         runtime.item_name_generation(),
         |item| item_name(ledger, runtime, item),
     )
 }
 
 impl UiRuntime {
-    /// Releases the keyboard when the inventory search field cannot be shown.
-    pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
-        if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
-            != super::presentation::inventory_pointer::InventoryScreen::Creative
-            && !(self
-                .furnace_options(player)
-                .is_some_and(|options| options.layout == protocol::FurnaceLayout::RecipeBook))
+    /// Releases the keyboard when the active inventory renderer cannot show search.
+    pub fn observe_inventory_search_focus(
+        &mut self,
+        player: &player_state::PlayerState,
+        engine_container_shown: bool,
+    ) {
+        // The fallback creative catalog keeps Search visible for every saved layout.
+        let creative_fallback = !engine_container_shown
+            && InventoryScreen::of_runtime(player, self) == InventoryScreen::Creative;
+        if self.screen_state().book.is_some()
+            || (!creative_fallback && !super::presentation::forms::recipe_book_shown(player, self))
         {
             self.screen_state_mut().search_focused = false;
         }
@@ -193,7 +204,7 @@ impl UiRuntime {
         }
         let id = match hit {
             InventoryCellHit::CreativeGrid(index) => {
-                let entries = visible_creative_entries(self.inventory_ledger(player_runtime), self);
+                let entries = visible_creative_entries(player_runtime, self);
                 let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
                 entries.get(position).map(|item| item.creative_network_id)
             }
@@ -314,13 +325,15 @@ impl UiRuntime {
         }
         match hit {
             InventoryCellHit::Widget(widget) => self.activate_widget(player_runtime, widget),
-            InventoryCellHit::CreativeTab(tab) => {
-                self.screen_state_mut().select_tab(tab);
+            InventoryCellHit::CreativeTab(tab) => self.select_inventory_tab(player_runtime, tab),
+            InventoryCellHit::CreativeSearch
+                if ui_screens::furnace_book::active(player_runtime) =>
+            {
+                self.screen_state_mut().search_focused = true;
                 Ok(0)
             }
             InventoryCellHit::CreativeSearch => {
-                self.screen_state_mut().select_tab(SEARCH_TAB);
-                Ok(0)
+                self.select_inventory_tab(player_runtime, SEARCH_TAB)
             }
             InventoryCellHit::CreativeGrid(index) => {
                 self.creative_click(player_runtime, index, false, None)
@@ -703,10 +716,7 @@ impl UiRuntime {
             }
             Widget::BookToggle => {
                 let shown = super::presentation::forms::recipe_book_shown(player_runtime, self);
-                let state = self.screen_state_mut();
-                state.book_open = Some(!shown);
-                state.book_page = 0;
-                Ok(0)
+                self.select_inventory_layout(player_runtime, if shown { 1 } else { 2 })
             }
             Widget::CrafterSlot(slot) => self.set_crafter_slot(player_runtime, slot, false),
             Widget::InventoryLayout(layout) => {
@@ -726,14 +736,7 @@ impl UiRuntime {
                     }
                     return result;
                 }
-                let creative = player_runtime.facts.player_game_mode()
-                    == Some(protocol::PlayerGameMode::Creative);
-                let state = self.screen_state_mut();
-                state.book_open = Some(layout != 1);
-                state.creative_wide = creative && layout == 3;
-                state.book_page = 0;
-                state.container_scroll.clear();
-                Ok(0)
+                self.select_inventory_layout(player_runtime, layout)
             }
             Widget::RecipeFilter => {
                 if ui_screens::furnace_book::active(player_runtime) {
@@ -741,11 +744,11 @@ impl UiRuntime {
                         options.filtering = !options.filtering
                     });
                 }
-                let filtering = self.recipe_filtering(player_runtime);
-                self.screen_state_mut().recipe_filtering = Some(!filtering);
-                self.screen_state_mut().container_scroll.clear();
-                Ok(0)
+                self.change_inventory_options(player_runtime, true, |controller| {
+                    controller.options.filtering = !controller.options.filtering
+                })
             }
+            Widget::InventoryRightTab(tab) => self.select_inventory_right_tab(player_runtime, tab),
             Widget::FurnaceTab(tab) => {
                 let tab = protocol::FurnaceTab::from_index(i32::from(tab));
                 if matches!(
@@ -785,8 +788,7 @@ impl UiRuntime {
                     .into_iter()
                     .next()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_auto_craft(&recipe)
+                player_runtime.inventory.begin_book_craft(&recipe.recipe)
             }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
@@ -818,7 +820,7 @@ impl UiRuntime {
             .map(|entry| match entry {
                 BookEntry::Creative { item, .. } => Clicked::Item(item.creative_network_id),
                 BookEntry::Group { index, .. } => Clicked::Group(index),
-                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe),
+                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe.recipe),
                 BookEntry::Furnace(recipe) => Clicked::Furnace(recipe.clone()),
             });
         match entry {
@@ -839,9 +841,7 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_auto_craft(&recipe),
+            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
@@ -873,7 +873,7 @@ impl UiRuntime {
                 .begin_destroy_cursor(requested);
         }
         let id = {
-            let entries = visible_creative_entries(player_runtime.inventory.ledger(), self);
+            let entries = visible_creative_entries(player_runtime, self);
             let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
             if usize::from(index) >= GRID_CELLS {
                 return Err(InventoryGestureError::InvalidRequest);

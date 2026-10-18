@@ -61,7 +61,7 @@ fn missing_stderr_keeps_queued_and_raw_diagnostics() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "console::tests::missing_stderr_child",
+            "console::native::tests::missing_stderr_child",
             "--nocapture",
         ])
         .env("CINNABAR_MISSING_STDERR_FIXTURE", dir.path())
@@ -107,7 +107,11 @@ fn raw_stderr_child() {
 fn raw_stderr_reaches_the_file_and_the_launcher_once_each() {
     let dir = tempfile::tempdir().unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "console::tests::raw_stderr_child", "--nocapture"])
+        .args([
+            "--exact",
+            "console::native::tests::raw_stderr_child",
+            "--nocapture",
+        ])
         .env("CINNABAR_RAW_STDERR_FIXTURE", dir.path())
         .stdout(std::process::Stdio::null())
         .output()
@@ -165,7 +169,7 @@ fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "console::tests::signal_drain_child",
+            "console::native::tests::signal_drain_child",
             "--nocapture",
         ])
         .env("CINNABAR_SIGNAL_DRAIN_FIXTURE", dir.path())
@@ -190,7 +194,7 @@ fn signal_drain_keeps_the_reporting_clients_archived_log() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "console::tests::signal_drain_child",
+            "console::native::tests::signal_drain_child",
             "--nocapture",
         ])
         .env("CINNABAR_SIGNAL_DRAIN_FIXTURE", dir.path())

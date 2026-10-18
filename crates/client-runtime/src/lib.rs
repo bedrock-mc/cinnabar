@@ -1,6 +1,9 @@
 //! Bevy runtime ownership for transport, world work and session boundaries.
 
 pub mod blob_cache;
+#[cfg(any(target_arch = "wasm32", test))]
+pub mod browser_jobs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod endpoint;
 pub mod ingress;
 pub mod inventory;
@@ -10,10 +13,11 @@ pub mod pack_admission;
 pub mod pack_geometry;
 pub mod publication;
 pub mod session;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shutdown;
 pub mod world_service;
 
-use bevy::prelude::{App, Last, Plugin};
+use bevy::prelude::{App, Plugin};
 use std::marker::PhantomData;
 
 /// Registers runtime schedules while keeping the prepared session payload caller-owned.
@@ -31,7 +35,8 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
         network::configure_network_frame_flush::<P>(app);
         world_service::configure_world_service(app, network::NetworkFrameFlush);
         publication::configure_publication_frame(app);
-        app.add_systems(Last, shutdown::arm_shutdown_watchdog);
+        #[cfg(not(target_arch = "wasm32"))]
+        app.add_systems(bevy::prelude::Last, shutdown::arm_shutdown_watchdog);
     }
 
     fn finish(&self, app: &mut App) {

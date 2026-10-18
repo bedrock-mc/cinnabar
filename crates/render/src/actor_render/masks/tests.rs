@@ -71,6 +71,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
             local: true,
             permissions: mod_api::drawing::DrawingPermissions::ALL,
         },
+        style: None,
         depth: MaskDepth::Always,
         entities: vec![MaskEntity {
             connection: identity.session_id,
@@ -155,6 +156,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
             local: true,
             permissions: mod_api::drawing::DrawingPermissions::ALL,
         },
+        style: None,
         depth: MaskDepth::Test,
         entities: vec![MaskEntity {
             connection: identity.session_id,
@@ -448,40 +450,128 @@ fn actor_mask_pixels_preserve_dissolve_rejection() {
 
 #[test]
 fn mask_attachments_reject_stale_resolution_and_sample_counts() {
-    use bevy::render::texture::CachedTexture;
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let depth = |side, samples| {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("mask resize witness"),
-            size: Extent3d {
-                width: side,
-                height: side,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: TextureDimension::D2,
-            format: CORE_3D_DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        ViewDepthStencilTexture::new(
-            CachedTexture {
-                default_view: texture.create_view(&default()),
-                texture,
-            },
-            Some(0.0),
-            None,
-        )
-    };
-    let original = depth(64, 1);
+    let original = test_depth(&device, 64, 1);
     let mask = MaskTarget::new(&device, &original).unwrap();
     assert!(mask.matches(&original));
-    assert!(!mask.matches(&depth(127, 1)));
-    assert!(!mask.matches(&depth(64, 4)));
-    let multisampled = MaskTarget::new(&device, &depth(127, 4)).unwrap();
-    assert!(multisampled.matches(&depth(127, 4)));
+    assert!(!mask.matches(&test_depth(&device, 127, 1)));
+    assert!(!mask.matches(&test_depth(&device, 64, 4)));
+    let multisampled = MaskTarget::new(&device, &test_depth(&device, 127, 4)).unwrap();
+    assert!(multisampled.matches(&test_depth(&device, 127, 4)));
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);
+}
+
+/// Allocates scene depth on the fixture device for mask allocation and resizing tests.
+fn test_depth(device: &RenderDevice, side: u32, samples: u32) -> ViewDepthStencilTexture {
+    let texture = device.create_texture(&TextureDescriptor {
+        label: Some("mask resize witness"),
+        size: Extent3d {
+            width: side,
+            height: side,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: samples,
+        dimension: TextureDimension::D2,
+        format: CORE_3D_DEPTH_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    ViewDepthStencilTexture::new(
+        bevy::render::texture::CachedTexture {
+            default_view: texture.create_view(&default()),
+            texture,
+        },
+        Some(0.0),
+        None,
+    )
+}
+
+#[test]
+fn masks_split_shared_coverage_after_membership_changes() {
+    let mut app = fixture();
+    let frame = publication(1, &[20, 30], 1);
+    let entities: Vec<_> = frame
+        .rig
+        .manifest
+        .iter()
+        .map(|entry| MaskEntity {
+            connection: entry.identity.session_id,
+            dimension: entry.identity.dimension,
+            runtime_id: entry.identity.runtime_id,
+            spawn_revision: entry.identity.spawn_revision,
+        })
+        .collect();
+    let mut first = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: entities[0].connection,
+            dimension: entities[0].dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        depth: MaskDepth::Test,
+        entities: vec![entities[0]],
+        style: None,
+    };
+    let mut second = first.clone();
+    second.handle.owner = 2;
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let view = world
+        .query_filtered::<Entity, bevy::prelude::With<ExtractedView>>()
+        .single(world)
+        .unwrap();
+    let depth = test_depth(world.resource::<RenderDevice>(), 64, 1);
+    world.entity_mut(view).insert(depth);
+    world.init_resource::<render_scene::ModRenderScene>();
+    world.resource_mut::<render_scene::ModRenderScene>().masks =
+        vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_eq!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
+    );
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
+    );
+
+    second.entities = vec![entities[1]];
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .masks = vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_ne!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
+    );
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap() * 2
+    );
+
+    first.entities = second.entities.clone();
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .masks = vec![first.clone(), second.clone()].into();
+    draw_frame(&mut app, &frame);
+    let masks = app.sub_app(RenderApp).world().resource::<MaskGpu>();
+    assert_eq!(
+        masks.targets[&(view, first.handle)].view.id(),
+        masks.targets[&(view, second.handle)].view.id()
+    );
+    assert_eq!(
+        masks.attachment_bytes,
+        mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
+    );
 }

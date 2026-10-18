@@ -12,15 +12,17 @@ pub enum MaskError {
     Denied,
     StaleHandle,
     BudgetExceeded,
+    Invalid,
 }
 
 /// One admitted selection. Coverage is the union of the body's admitted equipment layers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Mask {
     pub handle: DrawingHandle,
     pub session: DrawingSession,
     pub depth: MaskDepth,
     pub entities: Vec<MaskEntity>,
+    pub style: Option<mod_api::drawing::MaskStyle>,
 }
 
 impl Mask {
@@ -119,6 +121,7 @@ impl MaskStore {
             session,
             depth,
             entities: Vec::new(),
+            style: None,
         });
         Ok(handle)
     }
@@ -154,6 +157,32 @@ impl MaskStore {
     pub fn remove(&mut self, handle: DrawingHandle) -> Result<(), MaskError> {
         let index = self.index(handle)?;
         self.staged().remove(index);
+        Ok(())
+    }
+
+    /// Updates only bounded host appearance; it grants no arbitrary shader sampling.
+    pub fn set_style(
+        &mut self,
+        handle: DrawingHandle,
+        style: Option<mod_api::drawing::MaskStyle>,
+    ) -> Result<(), MaskError> {
+        let index = self.index(handle)?;
+        self.admit(self.current()[index].depth)?;
+        if style.is_some_and(|style| !style.valid()) {
+            return Err(MaskError::Invalid);
+        }
+        self.staged()[index].style = style;
+        Ok(())
+    }
+
+    /// Validates the complete declared binding list against this owner's live masks.
+    pub fn bindings(&self, handles: &[DrawingHandle]) -> Result<(), MaskError> {
+        if handles.len() > MAX_MASKS {
+            return Err(MaskError::BudgetExceeded);
+        }
+        for &handle in handles {
+            self.admit(self.current()[self.index(handle)?].depth)?;
+        }
         Ok(())
     }
 

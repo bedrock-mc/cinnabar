@@ -116,6 +116,16 @@ pub fn match_crafting_grid(
     width: u8,
     grid: &[Option<CraftGridItem<'_>>],
 ) -> CraftGridMatch {
+    match_crafting_grid_where(catalog, width, grid, |_| true)
+}
+
+/// Matches eligible recipes without allowing rejected variants to affect priority or ambiguity.
+pub(crate) fn match_crafting_grid_where(
+    catalog: &RecipeCatalog,
+    width: u8,
+    grid: &[Option<CraftGridItem<'_>>],
+    allowed: impl Fn(&RecipeHandle) -> bool,
+) -> CraftGridMatch {
     if !catalog.is_available()
         || !matches!(width, 2 | 3)
         || grid.len() != usize::from(width) * usize::from(width)
@@ -126,6 +136,9 @@ pub fn match_crafting_grid(
     let mut best: Option<(i32, RecipeHandle)> = None;
     let mut ambiguous = false;
     for handle in catalog.crafting_recipes() {
+        if !allowed(handle) {
+            continue;
+        }
         let recipe = handle.recipe();
         let matched = if recipe.is_shapeless() {
             shapeless_matches(recipe, grid)

@@ -184,11 +184,15 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 }
 
 /// Menu options and optional sky settings consumed by atmosphere updates.
-type AtmospherePreferences<'w> = (
-    Option<Res<'w, client_shell::menu::MenuRuntime>>,
-    Option<ResMut<'w, render_scene::CloudVisibility>>,
-    Option<ResMut<'w, render_scene::SkyboxSettings>>,
-);
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct AtmospherePreferences<'w> {
+    #[cfg(not(target_arch = "wasm32"))]
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
+    clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
+    skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
@@ -223,8 +227,15 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
-    let (menu, clouds, skybox) = preferences;
-    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    #[cfg(not(target_arch = "wasm32"))]
+    let options = preferences
+        .menu
+        .as_ref()
+        .map(|menu| menu.settings_snapshot().0);
+    #[cfg(target_arch = "wasm32")]
+    let options = Some(std::sync::Arc::clone(&preferences.options.0));
+    let clouds = preferences.clouds;
+    let skybox = preferences.skybox;
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
