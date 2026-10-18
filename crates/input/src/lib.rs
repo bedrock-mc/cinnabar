@@ -8,6 +8,7 @@ mod desktop;
 mod device;
 pub mod finalized;
 pub mod identity;
+mod ordered;
 mod router;
 
 pub use action::{
@@ -25,6 +26,10 @@ pub use device::{
     MAX_CONTROLLER_BUTTONS, MAX_CONTROLLERS, MAX_DISCONNECTED_CONTROLLERS, MAX_KEYBOARD_KEYS,
     MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchAxis, TouchContact,
     TouchControl, TouchControlKind, TouchControlLayout, TouchLayoutError,
+};
+pub use ordered::{
+    ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS,
+    OrderedActions,
 };
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 

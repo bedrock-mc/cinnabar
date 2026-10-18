@@ -2,7 +2,7 @@
 use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
-/// Supplies an actor and admitted movement without publishing a melee pick.
+/// Supplies an actor and successfully written movement without publishing a melee pick.
 pub(super) fn unpublished_attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     actor_use_tests::spawn(&mut world, z);
@@ -11,13 +11,21 @@ pub(super) fn unpublished_attack_fixture(z: f32) -> (World, client_session::Capt
     world.init_resource::<client_presentation::camera::ServerCameraView>();
     world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
         let network = world.resource::<NetworkHandle<PackApplication>>();
+        let mut written = Vec::new();
         gameplay::movement::flush_player_auth_inputs_guarded(
             &mut movement,
             gameplay::movement::OUTBOX_CAPACITY,
             Some(gameplay::test_support::survival_mining::evidence()),
-            |identity, packet, guard, _| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard, _| {
+                network.send_physics_packet(identity, packet, guard)?;
+                written.push(identity);
+                Ok::<(), client_session::PacketSendError>(())
+            },
         )
         .unwrap();
+        for identity in written {
+            assert!(movement.acknowledge_physics_send(identity));
+        }
     });
     captured.drain();
     (world, captured)

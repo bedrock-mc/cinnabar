@@ -105,10 +105,33 @@ pub struct UseOutcome {
     released: bool,
 }
 
+/// Unadmitted press state belongs to either a legacy input owner or one ordered attempt.
+#[derive(Debug, Default, Clone)]
+pub struct PendingUseInput {
+    latched_press: bool,
+    /// A rejected click retries only while its verified selection remains current.
+    deferred_selection: Option<FrozenMiningSelection>,
+    /// Only this owner's rejected batch may retry a published tick.
+    rejected_swing_tick: Option<(
+        u64,
+        Option<(SessionGeneration, PositionAuthorityGeneration)>,
+    )>,
+}
+
+impl PendingUseInput {
+    /// Starts one resolved edge without publishing its latch to held-use maintenance.
+    pub fn new(pressed: bool) -> Self {
+        Self {
+            latched_press: pressed,
+            ..Self::default()
+        }
+    }
+}
+
 /// The press latch, the accepted use, cooldowns and the throw prediction.
 #[derive(Debug, Default, Clone)]
 pub struct ItemUseRuntime {
-    latched_press: bool,
+    pending: PendingUseInput,
     delay_fix: bool,
     selected_slot: Option<u8>,
     slot_change_pending: bool,
@@ -124,13 +147,6 @@ pub struct ItemUseRuntime {
     inventory_change: Option<(u8, u64, PredictedSlotChange)>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
-    /// A rejected click retries only while its verified selection remains current.
-    deferred_selection: Option<FrozenMiningSelection>,
-    /// Only this owner's rejected batch may retry a published tick.
-    rejected_swing_tick: Option<(
-        u64,
-        Option<(SessionGeneration, PositionAuthorityGeneration)>,
-    )>,
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
     crossbows: crossbow::CrossbowPredictions,
@@ -161,6 +177,20 @@ impl ItemUseRuntime {
         if self.selected_slot != Some(slot) {
             self.slot_change_pending = self.delay_fix && self.selected_slot.is_some();
             self.selected_slot = Some(slot);
+        }
+    }
+
+    /// A newly admitted selection ends a charge without inventing a release transaction.
+    pub fn retire_reselected_use(&mut self, slot: u8) {
+        self.observe_selected_slot(Some(slot));
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.selection.slot != slot)
+        {
+            self.active = None;
+            self.riptide_release = None;
+            self.release_pending = false;
         }
     }
 
@@ -201,6 +231,11 @@ impl ItemUseRuntime {
     /// Whether an accepted use has observed button-up or still owes its deferred release.
     pub fn is_releasing(&self, held: bool) -> bool {
         self.active.is_some() && (!held || self.release_pending)
+    }
+
+    /// Reports an observed release that still belongs to the accepted use.
+    pub const fn has_pending_release(&self) -> bool {
+        self.release_pending
     }
 
     /// Returns the first release-facing decision while its packet still awaits admission.
@@ -253,20 +288,25 @@ impl ItemUseRuntime {
         self.session = Some(session);
     }
 
+    /// Transfers the canonical pending input between an attempt and the active admission call.
+    pub fn swap_pending_input(&mut self, pending: &mut PendingUseInput) {
+        std::mem::swap(&mut self.pending, pending);
+    }
+
     pub fn observe_press(&mut self, pressed: bool) {
         if pressed {
-            self.deferred_selection = None;
-            self.rejected_swing_tick = None;
-            self.latched_press = true;
+            self.pending.deferred_selection = None;
+            self.pending.rejected_swing_tick = None;
+            self.pending.latched_press = true;
         }
     }
 
     /// Screens, focus loss and spectator mode cancel queued clicks, but accepted uses release.
     pub fn cancel_pending_input(&mut self) {
-        self.latched_press = false;
+        self.pending.latched_press = false;
         self.repeat_armed = false;
-        self.deferred_selection = None;
-        self.rejected_swing_tick = None;
+        self.pending.deferred_selection = None;
+        self.pending.rejected_swing_tick = None;
     }
 
     /// Drops old-life charges and unsent use actions, preserving inventory and cooldown policy.
@@ -298,9 +338,14 @@ impl ItemUseRuntime {
         self.inventory_change.take()
     }
 
+    /// Whether a press or observed release still awaits packet admission.
+    pub const fn pending_edge(&self) -> bool {
+        self.pending.latched_press || self.release_pending
+    }
+
     /// Whether this frame has anything to resolve against an unsent tick.
     pub const fn has_work(&self, held: bool) -> bool {
-        self.latched_press || self.active.is_some() || held
+        self.pending.latched_press || self.active.is_some() || held
     }
 
     /// Resolves after completed inputs drain, against the next tick and its preceding pose.
@@ -311,7 +356,8 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge = self.latched_press || self.release_pending || (self.active.is_some() && !held);
+        let edge =
+            self.pending.latched_press || self.release_pending || (self.active.is_some() && !held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -332,7 +378,7 @@ impl ItemUseRuntime {
         self.last_frame_tick = Some(frame.tick);
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
-        let pressed = std::mem::take(&mut self.latched_press);
+        let pressed = std::mem::take(&mut self.pending.latched_press);
         if pressed {
             self.repeat_armed = !frame.press_consumed
                 && (frame.air_use.is_some()
@@ -410,7 +456,7 @@ impl ItemUseRuntime {
     /// Why a latched press sends nothing on this frame, for the click-drop trace; `None` when it
     /// is used or no press waits.
     pub fn press_drop_reason(&self, frame: &UseFrame) -> Option<&'static str> {
-        if !self.latched_press || self.active.is_some() {
+        if !self.pending.latched_press || self.active.is_some() {
             return None;
         }
         if frame.press_consumed {

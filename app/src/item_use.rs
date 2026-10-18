@@ -37,6 +37,8 @@ use gameplay::item_use::UseFrame;
 use gameplay::item_use::admit_on_tick;
 
 use gameplay::item_use::AirUse;
+mod frame;
+pub(crate) mod ordered;
 mod riptide;
 
 /// A successful extension request is valid only in its originating world scope.
@@ -48,6 +50,7 @@ pub(crate) struct ModItemUsePolicy {
 #[derive(SystemParam)]
 pub(crate) struct ItemUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
+    ordered: Option<Res<'w, crate::ordered_interactions::InteractionRuntime>>,
     delay_fix: Option<Res<'w, ModItemUsePolicy>>,
     ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
@@ -64,8 +67,19 @@ pub(crate) struct ItemUseContext<'w, 's> {
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
 }
 
+/// Consumes new frame edges after movement drains, then advances accepted held item use once.
+pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
+    crate::ordered_interactions::drain(
+        world,
+        crate::ordered_interactions::DispatchPhase::AfterMovement,
+    );
+    world
+        .run_system_cached(maintain_item_use)
+        .expect("item maintenance resources");
+}
+
 /// Runs after block use so a press that interacted with a block starts no item use.
-pub(crate) fn produce_item_use(
+fn maintain_item_use(
     player_runtime: ResMut<client_state::PlayerRuntime>,
     context: ItemUseContext,
     runtime: ResMut<ItemUseRuntime>,
@@ -150,7 +164,22 @@ fn produce_use(
     } else {
         true
     };
-    let held = admitted && use_phase.held;
+    let held = admitted
+        && crate::ordered_interactions::held(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Use,
+        );
+    // Accepted uses may end while new starts wait for the ordered cursor.
+    if admitted
+        && context
+            .ordered
+            .as_deref()
+            .is_some_and(|ordered| ordered.maintenance_pending(&context.input))
+        && !runtime.is_releasing(held)
+    {
+        return;
+    }
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
     let release_facing = runtime
@@ -175,140 +204,43 @@ fn produce_use(
             .is_some_and(|policy| policy.scope == scope);
     runtime.set_delay_fix(delay_fix_enabled);
     runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
-    runtime.observe_press(admitted && use_phase.pressed);
-    let Some(stream) = context.client_world.stream.as_ref() else {
-        return;
-    };
+    runtime.observe_press(
+        admitted
+            && use_phase.pressed
+            && context
+                .input
+                .snapshot()
+                .is_none_or(|input| input.ordered.is_none()),
+    );
     if !runtime.has_work(held) {
         return;
     }
-    let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let air_use = selected_air_use_with_projectile(
-        &player_runtime,
-        stream,
-        runtime.selected_projectile(&player_runtime, &context.ui),
-    );
-    let creative = player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative);
-    let inventory_revision = player_runtime.selected_hotbar_slot().and_then(|slot| {
-        context
-            .ui
-            .inventory_ledger(&player_runtime)
-            .authoritative_slot_revision(slot)
-    });
-    let selection = verified_use_selection(&player_runtime, &context.ui).map(|server| {
-        context
-            .block_use
-            .inventory
-            .predicted_selection(&server, inventory_revision.unwrap_or(0))
-            .unwrap_or(server)
-    });
-    let riptide_at = |position| {
-        selected_riptide_use(
-            &player_runtime,
-            stream,
-            context
-                .physics
-                .as_deref()
-                .is_some_and(|physics| physics.in_water())
-                || riptide::in_rain(
-                    stream,
-                    position,
-                    context
-                        .weather
-                        .as_deref()
-                        .map_or(0.0, |weather| weather.current_rain_level),
-                ),
-        )
-    };
-    // The completed local pose remains available while its movement input waits in the FIFO.
-    if runtime.is_releasing(held)
-        && let Some(edge) = movement.build_action_state()
-    {
-        let first = runtime.observe_riptide_release(
-            edge.tick.saturating_add(1),
-            held,
-            riptide_at(edge.position),
-            selection.as_ref(),
-            release_facing,
-        );
-        if first && let Some(rotation) = aim_rotation {
-            view.set_rotation(rotation);
-        }
-    }
-    if movement.has_held_release() {
-        return;
-    }
-    let sample = if before_flush {
-        movement
-            .newest_unsent_sample()
-            .map(Into::into)
-            .or_else(|| movement.between_ticks_sample())
-    } else {
-        runtime.frame_sample(&movement, held, true)
-    };
-    let Some(sample) = sample else {
-        return;
-    };
-    // Pending presses suppress new starts while accepted uses keep advancing.
-    let press_pending =
-        context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending());
-    let frame = UseFrame {
-        riptide: riptide_at(sample.position),
-        riptide_facing: release_facing,
-        tick: sample.tick,
-        now_millis,
-        position: sample.position,
+    let policy = frame::FramePolicy {
         held,
-        selection,
-        air_use,
-        ready: match air_use {
-            Some(AirUse::Hold { needs, .. }) => {
-                creative || needs_met(&player_runtime, stream, &context.ui, needs)
-            }
-            Some(AirUse::GlideRocket) => context.physics.as_deref().is_some_and(|physics| {
-                physics.is_active() && physics.mode() == sim::MovementMode::Gliding
-            }),
-            _ => false,
-        },
-        creative,
-        inventory_revision,
-        charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
-        press_consumed: before_flush
-            || press_pending
-            || (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
-            || context.block_use.press_interacted(),
-    };
-    if let Some(reason) = runtime.press_drop_reason(&frame) {
-        gameplay::movement::note_click_drop("use", reason);
-    }
-    let duration = swing_duration(
-        context
-            .effects
-            .mining_tick(sample.tick, movement.completed_tick())
-            .0,
-    );
-    admit_with_action_aim(
-        &mut runtime,
-        &mut swings,
-        &mut movement,
-        &mut view,
-        &frame,
-        stream.local_player_runtime_id(),
-        duration,
+        before_flush,
+        delay_fix_enabled,
         aim_rotation,
-        &context.network,
+        release_facing,
+    };
+    let Some(frozen) = frame::observe(
+        &player_runtime,
+        &context,
+        &mut runtime,
+        &movement,
+        &mut view,
+        policy,
+    ) else {
+        return;
+    };
+    frame::admit(
+        &mut player_runtime,
+        &mut context,
+        &mut runtime,
+        &mut movement,
+        &mut swings,
+        &mut view,
+        &frozen,
     );
-    if let Some(launch) = runtime.take_riptide_launch()
-        && let Some(physics) = context.physics.as_deref_mut()
-    {
-        movement.request_riptide(physics, launch.level, launch.rotation);
-    }
-    if let Some((slot, revision, change)) = runtime.take_inventory_change() {
-        player_runtime
-            .inventory
-            .ledger_mut()
-            .settle_use_slot_change(slot, revision, &change);
-    }
 }
 
 /// Admits use on its logical clock and fences releases behind their captured action facing.

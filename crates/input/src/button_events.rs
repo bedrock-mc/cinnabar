@@ -45,6 +45,7 @@ pub(crate) fn button_edges(chord: InputChord, frame: &DeviceFrame) -> (bool, boo
 
 /// Consumes finalized events so later authority changes inspect only the current held state.
 pub(crate) fn discard_button_edges(frame: &mut DeviceFrame) {
+    frame.desktop_events = None;
     if let Some(keyboard) = frame.keyboard_mouse.as_mut() {
         keyboard.key_edges = Default::default();
         keyboard.mouse_edges = Default::default();

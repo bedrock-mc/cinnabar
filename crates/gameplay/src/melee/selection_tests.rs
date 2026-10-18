@@ -433,6 +433,59 @@ fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
     }
 }
 
+#[test]
+fn a_refused_ordered_actor_press_keeps_held_target_competition() {
+    let mut movement = sent_ticks(1);
+    let (mut runtime, mut swings) = synchronized(&movement);
+    runtime.observe_input(true, true);
+    let target = runtime.observe_attack_target(
+        Crosshair::Actor(ActorHit {
+            runtime_id: 9,
+            distance: 2.0,
+            point: [0.0, 1.5, -2.0],
+        }),
+        false,
+    );
+    let press = press_at(runtime.between_ticks_press(&movement).unwrap());
+    let mut attempts = 0;
+    let result = admit_attack_press(
+        &mut runtime,
+        &mut crate::survival_mining::SurvivalMiningRuntime::default(),
+        &mut swings,
+        &mut movement,
+        AttackFrame {
+            attack: Some((target, press)),
+            mining_target: None,
+            attack_held: true,
+            allow_mining_start: true,
+            authority: crate::survival_mining::BlockBreakingAuthority::Server,
+            now_millis: 1,
+            local_runtime_id: 1,
+        },
+        AttackEffects {
+            send: |_| {
+                attempts += 1;
+                Err(BatchSendError::Full)
+            },
+            swing_duration: |_| actor_animation::ACTOR_SWING_TICKS,
+            request_id: |_, _| None,
+            predict_break: |_| {},
+        },
+    );
+    assert_eq!(attempts, 1);
+    assert!(result.admitted.is_none());
+    assert!(!runtime.press_pending(), "the refused edge must expire");
+    assert!(
+        runtime.actor_in_front(),
+        "held mining must still see the actor"
+    );
+    runtime.cancel();
+    assert!(
+        !runtime.actor_in_front(),
+        "input cancellation clears the target"
+    );
+}
+
 /// Once every completed tick is on the wire, an actor attack resolves in its own frame
 /// against the next tick instead of waiting up to a tick for one.
 #[test]

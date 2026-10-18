@@ -1,5 +1,11 @@
 # Phases 2-5 Completion Ledger
 
+This ledger records acceptance evidence, separately from feature implementation. An
+open gate does not mean its feature is absent. Older rows without evidence are not
+a current implementation audit; check the owning code and later entries before
+calling work unstarted. Test files listed below establish existing coverage, not
+a fresh passing run or full gate acceptance.
+
 ## Browser host composition
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected
@@ -173,11 +179,11 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Packed biome storage and tint preparation exist in `crates/world/src/biome.rs` and `crates/meshing/src/biome.rs`; full native qualification remains open. |
+| Deterministic tests | Existing shader coverage includes `crates/render/tests/it/biome_shader.rs`; full-gate run results are not recorded in this row. |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 ## P2-CHUNK-PUBLICATION
@@ -345,11 +351,11 @@ material/shader linkage remain open.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Not recorded in this row |
+| Deterministic tests | Not recorded in this row |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 Actor rigs, Molang evaluation, controllers and poses live in Bevy-free
@@ -369,7 +375,7 @@ external armor models. Broader item-action and custom-content parity stays open.
 | Deterministic tests | Local/remote event admission, equipped-item snapshot across delayed publication, equipment-only hands, consumption ordering, retrigger, expiry, session retirement, partial ticks, bounded stall time, activation before the frame clock update, full-viewport scissor and retained clipping, viewport/layer placement, admitted texture replacement/removal and authored particle routing/attachment. |
 | Review commit | Totem implementation: `590c2039e`; broader item actions remain open. |
 | Live/native witness | Totem camera event/icon behavior and local authored-emitter routing verified; full-client default/custom activation, main-hand fallback, retrigger and remote/empty exclusion pass. Broader item actions remain open. |
-| Performance/resource witness | Not started |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 ## P5.1-UI
@@ -378,7 +384,7 @@ external armor models. Broader item-action and custom-content parity stays open.
 |---|---|
 | Owning plan/task | `plan.md`: Compact font carriers and glyph residency; broader UI parity remains open. |
 | Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. Original large-sheet UV, loop, reload and independent residency-budget regressions cover tiled UI images. |
-| Review commit | Not started |
+| Review commit | Not recorded in this row |
 | Live/native witness | Exact coverage/SDF GPU pixels and mixed-script offline frames; native Bedrock UI parity remains open. |
 | Performance/resource witness | Font storage is bounded and development-profile first-menu startup is measured; release hitch and hardware-tier qualification remain open. |
 | Final status | Open |
@@ -401,11 +407,11 @@ retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | HUD state and publication exist in `crates/ui/src/hud.rs` and `crates/client-ui/src/ui_runtime/gameplay_hud.rs`; full acceptance remains open. |
+| Deterministic tests | Existing HUD matrix coverage includes `crates/client-ui/src/ui_runtime/presentation/tests/hud_matrix_tests.rs`; full-gate run results are not recorded in this row. |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 Attack-category cooldown shading has owning timer and hotbar-publication regressions
@@ -418,9 +424,9 @@ the missing overlay against the official client; broader HUD parity remains open
 |---|---|
 | Owning plan/task | `plan.md`: chat completion and quoted player names. |
 | Deterministic tests | Mention filtering, name quoting, command permissions, insertion, Tab cycling, bounds and row-text regressions are written; compilation and execution await CI. |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 Plain chat offers `@here` and player-list names; command targets include `@n`.
@@ -436,14 +442,23 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Scoreboard state and UI adaptation exist in `crates/ui/src/scoreboard.rs` and `crates/client-ui/src/ui_runtime/scoreboard_adapter.rs`; full acceptance remains open. |
+| Deterministic tests | Existing pack rendering coverage includes `crates/client-ui/src/ui_runtime/presentation/forms/engine_tests/scoreboard_pack.rs`; full-gate run results are not recorded in this row. |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
+
+Ordered desktop interactions now attempt each edge only in its input frame.
+Refused presses retain no proposal or movement reservation. Gameplay owners retain
+accepted mining and release work, while overload recovery suppresses current held
+input until neutrality. Scrolling preserves per-control suppression, and accepted
+item uses can end before neutrality without starting another use. Regression coverage
+exercises per-frame admission, use resolution and pending controls. Live input
+acceptance, overload timing and camera sampling remain incomplete;
+no completion gate advances.
 
 Selected transaction descriptor regressions cover optional stack-ID omission while
 preserving item contents, inventory action IDs and legacy requests. The shared
@@ -471,11 +486,11 @@ occlusion share rounded intercept distances. CI verification remains pending.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Server form admission and presentation exist in `crates/client-ui/src/ui_runtime/forms.rs` and `crates/client-ui/src/ui_runtime/presentation/forms.rs`; full acceptance remains open. |
+| Deterministic tests | Existing form coverage includes `crates/client-ui/src/ui_runtime/presentation/tests/forms_tests.rs`; full-gate run results are not recorded in this row. |
+| Review commit | Not recorded in this row |
+| Live/native witness | Not recorded in this row |
+| Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
 ## P5.7-PARITY-PERF
@@ -494,7 +509,7 @@ hardware frame-time and capture acceptance remain open.
 |---|---|
 | Owning plan/task | Bamboo geometry, column transforms, sampling and overlay consumers covered; wider parity and performance work remains open |
 | Deterministic tests | All twelve bamboo states, offset admission in both ID spaces, source-pixel mip selection, opaque/cutout consumers and populated Metal rendering graph |
-| Review commit | Not started |
+| Review commit | Not recorded in this row |
 | Live/native witness | Fresh Vanilla and bounded Enhanced bamboo gallery, selection and timed breaking captures; screenshots accompany the change |
 | Performance/resource witness | No displayed-frame performance acceptance from hidden debug captures; ordinary Enhanced remains disabled |
 | Final status | Open |

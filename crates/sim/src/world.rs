@@ -29,6 +29,7 @@ mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
 mod identity;
+mod observation;
 mod physics_table;
 mod raycast;
 mod section;
@@ -632,6 +633,7 @@ pub struct LenientCollisionBoxes {
 
 /// Read-only collision adapter over the palette-packed world store.
 pub struct PaletteWorld<'a> {
+    read_observation: Option<observation::ReadObservation>,
     unsupported_actor_selections: std::sync::atomic::AtomicU32,
     pick_context: assets::block_shapes::PickContext,
     store: &'a ChunkStore,
@@ -668,6 +670,7 @@ impl<'a> PaletteWorld<'a> {
         pick_context: assets::block_shapes::PickContext,
     ) -> Self {
         Self {
+            read_observation: None,
             unsupported_actor_selections: std::sync::atomic::AtomicU32::new(0),
             pick_context,
             store,
@@ -711,10 +714,12 @@ impl<'a> PaletteWorld<'a> {
 
     /// A loaded column's revision, or the boundary revision of an absent movement column.
     fn column_revision(&self, key: ChunkKey) -> Result<ChunkCollisionRevision, WorldQueryError> {
-        self.store
-            .collision_revision(key)
-            .or_else(|| self.unloaded_boundary_revision(key))
-            .ok_or(WorldQueryError::UnloadedChunk(key))
+        self.record_column_read(
+            self.store
+                .collision_revision(key)
+                .or_else(|| self.unloaded_boundary_revision(key))
+                .ok_or(WorldQueryError::UnloadedChunk(key)),
+        )
     }
 
     /// Whether every layer of a loaded block is air.
