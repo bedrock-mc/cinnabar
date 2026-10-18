@@ -103,7 +103,11 @@ fn polyline_joins_cover_each_sample_once_for_alpha_and_additive_blending() {
                     let expected = pixel(&pixels, 90, if sign > 0. { 192 } else { 64 })[0];
                     assert!(expected > pixel(&pixels, 0, 0)[0]);
                     assert!(
-                        pixels.chunks_exact(4).all(|p| p[0] <= expected + 1),
+                        pixels
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .all(|p| p[0] <= expected + 1),
                         "a join blended twice: join={join}, outgoing={outgoing_x}, sign={sign}"
                     );
                     if outgoing_x == 0. {

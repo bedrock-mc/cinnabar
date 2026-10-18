@@ -56,7 +56,7 @@ fn drawing() -> (Store, mod_api::drawing::DrawingHandle, Instance) {
             dimension: 0,
             origin: [0.; 3],
         },
-        transform: Transform::default(),
+        transform: mod_render::retained::Transform::default(),
         tint: [1.; 4],
         depth: Depth::Test,
         blend: Blend::Premultiplied,
