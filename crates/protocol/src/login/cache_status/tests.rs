@@ -96,7 +96,7 @@ fn sealed_repeats_and_an_earlier_miss_survive_later_cache_changes() {
     let outstanding = resolver.accept_cached_packet(Packet::new(second)).unwrap();
     assert!(outstanding.missing().is_empty());
     outbox.push(outstanding);
-    cache.admit(hash, Arc::from(b"later".as_slice())).unwrap();
+    assert_eq!(cache.insert(b"later").unwrap(), hash);
     outbox.push(classify(&cache, vec![hash, hash]));
     outbox.push(classify(&cache, vec![hash]));
     let packet = outbox.select(at(0)).unwrap();
