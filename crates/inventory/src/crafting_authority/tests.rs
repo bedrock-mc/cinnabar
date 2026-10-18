@@ -597,3 +597,57 @@ fn copied_authority_shares_its_recipe_catalog() {
     let authority = CraftingAuthority::new(1);
     assert!(Arc::ptr_eq(&authority.catalog, &authority.clone().catalog));
 }
+
+#[test]
+fn terminal_projection_counters_retire_unlocks_and_never_replay_queued_additions() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, recipe_unlock_event,
+    };
+    for registry_exhaustion in [false, true] {
+        let mut runtime = crate::InventorySession::new(1);
+        let update = CraftingDataFixture {
+            recipes: vec![RecipeFixture {
+                net_id: 1,
+                ..RecipeFixture::shapeless(
+                    "test:terminal",
+                    vec![IngredientFixture::named("test:input", 0)],
+                    vec![OutputFixture::new(7, 1)],
+                )
+            }],
+            clear_recipes: true,
+            ..Default::default()
+        }
+        .update();
+        runtime
+            .enqueue_inventory_event(1, 1, InventoryEvent::Recipes(update))
+            .unwrap();
+        runtime
+            .enqueue_inventory_event(1, 2, recipe_unlock_event(2, &["test:terminal"]))
+            .unwrap();
+        runtime.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+        runtime.drain_pending_inventory();
+        assert!(runtime.recipe_unlocks().contains("test:terminal"));
+        let snapshot = runtime.clone();
+        if registry_exhaustion {
+            runtime.crafting_authority.generation = u64::MAX;
+            runtime
+                .enqueue_item_registry_event(1, 3, named_registry("test:input", 64))
+                .unwrap();
+        } else {
+            runtime.crafting_authority.revision = u64::MAX;
+            let InventoryAuthorityEvent::Inventory(event) = slot(13, 28) else {
+                unreachable!()
+            };
+            runtime.enqueue_inventory_event(1, 3, event).unwrap();
+        }
+        runtime
+            .enqueue_inventory_event(1, 4, recipe_unlock_event(2, &["test:terminal"]))
+            .unwrap();
+        runtime.synchronize_crafting_frontier(1, Some((1, 0, Some(4))));
+        runtime.drain_pending_inventory();
+        runtime.finish_drain();
+        assert!(!runtime.recipe_unlocks().contains("test:terminal"));
+        assert!(snapshot.recipe_unlocks().contains("test:terminal"));
+        assert!(runtime.crafting_catalog_snapshot().is_none());
+    }
+}

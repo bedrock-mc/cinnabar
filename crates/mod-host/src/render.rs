@@ -84,16 +84,7 @@ impl RenderState {
         let mut changed = masks != self.committed.masks;
         self.committed.masks = masks;
         self.retained.commit();
-        let snapshot = self.retained.snapshot();
-        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
-            changed |= !self.committed.retained.is_empty();
-            self.committed.retained.clear();
-        } else if !matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
-        {
-            self.committed.retained.clear();
-            self.committed.retained.push(Arc::clone(snapshot));
-            changed = true;
-        }
+        changed |= self.publish_retained();
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
             changed |= passes != self.committed.passes;
@@ -116,6 +107,36 @@ impl RenderState {
         }
         if changed {
             self.generation = next_revision();
+        }
+    }
+
+    /// Publishes confirmed target removals before another callback can render stale anchors.
+    pub(super) fn update_entities(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        despawned: &[mod_render::retained::EntityKey],
+    ) -> Result<(), mod_render::retained::DrawError> {
+        self.retained.reconcile_entities(candidates, despawned)?;
+        if self.publish_retained() {
+            self.generation = next_revision();
+        }
+        Ok(())
+    }
+
+    /// Copies only the immutable snapshot identity into renderer output.
+    fn publish_retained(&mut self) -> bool {
+        let snapshot = self.retained.snapshot();
+        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+            let changed = !self.committed.retained.is_empty();
+            self.committed.retained.clear();
+            changed
+        } else if matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+        {
+            false
+        } else {
+            self.committed.retained.clear();
+            self.committed.retained.push(Arc::clone(snapshot));
+            true
         }
     }
 
