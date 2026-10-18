@@ -73,6 +73,7 @@ impl CapturedPackets {
 
 #[cfg(any(test, feature = "test-support"))]
 impl<P> NetworkHandle<P> {
+    /// Captures packets from the normal bounded command FIFO.
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
         Self::stub_capturing_packets_with_capacity(COMMAND_CAPACITY)
     }

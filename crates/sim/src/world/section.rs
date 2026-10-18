@@ -21,6 +21,7 @@ impl SectionCache {
         world: &PaletteWorld<'_>,
         key: SubChunkKey,
     ) -> Option<&Option<Arc<SubChunk>>> {
+        world.record_cell_read(key).ok()?;
         if self.key != Some(key) {
             self.key = Some(key);
             self.section = world

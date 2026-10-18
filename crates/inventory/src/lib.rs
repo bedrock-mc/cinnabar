@@ -37,7 +37,10 @@ pub use manual_craft::{
 };
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use screen_recipes::BookRecipe;
-pub use selection::{SelectedStackSnapshot, SequencedLocalEquipment};
+pub use selection::{
+    PreparedHotbarSelection, SelectedStackSnapshot, SelectionAuthority, SelectionStamp,
+    SequencedLocalEquipment,
+};
 pub use session::{InventorySession, MAX_PENDING_INVENTORY_EVENTS};
 
 mod item_icon;

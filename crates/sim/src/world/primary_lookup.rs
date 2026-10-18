@@ -6,6 +6,7 @@ impl PaletteWorld<'_> {
     /// The first-layer runtime id of a loaded block.
     pub fn primary_runtime_id(&self, [x, y, z]: [i32; 3]) -> Result<u32, WorldQueryError> {
         let key = SubChunkKey::new(self.dimension, x >> 4, y >> 4, z >> 4);
+        self.record_cell_read(key)?;
         if !self.store.is_sub_chunk_loaded(key) {
             if self.unloaded_boundary_revision(key.chunk()).is_some() {
                 return Ok(self.registry.air_runtime_id);

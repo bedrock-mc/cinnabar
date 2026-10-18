@@ -7,6 +7,9 @@ use super::*;
 use client_presentation::aim_assist::{AimAssistFrame, AimAssistTarget, TargetKind};
 use protocol::test_support::transactions::observe_transaction;
 
+#[path = "ordered_mouse.rs"]
+mod ordered_mouse_tests;
+
 /// Publishes attack input with an explicit logical input mode.
 fn press(world: &mut World, mode: semantic_input::InputMode) {
     let mut snapshot = world

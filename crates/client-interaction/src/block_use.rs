@@ -115,22 +115,17 @@ pub fn predicted_toggle(
         clicked,
     )
 }
-/// Adapts the published world to gameplay's placement prediction.
+/// Resolves placement through the caller's palette view, preserving its query observation.
 pub fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
     item_block: i32,
     observed: &FrozenBlockObservation,
     surroundings: &UseSurroundings,
     view: LocalViewPose,
 ) -> Option<gameplay::block_use::PredictedPlacement> {
     let mode = stream.network_id_mode();
-    let world = PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(mode),
-        stream.current_dimension(),
-        Default::default(),
-    );
     let range = stream
         .authority()
         .dimension_range(stream.current_dimension())?;
@@ -139,7 +134,7 @@ pub fn predicted_placement(
         collisions,
         mode,
         held_block_store_id(stream, item_block)?,
-        &world,
+        world,
         &gameplay::block_use::PlacementContext {
             clicked: observed.target.position,
             input: gameplay::placement_state::PlacementInput {

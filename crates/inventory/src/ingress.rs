@@ -146,6 +146,10 @@ impl InventorySession {
                     && selected.select_slot
                     && selected.slot < protocol::HOTBAR_SLOT_COUNT
                 {
+                    self.selection_generation = self
+                        .selection_generation
+                        .checked_add(1)
+                        .expect("selection authority generation exhausted");
                     self.server_selected_slot = Some(selected.slot);
                     self.local_selected_slot = None;
                     self.pending_hotbar_selection = None;
