@@ -67,27 +67,38 @@ pub(super) fn publish_frame(
     frame.dimension = stream.authority().current_dimension();
     for (output, _) in hosts.render_outputs() {
         for resources in &output.retained {
-            if let Some(handle) = resources.geometry.keys().next() {
-                frame.live_owners.insert((handle.owner, handle.generation));
-            }
-            for draw in resources.instances.values() {
-                if let mod_render::retained::Anchor::Block {
-                    dimension,
-                    position,
-                } = draw.anchor
-                {
-                    let key = world::ChunkKey {
-                        dimension,
-                        x: position[0].div_euclid(world::SUB_CHUNK_SIDE as i32),
-                        z: position[2].div_euclid(world::SUB_CHUNK_SIDE as i32),
-                    };
-                    if dimension == frame.dimension
-                        && stream.authority().terrain().is_chunk_loaded(key)
-                    {
-                        frame.loaded_blocks.insert(position);
-                    }
-                }
+            publish_retained(resources, stream.authority().terrain(), frame);
+        }
+    }
+}
+
+/// Adds one retained snapshot's live owner and authoritative block anchors to the frame.
+fn publish_retained(
+    resources: &mod_render::retained::Resources,
+    terrain: &world::ChunkStore,
+    frame: &mut render_scene::mod_scene::retained::DrawingFrame,
+) {
+    if let Some(handle) = resources.geometry.keys().next() {
+        frame.live_owners.insert((handle.owner, handle.generation));
+    }
+    for draw in resources.instances.values() {
+        if let mod_render::retained::Anchor::Block {
+            dimension,
+            position,
+        } = draw.anchor
+        {
+            let key = world::SubChunkKey {
+                dimension,
+                x: position[0].div_euclid(world::SUB_CHUNK_SIDE as i32),
+                y: position[1].div_euclid(world::SUB_CHUNK_SIDE as i32),
+                z: position[2].div_euclid(world::SUB_CHUNK_SIDE as i32),
+            };
+            if dimension == frame.dimension && terrain.is_sub_chunk_loaded(key) {
+                frame.loaded_blocks.insert(position);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -362,6 +362,43 @@ fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
 }
 
 #[test]
+fn tiny_geometry_rejects_oversized_instances() {
+    for length in [1e-20, 1e-30, 1e-36] {
+        let mut store = Store::default();
+        let geometry = store
+            .create_geometry(GeometrySpec::Triangles {
+                vertices: [[length, 0., 0.], [0., length, 0.], [0., 0., length]]
+                    .map(|position| Vertex {
+                        position,
+                        color: [1.; 4],
+                        uv: [0.; 2],
+                        data: [0.; 4],
+                    })
+                    .to_vec(),
+                indices: vec![0, 1, 2],
+            })
+            .unwrap();
+        let mut valid = drawing(geometry);
+        valid.transform.scale = [length.recip(); 3];
+        store.create(valid, DrawingPermissions::ALL).unwrap();
+        for scale in [[1e38; 3], [-1e38, 1e38, -1e38], [1e38, 0., 0.]] {
+            let mut oversized = drawing(geometry);
+            oversized.transform.scale = scale;
+            assert_eq!(
+                store
+                    .create(oversized, DrawingPermissions::ALL)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::Invalid,
+                "length={length}, scale={scale:?}"
+            );
+        }
+        store.commit();
+        assert_eq!(store.snapshot().instances.len(), 1);
+    }
+}
+
+#[test]
 fn cached_sphere_admits_extents_when_box_bounds_are_too_conservative() {
     let mut store = Store::default();
     let extent = mod_api::MAX_PRIMITIVE_EXTENT_BLOCKS;

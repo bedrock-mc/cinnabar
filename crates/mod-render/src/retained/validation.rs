@@ -24,7 +24,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         return Err(error(ErrorCode::BudgetExceeded, "expanded vertices"));
     }
     let mut bounds = [vertices[0].position; 2];
-    let mut radius_squared = 0_f32;
+    let mut radius_squared = 0_f64;
     let mut distances = Vec::with_capacity(if polyline { vertices.len() } else { 0 });
     let mut previous = vertices[0].position;
     let mut distance = 0.;
@@ -49,7 +49,8 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
             bounds[0][axis] = bounds[0][axis].min(position);
             bounds[1][axis] = bounds[1][axis].max(position);
         }
-        radius_squared = radius_squared.max(vertex.position.iter().map(|v| v * v).sum());
+        radius_squared =
+            radius_squared.max(vertex.position.iter().map(|v| f64::from(*v).powi(2)).sum());
         if polyline {
             distance += vertex
                 .position
@@ -67,7 +68,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         + distances.len() * std::mem::size_of::<f32>();
     Ok(Geometry {
         bounds,
-        radius: radius_squared.sqrt(),
+        radius: radius_squared.sqrt() as f32,
         bytes,
         expanded_vertices,
         vertices: vertices.into(),
