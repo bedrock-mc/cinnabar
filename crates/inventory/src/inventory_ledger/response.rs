@@ -187,6 +187,7 @@ pub(super) fn merge_response_overlay(
 
 /// Applies response identity fields to retained NBT before future gestures compare it.
 /// Normalizes the response damage while retaining the stored integer's full width.
+/// Malformed or oversized edits leave the retained item and its overlay unchanged.
 pub(super) fn apply_response_item_data(
     held: &mut Held,
     correction: &StackResponseSlot,
@@ -200,7 +201,7 @@ pub(super) fn apply_response_item_data(
                 != (!correction.filtered_custom_name.is_empty())
                     .then_some(correction.filtered_custom_name.as_ref()));
     if previous != damage || rename {
-        held.stack.extra_data = protocol::edit_item_extra(
+        let extra_data = protocol::edit_item_extra(
             &held.stack.extra_data,
             &protocol::ItemNbtEdit {
                 damage: (previous != damage).then_some(damage),
@@ -212,7 +213,14 @@ pub(super) fn apply_response_item_data(
                 ..Default::default()
             },
         )?;
-        held.stack.nbt_digest = Sha256::digest(&held.stack.extra_data).into();
+        if extra_data.len() > protocol::MAX_ITEM_EXTRA_BYTES {
+            tracing::warn!(target: "cinnabar::inventory_requests",
+                bytes = extra_data.len(), max = protocol::MAX_ITEM_EXTRA_BYTES,
+                "skipping oversized response item data");
+            return None;
+        }
+        held.stack.nbt_digest = Sha256::digest(&extra_data).into();
+        held.stack.extra_data = extra_data;
     }
     merge_response_overlay(&mut held.overlay, correction);
     Some(())
