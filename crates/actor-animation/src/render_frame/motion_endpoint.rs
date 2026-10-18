@@ -54,6 +54,13 @@ impl MotionEndpointState {
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }
+        // Replay held-expression effects before this endpoint's downstream scripts.
+        tick::scale::evaluate_held_item(
+            &evaluator,
+            &evaluator.assets.rig_bindings()[state.rig_binding],
+            &mut variables,
+            budget,
+        )?;
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
@@ -69,7 +76,7 @@ impl MotionEndpointState {
         if publish {
             variables.capture_writes();
         }
-        let scale = tick::evaluate_scale(
+        let scale = tick::scale::evaluate_model(
             &evaluator,
             &evaluator.assets.rig_bindings()[state.rig_binding],
             &mut variables,

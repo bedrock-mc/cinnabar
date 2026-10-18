@@ -30,6 +30,7 @@ mod block_items;
 mod budget;
 mod builtins;
 mod capacity;
+mod connection;
 mod empty_geometry;
 mod flipbooks;
 mod hd_textures;

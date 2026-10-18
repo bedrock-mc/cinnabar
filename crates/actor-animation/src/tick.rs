@@ -3,6 +3,7 @@ use assets::EntityControllerAnimationTarget;
 use protocol_ids::ActorFlag;
 
 pub(super) mod controller;
+pub(super) mod scale;
 pub(super) mod selection;
 use controller::ControllerWalk;
 
@@ -542,6 +543,7 @@ pub(super) fn evaluate_state(
         motion_layers: BTreeMap::new(),
         swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
     });
+    let held_item_scale = scale::evaluate_held_item(&evaluator, rig, &mut variables, budget)?;
     if let Some(script) = rig.pre_animation {
         let static_draw = budget.static_draw.take().map(|cacheable| {
             cacheable
@@ -559,7 +561,7 @@ pub(super) fn evaluate_state(
             .spear
             .apply(&mut variables, actor, context, &input, input.attack_time);
     }
-    let scale = evaluate_scale(&evaluator, rig, &mut variables, budget)?;
+    let scale = scale::evaluate_model(&evaluator, rig, &mut variables, budget)?;
     set_item_rotation_factor(engine, &mut variables);
     let mut controllers = topology
         .map_or(&state.controllers, |replay| &replay.controllers)
@@ -775,6 +777,7 @@ pub(super) fn evaluate_state(
         skin_layers,
         render,
         scale,
+        held_item_scale,
         controllers,
         server_animations,
         clip_clocks,
@@ -954,25 +957,6 @@ fn blend_weight(
     // A non-finite weight propagates, as in vanilla, and fails the pose closed.
     Ok(parent * weight)
 }
-
-/// Scale scripts share the variable and random stream that later animation channels read.
-pub(super) fn evaluate_scale(
-    evaluator: &Evaluator<'_>,
-    rig: &assets::EntityRigBinding,
-    variables: &mut MolangVariables,
-    budget: &mut EvalBudget<'_>,
-) -> Result<Option<[f32; 4]>, EvalError> {
-    let Some(expressions) = rig.scale_expressions else {
-        return Ok(None);
-    };
-    let mut scale = [1.0; 4];
-    for (slot, expression) in scale.iter_mut().zip(expressions) {
-        let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
-        *slot = if value.is_finite() { value } else { 1.0 };
-    }
-    Ok(Some(scale))
-}
-
 /// Uses neutral owner rotations for view-following queries in the camera-space hand.
 pub(super) fn evaluation_input(
     input: ActorTickInput,

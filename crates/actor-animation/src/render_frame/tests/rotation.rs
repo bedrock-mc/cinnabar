@@ -1,6 +1,7 @@
 use super::*;
 use assets::{CompiledMolangExpression, EntityAnimationProperty, MolangCall};
 
+mod held_scale;
 mod review;
 
 /// Encodes head yaw, pitch and body yaw as translation so their exact query values are visible.

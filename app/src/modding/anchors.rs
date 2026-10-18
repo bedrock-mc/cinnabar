@@ -94,7 +94,7 @@ pub(super) fn publish(
         runtime.render_sources.clear();
     }
     reconcile(&mut runtime.hosts, &context);
-    super::drawing_policy::publish_frame(&runtime.hosts, &context, &ui, &mut drawing);
+    super::drawing_policy::publish_frame(&runtime.hosts, &context, &mut drawing);
     super::render::publish(Some(scene), &mut runtime);
     let Some(actors) = actors else { return };
     let Some(world) = context

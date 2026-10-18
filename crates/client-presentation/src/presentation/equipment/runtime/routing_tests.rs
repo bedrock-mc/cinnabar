@@ -270,6 +270,7 @@ fn equipment_routing_fallback_table() {
                             &stack,
                             &bones,
                             JavaGrip::default(),
+                            1.0,
                             &mut fallback,
                         );
                     } else {
@@ -285,6 +286,7 @@ fn equipment_routing_fallback_table() {
                                 5
                             }),
                             matches!(mount, BlockHelmet).then(head_block_display),
+                            1.0,
                             &mut fallback,
                         );
                     }

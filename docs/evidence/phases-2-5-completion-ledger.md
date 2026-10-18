@@ -38,6 +38,13 @@ The receive-buffer regression runs on the native test target.
 Incomplete: valid shared-client join/pack/transfer/reconnect integration and the
 real-browser acceptance matrix follow gameplay composition. No supported-browser,
 release, parity, memory or hardware performance gate closes from these checks.
+## Flowerbed stem tint
+
+Wildflower and pink-petal stems retain biome grass tint independently of petal
+colours and pack-selected sprite names. Every registered flowerbed state passes
+the original-art compiler and carrier-roundtrip regression. The focused crate
+check and rebuilt-carrier local BDS rendering pass against the official client.
+Broader terrain parity and hardware performance gates remain open.
 
 ## Redstone dust item sprite
 
@@ -56,6 +63,17 @@ registered command variant, boundary culling and carrier roundtrips. Render-fact
 exact regeneration and focused compile checks pass. Local BDS frames and animation
 phases pass against the official Android reference. Broader pack/platform parity
 and hardware performance gates remain open; the command-block editor is unfinished.
+
+## Source-water retention during block changes
+
+Primary updates and predictions share source-water retention using generated
+per-state liquid-containment facts. Owning regressions cover both ID formats,
+ordered layer overrides, solid-block and bucket-removal controls, and malformed
+cells. The registry and bound carriers regenerate together. Flowing/falling
+water, custom block capabilities, broader parity and hardware performance remain
+open gates. Local BDS checks pass for own/observed placements, fence breaking and
+bucket removal against the official Android client. Focused checks pass; two
+installed-creeper tests in the broader suite remain unattributed.
 
 ## Liquid surfaces beneath opaque roofs
 

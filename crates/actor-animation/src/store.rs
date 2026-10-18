@@ -382,6 +382,7 @@ impl ActorAnimationStore {
             axis_scale: state
                 .scale
                 .map_or([1.0; 3], |scale| [scale[1], scale[2], scale[3]]),
+            held_item_scale: state.held_item_scale,
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,

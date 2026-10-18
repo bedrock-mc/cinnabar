@@ -114,12 +114,12 @@ fn needs_pose_sampling(
     }) {
         return true;
     }
-    if assets
-        .rig_bindings()
-        .get(rig_binding)
-        .and_then(|rig| rig.pre_animation)
-        .is_some_and(|script| camera_expression(layout, script as usize, swing))
-    {
+    if assets.rig_bindings().get(rig_binding).is_some_and(|rig| {
+        [rig.pre_animation, rig.held_item_scale]
+            .into_iter()
+            .flatten()
+            .any(|script| camera_expression(layout, script as usize, swing))
+    }) {
         return true;
     }
     let Some(geometry) = assets.rig_geometries().get(geometry_binding) else {

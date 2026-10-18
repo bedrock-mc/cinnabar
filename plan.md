@@ -433,14 +433,16 @@ the pointer. The Android workflow builds the APK for Android packaging changes, 
 and on demand. Tagged Beta and nightly releases also publish a release-profile APK with a
 persistent signing key and release checksums; Android installs updates through the APK installer.
 APKs compile the shared product icon into their launcher resources. Android 11+ relaunches offer
-copyable diagnostics after an unexpected process exit.
+copyable diagnostics and a report export to Downloads after an unexpected process exit. Native
+reports include Android's retained tombstone on Android 12+ when available.
 
 Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
 not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
 Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
 menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
 and performance have no Android acceptance. No parity gate closes here.
-Reported exits after resource setup on Galaxy S21 remain undiagnosed; device acceptance is open.
+The reported Galaxy S21 native crash occurs after Vulkan device creation and before confirmed
+first presentation; its failing native call remains undiagnosed and device acceptance is open.
 
 ## Runtime terrain bindings
 
@@ -779,6 +781,14 @@ the handle sprite. Owning regressions and the focused crate check pass; the
 missing-part regression fails on the previous envelope model.
 Rendered/input acceptance, native-server placement and broader parity remain incomplete.
 
+## Flowerbed stem tint
+
+Flowerbed stems use biome grass tint while petals retain their sprite colours.
+Original-art compiler coverage checks every registered flowerbed state and the
+carrier roundtrip. The focused check and local BDS rendering with a rebuilt
+carrier pass against the official client's green stems. Broader terrain parity
+and hardware performance gates stay open.
+
 ## Bubble column terrain geometry
 
 Bubble columns compile separate outer and inner side shells with directional
@@ -820,6 +830,17 @@ the effective dependency, and manifest checks keep the three Go module pins toge
 Full transport parity remains incomplete. Host-resolver timing and address admission,
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
+
+## Source-water retention during block changes
+
+Primary block changes preserve source water in the secondary layer when the
+pinned block property permits it. Server updates and local predictions share
+this transition, including ordered explicit secondary writes and water removal.
+The block registry derives containment per state from the shared library rather
+than an identifier list. Regressions cover both session ID formats, replacement
+controls, and malformed updates. Flowing/falling water retention, server-defined
+block capabilities, broader liquid parity, and hardware performance gates remain
+incomplete.
 
 ## Liquid surfaces beneath opaque roofs
 
@@ -4213,8 +4234,16 @@ remaining wither spawn, armor and death behavior still need matched verification
 
 Sulfur-cube body and shell material aliases retain their cutout and blended states.
 The pinned adult and baby shell rasters preserve fractional opacity through actor
-carrier admission. Incomplete: absorbed-block scale and attachment placement remain
-unverified; restoring the shell does not close the full sulfur-cube rendering gate.
+carrier admission. The medium cube's absorbed oak log fills the shell in a matched
+local Bedrock comparison. Incomplete: other cube sizes, items and attachment placements
+remain unverified; these changes do not close the full sulfur-cube rendering gate.
+
+Client descriptions retain numeric or Molang `held_item_scale` through rig carriers.
+Equipment reads the owner's bounded frame sample and applies the factor once to the
+main hand in either perspective; omitted descriptions keep unit size. Regression
+fixtures cover carried blocks, native weapon stages, authored models, offhand isolation
+and exhausted frame budgets. Incomplete: native custom-model origins, expression
+side effects and extreme equipment visibility bounds still need matched comparisons.
 
 2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
 wildcard material with `slime_outer`. The compiler previously ignored bone-specific
@@ -9846,6 +9875,13 @@ and custom base-item coverage is incomplete. Optional Java animation name routin
 remains a separate incomplete admission path. This does not close the complete
 equipment parity gate. `make assets` rebuilds carriers that lack these records.
 
+Canonical empty component data preserves the compiled native item grip even when
+an item registry marks the item component based. Explicit hand flags still override it;
+malformed, missing nonempty definitions and unknown versions remain unresolved.
+Original regressions cover upright and mirrored art plus retained equipment refresh.
+A local fishing-rod check restores the upright grip and first-person art direction.
+Incomplete: a third-person rod rotation difference remains against native Bedrock.
+
 ## Spawner display actors
 
 Spawner displays now use client-owned actor lifetimes and the ordinary actor
@@ -10052,23 +10088,23 @@ Fully hidden valid cubes still return invisible, even if another cube was
 rejected. Regressions cover all three cases in hashed and palette sessions,
 including visual support, gap counts, and session application.
 
-## Custom fence connections need mesh-time neighbor evaluation
+## Custom fence connection states
 
-Custom fences gate permutation arms on neighbor queries such as
-`q.block_state('minecraft:connection_north')`. Those names are never block
-state axes, so no static state can satisfy them: every evaluation stays
-unevaluated and counted, and every state keeps the base (unconnected) post.
-Vanilla fences instead connect at mesh time through fence template flags
-and neighbor facts, which custom visuals cannot carry today.
+Custom fences use the `minecraft:connection` trait
+(`minecraft:cardinal_connections`): four neighbor-derived booleans
+(`minecraft:connection_north/east/south/west`) that read as ordinary block
+states in permutations and bone visibility. The trait parser expands them to
+four boolean palette axes (sixteen states), so each state hides only its
+disconnected rail bones and collision permutations resolve per state.
+Connection queries without the trait stay unevaluated and keep the base
+visual, locked by the connection permutation regression.
 
-A parity fix must compile each connection combination, record a
-mask-to-visual mapping the mesher can read, and select it per placed block
-using a documented neighbor-connection rule. Native behavior for these
-packs is unverified: unknown `block_state` names may render unconnected
-natively too. Until that comparison exists, the counted fallback to the
-base visual is the intended semantic, locked by the connection permutation
-regression. Incomplete: mask compilation, neighbor rule, meshing selection,
-and the native comparison.
+Incomplete: the axis order (north, east, south, west) and their placement
+after placement traits are provisional with no wire capture yet; hashed
+sessions hash sorted names and are unaffected, but sequential palettes need
+the server order confirmed. Rendered native comparison (isolated post
+against connected arms) and cross-block behavior (`connection_rule`,
+vanilla fences connecting to tagged custom fences) remain unverified.
 
 
 ## Import player data from Minecraft

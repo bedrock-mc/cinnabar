@@ -112,6 +112,7 @@ bitflags! {
         const CORAL = 1 << 59;
         const BLOCK_ENTITY_BACKING = 1 << 60;
         const FARMLAND = 1 << 61;
+        const CAN_CONTAIN_LIQUID_SOURCE = 1 << 62;
     }
 }
 

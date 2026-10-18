@@ -8,8 +8,8 @@
 //! - `terminal.size` binds what `ui.modal-size` reads as `#read`;
 //! - `modal-resized` binds its size as `#size` and reads it back as `#read`, and `text-changed`
 //!   in `terminal.search` sets `terminal.echo` to the text in capitals, and `secondary-action`
-//!   binds its action and row as `#secondary`, and `scroll-changed` binds its view as
-//!   `#scrolled` and its range as `#scroll`;
+//!   binds its action and row as `#secondary`, `scroll-changed` binds its view as
+//!   `#scrolled` and its range as `#scroll`, and `shift-changed` binds Shift as `#shift`;
 //! - anything else binds its item list (records of an id, a count and a display name) into the
 //!   `items` collection, one row per item, and binds nothing for any other record.
 
@@ -66,6 +66,10 @@ impl ClientPart for Terminal {
             "#scroll",
             &ui::Value::Numbers(vec![range.offset, range.viewport, range.content]),
         );
+    }
+
+    fn shift_changed(held: bool) {
+        let _ = ui::set_value("#shift", &ui::Value::Boolean(held));
     }
 
     /// Answers text typed into `terminal.search` by setting `terminal.echo` to it in capitals.

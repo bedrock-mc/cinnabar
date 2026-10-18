@@ -112,6 +112,8 @@ pub enum Event {
         view: String,
         range: screen::ScrollRange,
     },
+    /// Shift is now `held` or not while the modal has focus, to `shift-changed`.
+    Shift { held: bool },
 }
 
 impl Event {
@@ -133,6 +135,7 @@ impl Event {
             Event::Scrolled { view, range } => {
                 server_experience::manifest::identifier(view) && range.valid()
             }
+            Event::Shift { .. } => true,
         };
         ensure!(valid, "helper event too large or malformed");
         Ok(())
@@ -150,6 +153,7 @@ impl Event {
             Event::Resized { .. } => "modal-resized",
             Event::Text { .. } => "text-changed",
             Event::Scrolled { .. } => "scroll-changed",
+            Event::Shift { .. } => "shift-changed",
         }
     }
 }

@@ -117,3 +117,60 @@ fn placement_traits_retain_offset_and_exclude_authored_properties() {
         assert_eq!(definition.state_count, 8);
     }
 }
+
+#[test]
+fn placement_traits_compose_named_states_with_connection_flags() {
+    for compound_traits in [false, true] {
+        for connection_states in [
+            Nbt::Int(1),
+            Nbt::List(vec![Nbt::String("minecraft:cardinal_connections".into())]),
+            compound([("minecraft:cardinal_connections", Nbt::Byte(1))]),
+        ] {
+            let connection = if compound_traits {
+                compound([("enabled_states", connection_states)])
+            } else {
+                compound([
+                    ("name", Nbt::String("minecraft:connection".into())),
+                    ("enabled_states", connection_states),
+                ])
+            };
+            let traits = [
+                (
+                    "minecraft:placement_direction",
+                    compound([
+                        (
+                            "enabled_states",
+                            Nbt::List(vec![Nbt::String("minecraft:cardinal_direction".into())]),
+                        ),
+                        ("y_rotation_offset", Nbt::Float(90.0)),
+                    ]),
+                ),
+                ("minecraft:connection", connection),
+            ];
+            let traits = if compound_traits {
+                compound(traits)
+            } else {
+                Nbt::List(traits.into_iter().map(|(_, value)| value).collect())
+            };
+            let definition = parse_definition(&compound([
+                ("traits", traits),
+                (
+                    "properties",
+                    Nbt::List(vec![compound([
+                        ("name", Nbt::String("test:on".into())),
+                        ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
+                    ])]),
+                ),
+            ]))
+            .unwrap();
+            assert_eq!(definition.state_count, 4 * 16 * 2);
+            assert!(!definition.visual.state_identity_incomplete);
+            assert_eq!(definition.visual.placement.trait_state_count, 5);
+            assert_eq!(definition.visual.placement.y_rotation_offset, 90.0);
+            let axes = &definition.visual.state_axes;
+            assert_eq!(axes.len(), 6);
+            assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
+            assert_eq!(axes[5].name.as_ref(), "test:on");
+        }
+    }
+}
