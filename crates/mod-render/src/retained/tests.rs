@@ -265,3 +265,24 @@ fn instance_overflow_has_a_typed_error_and_does_not_truncate() {
         mod_api::MAX_DRAW_INSTANCES
     );
 }
+
+#[test]
+fn unchanged_updates_stage_nothing_and_keep_the_snapshot() {
+    let mut store = Store::default();
+    let geometry = store.create_geometry(mesh()).unwrap();
+    let id = store
+        .create(drawing(geometry), DrawingPermissions::ALL)
+        .unwrap();
+    store.commit();
+    let before = Arc::clone(store.snapshot());
+    store.begin();
+    for _ in 0..32 {
+        store
+            .update(id, drawing(geometry), DrawingPermissions::ALL)
+            .unwrap();
+    }
+    assert!(store.staged.is_none());
+    assert_eq!(store.mutation_bytes, 0);
+    store.commit();
+    assert!(Arc::ptr_eq(&before, store.snapshot()));
+}

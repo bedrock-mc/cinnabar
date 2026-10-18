@@ -268,6 +268,16 @@ impl Store {
         permissions: DrawingPermissions,
     ) -> Result<(), DrawError> {
         self.check(handle)?;
+        // An unchanged resubmission must not clone the resource maps every frame.
+        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let expiring = self.staged.is_none()
+            && current
+                .groups
+                .values()
+                .any(|handles| handles.contains(&handle));
+        if !expiring && current.instances.get(&handle) == Some(&instance) {
+            return validation::instance(&instance, current, permissions);
+        }
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));
