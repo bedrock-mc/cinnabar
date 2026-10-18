@@ -163,6 +163,61 @@ fn unsupported_physical_conditions_are_counted_and_keep_base_components() {
 }
 
 #[test]
+fn discarded_wire_permutations_keep_physics_incomplete() {
+    let mut encoded = named(10, "");
+    encoded.extend(named(9, "permutations"));
+    encoded.push(10);
+    let count = 4096_u32;
+    let mut length = count << 1;
+    while length >= 128 {
+        encoded.push(length as u8 | 128);
+        length >>= 7;
+    }
+    encoded.push(length as u8);
+    for _ in 0..count {
+        encoded.extend(named(8, "condition"));
+        encoded.extend(text("1"));
+        encoded.extend(named(10, "components"));
+        encoded.extend(named(1, "minecraft:collision_box"));
+        encoded.extend([0, 0, 0]);
+    }
+    encoded.push(0);
+    let mut blocks = CustomBlocks::from_definitions([("test:oversized", encoded.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1);
+    assert!(blocks.skipped > 0);
+    resolve(&mut blocks);
+    assert_eq!(blocks.blocks[0].state_physics.len(), 1);
+    assert!(!blocks.blocks[0].state_physics_complete);
+}
+
+#[test]
+fn physical_completeness_rejects_partial_arrays_and_failed_evaluations() {
+    for unsupported in [
+        "q.unsupported()",
+        "q.block_state('test:missing')",
+        "1e30 * 1e30",
+    ] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations[0].condition = unsupported.into();
+        let mut blocks = CustomBlocks {
+            blocks: vec![block].into(),
+            ..Default::default()
+        };
+        resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert_eq!(block.state_physics.len(), block.state_count as usize);
+        assert!(!block.state_physics_complete, "{unsupported}");
+        assert!(blocks.skipped > 0);
+    }
+    let mut complete = CustomBlocks {
+        blocks: vec![slab()].into(),
+        ..Default::default()
+    };
+    resolve(&mut complete);
+    assert!(complete.blocks[0].state_physics_complete);
+}
+
+#[test]
 fn later_matching_components_inherit_absent_fields_and_replace_present_fields() {
     let mut block = slab();
     let visuals = Arc::make_mut(&mut block.visual);

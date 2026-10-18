@@ -49,7 +49,7 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                 let mut ledger = ready(super::super::SMALL_STORAGE_SLOT_COUNT, 980);
                 let slots = (0..PLAYER_INVENTORY_SLOT_COUNT)
                     .map(|slot| {
-                        if full {
+                        if full || slot == 1 {
                             stack(8, 64, slot as i32 + 100)
                         } else {
                             NetworkItemStack::empty()
@@ -64,7 +64,7 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                 let take = ledger.begin_storage_click(2).unwrap();
                 assert!(ledger.mark_transport_enqueued(10));
                 if !take_pending {
-                    ledger.apply(&accepted_storage_take(take, 980));
+                    ledger.apply(&accepted_storage_take(take));
                 }
 
                 ledger.request_storage_close();
@@ -98,7 +98,7 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                     ledger.apply(&close_ack);
                 }
                 if take_pending {
-                    ledger.apply(&accepted_storage_take(take, 980));
+                    ledger.apply(&accepted_storage_take(take));
                 }
                 accept_return(&mut ledger, return_id, (!full).then_some(0));
                 if !close_first {
@@ -108,18 +108,27 @@ fn storage_close_returns_or_drops_cursor_without_locking_inventory() {
                     !ledger.resync_required(),
                     "close must leave world interactions usable"
                 );
-                assert!(ledger.cursor_stack().is_none());
+                assert_eq!(
+                    ledger.cursor_stack().map(|stack| stack.count),
+                    (close_first && !take_pending).then_some(3)
+                );
                 assert_eq!(ledger.pending_request_count(), 0);
                 assert_eq!(
-                    ledger.displayed_stack(0).unwrap().count,
-                    if full { 64 } else { 3 }
+                    ledger.displayed_stack(0).map(|stack| stack.count),
+                    if full {
+                        Some(64)
+                    } else if close_first {
+                        None
+                    } else {
+                        Some(3)
+                    }
                 );
 
                 assert!(ledger.request_personal_open(42));
                 assert!(ledger.mark_transport_enqueued(30));
                 ledger.apply(&open(2, PERSONAL_INVENTORY_WINDOW_TYPE));
                 assert!(
-                    ledger.begin_click(0).is_ok(),
+                    ledger.begin_click(1).is_ok(),
                     "inventory gestures still work"
                 );
             }
@@ -168,7 +177,7 @@ fn storage_close_returns_cursor_despite_inactive_input_identity() {
     ledger.apply(&player_content());
     let take = ledger.begin_storage_click(2).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
-    ledger.apply(&accepted_storage_take(take, 980));
+    ledger.apply(&accepted_storage_take(take));
     ledger.apply(&personal_input(0));
     ledger.request_storage_close();
     assert!(ledger.cursor_stack().is_none());
@@ -177,5 +186,79 @@ fn storage_close_returns_cursor_despite_inactive_input_identity() {
         matches!(ledger.newest_request().unwrap().actions.as_slice(),
         [StackRequestAction::Place { amount: 3, source, .. }]
         if source.container == StackRequestContainer::Cursor)
+    );
+}
+
+/// Closing a chest does not require refreshing an input owned by another screen.
+#[test]
+fn storage_close_keeps_inactive_input_without_blocking_later_gestures() {
+    for close_first in [false, true] {
+        let mut ledger = ready(super::super::SMALL_STORAGE_SLOT_COUNT, 980);
+        ledger.apply(&player_content());
+        ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 1,
+            },
+            stack: stack(8, 1, 101),
+            storage_item: None,
+        }));
+        let take = ledger.begin_storage_click(2).unwrap();
+        assert!(ledger.mark_transport_enqueued(10));
+        ledger.apply(&accepted_storage_take(take));
+        ledger.apply(&personal_input(92));
+        ledger.request_storage_close();
+        let cleanup = ledger.newest_request().unwrap().request_id;
+        assert!(ledger.mark_transport_enqueued(20));
+        assert!(ledger.mark_transport_enqueued(21));
+        let close = InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(1),
+            window_type: protocol::NO_CONTAINER_WINDOW_TYPE,
+            server_initiated: false,
+        });
+        if close_first {
+            ledger.apply(&close);
+        }
+        accept_return(&mut ledger, cleanup, Some(0));
+        if !close_first {
+            ledger.apply(&close);
+        }
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert!(
+            !ledger.resync_required(),
+            "inactive input is not an unresolved return"
+        );
+        assert!(ledger.begin_world_drop(1, Some(1)).is_ok());
+    }
+}
+
+/// A retired screen request cannot publish a delayed accepted correction after CloseAck.
+#[test]
+fn close_ack_retires_screen_owned_response() {
+    let mut ledger = ready(super::super::SMALL_STORAGE_SLOT_COUNT, 980);
+    ledger.apply(&player_content());
+    let take = ledger.begin_storage_click(2).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&accepted_storage_take(take));
+    ledger.request_storage_close();
+    let returning = ledger.newest_request().unwrap().request_id;
+    assert!(ledger.mark_transport_enqueued(20));
+    assert!(ledger.mark_transport_enqueued(21));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: protocol::NO_CONTAINER_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(
+        ledger
+            .confirmed_stack(super::super::Cell::Inventory(0))
+            .is_none()
+    );
+    accept_return(&mut ledger, returning, Some(0));
+    assert!(
+        ledger
+            .confirmed_stack(super::super::Cell::Inventory(0))
+            .is_none(),
+        "a response belonging only to the retired screen must not publish"
     );
 }

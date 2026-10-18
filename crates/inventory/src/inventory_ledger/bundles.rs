@@ -12,6 +12,9 @@ use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
+#[cfg(test)]
+mod tests;
+
 /// Bundles whose contents are retained; a hostile server cannot grow the map.
 const MAX_BUNDLES: usize = 64;
 /// Contents slots retained per bundle.
@@ -29,6 +32,25 @@ fn dynamic_slot(dynamic_id: u32, slot: u8, stack_network_id: i32) -> StackReques
 }
 
 impl PlayerInventoryLedger {
+    /// Removes named bundle contents while keeping item stacks and other containers intact.
+    pub(super) fn apply_bundle_cleanup(&mut self, removed: &[protocol::ContainerIdentity]) {
+        let mut skipped = 0;
+        for container in removed {
+            if container.slot_type == Some(CONTAINER_NAME_DYNAMIC)
+                && let Some(id) = container.dynamic_id
+            {
+                self.bundles.remove(&id);
+            } else {
+                self.note_unrouted_container();
+                skipped += 1;
+            }
+        }
+        if skipped != 0 {
+            tracing::warn!(target: "cinnabar::inventory_requests",
+                count = skipped, "skipped unsupported container registry cleanup entries");
+        }
+    }
+
     /// Replaces one bundle's contents from a dynamic-container content event.
     pub(super) fn apply_bundle_content(&mut self, dynamic_id: u32, slots: &[NetworkItemStack]) {
         if !self.bundles.contains_key(&dynamic_id) && self.bundles.len() >= MAX_BUNDLES {
@@ -155,6 +177,7 @@ impl PlayerInventoryLedger {
                 cell: Cell::Cursor,
                 held: Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,

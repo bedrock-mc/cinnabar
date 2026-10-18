@@ -15,6 +15,7 @@ use {crate::runtime::network::PackReload, client_presentation::local_player::Loc
 pub(crate) struct BaseTextures([Option<Arc<AimAssistTexture>>; 2]);
 
 /// Optional highlight art is loaded once from the installed pack and never synthesized.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn load_base_textures(mut commands: Commands) {
     let root = launcher::install_layout::InstallLayout::discover()
         .ok()

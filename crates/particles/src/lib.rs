@@ -24,7 +24,7 @@ pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
 pub use event_budget::EventOverflows;
 pub use molang::Queries;
-pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
+pub use system::{MAX_EMITTERS, MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{
     ITEM_ICON_PARTICLES, LevelParticle, TOTEM_PARTICLE_EFFECT, block_break_request,
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,

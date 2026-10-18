@@ -456,3 +456,33 @@ fn review_full_ui_snapshot_replaces_aliased_cursor() {
         assert_eq!(ledger.skipped_unknown_containers(), 0);
     }
 }
+
+use sha2::Digest;
+
+/// Checks removal of an equipment item with a slot-lock byte in its original NBT.
+#[test]
+fn parity_actions_locked_armor_cannot_be_taken() {
+    let mut ledger = equipment_ledger("minecraft:diamond_helmet", 1);
+    // Original little-endian item data: a root compound containing one Byte tag.
+    let name = b"minecraft:item_lock";
+    let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 1];
+    extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    extra.extend_from_slice(name);
+    extra.extend_from_slice(&[1, 0]);
+    extra.extend_from_slice(&[0; 8]);
+    let mut held = stack(600, 1);
+    held.nbt_digest = sha2::Sha256::digest(&extra).into();
+    held.extra_data = extra.into();
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+        vec![
+            held,
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+        ],
+    ));
+    let result = ledger.begin_target_gesture(InventoryTarget::Armor(0), CellGesture::Click);
+    assert!(result.is_err(), "locked equipment was taken: {result:?}");
+    assert!(ledger.cursor_stack().is_none());
+}

@@ -110,7 +110,6 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
             render_sources: Vec::new(),
             render_merge: Default::default(),
-            last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
             suspended: false,
             hud_editor_owner: None,
@@ -423,7 +422,6 @@ fn personal_panel_app_with_fixture(hud_editor: bool, component: &str) -> (App, E
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
             render_sources: Vec::new(),
             render_merge: Default::default(),
-            last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
             suspended: false,
             hud_editor_owner: hud_editor.then_some(super::super::hud_editor::Owner {

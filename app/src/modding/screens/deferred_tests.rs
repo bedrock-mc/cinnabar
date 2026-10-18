@@ -5,6 +5,15 @@ use crate::modding::{begin_mod_frame, drive_mod, install, interaction::ModIntera
 use mod_host::CallbackOutcome;
 use server_experience::screen::{GuiSize, Rect, ScreenLayout, Value};
 
+/// Admits a fixture under the frame driver's initial fence before staging screen events.
+pub(super) fn load_driver_host(path: &std::path::Path) -> ModHost {
+    let mut host = ModHost::load_package(path, mod_host::ModGrants::default()).unwrap();
+    host.bind_drawing_session(mod_api::drawing::DrawingSession::default());
+    assert!(host.reload_if_changed().unwrap());
+    assert!(host.is_active());
+    host
+}
+
 /// Makes an old container scope without requiring an installed UI carrier.
 fn old_layout() -> ScreenLayout {
     ScreenLayout {
@@ -69,8 +78,7 @@ fn frame_driver_cancels_deferred_edits_when_the_container_or_owner_departs() {
         let (mut app, _) = input_app();
         let dir = tempfile::tempdir().unwrap();
         write_transition_probe(dir.path(), "0.1.0");
-        let mut previous =
-            ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+        let mut previous = load_driver_host(dir.path());
         let layout = old_layout();
         previous
             .dispatch(vec![
@@ -83,7 +91,7 @@ fn frame_driver_cancels_deferred_edits_when_the_container_or_owner_departs() {
             .unwrap();
         let mut hosts = Vec::new();
         if change_owner {
-            hosts.push(ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap());
+            hosts.push(load_driver_host(dir.path()));
         }
         let owner = hosts.len();
         hosts.push(previous);
@@ -117,7 +125,7 @@ fn frame_driver_replays_edits_only_while_their_screen_and_view_remain() {
         let (mut app, window) = input_app();
         let dir = tempfile::tempdir().unwrap();
         write_transition_probe(dir.path(), "0.1.0");
-        let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+        let mut host = load_driver_host(dir.path());
         let package = host.package().unwrap();
         if !draw_package_view(&mut app, &package.id, &package.files) {
             return;

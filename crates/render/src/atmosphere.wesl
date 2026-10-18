@@ -78,6 +78,22 @@ const MOON_HALF_EXTENT: f32 = tan(18.924 * 0.0174532924 * 0.5);
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) star_alpha: f32,
+    @location(1) @interpolate(flat) zenith_gamma: vec3<f32>,
+    @location(2) @interpolate(flat) horizon_gamma: vec3<f32>,
+    @location(3) @interpolate(flat) fog_gamma: vec3<f32>,
+}
+
+// Converts uniform sky colours per vertex and keeps star vertices free of those transfers.
+fn sky_vertex(position: vec4<f32>, star_alpha: f32) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = position;
+    out.star_alpha = star_alpha;
+    if (star_alpha == 0.0) {
+        out.zenith_gamma = tint_to_gamma(vec4(atmosphere.sky_zenith_rain.rgb, 1.0)).rgb;
+        out.horizon_gamma = tint_to_gamma(vec4(atmosphere.sky_horizon_thunder.rgb, 1.0)).rgb;
+        out.fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    }
+    return out;
 }
 
 @vertex
@@ -91,13 +107,13 @@ fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
         var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
-        return VertexOutput(clip, star.w);
+        return sky_vertex(clip, star.w);
     }
     let clip_position = vec2(
         f32(vertex_index & 1u),
         f32((vertex_index >> 1u) & 1u),
     ) * 4.0 - vec2(1.0);
-    return VertexOutput(vec4(clip_position, 0.0, 1.0), 0.0);
+    return sky_vertex(vec4(clip_position, 0.0, 1.0), 0.0);
 }
 
 fn view_ray(position: vec2<f32>) -> vec3<f32> {
@@ -108,38 +124,54 @@ fn view_ray(position: vec2<f32>) -> vec3<f32> {
     return normalize((view.world_from_view * vec4(view_direction, 0.0)).xyz);
 }
 
-// The 1.26.50.26 sky mesh has red0 at its centre and
-// red1 at this decagon rim. Vanilla places its plane at Y256
-// and scales XZ by2000. Intersecting the view ray and evaluating the fan's
-// barycentrics reproduces its perspective-interpolated vertex red without
-// allocating or drawing another mesh. Beyond its rim the fog colour remains.
+const SKY_RING = array<vec2<f32>, 10>(
+    vec2(1.0, 0.0),
+    vec2(0.809017003, 0.587785244),
+    vec2(0.309016973, 0.951056540),
+    vec2(-0.309017152, 0.951056480),
+    vec2(-0.809017062, 0.587785184),
+    vec2(-1.0, -0.0000000874227766),
+    vec2(-0.809016764, -0.587785542),
+    vec2(-0.309017092, -0.951056480),
+    vec2(0.309017122, -0.951056480),
+    vec2(0.809016943, -0.587785304),
+);
+
+// Returns the oriented area used for angular ordering and fan barycentrics.
+fn sky_cross(a: vec2<f32>, b: vec2<f32>) -> f32 {
+    return a.x * b.y - a.y * b.x;
+}
+
+// Finds the same decagon wedge in at most three bisections, including its asymmetric seam.
+fn sky_sector(point: vec2<f32>) -> u32 {
+    var lower = 0u;
+    var upper = 5u;
+    if (point.y < 0.0) {
+        // The fifth stored rim point is slightly below the negative X axis.
+        if (point.x < 0.0 && sky_cross(SKY_RING[5], point) < 0.0) { return 4u; }
+        lower = 5u;
+        upper = 10u;
+    }
+    while (upper - lower > 1u) {
+        let middle = (lower + upper) / 2u;
+        if (sky_cross(SKY_RING[middle], point) >= 0.0) { lower = middle; }
+        else { upper = middle; }
+    }
+    return lower;
+}
+
+// Intersects the Y256 fan scaled by2000 and retains its barycentric colour interpolation.
 fn native_sky_fog_weight(ray: vec3<f32>) -> f32 {
-    if (ray.y <= 0.0) {
-        return 1.0;
-    }
-    let ring = array<vec2<f32>, 10>(
-        vec2(1.0, 0.0),
-        vec2(0.809017003, 0.587785244),
-        vec2(0.309016973, 0.951056540),
-        vec2(-0.309017152, 0.951056480),
-        vec2(-0.809017062, 0.587785184),
-        vec2(-1.0, -0.0000000874227766),
-        vec2(-0.809016764, -0.587785542),
-        vec2(-0.309017092, -0.951056480),
-        vec2(0.309017122, -0.951056480),
-        vec2(0.809016943, -0.587785304),
-    );
+    if (ray.y <= 0.0) { return 1.0; }
     let point = ray.xz * (256.0 / 2000.0) / ray.y;
-    for (var index = 0u; index < 10u; index += 1u) {
-        let a = ring[index];
-        let b = ring[(index + 1u) % 10u];
-        let determinant = a.x * b.y - a.y * b.x;
-        let alpha = (point.x * b.y - point.y * b.x) / determinant;
-        let beta = (a.x * point.y - a.y * point.x) / determinant;
-        if (alpha >= 0.0 && beta >= 0.0) {
-            return clamp(alpha + beta, 0.0, 1.0);
-        }
-    }
+    let index = sky_sector(point);
+    let a = SKY_RING[index];
+    let b = SKY_RING[(index + 1u) % 10u];
+    let determinant = sky_cross(a, b);
+    let alpha = sky_cross(point, b) / determinant;
+    let beta = sky_cross(a, point) / determinant;
+    if (alpha >= 0.0 && beta >= 0.0) { return clamp(alpha + beta, 0.0, 1.0); }
+    // Match the exhaustive fan's rounding gaps on stored rim edges.
     return 1.0;
 }
 
@@ -184,12 +216,8 @@ fn composite_celestial(
 // Native Sky/SunMoon render into the classic UNORM framebuffer in gamma
 // space. Our view target is sRGB: recover input gamma, compose there, then
 // encode once at the output boundary instead of interpolating linear colours.
-fn native_sky_colour(weight: f32) -> vec3<f32> {
-    return mix(
-        tint_to_gamma(vec4(atmosphere.sky_zenith_rain.rgb, 1.0)).rgb,
-        tint_to_gamma(vec4(atmosphere.sky_horizon_thunder.rgb, 1.0)).rgb,
-        weight,
-    );
+fn native_sky_colour(weight: f32, zenith_gamma: vec3<f32>, horizon_gamma: vec3<f32>) -> vec3<f32> {
+    return mix(zenith_gamma, horizon_gamma, weight);
 }
 
 fn sky_output(colour: vec3<f32>) -> vec4<f32> {
@@ -238,15 +266,13 @@ fn end_sky_uv(ray: vec3<f32>) -> vec2<f32> {
     return (plane / major * 0.5 + vec2(0.5)) * 16.0;
 }
 
-fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+fn end_sky(ray: vec3<f32>, fog_gamma: vec3<f32>) -> vec3<f32> {
     let sampled = textureSampleLevel(end_sky_texture, atmosphere_sampler, end_sky_uv(ray), 0.0);
-    let fog = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    return tint_to_gamma(sampled).rgb * (2.0 * fog);
+    return tint_to_gamma(sampled).rgb * (2.0 * fog_gamma);
 }
 
 @fragment
 fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let ray = view_ray(in.position.xy);
     let code = u32(atmosphere.sky_extra.w + 0.5);
     if (in.star_alpha > 0.0) {
         if (code != 0u || atmosphere.sky_extra.x <= 0.0) { discard; }
@@ -259,10 +285,11 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (kind == 1u) {
         return vec4(atmosphere.sky_horizon_thunder.rgb, 1.0);
     }
+    let ray = view_ray(in.position.xy);
     if (kind == 2u) {
-        return sky_output(end_sky(ray));
+        return sky_output(end_sky(ray, in.fog_gamma));
     }
-    var colour = native_sky_colour(native_sky_fog_weight(ray));
+    var colour = native_sky_colour(native_sky_fog_weight(ray), in.zenith_gamma, in.horizon_gamma);
 
     let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
     let sun = sample_sun(ray, sun_direction);

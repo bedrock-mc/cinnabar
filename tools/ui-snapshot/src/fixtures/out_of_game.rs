@@ -49,6 +49,17 @@ pub(super) fn disconnect_no_retry() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Shows a join the core refused because this device's clock rejected the sign-in token.
+pub(super) fn disconnect_device_clock() -> Fixture {
+    let Fixture::Menu(mut view) = disconnect() else {
+        unreachable!()
+    };
+    view.disconnect_message = Some(launcher::menu::disconnect::from_server(
+        bridge::contract::DISCONNECT_KEY_DEVICE_CLOCK,
+    ));
+    Fixture::Menu(view)
+}
+
 /// Shows an unreachable destination under the failed-connection title.
 pub(super) fn connect_failed() -> Fixture {
     let Fixture::Menu(mut view) = disconnect() else {

@@ -86,7 +86,7 @@ fn normal_transaction_routes_only_native_direct_write_surfaces_in_wire_order() {
 }
 
 #[test]
-fn normal_transaction_counts_odd_actions_without_losing_valid_authority() {
+fn invalid_normal_transaction_does_not_publish_valid_siblings() {
     let mut unknown = action(PLAYER_INVENTORY_WINDOW_ID, 0, 1);
     unknown.source.source_type = InventorySourceType::Unknown(111);
     let mut sentinel = action(PLAYER_INVENTORY_WINDOW_ID, 0, 1);
@@ -109,9 +109,8 @@ fn normal_transaction_counts_odd_actions_without_losing_valid_authority() {
         bad_extra,
         action(PLAYER_INVENTORY_WINDOW_ID, 6, 64),
     ]);
-    assert_eq!(event.skipped_actions, 9);
-    assert_eq!(event.slots.len(), 1);
-    assert_eq!(event.slots[0].stack.count, 64);
+    assert_eq!(event.skipped_actions, 10);
+    assert!(event.slots.is_empty());
 }
 
 #[test]
@@ -146,4 +145,77 @@ fn normal_transaction_preserves_final_charged_item_compound_not_previous_extra()
         <[u8; 32]>::from(sha2::Sha256::digest(&extra))
     );
     assert_eq!(stack.stack_network_id, 80);
+}
+
+/// A transaction with an invalid offhand index must not publish its otherwise valid leg.
+#[test]
+fn invalid_offhand_leg_does_not_publish_player_leg() {
+    let event = transaction(vec![
+        action(PLAYER_INVENTORY_WINDOW_ID, 0, 1),
+        action(OFFHAND_WINDOW_ID, 1, 1),
+    ]);
+    assert!(event.slots.is_empty());
+}
+
+/// A known invalid source leg invalidates the complete native transaction.
+#[test]
+fn invalid_player_bound_rejects_whole() {
+    let e = transaction(vec![
+        action(0, 0, 1),
+        action(0, u32::from(PLAYER_INVENTORY_SLOTS), 1),
+    ]);
+    assert!(e.slots.is_empty());
+}
+
+/// Armor index fourteen is outside the verifier's complete admitted range.
+#[test]
+fn invalid_armor_bound_rejects_whole() {
+    let e = transaction(vec![
+        action(0, 0, 1),
+        action(ARMOR_WINDOW_ID, super::ARMOR_TRANSACTION_LIMIT, 1),
+    ]);
+    assert!(e.slots.is_empty());
+}
+
+/// UI index fifty-four is outside the native inventory's range.
+#[test]
+fn invalid_ui_bound_rejects_whole() {
+    let e = transaction(vec![
+        action(0, 0, 1),
+        action(UI_INVENTORY_WINDOW_ID, UI_SLOT_COUNT as u32, 1),
+    ]);
+    assert!(e.slots.is_empty());
+}
+
+/// A valid UI output leg is deferred and does not invalidate a valid player leg.
+#[test]
+fn output_defer_and_stale_previous_control() {
+    let e = transaction(vec![
+        action(0, 0, 1),
+        action(UI_INVENTORY_WINDOW_ID, u32::from(CREATED_OUTPUT_SLOT), 1),
+    ]);
+    assert_eq!(e.slots.len(), 1);
+    assert_eq!(e.slots[0].stack.count, 1);
+}
+
+/// The decoded invalid-source fallback prevents publication of the whole normal transaction.
+#[test]
+fn unknown_source_does_not_publish_valid_leg() {
+    let mut unknown = action(0, 0, 1);
+    unknown.source.source_type = InventorySourceType::Unknown(111);
+    unknown.source.container_id = None;
+    let e = transaction(vec![action(0, 0, 1), unknown]);
+    assert!(e.slots.is_empty());
+}
+/// Changing only the offhand index to zero preserves both valid client-authority legs.
+#[test]
+fn valid_offhand_leg_preserves_both_authoritative_legs() {
+    let event = transaction(vec![
+        action(PLAYER_INVENTORY_WINDOW_ID, 0, 1),
+        action(OFFHAND_WINDOW_ID, 0, 1),
+    ]);
+    assert_eq!(event.skipped_actions, 0);
+    assert_eq!(event.slots.len(), 2);
+    assert_eq!(event.slots[0].stack.count, 1);
+    assert_eq!(event.slots[1].stack.count, 1);
 }

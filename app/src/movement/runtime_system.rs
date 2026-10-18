@@ -2,7 +2,7 @@
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{

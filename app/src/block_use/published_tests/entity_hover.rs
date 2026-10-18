@@ -63,6 +63,85 @@ fn entity_hover_leaving_an_actor_clears_without_a_position() {
 }
 
 #[test]
+fn entity_hover_transport_resume_preserves_block_occlusion() {
+    for pending_backing in [false, true] {
+        for (actor_z, visible) in [(5.5, false), (7.5, true)] {
+            let (mut world, mut captured) = attack_hit_position_tests::attack_fixture(actor_z);
+            buttons(&mut world, vec![]);
+            if pending_backing {
+                item_use_tests::hold_snowball(&mut world);
+            }
+            {
+                let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+                player.inventory.publish_local_runtime_id(7, 42).unwrap();
+                if pending_backing {
+                    let ledger = player.inventory.ledger_mut();
+                    ledger.apply(&InventoryEvent::Authority(
+                        protocol::InventoryAuthority::Server,
+                    ));
+                    ledger.begin_world_drop(0, Some(1)).unwrap();
+                    assert!(ledger.slot_backing_transport_pending(0));
+                } else {
+                    let game_mode = player.facts.player_game_mode();
+                    player.inventory.queue_local_hotbar_selection(1, game_mode);
+                    assert_eq!(player.inventory.pending_hotbar_selection(), Some(1));
+                }
+                assert!(client_interaction::mining::hand_interaction_selection(&player).is_none());
+            }
+            let mut app = interaction_app(world);
+            ticks(app.world_mut(), 102, 103);
+            app.world_mut()
+                .run_system_cached(crate::melee::prepare_melee)
+                .unwrap();
+
+            // Transport resumes after the pick, before this frame's input sender.
+            app.world_mut()
+                .run_system_cached(crate::ui_runtime::outbound::flush_inventory_network)
+                .unwrap();
+            app.world_mut()
+                .run_system_cached(crate::hotbar::flush_hotbar_selection)
+                .unwrap();
+            assert!(
+                client_interaction::mining::hand_interaction_selection(
+                    app.world().resource::<client_state::PlayerRuntime>()
+                )
+                .is_some()
+            );
+            app.world_mut()
+                .run_system_cached(crate::runtime::telemetry::send_player_auth_inputs)
+                .unwrap();
+            let packets = captured.drain();
+            assert!(packets.iter().any(|packet| {
+                protocol::player_auth_input_trace_sample(packet)
+                    .is_some_and(|sample| sample.tick == 102)
+            }));
+            assert!(
+                packets.iter().all(|packet| entity_hover(packet).is_none()),
+                "a deferred pick must not publish hover when transport resumes"
+            );
+
+            // A new pick restores hover only for the actor in front of the block.
+            let reports = hover_tick(&mut app, &mut captured, 103);
+            if visible {
+                assert_eq!(
+                    reports,
+                    [(
+                        99,
+                        Some(attack_hit_position_tests::picked_point(app.world()))
+                    )]
+                );
+            } else {
+                assert_eq!(
+                    reports,
+                    [(0, None)],
+                    "the known block must still occlude the actor"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn entity_hover_follows_attack_and_swing_and_precedes_its_movement() {
     let (mut app, mut captured) = hover_app();
     let point = attack_hit_position_tests::picked_point(app.world());

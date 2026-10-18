@@ -128,17 +128,20 @@ impl InventorySession {
     /// Apply exactly one FIFO event before the caller updates its UI and evidence projections.
     pub fn apply_next(&mut self) -> Option<SequencedInventoryEvent> {
         let sequenced = self.pending_inventory.pop_front()?;
-        self.crafting_authority.observe(
-            sequenced.session_generation,
-            sequenced.fifo_sequence,
-            &sequenced.event,
-        );
         match &sequenced.event {
             InventoryAuthorityEvent::Registry(registry) => {
                 self.ledger_mut().apply_registry(registry)
             }
             InventoryAuthorityEvent::Inventory(event) => {
-                self.ledger_mut().apply(event);
+                if let InventoryEvent::Options(options) = event {
+                    self.set_inventory_options(*options);
+                }
+                if let InventoryEvent::FurnaceOptions(update) = event {
+                    self.set_furnace_options(update.kind, update.options);
+                }
+                if !matches!(event, InventoryEvent::CraftingRules(_)) {
+                    self.ledger_mut().apply(event);
+                }
                 if let InventoryEvent::SelectedSlot(selected) = event
                     && selected.select_slot
                     && selected.slot < protocol::HOTBAR_SLOT_COUNT
@@ -149,6 +152,18 @@ impl InventorySession {
                 }
             }
         }
+        let writes = match sequenced.event {
+            InventoryAuthorityEvent::Inventory(_) => self.inventory_ledger.personal_updates(),
+            InventoryAuthorityEvent::Registry(_) => {
+                [None; crate::inventory_ledger::PERSONAL_UPDATE_COUNT]
+            }
+        };
+        self.crafting_authority.observe_admitted(
+            sequenced.session_generation,
+            sequenced.fifo_sequence,
+            &sequenced.event,
+            writes,
+        );
         Some(sequenced)
     }
 
@@ -186,6 +201,9 @@ impl InventorySession {
     /// catalog; `Unavailable` without a catalog or known grid identities.
     #[must_use]
     pub fn crafting_match(&self) -> crate::CraftGridMatch {
+        if !self.crafting_authority.manual_recipes_available() {
+            return crate::CraftGridMatch::Unavailable;
+        }
         let ledger = self.ledger();
         let (Some(catalog), Some(cells)) = (
             self.crafting_authority.catalog(),
@@ -203,7 +221,12 @@ impl InventorySession {
                     .map(super::inventory_ledger::CraftGridCell::item)
             })
             .collect();
-        crate::match_crafting_grid(catalog, ledger.crafting_grid().width(), &items)
+        crate::crafting::match_crafting_grid_where(
+            catalog,
+            ledger.crafting_grid().width(),
+            &items,
+            |recipe| self.crafting_authority.manual_recipe_allowed(recipe),
+        )
     }
 
     /// Crafts the grid's unique recipe once into the cursor.

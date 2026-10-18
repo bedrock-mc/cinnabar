@@ -293,9 +293,7 @@ pub fn compile_starter_skins(pack: &Path) -> Result<Vec<u8>, String> {
 /// Compiles the carrier and writes it to `out` through a temporary sibling file.
 pub fn compile_starter_skins_to_file(pack: &Path, out: &Path) -> Result<(), String> {
     let blob = compile_starter_skins(pack)?;
-    let temporary = out.with_extension("tmp");
-    fs::write(&temporary, &blob).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, out).map_err(|error| format!("{}: {error}", out.display()))
+    assets::write_blob_atomic(out, &blob).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -409,9 +407,12 @@ mod tests {
                 .save(pack.join(skin.texture))
                 .unwrap();
         }
-        let carrier =
-            assets::starter_skins::decode_starter_skins(&compile_starter_skins(pack).unwrap())
-                .unwrap();
+        let out = pack.join("out.mcbeskn");
+        let occupied = out.with_extension("tmp");
+        fs::write(&occupied, b"another writer").unwrap();
+        compile_starter_skins_to_file(pack, &out).unwrap();
+        assert_eq!(fs::read(occupied).unwrap(), b"another writer");
+        let carrier = assets::starter_skins::decode_starter_skins(&fs::read(out).unwrap()).unwrap();
         let entries = assert_modern_skin_schema(&carrier.geometry);
         assert_eq!(entries[0], modern["minecraft:geometry"][0]);
         assert_eq!(

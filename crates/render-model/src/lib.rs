@@ -223,7 +223,7 @@ pub use dropped_item::{rope_color, rope_point, rope_ribbon};
 pub use hand::{
     HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode, HandItemAtlas, HandRigLight,
 };
-pub use lightmap::{LightmapInputs, darkness_pulse};
+pub use lightmap::{LightmapInputs, LightmapUniform, darkness_pulse};
 
 pub use viewmodel::{ViewmodelGeometry, ViewmodelSkin};
 pub use weather::{

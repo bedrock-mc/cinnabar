@@ -82,16 +82,14 @@ pub fn retain_block_use_pick(
 ) {
     runtime.retain_pick(&origin, movement.interaction_authority_identity());
 }
-/// The selected stack, unless its own slot awaits a gesture answer or the hotbar change is unsent.
-/// Requests on other cells never hold a use back: vanilla acts on the predicted held item.
+/// Freezes player backing unless its local mutation or hotbar change still awaits transport.
 pub fn verified_use_selection(
     player_runtime: &client_state::PlayerRuntime,
     ui: &UiRuntime,
 ) -> Option<FrozenMiningSelection> {
     let ledger = ui.inventory_ledger(player_runtime);
     let selection = verified_selection(player_runtime)?;
-    if ledger.slot_gesture_pending(selection.slot)
-        || ledger.resync_required()
+    if ledger.slot_backing_transport_pending(selection.slot)
         || player_runtime
             .inventory
             .pending_hotbar_selection()

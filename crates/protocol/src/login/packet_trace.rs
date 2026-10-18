@@ -12,7 +12,7 @@ pub struct PacketIdTraceSnapshot {
 
 #[derive(Default)]
 pub(super) struct PacketIdTraceState {
-    pub(super) started_at: Option<std::time::Instant>,
+    pub(super) started_at: Option<web_time::Instant>,
     pub(super) packet_ids: Vec<u32>,
     pub(super) recorded: usize,
     pub(super) overflow: u64,
@@ -21,7 +21,7 @@ pub(super) struct PacketIdTraceState {
 
 impl PacketIdTraceState {
     pub(super) fn begin(&mut self) {
-        self.started_at = Some(std::time::Instant::now());
+        self.started_at = Some(web_time::Instant::now());
         self.packet_ids.clear();
         self.recorded = 0;
         self.overflow = 0;

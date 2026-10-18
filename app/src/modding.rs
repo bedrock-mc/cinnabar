@@ -18,10 +18,7 @@ use {
     client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource},
     client_state::ClientFrameSet,
     mod_host::{ModGrants, ModHost},
-    std::{
-        path::Path,
-        time::{Duration, Instant},
-    },
+    std::{path::Path, time::Duration},
 };
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
@@ -32,6 +29,8 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
+mod anchors;
+mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
 mod library;
@@ -49,7 +48,6 @@ pub(crate) struct ModRuntime {
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
-    last_reload: Instant,
     controls: mod_host::ControlFrame,
     suspended: bool,
     hud_editor_owner: Option<hud_editor::Owner>,
@@ -294,17 +292,17 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
     let sources = hosts
         .iter()
         .enumerate()
-        .filter_map(|(index, host)| {
-            Some(environment_loader::Source {
-                owner: mod_ui::PanelUiOwner::Environment(index),
-                component: host.component_source()?.to_owned(),
-                grants: host.grants().clone(),
-                font: std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from),
-                ui: (Some(index) == first_controls)
-                    .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
-                    .flatten()
-                    .map(std::path::PathBuf::from),
-            })
+        .map(|(index, host)| {
+            let mut source = environment_loader::Source::from_host(
+                mod_ui::PanelUiOwner::Environment(index),
+                host,
+            );
+            source.font = std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from);
+            source.ui = (Some(index) == first_controls)
+                .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
+                .flatten()
+                .map(std::path::PathBuf::from);
+            source
         })
         .collect::<Vec<_>>();
     if !sources.is_empty() {
@@ -335,7 +333,6 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
             hosts: ModHosts::new(host, companions),
             render_sources: Vec::new(),
             render_merge: Default::default(),
-            last_reload: Instant::now(),
             controls: mod_host::empty_controls(),
             suspended: false,
             hud_editor_owner: None,
@@ -350,6 +347,13 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
+    app.add_systems(
+        Update,
+        anchors::publish
+            .after(ClientFrameSet::ActorPublication)
+            .after(drive_mod)
+            .before(ClientFrameSet::UiPublication),
+    );
     block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
@@ -379,8 +383,28 @@ fn configure_systems(app: &mut App, watching: bool) {
 }
 
 /// Starts the shared callback allowance before any input or event reaches a guest.
-fn begin_mod_frame(extension: Option<ResMut<ModRuntime>>) {
+fn begin_mod_frame(
+    extension: Option<ResMut<ModRuntime>>,
+    gameplay: gameplay::GameplayContext,
+    ui: Res<UiRuntimeResource>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
+) {
     if let Some(mut extension) = extension {
+        drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        anchors::reconcile(&mut extension.hosts, &gameplay);
+        let needs_targets = (0..extension.hosts.host_count())
+            .any(|index| extension.hosts.host(index).grants().entity_highlight);
+        let targets = actors
+            .as_deref()
+            .filter(|_| needs_targets)
+            .map(render_scene::mod_scene::mask_targets)
+            .unwrap_or_default();
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .publish_mask_targets(&targets);
+        }
         extension.hosts.begin_frame();
     }
 }
@@ -407,7 +431,6 @@ type ModOutputs<'w> = (
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 struct ModObservation<'w, 's> {
-    environment_loader: Option<Res<'w, environment_loader::Loader>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
     cameras: Query<
@@ -439,13 +462,12 @@ fn drive_mod(
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
-    mut outputs: ModOutputs,
+    outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
     observation: ModObservation,
 ) {
     let ModObservation {
-        environment_loader,
         watcher,
         render_scene,
         cameras,
@@ -483,41 +505,8 @@ fn drive_mod(
     if extension.suspended {
         return;
     }
-    let mut reloaded = false;
-    if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
-        extension.last_reload = Instant::now();
-        for index in 0..extension.hosts.host_count() {
-            if extension.metadata[index].registration.is_some() {
-                continue;
-            }
-            if environment_loader.is_some()
-                && extension.hosts.host(index).component_source().is_some()
-            {
-                continue;
-            }
-            match extension.hosts.host_mut(index).reload_if_changed() {
-                // A new instance never sees cues from before it existed.
-                Ok(true) => {
-                    if extension
-                        .hud_editor_owner
-                        .is_some_and(|owner| owner.host == index)
-                    {
-                        hud_editor::cancel(&mut extension, &mut presentation, false);
-                    }
-                    reloaded = true;
-                    if let Some(cues) = outputs.2.as_mut() {
-                        cues.0.clear();
-                    }
-                }
-                Ok(false) => {}
-                Err(error) => warn!("Cinnabar extension reload rejected: {error:#}"),
-            }
-        }
-    }
-    if reloaded {
-        gameplay.synchronize_jump_scope(false, &ui);
-        gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
-    }
+    drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
         .single()
@@ -601,7 +590,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },
@@ -616,7 +605,7 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(&extension);
+        watcher.remember_settings(Some(&extension), Some(&ui));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
@@ -838,7 +827,7 @@ pub(super) mod fullbright;
 mod gameplay;
 pub(crate) mod ghost;
 mod input;
-pub(crate) mod interaction;
+use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;

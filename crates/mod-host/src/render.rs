@@ -1,19 +1,19 @@
 //! Transactional render capability: validated passes persist, primitives last one callback.
 
+use super::cinnabar::world_draw::drawing::{DrawError, ErrorCode};
 use super::{State, cinnabar::extension::render as wit};
 use anyhow::{Result, bail};
-use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_PASSES};
+use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
 
-/// Render imports per callback; drawing and per-pass updates need more than other capabilities.
-const MAX_RENDER_CALLS: u32 = 32;
 /// Process-wide, so a reloaded instance never repeats a predecessor's identifiers.
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
+/// Allocates a process-unique identity across reloads and owners.
 fn next_revision() -> u64 {
     REVISION.fetch_add(1, Ordering::Relaxed)
 }
@@ -51,12 +51,23 @@ mod native_line_tests {
     }
 }
 
+/// Preserves the admission category while legacy callers continue receiving plain detail.
+fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
+    DrawError {
+        code,
+        detail: detail.into(),
+    }
+}
+
 pub(super) struct RenderState {
+    pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
+    pub(super) retained: mod_render::retained::Store,
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
-    calls: u32,
+    calls: usize,
+    mask_calls: u32,
     compiles_left: u32,
     native_ribbons: Vec<mod_render::Ribbon>,
     native_generation: u64,
@@ -66,11 +77,14 @@ pub(super) struct RenderState {
 impl RenderState {
     pub fn new() -> Self {
         Self {
+            masks: mod_render::masks::MaskStore::new(next_revision()),
             committed: RenderOutput::default(),
+            retained: Default::default(),
             generation: next_revision(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
             calls: 0,
+            mask_calls: 0,
             compiles_left: MAX_RENDER_PASSES as u32,
             native_ribbons: Vec::new(),
             native_generation: 0,
@@ -87,21 +101,44 @@ impl RenderState {
         self.generation
     }
 
-    pub fn begin_frame(&mut self) {
+    /// Starts mask and geometry transactions and restores their import allowances.
+    pub fn begin_callback(&mut self) {
+        self.masks.begin();
+        self.retained.begin();
         self.calls = 0;
+        self.mask_calls = 0;
+    }
+
+    /// Discards earlier immediate output and restores the frame's shader compile allowance.
+    pub fn begin_frame(&mut self) {
+        self.begin_callback();
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
     }
 
-    pub fn commit(&mut self) {
-        let primitives = std::mem::take(&mut self.staged_primitives);
-        let mut changed = false;
+    /// Publishes masks, geometry and effects together after a successful callback.
+    pub fn commit_retained(&mut self) {
+        let masks = self.masks.commit();
+        let mut changed = masks != self.committed.masks;
+        self.committed.masks = masks;
+        self.retained.commit();
+        changed |= self.publish_retained();
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
             changed |= passes != self.committed.passes;
             self.committed.passes = passes;
         }
+        if changed {
+            self.generation = next_revision();
+        }
+    }
+
+    /// Publishes immediate primitives and retained changes after a successful frame.
+    pub fn commit(&mut self) {
+        let primitives = std::mem::take(&mut self.staged_primitives);
+        let mut changed = false;
+        self.commit_retained();
         // Unchanged content keeps its identity, so the renderer rebuilds and uploads nothing.
         if primitives != *self.committed.primitives {
             self.committed.primitives = Arc::new(primitives);
@@ -112,9 +149,44 @@ impl RenderState {
         }
     }
 
+    /// Publishes confirmed target removals before another callback can render stale anchors.
+    pub(super) fn update_entities(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        despawned: &[mod_render::retained::EntityKey],
+    ) -> Result<(), mod_render::retained::DrawError> {
+        self.retained.reconcile_entities(candidates, despawned)?;
+        if self.publish_retained() {
+            self.generation = next_revision();
+        }
+        Ok(())
+    }
+
+    /// Copies only the immutable snapshot identity into renderer output.
+    fn publish_retained(&mut self) -> bool {
+        let snapshot = self.retained.snapshot();
+        if snapshot.geometry.is_empty()
+            && snapshot.instances.is_empty()
+            && snapshot.materials.is_empty()
+        {
+            let changed = !self.committed.retained.is_empty();
+            self.committed.retained.clear();
+            changed
+        } else if matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+        {
+            false
+        } else {
+            self.committed.retained.clear();
+            self.committed.retained.push(Arc::clone(snapshot));
+            true
+        }
+    }
+
     pub fn revoke(&mut self) {
         self.native_ribbons.clear();
         let native = self.combined.take().is_some();
+        self.masks.revoke();
+        self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
         if native || self.committed != RenderOutput::default() {
@@ -150,12 +222,30 @@ impl RenderState {
         self.native_generation = self.generation;
     }
 
-    fn budget(&mut self) -> Result<()> {
+    pub(super) fn budget(&mut self) -> Result<()> {
         self.calls += 1;
         if self.calls > MAX_RENDER_CALLS {
             bail!("render import budget exhausted");
         }
         Ok(())
+    }
+
+    /// Charges mask imports separately from legacy primitives and pass mutations.
+    pub(super) fn mask_budget(&mut self) -> Result<()> {
+        self.mask_calls += 1;
+        if self.mask_calls > mod_api::drawing::MAX_MASK_CALLS {
+            bail!("mask import budget exhausted");
+        }
+        Ok(())
+    }
+
+    /// Retained post effects hold their declared mask resources until removed or replaced.
+    pub(super) fn mask_in_use(&self, handle: mod_api::drawing::DrawingHandle) -> bool {
+        self.staged_passes
+            .as_ref()
+            .unwrap_or(&self.committed.passes)
+            .iter()
+            .any(|pass| pass.masks.contains(&handle))
     }
 
     fn staged(&mut self) -> &mut Vec<Pass> {
@@ -165,9 +255,10 @@ impl RenderState {
 }
 
 impl State {
+    /// Charges an import before testing primitive authority.
     fn render_allowed(&mut self) -> Result<Result<(), String>> {
         self.render.budget()?;
-        Ok(if self.grants.render {
+        Ok(if self.grants.render || self.grants.world_draw {
             Ok(())
         } else {
             Err("render capability denied".into())
@@ -175,52 +266,79 @@ impl State {
     }
 }
 
-impl wit::Host for State {
-    fn set_block_highlights(
-        &mut self,
-        spec: Option<wit::BlockHighlightSpec>,
-    ) -> Result<Result<(), String>> {
-        super::block_highlights::set(self, spec)
+impl State {
+    /// Legacy post effects require their own session authority, including all mutations.
+    fn post_allowed(&mut self) -> Result<Result<(), String>> {
+        self.render.budget()?;
+        Ok(
+            if (self.grants.render || self.grants.render_post)
+                && self.drawing_policy.is_none_or(|policy| {
+                    policy.permissions.render_post && (policy.local || self.grants.render_post)
+                })
+            {
+                Ok(())
+            } else {
+                Err("post effect capability denied".into())
+            },
+        )
     }
+}
 
-    fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
-            return Ok(Err(denied));
+impl State {
+    /// Admits either a legacy pass or an explicitly owner-bound masked pass.
+    pub(super) fn register_render_pass(
+        &mut self,
+        spec: wit::PassSpec,
+        masks: Vec<mod_api::drawing::DrawingHandle>,
+    ) -> Result<Result<(), DrawError>> {
+        if let Err(denied) = self.post_allowed()? {
+            return Ok(Err(admission(ErrorCode::Denied, denied)));
         }
         if !mod_render::pass_name_valid(&spec.name) {
-            return Ok(Err(
-                "pass names are 1–32 lowercase letters, digits, - or _".into()
-            ));
+            return Ok(Err(admission(
+                ErrorCode::Invalid,
+                "pass names are 1–32 lowercase letters, digits, - or _",
+            )));
         }
         if spec.depth && !self.grants.render_depth {
-            return Ok(Err("render depth capability denied".into()));
+            return Ok(Err(admission(
+                ErrorCode::Denied,
+                "render depth capability denied",
+            )));
         }
         let passes = self.render.staged();
         let existing = passes.iter().position(|pass| pass.name == spec.name);
         if let Some(index) = existing
             && *passes[index].source == spec.source
             && passes[index].depth == spec.depth
+            && passes[index].masks == masks
         {
             passes[index].order = spec.order;
             return Ok(Ok(()));
         }
         if existing.is_none() && passes.len() >= MAX_RENDER_PASSES {
-            return Ok(Err("render pass budget exhausted".into()));
+            return Ok(Err(admission(
+                ErrorCode::BudgetExceeded,
+                "render pass budget exhausted",
+            )));
         }
         if self.render.compiles_left == 0 {
-            return Ok(Err(
-                "shader compile budget for this callback is spent".into()
-            ));
+            return Ok(Err(admission(
+                ErrorCode::BudgetExceeded,
+                "shader compile budget for this callback is spent",
+            )));
         }
         self.render.compiles_left -= 1;
-        let shader = match mod_render::shader::compose(&spec.source, spec.depth) {
+        let shader = match mod_render::shader::compose_masked(&spec.source, spec.depth, masks.len())
+        {
             Ok(shader) => shader,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Ok(Err(admission(ErrorCode::Invalid, error))),
         };
         let mut pass = Pass {
             name: spec.name,
             order: spec.order,
             depth: spec.depth,
+            masks,
             source: spec.source.into(),
             shader: shader.into(),
             revision: next_revision(),
@@ -238,9 +356,24 @@ impl wit::Host for State {
         }
         Ok(Ok(()))
     }
+}
+
+impl wit::Host for State {
+    fn set_block_highlights(
+        &mut self,
+        spec: Option<wit::BlockHighlightSpec>,
+    ) -> Result<Result<(), String>> {
+        super::block_highlights::set(self, spec)
+    }
+
+    fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
+        Ok(self
+            .register_render_pass(spec, Vec::new())?
+            .map_err(|error| error.detail))
+    }
 
     fn remove_pass(&mut self, name: String) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
+        if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
         let passes = self.render.staged();
@@ -259,7 +392,7 @@ impl wit::Host for State {
         enabled: bool,
         params: Vec<f32>,
     ) -> Result<Result<(), String>> {
-        if let Err(denied) = self.render_allowed()? {
+        if let Err(denied) = self.post_allowed()? {
             return Ok(Err(denied));
         }
         if params.len() > MAX_PASS_PARAMS || !params.iter().all(|value| value.is_finite()) {

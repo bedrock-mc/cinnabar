@@ -37,7 +37,8 @@ fn profile_skin(store: &ActorStore, runtime_id: u64) -> Option<PlayerSkin> {
     store.player_profile(runtime_id).map(|p| p.skin.clone())
 }
 
-fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
+/// Supplies a local rig pose without predicted item use or movement flags.
+pub(super) fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
     LocalPlayerFeed {
         game_mode: None,
         prefer_client_skin: false,
