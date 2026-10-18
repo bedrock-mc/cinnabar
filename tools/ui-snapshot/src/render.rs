@@ -74,13 +74,16 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::Loading(stage) => stage.is_world_entry(),
         Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. } => false,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     #[cfg(feature = "test-support")]
-    let craft_icons = matches!(&fixture, Fixture::CraftOverlap { .. })
-        .then(|| crafting::icons(&mut carriers.pages))
-        .transpose()?;
+    let craft_icons = matches!(
+        &fixture,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability
+    )
+    .then(|| crafting::icons(&mut carriers.pages))
+    .transpose()?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
         state.size,
@@ -106,6 +109,12 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
+        #[cfg(feature = "test-support")]
+        Fixture::CursorDurability => {
+            let mut engine = json_engine(&carriers)?;
+            crafting::paint_cursor(&engine, &carriers.lang, &craft_icons.unwrap(), &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { selected } => {
             let mut engine = json_engine(&carriers)?;
@@ -281,8 +290,13 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
             suggestions,
             messages,
             options,
+            server_hover,
         } => {
             let mut engine = json_engine(&carriers)?;
+            #[cfg(feature = "test-support")]
+            if server_hover.is_some() {
+                engine.set_server_pack(&[ui_screens::test_support::hover_chat::files()]);
+            }
 
             let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES)
                 .map_err(|error| format!("{error:?}"))?;
@@ -290,7 +304,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
             frame.now = seconds;
             let mut screen = ChatScreen::default();
             screen.settings.set_snapshot((options, None));
-            for now in [0.0, seconds] {
+            for now in [0.0, seconds, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -310,6 +324,18 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
+                if server_hover == Some(true)
+                    && let Some(caption) = screen.nodes().iter().find(|node| node.name == "caption")
+                {
+                    screen.set_pointer(
+                        ui::UiPoint::new(
+                            (caption.dest.x as f32 + caption.dest.w as f32 - 4.0)
+                                * metrics.gui_scale,
+                            (caption.dest.y as f32 + 4.0) * metrics.gui_scale,
+                        )
+                        .ok(),
+                    );
+                }
             }
             if screen.nodes().is_empty() {
                 return Err(Error::Invalid("native chat screen did not resolve".into()));

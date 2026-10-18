@@ -70,7 +70,7 @@ func TestCertificateReloadPublishesToBothListenersAndRetainsSessions(t *testing.
 	}
 	relay := New(Config{})
 	defer relay.Close()
-	session, detach, err := relay.openControl(netip.MustParseAddr("203.0.113.1"), "", now)
+	controller, detach, err := relay.openControl(netip.MustParseAddr("203.0.113.1"), "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestCertificateReloadPublishesToBothListenersAndRetainsSessions(t *testing.
 	if len(relay.sessions) != 1 {
 		t.Fatal("reload lost the active session")
 	}
-	if _, retained := relay.sessions[session]; !retained {
+	if _, retained := relay.sessions[controller.session]; !retained {
 		t.Fatal("reload replaced the active session")
 	}
 }
