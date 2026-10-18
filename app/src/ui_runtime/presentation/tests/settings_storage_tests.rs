@@ -26,20 +26,27 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     view.storage = Arc::new(launcher_host::settings_storage::read_storage(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
     let actions = draw(&player_runtime, &mut presentation, &view);
-    assert!(
-        actions.contains(&MenuAction::SettingsStorage(StorageAction::RequestClear)),
-        "{actions:?}"
-    );
-    let clear = client_ui::test_support::menu_hit_targets(&presentation)
+    for (index, _) in launcher::menu::settings_storage::CATEGORIES
         .iter()
-        .find(|(action, _)| *action == MenuAction::SettingsStorage(StorageAction::RequestClear))
+        .enumerate()
+    {
+        assert!(
+            actions.contains(&MenuAction::SettingsStorage(StorageAction::Toggle(
+                index as u8
+            ))),
+            "{actions:?}"
+        );
+    }
+    let category = client_ui::test_support::menu_hit_targets(&presentation)
+        .iter()
+        .find(|(action, _)| *action == MenuAction::SettingsStorage(StorageAction::Toggle(0)))
         .unwrap()
         .1;
     assert!(
         presentation.scroll_menu(
             ui::UiPoint::new(
-                (clear.min().x() + clear.max().x()) / 2.0,
-                (clear.min().y() + clear.max().y()) / 2.0,
+                (category.min().x() + category.max().x()) / 2.0,
+                (category.min().y() + category.max().y()) / 2.0,
             )
             .unwrap(),
             -4096.0,
@@ -47,6 +54,10 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
         )
     );
     let actions = draw(&player_runtime, &mut presentation, &view);
+    assert!(
+        actions.contains(&MenuAction::SettingsStorage(StorageAction::RequestClear)),
+        "{actions:?}"
+    );
     assert!(
         actions.contains(&MenuAction::SettingsStorage(
             StorageAction::RequestScreenshots
