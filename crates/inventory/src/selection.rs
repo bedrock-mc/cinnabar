@@ -168,16 +168,10 @@ impl InventorySession {
         &self,
         game_mode: Option<PlayerGameMode>,
     ) -> Result<Option<(u8, protocol::Packet)>, protocol::InventoryPacketError> {
-        let Some(runtime_id) = self.local_runtime_id() else {
-            return Ok(None);
-        };
         let Some(snapshot) = self.selected_backing_stack_snapshot(game_mode) else {
             return Ok(None);
         };
         let target = snapshot.slot;
-        if self.inventory_ledger.slot_backing_transport_pending(target) {
-            return Ok(None);
-        }
         if self
             .pending_hotbar_selection
             .is_some_and(|pending| pending != target)
@@ -197,11 +191,11 @@ impl InventorySession {
         {
             return Ok(None);
         }
-        let packet = protocol::select_hotbar_slot_packet(runtime_id, target, stack)?;
-        Ok(Some((target, packet)))
+        Ok(self.hotbar_packet(target)?.map(|packet| (target, packet)))
     }
 
-    /// Builds a known slot's selection packet without predicting or queuing that selection.
+    /// Builds backing equipment after local changes enter transport, without selecting the slot.
+    /// Unknown cells announce an empty hand unless equipment supplies their stack.
     pub fn hotbar_packet(
         &self,
         target: u8,
@@ -209,13 +203,15 @@ impl InventorySession {
         let Some(runtime_id) = self.local_runtime_id() else {
             return Ok(None);
         };
-        let Some(state) = self.hotbar_slot_state(target) else {
+        if self.inventory_ledger.slot_backing_transport_pending(target) {
+            return Ok(None);
+        }
+        let Some(state) = self.inventory_ledger.backing_slot_state(target) else {
             return Ok(None);
         };
         let empty = protocol::NetworkItemStack::empty();
-        let stack = match state {
-            PlayerInventorySlot::Unknown => return Ok(None),
-            PlayerInventorySlot::Empty => &empty,
+        let stack = match self.selected_snapshot_with_equipment(target, state).state {
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => &empty,
             PlayerInventorySlot::Present(stack) => stack,
         };
         protocol::select_hotbar_slot_packet(runtime_id, target, stack).map(Some)
@@ -746,9 +742,13 @@ mod tests {
         let mode = Some(PlayerGameMode::Survival);
         let mut session = InventorySession::new(1);
         session.publish_local_runtime_id(1, 42).unwrap();
+        let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
+        assert_eq!(proposal.slot(), 2);
+        assert!(session.hotbar_selection_current(&proposal));
         session.queue_local_hotbar_selection(2, mode);
         let (slot, packet) = session.pending_hotbar_packet(mode).unwrap().unwrap();
         assert_eq!(slot, 2);
+        assert_eq!(proposal.packet(), &packet);
         let equipment = protocol::test_support::packets::equipment(&packet).unwrap();
         assert_eq!(equipment.network_id, 0);
         assert_eq!(equipment.count, 0);
@@ -786,22 +786,64 @@ mod tests {
             },
             storage_item: None,
         }));
+        let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
+        let ledger = session.ledger_mut();
         ledger.begin_world_drop(2, Some(1)).unwrap();
         let PlayerInventorySlot::Present(predicted) = session.ledger().slot_state(2).unwrap()
         else {
             panic!("the drop leaves three items predicted in the slot");
         };
         assert_eq!(predicted.stack_network_id, -3);
+        assert!(session.prepare_hotbar_selection(2).unwrap().is_none());
+        assert!(!session.hotbar_selection_current(&proposal));
 
         session.queue_local_hotbar_selection(2, game_mode);
         assert!(session.pending_hotbar_packet(game_mode).unwrap().is_none());
         assert!(session.ledger_mut().mark_transport_enqueued(0));
+        let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
+        assert!(session.hotbar_selection_current(&proposal));
         let (slot, packet) = session.pending_hotbar_packet(game_mode).unwrap().unwrap();
         assert_eq!(slot, 2);
+        assert_eq!(proposal.packet(), &packet);
         let packet = protocol::test_support::packets::equipment(&packet)
             .expect("hotbar selection must build a MobEquipment packet");
         assert_eq!(packet.count, 3);
         assert_eq!(packet.stack_network_id, None);
+    }
+
+    /// Client-owned gestures publish their changed count only after transport accepts them.
+    #[test]
+    fn ordered_hotbar_descriptor_waits_for_client_backing_transport() {
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Authority(InventoryAuthority::Client));
+        replace_held_stack(
+            &mut session,
+            protocol::NetworkItemStack {
+                network_id: 7,
+                stack_network_id: 13,
+                count: 4,
+                ..protocol::NetworkItemStack::empty()
+            },
+        );
+        let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
+        let ledger = session.ledger_mut();
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(0));
+        ledger.begin_take_count(2, 1).unwrap();
+        assert!(session.prepare_hotbar_selection(2).unwrap().is_none());
+        assert!(!session.hotbar_selection_current(&proposal));
+        assert!(session.prepare_hotbar_selection(1).unwrap().is_some());
+
+        assert!(session.ledger_mut().mark_transport_enqueued(0));
+        let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
+        assert!(session.hotbar_selection_current(&proposal));
+        let sent = protocol::test_support::packets::equipment(proposal.packet()).unwrap();
+        assert_eq!(sent.network_id, 7);
+        assert_eq!(sent.count, 3);
+        assert_eq!(sent.stack_network_id, None);
     }
 
     #[test]
@@ -857,8 +899,10 @@ mod tests {
             ledger
                 .begin_target_gesture(crate::inventory_ledger::InventoryTarget::Player(2), gesture)
                 .unwrap();
+            let proposal = session.prepare_hotbar_selection(2).unwrap().unwrap();
             session.queue_local_hotbar_selection(2, mode);
             let (_, packet) = session.pending_hotbar_packet(mode).unwrap().unwrap();
+            assert_eq!(proposal.packet(), &packet);
             let sent = protocol::test_support::packets::equipment(&packet).unwrap();
             assert_eq!(sent.network_id, if backing_present { 7 } else { 0 });
             assert_eq!(sent.count, if backing_present { 4 } else { 0 });
