@@ -3,6 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use cosmetics::emotes::Item;
 use json_ui::{DataSource, HitKind, InputMode, Scalar, ViewState};
+use launcher::menu::settings_options::{SettingsOptions, key_name};
+use semantic_input::PhysicalControl;
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef, UiPoint};
 use ui_engine::cached_screen::CachedScreen;
 use ui_engine::engine::{
@@ -35,6 +37,7 @@ pub struct EmoteScreen {
 
 /// The emote wheel or equip popup, as the client's emote state shows it.
 pub struct EmoteInput<'a> {
+    pub settings: &'a SettingsOptions,
     pub equipping: bool,
     pub catalog_page: Option<(usize, usize)>,
     pub equipping_emote: Option<Item>,
@@ -102,7 +105,12 @@ impl EmoteScreen {
         } else {
             EMOTE_SCREEN
         };
-        let instructions = instructions(self.input_mode, input.catalog_page, input.equipping);
+        let instructions = instructions(
+            self.input_mode,
+            input.catalog_page,
+            input.equipping,
+            input.settings,
+        );
         data.set_global(
             "#emote_screen_instructions",
             Scalar::Text(instructions.clone()),
@@ -192,7 +200,12 @@ impl EmoteScreen {
 }
 
 /// Names the controls available in the current wheel stage and input device.
-pub fn instructions(mode: InputMode, page: Option<(usize, usize)>, equipping: bool) -> String {
+pub fn instructions(
+    mode: InputMode,
+    page: Option<(usize, usize)>,
+    equipping: bool,
+    settings: &SettingsOptions,
+) -> String {
     if let Some((page, count)) = page {
         let next = match mode {
             InputMode::Mouse => "Tab: more",
@@ -205,7 +218,12 @@ pub fn instructions(mode: InputMode, page: Option<(usize, usize)>, equipping: bo
     } else {
         match mode {
             InputMode::Mouse => "1–4: play. C: catalog",
-            InputMode::Gamepad => "D-pad/A: play. Y: catalog",
+            InputMode::Gamepad => {
+                let button = |code| {
+                    key_name(settings.swap_gamepad_control(PhysicalControl::GamepadButton(code)))
+                };
+                return format!("D-pad/{}: play. {}: catalog", button(0), button(2));
+            }
             InputMode::Touch => "Tap an emote or Change Emotes",
         }
         .to_owned()
@@ -298,4 +316,70 @@ fn emote_data(
         );
     }
     data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use launcher::menu::settings_options::SettingId;
+
+    #[test]
+    fn controller_instructions_follow_both_button_swaps() {
+        for (swap_ab, swap_xy, accept, catalog) in [
+            (false, false, "A", "Y"),
+            (true, false, "B", "Y"),
+            (false, true, "A", "X"),
+            (true, true, "B", "X"),
+        ] {
+            let mut settings = SettingsOptions::default();
+            settings.set(SettingId::SwapGamepadAbButtons.index(), i32::from(swap_ab));
+            settings.set(SettingId::SwapGamepadXyButtons.index(), i32::from(swap_xy));
+            assert_eq!(
+                instructions(InputMode::Gamepad, None, false, &settings),
+                format!("D-pad/{accept}: play. {catalog}: catalog"),
+                "swap_ab={swap_ab}, swap_xy={swap_xy}"
+            );
+        }
+    }
+
+    #[test]
+    fn button_swaps_preserve_other_device_and_wheel_stage_instructions() {
+        for swap_ab in [0, 1] {
+            for swap_xy in [0, 1] {
+                let mut settings = SettingsOptions::default();
+                settings.set(SettingId::SwapGamepadAbButtons.index(), swap_ab);
+                settings.set(SettingId::SwapGamepadXyButtons.index(), swap_xy);
+                for (mode, page, equipping, expected) in [
+                    (InputMode::Mouse, None, false, "1–4: play. C: catalog"),
+                    (
+                        InputMode::Touch,
+                        None,
+                        false,
+                        "Tap an emote or Change Emotes",
+                    ),
+                    (
+                        InputMode::Gamepad,
+                        Some((1, 3)),
+                        false,
+                        "Choose (2/3). RB: more",
+                    ),
+                    (
+                        InputMode::Mouse,
+                        Some((0, 2)),
+                        false,
+                        "Choose (1/2). Tab: more",
+                    ),
+                    (
+                        InputMode::Touch,
+                        Some((0, 1)),
+                        false,
+                        "Choose (1/1). Next page",
+                    ),
+                    (InputMode::Gamepad, None, true, "Choose a wheel slot"),
+                ] {
+                    assert_eq!(instructions(mode, page, equipping, &settings), expected);
+                }
+            }
+        }
+    }
 }

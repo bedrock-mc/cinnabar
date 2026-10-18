@@ -9042,6 +9042,7 @@ dependencies = [
  "render-api",
  "render-model",
  "resource-pack",
+ "semantic-input",
  "serde_json",
  "tracing",
  "ui",

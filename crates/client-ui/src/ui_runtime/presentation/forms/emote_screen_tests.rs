@@ -156,8 +156,10 @@ fn native_wheel_instruction_controls_follow_the_last_active_device() {
     };
     let mut runtime = super::super::pack_harness::menu_runtime();
     runtime.emotes_mut().open();
-    let keyboard = ui_screens::emote_screen::instructions(InputMode::Mouse, None, false);
-    let gamepad = ui_screens::emote_screen::instructions(InputMode::Gamepad, None, false);
+    let settings = launcher::menu::settings_options::SettingsOptions::default();
+    let keyboard = ui_screens::emote_screen::instructions(InputMode::Mouse, None, false, &settings);
+    let gamepad =
+        ui_screens::emote_screen::instructions(InputMode::Gamepad, None, false, &settings);
     assert_ne!(keyboard, gamepad);
     presentation.set_emote_input_mode(InputMode::Mouse);
     let mouse_nodes = draw(&mut presentation, &runtime);
@@ -169,6 +171,46 @@ fn native_wheel_instruction_controls_follow_the_last_active_device() {
     let texts = super::super::pack_harness::drawn_texts(&pad_nodes);
     assert!(!texts.contains(&keyboard));
     assert!(texts.contains(&gamepad));
+}
+
+#[test]
+fn native_wheel_controller_instructions_follow_saved_button_swaps() {
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
+    use std::sync::Arc;
+
+    let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut runtime = super::super::pack_harness::menu_runtime();
+    runtime.emotes_mut().open();
+    presentation.set_emote_input_mode(InputMode::Gamepad);
+    for (swap_ab, swap_xy, expected) in [
+        (0, 0, "D-pad/A: play. Y: catalog"),
+        (1, 0, "D-pad/B: play. Y: catalog"),
+        (0, 1, "D-pad/A: play. X: catalog"),
+        (1, 1, "D-pad/B: play. X: catalog"),
+    ] {
+        let mut settings = SettingsOptions::default();
+        settings.set(SettingId::SwapGamepadAbButtons.index(), swap_ab);
+        settings.set(SettingId::SwapGamepadXyButtons.index(), swap_xy);
+        presentation.set_chat_settings_snapshot((Arc::new(settings), None));
+        let nodes = draw(&mut presentation, &runtime);
+        let input = presentation
+            .build(
+                &player_state::PlayerState::new(1),
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        super::super::snapshot::write(&input, &format!("emote_swaps_{swap_ab}_{swap_xy}"));
+        let texts = super::super::pack_harness::drawn_texts(&nodes);
+        assert!(
+            texts.iter().any(|text| text == expected),
+            "swap_ab={swap_ab}, swap_xy={swap_xy}: {texts:?}"
+        );
+    }
 }
 
 #[test]

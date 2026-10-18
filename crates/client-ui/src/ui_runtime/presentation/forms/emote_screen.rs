@@ -47,6 +47,7 @@ impl UiPresentationRuntime {
         self.screens.emote.paint(
             renderer,
             EmoteInput {
+                settings: self.screens.chat.settings.options(),
                 equipping: state.is_equipping(),
                 equipping_emote: state.equipping_emote(),
                 selected_slot: state.selected_slot(),
