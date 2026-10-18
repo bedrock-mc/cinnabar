@@ -15,13 +15,7 @@ use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
 
-/// Destroy facts and the inspected world columns that authorize an unaccepted press.
-pub(crate) struct DestroyObservation {
-    pub target: DestroyTarget,
-    pub world: sim::WorldCollisionIdentity,
-}
-
-/// Freezes the destroy facts used when the shared queue admits a block press.
+/// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
@@ -30,7 +24,7 @@ pub(crate) fn observe_destroy_target(
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
     position_authority_generation: PositionAuthorityGeneration,
-) -> Option<DestroyObservation> {
+) -> Option<DestroyTarget> {
     let ui = &context.ui;
     // The capability gate in the producer already confirmed this mode edits;
     // here only an open UI blocks the pick.
@@ -109,41 +103,38 @@ pub(crate) fn observe_destroy_target(
             },
         })
     });
-    Some(DestroyObservation {
-        world: observed.target.identity,
-        target: DestroyTarget {
-            position: observed.target.position,
-            face: observed.target.face,
-            runtime_id: observed.target.runtime_id,
-            wire_runtime_id: stream.block_network_id(observed.target.runtime_id)?,
-            relative_hit: observed.target.relative_hit,
-            block,
-            conditions: DestroyConditions {
-                tool,
-                efficiency_level: protocol::item_enchantment_level(
-                    item.extra_data(),
-                    EFFICIENCY_ENCHANTMENT_ID,
-                )
-                .unwrap_or(0),
-                haste_amplifier: effects.haste,
-                conduit_power_amplifier: effects.conduit_power,
-                mining_fatigue_amplifier: effects.mining_fatigue,
-                on_ground: true,
-                flying: exempt_from_airborne_penalty(
-                    context.physics.as_ref().map(|physics| physics.mode()),
-                ),
-                riding: ui.gameplay_hud().mount_unique_id().is_some(),
-                eyes_in_water: eyes_in_water(&world, observed.ray.origin),
-                aqua_affinity: protocol::item_enchantment_level(
-                    &helmet.extra_data,
-                    AQUA_AFFINITY_ENCHANTMENT_ID,
-                )
-                .is_some_and(|level| level > 0),
-            },
-            selection: observed.selection,
-            wear,
-            instant,
+    Some(DestroyTarget {
+        position: observed.target.position,
+        face: observed.target.face,
+        runtime_id: observed.target.runtime_id,
+        wire_runtime_id: stream.block_network_id(observed.target.runtime_id)?,
+        relative_hit: observed.target.relative_hit,
+        block,
+        conditions: DestroyConditions {
+            tool,
+            efficiency_level: protocol::item_enchantment_level(
+                item.extra_data(),
+                EFFICIENCY_ENCHANTMENT_ID,
+            )
+            .unwrap_or(0),
+            haste_amplifier: effects.haste,
+            conduit_power_amplifier: effects.conduit_power,
+            mining_fatigue_amplifier: effects.mining_fatigue,
+            on_ground: true,
+            flying: exempt_from_airborne_penalty(
+                context.physics.as_ref().map(|physics| physics.mode()),
+            ),
+            riding: ui.gameplay_hud().mount_unique_id().is_some(),
+            eyes_in_water: eyes_in_water(&world, observed.ray.origin),
+            aqua_affinity: protocol::item_enchantment_level(
+                &helmet.extra_data,
+                AQUA_AFFINITY_ENCHANTMENT_ID,
+            )
+            .is_some_and(|level| level > 0),
         },
+        selection: observed.selection,
+        wear,
+        instant,
     })
 }
 

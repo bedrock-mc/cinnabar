@@ -289,7 +289,6 @@ fn maintain_attacks(
                 (input.authority_generation, input.frame_sequence),
                 movement.interaction_authority_identity().1,
             )
-            .map(|observation| observation.target)
         })
     } else {
         None
