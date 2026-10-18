@@ -35,10 +35,15 @@ fn direction(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 fn rotate(v: vec2<f32>, angle: f32) -> vec2<f32> {
     return vec2<f32>(v.x*cos(angle)-v.y*sin(angle), v.x*sin(angle)+v.y*cos(angle));
 }
-/// Returns the shared bounded intersection of two offset segment edges.
-fn miter(n0: vec2<f32>, n1: vec2<f32>) -> vec2<f32> {
-    let bisector = direction(vec2<f32>(0.0), n0+n1);
-    return bisector * min(MITER_LIMIT, 1.0/max(abs(dot(bisector,n0)),1.0/MITER_LIMIT));
+/// Intersects offset edges; only the outside miter is limited to the selected join style.
+fn miter(n0: vec2<f32>, n1: vec2<f32>, bounded: bool) -> vec2<f32> {
+    let sum = n0+n1;
+    // Reversals have no unique intersection.
+    if dot(sum,sum) < 1e-10 { return n0; }
+    let bisector = normalize(sum);
+    var extent = 1.0/max(abs(dot(bisector,n0)),1e-5);
+    if bounded { extent = min(MITER_LIMIT, extent); }
+    return bisector * extent;
 }
 @vertex
 fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_index: u32) -> Output {
@@ -73,7 +78,7 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
                 if vertex.shape.z*side < 0.0 {
                     let n0 = vec2<f32>(incoming.y,-incoming.x)*side;
                     let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
-                    offset = -miter(n0,n1);
+                    offset = -miter(n0,n1,false);
                 }
             }
         }
@@ -94,13 +99,13 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
         let side = select(-1.0, 1.0, turn >= 0.0);
         let n0 = normal*side; let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
         // Both segment quads end at this inner corner; the fan owns the remaining wedge.
-        offset = -miter(n0,n1);
+        offset = -miter(n0,n1,false);
         if vertex.shape.z >= 0.0 {
             let phase = vertex.shape.z;
             if instance.line.z > 1.5 {
                 offset = rotate(n0, atan2(n0.x*n1.y-n0.y*n1.x, dot(n0,n1))*phase);
             } else if instance.line.z > 0.5 {
-                let outer = miter(n0,n1);
+                let outer = miter(n0,n1,true);
                 if phase < 0.5 { offset = mix(n0,outer,phase*2.0); }
                 else { offset = mix(outer,n1,phase*2.0-1.0); }
             } else { offset = mix(n0,n1,phase); }

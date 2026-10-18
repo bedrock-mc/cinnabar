@@ -81,14 +81,14 @@ fn polyline_joins_cover_each_sample_once_for_alpha_and_additive_blending() {
     };
     for blend in [wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING, additive] {
         for join in [0., 1., 2.] {
-            for outgoing_x in [0., -0.4, 0.4] {
+            for [outgoing_x, outgoing_y] in [[0., 1.], [-0.4, 1.], [0.4, 1.], [-0.7, 0.25]] {
                 for sign in [1., -1.] {
                     let pixels = line(
                         &gpu,
                         &[
                             [-0.5, -0.5 * sign, 0.5],
                             [0., -0.5 * sign, 0.5],
-                            [outgoing_x, 0.5 * sign, 0.5],
+                            [outgoing_x, (-0.5 + outgoing_y) * sign, 0.5],
                         ],
                         join,
                         blend,

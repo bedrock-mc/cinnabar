@@ -37,7 +37,7 @@ pub fn expanded_vertices(geometry: &Geometry) -> usize {
 pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
     let mut output = Vec::with_capacity(expanded_vertices(geometry));
     if !geometry.polyline {
-        for &index in &geometry.indices {
+        for &index in geometry.indices.iter() {
             let vertex = geometry.vertices[index as usize];
             output.push(GpuVertex {
                 a: point(vertex.position, 0.),
