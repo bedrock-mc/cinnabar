@@ -7976,6 +7976,11 @@ verified SHA-256, matching embedded version/source and host compatibility before
 atomic replacement of an unchanged managed file. Settings and grants persist;
 the existing watcher reloads enabled mods. Separate General settings disable
 automatic installation or all mod checks, including in passive app-updater builds.
+The per-mod Update button downloads and installs the exact WASM in-app when
+automatic installation is off. Pack-compatible progress reports bytes, percentage,
+smoothed speed and ETA, then verification, installation and reload. Reload completes
+only on the new runtime acknowledgement; duplicate presses are rejected and failures
+can be retried without changing the automatic preference.
 Regressions cover metadata, versions, cancellation, stale sources, download
 integrity and unchanged permissions/settings. Offline home and Mods-tab captures
 pass at desktop and small window sizes; live automatic-update acceptance remains

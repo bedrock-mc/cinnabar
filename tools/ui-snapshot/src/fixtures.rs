@@ -79,6 +79,30 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || updates::mods(true, true),
     },
+    State {
+        name: "settings-mod-updating",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: updates::mod_installing,
+    },
+    State {
+        name: "settings-mod-updating-small",
+        size: [640, 720],
+        gui_scale: GUI_SCALE,
+        fixture: updates::mod_installing,
+    },
+    State {
+        name: "settings-mod-installing",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::mod_stage(launcher::mods::UpdatePhase::Installing),
+    },
+    State {
+        name: "settings-mod-reloading",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::mod_stage(launcher::mods::UpdatePhase::Reloading),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "inventory-cursor-durability",

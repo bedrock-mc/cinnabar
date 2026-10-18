@@ -1,7 +1,8 @@
 //! Exact-asset downloads with GitHub's digest, bounded staging and cancellation fencing.
 
-use super::Candidate;
+use super::{Candidate, progress::Progress};
 use anyhow::{Context, Result, ensure};
+use launcher::mods::UpdatePhase;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -139,6 +140,7 @@ pub(super) struct Fence {
     pub revision: u64,
     pub permission: Arc<AtomicU64>,
     pub authorization: u64,
+    pub progress: Progress,
 }
 
 /// Fetches the selected immutable asset ID, never a moving `latest` URL, and verifies its digest.
@@ -150,6 +152,13 @@ pub(super) async fn fetch(
     fence: Fence,
     limit: usize,
 ) -> Result<Downloaded> {
+    fence.progress.set(
+        candidate.id,
+        fence.revision,
+        UpdatePhase::Downloading,
+        0,
+        asset.size,
+    );
     let response = client
         .get(format!(
             "https://api.github.com/repos/{}/releases/assets/{}",
@@ -192,8 +201,22 @@ async fn receive(
         );
         hash.update(&chunk);
         file.write_all(&chunk)?;
+        fence.progress.set(
+            candidate.id,
+            fence.revision,
+            UpdatePhase::Downloading,
+            length as u64,
+            asset.size,
+        );
     }
     ensure!(length as u64 == asset.size, "incomplete mod download");
+    fence.progress.set(
+        candidate.id,
+        fence.revision,
+        UpdatePhase::Verifying,
+        length as u64,
+        asset.size,
+    );
     let expected = digest(asset).context("missing mod SHA-256")?;
     ensure!(
         hash.finalize().as_slice() == expected,

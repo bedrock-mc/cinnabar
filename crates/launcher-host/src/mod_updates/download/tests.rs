@@ -87,6 +87,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
             revision: 1,
             permission: Arc::new(AtomicU64::new(1)),
             authorization: 1,
+            progress: Progress::default(),
         };
         receive(response, &candidate, "1.1.0", asset, fence, limit).await
     });
