@@ -162,6 +162,7 @@ fn clear_recipes() -> InventoryEvent {
     InventoryEvent::Recipes(protocol::decode_recipe_update(&body).unwrap())
 }
 
+/// Builds a complete UI snapshot, including the known-empty cursor at raw slot zero.
 fn contextual_grid(present: bool) -> InventoryEvent {
     let mut slots = vec![NetworkItemStack::empty(); 54];
     if present {
@@ -206,12 +207,14 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
     ingress(&mut app, 3, contextual_grid(true));
     app.update();
     assert!(
-        app.world()
-            .resource::<PlayerRuntime>()
-            .inventory
-            .crafting_preview()
-            .is_none(),
-        "Content cannot synthesize known-empty cursor"
+        matches!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .inventory
+                .crafting_preview(),
+            Some(CraftingPreview::Unique { count: 4, .. })
+        ),
+        "complete UI Content establishes the cursor as well as the grid"
     );
     ingress(&mut app, 4, empty_slot(59, 0));
     app.update();
@@ -352,7 +355,9 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
             .slot_state(28),
         Some(PlayerInventorySlot::Unknown)
     );
-    ingress(&mut app, 69, contextual_grid(false));
+    for index in 0..4 {
+        ingress(&mut app, 69 + index, contextual_slot(28 + index as u16));
+    }
     app.update();
     assert!(
         app.world()
@@ -360,9 +365,9 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
             .inventory
             .crafting_preview()
             .is_none(),
-        "grid recovery does not recover retired cursor"
+        "recovering every grid cell does not recover the retired cursor"
     );
-    ingress(&mut app, 70, empty_slot(59, 0));
+    ingress(&mut app, 73, contextual_grid(false));
     app.update();
     assert_eq!(
         app.world()
@@ -370,7 +375,7 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
             .inventory
             .crafting_preview(),
         Some(CraftingPreview::NoMatch),
-        "healthy catalog/registry/Server survived cell-domain overflow"
+        "a full UI snapshot restores grid and cursor; catalog/registry/Server survived overflow"
     );
     assert!(app.world().resource::<FatalError>().0.is_none());
 }
@@ -415,16 +420,19 @@ fn contextual_grid_dimension_round_trip_accepts_only_final_epoch_cells() {
             .crafting_preview()
             .is_none()
     );
-    ingress(&mut app, 8, contextual_grid(false));
+    for index in 0..4 {
+        ingress(&mut app, 8 + index, contextual_slot(28 + index as u16));
+    }
     app.update();
     assert!(
         app.world()
             .resource::<PlayerRuntime>()
             .inventory
             .crafting_preview()
-            .is_none()
+            .is_none(),
+        "final-epoch grid cells do not restore the retired cursor"
     );
-    ingress(&mut app, 9, empty_slot(59, 0));
+    ingress(&mut app, 12, contextual_grid(false));
     app.update();
     assert_eq!(
         app.world()
