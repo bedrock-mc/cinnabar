@@ -10,6 +10,7 @@ use std::mem::size_of;
 mod artwork;
 mod bones;
 mod dissolve;
+pub(crate) mod masks;
 pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
@@ -156,6 +157,7 @@ fn install_actor_render(app: &mut App) {
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
+    masks::install(app.sub_app_mut(RenderApp));
 }
 
 #[derive(Resource)]

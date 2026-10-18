@@ -67,6 +67,33 @@ pub struct DrawingSession {
     pub permissions: DrawingPermissions,
 }
 
+/// Retained union selections per component, including empty selections.
+pub const MAX_MASKS: usize = 2;
+/// Distinct actors selected by one mask.
+pub const MAX_MASK_ENTITIES: usize = 32;
+/// Actor vertices admitted to one selection, including equipment.
+pub const MAX_MASK_VERTICES: u64 = 262_144;
+/// Total attachment bytes across masks and views, including MSAA resolve targets.
+pub const MAX_MASK_ATTACHMENT_BYTES: u64 = 256 * 1024 * 1024;
+/// Mask imports admitted in one callback.
+pub const MAX_MASK_CALLS: u32 = 64;
+
+/// An actor incarnation, shared with trusted frame publication; never disclosed to shaders.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MaskEntity {
+    pub connection: u64,
+    pub dimension: i32,
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+}
+
+/// Draw-time depth authority cannot be changed after mask creation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaskDepth {
+    Test,
+    Always,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
