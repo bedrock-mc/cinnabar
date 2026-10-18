@@ -759,3 +759,11 @@ impl MovementTicker {
         self.refresh_outbox_reconciliation();
     }
 }
+
+impl MovementTicker {
+    /// Checks whether a press can use the first pending or next movement tick.
+    pub fn interaction_tick_available(&self, tick: u64) -> bool {
+        self.is_first_unsent_tick(tick)
+            || self.between_ticks_sample().is_some_and(|s| s.tick == tick)
+    }
+}

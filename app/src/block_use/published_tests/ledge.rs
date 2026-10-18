@@ -172,6 +172,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
     observe_use_target(
         &player,
         &context,
+        &context.origin,
         protocol_input_mode(input.input_mode),
         true,
         (input.authority_generation, input.frame_sequence),

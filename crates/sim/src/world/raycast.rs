@@ -309,10 +309,11 @@ impl PaletteWorld<'_> {
         if revisions.contains_key(&chunk) {
             return Ok(());
         }
-        let current = self
-            .store
-            .collision_revision(chunk)
-            .ok_or(WorldQueryError::UnloadedChunk(chunk))?;
+        let current = self.record_column_read(
+            self.store
+                .collision_revision(chunk)
+                .ok_or(WorldQueryError::UnloadedChunk(chunk)),
+        )?;
         if let Some(expected) = expected {
             let expected_revision = expected
                 .chunks

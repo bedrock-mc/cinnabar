@@ -1,9 +1,7 @@
 //! Local hotbar slot selection.
 //!
-//! Bedrock owns hotbar-slot selection on the client: number keys, the mouse wheel, and the
-//! controller cycle buttons change the held slot immediately (predicted locally so the HUD
-//! highlight follows input without waiting for the server), and the choice is announced upstream
-//! with a `PlayerHotbar` packet.
+//! Number keys, the mouse wheel and controller buttons announce the selected slot through
+//! equipment packets. Ordered desktop input publishes its local selection on FIFO admission.
 
 use crate::runtime::{
     network::resource_packs::PackApplication,
@@ -14,6 +12,8 @@ use client_runtime::network::NetworkHandle;
 use client_session::PacketSendError;
 use protocol::Packet;
 
+pub(crate) mod ordered;
+
 /// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
     clippy::too_many_arguments,
@@ -23,22 +23,20 @@ pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<FatalError>,
+    input: Option<Res<client_state::SemanticInputSnapshot>>,
 ) {
-    if network.closed_command_has_pending_control() {
+    if input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.ordered.is_some())
+    {
         return;
     }
-
-    flush_pending_hotbar_selection(
+    ordered::flush_existing_with(
         &mut player_runtime,
         &mut fatal_error.0,
-        |packet| match network.send_hotbar_packet(packet) {
-            Err(PacketSendError::Closed(packet))
-                if network.closed_command_has_pending_control() =>
-            {
-                Err(PacketSendError::Full(packet))
-            }
-            result => result,
-        },
+        |packet| network.send_hotbar_packet(packet),
+        || network.closed_command_has_pending_control(),
     );
 }
 
@@ -95,6 +93,28 @@ mod tests {
 
     use super::*;
     use client_interaction::hotbar::queue_hotbar_selection;
+
+    #[test]
+    fn ordered_selection_rechecks_terminal_control_after_a_closed_send() {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut ui = identified_runtime(&mut player);
+        publish_slot(&mut player, &mut ui, 1, NetworkItemStack::empty());
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(1, mode);
+        let pending = std::cell::Cell::new(false);
+        let mut fatal = None;
+        assert!(!ordered::flush_existing_with(
+            &mut player,
+            &mut fatal,
+            |packet| {
+                pending.set(true);
+                Err(PacketSendError::Closed(packet))
+            },
+            || pending.get(),
+        ));
+        assert_eq!(fatal, None);
+        assert_eq!(player.inventory.pending_hotbar_selection(), Some(1));
+    }
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
     fn publish_slot(
