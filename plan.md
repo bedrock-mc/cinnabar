@@ -4154,7 +4154,10 @@ movement/release fences have separate lifetimes. The client bounds a pending bur
 quarantines new gestures until a complete neutral sample. This resource policy and
 its overload timing remain provisional and incomplete. Full parity for global camera
 sampling, other input modes and device-specific chords remains incomplete. The existing
-published camera phase is preserved. Regression execution and live acceptance are pending.
+published camera phase is preserved. Retries revalidate current mode, capabilities and
+target evidence while keeping the original movement pose. Held targeting refreshes
+without another press. Focused interaction regressions pass; live acceptance remains
+incomplete.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the
