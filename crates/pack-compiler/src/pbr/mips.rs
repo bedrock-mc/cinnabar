@@ -229,11 +229,11 @@ fn categorical(
         for (value, weight) in selected() {
             coverage[decode::byte(value) as usize] += weight;
         }
-        coverage
-            .into_iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(value, _)| value as f32 / 255.0)
+        selected()
+            .max_by(|(a, _), (b, _)| {
+                coverage[decode::byte(*a) as usize].total_cmp(&coverage[decode::byte(*b) as usize])
+            })
+            .map(|(value, _)| value)
             .unwrap_or(fallback)
     } else {
         selected()

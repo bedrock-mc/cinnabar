@@ -521,7 +521,7 @@ fn normal_mips_are_unit_vectors_and_unresolved_detail_raises_roughness() {
     assert_eq!(normal[2..], [255, 128]);
     assert!(mip.material[1].rgba8[2] > mip.material[0].rgba8[2] + 64);
     let material = RgbaImage::from_fn(2, 2, |x, _| {
-        Rgba([if x == 0 { 230 } else { 237 }, 0, 64, 12])
+        Rgba([if x == 0 { 237 } else { 230 }, 0, 64, 12])
     });
     let mip = build_pbr_mips(
         &surface(
@@ -535,7 +535,7 @@ fn normal_mips_are_unit_vectors_and_unresolved_detail_raises_roughness() {
         false,
     )
     .unwrap();
-    assert!([230, 237].contains(&mip.material[1].rgba8[0]));
+    assert_eq!(mip.material[1].rgba8[0], 230);
     let material = RgbaImage::from_fn(4, 4, |x, _| {
         Rgba([if x % 2 == 0 { 237 } else { 229 }, 0, 64, 12])
     });
