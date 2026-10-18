@@ -609,7 +609,7 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     assert!(response.is_none(), "an auto-repeated key answered the form");
 }
 
-// Zeqa answers a page before the mouse is released; that release must not click the next page.
+// Reissuing a page while its button is held must not transfer that click to the new revision.
 #[test]
 fn a_release_after_the_next_page_arrives_does_not_click_it() {
     use bevy::input::mouse::MouseButtonInput;
@@ -617,9 +617,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     use client_ui::ui_runtime::SequencedUiEvent;
     use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
     use std::sync::Arc;
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation = client_ui::test_support::mini_engine_presentation();
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
@@ -690,7 +688,9 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     };
     send(&mut app, ButtonState::Pressed);
     let first = take(&mut app);
-    // The server's next page arrives while the button is still held.
+    assert!(first.is_empty(), "pointer selection waits for release");
+    // A different ID would be rejected as Busy while the first page remains open.
+    // Reissuing the same ID replaces its authority before the physical release.
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player_runtime = world
@@ -705,7 +705,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
                         local_millis: 0,
                         server_tick: None,
                         event: UiEvent::Form(FormRequestEvent {
-                            form_id: 4,
+                            form_id: identity.form_id,
                             kind: FormKind::Menu,
                             title: Some(Arc::from("Next")),
                             json: Arc::from("{}"),
@@ -733,8 +733,18 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     send(&mut app, ButtonState::Released);
     let second = take(&mut app);
     assert!(
-        first.len() + second.len() <= 1,
-        "one physical click answered more than one page"
+        second.is_empty(),
+        "the old press must not answer the reissued page: {second:?}"
+    );
+    send(&mut app, ButtonState::Pressed);
+    send(&mut app, ButtonState::Released);
+    assert_eq!(
+        take(&mut app),
+        vec![protocol::modal_form_submit_response(
+            identity.form_id,
+            protocol::ModalFormResponseSelection::ButtonIndex(1),
+        )],
+        "a fresh click answers the new page exactly once"
     );
 }
 

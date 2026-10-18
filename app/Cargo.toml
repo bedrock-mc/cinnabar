@@ -171,6 +171,7 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 mimalloc.workspace = true
+render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
