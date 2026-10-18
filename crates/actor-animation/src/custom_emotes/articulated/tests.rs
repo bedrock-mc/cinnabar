@@ -1,5 +1,7 @@
 use super::*;
 
+mod visibility;
+
 pub(super) fn fixture() -> Arc<SkinGeometry> {
     Arc::new(assets::parse_skin_geometry(
         r#"{"geometry":{"default":"geometry.knee_test"}}"#,
@@ -524,7 +526,7 @@ fn breakdance_mesh_preserves_skin_clothing_slim_arms_and_clip_cache_identity() {
     );
     let mut slim = (*source).clone();
     slim.bones[4].cubes[0].size[0] = Scalar::new(3.0).unwrap();
-    let slim = build(&slim, CustomEmote::Breakdance).unwrap();
+    let slim = build(&slim, CustomEmote::Breakdance).unwrap().geometry;
     for name in [
         "leftarm",
         "leftarm.cinnabar_elbow",

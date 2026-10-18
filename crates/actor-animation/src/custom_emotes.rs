@@ -152,7 +152,11 @@ pub fn sample_custom_emote(
             .map(|model| model.bounds.as_ref()),
         None,
     )?;
+    let mut render = rig.render.to_vec();
     let articulated = if let Some(model) = articulated_model {
+        for layer in render.iter_mut().filter(|layer| layer.geometry.is_none()) {
+            layer.hidden_bones = model.hidden_bones(&layer.hidden_bones);
+        }
         Some(CustomEmoteRig {
             geometry: model.geometry,
             mesh: model.mesh,
@@ -166,7 +170,6 @@ pub fn sample_custom_emote(
         names: &names,
         pose: &body,
     });
-    let mut render = rig.render.to_vec();
     for layer in &mut render {
         if let Some(index) = layer.geometry {
             let (assets, _) = catalog?;
@@ -187,6 +190,7 @@ pub fn sample_custom_emote(
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
         let bounds = if let Some(model) = articulated::model(&layer.geometry, emote) {
+            layer.hidden_bones = model.hidden_bones(&layer.hidden_bones);
             layer.geometry = model.geometry;
             layer.mesh = Some(model.mesh);
             Some(model.bounds)

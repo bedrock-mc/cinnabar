@@ -13,6 +13,29 @@ pub(super) struct Model {
     pub geometry: Arc<SkinGeometry>,
     pub mesh: render_model::ActorRigGeometry,
     pub bounds: Arc<[Option<BoneBounds>]>,
+    /// Original bone index for each appended joint, in mesh order.
+    sources: Arc<[u32]>,
+}
+
+impl Model {
+    /// Hides generated pieces only when their own source cuboid is hidden in this draw.
+    pub(super) fn hidden_bones(&self, hidden: &Arc<[u32]>) -> Arc<[u32]> {
+        let original_count = self.geometry.bones.len() - self.sources.len();
+        let mut generated = self
+            .sources
+            .iter()
+            .enumerate()
+            .filter_map(|(index, source)| {
+                hidden
+                    .contains(source)
+                    .then_some((original_count + index) as u32)
+            })
+            .peekable();
+        if generated.peek().is_none() {
+            return Arc::clone(hidden);
+        }
+        hidden.iter().copied().chain(generated).collect()
+    }
 }
 
 /// Local bounds derived from the prepared vertices, including skin-layer inflation.
@@ -54,6 +77,7 @@ fn mesh_bytes(model: &Option<Model>) -> usize {
         std::mem::size_of_val(model.mesh.vertices.as_ref())
             + std::mem::size_of_val(model.mesh.bone_pivots.as_ref())
             + std::mem::size_of_val(model.bounds.as_ref())
+            + std::mem::size_of_val(model.sources.as_ref())
     })
 }
 
@@ -67,14 +91,7 @@ pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Mo
     {
         return model.clone();
     }
-    let model = build(source, emote).and_then(|geometry| {
-        let mesh = render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok()?;
-        Some(Model {
-            bounds: contact_bounds(&mesh),
-            geometry: Arc::new(geometry),
-            mesh,
-        })
-    });
+    let model = build(source, emote);
     let bytes = mesh_bytes(&model);
     if bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES {
         return None;
@@ -89,7 +106,8 @@ pub(super) fn model(source: &Arc<SkinGeometry>, emote: CustomEmote) -> Option<Mo
     model
 }
 
-fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
+/// Splits supported cuboids and prepares a mesh with each generated joint's source bone.
+fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<Model> {
     // Only classic skins with unrotated cuboid limbs can be split without
     // changing authored bind rotations, polygon meshes or arbitrary proportions.
     if source.poly_meshes.iter().any(Option::is_some) {
@@ -107,6 +125,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
     let mut model = source.clone();
     let mut bones = source.bones.to_vec();
     let mut added = Vec::new();
+    let mut sources = Vec::new();
     for (index, bone) in source.bones.iter().enumerate() {
         let leg = legs
             .iter()
@@ -179,6 +198,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
         foot.cubes = feet.into();
         added.push(shin);
         added.push(foot);
+        sources.extend([index as u32; 2]);
     }
     bones.extend(added);
     if bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
@@ -187,7 +207,7 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
     model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
     if emote == CustomEmote::Breakdance {
-        full_body::extend(source, &mut model)?;
+        full_body::extend(source, &mut model, &mut sources)?;
     }
     let mut digest = Sha256::new();
     digest.update(source.digest);
@@ -196,7 +216,13 @@ fn build(source: &SkinGeometry, emote: CustomEmote) -> Option<SkinGeometry> {
         digest.update(b"cinnabar:elbows-wrists-spine:v2");
     }
     model.digest = digest.finalize().into();
-    Some(model)
+    let mesh = render_model::skin_geometry(&model, render_model::DIAGNOSTIC_RIG_ID).ok()?;
+    Some(Model {
+        bounds: contact_bounds(&mesh),
+        geometry: Arc::new(model),
+        mesh,
+        sources: sources.into(),
+    })
 }
 
 fn descendant(source: &SkinGeometry, index: usize, leg: usize) -> bool {

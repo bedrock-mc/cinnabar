@@ -1,8 +1,12 @@
 //! Original texture-preserving elbows, wrists and lower torso for the breakdance mesh.
 use super::*;
 
-/// Splits the original arm and torso cubes, keeping ordinary skin and clothing bind positions.
-pub(super) fn extend(source: &SkinGeometry, model: &mut SkinGeometry) -> Option<()> {
+/// Splits arm and torso cubes, preserving bind positions and recording their source bones.
+pub(super) fn extend(
+    source: &SkinGeometry,
+    model: &mut SkinGeometry,
+    sources: &mut Vec<u32>,
+) -> Option<()> {
     let find = |name: &str| {
         source
             .bones
@@ -83,6 +87,7 @@ pub(super) fn extend(source: &SkinGeometry, model: &mut SkinGeometry) -> Option<
             palm.cubes = hand.into();
             bones.push(forearm);
             bones.push(palm);
+            sources.extend([index as u32; 2]);
         }
     }
     let pivot = source.bones[body].pivot?;
@@ -113,6 +118,7 @@ pub(super) fn extend(source: &SkinGeometry, model: &mut SkinGeometry) -> Option<
         waist.pivot = Some([pivot[0], Scalar::new(middle)?, pivot[2]]);
         waist.cubes = lower.into();
         bones.push(waist);
+        sources.push(index as u32);
     }
     if bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
         return None;
