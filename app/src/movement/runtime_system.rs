@@ -6,6 +6,7 @@ use web_time::Instant;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
+    ecs::system::SystemParam,
     prelude::{EulerRot, Res, ResMut, Time, Vec3},
     time::Real,
 };
@@ -25,6 +26,14 @@ use client_interaction::movement::{
 
 use client_interaction::movement::LocomotionState;
 
+/// Reads user movement settings and any native extension policy in one system parameter.
+#[derive(SystemParam)]
+pub(crate) struct MovementSettings<'w> {
+    settings: Option<Res<'w, RuntimeSettings>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mods: Option<Res<'w, crate::modding::ModRuntime>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
@@ -38,16 +47,12 @@ pub(crate) fn advance_local_physics(
     mut movement_speed: ResMut<LocalMovementSpeedAuthority>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
-    settings: (
-        Option<Res<RuntimeSettings>>,
-        Option<Res<crate::modding::ModRuntime>>,
-    ),
+    settings: MovementSettings<'_>,
     player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
-    let (settings, mods) = settings;
     movement_effects.begin_frame();
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
@@ -80,15 +85,25 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
-    let mut gameplay = settings
+    let gameplay = settings
+        .settings
         .as_deref()
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
-    if let Some(policy) = mods.as_deref().and_then(|mods| mods.movement_toggles()) {
-        gameplay.toggle_sprint = policy.toggle_sprint;
-        gameplay.toggle_sneak = policy.toggle_sneak;
-        gameplay.always_sprint = policy.always_sprint;
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let gameplay = {
+        let mut gameplay = gameplay;
+        if let Some(policy) = settings
+            .mods
+            .as_deref()
+            .and_then(|mods| mods.movement_toggles())
+        {
+            gameplay.toggle_sprint = policy.toggle_sprint;
+            gameplay.toggle_sneak = policy.toggle_sneak;
+            gameplay.always_sprint = policy.always_sprint;
+        }
+        gameplay
+    };
     let frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
