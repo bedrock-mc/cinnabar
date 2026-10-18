@@ -821,3 +821,61 @@ fn a_postponed_stage_is_replaced_only_by_a_newer_release() {
     assert!(worker::supersedes(&release("2.0.0", 11), Some(&staged), false).unwrap());
     assert!(worker::supersedes(&release("2.1.0", 1), Some(&staged), false).unwrap());
 }
+
+/// Manual checks bypass the saved automatic-check preference and reject duplicate work.
+#[test]
+fn manual_checks_preserve_preferences_and_wait_for_an_idle_started_client() {
+    let mut state = State::new();
+    state.preferences.checks = false;
+    assert!(!state.request_check());
+    state.startup = StartupPhase::Complete;
+    assert!(state.request_check());
+    assert!(!state.preferences.checks);
+    assert!(state.manual_check && state.check_now);
+    state.running = true;
+    assert!(!state.request_check());
+    state.running = false;
+    state.requested = true;
+    assert!(!state.request_check());
+}
+
+/// Completed, failed and cancelled workers must not leave a permanent busy indicator.
+#[test]
+fn check_status_finishes_without_overwriting_a_newer_channels_state() {
+    let mut state = State::new();
+    state.running = true;
+    state.status = Status::Downloading;
+    assert!(!state.finish_check(state.generation, false, false));
+    assert_eq!(state.status, Status::Idle);
+    state.status = Status::Checking;
+    assert!(!state.finish_check(state.generation, false, true));
+    assert_eq!(state.status, Status::Failed);
+    let old = state.generation;
+    state.configure(Preferences {
+        channel: Channel::Nightly,
+        ..state.preferences
+    });
+    assert!(state.finish_check(old, false, true));
+    assert_eq!(state.status, Status::Idle);
+    state.status = Status::UpToDate;
+    assert!(!state.finish_check(state.generation, false, false));
+    assert_eq!(state.status, Status::UpToDate);
+}
+
+/// Cancelling a worker on a preference change keeps Check now disabled until it exits.
+#[test]
+fn changing_channels_keeps_pending_worker_cancellation_busy() {
+    let mut state = State::new();
+    state.startup = StartupPhase::Complete;
+    state.running = true;
+    state.status = Status::Downloading;
+    let old = state.generation;
+    state.configure(Preferences {
+        channel: Channel::Nightly,
+        ..state.preferences
+    });
+    assert!(state.status.is_busy());
+    assert!(!state.request_check());
+    assert!(state.finish_check(old, false, true));
+    assert!(state.request_check());
+}

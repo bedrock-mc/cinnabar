@@ -470,12 +470,12 @@ settings! {
         [(SettingPanel::GeneralNetwork, 2)], [], None, None;
     CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
         [(SettingPanel::GeneralNetwork, 3)], [], None, None;
-    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
-        [(SettingPanel::GeneralUpdates, 0)], [], None, None;
-    InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
+    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates automatically", super::super::updates::Preferences::DEFAULT.checks),
         [(SettingPanel::GeneralUpdates, 1)], [], None, None;
-    UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
+    InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
         [(SettingPanel::GeneralUpdates, 2)], [], None, None;
+    UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
+        [(SettingPanel::GeneralUpdates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
         [(SettingPanel::GeneralNetwork, 4)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),

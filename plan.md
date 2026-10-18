@@ -496,8 +496,10 @@ relaunch is disabled. The machine-wide install identity and custom install folde
 
 One client per install owns update checks, Beta/Nightly/Stable channel selection, a compact corner
 card with an explicit Restart and update or Download update button, and a separate default-off
-install-on-quit preference. Signed manifests
-carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
+install-on-quit preference. General settings groups these controls under Updates, explains Beta and
+Nightly, and shows the installed version and live check status. Check now fetches fresh metadata
+even with automatic checks off; it is disabled during a check or download and while in a world.
+Signed manifests carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
 Windows uses this helper even without direct write rights: Windows Installer handles any

@@ -1,0 +1,54 @@
+//! App update preferences and worker status share one General settings section.
+
+use super::{Content, services};
+use launcher::menu::{
+    MenuAction,
+    settings_options::layout::SettingPanel,
+    updates::{Action, installed_version},
+};
+use ui_engine::engine::screen::PaintError;
+
+/// Presents the installed version, channel policy and one explicit fresh-check action.
+pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    let view = content.view;
+    if !view.updates.active {
+        return Ok(());
+    }
+    content.heading(
+        "Updates",
+        "Beta gets regular releases. Nightly gets the newest changes and may have bugs.",
+    )?;
+    for option in SettingPanel::GeneralUpdates.options() {
+        content.option(option.id)?;
+    }
+    let mut status = view.updates.status_text();
+    if view.over_world {
+        status.push_str(" Return to the home menu to check for updates.");
+    }
+    services::action_row(
+        content,
+        &installed_version(),
+        &status,
+        "Check now",
+        (!view.over_world && !view.updates.status.is_busy())
+            .then_some(MenuAction::Update(Action::CheckNow)),
+    )?;
+    if !view.over_world {
+        if let Some(message) = &view.updates.message {
+            content.label("", message)?;
+        }
+        if view.updates.switch_available {
+            services::action_row(
+                content,
+                "Change channel now",
+                "Download this channel's older build for manual installation.",
+                "Switch now",
+                Some(MenuAction::Update(Action::SwitchNow)),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

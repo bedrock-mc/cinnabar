@@ -479,6 +479,7 @@ fn binding(
 fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.general.tab.title", "menu.general.tab.description")?;
     options(content, SettingPanel::General)?;
+    super::updates::draw(content)?;
     content.heading(
         "menu.general.tab.pause.title",
         "menu.general.tab.pause.description",
@@ -489,25 +490,6 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.network.description",
     )?;
     options(content, SettingPanel::GeneralNetwork)?;
-    if content.view.updates.active {
-        options(content, SettingPanel::GeneralUpdates)?;
-    }
-    if content.view.updates.active && !content.view.over_world {
-        if let Some(message) = &content.view.updates.message {
-            content.heading(message, "")?;
-        }
-        if content.view.updates.switch_available {
-            super::services::action_row(
-                content,
-                "Change channel now",
-                "Download this channel's older build for manual installation.",
-                "Switch now",
-                Some(MenuAction::Update(
-                    launcher::menu::updates::Action::SwitchNow,
-                )),
-            )?;
-        }
-    }
     content.heading(
         "menu.general.tab.miscellaneous.title",
         "menu.general.tab.miscellaneous.description",
