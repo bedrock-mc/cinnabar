@@ -34,6 +34,7 @@ fn oversized_response_item_data_preserves_usable_backing() {
             .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
             .unwrap();
         send_all(&mut ledger);
+        let revision = ledger.authoritative_slot_revision(0).unwrap();
         let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 2, 12);
         let slot = &mut Arc::make_mut(&mut reply.slots)[0];
         slot.custom_name = Arc::from(name);
@@ -46,6 +47,11 @@ fn oversized_response_item_data_preserves_usable_backing() {
             vec![reply],
         );
 
+        assert_eq!(
+            ledger.authoritative_slot_revision(0),
+            Some(revision),
+            "skipped corrections must preserve slot authority: {name:?}, {filtered:?}, {damage}"
+        );
         let retained = ledger.displayed_stack(0).unwrap();
         assert!(
             protocol::VerifiedNetworkItemStack::try_new(retained.clone(), retained.nbt_digest)
@@ -82,6 +88,7 @@ fn response_item_data_at_descriptor_limit_remains_usable() {
         .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
         .unwrap();
     send_all(&mut ledger);
+    let revision = ledger.authoritative_slot_revision(0).unwrap();
     let mut reply = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 2, 12);
     let slot = &mut Arc::make_mut(&mut reply.slots)[0];
     slot.custom_name = Arc::from("New");
@@ -94,6 +101,7 @@ fn response_item_data_at_descriptor_limit_remains_usable() {
         vec![reply],
     );
 
+    assert_eq!(ledger.authoritative_slot_revision(0), Some(revision + 1));
     let retained = ledger.displayed_stack(0).unwrap();
     assert_eq!(retained.extra_data.len(), protocol::MAX_ITEM_EXTRA_BYTES);
     assert_eq!((retained.count, retained.stack_network_id), (2, 12));
