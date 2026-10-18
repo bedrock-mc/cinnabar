@@ -5,6 +5,17 @@ use render_scene::mod_scene::retained::GpuInstance;
 
 /// Renders an admitted line through the production vertex and fragment shaders.
 fn line(gpu: &Gpu, positions: &[[f32; 3]], join: f32, blend: wgpu::BlendState) -> Vec<u8> {
+    transformed_line(gpu, positions, Mat4::IDENTITY, join, blend)
+}
+
+/// Renders local geometry with the same placement transform used by retained instances.
+fn transformed_line(
+    gpu: &Gpu,
+    positions: &[[f32; 3]],
+    transform: Mat4,
+    join: f32,
+    blend: wgpu::BlendState,
+) -> Vec<u8> {
     let mut store = Store::default();
     let handle = store
         .create_geometry(GeometrySpec::Polyline {
@@ -21,12 +32,16 @@ fn line(gpu: &Gpu, positions: &[[f32; 3]], join: f32, blend: wgpu::BlendState) -
         })
         .unwrap();
     store.commit();
-    let vertices = mesh::build(&store.snapshot().geometry[&handle]);
+    let mut vertices = mesh::build(&store.snapshot().geometry[&handle]);
+    let vertex_count = vertices.len() as u32;
+    if vertices.is_empty() {
+        vertices.push(mesh::GpuVertex::default());
+    }
     let view = gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO);
     let view = gpu.buffer(&view, wgpu::BufferUsages::UNIFORM);
     let storage = gpu.buffer(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let instance = GpuInstance {
-        transform: Mat4::IDENTITY.to_cols_array_2d(),
+        transform: transform.to_cols_array_2d(),
         tint: [1.; 4],
         line: [20., 1., join, 1.],
     };
@@ -40,7 +55,7 @@ fn line(gpu: &Gpu, positions: &[[f32; 3]], join: f32, blend: wgpu::BlendState) -
         "vertex",
         &[Draw {
             fragment: "fragment",
-            vertices: 0..vertices.len() as u32,
+            vertices: 0..vertex_count,
             bindings: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -64,6 +79,25 @@ fn line(gpu: &Gpu, positions: &[[f32; 3]], join: f32, blend: wgpu::BlendState) -
 /// Returns one RGBA pixel from the fixed-size headless target.
 fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     &pixels[(y * SNAPSHOT_SIDE as usize + x) * 4..][..4]
+}
+
+#[test]
+fn scaled_small_polyline_renders_the_same_stroke_as_world_sized_geometry() {
+    let Some(gpu) = Gpu::for_fixture("retained scaled polyline") else {
+        return;
+    };
+    let blend = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
+    let expected = line(&gpu, &[[-0.5, 0., 0.5], [0.5, 0., 0.5]], 0., blend);
+    assert_ne!(pixel(&expected, 128, 128), pixel(&expected, 0, 0));
+    let pixels = transformed_line(
+        &gpu,
+        &[[0.; 3], [1e-8, 0., 0.]],
+        Mat4::from_translation(Vec3::new(-0.5, 0., 0.5)) * Mat4::from_scale(Vec3::new(1e8, 1., 1.)),
+        0.,
+        blend,
+    );
+    gpu_snapshot::save("retained-scaled-polyline", &pixels);
+    assert!(pixels == expected, "instance scaling changed the stroke");
 }
 
 #[test]

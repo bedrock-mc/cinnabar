@@ -54,6 +54,9 @@ pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
         .filter_map(|index| {
             let a = vertices[index];
             let b = vertices[(index + 1) % vertices.len()];
+            if a.position == b.position {
+                return None;
+            }
             let length = a
                 .position
                 .iter()
@@ -61,7 +64,7 @@ pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f32>()
                 .sqrt();
-            (length > f32::EPSILON).then_some((a, b, length))
+            Some((a, b, length))
         })
         .collect();
     let mut distance = 0.;

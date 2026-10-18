@@ -290,6 +290,47 @@ fn triangle_expansion_preserves_indices_and_zero_length_lines_emit_nothing() {
 }
 
 #[test]
+fn distinct_polyline_endpoints_survive_expansion_before_instance_scaling() {
+    for axis in 0..3 {
+        for length in [1e-8, 1e-30] {
+            for closed in [false, true] {
+                let mut store = Store::default();
+                let a = [0.; 3];
+                let mut b = a;
+                b[axis] = length;
+                let geometry = store
+                    .create_geometry(GeometrySpec::Polyline {
+                        vertices: [a, a, b, b]
+                            .map(|position| Vertex {
+                                position,
+                                color: [1.; 4],
+                                uv: [0.; 2],
+                                data: [0.; 4],
+                            })
+                            .to_vec(),
+                        closed,
+                    })
+                    .unwrap();
+                let mut instance = drawing(geometry);
+                instance.transform.scale[axis] = -length.recip();
+                store
+                    .create(instance.clone(), DrawingPermissions::ALL)
+                    .unwrap();
+                store.commit();
+                let expanded = super::mesh::build(&store.snapshot().geometry[&geometry]);
+                let segments: Vec<_> = expanded.iter().filter(|v| v.shape[0] == 1.).collect();
+                assert_eq!(segments.len(), if closed { 12 } else { 6 });
+                assert_eq!(segments[0].a[..3], a);
+                assert_eq!(segments[0].b[..3], b);
+                let world_length =
+                    (segments[0].b[axis] - segments[0].a[axis]) * instance.transform.scale[axis];
+                assert!((world_length + 1.).abs() < f32::EPSILON);
+            }
+        }
+    }
+}
+
+#[test]
 fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
     let mut store = Store::default();
     let GeometrySpec::Triangles { vertices, .. } = mesh() else {
