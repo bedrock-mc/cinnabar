@@ -423,6 +423,7 @@ type ModOutputs<'w> = (
 struct ModObservation<'w, 's> {
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
+    drawing_frame: ResMut<'w, render_scene::mod_scene::retained::DrawingFrame>,
     cameras: Query<
         'w,
         's,
@@ -460,6 +461,7 @@ fn drive_mod(
     let ModObservation {
         watcher,
         render_scene,
+        mut drawing_frame,
         cameras,
         mut frame_rate,
         mut module_observer,
@@ -593,6 +595,7 @@ fn drive_mod(
             );
         }
     }
+    drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension), Some(&ui));
