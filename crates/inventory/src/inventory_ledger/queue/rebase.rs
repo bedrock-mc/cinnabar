@@ -87,14 +87,22 @@ impl PlayerInventoryLedger {
                             .map_or(0, |held| held.stack.stack_network_id);
                     }
                 }
+                let mut placements = Vec::new();
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);
-                    self.validate_group(&cells, group, &request.actions).is_ok()
-                        && group.apply(&mut cells)
+                    if self
+                        .validate_group(&cells, group, &request.actions)
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    placements.extend(group.placement_inputs(&cells));
+                    group.apply(&mut cells)
                 }) {
                     invalid = Some(request.request_id);
                     break;
                 }
+                request.placements = placements;
                 for prediction in &mut request.predicted {
                     let old = prediction.held.take();
                     prediction.held = cells.get(prediction.cell).cloned();

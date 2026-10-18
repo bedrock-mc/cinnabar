@@ -530,6 +530,7 @@ impl PlayerInventoryLedger {
             registry_bound_merge: submission.registry_bound_merge,
             quick_move_route: None,
             predicted: Vec::new(),
+            placements: Vec::new(),
             mining: None,
             world_drop,
             consumed_after: Vec::new(),

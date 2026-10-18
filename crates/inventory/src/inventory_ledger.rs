@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, VecDeque};
 mod admission;
 mod auto_craft;
 mod bundles;
+mod cancellation;
 mod cells;
 mod consumption;
 mod control;

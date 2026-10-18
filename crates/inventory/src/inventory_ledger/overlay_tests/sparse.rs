@@ -348,3 +348,6 @@ mod response_scopes;
 
 #[path = "sparse/world_use.rs"]
 mod world_use;
+
+#[path = "sparse/cancellation.rs"]
+mod cancellation;
