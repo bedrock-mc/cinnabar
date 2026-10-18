@@ -86,7 +86,12 @@ impl LoginSequence {
             frames,
             timers,
         } = io;
-        let SessionLogin { cache, tap, .. } = login;
+        let SessionLogin {
+            cache,
+            settings,
+            tap,
+            ..
+        } = login;
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);

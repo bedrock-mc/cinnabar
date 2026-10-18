@@ -86,7 +86,10 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
         };
         let jobs = Rc::new(Cell::new(0));
         let preparation = LocalPreparation(Rc::clone(&jobs));
-        let settings = LoginSettings::default();
+        let settings = LoginSettings {
+            view_distance_chunks: 23,
+            ..Default::default()
+        };
         let wire = archive_wire(b"abc");
         let join = LoginSequence::connect_web_prepared(
             SessionIo {
@@ -159,10 +162,11 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
             assert_eq!((trace, frame), (91, expected_frame));
         }
         assert!(
-            core.receive_packets()
-                .await
-                .iter()
-                .any(|packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(_)))
+            core.receive_packets().await.iter().any(
+                |packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(request)
+                    if request.chunk_radius.0 == i32::from(settings.view_distance_chunks))
+            ),
+            "web login retains the selected view distance"
         );
         session.finish_loading().await.unwrap();
         assert!(core.receive_packets().await.iter().any(|packet| matches!(
