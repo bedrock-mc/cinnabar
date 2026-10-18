@@ -145,7 +145,7 @@ fn origins_join_actual_apply_prefix_and_epoch_not_latest_ingress() {
 }
 
 #[test]
-fn skipped_stale_records_and_explicit_cursor_do_not_invent_empty() {
+fn stale_records_skip_and_full_snapshots_establish_cursor_empty() {
     let fixture = Fixture::new();
     let mut state = state();
     state.observe(1, 1, &grid(0));
@@ -167,7 +167,8 @@ fn skipped_stale_records_and_explicit_cursor_do_not_invent_empty() {
     state.advance();
     let row = snapshot_row(&state, &fixture.0.probe.lock().unwrap(), "Unit");
     assert!(row.cells[..4].iter().all(|cell| cell.state == 1));
-    assert_eq!(row.cells[4].state, 0);
+    assert_eq!(row.cells[4].state, 1);
+    assert_eq!(row.cells[4].origin.unwrap().sequence, 3);
     state.observe(1, 4, &slot(protocol::CONTAINER_NAME_CURSOR, 0));
     state.synchronize(Some((1, 2, Some(4))));
     state.advance();
@@ -535,4 +536,59 @@ fn review_contention_during_an_action_retires_its_terminal_receipt() {
     assert!(probe.retired);
     assert!(probe.incomplete);
     assert!(probe.spent[4]);
+}
+
+#[test]
+fn full_content_cursor_origin_tracks_same_committed_receipt() {
+    let fixture = Fixture::new();
+    let mut session = crate::InventorySession::new(1);
+    session.publish_crafting_bootstrap(None, InventoryAuthority::Server);
+    session
+        .enqueue_inventory_event(
+            1,
+            1,
+            match slot(protocol::CONTAINER_NAME_CURSOR, 0) {
+                InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(mut event)) => {
+                    event.stack = NetworkItemStack {
+                        network_id: 6,
+                        stack_network_id: 81,
+                        count: 1,
+                        ..NetworkItemStack::empty()
+                    };
+                    InventoryEvent::Slot(event)
+                }
+                _ => unreachable!(),
+            },
+        )
+        .unwrap();
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
+    session.drain_pending_inventory();
+    assert_eq!(
+        fixture.0.probe.lock().unwrap().origins[4].unwrap().sequence,
+        1
+    );
+    session
+        .enqueue_inventory_event(
+            1,
+            2,
+            match grid(0) {
+                InventoryAuthorityEvent::Inventory(event) => event,
+                _ => unreachable!(),
+            },
+        )
+        .unwrap();
+    session.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+    session.drain_pending_inventory();
+    assert!(
+        session.ledger().cursor_stack().is_none(),
+        "new full snapshot cleared the owning cursor"
+    );
+    let probe = fixture.0.probe.lock().unwrap();
+    assert!(!probe.retired);
+    assert_eq!(probe.origins[0].unwrap().sequence, 2);
+    assert_eq!(
+        probe.origins[4].unwrap().sequence,
+        2,
+        "full Content updates cursor and grid at the same FIFO receipt"
+    );
 }

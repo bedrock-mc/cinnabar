@@ -2,32 +2,6 @@
 use super::*;
 use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
 
-pub(crate) fn configure_client_frame_schedule(app: &mut App) {
-    app.init_resource::<client_state::ScreenFocus>()
-        .init_resource::<client_state::GameplayScreenControls>();
-    app.configure_sets(
-        Update,
-        (
-            ClientFrameSet::RawInput,
-            ClientFrameSet::SemanticSample,
-            ClientFrameSet::UiAuthority,
-            ClientFrameSet::SemanticFinalize,
-            ClientFrameSet::Physics,
-            ClientFrameSet::Camera,
-            ClientFrameSet::Interaction,
-            // Packets leave before world, actor and UI preparation, as vanilla flushes before render.
-            ClientFrameSet::NetworkSend,
-            ClientFrameSet::WorldPublication,
-            ClientFrameSet::ActorPreparation,
-            ClientFrameSet::UiPreparation,
-            ClientFrameSet::ActorFinalization,
-            ClientFrameSet::ActorPublication,
-            ClientFrameSet::UiPublication,
-        )
-            .chain(),
-    );
-}
-
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.add_systems(
@@ -45,7 +19,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_message::<bevy::input::mouse::MouseWheel>()
     .init_resource::<WorldStreamFramePoll>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
-    .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
+    .init_resource::<client_state::EmoteInputConsumed>()
     .add_systems(
         Update,
         (drive_gameplay_touch_targets, collect_raw_input)

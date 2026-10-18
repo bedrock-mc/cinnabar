@@ -104,10 +104,21 @@ Allow the page origin through CORS when assets or the relay use a different orig
 The relay serves no static files. The CI browser job runs the same `check-web`
 command, including both JavaScript suites and the actual wasm target checks.
 
-Open the page, connect the relay, sign in, enter an HTTPS asset directory, then choose **Verify assets**.
-The preview supports relay account controls and validates the required startup carriers in memory.
-Gameplay startup, server joining, sound-bank range downloads and playback still need client composition.
-There is no persistent pack import or Dressing Room.
+Enter an HTTPS asset directory and choose **Start client**. Startup validates the required
+carriers and opens the shared game renderer on the canvas. Connect the relay, sign in if the
+server requires an account, enter a server address, and choose **Join server**. Click the
+canvas for gameplay input; Escape releases the mouse. **Disconnect** retires the active
+world, and server transfers start a fresh play session through the same relay controls.
+The preview has a gameplay HUD. An optional sound bank streams exact HTTP ranges into the
+shared decoder and mixer. Click the canvas to enable its Web Audio context. Missing audio
+leaves the client muted and shows a status message. Interactive inventory, chat and form
+controls, persistent pack import, and the Dressing Room remain incomplete.
+
+The sound-bank endpoint must support `Range` and `If-Range`, return HTTP 206 with exact
+`Content-Range` values and a stable strong `ETag`, and serve identity-encoded bytes. For a
+separate asset origin, allow those request headers and expose `Content-Range` and `ETag`
+through CORS. Audio requests omit credentials. Pack replacement and page disposal cancel
+outstanding reads.
 
 The menu integration exposes relay sign-in, cancellation, sign-out and join progress to
 the game's existing screens. Addressed servers get the default Bedrock port when omitted;
@@ -115,13 +126,25 @@ Realms, friends' worlds and featured experiences are unavailable in browsers. It
 preference document stores at most 32 addressed servers and the GUI scale modifier, with
 a 32 KiB limit and visible read/write failures. It stores no account credentials. The
 click and keyboard link bridge validates HTTPS links and owns its listener teardown.
-These adapters still require the playable browser host; the current preview does not yet
-render the game's menu or persist those menu preferences.
+Wiring these adapters into the canvas remains incomplete; the preview does not yet render
+the game's menu or persist those menu preferences.
 
 Back/forward-cache navigation suspends input and audio while retaining the page's wasm
 objects and canvas listeners. Returning reopens relay control with any unexpired resume
 capability; sign in again if it expired. Audio resumes on the next canvas click. A final
 navigation frees the page, input and listeners and closes audio.
+
+Server resource packs use one server-initiated reliable WebTransport stream per join. The play
+Hello supplies a fresh nonzero `join`; the handoff's `pack_stream` names that join and declares
+each archive's size and SHA-256. The stream begins with the join as a big-endian u64, followed
+by ordinary length-framed PackData messages with their handoff indices. FIN completes the
+archive barrier. The receiver admits the whole selection before reading archive bytes and
+rejects incomplete, corrupt, extra or misassociated data. Cancellation resets the stream.
+
+WebSocket sends verified archives serially on the play connection. This is a fallback transport
+limitation: bulk bytes can delay later play bytes on that TCP connection. Control cancellation
+still has its own connection. A third socket would need another authenticated lifecycle and
+admission path; the fallback keeps the existing two connections.
 
 ## Browser support and known limits
 

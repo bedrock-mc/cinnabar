@@ -26,6 +26,7 @@ enhanced = []
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
 
 [dependencies]
+web-time.workspace = true
 env-compat = { path = "../env-compat" }
 render-scene = { path = "../render-scene" }
 block-transform = { path = "../block-transform" }

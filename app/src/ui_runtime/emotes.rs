@@ -42,9 +42,7 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
-/// Keeps a closing wheel's physical input from becoming chat or inventory input.
-#[derive(Resource, Default)]
-pub(crate) struct EmoteInputConsumed(pub(crate) bool);
+use client_state::EmoteInputConsumed;
 
 #[derive(SystemParam)]
 pub(crate) struct EmoteInput<'w, 's> {

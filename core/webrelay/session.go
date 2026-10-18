@@ -55,6 +55,8 @@ type webSession struct {
 	signInSeq    uint64         // numbers sign-ins; only the latest, while cancelSignIn is set, may publish
 	signIns      sync.WaitGroup // running sign-in workers
 	handler      *proxy.SessionHandler
+	packJoin     uint64
+	packControl  context.Context
 	play         *sessionPlay
 	attached     int       // open control and play connections
 	idleSince    time.Time // when attached last fell to zero

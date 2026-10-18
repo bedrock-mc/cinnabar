@@ -11,6 +11,11 @@ const MARGIN: f32 = 1.6;
 const WIDTH: f32 = 28.0;
 const HEIGHT: f32 = 9.6;
 
+/// Whether the home layout must reserve space for an app or mod update notice.
+pub(super) fn available(view: &MenuView) -> bool {
+    view.updates.ready.is_some() || !view.mods.library.updates.is_empty()
+}
+
 /// Fits the complete card and its inset inside the viewport.
 fn scale(rem: f32, size: [f32; 2]) -> f32 {
     (size[0] / (rem * (WIDTH + MARGIN * 2.0)))
@@ -30,14 +35,48 @@ pub(super) fn header_height(rem: f32, size: [f32; 2], logo_width: f32) -> f32 {
     }
 }
 
-/// Shows the release version and one explicit update action directly in the corner.
+/// Shows one app or mod update notice with an explicit action in the home corner.
 pub(super) fn notice(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
-    let Some(ready) = &view.updates.ready else {
-        return Ok(());
+    let (status, label, action) = if let Some(ready) = &view.updates.ready {
+        let status = if ready.protocol_required {
+            "Update required"
+        } else {
+            "Update available"
+        };
+        (
+            format!("{status} · {}", ready.version),
+            if ready.writable {
+                "Restart and update"
+            } else {
+                "Download update"
+            },
+            MenuAction::Update(ready.action()),
+        )
+    } else {
+        let updates = &view.mods.library.updates;
+        let Some(update) = updates.first() else {
+            return Ok(());
+        };
+        let title = match updates.len() {
+            1 => view
+                .mods
+                .library
+                .installed
+                .iter()
+                .find(|item| item.id == update.id)
+                .map(|item| format!("Mod update · {}", item.name()))
+                .unwrap_or_else(|| "Mod update available".into()),
+            count => format!("Mod updates available · {count}"),
+        };
+        (
+            title,
+            "View mod updates",
+            MenuAction::Mods(launcher::mods::Action::ViewUpdates),
+        )
     };
     if view.over_world {
         return Ok(());
@@ -56,31 +95,15 @@ pub(super) fn notice(
         let pad = canvas.r(1.2);
         let x = bounds[0] + pad;
         let right = right - pad;
-        let status = if ready.protocol_required {
-            "Update required"
-        } else {
-            "Update available"
-        };
-        canvas.text_line(
-            &format!("{status} · {}", ready.version),
-            [x, top + pad],
-            right - x,
-            CAPTION,
-            TEXT_DIMMER,
-        )?;
+        canvas.text_line(&status, [x, top + pad], right - x, CAPTION, TEXT_DIMMER)?;
         let bottom = bounds[3] - pad;
-        let label = if ready.writable {
-            "Restart and update"
-        } else {
-            "Download update"
-        };
         widgets::button(
             canvas,
             view,
             [x, bottom - canvas.r(4.4), right, bottom],
             Variant::Secondary,
             label,
-            Some(MenuAction::Update(ready.action())),
+            Some(action),
         )
     })
 }
@@ -151,5 +174,44 @@ mod tests {
             notice(canvas, &view, [1280.0, 720.0]).unwrap();
         });
         assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn mod_notices_use_the_corner_card_and_open_the_mods_tab() {
+        use launcher::mods::{Action as ModAction, AvailableUpdate};
+        for size in [[1280.0, 720.0], [360.0, 240.0]] {
+            let mut view = MenuView::new(true, "Player".into());
+            std::sync::Arc::make_mut(&mut view.mods)
+                .library
+                .updates
+                .push(AvailableUpdate {
+                    id: 1,
+                    version: "1.1.0".into(),
+                    release_url: String::new(),
+                });
+            let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                notice(canvas, &view, size).unwrap();
+            });
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].0, MenuAction::Mods(ModAction::ViewUpdates));
+            let bounds = hits[0].1;
+            assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
+            assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
+            view.updates.ready = Some(Ready {
+                version: "2.0.0".into(),
+                writable: true,
+                protocol_required: false,
+            });
+            let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                notice(canvas, &view, size).unwrap();
+            });
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].0, MenuAction::Update(Action::Restart));
+            view.over_world = true;
+            let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                notice(canvas, &view, size).unwrap();
+            });
+            assert!(hits.is_empty());
+        }
     }
 }

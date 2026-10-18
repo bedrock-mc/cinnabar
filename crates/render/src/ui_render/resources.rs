@@ -52,7 +52,7 @@ pub(super) fn init_ui_gpu(
         #[cfg(test)]
         world_passes: default(),
         viewport_size: [1, 1],
-        started: std::time::Instant::now(),
+        started: web_time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
         linear_sampler,

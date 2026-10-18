@@ -93,12 +93,15 @@ impl GeometryPreparation {
         let assets = candidate.assets().clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         self.pending = Some((source, Mutex::new(receiver)));
-        std::thread::spawn(move || {
+        let work = move || {
             let _zone =
                 bevy::log::info_span!("pack_apply.remesh", chunks = instances.len()).entered();
             // Spread across the world cores, which the held mesh handoff leaves idle.
-            let Some(meshes) = chunk_pipeline::on_idle_world_cores(|| snapshot.build(&assets))
-            else {
+            #[cfg(not(target_arch = "wasm32"))]
+            let meshes = chunk_pipeline::on_idle_world_cores(|| snapshot.build(&assets));
+            #[cfg(target_arch = "wasm32")]
+            let meshes = snapshot.build(&assets);
+            let Some(meshes) = meshes else {
                 return;
             };
             let mut meshes: std::collections::BTreeMap<_, _> = meshes
@@ -115,7 +118,11 @@ impl GeometryPreparation {
                 })
                 .collect::<Vec<_>>();
             let _ = sender.send(Arc::from(instances));
-        });
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(work);
+        #[cfg(target_arch = "wasm32")]
+        crate::browser_jobs::geometry(work);
         Ok(true)
     }
 

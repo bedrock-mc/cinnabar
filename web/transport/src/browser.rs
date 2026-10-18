@@ -18,7 +18,13 @@ use wasm_bindgen_futures::JsFuture;
 extern "C" {
     #[wasm_bindgen(catch)]
     fn create(origin: &str, quic: bool, config: &str) -> Result<JsValue, JsValue>;
-    fn open(transport: &JsValue, name: &str) -> Promise;
+    fn open(transport: &JsValue, name: &str, join: &str) -> Promise;
+    #[wasm_bindgen(js_name = packChannel)]
+    fn pack_channel(transport: &JsValue) -> JsValue;
+    #[wasm_bindgen(js_name = acceptPacks)]
+    fn accept_packs(transport: &JsValue, channel: &JsValue) -> Promise;
+    #[wasm_bindgen(js_name = finishPlay)]
+    fn finish_play(transport: &JsValue);
     fn read(channel: &JsValue) -> Promise;
     fn write(channel: &JsValue, bytes: &Uint8Array) -> Promise;
     fn flush(channel: &JsValue) -> Promise;
@@ -45,22 +51,37 @@ impl BrowserTransport {
 impl RelayTransport for BrowserTransport {
     type Stream = BrowserStream;
     async fn open(&mut self, channel: Channel) -> Result<BrowserStream, CloseReason> {
-        let handle = JsFuture::from(open(&self.0, channel.name()))
+        let join = match channel {
+            Channel::Control => String::new(),
+            Channel::Play { join } => join.to_string(),
+        };
+        let handle = JsFuture::from(open(&self.0, channel.name(), &join))
             .await
             .map_err(|_| CloseReason::Transport)?;
-        Ok(BrowserStream {
-            handle,
-            buffer: Uint8Array::new_with_length(0),
-            offset: 0,
-            reading: None,
-            writing: None,
-            flushing: None,
-            eof: false,
-            shutting_down: None,
-            finished: false,
-            shutdown_started: false,
-        })
+        Ok(BrowserStream::new(handle))
     }
+    fn accept_packs(
+        &self,
+    ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static + use<> {
+        let transport = self.0.clone();
+        let mut acceptance = PackAcceptance {
+            channel: Some(pack_channel(&transport)),
+        };
+        async move {
+            let handle = JsFuture::from(accept_packs(
+                &transport,
+                acceptance.channel.as_ref().expect("pending pack channel"),
+            ))
+            .await
+            .map_err(|_| CloseReason::Transport)?;
+            let _ = acceptance.channel.take();
+            Ok((!handle.is_null()).then(|| BrowserStream::new(handle)))
+        }
+    }
+    fn finish_play(&mut self) {
+        finish_play(&self.0);
+    }
+
     fn close(&mut self, _reason: CloseReason) {
         close(&self.0);
     }
@@ -68,6 +89,20 @@ impl RelayTransport for BrowserTransport {
 impl Drop for BrowserTransport {
     fn drop(&mut self) {
         close(&self.0);
+    }
+}
+
+/// Cancels a pending archive wait even when its Rust future is dropped before first poll.
+struct PackAcceptance {
+    channel: Option<JsValue>,
+}
+impl Drop for PackAcceptance {
+    fn drop(&mut self) {
+        if let Some(channel) = &self.channel
+            && !channel.is_null()
+        {
+            close_channel(channel);
+        }
     }
 }
 
@@ -83,6 +118,23 @@ pub struct BrowserStream {
     shutting_down: Option<JsFuture>,
     finished: bool,
     shutdown_started: bool,
+}
+impl BrowserStream {
+    /// Retains one newly locked browser byte reader and optional writer.
+    fn new(handle: JsValue) -> Self {
+        Self {
+            handle,
+            buffer: Uint8Array::new_with_length(0),
+            offset: 0,
+            eof: false,
+            reading: None,
+            writing: None,
+            flushing: None,
+            shutting_down: None,
+            finished: false,
+            shutdown_started: false,
+        }
+    }
 }
 /// Hides browser exception details from public errors.
 fn io_error(_: JsValue) -> io::Error {

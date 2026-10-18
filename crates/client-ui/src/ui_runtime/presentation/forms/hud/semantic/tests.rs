@@ -424,16 +424,17 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     let mut fixture = Fixture::default();
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
+    let event = protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+        slots: vec![stack(2)].into(),
+        storage_item: protocol::NetworkItemStack::empty(),
+    });
+    let mut ledger = inventory::PlayerInventoryLedger::default();
+    ledger.apply(&event);
     fixture
         .runtime
         .gameplay_hud
-        .apply_inventory(&protocol::InventoryEvent::Content(
-            protocol::InventoryContentEvent {
-                container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
-                slots: vec![stack(2)].into(),
-                storage_item: protocol::NetworkItemStack::empty(),
-            },
-        ));
+        .apply_inventory(&event, &ledger);
     fixture.frame.offhand_icon = Some(IconRef {
         page: 5,
         uv: [0, 0, 16, 16],

@@ -21,8 +21,11 @@ pub enum DropSource {
 }
 
 impl PlayerInventoryLedger {
-    /// Deletes the held stack, as clicking the creative catalog does.
-    pub fn begin_destroy_cursor(&mut self) -> Result<i32, InventoryGestureError> {
+    /// Deletes the requested cursor amount, or the whole selection when unspecified.
+    pub fn begin_destroy_cursor(
+        &mut self,
+        requested: Option<u8>,
+    ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([Cell::Cursor])?;
         let held = self
@@ -32,6 +35,10 @@ impl PlayerInventoryLedger {
             .ok()
             .filter(|amount| *amount != 0)
             .ok_or(InventoryGestureError::InvalidRequest)?;
+        let amount = requested.unwrap_or(amount);
+        if amount == 0 || u16::from(amount) > held.stack.count {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         let id = held.stack.stack_network_id;
         let built = Built {
             action: StackRequestAction::Destroy {
@@ -40,7 +47,7 @@ impl PlayerInventoryLedger {
             },
             group: DeltaGroup::Shrink {
                 source: Cell::Cursor,
-                amount: held.stack.count,
+                amount: u16::from(amount),
                 source_id: id,
             },
             requires_distinct_stack_ids: false,
@@ -102,13 +109,13 @@ impl PlayerInventoryLedger {
         // The hotbar stack lands in the hovered cell, which may be equipment.
         let equipment_limit = to
             .as_ref()
-            .and_then(|to| self.equipment_capacity(source, &to.stack));
+            .and_then(|to| self.placement_capacity(source, &to.stack));
         if equipment_limit == Some(0) {
-            return Err(InventoryGestureError::EquipmentRefused);
+            return Err(super::validation::placement_refused(source));
         }
         let built = match (from, to) {
             (Some(_), Some(to)) if equipment_limit.is_some_and(|limit| to.stack.count > limit) => {
-                return Err(InventoryGestureError::EquipmentRefused);
+                return Err(super::validation::placement_refused(source));
             }
             (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
             (Some(from), None) => place(source, destination, &from, identity)?,

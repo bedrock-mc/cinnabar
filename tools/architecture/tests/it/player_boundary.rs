@@ -471,10 +471,14 @@ fn production_console_satisfies_module_boundary_policy() {
         include_str!("../../../../crates/diagnostics/src/console.rs"),
     );
     write(
+        &temp.path().join("crates/diagnostics/src/console/native.rs"),
+        include_str!("../../../../crates/diagnostics/src/console/native.rs"),
+    );
+    write(
         &temp
             .path()
-            .join("crates/diagnostics/src/console/raw_stderr.rs"),
-        include_str!("../../../../crates/diagnostics/src/console/raw_stderr.rs"),
+            .join("crates/diagnostics/src/console/native/raw_stderr.rs"),
+        include_str!("../../../../crates/diagnostics/src/console/native/raw_stderr.rs"),
     );
     assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
 }

@@ -17,6 +17,9 @@ impl Instance {
         state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
+        let mut effective = session;
+        effective.permissions = state.grants.drawing_permissions();
+        state.render.masks.bind(effective);
     }
 
     /// Returns current effective grants rather than the retained loader consent.
@@ -74,6 +77,10 @@ impl Instance {
         PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
+        if let Some(mut session) = policy {
+            session.permissions = state.grants.drawing_permissions();
+            state.render.masks.bind(session);
+        }
         if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
             state.controls.panel = Some(bundle.panel.clone());
             state.controls.bundle = Some(bundle);

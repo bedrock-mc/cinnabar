@@ -31,6 +31,10 @@ mod block_highlights;
 mod camera;
 #[path = "controls.rs"]
 mod controls;
+#[path = "drawing.rs"]
+mod drawing;
+#[cfg(test)]
+mod drawing_tests;
 mod exports;
 #[path = "gameplay.rs"]
 mod gameplay;
@@ -40,6 +44,8 @@ mod inventory;
 #[path = "item_use.rs"]
 mod item_use;
 mod loading;
+#[path = "masks.rs"]
+mod masks;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -480,6 +486,7 @@ impl Instance {
         state.output = 0;
         state.pending_screens = None;
         state.inventory.begin();
+        state.render.begin_callback();
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
@@ -837,11 +844,12 @@ fn commit(store: &mut Store<State>) {
     commit_event(store);
 }
 
-/// Publishes what an event callback may retain: the label, visual time, panel, settings and
-/// screens. Render, camera and command output belongs to `frame` alone, so an event never
-/// replaces the frame's drawn set; what an event stages there is dropped by the next frame.
+/// Publishes retained drawing, label, visual time, panel, settings and screen changes.
+/// Immediate primitives, camera and command output belong to `frame` alone;
+/// an event's staged changes to those outputs are dropped by the next frame.
 fn commit_event(store: &mut Store<State>) {
     let state = store.data_mut();
+    state.render.commit_retained();
     state.hud.commit();
     if let Some(claims) = &state.exclusive.hud {
         claims.release(state.exclusive.owner);
