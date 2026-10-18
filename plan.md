@@ -10200,3 +10200,12 @@ Correction-sync packets combine received actor metadata with the completed local
 sneak and sprint states. Undefined attributes retain their wire defaults and refused
 sends remain pending. Other locally predicted flags, bounding-box updates, history
 loss and exact send phase remain open; this does not close movement parity.
+
+## Local actor presentation flags (incomplete)
+
+Local animation flags are retained separately from received gameplay metadata.
+Visual held-item use and locomotion poses cannot change correction-sync flags.
+Nametags, player previews, hands and the paperdoll read the rendering state.
+
+Accepted local held-use and glide/swim/crawl projection, replay authority and exact
+send phase remain incomplete. This separation does not close movement parity.

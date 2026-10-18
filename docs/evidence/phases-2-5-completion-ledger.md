@@ -1,5 +1,12 @@
 # Phases 2-5 Completion Ledger
 
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers retain the same visual state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last

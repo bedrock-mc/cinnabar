@@ -523,26 +523,20 @@ fn observe_paper_doll(
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
     use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(stream.local_player_runtime_id())?;
-    let flag = |bit: u32| {
-        let key = if bit < 64 { 0 } else { 92 };
-        match actor.metadata.get(&key) {
-            Some(
-                protocol::ActorMetadataValue::Flags(bits)
-                | protocol::ActorMetadataValue::FlagsExtended(bits),
-            ) => bits & (1 << (bit % 64)) != 0,
-            _ => false,
-        }
-    };
-    let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or((flag(1), flag(3)));
+    use protocol_ids::ActorFlag;
+    let flag = |flag: ActorFlag| actor_animation::AnimatedActor::flag(actor, flag.wire_value());
+    let (sneaking, sprinting) = physics
+        .latest_sneak_sprint()
+        .unwrap_or((flag(ActorFlag::Sneaking), flag(ActorFlag::Sprinting)));
     Some(client_ui::ui_runtime::presentation::paper_doll::State {
         sneaking,
         sprinting,
         in_water: physics.in_water(),
-        swimming: physics.mode() == sim::MovementMode::Swimming || flag(57),
-        crawling: flag(114),
+        swimming: physics.mode() == sim::MovementMode::Swimming || flag(ActorFlag::Swimming),
+        crawling: flag(ActorFlag::Crawling),
         flying: physics.mode() == sim::MovementMode::Flying,
-        gliding: physics.mode() == sim::MovementMode::Gliding || flag(32),
-        emoting: flag(92) || runtime.emotes().playback().is_some(),
+        gliding: physics.mode() == sim::MovementMode::Gliding || flag(ActorFlag::Gliding),
+        emoting: flag(ActorFlag::Emoting) || runtime.emotes().playback().is_some(),
         armor: std::array::from_fn(|slot| {
             runtime
                 .inventory_ledger(player_runtime)
