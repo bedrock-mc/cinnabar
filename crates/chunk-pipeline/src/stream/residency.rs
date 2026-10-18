@@ -328,6 +328,7 @@ impl WorldStream {
                 self.publisher.required_columns.remove(&column);
                 self.unsent_column_deadlines.remove(&column);
                 self.requests.collision_failures.remove(&column);
+                self.requests.unencodable.remove(&column);
                 if self.loaded_columns.contains(&column)
                     || self.requests.requested.contains_key(&column)
                     || self.resident.column(column).next().is_some()
