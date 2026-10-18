@@ -344,8 +344,8 @@ fn replayed_mount_closes_the_airborne_jump_arc() {
     };
     // A wire anchor rounds the jump's feet before the seat displacement is replayed.
     let mut corrected_mount = mounted.clone();
-    corrected_mount.movement[1] =
-        3.0 - (anchor.network_position[1] - protocol::PLAYER_NETWORK_OFFSET);
+    corrected_mount.movement[1] = ride.mode_intent.ride_seat.unwrap()[1]
+        - (anchor.network_position[1] - protocol::PLAYER_NETWORK_OFFSET);
     for _ in 0..2 {
         let replay = physics
             .apply_correction(
