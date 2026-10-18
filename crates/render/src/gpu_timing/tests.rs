@@ -5,7 +5,7 @@ use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
 use render_scene::RuntimeStage;
 
 /// Creates a validation device with the requested timestamp capabilities.
-pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
+pub(crate) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
@@ -27,6 +27,26 @@ pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueu
     }))
     .unwrap();
     (RenderDevice::from(device), RenderQueue::new(queue))
+}
+
+/// Records one frame and returns the GPU stages attributed to its draw commands.
+pub(crate) fn draw_stages(world: &mut World, draw: impl FnOnce(&mut World)) -> Vec<RuntimeStage> {
+    let mut timestamps = GpuTimestamps::new(
+        world.resource::<RenderDevice>(),
+        world.resource::<RenderQueue>(),
+        true,
+    )
+    .unwrap();
+    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    world.insert_resource(timestamps);
+    draw(world);
+    let timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+    (0..timestamps.frame.draws.load(Ordering::Relaxed))
+        .map(|index| {
+            RuntimeStage::ALL[timestamps.frame.stages[(PASS_SPANS + index) as usize]
+                .load(Ordering::Relaxed) as usize]
+        })
+        .collect()
 }
 
 /// Resolves submitted frame spans and requests their asynchronous readback.

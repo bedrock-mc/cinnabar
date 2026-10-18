@@ -1,5 +1,6 @@
 use bevy::{prelude::Time, time::Real};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Maps a queued tick's elapsed sampling time to the application clock.
 pub(super) fn sample_instant(time: &Time<Real>, sampled_at: Option<Duration>) -> Option<Instant> {

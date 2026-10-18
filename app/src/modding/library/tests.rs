@@ -463,7 +463,7 @@ fn removal_waits_for_pending_settings_before_deleting_files() {
     };
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Remove(id)).unwrap();
+    commands.send(Command::Action(Action::Remove(id))).unwrap();
     drop(commands);
     run(
         &mods,
@@ -597,8 +597,8 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     let directory = tempfile::tempdir().unwrap();
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Import).unwrap();
-    commands.send(Action::Import).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
     drop(commands);
     run(
         &directory.path().join("mods"),
@@ -880,7 +880,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
             serde_json::to_vec(&serde_json::json!({
                 "version": record["version"], "request_id": record["request_id"],
                 "independent_registration": true, "client_pid": std::process::id(),
-                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing"}]
+                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing", "reload": record["mods"][0]["reload"].as_u64().unwrap_or_default()}]
             })).unwrap()).unwrap();
         let original_id = scan(&mods, &registration, String::new()).active[0].id;
         if rename_directory {

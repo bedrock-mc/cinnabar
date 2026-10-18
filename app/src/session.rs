@@ -9,9 +9,7 @@ use bevy::{
 };
 use bridge::CORE_START_TIMEOUT;
 use client_runtime::network::NetworkHandle;
-use client_runtime::session::{
-    begin_session, format_transfer_address, release_off_frame, transfer_handoff_address,
-};
+use client_runtime::session::{format_transfer_address, transfer_handoff_address};
 use launcher::menu::settings_options::SettingId;
 use launcher_host::{
     core_process::{CoreProcessGuard, spawn_core_for_address},
@@ -20,31 +18,20 @@ use launcher_host::{
 };
 
 use client_shell::presence_target::presence_target;
-use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
-        shutdown::{FatalError, record_fatal_error},
-        world::{ClientWorld, TransferNotice},
+        shutdown::record_fatal_error,
+        world::TransferNotice,
     },
-    client_interaction::movement::{LocalPhysicsController, MovementTicker},
-    client_presentation::local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
-    },
-    client_runtime::pack_admission::ResourcePackAdmissionState,
     client_shell::menu::{LauncherCoreSlot, MenuRuntime},
-    client_state::PlayerRuntime,
 };
 
 use std::{path::PathBuf, time::Instant};
 
 mod client_id;
 
-/// Bounded number of consecutive automatic transfer-follow hops.
-///
-/// Mirrors the Go core's pre-login transfer-follower limit so a transfer loop
-/// ends in a visible menu state; a user-initiated join starts a fresh chain.
-pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
+use client_session::MAX_TRANSFER_CHAIN_HOPS;
 
 type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
 type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
@@ -265,33 +252,12 @@ impl SessionController {
     }
 }
 
-/// Stops local movement authority and drops the ended session's frame and interaction samples.
-pub(crate) fn quiesce_local_player(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    frame: &mut LocalPlayerFrameCarrier,
-    interaction: &mut InteractionOriginSnapshot,
-) {
-    movement.deactivate();
-    local_physics.deactivate();
-    frame.reset(LocalPlayerFrameReset::Session);
-    interaction.invalidate();
-}
-
 #[derive(SystemParam)]
 pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
+    state: crate::game_session::SessionWorld<'w>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
-    resource_packs: ResMut<'w, ResourcePackAdmissionState>,
-    runtime: ResMut<'w, UiRuntimeResource>,
-    player_runtime: ResMut<'w, PlayerRuntime>,
-    client_world: ResMut<'w, ClientWorld>,
-    fatal_error: ResMut<'w, FatalError>,
     collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
-    movement: ResMut<'w, MovementTicker>,
-    local_physics: ResMut<'w, LocalPhysicsController>,
-    local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
-    interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
@@ -322,28 +288,13 @@ impl SessionResources<'_> {
         controller.destination_identity = None;
         controller.local_world = false;
         let generation = controller.next_generation();
-        self.resource_packs.begin_generation(generation);
-        begin_session(&mut self.runtime, &mut self.player_runtime, generation);
-        if let (Some(far), Some(stream)) =
-            (self.far_terrain.as_mut(), self.client_world.stream.as_mut())
-        {
+        if let (Some(far), Some(stream)) = (
+            self.far_terrain.as_mut(),
+            self.state.client_world.stream.as_mut(),
+        ) {
             far.retire_stream(stream);
         }
-        release_off_frame((
-            self.client_world.stream.take(),
-            self.client_world.pack_entities.take(),
-            self.client_world.prepared_actor_artwork.take(),
-            self.client_world.session_items.take(),
-        ));
-        self.client_world.pending_surface_spawn = None;
-        self.fatal_error.0 = None;
-        self.client_world.transfer_notice = None;
-        quiesce_local_player(
-            &mut self.movement,
-            &mut self.local_physics,
-            &mut self.local_frame,
-            &mut self.interaction,
-        );
+        self.state.retire(generation);
         generation
     }
 }
@@ -373,7 +324,11 @@ fn attempt_connect(
     menu.show_home();
     let generation = session.retire();
     session.controller.trust = None;
-    session.runtime.experiences.select_destination(&address);
+    session
+        .state
+        .runtime
+        .experiences
+        .select_destination(&address);
     menu.begin_join_progress(&address, local_world);
     let mut presence = presence_target(&address, local_world);
     if local_world {
@@ -497,7 +452,7 @@ fn poll_join(
                 session.actor_artwork.as_deref().map(|artwork| &artwork.0),
                 session.ui_catalog.as_deref(),
                 crate::runtime::network::session_registries::RegistryBase::new(
-                    &session.client_world.runtime_assets,
+                    &session.state.client_world.runtime_assets,
                     &session.collisions,
                 ),
             ) {
@@ -617,10 +572,14 @@ fn drive_intents(
     session: &mut SessionResources<'_>,
 ) {
     menu.send_respawn_request(|| {
-        let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime) else {
+        let Some(runtime_id) = session
+            .state
+            .runtime
+            .local_runtime_id(&session.state.player_runtime)
+        else {
             return false;
         };
-        let generation = session.runtime.session_id();
+        let generation = session.state.runtime.session_id();
         let packet = protocol::respawn_request_packet(runtime_id);
         session.network.send_form_packet(generation, packet).is_ok()
     });
@@ -644,7 +603,7 @@ fn drive_intents(
         }
         return;
     }
-    if menu.is_connecting() && session.client_world.stream.is_some() {
+    if menu.is_connecting() && session.state.client_world.stream.is_some() {
         session.controller.connecting = false;
         menu.show_world();
     }
@@ -665,7 +624,7 @@ pub(crate) fn recover_session_failure(
     mut menu: ResMut<MenuRuntime>,
     mut session: SessionResources,
 ) {
-    let Some(error) = session.fatal_error.0.clone() else {
+    let Some(error) = session.state.fatal_error.0.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
@@ -690,7 +649,7 @@ pub(crate) fn follow_server_transfer(
     client_blob_cache: Res<BlobCache>,
     mut session: SessionResources,
 ) {
-    let Some(notice) = session.client_world.transfer_notice.take() else {
+    let Some(notice) = session.state.client_world.transfer_notice.take() else {
         return;
     };
     follow_transfer(&mut menu, &client_blob_cache, &mut session, notice);
@@ -708,7 +667,7 @@ fn follow_transfer(
         // the server-directed move named explicitly instead of followed.
         session.leave();
         record_fatal_error(
-            &mut session.fatal_error.0,
+            &mut session.state.fatal_error.0,
             format!(
                 "server transferred to {}",
                 format_transfer_address(&notice.host, notice.port)

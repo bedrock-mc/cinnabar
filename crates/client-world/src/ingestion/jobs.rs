@@ -4,11 +4,8 @@ use bytes::Bytes;
 use protocol::{
     BlockEntityUpdateEvent, LevelChunkEvent, SubChunkBatchEvent, SyncedBlockUpdateEvent,
 };
-use std::{
-    collections::BTreeMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use web_time::Instant;
 use world::{BlockUpdate, DimensionSlots, SubChunk, SubChunkKey};
 
 use super::{DecodeIds, PreparedWorldEvent};

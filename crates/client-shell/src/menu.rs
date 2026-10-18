@@ -788,6 +788,25 @@ impl MenuRuntime {
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
+                if !self.over_world() {
+                    self.settings_section = launcher::menu::settings_sections::SettingSection::Mods
+                        .definition()
+                        .index;
+                    self.enter(MenuScreen::Settings);
+                }
+            }
+            MenuAction::Mods(launcher::mods::Action::OpenUpdate(id)) => {
+                if let Some(update) = self
+                    .mods
+                    .library
+                    .updates
+                    .iter()
+                    .find(|update| update.id == id)
+                {
+                    launcher_host::desktop::open_url(&update.release_url);
+                }
+            }
             MenuAction::Mods(action) => {
                 if let Some(work) = std::sync::Arc::make_mut(&mut self.mods).apply(action) {
                     self.mod_actions.push(work);
