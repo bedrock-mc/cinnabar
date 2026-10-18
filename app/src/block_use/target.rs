@@ -173,8 +173,8 @@ pub(super) fn observe_use_target(
             }))
         },
     )
-    .ok()
-    .flatten()?;
+    .ok()?
+    .value?;
     observed.ray.origin = pick.origin.to_array();
     observed.ray.direction = pick.direction.to_array();
     // Like the refreshed pick, the resolved target is in reach of the pre-tick eye.

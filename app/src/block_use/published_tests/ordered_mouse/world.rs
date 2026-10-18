@@ -295,3 +295,259 @@ fn ordered_mouse_world_full_placement_cancels_for_a_new_obstruction_column() {
         block_id("minecraft:air")
     );
 }
+
+/// Revokes one interaction ability without changing input, inventory or terrain authority.
+fn deny_ability(world: &mut World, ability: u32) {
+    let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+    player.facts.bind_local_abilities(7, 1, 1, true);
+    player.facts.apply_local_abilities(
+        7,
+        1,
+        1,
+        protocol::AbilitiesUpdate {
+            actor_unique_id: 1,
+            player_permission: 0,
+            command_permission: 0,
+            layers: protocol::AbilityLayersEvidence::Received(
+                vec![protocol::AbilityLayerEvidence {
+                    layer_type: client_world::game_mode_capabilities::ability_layer::BASE as u16,
+                    abilities: ability,
+                    values: 0,
+                    fly_speed_bits: 0,
+                    vertical_fly_speed_bits: 0,
+                    walk_speed_bits: 0,
+                }]
+                .into(),
+            ),
+        },
+    );
+}
+
+#[test]
+fn ordered_mouse_retry_validation_build_permission_and_mode_changes_cancel_placement() {
+    for mode in [
+        None,
+        Some(PlayerGameMode::Adventure),
+        Some(PlayerGameMode::Creative),
+    ] {
+        let (mut app, mut captured) = boundary_fixture();
+        refuse_placement(&mut app, &mut captured);
+        if let Some(mode) = mode {
+            app.world_mut()
+                .resource_mut::<client_state::PlayerRuntime>()
+                .facts
+                .publish_player_game_mode(mode);
+        } else {
+            deny_ability(
+                app.world_mut(),
+                client_world::game_mode_capabilities::ability_bit::BUILD,
+            );
+        }
+        assert_cancelled(&mut app, &mut captured);
+        assert_eq!(
+            cell(app.world(), DESTINATION).unwrap(),
+            block_id("minecraft:air")
+        );
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_switch_and_container_revocation_cancel_use() {
+    use client_world::game_mode_capabilities::ability_bit;
+    for (name, ability) in [
+        ("minecraft:lever", ability_bit::DOORS_AND_SWITCHES),
+        ("minecraft:chest", ability_bit::OPEN_CONTAINERS),
+    ] {
+        let (mut app, mut captured) = boundary_fixture();
+        let block = block_id(name);
+        update(app.world_mut(), CLICKED, block);
+        refuse_placement(&mut app, &mut captured);
+        deny_ability(app.world_mut(), ability);
+        assert_cancelled(&mut app, &mut captured);
+        assert_eq!(cell(app.world(), CLICKED).unwrap(), block);
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_actor_entering_destination_cancels_placement() {
+    let (mut app, mut captured) = boundary_fixture();
+    actor_use_tests::spawn(app.world_mut(), 7.5);
+    refuse_placement(&mut app, &mut captured);
+    world_event(
+        app.world_mut(),
+        protocol::WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 99,
+            position: DESTINATION.map(|axis| Some(axis as f32 + 0.5)),
+            position_origin: protocol::ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: None,
+            teleported: true,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        })),
+    );
+    assert_cancelled(&mut app, &mut captured);
+    assert_eq!(
+        cell(app.world(), DESTINATION).unwrap(),
+        block_id("minecraft:air")
+    );
+}
+
+#[test]
+fn ordered_mouse_retry_validation_new_terrain_cancels_actor_attack_and_use() {
+    for (button, clear_ray) in [
+        (MouseButton::Left, false),
+        (MouseButton::Right, false),
+        (MouseButton::Left, true),
+        (MouseButton::Right, true),
+    ] {
+        let (mut app, mut captured) = app_fixture(8);
+        if clear_ray {
+            update(app.world_mut(), [4, 2, 6], block_id("minecraft:air"));
+        }
+        fill(&app, 8);
+        tap(app.world_mut(), button);
+        frame(&mut app);
+        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(actor_order(&mut captured).is_empty());
+        update(app.world_mut(), [4, 2, 8], block_id("minecraft:stone"));
+        for _ in 0..3 {
+            frame(&mut app);
+            assert!(
+                captured
+                    .drain()
+                    .iter()
+                    .filter_map(observe_transaction)
+                    .next()
+                    .is_none(),
+                "a stale actor action must cancel without retargeting or an air-use suffix"
+            );
+        }
+        assert!(!crate::ordered_interactions::pending(app.world()));
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_unchanged_switch_and_container_use_admit_once() {
+    for name in ["minecraft:lever", "minecraft:chest"] {
+        let (mut app, mut captured) = boundary_fixture();
+        update(app.world_mut(), CLICKED, block_id(name));
+        refuse_placement(&mut app, &mut captured);
+        let mut sent = Vec::new();
+        for _ in 0..3 {
+            frame(&mut app);
+            sent.extend(captured.drain());
+        }
+        let uses: Vec<_> = sent
+            .iter()
+            .filter_map(observe_transaction)
+            .filter_map(|tx| tx.item_use().cloned())
+            .collect();
+        assert_eq!(uses.len(), 1, "{name} must consume its air-use suffix");
+        assert_eq!(uses[0].position, CLICKED);
+        assert!(uses[0].predicted_success);
+        assert_eq!(held_count(app.world()), 64);
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_unreadable_actor_ray_keeps_initial_use_but_cannot_retry() {
+    for button in [MouseButton::Left, MouseButton::Right] {
+        for full in [false, true] {
+            let (mut app, mut captured) = app_fixture(8);
+            app.world_mut()
+                .resource_mut::<crate::runtime::world::ClientWorld>()
+                .stream
+                .as_mut()
+                .unwrap()
+                .evict_publication_fixture_column(world::ChunkKey::new(0, 0, 0));
+            if full {
+                fill(&app, 8);
+            }
+            tap(app.world_mut(), button);
+            frame(&mut app);
+            assert_eq!(actor_order(&mut captured).len(), usize::from(!full));
+            for _ in 0..3 {
+                frame(&mut app);
+                assert!(
+                    captured
+                        .drain()
+                        .iter()
+                        .filter_map(observe_transaction)
+                        .next()
+                        .is_none()
+                );
+            }
+            assert!(!crate::ordered_interactions::pending(app.world()));
+        }
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_actor_reach_change_cancels_a_creative_attack() {
+    for change_mode in [true, false] {
+        let (mut app, mut captured) = app_fixture(8);
+        update(app.world_mut(), [4, 2, 6], block_id("minecraft:air"));
+        actor_use_tests::spawn(app.world_mut(), 4.5);
+        app.world_mut()
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        for _ in 0..2 {
+            frame(&mut app);
+        }
+        captured.drain();
+        fill(&app, 8);
+        tap(app.world_mut(), MouseButton::Left);
+        frame(&mut app);
+        assert!(crate::ordered_interactions::pending(app.world()));
+        assert!(actor_order(&mut captured).is_empty());
+        if change_mode {
+            app.world_mut()
+                .resource_mut::<client_state::PlayerRuntime>()
+                .facts
+                .publish_player_game_mode(PlayerGameMode::Survival);
+        }
+        let mut sent = Vec::new();
+        for _ in 0..3 {
+            frame(&mut app);
+            sent.extend(actor_order(&mut captured));
+        }
+        assert_eq!(sent.len(), usize::from(!change_mode));
+        assert!(
+            sent.iter()
+                .all(|(action, _)| *action == ActorUseAction::Attack)
+        );
+        assert!(!crate::ordered_interactions::pending(app.world()));
+    }
+}
+
+#[test]
+fn ordered_mouse_retry_validation_spectator_change_cancels_actor_use() {
+    let (mut app, mut captured) = app_fixture(8);
+    fill(&app, 8);
+    tap(app.world_mut(), MouseButton::Right);
+    frame(&mut app);
+    assert!(crate::ordered_interactions::pending(app.world()));
+    assert!(actor_order(&mut captured).is_empty());
+    app.world_mut()
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Spectator);
+    for _ in 0..3 {
+        frame(&mut app);
+        assert!(
+            captured
+                .drain()
+                .iter()
+                .filter_map(observe_transaction)
+                .next()
+                .is_none()
+        );
+    }
+    assert!(!crate::ordered_interactions::pending(app.world()));
+}

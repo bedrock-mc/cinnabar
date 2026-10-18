@@ -131,9 +131,10 @@ pub(crate) fn observe_block_ray(
             world.block_interaction_ray_current(origin, direction, reach)
         },
     )
+    .map(|observed| observed.value)
 }
 
-/// Freezes a current observation after the owning interaction chooses its support target.
+/// Retains query evidence even when the owning interaction finds a clear ray.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn observe_block_ray_using(
     origin: &InteractionOriginSnapshot,
@@ -155,7 +156,7 @@ pub(crate) fn observe_block_ray_using(
         Vec3,
         f64,
     ) -> Result<Option<sim::BlockHit>, sim::WorldQueryError>,
-) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
+) -> Result<sim::CollisionQuery<Option<FrozenBlockObservation>>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
@@ -187,13 +188,16 @@ pub(crate) fn observe_block_ray_using(
         .observe(|world| choose(world, vector(ray.origin()), vector(ray.direction()), reach))
         .map_err(|_| BlockRayUnavailable)?;
     let Some(mut hit) = observed.value.map_err(|_| BlockRayUnavailable)? else {
-        return Ok(None);
+        return Ok(sim::CollisionQuery {
+            identity: observed.identity,
+            value: None,
+        });
     };
     hit.identity = hit
         .identity
         .merge(&observed.identity)
         .map_err(|_| BlockRayUnavailable)?;
-    Ok(Some(FrozenBlockObservation {
+    let value = Some(FrozenBlockObservation {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
             position_authority_generation,
@@ -228,7 +232,11 @@ pub(crate) fn observe_block_ray_using(
             runtime_id: hit.runtime_id,
             identity: hit.identity,
         },
-    }))
+    });
+    Ok(sim::CollisionQuery {
+        identity: observed.identity,
+        value,
+    })
 }
 
 #[cfg(test)]

@@ -44,6 +44,29 @@ pub(crate) mod ordered;
 
 use gameplay::block_use::{LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets};
 
+/// Mode and effective interaction gates that govern the frozen use and inventory effects.
+#[derive(PartialEq)]
+struct UsePermissions {
+    mode: Option<PlayerGameMode>,
+    gates: [bool; 4],
+}
+
+impl UsePermissions {
+    /// Captures interaction authority without including unrelated movement abilities.
+    fn capture(player: &client_state::PlayerRuntime) -> Option<Self> {
+        let caps = player.facts.game_mode_capabilities()?;
+        Some(Self {
+            mode: player.facts.player_game_mode(),
+            gates: [
+                caps.can_build,
+                caps.can_use_switches,
+                caps.can_open_containers,
+                caps.can_use_items,
+            ],
+        })
+    }
+}
+
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
@@ -184,7 +207,7 @@ fn maintain_block_use(
         &context,
         &mut runtime,
         &selection,
-        player_runtime.facts.player_game_mode(),
+        &player_runtime,
         pick.expect("the current pick was checked above"),
         &state,
         input_mode,

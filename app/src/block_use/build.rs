@@ -19,6 +19,7 @@ pub(crate) struct FrozenBuild {
 
 /// A proposal freezes selection, placement and inventory effects before its first send.
 struct BuildPlan {
+    permissions: UsePermissions,
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
@@ -32,7 +33,11 @@ struct BuildPlan {
 
 impl FrozenBuild {
     /// Validates the complete prepared world observation without changing the frozen target.
-    pub(super) fn current(&self, context: &BlockUseContext) -> bool {
+    pub(super) fn current(
+        &self,
+        player: &client_state::PlayerRuntime,
+        context: &BlockUseContext,
+    ) -> bool {
         let identity = self
             .plan
             .as_ref()
@@ -41,7 +46,69 @@ impl FrozenBuild {
             &context.client_world,
             &context.collisions,
             identity,
-        )
+        ) && self.plan.as_ref().is_none_or(|plan| {
+            UsePermissions::capture(player).as_ref() == Some(&plan.value.permissions)
+                && self.placement_current(player, context, &plan.value)
+        })
+    }
+
+    /// Checks the original placement against current actor boxes without replacing its proposal.
+    fn placement_current(
+        &self,
+        player: &client_state::PlayerRuntime,
+        context: &BlockUseContext,
+        plan: &BuildPlan,
+    ) -> bool {
+        if plan.local_use != LocalUse::Place {
+            return true;
+        }
+        let Some(stream) = context.client_world.stream.as_ref() else {
+            return false;
+        };
+        let world = PaletteWorld::new(
+            stream.collision_store(),
+            context.collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            Default::default(),
+        );
+        let surroundings = use_surroundings(
+            context,
+            &world,
+            &self.observed,
+            self.state.position,
+            self.state.sneaking,
+        );
+        if let Some(placement) = predicted_placement(
+            &context.collisions,
+            stream,
+            &world,
+            self.observed.selection.item.block_runtime_id(),
+            &self.observed,
+            &surroundings,
+            self.view,
+        ) {
+            plan.predicted.as_ref().is_some_and(|cells| {
+                std::iter::once((placement.position, 0, placement.block))
+                    .chain(
+                        placement
+                            .additional
+                            .into_iter()
+                            .map(|(position, block)| (position, 0, block)),
+                    )
+                    .eq(cells.iter().copied())
+            })
+        } else {
+            plan.predicted.is_none()
+                && player.facts.game_mode_capabilities().is_some_and(|caps| {
+                    LocalUse::resolve(
+                        &self.observed.selection.item,
+                        self.observed.target.position,
+                        self.observed.target.face,
+                        &surroundings,
+                        &caps,
+                    ) == LocalUse::Place
+                })
+        }
     }
 
     /// Captures immutable press facts; packet and local prediction preparation happens once.
@@ -174,6 +241,7 @@ fn prepare(
     Some(sim::CollisionQuery {
         identity,
         value: BuildPlan {
+            permissions: UsePermissions::capture(player_runtime)?,
             server_selection,
             inventory_revision,
             local_use,
@@ -210,7 +278,7 @@ pub(crate) fn advance(
     let Some(plan) = attempt.plan.as_ref() else {
         return false;
     };
-    if !attempt.current(context) {
+    if !attempt.current(player_runtime, context) {
         return false;
     }
     let plan = &plan.value;

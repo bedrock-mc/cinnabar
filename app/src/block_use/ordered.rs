@@ -104,7 +104,7 @@ pub(crate) fn step(
             &context,
             &input.context.origin,
             &selection,
-            game_mode,
+            &player,
             pick,
             &state,
             mode,
@@ -145,7 +145,7 @@ pub(crate) fn step(
         }
     }
     if let Some(Proposal::Block(build)) = &attempt.proposal
-        && !build.current(&context)
+        && !build.current(&player, &context)
     {
         attempt.cancelled = true;
         runtime.clear_press();
@@ -161,8 +161,8 @@ pub(crate) fn step(
     }
     let done = match attempt.proposal.as_mut().expect("prepared build proposal") {
         Proposal::Actor(actor) => {
-            attempt.cancelled = !actor.current(&context);
-            actor_use::advance(&context, &mut runtime, actor)
+            attempt.cancelled = !actor.current(&player, &context);
+            actor_use::advance(&context, &player, &mut runtime, actor)
         }
         Proposal::Block(build) => build::advance(
             &mut player,

@@ -37,6 +37,7 @@ pub(crate) fn capture(
 pub(crate) struct AttackAttempt {
     source: CapturedAttack,
     picked: Option<crosshair::ResolvedTarget>,
+    obstruction: Option<sim::WorldCollisionIdentity>,
     lifetime: Option<actor_animation::ActorLifetimeId>,
     initialized: bool,
     selection: Option<client_interaction::mining::SelectionObservation>,
@@ -51,6 +52,7 @@ impl AttackAttempt {
         Self {
             source,
             picked: None,
+            obstruction: None,
             lifetime: None,
             initialized: false,
             selection: None,
@@ -80,8 +82,12 @@ pub(crate) fn step(
         if hand_interaction_selection(&player).is_none() {
             return Step::new(attempt, Progress::Pending);
         }
-        attempt.picked =
-            crosshair::resolve_captured(&player, &context, &attempt.source.inputs, &input);
+        if let Some((picked, obstruction)) =
+            crosshair::resolve_captured(&player, &context, &attempt.source.inputs, &input)
+        {
+            attempt.picked = Some(picked);
+            attempt.obstruction = obstruction;
+        }
         attempt.lifetime = attempt.picked.and_then(|picked| match picked.crosshair {
             Crosshair::Actor(hit) => context
                 .client_world
@@ -102,7 +108,18 @@ pub(crate) fn step(
                     .authority()
                     .actor(lifetime.runtime_id)
                     .is_some_and(|actor| !actor.status.dead)
-        });
+        }) && picked.reach
+            == crosshair::attack_reach(&player, &context, input.context.mode)
+            && attempt.obstruction.as_ref().map_or_else(
+                || attempt.press.is_none(),
+                |identity| {
+                    crate::interaction_authority::world_identity_current(
+                        &context.client_world,
+                        &context.collisions,
+                        identity,
+                    )
+                },
+            );
         if !valid {
             runtime.cancel();
             return Step::new(attempt, Progress::Complete);
