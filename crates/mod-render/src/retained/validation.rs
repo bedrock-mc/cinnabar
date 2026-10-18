@@ -142,10 +142,10 @@ pub(super) fn instance(
     {
         return Err(error(ErrorCode::Denied, "drawing authority"));
     }
-    if let Anchor::Entity(anchor) = instance.anchor {
-        if !resources.entities.contains_key(&anchor.entity) {
-            return Err(error(ErrorCode::StaleHandle, "entity"));
-        }
+    if let Anchor::Entity(anchor) = instance.anchor
+        && !resources.entities.contains_key(&anchor.entity)
+    {
+        return Err(error(ErrorCode::StaleHandle, "entity"));
     }
     let geometry = resources
         .geometry
