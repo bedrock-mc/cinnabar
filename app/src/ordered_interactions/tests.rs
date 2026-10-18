@@ -8,6 +8,7 @@ fn maintenance_reads_current_buttons_after_neutral_rearm() {
     router
         .route(semantic_input::DeviceFrame {
             keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                activity_sequence: 1,
                 mouse_buttons: vec![1],
                 ..Default::default()
             }),
