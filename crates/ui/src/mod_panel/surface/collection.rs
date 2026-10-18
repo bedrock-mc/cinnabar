@@ -291,10 +291,11 @@ pub(super) fn scope(value: &mut Value, name: &str) {
     }
 }
 
-/// Installs typed native grids at their unique authored placeholder nodes.
+/// Installs native grids and checks their clipping controls under inherited rotation.
 pub(super) fn replace(
     value: &mut Value,
     grids: &mut BTreeMap<String, Value>,
+    rotated: bool,
 ) -> Result<(), String> {
     if let Some(object) = value.as_object_mut() {
         if let Some(name) = object.remove("cinnabar_collection") {
@@ -313,11 +314,13 @@ pub(super) fn replace(
             for (key, value) in grid.as_object().expect("native grid").iter() {
                 object.insert(key.clone(), value.clone());
             }
-        } else if let Some(children) = object.get_mut("controls").and_then(Value::as_array_mut) {
+        }
+        let rotated = super::paint_transform::control(object, rotated)?;
+        if let Some(children) = object.get_mut("controls").and_then(Value::as_array_mut) {
             for entry in children {
                 if let Some(entry) = entry.as_object_mut() {
                     for child in entry.values_mut() {
-                        replace(child, grids)?;
+                        replace(child, grids, rotated)?;
                     }
                 }
             }

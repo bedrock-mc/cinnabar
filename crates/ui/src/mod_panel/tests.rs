@@ -618,3 +618,69 @@ fn surfaces_keep_bounded_transforms_and_reject_rotated_clips() {
         );
     }
 }
+
+/// Collection viewports obey the same inherited clipping constraints as authored controls.
+#[test]
+fn surfaces_reject_rotated_collection_viewports() {
+    use super::{CollectionDefinition, SurfaceCollection};
+
+    let template = Surface {
+        screen: "extension.tile".into(),
+        document: serde_json::json!({"namespace":"extension", "tile":{
+            "type":"panel", "size":[20,20]
+        }})
+        .to_string(),
+        bindings: Default::default(),
+        transitions: Default::default(),
+        collections: Default::default(),
+    };
+    let mut surface = transformed(serde_json::json!({"scale":0.97}), "panel");
+    let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
+    document["screen"]["controls"][0]["card"]["controls"][0]["inner"]["cinnabar_collection"] =
+        serde_json::json!("items");
+    surface.collections.insert(
+        "items".into(),
+        SurfaceCollection {
+            definition: std::sync::Arc::new(CollectionDefinition {
+                template,
+                columns: 1,
+                viewport: [48.0, 40.0],
+                items: vec![],
+            }),
+            order: vec![],
+        },
+    );
+    surface.document = document.to_string();
+    surface.validate().unwrap();
+    surface.resolved_document().unwrap();
+    for bound in [false, true] {
+        let card = &mut document["screen"]["controls"][0]["card"];
+        card["cinnabar_transform"] = serde_json::json!({"rotation":if bound {0} else {45}});
+        if bound {
+            card["bindings"][0]["binding_name_override"] = serde_json::json!("#cinnabar_rotation");
+        }
+        surface.document = document.to_string();
+        assert!(
+            surface.validate().is_err(),
+            "rotated collection admitted (bound={bound})"
+        );
+        assert!(
+            surface.actions().is_err(),
+            "rotated collection actions admitted (bound={bound})"
+        );
+        assert!(
+            surface.resolved_document().is_err(),
+            "rotated collection document admitted (bound={bound})"
+        );
+    }
+    let card = &mut document["screen"]["controls"][0]["card"];
+    card["cinnabar_transform"] = serde_json::json!({"scale":0.97});
+    card["bindings"][0]["binding_name_override"] = serde_json::json!("#cinnabar_scale");
+    card["controls"][0]["inner"]["cinnabar_transform"] = serde_json::json!({"rotation":45});
+    surface.document = document.to_string();
+    assert!(surface.validate().is_err(), "rotated placeholder admitted");
+    assert!(
+        surface.resolved_document().is_err(),
+        "rotated placeholder document admitted"
+    );
+}

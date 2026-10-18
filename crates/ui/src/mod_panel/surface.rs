@@ -149,7 +149,7 @@ impl Surface {
                 collection.grid(name, &format!("{namespace}.{template_name}")),
             );
         }
-        collection::replace(&mut root, &mut grids)?;
+        collection::replace(&mut root, &mut grids, false)?;
         if !grids.is_empty() {
             return Err("surface collection is missing its placeholder".into());
         }
@@ -202,7 +202,7 @@ impl Surface {
             grids.insert(name.clone(), collection.grid(name, "unused.template"));
         }
         let mut placeholders = root;
-        collection::replace(&mut placeholders, &mut grids)?;
+        collection::replace(&mut placeholders, &mut grids, false)?;
         if !grids.is_empty() {
             return Err("surface collection is missing its placeholder".into());
         }
