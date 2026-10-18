@@ -14,7 +14,7 @@ use client_runtime::{
 use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 use protocol::WorldEvent;
-use std::time::Instant;
+use web_time::Instant;
 #[cfg(feature = "acceptance")]
 use {
     crate::runtime::visibility::AppMetrics,

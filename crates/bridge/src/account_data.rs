@@ -1,8 +1,7 @@
 //! Account data shared by menu presentation and native RPCs.
 
-use serde::{Deserialize, Serialize};
-
 use crate::contract::{AuthState, ConnectStage};
+use serde::{Deserialize, Serialize};
 
 /// Remote HTTPS artwork and a local copy once one is cached; the core fills `path` only for art it renders.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]

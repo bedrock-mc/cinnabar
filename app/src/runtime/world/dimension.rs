@@ -17,7 +17,9 @@ pub(crate) fn advance_dimension_transfer(
     network: bevy::prelude::Res<NetworkHandle<PackApplication>>,
     clock: bevy::prelude::Res<crate::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
-    mut menu: Option<bevy::prelude::ResMut<client_shell::menu::MenuRuntime>>,
+    #[cfg(not(target_arch = "wasm32"))] mut menu: Option<
+        bevy::prelude::ResMut<client_shell::menu::MenuRuntime>,
+    >,
 ) {
     let session = client_world
         .stream
@@ -30,6 +32,7 @@ pub(crate) fn advance_dimension_transfer(
         let priority = transferring.then(|| stream.resolved_server_position().position);
         stream.set_dimension_transfer_priority(priority);
     }
+    #[cfg(not(target_arch = "wasm32"))]
     if transferring && let Some(menu) = menu.as_deref_mut() {
         menu.set_visible(false);
     }

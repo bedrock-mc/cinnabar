@@ -806,7 +806,7 @@ pub(super) mod fullbright;
 mod gameplay;
 pub(crate) mod ghost;
 mod input;
-pub(crate) mod interaction;
+use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;

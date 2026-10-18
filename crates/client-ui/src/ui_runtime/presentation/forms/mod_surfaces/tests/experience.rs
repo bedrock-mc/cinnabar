@@ -1,9 +1,9 @@
 use crate::test_support::mini_engine_presentation;
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use server_experience::policy::Choice;
 use server_experience::policy::{
     MAX_FALLBACK_BYTES, MAX_IDENTIFIER_BYTES, MAX_ORIGINS, MAX_URL_BYTES,
 };
-use server_experience::trust::Choice;
 use ui_engine::text_metrics::TextMetrics;
 
 #[test]

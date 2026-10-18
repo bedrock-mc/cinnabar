@@ -7,8 +7,9 @@ use std::{
         Mutex,
         atomic::{AtomicU8, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 const STAGES: usize = RuntimeStage::ALL.len();
 const LOG_INTERVAL: Duration = Duration::from_secs(1);

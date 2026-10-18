@@ -195,7 +195,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             },
         );
     let previous = gpu_assets.prepared.clone();
-    std::thread::spawn(move || {
+    let work = move || {
         let result = build_carrier_texture_assets(&candidate, previous.as_ref(), &device, &queue)
             .and_then(|(atlas, stats)| {
                 let geometry = match geometry {
@@ -212,7 +212,11 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 Some((atlas, stats, geometry))
             });
         let _ = sender.send(result);
-    });
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(work);
+    #[cfg(target_arch = "wasm32")]
+    crate::browser_jobs::submit(crate::browser_jobs::Lane::Textures, work);
 }
 
 /// Installs the current atlas without a reload transaction. Enhanced keeps an unchanged carrier

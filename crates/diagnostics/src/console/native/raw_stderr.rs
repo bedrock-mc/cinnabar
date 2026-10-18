@@ -240,7 +240,7 @@ fn available(reader: &File) -> io::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::queue::{RESERVED_CAPACITY, SHARED_CAPACITY, SystemClock};
+    use crate::console::native::queue::{RESERVED_CAPACITY, SHARED_CAPACITY, SystemClock};
     use std::io::Write;
 
     /// A stalled console must not stop the pipe draining, or raw stderr writers block.
@@ -295,7 +295,7 @@ mod nonblocking_tests {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "console::raw_stderr::nonblocking_tests::exhausted_reader_fixture",
+                "console::native::raw_stderr::nonblocking_tests::exhausted_reader_fixture",
             ])
             .env("CINNABAR_EMPTY_CAPTURE_FIXTURE", "1")
             .stdout(std::process::Stdio::null())

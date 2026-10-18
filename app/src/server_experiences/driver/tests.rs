@@ -1,4 +1,5 @@
 use super::*;
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet};
 use client_runtime::network::NetworkHandle;
@@ -10,7 +11,7 @@ use server_experience::{
 use std::collections::BTreeSet;
 use {
     crate::{
-        app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+        app::configure_client_production_frame_systems,
         runtime::world::{ClientWorld, drain_committed_ui_before_authority},
     },
     ui_engine::test_support::fixture_font,

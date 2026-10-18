@@ -155,12 +155,13 @@ mod actor_publication;
 pub(crate) use actor_publication::custom_emotes::fixture as actor_publication_test_world;
 mod block_overlay;
 mod bootstrap_timing;
+mod compile_execution;
 pub(crate) mod entity_pack;
 mod entity_texture_reload;
 mod glyph_sheets;
 mod item_icons;
 mod server_animation;
-pub(crate) use item_icons::{set_vanilla_item_paths, set_vanilla_item_sprites};
+pub(crate) use item_icons::install_vanilla_item_assets;
 #[cfg(test)]
 mod join_first_frame_tests;
 #[cfg(test)]

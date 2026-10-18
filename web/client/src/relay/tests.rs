@@ -14,6 +14,7 @@ use web_transport::Channel;
 #[derive(Default)]
 struct Observations {
     account: RefCell<RelayAccount>,
+    ready: Rc<Cell<bool>>,
     now: Cell<Duration>,
     opens: Cell<usize>,
     closes: Cell<usize>,
@@ -32,6 +33,7 @@ struct Transport(Rc<Observations>);
 struct Stream {
     host: Rc<Observations>,
     input: VecDeque<u8>,
+    control: bool,
 }
 
 impl AsyncRead for Stream {
@@ -43,7 +45,7 @@ impl AsyncRead for Stream {
         if !self.input.is_empty() && self.host.hold_welcome.get() {
             return Poll::Pending;
         }
-        if self.input.is_empty() {
+        if self.control && self.input.is_empty() {
             let incoming: VecDeque<_> = self.host.incoming.borrow_mut().drain(..).collect();
             self.input.extend(incoming);
         }
@@ -80,7 +82,7 @@ impl AsyncWrite for Stream {
 }
 impl RelayTransport for Transport {
     type Stream = Stream;
-    async fn open(&mut self, _: Channel) -> Result<Stream, CloseReason> {
+    async fn open(&mut self, channel: Channel) -> Result<Stream, CloseReason> {
         self.0.opens.set(self.0.opens.get() + 1);
         if self.0.failed.get() {
             return Err(CloseReason::Transport);
@@ -96,6 +98,7 @@ impl RelayTransport for Transport {
         Ok(Stream {
             host: Rc::clone(&self.0),
             input,
+            control: matches!(channel, Channel::Control),
         })
     }
     fn close(&mut self, _: CloseReason) {
@@ -188,9 +191,11 @@ fn menu_tracks_typed_events_across_suspend_and_resume() {
     let refresh = Rc::new(Intent::default());
     let paused = Rc::new(Cell::new(false));
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::clone(&paused),
         Rc::clone(&refresh),
@@ -272,9 +277,11 @@ fn menu_fresh_session_restores_only_the_current_generation_command() {
     let (mut lifecycle, changed) = mpsc::channel(1);
     let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -325,9 +332,11 @@ fn driver_reconnects_with_the_same_bearer_and_cancels_backoff_on_navigation() {
     let paused = Rc::new(Cell::new(false));
     let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::clone(&paused),
         refresh,
@@ -370,9 +379,11 @@ fn refusal_requires_an_explicit_fresh_session() {
     let (mut lifecycle, changed) = mpsc::channel(1);
     let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -410,9 +421,11 @@ fn account_writes_leave_the_command_lane_available_and_sign_out_stops_retries() 
     let refresh = Rc::new(Intent::default());
     let (_lifecycle, changed) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -453,9 +466,11 @@ fn account_commands_during_setup_preserve_the_handshake_and_coalesce() {
             let (mut lifecycle, changed) = mpsc::channel(1);
             let paused = Rc::new(Cell::new(false));
             let (cancel, cancelled) = oneshot::channel();
+            let (_joins, join_requests) = mpsc::channel(1);
             let mut task = Box::pin(run(
                 FakeHost(Rc::clone(&host)),
                 pending,
+                join_requests,
                 changed,
                 Rc::clone(&paused),
                 Rc::clone(&refresh),
@@ -524,9 +539,11 @@ fn explicit_reconnect_retains_the_current_controller() {
         let (mut lifecycle, changed) = mpsc::channel(1);
         let refresh = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
+        let (_joins, join_requests) = mpsc::channel(1);
         let mut task = Box::pin(run(
             FakeHost(Rc::clone(&host)),
             pending,
+            join_requests,
             changed,
             Rc::new(Cell::new(false)),
             Rc::clone(&refresh),
@@ -563,9 +580,11 @@ fn fresh_session_discards_account_intent_queued_during_setup() {
     let (mut lifecycle, changed) = mpsc::channel(1);
     let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -604,9 +623,11 @@ fn fresh_session_discards_account_commands_pending_behind_a_blocked_write() {
         let (mut lifecycle, changed) = mpsc::channel(1);
         let refresh = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
+        let (_joins, join_requests) = mpsc::channel(1);
         let mut task = Box::pin(run(
             FakeHost(Rc::clone(&host)),
             pending,
+            join_requests,
             changed,
             Rc::new(Cell::new(false)),
             Rc::clone(&refresh),
@@ -652,9 +673,11 @@ fn fresh_session_preserves_only_intent_issued_after_the_latest_reset() {
     let (mut lifecycle, changed) = mpsc::channel(1);
     let refresh = Rc::new(Intent::default());
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -699,9 +722,11 @@ fn sign_in_admission_refusal_directs_a_working_request_retry() {
     let refresh = Rc::new(Intent::default());
     let (_lifecycle, changed) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -757,9 +782,11 @@ fn sign_out_queued_before_opening_is_sent_before_retries_stop() {
         .unwrap();
     let (_lifecycle, changed) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let mut task = Box::pin(run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::clone(&refresh),
@@ -785,9 +812,11 @@ fn repeated_transport_loss_stops_at_the_shared_retry_ceiling() {
     let (_commands, pending) = mpsc::channel(4);
     let (_lifecycle, changed) = mpsc::channel(1);
     let (cancel, cancelled) = oneshot::channel();
+    let (_joins, join_requests) = mpsc::channel(1);
     let task = run(
         FakeHost(Rc::clone(&host)),
         pending,
+        join_requests,
         changed,
         Rc::new(Cell::new(false)),
         Rc::new(Intent::default()),
@@ -809,3 +838,5 @@ fn repeated_transport_loss_stops_at_the_shared_retry_ceiling() {
     cancel.send(()).unwrap();
     assert!(task.as_mut().poll(&mut cx).is_ready());
 }
+
+mod leases;
