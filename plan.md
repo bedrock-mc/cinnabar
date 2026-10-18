@@ -10200,3 +10200,10 @@ Correction-sync packets combine received actor metadata with the completed local
 sneak and sprint states. Undefined attributes retain their wire defaults and refused
 sends remain pending. Other locally predicted flags, bounding-box updates, history
 loss and exact send phase remain open; this does not close movement parity.
+
+## Sign text line breaks
+
+Sign edits retain existing trailing blank lines and line breaks entered before closing.
+Unused editor rows do not add line breaks to the outbound text. The regression checks
+encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
+length limits, structured text and complete editor behavior remain incomplete.
