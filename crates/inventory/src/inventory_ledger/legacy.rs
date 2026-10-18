@@ -223,7 +223,7 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// Settles only the empty-pages update of an idle, current writable-book slot.
+    /// Settles the current writable book's empty-pages update, preserving sparse screen ownership.
     fn settle_book_init_slot_change(
         &mut self,
         slot: u8,
@@ -233,7 +233,7 @@ impl PlayerInventoryLedger {
         let cell = Cell::Inventory(slot);
         if self.authoritative_slot_revision(slot) != Some(revision)
             || !protocol::is_legacy_request_id(change.legacy_request_id)
-            || self.queue.iter().any(|request| request.touches(cell))
+            || self.slot_backing_transport_pending(slot)
             || self
                 .negotiated_item_entry(change.from.network_id())
                 .and_then(|entry| {
@@ -253,9 +253,17 @@ impl PlayerInventoryLedger {
         if verified(Some(&held)).ok().as_ref() != Some(&change.from) {
             return false;
         }
+        let before = held.clone();
         held.stack.extra_data = change.to.extra_data().into();
         held.stack.nbt_digest = change.to.nbt_digest();
-        self.confirmed.set(cell, Some(held));
+        self.confirmed.set(cell, Some(held.clone()));
+        self.rebase_predictions(
+            i32::MAX,
+            cell,
+            Some(&before),
+            Some(held),
+            RollbackAuthority::Known,
+        );
         self.refold();
         true
     }
