@@ -2,6 +2,9 @@ use std::{collections::HashSet, str};
 
 use crate::AssetError;
 
+mod identity;
+pub use identity::pinned_block_identity;
+
 mod schema;
 use crate::facts::{self, family_routing};
 
