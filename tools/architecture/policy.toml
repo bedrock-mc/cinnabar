@@ -1349,11 +1349,6 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
-path = "app/src/render_mode/authored_textures/enhanced_textures/cache.rs"
-literal = "target"
-reason = "Cargo build directory skipped while hashing local authored packs."
-
-[[identifier_literal_exceptions]]
 path = "tools/devtool/src/web.rs"
 literal = "web"
 reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
