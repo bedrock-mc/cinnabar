@@ -193,6 +193,7 @@ fn passive_clients_have_no_update_settings_actions() {
         AUTO_UPDATE_OPTION,
         INSTALL_ON_QUIT_OPTION,
         UPDATE_CHANNEL_OPTION,
+        SettingId::ModUpdateChecks.definition(),
     ];
     assert!(!hits.iter().any(|(action, _)| {
         match action {

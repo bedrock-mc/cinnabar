@@ -112,6 +112,33 @@ icon must be one PNG within the limits above that decodes completely; otherwise
 the card shows the placeholder. Metadata and icons are read by parsing the file
 only, and their content never causes a load to fail.
 
+### Optional GitHub update checks
+
+Authors can opt a mod into update notifications by appending the top-level UTF-8
+custom section `cinnabar:extension/update-repository@1` (the SDK's
+`mod_api::UPDATE_REPOSITORY_SECTION`). Its entire contents are the public
+repository URL, for example `https://github.com/example/zoom-plus`. HTTPS GitHub
+repository URLs up to 256 bytes are accepted, with an optional `.git` suffix or
+trailing slash. Missing, duplicate, nested or malformed declarations disable
+checks for that mod without affecting its loading or other metadata.
+
+The component also needs a standard `version` section containing SemVer. On
+launch, Cinnabar checks each opted-in repository's latest published release in
+the background, comparing its tag (such as `v1.3.0`) with the installed version.
+Drafts, prereleases, equal/older versions and non-SemVer tags do not notify.
+Repositories are checked once per session, including when a mod is imported;
+at most 32 distinct repositories are requested per launch. Missing releases,
+network failures and API limits stay silent until the next launch. These public
+requests use no GitHub login or token.
+
+A newer release shows the launcher's corner update card. **View mod updates**
+opens **Settings → Mods**, where each affected card shows the release version
+and **View update** opens that release on GitHub. App updates take priority in
+the corner; mod notices remain on the Mods tab. Mod installation is manual and
+does not change the user's grants. Players can disable the separate
+**Check for mod updates** toggle in **Settings → General**. Mods without a
+repository declaration never make update requests.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one

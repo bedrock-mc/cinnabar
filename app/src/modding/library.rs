@@ -30,6 +30,8 @@ const FILTER: Filter = Filter {
 pub(super) struct ModLibrary {
     commands: Sender<Action>,
     published: Receiver<Library>,
+    updates: Option<launcher_host::mod_updates::Checker>,
+    checks: bool,
 }
 
 /// Starts the library worker and the system that connects it to the Mods tab.
@@ -60,20 +62,44 @@ pub(super) fn configure(
     app.insert_resource(ModLibrary {
         commands,
         published,
+        updates: launcher_host::mod_updates::Checker::start()
+            .map_err(|error| {
+                warn!("Mod update checks unavailable: {error}");
+            })
+            .ok(),
+        checks: false,
     })
     .add_systems(Update, drive);
 }
 
 /// Forwards Mods-tab work and publishes the newest library.
-fn drive(library: Res<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
+fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
     let Some(mut menu) = menu else { return };
     if !menu.mod_actions.is_empty() {
         for action in std::mem::take(&mut menu.mod_actions) {
             let _ = library.commands.send(action);
         }
     }
-    if let Some(latest) = library.published.try_iter().last() {
+    let latest = library.published.try_iter().last();
+    let changed = latest.is_some();
+    if let Some(latest) = latest {
         Arc::make_mut(&mut menu.mods).publish(latest);
+    }
+    let checks = menu
+        .settings_snapshot()
+        .0
+        .value(launcher::menu::settings_options::SettingId::ModUpdateChecks)
+        != 0;
+    let configure = changed || checks != library.checks;
+    library.checks = checks;
+    if let Some(checker) = &mut library.updates {
+        if configure {
+            checker.configure(&menu.mods.library.installed, checks);
+        }
+        let updates = checker.updates();
+        if menu.mods.library.updates != updates {
+            Arc::make_mut(&mut menu.mods).library.updates = updates.to_vec();
+        }
     }
 }
 
@@ -199,6 +225,8 @@ fn perform(
             .map(|()| String::new())
         }
         Action::ReadMore(_)
+        | Action::ViewUpdates
+        | Action::OpenUpdate(_)
         | Action::ToggleActive
         | Action::ToggleAvailable
         | Action::Customize(_)
@@ -398,6 +426,7 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
         active,
         busy: false,
         message,
+        updates: Vec::new(),
     }
 }
 

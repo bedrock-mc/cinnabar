@@ -858,6 +858,16 @@ fn automatic_update_opt_out_survives_save_and_reload() {
 }
 
 #[test]
+fn mod_update_opt_out_persists_independently_of_app_updates() {
+    let mut settings = SettingsOptions::default();
+    assert_eq!(settings.value(SettingId::ModUpdateChecks), 1);
+    settings.set(SettingId::ModUpdateChecks.index(), 0);
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(reloaded.value(SettingId::ModUpdateChecks), 0);
+    assert!(reloaded.update_preferences().checks);
+}
+
+#[test]
 fn install_on_quit_requires_an_opt_in_and_channel_preferences_round_trip() {
     use update_manifest::channel::Channel;
     let mut settings = SettingsOptions::default();

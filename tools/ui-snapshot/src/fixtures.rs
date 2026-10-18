@@ -55,6 +55,30 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "home-mod-update-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::mods(false, false),
+    },
+    State {
+        name: "home-mod-update",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::mods(true, false),
+    },
+    State {
+        name: "home-mod-update-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || updates::mods(true, false),
+    },
+    State {
+        name: "settings-mod-update",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || updates::mods(true, true),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "inventory-cursor-durability",

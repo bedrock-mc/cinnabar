@@ -26,6 +26,28 @@ fn installed(id: u64, name: &str) -> InstalledMod {
     }
 }
 
+#[test]
+fn update_actions_target_only_the_mod_with_a_newer_release() {
+    let mut snapshot = Snapshot::default();
+    snapshot.library.installed = vec![installed(1, "zoom"), installed(2, "minimap")];
+    snapshot
+        .library
+        .updates
+        .push(launcher::mods::AvailableUpdate {
+            id: 2,
+            version: "v1.1.0".into(),
+            release_url: "https://github.com/example/minimap/releases/tag/v1.1.0".into(),
+        });
+    let (hits, labels) = render(snapshot);
+    assert!(hits.contains(&command(Action::OpenUpdate(2))));
+    assert!(!hits.contains(&command(Action::OpenUpdate(1))));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Update available · v1.1.0")
+    );
+}
+
 /// Paints the page and exposes its visible text and identity-scoped hit actions.
 fn render(snapshot: Snapshot) -> (Vec<MenuAction>, Vec<String>) {
     let (hits, labels, _) = render_with(snapshot, &HashMap::new());
@@ -346,6 +368,7 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
         authors: Some("Alex".into()),
         licenses: Some("MIT".into()),
         icon: Some(Arc::from([0u8].as_slice())),
+        update_repository: None,
     };
     let artwork = HashMap::from([(
         item.icon_key().unwrap(),
