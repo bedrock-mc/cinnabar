@@ -70,6 +70,69 @@ impl json_ui::TextureSource for CountArt {
     }
 }
 
+/// Every row layout scales its rendered labels without resizing the card.
+#[test]
+fn row_text_scale_changes_rendered_labels_independently_of_card_scale() {
+    let env = json_ui::LayoutEnv {
+        text: &CountArt,
+        textures: &CountArt,
+    };
+    let render_scales = |hud: &Hud| {
+        let catalog = catalog(hud).unwrap();
+        let root = json_ui::resolve(
+            &catalog,
+            "cinnabar_personal_hud.cards",
+            &json_ui::Context::default(),
+        )
+        .control
+        .unwrap();
+        let bound = json_ui::bind(&root, &data(hud, [1600., 900.]), &json_ui::EmptyLibrary);
+        let laid = json_ui::layout(&bound, [1600., 900.], &env);
+        json_ui::emit(&laid, &env)
+            .into_iter()
+            .filter_map(|node| match node.draw {
+                json_ui::Draw::Text { text, scale, .. } if !text.is_empty() => Some((text, scale)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    for row_layout in [
+        RowLayout::Standard,
+        RowLayout::StackedText,
+        RowLayout::IconRight,
+        RowLayout::Grid,
+    ] {
+        let label_count = match row_layout {
+            RowLayout::Standard | RowLayout::StackedText | RowLayout::IconRight => 2,
+            RowLayout::Grid => 1,
+        };
+        for scale in [ui::mod_hud::MIN_CARD_SCALE, 1., ui::mod_hud::MAX_CARD_SCALE] {
+            let mut hud: Hud = serde_json::from_value(json!({"cards": [{
+                "id": "inventory", "row_layout": row_layout, "scale": scale,
+                "rows": [{"label": "Items", "value": "37"}]
+            }]}))
+            .unwrap();
+            hud.validate().unwrap();
+            let baseline = render_scales(&hud);
+            assert_eq!(baseline.len(), label_count);
+            let size = dimensions(&hud.cards[0]);
+            for text_scale in [0.5, 2.] {
+                hud.cards[0].text_scale = text_scale;
+                let scaled = render_scales(&hud);
+                assert_eq!(scaled.len(), baseline.len());
+                assert_eq!(dimensions(&hud.cards[0]), size);
+                for ((text, actual), (expected_text, base)) in scaled.iter().zip(&baseline) {
+                    assert_eq!(text, expected_text);
+                    assert!(
+                        (actual - base * text_scale).abs() <= f32::EPSILON,
+                        "{row_layout:?} at card scale {scale}, text scale {text_scale}: {text} has font scale {actual}, baseline {base}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Count draw commands retain the current row tint and alpha without rebuilding the template.
 #[test]
 fn grid_count_labels_follow_live_row_tint_and_alpha() {

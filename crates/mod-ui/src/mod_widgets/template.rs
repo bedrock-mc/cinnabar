@@ -289,7 +289,7 @@ fn grid(card: &Card, row_index: &mut usize, header: f64) -> Vec<Value> {
                 x as f64 * step * k,
                 (header + (y + 1) as f64 * step - 10.) * k,
             ],
-            0.75 * k,
+            0.75 * k * f64::from(card.text_scale),
             true,
         );
         count["shadow"] = json!(card.shadow);
