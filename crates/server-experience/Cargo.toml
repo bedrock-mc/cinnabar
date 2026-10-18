@@ -13,7 +13,8 @@ reads = [
 
 [features]
 default = ["host"]
-host = ["dep:reqwest", "dep:ring", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tokio", "dep:url", "dep:zip", "dep:libc"]
+data = ["dep:serde", "dep:serde_json"]
+host = ["data","dep:reqwest", "dep:ring", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tokio", "dep:url", "dep:zip", "dep:libc"]
 developer-media = ["host", "dep:matroska-demuxer", "dep:dav1d", "dep:opus"]
 
 [dependencies]

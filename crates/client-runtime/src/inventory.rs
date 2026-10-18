@@ -64,3 +64,23 @@ pub fn route_item_registry_ingress(
         event.clone(),
     )
 }
+
+/// Queues crafting rules alongside their world packet without moving its FIFO position.
+pub fn route_crafting_rules_ingress(
+    player_runtime: &mut client_state::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    sequenced: &SequencedWorldEvent,
+) -> Result<(), UiRuntimeError> {
+    let WorldEvent::GameRules(rules) = &sequenced.event else {
+        unreachable!("crafting-rule routing accepts only game-rule world events")
+    };
+    if rules.crafting.is_empty() {
+        return Ok(());
+    }
+    runtime.enqueue_inventory_event(
+        player_runtime,
+        sequenced.session_generation.get(),
+        sequenced.sequence.get(),
+        InventoryEvent::CraftingRules(rules.crafting),
+    )
+}

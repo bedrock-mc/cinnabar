@@ -1,12 +1,12 @@
 //! The launcher's text boxes through the engine's Add Server screen: the caret
 //! drawn where typing goes, its blink, and a press placing it by character.
-//! Needs the gitignored UI carrier; each test skips when it is absent.
+//! Owned menu fields render without the installed JSON-UI carrier.
 
 use bevy::prelude::{App, ButtonInput, KeyCode, MouseButton, Vec2, Window};
 use ui::{DpiScale, UiNode, UiVisual};
 
 use super::super::UiPresentationResource;
-use client_ui::test_support::pack_harness::{drawn_texts, engine_presentation};
+use client_ui::test_support::pack_harness::{drawn_texts, font, menu_nodes};
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
@@ -15,6 +15,20 @@ use {
 };
 
 const SIZE: [u32; 2] = [1280, 720];
+
+/// Drives settled OreUI fields through the production menu input system.
+fn menu_app() -> (App, bevy::prelude::Entity) {
+    let presentation =
+        client_ui::ui_runtime::presentation::UiPresentationRuntime::new(font()).unwrap();
+    let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::SettingsOption(
+            launcher::menu::settings_options::SettingId::ScreenAnimations.index() as u16,
+            0,
+        ));
+    (app, window)
+}
 
 /// Builds the menu at `now_millis` (which also sets its hit targets) and returns its nodes.
 fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
@@ -33,23 +47,12 @@ fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
                     dpi,
                 )
                 .unwrap();
-            let metrics = client_ui::test_support::text_metrics(SIZE, dpi, None);
-            let (mut nodes, mut next) = (Vec::new(), 1);
-            presentation
-                .append_menu(
-                    &runtime,
-                    &mut nodes,
-                    &mut next,
-                    metrics,
-                    SIZE[0] as f32,
-                    SIZE[1] as f32,
-                )
-                .unwrap();
-            nodes
+            menu_nodes(&presentation).to_vec()
         },
     )
 }
 
+/// Opens the server editor with its name field focused.
 fn add_server(app: &mut App) {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
@@ -58,28 +61,23 @@ fn add_server(app: &mut App) {
 
 #[test]
 fn the_focused_box_draws_the_caret_where_typing_goes_and_blinks() {
-    let Some(presentation) = engine_presentation() else {
-        eprintln!(
-            "skipping the_focused_box_draws_the_caret_where_typing_goes_and_blinks: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
+    let (mut app, window) = menu_app();
     add_server(&mut app);
     press_key(&mut app, window, KeyCode::KeyA, Some("abc"));
     press_key(&mut app, window, KeyCode::ArrowLeft, None);
-    let caret = json_ui::CARET_GLYPH;
     let blink = (json_ui::CARET_BLINK_SECONDS * 1_000.0) as u64;
     let start = 10_000;
-    let shown = drawn_texts(&frame(&mut app, start));
-    assert!(shown.contains(&format!("ab{caret}c")), "{shown:?}");
-    let hidden = drawn_texts(&frame(&mut app, start + blink + blink / 2));
-    assert!(hidden.contains(&"abc".to_owned()), "blinks off: {hidden:?}");
+    let shown = frame(&mut app, start);
+    assert_eq!(caret_byte(&shown, "abc"), Some(2));
+    let hidden = frame(&mut app, start + blink + blink / 2);
+    assert_eq!(caret_byte(&hidden, "abc"), None, "blinks off");
+    assert!(drawn_texts(&hidden).contains(&"abc".to_owned()));
     press_key(&mut app, window, KeyCode::ArrowRight, None);
-    let moved = drawn_texts(&frame(&mut app, start + blink + blink / 2 + 1));
-    assert!(
-        moved.contains(&format!("abc{caret}")),
-        "a move shows the caret at once: {moved:?}"
+    let moved = frame(&mut app, start + blink + blink / 2 + 1);
+    assert_eq!(
+        caret_byte(&moved, "abc"),
+        Some(3),
+        "a move shows the caret at once"
     );
     press_key(&mut app, window, KeyCode::ShiftLeft, None);
     press_key(&mut app, window, KeyCode::ArrowLeft, None);
@@ -88,11 +86,7 @@ fn the_focused_box_draws_the_caret_where_typing_goes_and_blinks() {
         app.world().resource::<MenuRuntime>().view().caret.selection,
         Some([2, 3])
     );
-    assert!(
-        !drawn_texts(&selected)
-            .iter()
-            .any(|text| text.contains(caret))
-    );
+    assert_eq!(caret_byte(&selected, "abc"), None);
     let selection = selected
         .iter()
         .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
@@ -111,6 +105,40 @@ fn the_focused_box_draws_the_caret_where_typing_goes_and_blinks() {
     );
 }
 
+/// Resolves a retained node through every clipping ancestor into window coordinates.
+fn node_origin(node: &UiNode, nodes: &[UiNode]) -> [f32; 2] {
+    let mut origin = [node.bounds().min().x(), node.bounds().min().y()];
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+        origin[0] += ancestor.bounds().min().x();
+        origin[1] += ancestor.bounds().min().y();
+        parent = ancestor.parent();
+    }
+    origin
+}
+
+/// Reads the painted insertion position against the same text layout that draws the field.
+fn caret_byte(nodes: &[UiNode], text: &str) -> Option<usize> {
+    let caret = nodes.iter().find(|node| {
+        matches!(node.visual(), UiVisual::Solid { color, .. }
+            if *color == ui::oreui_theme::FIELD_CARET)
+    })?;
+    let label = nodes
+        .iter()
+        .find(|node| {
+            matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == text)
+        })
+        .expect("the edited text remains visible");
+    let UiVisual::Text { layout, .. } = label.visual() else {
+        unreachable!()
+    };
+    let x = node_origin(caret, nodes)[0] - node_origin(label, nodes)[0];
+    Some(ui_engine::caret::nearest_boundary(text, x, |prefix| {
+        layout.first_line_caret_x_64(prefix.len()) as f32 / 64.0
+    }))
+}
+
 /// The window-logical rect of each drawn glyph of the text node spelling `wanted`.
 fn glyph_rects(nodes: &[UiNode], wanted: &str) -> Vec<(char, [f32; 4])> {
     let node = nodes
@@ -120,16 +148,7 @@ fn glyph_rects(nodes: &[UiNode], wanted: &str) -> Vec<(char, [f32; 4])> {
             if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == wanted)
         })
         .unwrap_or_else(|| panic!("{wanted:?} in {:?}", drawn_texts(nodes)));
-    let clip = nodes
-        .iter()
-        .find(|other| Some(other.id()) == node.parent())
-        .map_or([0.0; 2], |clip| {
-            [clip.bounds().min().x(), clip.bounds().min().y()]
-        });
-    let origin = [
-        clip[0] + node.bounds().min().x(),
-        clip[1] + node.bounds().min().y(),
-    ];
+    let origin = node_origin(node, nodes);
     let UiVisual::Text { layout, .. } = node.visual() else {
         unreachable!()
     };
@@ -151,6 +170,7 @@ fn glyph_rects(nodes: &[UiNode], wanted: &str) -> Vec<(char, [f32; 4])> {
         .collect()
 }
 
+/// Sends one complete physical click at a window-logical point.
 fn click(app: &mut App, window: bevy::prelude::Entity, at: [f32; 2]) {
     app.world_mut()
         .get_mut::<Window>(window)
@@ -168,13 +188,7 @@ fn click(app: &mut App, window: bevy::prelude::Entity, at: [f32; 2]) {
 
 #[test]
 fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
-    let Some(presentation) = engine_presentation() else {
-        eprintln!(
-            "skipping a_press_inside_a_box_places_the_caret_at_the_nearest_character: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
+    let (mut app, window) = menu_app();
     add_server(&mut app);
     press_key(&mut app, window, KeyCode::KeyA, Some("hello world"));
     // Focus elsewhere so the name draws without a caret.
@@ -221,13 +235,7 @@ fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
 
 #[test]
 fn a_press_in_the_oreui_world_name_field_places_its_caret() {
-    let Some(presentation) = engine_presentation() else {
-        eprintln!(
-            "skipping a_press_in_the_oreui_world_name_field_places_its_caret: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
+    let (mut app, window) = menu_app();
     let mut worlds = client_shell::local_worlds::LocalWorlds::default();
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();

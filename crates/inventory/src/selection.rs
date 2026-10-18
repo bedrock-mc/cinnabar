@@ -326,7 +326,10 @@ impl InventorySession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::{ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent};
+    use protocol::{
+        ContainerIdentity, InventoryAuthority, InventoryContentEvent, InventoryEvent,
+        InventorySlotEvent,
+    };
 
     #[test]
     fn offhand_equipment_tracks_count_identity_clear_and_session_reset() {
@@ -406,13 +409,52 @@ mod tests {
         );
     }
 
-    /// Replaces known offhand authority without changing hotbar selection.
+    #[test]
+    fn ignored_offhand_slot_does_not_change_equipment_announcements() {
+        let mut session = InventorySession::new(1);
+        session.publish_local_runtime_id(1, 42).unwrap();
+        replace_offhand_stack(
+            &mut session,
+            protocol::NetworkItemStack {
+                network_id: 7,
+                stack_network_id: 13,
+                count: 4,
+                ..protocol::NetworkItemStack::empty()
+            },
+        );
+        let pending =
+            protocol::encode(&session.changed_offhand_equipment_packet().unwrap().unwrap())
+                .unwrap();
+        for acknowledged in [false, true] {
+            if acknowledged {
+                session.acknowledge_offhand_equipment();
+            }
+            session
+                .ledger_mut()
+                .apply(&InventoryEvent::Slot(InventorySlotEvent {
+                    identity: protocol::SlotIdentity {
+                        container: ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                        slot: 0,
+                    },
+                    stack: protocol::NetworkItemStack::empty(),
+                    storage_item: None,
+                }));
+            let packet = session.changed_offhand_equipment_packet().unwrap();
+            if acknowledged {
+                assert!(packet.is_none());
+            } else {
+                assert_eq!(protocol::encode(&packet.unwrap()).unwrap(), pending);
+            }
+        }
+    }
+
+    /// Replaces known offhand authority through its content receipt.
     fn replace_offhand_stack(session: &mut InventorySession, stack: protocol::NetworkItemStack) {
         session
             .ledger_mut()
-            .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+            .apply(&InventoryEvent::Content(InventoryContentEvent {
                 container: ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
-                slots: [stack].into(),
+                slots: Arc::from([stack]),
                 storage_item: protocol::NetworkItemStack::empty(),
             }));
     }

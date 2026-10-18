@@ -290,9 +290,13 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
             }
             let (sender, done) = crossbeam_channel::bounded(1);
             let source = Arc::clone(icons);
-            rayon::spawn(move || {
+            let work = move || {
                 let _ = sender.send(pack(&source, 0));
-            });
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            rayon::spawn(work);
+            #[cfg(target_arch = "wasm32")]
+            crate::browser_jobs::submit(crate::browser_jobs::Lane::Icons, work);
             Packing {
                 source: Arc::clone(icons),
                 done,

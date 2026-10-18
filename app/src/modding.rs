@@ -29,6 +29,7 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
+mod anchors;
 mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
@@ -336,6 +337,13 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
+    app.add_systems(
+        Update,
+        anchors::publish
+            .after(ClientFrameSet::ActorPublication)
+            .after(drive_mod)
+            .before(ClientFrameSet::UiPublication),
+    );
     block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
@@ -373,6 +381,7 @@ fn begin_mod_frame(
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        anchors::reconcile(&mut extension.hosts, &gameplay);
         let needs_targets = (0..extension.hosts.host_count())
             .any(|index| extension.hosts.host(index).grants().entity_highlight);
         let targets = actors
@@ -487,6 +496,7 @@ fn drive_mod(
         return;
     }
     drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
         .single()
@@ -570,7 +580,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },
@@ -806,7 +816,7 @@ pub(super) mod fullbright;
 mod gameplay;
 pub(crate) mod ghost;
 mod input;
-pub(crate) mod interaction;
+use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;

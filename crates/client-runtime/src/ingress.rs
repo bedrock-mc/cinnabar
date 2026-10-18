@@ -4,10 +4,8 @@ use chunk_pipeline::WorldStream;
 use client_session::WorldIngress;
 use client_world::ingestion::{Footprint, WorldStreamError};
 use protocol::WorldEvent;
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Duration};
+use web_time::Instant;
 
 /// One frame's ingress time allowance, rechecked between payloads.
 pub const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);

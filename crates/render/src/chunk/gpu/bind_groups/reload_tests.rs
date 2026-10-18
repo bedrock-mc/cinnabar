@@ -24,7 +24,7 @@ fn obsolete_atlas_completion_cannot_stage_or_publish_replacement_geometry() {
         world.resource::<RenderQueue>(),
     )
     .unwrap();
-    reload.cancel_except(world.resource::<ChunkTextureAssets>().identity());
+    reload.cancel_except(world.resource::<ChunkTextureAssets>().binding_identity());
     reload.request_geometry(reload.geometry_epoch(), candidate.clone(), Arc::from([]));
 
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -34,12 +34,12 @@ fn obsolete_atlas_completion_cannot_stage_or_publish_replacement_geometry() {
     });
     assert!(sender.send(Some((prepared, uploaded, None))).is_ok());
     world.run_system_once(prepare_chunk_texture_assets).unwrap();
-    assert!(reload.status(candidate.identity()).is_none());
+    assert!(reload.status(candidate.binding_identity()).is_none());
     assert!(world.resource::<ChunkGpuTextureAssets>().staged.is_none());
 
     test_time::eventually("the replacement atlas and geometry", || {
         world.run_system_once(prepare_chunk_texture_assets).unwrap();
-        reload.status(candidate.identity()) == Some(Ok(()))
+        reload.status(candidate.binding_identity()) == Some(Ok(()))
     });
     let staged = world
         .resource::<ChunkGpuTextureAssets>()
@@ -59,7 +59,7 @@ fn obsolete_atlas_completion_cannot_stage_or_publish_replacement_geometry() {
             .as_ref()
             .unwrap()
             .identity,
-        candidate.identity()
+        candidate.binding_identity()
     );
 }
 
@@ -115,10 +115,10 @@ fn acknowledged_snapshot_publishes_without_clearing_a_newer_request() {
         "the CPU's acknowledged snapshot must publish its staged GPU resources"
     );
     assert!(reload.is_current(&pending));
-    assert!(reload.status(newer.identity()).is_none());
+    assert!(reload.status(newer.binding_identity()).is_none());
     test_time::eventually("the newer preparation worker", || {
         world.run_system_once(prepare_chunk_texture_assets).unwrap();
-        reload.status(newer.identity()) == Some(Ok(()))
+        reload.status(newer.binding_identity()) == Some(Ok(()))
     });
 }
 
@@ -153,6 +153,6 @@ fn stale_open_gpu_worker_never_blocks_the_new_generation() {
     );
     test_time::eventually("the new generation GPU snapshot", || {
         world.run_system_once(prepare_chunk_texture_assets).unwrap();
-        reload.status(candidate.identity()) == Some(Ok(()))
+        reload.status(candidate.binding_identity()) == Some(Ok(()))
     });
 }

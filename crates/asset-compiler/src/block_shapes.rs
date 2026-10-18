@@ -120,7 +120,6 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
     let mut pick_rule = pick_rule(record, shapes);
     let selection = (pick_rule == PickRule::Never)
         .then(|| Box::new([]) as Box<[ShapeBox]>)
-        .or_else(|| plants::shelf_selection(record, shapes, input))
         .or_else(|| hopper::selection(record))
         .or_else(|| vessels::selection(record))
         .or_else(|| stairs::selection(record))

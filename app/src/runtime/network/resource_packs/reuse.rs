@@ -227,7 +227,10 @@ impl CompiledStacks {
     #[cfg(test)]
     pub(crate) fn release(&self) {
         let released = self.take();
+        #[cfg(not(target_arch = "wasm32"))]
         rayon::spawn(move || drop(released));
+        #[cfg(target_arch = "wasm32")]
+        client_runtime::session::release_off_frame(released);
     }
 
     /// Keeps only the newest stack, for a rejoin from the menu to reuse, unless its archives
@@ -251,7 +254,10 @@ impl CompiledStacks {
             });
             kept.drain(usize::from(keep)..).collect()
         };
+        #[cfg(not(target_arch = "wasm32"))]
         rayon::spawn(move || drop(released));
+        #[cfg(target_arch = "wasm32")]
+        client_runtime::session::release_off_frame(released);
     }
 
     /// How many stacks are kept.

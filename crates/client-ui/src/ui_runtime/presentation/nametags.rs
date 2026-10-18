@@ -163,10 +163,9 @@ impl NametagTextCache {
     }
 }
 
+/// Reads the rendered pose, including client-owned local animation flags.
 fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
-    matches!(actor.metadata.get(&0),
-        Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags))
-            if flags & (1_u64 << bit) != 0)
+    actor_animation::AnimatedActor::flag(actor, bit)
 }
 
 /// The tag's height above the feet: the box height plus the head clearance, both following the

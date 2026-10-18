@@ -38,41 +38,36 @@ pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
 
-/// CPU hand carriers follow the same camera capability as the animated hand rig.
-pub(crate) fn hand_first_person(
-    perspective: semantic_input::PerspectiveMode,
-    server: Option<&client_presentation::camera::ServerCameraView>,
-) -> bool {
-    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
-    server.map_or(fallback, |camera| camera.renders_first_person(fallback))
-}
-
 /// Resources beyond Bevy's sixteen-parameter limit.
-type PublishExtras<'w, 's> = (
-    Res<'w, WorldStreamFramePoll>,
-    Res<'w, client_shell::menu::MenuRuntime>,
-    Res<'w, client_presentation::actor_publication::ActorFrameState>,
-    Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
-    Option<Res<'w, render_scene::RuntimeStageProfiler>>,
-    Option<Res<'w, render_scene::ActorPipelineReadiness>>,
-    Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
-    Option<Res<'w, client_presentation::camera::ServerCameraView>>,
-    Local<'s, nametags::NametagTextCache>,
-    ResMut<'w, crate::runtime::shutdown::FatalError>,
-    (
-        Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
-        Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
-        Res<'w, client_presentation::local_player::LocalAvatarVisibilityCarrier>,
-        Res<'w, crate::environment::WorldClock>,
-        Res<'w, crate::environment::WeatherState>,
-        Res<'w, NetworkHandle<PackApplication>>,
-        Option<ResMut<'w, render_scene::UiGlintSettings>>,
-        Res<'w, client_interaction::item_use::ItemUseRuntime>,
-        Res<'w, client_interaction::melee::MeleeRuntime>,
-        Res<'w, client_interaction::movement::MovementTicker>,
-        Res<'w, client_interaction::movement::LocalPhysicsController>,
-    ),
-);
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct PublishExtras<'w, 's> {
+    frame_poll: Res<'w, WorldStreamFramePoll>,
+    #[cfg(not(target_arch = "wasm32"))]
+    menu_runtime: Res<'w, client_shell::menu::MenuRuntime>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
+    #[cfg(target_arch = "wasm32")]
+    skin: Res<'w, client_shell::player_skin::LocalPlayerSkin>,
+    hand_rig: Res<'w, client_presentation::actor_publication::ActorFrameState>,
+    collisions: Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
+    profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
+    actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
+    warmed_pipelines: Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
+    server_camera: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    nametag_cache: Local<'s, nametags::NametagTextCache>,
+    fatal_error: ResMut<'w, crate::runtime::shutdown::FatalError>,
+    actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
+    local_frame: Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
+    local_visibility: Res<'w, client_presentation::local_player::LocalAvatarVisibilityCarrier>,
+    clock: Res<'w, crate::environment::WorldClock>,
+    weather: Res<'w, crate::environment::WeatherState>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
+    glint_settings: Option<ResMut<'w, render_scene::UiGlintSettings>>,
+    item_use: Res<'w, client_interaction::item_use::ItemUseRuntime>,
+    melee: Res<'w, client_interaction::melee::MeleeRuntime>,
+    movement: Res<'w, client_interaction::movement::MovementTicker>,
+    physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
+}
 
 /// Observes UI authority and captures inventory, including this frame's outbound predictions.
 #[allow(clippy::too_many_arguments)]
@@ -92,9 +87,17 @@ pub(crate) fn prepare_ui_runtime(
     // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
     cameras: Query<(&Camera, &Transform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (
+    extras: PublishExtras,
+    mut hand: crate::presentation::viewmodel::ViewmodelPublish,
+) {
+    let PublishExtras {
         frame_poll,
+        #[cfg(not(target_arch = "wasm32"))]
         menu_runtime,
+        #[cfg(target_arch = "wasm32")]
+        options,
+        #[cfg(target_arch = "wasm32")]
+        skin,
         hand_rig,
         collisions,
         profiler,
@@ -103,31 +106,53 @@ pub(crate) fn prepare_ui_runtime(
         server_camera,
         mut nametag_cache,
         mut fatal_error,
-        (
-            actor_partial,
-            local_frame,
-            local_visibility,
-            clock,
-            weather,
-            network,
-            glint_settings,
-            item_use,
-            melee,
-            movement,
-            physics,
+        actor_partial,
+        local_frame,
+        local_visibility,
+        clock,
+        weather,
+        network,
+        glint_settings,
+        item_use,
+        melee,
+        movement,
+        physics,
+    } = extras;
+    #[cfg(not(target_arch = "wasm32"))]
+    let (settings_snapshot, menu_skin, menu_visible, menu_scene, menu) = (
+        menu_runtime.settings_snapshot(),
+        menu_runtime.player_skin(),
+        menu_runtime.is_visible(),
+        Some(menu_runtime.screen()),
+        Some(
+            &*menu_runtime
+                as &dyn client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene,
         ),
-    ): PublishExtras,
-    mut hand: crate::presentation::viewmodel::ViewmodelPublish,
-) {
+    );
+    #[cfg(target_arch = "wasm32")]
+    let (settings_snapshot, menu_skin, menu_visible, menu_scene, menu) = (
+        (Arc::clone(&options.0), None),
+        &*skin,
+        false,
+        None::<launcher::menu::MenuScreen>,
+        None,
+    );
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);
-    runtime.set_toast_lifetime(menu_runtime.settings_snapshot().0.toast_lifetime_millis());
+    runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
-        *glint_settings = menu_runtime.ui_glint_settings();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *glint_settings = menu_runtime.ui_glint_settings();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            *glint_settings = render_scene::UiGlintSettings::default();
+        }
     }
     let Ok(window) = windows.single() else {
         hand.clear();
@@ -157,7 +182,7 @@ pub(crate) fn prepare_ui_runtime(
         &network,
         loading::LoadingObservation {
             restart,
-            menu_visible: menu_runtime.is_visible(),
+            menu_visible,
             snapshot: visibility_diagnostics.snapshot(),
             visible_rendered: visibility.visible_rendered,
             cohort: frame_poll.cohort_progress,
@@ -174,7 +199,6 @@ pub(crate) fn prepare_ui_runtime(
     );
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
-    let menu_skin = menu_runtime.player_skin();
     presentation.set_preview_cosmetics(&menu_skin.cosmetics);
     presentation.set_cosmetic_motion(&hand_rig.cosmetic_motion());
     let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
@@ -183,13 +207,13 @@ pub(crate) fn prepare_ui_runtime(
         height: menu_skin.height,
         rgba8: menu_skin.rgba8.clone(),
     };
-    let skin = if menu_runtime.is_visible() {
+    let skin = if menu_visible {
         player_preview::local_preview_skin(None, &own_pixels)
     } else {
         player_preview::local_preview_skin(stream, &own_pixels)
     };
-    let dressing_room = menu_runtime.is_visible()
-        && menu_runtime.screen() == launcher::menu::MenuScreen::DressingRoom;
+    let dressing_room =
+        menu_visible && menu_scene == Some(launcher::menu::MenuScreen::DressingRoom);
     let pose = if dressing_room {
         player_preview::PlayerPreviewPose::default()
     } else {
@@ -235,11 +259,11 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
-    let settings = menu_runtime.settings_snapshot().0;
+    let settings = Arc::clone(&settings_snapshot.0);
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value(SettingId::HideHud) == 0
         && settings.value(SettingId::HidePaperdoll) == 0
-        && !menu_runtime.is_visible()
+        && !menu_visible
         && !runtime.inventory_open();
     let emote_preview = runtime
         .emotes()
@@ -274,7 +298,10 @@ pub(crate) fn prepare_ui_runtime(
     );
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
-    let first_person = hand_first_person(camera_settings.perspective(), server_camera.as_deref());
+    let first_person = client_presentation::camera::hand_first_person(
+        camera_settings.perspective(),
+        server_camera.as_deref(),
+    );
     let java_held_item = camera_settings.feel().java_animations
         && stream
             .and_then(|stream| {
@@ -296,10 +323,7 @@ pub(crate) fn prepare_ui_runtime(
         ready: preview_ready,
         skin,
         pose,
-        shown: runtime.inventory_open()
-            || menu_runtime.is_visible()
-            || hud_doll
-            || runtime.emotes().is_open(),
+        shown: runtime.inventory_open() || menu_visible || hud_doll || runtime.emotes().is_open(),
         hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
@@ -350,7 +374,7 @@ pub(crate) fn prepare_ui_runtime(
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
     presentation.hud_frame_mut().death_screen =
-        menu_runtime.is_visible() && menu_runtime.screen() == launcher::menu::MenuScreen::Death;
+        menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death);
     presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()
@@ -373,7 +397,7 @@ pub(crate) fn prepare_ui_runtime(
             &client_world,
             presentation.hud_frame_mut().first_person,
             hide_hand
-                || !presentation.renders_game_behind(&player_runtime, &runtime, &*menu_runtime)
+                || !presentation.renders_game_behind(&player_runtime, &runtime, menu)
                 || presentation.loading_stage().is_some(),
             physical_size,
         );
@@ -381,11 +405,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime
         .player_roster
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
-    let show_names = menu_runtime
-        .settings_snapshot()
-        .0
-        .value(SettingId::IngamePlayerNames)
-        != 0;
+    let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
     let tag_style = presentation
         .mod_ui()
         .mod_actor_style()
@@ -400,7 +420,7 @@ pub(crate) fn prepare_ui_runtime(
             overlays.nametags
                 || (names_with_hidden_hud
                     && settings.value(SettingId::HideHud) != 0
-                    && !menu_runtime.is_visible())
+                    && !menu_visible)
         })
         .zip(
             cameras
@@ -489,8 +509,9 @@ pub(crate) fn prepare_ui_runtime(
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
     presentation.set_nametag_anchors(nametags);
-    presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
-    let menu_view = menu_runtime.is_visible().then(|| {
+    presentation.set_chat_settings_snapshot(settings_snapshot);
+    #[cfg(not(target_arch = "wasm32"))]
+    let menu_view = menu_visible.then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork_view(&view);
         for server in view.featured.iter_mut() {
@@ -500,6 +521,8 @@ pub(crate) fn prepare_ui_runtime(
         view.profile_icon = presentation.player_preview_icon();
         view
     });
+    #[cfg(target_arch = "wasm32")]
+    let menu_view = None;
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
@@ -523,26 +546,20 @@ fn observe_paper_doll(
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
     use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(stream.local_player_runtime_id())?;
-    let flag = |bit: u32| {
-        let key = if bit < 64 { 0 } else { 92 };
-        match actor.metadata.get(&key) {
-            Some(
-                protocol::ActorMetadataValue::Flags(bits)
-                | protocol::ActorMetadataValue::FlagsExtended(bits),
-            ) => bits & (1 << (bit % 64)) != 0,
-            _ => false,
-        }
-    };
-    let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or((flag(1), flag(3)));
+    use protocol_ids::ActorFlag;
+    let flag = |flag: ActorFlag| actor_animation::AnimatedActor::flag(actor, flag.wire_value());
+    let (sneaking, sprinting) = physics
+        .latest_sneak_sprint()
+        .unwrap_or((flag(ActorFlag::Sneaking), flag(ActorFlag::Sprinting)));
     Some(client_ui::ui_runtime::presentation::paper_doll::State {
         sneaking,
         sprinting,
         in_water: physics.in_water(),
-        swimming: physics.mode() == sim::MovementMode::Swimming || flag(57),
-        crawling: flag(114),
+        swimming: physics.mode() == sim::MovementMode::Swimming || flag(ActorFlag::Swimming),
+        crawling: flag(ActorFlag::Crawling),
         flying: physics.mode() == sim::MovementMode::Flying,
-        gliding: physics.mode() == sim::MovementMode::Gliding || flag(32),
-        emoting: flag(92) || runtime.emotes().playback().is_some(),
+        gliding: physics.mode() == sim::MovementMode::Gliding || flag(ActorFlag::Gliding),
+        emoting: flag(ActorFlag::Emoting) || runtime.emotes().playback().is_some(),
         armor: std::array::from_fn(|slot| {
             runtime
                 .inventory_ledger(player_runtime)

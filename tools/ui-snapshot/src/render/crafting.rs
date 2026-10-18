@@ -134,10 +134,10 @@ pub fn paint(
         };
         let recipe = player
             .inventory
-            .book_recipes(false, usize::from(index), 1)
+            .book_recipes(false, false, usize::from(index), 1)
             .pop()
             .ok_or_else(|| Error::Invalid("craft fixture selected recipe is absent".into()))?;
-        match player.inventory.ledger_mut().begin_auto_craft(&recipe) {
+        match player.inventory.begin_book_craft(&recipe.recipe) {
             Ok(_) | Err(InventoryGestureError::InvalidRequest) => {}
             Err(error) => {
                 return Err(Error::Invalid(format!(

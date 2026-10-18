@@ -49,7 +49,7 @@ pub(crate) struct FrameUniform {
 #[derive(Resource)]
 pub(crate) struct PassGpu {
     /// Indexed by whether the pass reads depth.
-    layouts: [BindGroupLayoutDescriptor; 2],
+    layouts: HashMap<(bool, usize), BindGroupLayoutDescriptor>,
     sampler: Sampler,
     _dummy_depth: Texture,
     dummy_depth_view: TextureView,
@@ -67,12 +67,13 @@ pub(crate) enum PipelineState {
     Failed,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct BindGroupKey {
     view: Entity,
     revision: u64,
     source: TextureViewId,
     depth: Option<TextureViewId>,
+    masks: Vec<TextureViewId>,
 }
 
 impl crate::pipeline_warmup::PendingPipelines for PassGpu {
@@ -102,7 +103,8 @@ impl PassGpu {
             .pipelines
             .entry((pass.revision, format))
             .or_insert_with(|| {
-                let layout = cache.get_bind_group_layout(&self.layouts[usize::from(pass.depth)]);
+                let layout =
+                    cache.get_bind_group_layout(&self.layouts[&(pass.depth, pass.masks.len())]);
                 compile(device.clone(), layout, pass.shader.clone(), format)
             });
         if let PipelineState::Creating(task) = state
@@ -192,7 +194,14 @@ pub(crate) fn color_target(format: TextureFormat) -> ColorTargetState {
     }
 }
 
+/// Describes the unmasked post-pass layout for shader and raster fixtures.
+#[cfg(test)]
 pub(crate) fn layout(depth: bool) -> BindGroupLayoutDescriptor {
+    masked_layout(depth, 0)
+}
+
+/// Describes only the mask slots declared and validated for this pass's owner.
+pub(crate) fn masked_layout(depth: bool, masks: usize) -> BindGroupLayoutDescriptor {
     let mut entries = vec![
         BindGroupLayoutEntry {
             binding: 0,
@@ -227,6 +236,18 @@ pub(crate) fn layout(depth: bool) -> BindGroupLayoutDescriptor {
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Texture {
                 sample_type: TextureSampleType::Depth,
+                view_dimension: TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
+    }
+    for index in 0..masks {
+        entries.push(BindGroupLayoutEntry {
+            binding: 4 + index as u32,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Float { filterable: true },
                 view_dimension: TextureViewDimension::D2,
                 multisampled: false,
             },
@@ -270,7 +291,13 @@ pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         view_formats: &[],
     });
     commands.insert_resource(PassGpu {
-        layouts: [layout(false), layout(true)],
+        layouts: [false, true]
+            .into_iter()
+            .flat_map(|depth| {
+                (0..=mod_api::drawing::MAX_MASKS)
+                    .map(move |count| ((depth, count), masked_layout(depth, count)))
+            })
+            .collect(),
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("mod pass scene sampler"),
             address_mode_u: AddressMode::ClampToEdge,
@@ -315,6 +342,7 @@ fn prepare(
     time: Res<Time>,
     (device, queue, cache): (Res<RenderDevice>, Res<RenderQueue>, Res<PipelineCache>),
     gpu: Option<ResMut<PassGpu>>,
+    masks: Option<Res<crate::actor_render::masks::MaskGpu>>,
     views: Query<(
         Entity,
         &ExtractedView,
@@ -365,6 +393,14 @@ fn prepare(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .retain(|key, _| {
             current(key.revision)
+                && key.masks.iter().all(|id| {
+                    masks.as_ref().is_some_and(|masks| {
+                        masks
+                            .targets
+                            .iter()
+                            .any(|((view, _), target)| *view == key.view && target.view.id() == *id)
+                    })
+                })
                 && views.get(key.view).is_ok_and(|(_, _, target, depth)| {
                     let current_depth = resolved_depth
                         .get(&key.view)
@@ -507,6 +543,18 @@ pub(crate) fn mod_passes(
         ) else {
             continue;
         };
+        let mask_views: Option<Vec<_>> = pass
+            .masks
+            .iter()
+            .map(|handle| {
+                world
+                    .get_resource::<crate::actor_render::masks::MaskGpu>()?
+                    .sample(view, *handle)
+            })
+            .collect();
+        let Some(mask_views) = mask_views else {
+            continue;
+        };
         let stage = RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)];
         crate::gpu_timing::timed(world, context, stage, |context| {
             let post = target.post_process_write();
@@ -515,36 +563,45 @@ pub(crate) fn mod_passes(
                 revision: pass.revision,
                 source: post.source.id(),
                 depth: pass.depth.then(|| depth_view.id()),
+                masks: mask_views.iter().map(|view| view.id()).collect(),
             };
             let mut bind_groups = gpu
                 .bind_groups
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let bind_group = bind_groups.entry(key).or_insert_with(|| {
-                let colour = [
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: uniform.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: BindingResource::TextureView(post.source),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Sampler(&gpu.sampler),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: BindingResource::TextureView(depth_view),
-                    },
-                ];
-                context.render_device().create_bind_group(
-                    "mod pass",
-                    &cache.get_bind_group_layout(&gpu.layouts[usize::from(pass.depth)]),
-                    &colour[..if pass.depth { 4 } else { 3 }],
-                )
-            });
+            let bind_group =
+                bind_groups.entry(key).or_insert_with(|| {
+                    let colour = [
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: uniform.as_entire_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(post.source),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::Sampler(&gpu.sampler),
+                        },
+                        BindGroupEntry {
+                            binding: 3,
+                            resource: BindingResource::TextureView(depth_view),
+                        },
+                    ];
+                    let mut entries = colour[..if pass.depth { 4 } else { 3 }].to_vec();
+                    entries.extend(mask_views.iter().enumerate().map(|(index, view)| {
+                        BindGroupEntry {
+                            binding: 4 + index as u32,
+                            resource: BindingResource::TextureView(view),
+                        }
+                    }));
+                    context.render_device().create_bind_group(
+                        "mod pass",
+                        &cache.get_bind_group_layout(&gpu.layouts[&(pass.depth, pass.masks.len())]),
+                        &entries,
+                    )
+                });
             let bind_group = bind_group.clone();
             drop(bind_groups);
             let attachments = [Some(RenderPassColorAttachment {

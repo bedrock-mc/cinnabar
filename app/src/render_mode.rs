@@ -26,6 +26,8 @@ use {
     client_state::RuntimeSettings,
 };
 
+pub(crate) mod authored_textures;
+
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";
 const MAX_GRAPHICS_FILE_BYTES: u64 = 4096;
 
@@ -126,6 +128,7 @@ impl Plugin for RenderModePlugin {
                 Update,
                 (
                     apply_menu_render_mode,
+                    authored_textures::update_authored_textures,
                     apply_render_mode_to_cameras,
                     sync_enhanced_bloom,
                 )

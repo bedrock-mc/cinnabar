@@ -3,6 +3,8 @@ mod anvil;
 mod crafting;
 mod crafting_authority;
 pub mod enchantments;
+mod inventory_options;
+pub use inventory_options::{InventoryContext, InventoryController};
 mod furnace_options;
 mod furnace_recipes;
 mod ingress;
@@ -34,6 +36,7 @@ pub use manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
+pub use screen_recipes::BookRecipe;
 pub use selection::{SelectedStackSnapshot, SequencedLocalEquipment};
 pub use session::{InventorySession, MAX_PENDING_INVENTORY_EVENTS};
 

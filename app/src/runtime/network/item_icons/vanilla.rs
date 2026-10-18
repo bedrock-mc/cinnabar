@@ -22,8 +22,17 @@ pub(crate) fn vanilla_item_paths_installed() -> bool {
     PATHS.get().is_some()
 }
 
+/// Installs the item routes and matching base artwork before pack compilation.
+pub(crate) fn install_vanilla_item_assets(
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) {
+    set_vanilla_item_paths(entities);
+    set_vanilla_item_sprites(entities, icons);
+}
+
 /// Retains source routes once, so menus can apply packs before any item registry arrives.
-pub(crate) fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
+fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
     super::vanilla_blocks::install(entities);
     let mut aliases_by_source = std::collections::HashMap::<_, Vec<String>>::new();
     for item in entities.item_visuals() {
@@ -122,10 +131,7 @@ pub(super) fn append(
 static SPRITES: OnceLock<std::collections::HashMap<String, assets::IconSprite>> = OnceLock::new();
 
 /// Retains base sprite pixels by their recorded source filenames for custom item aliases.
-pub(crate) fn set_vanilla_item_sprites(
-    entities: &RuntimeEntityAssets,
-    icons: &assets::RuntimeIconCatalog,
-) {
+fn set_vanilla_item_sprites(entities: &RuntimeEntityAssets, icons: &assets::RuntimeIconCatalog) {
     if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
         return;
     }

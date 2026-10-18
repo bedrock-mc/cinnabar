@@ -53,7 +53,10 @@ pub(crate) fn drain_committed_ui_before_authority(
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let current_dimension = stream.current_dimension();
     let dimension_epoch = stream.form_dimension_epoch();
-    ui_runtime.experiences.epoch = dimension_epoch;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ui_runtime.experiences.epoch = dimension_epoch;
+    }
     ui_runtime
         .server_forms_mut()
         .synchronize_epoch(session, dimension_epoch);
@@ -77,7 +80,13 @@ pub(crate) fn drain_committed_ui_before_authority(
             // Every message reaches the extension: its ingress drops and counts envelopes of a
             // world epoch it has left, while their sequence numbers stay spent.
             CommittedUiEvent::Experience { event, .. } => {
+                #[cfg(not(target_arch = "wasm32"))]
                 ui_runtime.experiences.receive(&event.bytes, local_millis);
+                #[cfg(target_arch = "wasm32")]
+                bevy::log::debug!(
+                    bytes = event.bytes.len(),
+                    "server extension execution unavailable on this host"
+                );
                 Ok(())
             }
             CommittedUiEvent::LocalAbilities {

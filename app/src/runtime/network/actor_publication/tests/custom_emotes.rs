@@ -424,8 +424,8 @@ struct SwingAdmission(bool);
 #[test]
 fn production_actor_preparation_preserves_same_frame_swing_admission() {
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
-    crate::app::configure_actor_render_systems(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
         admit_frame_swing.in_set(client_state::ClientFrameSet::NetworkSend),
@@ -535,8 +535,8 @@ struct HandReadiness(bool);
 #[test]
 fn production_early_ui_readiness_matches_the_current_hand_source() {
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
-    crate::app::configure_actor_render_systems(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
         observe_hand_readiness.in_set(client_state::ClientFrameSet::UiPreparation),
