@@ -70,5 +70,4 @@ pub(crate) fn sample_input(
 }
 
 #[cfg(test)]
-#[path = "input/tests.rs"]
 mod tests;
