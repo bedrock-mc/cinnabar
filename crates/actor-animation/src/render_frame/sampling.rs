@@ -87,15 +87,26 @@ pub(super) fn render_layer_expressions(
 
 /// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.
 pub(crate) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
-    uses_render_query(assets, binding, |name| {
-        matches!(name, "query.frame_alpha" | "query.life_time")
+    uses_render_query(assets, binding, |symbol| {
+        matches!(
+            assets.molang_query_binding(symbol),
+            Some(assets::MolangQuery::FrameAlpha | assets::MolangQuery::LifeTime)
+        )
     })
 }
 
+/// Rendered expressions retain motion endpoints whenever they read interpolated actor inputs.
+pub(crate) fn needs_motion_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
+    uses_render_query(assets, binding, |symbol| {
+        super::rotation::is_query(assets, symbol) || super::rotation::is_walk_query(assets, symbol)
+    })
+}
+
+/// Finds direct or called query reads among the rig's rendered expressions.
 fn uses_render_query(
     assets: &RuntimeEntityAssets,
     binding: usize,
-    query: impl Fn(&str) -> bool,
+    query: impl Fn(u32) -> bool,
 ) -> bool {
     render_expressions(assets, binding)
         .into_iter()
@@ -116,10 +127,7 @@ fn uses_render_query(
                     MolangOp::CallQuery(call) => call.symbol,
                     _ => return false,
                 };
-                assets
-                    .molang_symbols()
-                    .get(symbol as usize)
-                    .is_some_and(|symbol| query(symbol.identifier.as_ref()))
+                query(symbol)
             })
         })
 }

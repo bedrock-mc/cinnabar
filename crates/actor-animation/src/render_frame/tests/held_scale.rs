@@ -1,6 +1,8 @@
 use super::*;
 use assets::{CompiledMolangExpression, EntityGeometryScalar};
 
+mod motion;
+
 /// Adds a scale that reads the counting pre-animation variable and this frame's fraction.
 fn fixture() -> (
     ActorAnimationStore,
