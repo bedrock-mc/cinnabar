@@ -10232,3 +10232,10 @@ longer start or cancel the native movement-input emote duration. An adapter
 regression checks the serialized next input during local playback and restarts.
 Native Marketplace admission, identity, cancellation and timing parity remain
 incomplete.
+### Retain an active loading screen across dimension replacements
+
+Overlapping dimension requests from the same player reuse the active loading
+screen. Only a present replacement ID updates that screen; pending replacements
+coalesce before the update. A new player or session starts a separate lifetime.
+The final report retains the active ID through transport retries. Full loading
+screen, respawn, startup and presentation timing parity remain incomplete.
