@@ -37,13 +37,19 @@ pub(crate) fn flush_sub_chunk_requests(
     intent_budget: usize,
     center: [i32; 3],
     mut send: impl FnMut(
-        protocol::SubChunkRequestReceipt,
+        render_api::sub_chunk_requests::SubChunkRequestReceipt,
         protocol::Packet,
     ) -> Result<(), client_session::PacketSendError>,
 ) -> Result<usize, String> {
-    let Some((packet, batch)) = stream.prepare_sub_chunk_request(center, intent_budget) else {
+    let Some(batch) = stream.prepare_sub_chunk_request(center, intent_budget) else {
         return Ok(0);
     };
+    let packet = protocol::request_sub_chunks(
+        batch.receipt.dimension,
+        center,
+        batch.receipt.members.iter().map(|member| member.position),
+    )
+    .expect("bounded current request members have admitted offsets");
     match send(batch.receipt.clone(), packet) {
         Ok(()) => {
             stream.record_sub_chunk_request_transport_pending(&batch);

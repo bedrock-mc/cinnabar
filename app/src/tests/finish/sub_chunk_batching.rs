@@ -169,7 +169,7 @@ fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() 
 fn client_world_publication_contract_crosses_the_app_boundary() {
     let mut stream = requested_columns(&[0]);
 
-    let (_, batch) = stream
+    let batch = stream
         .prepare_sub_chunk_request([0; 3], 1)
         .expect("sub-chunk request");
     stream.record_sub_chunk_request_transport_pending(&batch);
@@ -228,11 +228,11 @@ fn zero_world_admission_still_drains_control_ack_and_leaves_world_fifo_untouched
     let sent_at = Instant::now();
     control_sender
         .try_send(NetworkControlEvent::SubChunkRequestSent {
-            receipt: protocol::SubChunkRequestReceipt {
+            receipt: render_api::sub_chunk_requests::SubChunkRequestReceipt {
                 owner: (7, 0),
                 id: 1,
                 dimension: 0,
-                members: vec![protocol::SubChunkRequestMember {
+                members: vec![render_api::sub_chunk_requests::SubChunkRequestMember {
                     position: [3, -4, -2],
                     demand: 1,
                 }]

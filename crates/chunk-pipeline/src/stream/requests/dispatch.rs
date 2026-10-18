@@ -1,6 +1,6 @@
 use super::*;
 
-// The intent budget also bounds flattening work before packet encoding.
+// The intent budget also bounds flattening work before transport encoding.
 const _: () =
     assert!(OUTBOUND_REQUEST_CAPACITY * MAX_SUB_CHUNK_COLUMN_HEIGHT <= MAX_SUB_CHUNK_REQUESTS);
 
@@ -10,7 +10,7 @@ impl WorldStream {
         &mut self,
         center: [i32; 3],
         intent_budget: usize,
-    ) -> Option<(Packet, SubChunkRequestBatch)> {
+    ) -> Option<SubChunkRequestBatch> {
         if self.requests.transport.len() >= OUTBOUND_REQUEST_CAPACITY {
             return None;
         }
@@ -25,15 +25,15 @@ impl WorldStream {
             };
             intents.push(request);
         }
-        self.encode_request_intents(center, intents)
+        self.collect_request_intents(center, intents)
     }
 
-    /// Encodes current slots once; rollback keeps the compact column intents.
-    fn encode_request_intents(
+    /// Collects current slots once; rollback keeps the compact column intents.
+    fn collect_request_intents(
         &mut self,
         center: [i32; 3],
         intents: Vec<PendingSubChunkRequest>,
-    ) -> Option<(Packet, SubChunkRequestBatch)> {
+    ) -> Option<SubChunkRequestBatch> {
         let dimension = self.current_dimension();
         let mut members = Vec::new();
         let mut included = HashSet::new();
@@ -72,19 +72,10 @@ impl WorldStream {
             dimension,
             members: members.into(),
         };
-        let packet = request_sub_chunks(
-            dimension,
-            center,
-            receipt.members.iter().map(|member| member.position),
-        )
-        .expect("bounded current request members have admitted offsets");
-        Some((
-            packet,
-            SubChunkRequestBatch {
-                receipt,
-                intents: retained,
-            },
-        ))
+        Some(SubChunkRequestBatch {
+            receipt,
+            intents: retained,
+        })
     }
 
     /// Restores an unsent batch in its original order, omitting retired demands.

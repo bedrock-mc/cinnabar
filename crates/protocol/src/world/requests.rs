@@ -4,34 +4,9 @@ use bedrock_protocol_1_26_51::packets::SubChunkRequest;
 use bedrock_protocol_1_26_51::types::{DimensionType, SubChunkPos, SubChunkPosOffset};
 use bedrock_protocol_1_26_51::wire;
 
-/// One absolute requested slot and the demand that still owns it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SubChunkRequestMember {
-    pub position: [i32; 3],
-    pub demand: u64,
-}
-
-/// Immutable membership echoed only after one request packet is written.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubChunkRequestReceipt {
-    pub owner: (u64, u64),
-    pub id: u64,
-    pub dimension: i32,
-    pub members: std::sync::Arc<[SubChunkRequestMember]>,
-}
-
-/// Returns the admitted signed offsets, using widened subtraction to reject overflow.
-pub fn sub_chunk_request_offset(center: [i32; 3], position: [i32; 3]) -> Option<[i8; 3]> {
-    let mut offsets = [0; 3];
-    for axis in 0..3 {
-        let delta = i64::from(position[axis]) - i64::from(center[axis]);
-        if delta.abs() > i64::from(MAX_SUB_CHUNK_REQUEST_OFFSET) {
-            return None;
-        }
-        offsets[axis] = delta as i8;
-    }
-    Some(offsets)
-}
+use render_api::sub_chunk_requests::{
+    MAX_SUB_CHUNK_COLUMN_HEIGHT, MAX_SUB_CHUNK_REQUESTS, sub_chunk_request_offset,
+};
 
 /// Encodes ordered absolute positions around one dispatch-time center.
 pub fn request_sub_chunks(

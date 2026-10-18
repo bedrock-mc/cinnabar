@@ -1,4 +1,5 @@
 use protocol::identity::FifoSequence;
+use render_api::sub_chunk_requests::{SubChunkRequestMember, SubChunkRequestReceipt};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{
     collections::VecDeque,
@@ -52,17 +53,17 @@ fn test_packet() -> protocol::Packet {
 }
 
 /// Gives transport tests an immutable identity with sparse, cross-column membership.
-fn test_sub_chunk_receipt(x: i32, z: i32) -> protocol::SubChunkRequestReceipt {
-    protocol::SubChunkRequestReceipt {
+fn test_sub_chunk_receipt(x: i32, z: i32) -> SubChunkRequestReceipt {
+    SubChunkRequestReceipt {
         owner: (7, 2),
         id: x as u64,
         dimension: 0,
         members: vec![
-            protocol::SubChunkRequestMember {
+            SubChunkRequestMember {
                 position: [x, -4, z],
                 demand: 11,
             },
-            protocol::SubChunkRequestMember {
+            SubChunkRequestMember {
                 position: [x + 1, -2, z],
                 demand: 12,
             },
