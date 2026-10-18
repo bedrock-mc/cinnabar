@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, VecDeque};
 mod admission;
 mod auto_craft;
 mod bundles;
+mod cancellation;
 mod cells;
+mod consumption;
 mod control;
 mod crafting;
 mod crafting_close;
@@ -318,6 +320,26 @@ impl PlayerInventoryLedger {
         })
     }
 
+    /// Reads player backing independently of screen-owned sparse presentation.
+    #[must_use]
+    pub fn backing_slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
+        if !*self.known.get(usize::from(slot))? {
+            return Some(PlayerInventorySlot::Unknown);
+        }
+        Some(match self.backing_stack(slot) {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None => PlayerInventorySlot::Empty,
+        })
+    }
+
+    /// Borrows an occupied player backing cell without applying screen predictions.
+    #[must_use]
+    pub fn backing_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+        self.confirmed
+            .get(Cell::Inventory(slot))
+            .map(|held| &held.stack)
+    }
+
     #[must_use]
     pub fn displayed_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.view_stack(Cell::Inventory(slot))
@@ -508,6 +530,17 @@ impl PlayerInventoryLedger {
     pub fn slot_gesture_pending(&self, slot: u8) -> bool {
         self.gestures()
             .any(|pending| pending.touches(Cell::Inventory(slot)))
+    }
+
+    /// Whether a local backing mutation still needs transport admission for this player slot.
+    #[must_use]
+    pub fn slot_backing_transport_pending(&self, slot: u8) -> bool {
+        self.queue.iter().any(|request| {
+            request.state == InventoryPendingState::AwaitingTransport
+                && (self.authority == Some(InventoryAuthority::Client)
+                    || request.world_drop.is_some())
+                && request.touches(Cell::Inventory(slot))
+        })
     }
 
     #[must_use]

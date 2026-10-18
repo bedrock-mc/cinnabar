@@ -208,6 +208,7 @@ pub(super) fn resolve_captured(
 }
 
 /// Applies current admission policy to one coherent published camera and actor frame.
+/// Defers hover and attack together while the selected hand awaits transport.
 fn resolve_frame(
     player: &client_state::PlayerRuntime,
     context: &MeleeContext,
@@ -224,6 +225,7 @@ fn resolve_frame(
         return None;
     }
     let world = stream.authority();
+    let selection = hand_interaction_selection(player)?;
     let input_mode = protocol_input_mode(mode);
     let reach = attack_reach(player, context, mode);
     let actor_reach = reach.actor;
@@ -274,35 +276,30 @@ fn resolve_frame(
         },
         None => normal(),
     };
-    let observed = hand_interaction_selection(player).and_then(|selection| {
-        match observe_block_ray_using(
-            &obstruction_origin,
-            &context.ui,
-            &context.client_world,
-            &context.collisions,
-            selection,
-            player.facts.player_game_mode(),
-            false,
-            (
-                input_mode,
-                block_pick_reach(reach.block, actor_reach),
-                identity,
-                frame.position_authority,
-            ),
-            |world, origin, direction, reach| {
-                world.block_interaction_ray_current(origin, direction, reach)
-            },
-        ) {
-            Ok(observed) => Some(observed),
-            Err(BlockRayUnavailable) => {
-                gameplay::movement::note_click_drop(
-                    "attack",
-                    "block_ray_unreadable_treated_as_clear",
-                );
-                None
-            }
+    let observed = match observe_block_ray_using(
+        &obstruction_origin,
+        &context.ui,
+        &context.client_world,
+        &context.collisions,
+        selection,
+        player.facts.player_game_mode(),
+        false,
+        (
+            input_mode,
+            block_pick_reach(reach.block, actor_reach),
+            identity,
+            frame.position_authority,
+        ),
+        |world, origin, direction, reach| {
+            world.block_interaction_ray_current(origin, direction, reach)
+        },
+    ) {
+        Ok(observed) => Some(observed),
+        Err(BlockRayUnavailable) => {
+            gameplay::movement::note_click_drop("attack", "block_ray_unreadable_treated_as_clear");
+            None
         }
-    });
+    };
     let block_distance = observed
         .as_ref()
         .and_then(|observed| observed.value.as_ref())

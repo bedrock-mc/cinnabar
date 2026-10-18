@@ -44,7 +44,7 @@ impl PlayerInventoryLedger {
                     let same_item = match (prediction.before.as_ref(), replacement.as_ref()) {
                         (Some(before), Some(after)) => {
                             Self::same_item(&before.stack, &after.stack)
-                                || (before.source_stack_id == after.source_stack_id
+                                || (before.same_source(after)
                                     && before.stack.network_id == after.stack.network_id
                                     && before.stack.metadata == after.stack.metadata
                                     && before.stack.block_runtime_id
@@ -87,21 +87,29 @@ impl PlayerInventoryLedger {
                             .map_or(0, |held| held.stack.stack_network_id);
                     }
                 }
+                let mut placements = Vec::new();
                 if !request.groups.iter_mut().all(|group| {
                     group.rebind(&cells);
-                    self.validate_group(&cells, group, &request.actions).is_ok()
-                        && group.apply(&mut cells)
+                    if self
+                        .validate_group(&cells, group, &request.actions)
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    placements.extend(group.placement_inputs(&cells));
+                    group.apply(&mut cells)
                 }) {
                     invalid = Some(request.request_id);
                     break;
                 }
+                request.placements = placements;
                 for prediction in &mut request.predicted {
                     let old = prediction.held.take();
                     prediction.held = cells.get(prediction.cell).cloned();
                     if self.authority == Some(protocol::InventoryAuthority::Server)
                         && let Some(held) = &mut prediction.held
                     {
-                        held.stack.stack_network_id = request.request_id;
+                        held.bind_prediction(request.request_id, prediction.cell);
                     }
                     replacements.push((
                         prediction.cell,

@@ -20,7 +20,7 @@ pub mod entity;
 mod item;
 mod item_carrier;
 pub use item::{
-    ARROW_IDENTIFIER, ArmourMaterial, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
+    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
     FILLED_MAP_IDENTIFIER, ItemFact, ItemFactRecord, ItemFactsPayload, ItemRepairMaterial, ItemTag,
     ItemTagDefinition, ItemTagSet, ItemTier, ItemTraits, ItemUseAnimationFact, PotionForm,
     TOTEM_IDENTIFIER,

@@ -2128,6 +2128,10 @@ not close a parity or visual acceptance gate.
 - Closing a screen returns its active temporary inputs and cursor, drops what does not fit,
   and keeps unrelated inactive inputs from blocking world interaction. Named stacks can
   merge and drag; a drag clamps contributions after an authoritative decrease.
+- World-use selection reads player backing separately from screen predictions and recovery.
+  Local backing mutations and hotbar changes still wait for transport admission.
+- Held books read their identity and contents from player backing. Opening admits an item-use
+  transaction, including initialized and written books; initialization only creates absent user data.
 - A normal close acknowledgement retires that screen's unanswered requests without
   committing their predictions. HUD mining requests retain their separate ownership,
   and HUD/crafting observers follow the admitted packet and backing state.
@@ -2150,8 +2154,19 @@ not close a parity or visual acceptance gate.
 - Server UI result previews remain admitted for existing screen consumers. Moving their
   ownership to locally generated station previews is incomplete and must preserve result
   display and taking together.
-- Incomplete: crafting remainders and multiple results, enchanting prediction and availability,
-  all station membership rules, ability updates beyond retained evidence,
+- Brewing bottle cells use a one-item limit derived from their named window run. Ingredient
+  and fuel cells use admitted item capacity; configured brewing membership remains incomplete.
+- Loom banner inputs check the admitted item identity and typed root Type. Grindstone inputs
+  require an enchantment List or admitted damageability without a true Unbreakable Byte.
+  Valid durability components retain a zero Int maximum as damageable, without a durability bar
+  or positive repair maximum. Inventory and world registry admission share that maximum rule.
+  Registry changes retire placements or fallback routes whose
+  admission changes. Cancelling unsent gestures restores the sparse owners they replaced,
+  including empty cursor ownership; server rejection keeps its separate response behavior.
+  Registry-dependent malformed component loading and remaining station membership checks
+  are incomplete.
+- Incomplete: book-edit publication and replacement ordering, crafting remainders and multiple results, enchanting prediction and availability,
+  remaining station membership rules, ability updates beyond retained evidence,
   complete registry/model coverage, legacy response keys and alias-resolved item data, and complete live
   pickup, reconnect and close-lifetime acceptance. These changes do not close the inventory
   parity gate.

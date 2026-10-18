@@ -296,19 +296,11 @@ pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]
     Some(Arc::from(out))
 }
 
-/// Whether a writable book's user data lacks the root `pages` list BDS requires
-/// before it accepts `BookEdit` packets for a fresh book.
-///
-/// A fresh book & quill carries no compound or a compound without `pages`;
-/// an initialised book already carries the list, even when it is empty.
+/// Whether a valid writable book has no user-data compound yet.
+/// Existing user data is kept even when it has no `pages` list.
 #[must_use]
 pub fn book_needs_init(extra_data: &[u8]) -> bool {
-    let Some((_, entries, _)) = read_extra_entries(extra_data) else {
-        return false;
-    };
-    !entries
-        .iter()
-        .any(|entry| entry.tag == TAG_LIST && entry.name == b"pages")
+    read_extra_entries(extra_data).is_some() && decode_extra_nbt(extra_data).is_none()
 }
 
 /// Builds user data with an empty root `pages` list, preserving every other
@@ -554,5 +546,19 @@ mod tests {
         assert!(init.ends_with(&[0; 8]));
         assert!(!book_needs_init(&[5, 0]));
         assert!(book_init_extra(&[5, 0]).is_none());
+    }
+
+    #[test]
+    fn book_use_preserves_existing_user_data_without_pages() {
+        let named = edit_item_extra(
+            &[],
+            &ItemNbtEdit {
+                custom_name: Some(Some("Field notes".to_owned())),
+                ..ItemNbtEdit::default()
+            },
+        )
+        .unwrap();
+        assert!(crate::item_book(&named).pages.is_empty());
+        assert!(!book_needs_init(&named));
     }
 }

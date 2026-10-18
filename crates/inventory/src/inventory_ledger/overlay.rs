@@ -2,6 +2,13 @@
 
 use super::cells::{Cell, Cells, Held};
 
+/// The incoming item at one insertion, before a merge retains the destination's alias.
+#[derive(Debug, Clone)]
+pub(super) struct PlacementInput {
+    pub(super) destination: Cell,
+    pub(super) incoming: protocol::NetworkItemStack,
+}
+
 /// One atomic prediction step. A group either applies whole or is skipped.
 ///
 /// Every group names the exact stack network ids its request carried, so a
@@ -120,6 +127,35 @@ impl DeltaGroup {
         std::iter::once(first).chain(second)
     }
 
+    /// Captures operation inputs from its pre-state; generated result writes are separate.
+    pub(super) fn placement_inputs<'a>(
+        &'a self,
+        cells: &'a Cells,
+    ) -> impl Iterator<Item = PlacementInput> + 'a {
+        let (first, second) = match self {
+            Self::Transfer {
+                source,
+                destination,
+                ..
+            } => (Some((*source, *destination)), None),
+            Self::Swap {
+                source,
+                destination,
+                ..
+            } => (Some((*source, *destination)), Some((*destination, *source))),
+            Self::Shrink { .. } | Self::Set { .. } => (None, None),
+        };
+        first
+            .into_iter()
+            .chain(second)
+            .filter_map(|(source, destination)| {
+                Some(PlacementInput {
+                    destination,
+                    incoming: cells.get(source)?.stack.clone(),
+                })
+            })
+    }
+
     /// Whether a touched cell keeps its original item while this operation changes its count.
     pub(super) fn retains_item_at(&self, cell: Cell) -> bool {
         match self {
@@ -227,6 +263,7 @@ fn transfer(
             if partial {
                 // The split-off stack gets a new identity when its prediction is stamped.
                 moved.source_stack_id = None;
+                moved.source_origin = None;
                 moved.acknowledged_request_id = None;
             }
             moved.stack.count = amount;

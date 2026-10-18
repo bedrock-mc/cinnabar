@@ -11,6 +11,7 @@ use super::gesture::{
 };
 use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
+use super::queue::WorldDrop;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 /// What a drop takes from.
@@ -138,7 +139,7 @@ impl PlayerInventoryLedger {
         source: DropSource,
         amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
-        self.drop_from(source, amount, true)
+        self.drop_from(source, amount, None)
     }
 
     /// Drops from hotbar cell `slot` with no window open, like the in-world drop key.
@@ -152,18 +153,8 @@ impl PlayerInventoryLedger {
         let request = self.drop_from(
             DropSource::Target(InventoryTarget::Player(slot)),
             amount,
-            false,
+            Some(WorldDrop { legacy_request_id }),
         )?;
-        if let Some(pending) = self
-            .queue
-            .iter_mut()
-            .find(|pending| pending.request_id == request)
-        {
-            pending.world_drop = Some(super::queue::WorldDrop {
-                legacy_request_id,
-                consumed_after: 0,
-            });
-        }
         self.pending_world_drops = self
             .pending_world_drops
             .saturating_add(1)
@@ -176,21 +167,26 @@ impl PlayerInventoryLedger {
         std::mem::take(&mut self.pending_world_drops)
     }
 
+    /// Builds a drop against the presentation or the consumption-adjusted transaction source.
     fn drop_from(
         &mut self,
         source: DropSource,
         amount: Option<u16>,
-        needs_window: bool,
+        world_drop: Option<WorldDrop>,
     ) -> Result<i32, InventoryGestureError> {
         let cell = match source {
             DropSource::Target(target) => target.cell(),
             DropSource::Cursor => Cell::Cursor,
         };
         let personal_generation =
-            self.gesture_preflight(needs_window && !matches!(cell, Cell::Storage(_)))?;
+            self.gesture_preflight(world_drop.is_none() && !matches!(cell, Cell::Storage(_)))?;
         self.check_surfaces([cell])?;
         let held = match cell {
             Cell::Cursor => self.named(self.view().get(Cell::Cursor).cloned())?,
+            cell if world_drop.is_some() => {
+                self.check_target(cell)?;
+                self.named(self.transaction_held(cell))?
+            }
             cell => self.movable(cell)?,
         }
         .ok_or(InventoryGestureError::EmptyGesture)?;
@@ -200,21 +196,22 @@ impl PlayerInventoryLedger {
             .filter(|amount| *amount != 0 && u16::from(*amount) <= held.stack.count)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let id = held.stack.stack_network_id;
-        let built = Built {
-            action: StackRequestAction::Drop {
+        let submission = Submission {
+            actions: vec![StackRequestAction::Drop {
                 amount: wire,
                 source: request_slot(cell, id, self.window_address())?,
                 randomly: false,
-            },
-            group: DeltaGroup::Shrink {
+            }],
+            groups: vec![DeltaGroup::Shrink {
                 source: cell,
                 amount,
                 source_id: id,
-            },
+            }],
+            personal_generation,
             requires_distinct_stack_ids: false,
             registry_bound_merge: false,
         };
-        self.submit_built(built, personal_generation)
+        self.submit_request(submission, world_drop)
     }
 
     /// The current stack in a validated gesture cell, refusing one that
