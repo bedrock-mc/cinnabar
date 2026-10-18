@@ -10,10 +10,7 @@ use super::*;
 #[tokio::test]
 async fn cache_status_aggregation_does_not_hold_ready_ingress_for_writes() {
     let cache = ClientBlobCache::default();
-    let hash = crate::client_blob_hash(b"body");
-    cache
-        .admit(hash, std::sync::Arc::from(b"body".as_slice()))
-        .unwrap();
+    let hash = cache.insert(b"body").unwrap();
     let first = super::tests::cached_level_chunk(vec![hash, hash]);
     let mut second = super::tests::cached_level_chunk(vec![hash]);
     second.chunk_position.x = wire::ZigZag32(1);
