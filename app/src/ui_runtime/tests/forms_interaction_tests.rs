@@ -18,6 +18,8 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+mod npc_dismissal_tests;
+
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
     use {
@@ -132,14 +134,22 @@ fn app(player_runtime: &mut client_state::PlayerRuntime) -> (App, Entity) {
     app_for(player_runtime, false)
 }
 fn app_for(player_runtime: &mut client_state::PlayerRuntime, unsupported: bool) -> (App, Entity) {
-    let mut app = App::new();
-    let mut menu = MenuRuntime::new(true, 2, "Test".into());
-    menu.set_visible(false);
-    let mut runtime = UiRuntime::new(1);
     let mut event = retained(7, 1);
     if unsupported && let protocol::UiEvent::Form(form) = &mut event.event {
         form.model = protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls);
     }
+    app_for_event(player_runtime, event)
+}
+
+/// Runs form, chat and menu input against the supplied authoritative form event.
+fn app_for_event(
+    player_runtime: &mut client_state::PlayerRuntime,
+    event: client_ui::ui_runtime::SequencedUiEvent,
+) -> (App, Entity) {
+    let mut app = App::new();
+    let mut menu = MenuRuntime::new(true, 2, "Test".into());
+    menu.set_visible(false);
+    let mut runtime = UiRuntime::new(1);
     runtime.apply(player_runtime, event).unwrap();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
