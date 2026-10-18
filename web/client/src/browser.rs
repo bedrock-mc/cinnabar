@@ -81,13 +81,13 @@ impl Page {
     /// Opens QUIC first and falls back through the existing transport selector.
     #[wasm_bindgen(constructor)]
     pub fn new(origin: &str, observe: Function) -> Result<Page, JsError> {
-        let ready = Rc::new(Cell::new(false));
+        let intent = Rc::new(Intent::default());
+        let ready = Rc::clone(&intent.ready);
         let account = Rc::new(RefCell::new(crate::launcher::RelayAccount::default()));
         let (commands, pending) = mpsc::channel(4);
         let (joins, requests) = mpsc::channel(1);
         let (lifecycle, changed) = mpsc::channel(1);
         let suspended = Rc::new(Cell::new(false));
-        let intent = Rc::new(Intent::default());
         let (cancel, cancelled) = oneshot::channel();
         spawn_local(relay::run(
             BrowserHost {

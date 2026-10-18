@@ -7,9 +7,7 @@ mod pipelines;
 pub(crate) mod tests;
 
 #[cfg(test)]
-use bevy::prelude::{
-    AssetApp, Camera, Image, IntoSystem, MinimalPlugins, Mut, System, Transform, TransformPlugin,
-};
+use bevy::prelude::{AssetApp, Image, IntoSystem, MinimalPlugins, Mut, System, Transform};
 #[cfg(test)]
 use bevy::render::render_resource::{BufferUsages, Extent3d, TextureUsages};
 use bevy::{

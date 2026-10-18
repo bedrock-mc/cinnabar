@@ -337,7 +337,11 @@ fn compose_sheet(world: &RuntimeAssets, materials: &[u32; 6]) -> Option<IconSpri
 }
 
 /// A session cube's face sheet, including blended and cutout cube templates.
-pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite> {
+pub fn overlay_sheet(
+    overlay: &BlockOverlay,
+    visual: usize,
+    base: Option<&RuntimeAssets>,
+) -> Option<IconSprite> {
     let block = overlay.visuals.get(visual)?;
     let cube = match block.kind {
         VisualKind::Cube => block.flags.contains(BlockFlags::CUBE_GEOMETRY),
@@ -364,24 +368,36 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
     if block.animation != NO_ANIMATION {
         return None;
     }
-    overlay_face_sheet(overlay, faces)
+    overlay_face_sheet(overlay, faces, base)
 }
 
 /// Composes carried cube faces from overlay-local materials for inventory and held rendering.
-pub fn overlay_face_sheet(overlay: &BlockOverlay, faces: [u32; 6]) -> Option<IconSprite> {
+pub fn overlay_face_sheet(
+    overlay: &BlockOverlay,
+    faces: [u32; 6],
+    base: Option<&RuntimeAssets>,
+) -> Option<IconSprite> {
     let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
     for id in faces {
         let material = overlay
             .materials
             .get(id as usize)
             .filter(|_| id != DIAGNOSTIC_MATERIAL)?;
-        tiles.push(overlay_face_tile(overlay, material)?);
+        tiles.push(overlay_face_tile(overlay, material, base)?);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
 }
 
 /// Selects mips in exposed source pixels and resamples the admitted grid into a held face.
-fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<IconSprite> {
+fn overlay_face_tile(
+    overlay: &BlockOverlay,
+    material: &Material,
+    base: Option<&RuntimeAssets>,
+) -> Option<IconSprite> {
+    if material.texture.page() == 0 {
+        let texture = &base?.texture_pages().first()?.texture;
+        return face_tile(material, texture, texture.mips.first()?.size, 0);
+    }
     let shard = material.texture.page().checked_sub(1)? as usize;
     let texture = overlay.textures.get(shard)?;
     let layer = material.texture.layer() as usize;
@@ -404,11 +420,7 @@ fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<Icon
 
 /// Unresolved tint and animation need authored carried faces instead of a static sheet.
 fn face_material_is_admitted(material: &Material) -> bool {
-    material.flags
-        & !(assets::MATERIAL_FLAG_ALPHA_BLEND
-            | assets::MATERIAL_FLAG_ALPHA_CUTOUT
-            | assets::MATERIAL_FLAG_ISOTROPIC)
-        == 0
+    material.flags & !assets::gui_item::GUI_BLOCK_MATERIAL_FLAGS == 0
         && material.animation == NO_ANIMATION
 }
 

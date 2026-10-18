@@ -14,6 +14,7 @@ use web_transport::Channel;
 #[derive(Default)]
 struct Observations {
     account: RefCell<RelayAccount>,
+    ready: Rc<Cell<bool>>,
     now: Cell<Duration>,
     opens: Cell<usize>,
     closes: Cell<usize>,
@@ -159,6 +160,9 @@ impl Host for FakeHost {
         Ok((None, Transport(Rc::clone(&self.0))))
     }
     fn observe(&self, event: Value) {
+        if event["state"] == "connected" {
+            self.0.ready.set(true);
+        }
         self.0.events.borrow_mut().push(event);
     }
     fn account(&self) -> &RefCell<RelayAccount> {

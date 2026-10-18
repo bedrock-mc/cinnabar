@@ -19,6 +19,9 @@ use web_transport::{
 /// Bounds control opening and account writes with the same host-owned deadline.
 const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
 
+/// Leaves relay play teardown time to progress between busy sign-out refusals.
+const SIGN_OUT_RETRY_DELAY: Duration = Duration::from_millis(100);
+
 use crate::play;
 
 /// Explicit UI intent; restoring a page retains its account capability.
@@ -33,6 +36,7 @@ pub(crate) enum Refresh {
 /// Tags account intent at issuance, before the driver can observe a lifecycle change.
 #[derive(Default)]
 pub(crate) struct Intent {
+    pub(crate) ready: Rc<Cell<bool>>,
     refresh: Cell<Refresh>,
     generation: Cell<u64>,
 }
@@ -41,6 +45,7 @@ impl Intent {
     /// Invalidates old commands immediately when the page requests a fresh session.
     pub(crate) fn request(&self, refresh: Refresh) {
         if matches!(refresh, Refresh::Fresh) {
+            self.ready.set(false);
             self.generation.set(
                 self.generation
                     .get()
@@ -100,6 +105,7 @@ pub(crate) async fn run<H: Host>(
     let mut requested: Option<play::Request<<H::Transport as RelayTransport>::Stream>> = None;
     let mut playing: Option<play::Active> = None;
     let sign_out_deadline = Cell::new(None::<Duration>);
+    let mut sign_out_retry_at = None;
     let mut generation = 0;
     loop {
         let ready = matches!(session.state(), State::Ready(_) | State::Playing(_));
@@ -169,12 +175,36 @@ pub(crate) async fn run<H: Host>(
                 if ready {
                     let event = session.next_event(|| host.now());
                     let event = if let Some(deadline) = sign_out_deadline.get() {
-                        bridge::tasks::until(event, host.sleep(deadline.saturating_sub(host.now())))
-                            .await
-                            .unwrap_or(Err(CloseReason::Transport))?
+                        let wake = sign_out_retry_at
+                            .map_or(deadline, |retry: Duration| retry.min(deadline));
+                        match bridge::tasks::until(
+                            event,
+                            host.sleep(wake.saturating_sub(host.now())),
+                        )
+                        .await
+                        {
+                            Ok(event) => event?,
+                            Err(_) if host.now() < deadline => {
+                                sign_out_retry_at = None;
+                                session.desire_account(AccountOperation::SignOut);
+                                return Ok(());
+                            }
+                            Err(_) => return Err(CloseReason::Transport),
+                        }
                     } else {
                         event.await?
                     };
+                    if sign_out_deadline.get().is_some()
+                        && matches!(
+                            event,
+                            ControlEvent::RequestRefused(RequestRefusal::Refused(
+                                bridge::contract::RefusalCode::SessionBusy
+                            ))
+                        )
+                    {
+                        sign_out_retry_at = Some(host.now().saturating_add(SIGN_OUT_RETRY_DELAY));
+                        return Ok(());
+                    }
                     host.account().borrow_mut().observe(&event);
                     match event {
                         ControlEvent::Account(account) => {
@@ -184,6 +214,7 @@ pub(crate) async fn run<H: Host>(
                                     | bridge::contract::AuthState::Failed
                             ) {
                                 sign_out_deadline.set(None);
+                                sign_out_retry_at = None;
                             }
                             host.observe(
                                 serde_json::json!({"state": account.state, "account": account}),
@@ -300,6 +331,7 @@ pub(crate) async fn run<H: Host>(
                 session.close(CloseReason::Transport);
                 playing = None;
                 sign_out_deadline.set(None);
+                sign_out_retry_at = None;
                 let refresh = intent.refresh.replace(Refresh::None);
                 if generation != intent.generation.get() {
                     generation = intent.generation.get();
@@ -324,6 +356,7 @@ pub(crate) async fn run<H: Host>(
                 session.close(reason);
                 playing = None;
                 sign_out_deadline.set(None);
+                sign_out_retry_at = None;
                 host.account().borrow_mut().disconnected();
                 if let Some(code) = session.refusal() {
                     host.observe(serde_json::json!({"state": "refused", "code": code, "error": connection_refusal_message(code)}));
@@ -342,6 +375,7 @@ pub(crate) async fn run<H: Host>(
             if let Some(command) = latest {
                 halted = command.operation == AccountOperation::SignOut;
                 sign_out_deadline.set(halted.then(|| host.now().saturating_add(CONTROL_DEADLINE)));
+                sign_out_retry_at = None;
                 if halted && let Some(active) = playing.as_mut() {
                     active.cancel.take();
                 }

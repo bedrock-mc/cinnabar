@@ -64,9 +64,9 @@ fn carried_face_sheets_sample_every_overlay_shard() {
         }
         source.textures.push(shard);
         source.materials[1].texture = TextureRef::new(page, 1).unwrap();
-        let faces = overlay_face_sheet(&source, [1; 6])
+        let faces = overlay_face_sheet(&source, [1; 6], None)
             .expect("a carried face may reference any available overlay shard");
-        let visual = overlay_sheet(&source, 0).unwrap();
+        let visual = overlay_sheet(&source, 0, None).unwrap();
         assert_eq!(faces.rgba8, visual.rgba8);
         assert_eq!([faces.width, faces.height], assets::BLOCK_ITEM_SHEET_SIZE);
         assert!(
@@ -83,14 +83,14 @@ fn carried_face_sheets_sample_every_overlay_shard() {
 #[test]
 fn carried_face_sheets_reject_diagnostic_and_unavailable_overlay_references() {
     let mut source = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
-    assert!(overlay_face_sheet(&source, [DIAGNOSTIC_MATERIAL; 6]).is_none());
+    assert!(overlay_face_sheet(&source, [DIAGNOSTIC_MATERIAL; 6], None).is_none());
     for reference in [
         TextureRef::new(0, 1).unwrap(),
         TextureRef::new(2, 1).unwrap(),
         TextureRef::new(1, source.textures[0].layers).unwrap(),
     ] {
         source.materials[1].texture = reference;
-        assert!(overlay_face_sheet(&source, [1; 6]).is_none());
+        assert!(overlay_face_sheet(&source, [1; 6], None).is_none());
     }
 }
 
@@ -102,8 +102,8 @@ fn cube_sheets_ignore_gameplay_flags_and_terrain_occlusion() {
         BlockFlags::CUBE_GEOMETRY,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
     ] {
-        let sheet =
-            overlay_sheet(&overlay(flags, 0, 16), 0).expect("cube shape determines held geometry");
+        let sheet = overlay_sheet(&overlay(flags, 0, 16), 0, None)
+            .expect("cube shape determines held geometry");
         assert_eq!([sheet.width, sheet.height], assets::BLOCK_ITEM_SHEET_SIZE);
     }
 }
@@ -113,8 +113,11 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
     for flags in [
         assets::MATERIAL_FLAG_ALPHA_BLEND,
         assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT
+            | assets::MATERIAL_FLAG_DISABLE_AO
+            | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
     ] {
-        let sheet = overlay_sheet(&overlay(BlockFlags::CUBE_GEOMETRY, flags, 32), 0)
+        let sheet = overlay_sheet(&overlay(BlockFlags::CUBE_GEOMETRY, flags, 32), 0, None)
             .expect("terrain alpha does not turn a held cube into a sprite");
         assert!(
             sheet
@@ -140,13 +143,13 @@ fn world_isotropy_preserves_carried_cube_face_pixels() {
             BLOCK_ITEM_FACE_SIDE.into(),
         );
         source.textures.first_mut().unwrap().mips[0].rgba8[TILE * TILE * 4] = 91;
-        let expected = overlay_sheet(&source, 0).unwrap();
+        let expected = overlay_sheet(&source, 0, None).unwrap();
         source.materials[1].flags |= assets::MATERIAL_FLAG_ISOTROPIC;
-        let actual = overlay_sheet(&source, 0)
+        let actual = overlay_sheet(&source, 0, None)
             .expect("world-position rotation preserves carried face admission");
         assert_eq!(actual.rgba8, expected.rgba8);
         source.materials[1].flags |= assets::MATERIAL_FLAG_FOLIAGE_TINT;
-        assert!(overlay_sheet(&source, 0).is_none());
+        assert!(overlay_sheet(&source, 0, None).is_none());
     }
 }
 
@@ -159,13 +162,14 @@ fn unresolved_tint_and_non_cube_shapes_do_not_create_cube_sheets() {
                 assets::MATERIAL_FLAG_FOLIAGE_TINT,
                 16
             ),
-            0
+            0,
+            None
         )
         .is_none()
     );
     let mut model = overlay(BlockFlags::empty(), 0, 16);
     model.visuals[0].kind = VisualKind::Model;
-    assert!(overlay_sheet(&model, 0).is_none());
+    assert!(overlay_sheet(&model, 0, None).is_none());
 }
 
 #[test]
@@ -178,10 +182,10 @@ fn transparent_cube_templates_keep_cube_geometry() {
         quad_count: 6,
         flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     });
-    let sheet = overlay_sheet(&ice, 0).expect("transparent cube is held as a block");
+    let sheet = overlay_sheet(&ice, 0, None).expect("transparent cube is held as a block");
     assert_eq!(&sheet.rgba8[..4], &[40, 80, 120, 128]);
     ice.model_templates[0].flags = assets::MODEL_TEMPLATE_FLAG_STAIR;
-    assert!(overlay_sheet(&ice, 0).is_none());
+    assert!(overlay_sheet(&ice, 0, None).is_none());
 }
 
 #[test]
@@ -317,7 +321,7 @@ fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
             }
         }
     }
-    let sheet = overlay_sheet(&source, 0).unwrap();
+    let sheet = overlay_sheet(&source, 0, None).unwrap();
     assert_eq!(
         &sheet.rgba8[..4],
         &[255, 0, 0, 255],
