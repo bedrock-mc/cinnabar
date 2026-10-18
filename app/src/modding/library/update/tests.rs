@@ -66,7 +66,7 @@ fn automatic_install_preserves_registration_settings_and_existing_authority() {
         "zoom.wasm",
         &new,
     );
-    let message = install(&mods, &download).unwrap();
+    let message = install(&mods, &download).unwrap().message;
     assert!(message.contains("Updated renamed.wasm to v1.1.0"));
     assert_eq!(fs::read(&path).unwrap(), new);
     assert_eq!(selection::registered(&config)[0].entry, before);
@@ -132,4 +132,136 @@ fn replaced_or_removed_sources_cannot_receive_a_stale_download() {
     fs::remove_file(&path).unwrap();
     assert!(install(directory.path(), &download).is_err());
     assert!(!path.exists());
+}
+
+#[test]
+fn requested_update_worker_installs_and_acknowledges_completion_with_auto_install_disabled() {
+    use super::super::{Command, run};
+    use crossbeam_channel::unbounded;
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    fs::create_dir(&mods).unwrap();
+    let path = mods.join("zoom.wasm");
+    fs::write(&path, component("1.0.0", SOURCE, true)).unwrap();
+    let id = installed(&mods)[0].0.id;
+    let bytes = component("1.1.0", SOURCE, true);
+    let download = Downloaded::fixture(id, "1.1.0", "example/zoom", "zoom.wasm", &bytes);
+    let (commands, incoming) = unbounded();
+    let (outgoing, published) = unbounded();
+    let (finished, completion) = unbounded();
+    commands.send(Command::Update(download, finished)).unwrap();
+    drop(commands);
+    run(
+        &mods,
+        &directory.path().join("config"),
+        &incoming,
+        &outgoing,
+        || Ok(None),
+        |_| panic!("updates must not retire or remove the mod"),
+    );
+    completion.recv().unwrap();
+    let states: Vec<_> = published.try_iter().collect();
+    assert_eq!(
+        states.iter().map(|state| state.busy).collect::<Vec<_>>(),
+        [false, true, false]
+    );
+    assert_eq!(
+        states[1].update_progress[0].phase,
+        launcher::mods::UpdatePhase::Installing
+    );
+    assert_eq!(states[1].update_progress[0].id, id);
+    assert!(states[2].update_progress.is_empty());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert!(states[2].message.contains("Updated zoom.wasm to 1.1.0"));
+}
+
+/// Publishes a status for the exact registration request currently awaiting runtime admission.
+fn status(registration: &Path, state: &str) {
+    use crate::modding::registration::{REGISTRATION_FILE, STATUS_FILE};
+    let record: serde_json::Value =
+        serde_json::from_slice(&fs::read(registration.join(REGISTRATION_FILE)).unwrap()).unwrap();
+    fs::write(registration.join(STATUS_FILE), serde_json::to_vec(&serde_json::json!({
+        "version": record["version"], "request_id": record["request_id"],
+        "independent_registration": true, "client_pid": std::process::id(),
+        "mods": [{"component": record["mods"][0]["component"], "state": state, "message": "fixture reload error", "reload": record["mods"][0]["reload"].as_u64().unwrap_or_default()}]
+    })).unwrap()).unwrap();
+}
+
+#[test]
+fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
+    use super::super::scan;
+    use crossbeam_channel::unbounded;
+    use std::time::Instant;
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    let registration = directory.path().join("config");
+    fs::create_dir(&mods).unwrap();
+    let path = mods.join("zoom.wasm");
+    fs::write(&path, component("1.0.0", SOURCE, true)).unwrap();
+    selection::select(&registration, &path, true, "before".into()).unwrap();
+    let original = selection::registered(&registration).remove(0).entry;
+    status(&registration, "loaded");
+    let download = Downloaded::fixture(
+        installed(&mods)[0].0.id,
+        "1.1.0",
+        "example/zoom",
+        "zoom.wasm",
+        &component("1.1.0", SOURCE, true),
+    );
+    let installed = install(&mods, &download).unwrap();
+    let (finished, completion) = unbounded();
+    let now = Instant::now();
+    let pending = PendingReload::start(
+        &mods,
+        &registration,
+        installed,
+        "new-reload".into(),
+        finished,
+        now,
+    )
+    .unwrap()
+    .unwrap();
+    let waiting = scan(&mods, &registration, String::new());
+    assert_eq!(waiting.active[0].status, launcher::mods::Status::Starting);
+    assert!(pending.poll(&waiting, now).is_none());
+    assert!(completion.try_recv().is_err());
+    // Another mod's trap can republish an old loaded status under the new list request.
+    status(&registration, "loaded");
+    let status_path = registration.join(crate::modding::registration::STATUS_FILE);
+    let mut old: serde_json::Value =
+        serde_json::from_slice(&fs::read(&status_path).unwrap()).unwrap();
+    old["mods"][0]["reload"] = original.reload.into();
+    fs::write(&status_path, serde_json::to_vec(&old).unwrap()).unwrap();
+    assert!(
+        pending
+            .poll(&scan(&mods, &registration, String::new()), now)
+            .is_none()
+    );
+    let current = selection::registered(&registration).remove(0).entry;
+    assert_eq!(current.grants, original.grants);
+    assert_eq!(current.reload, original.reload + 1);
+    assert!(
+        pending
+            .poll(&waiting, now + std::time::Duration::from_secs(61))
+            .unwrap()
+            .is_err()
+    );
+    status(&registration, "reload-error");
+    assert!(
+        pending
+            .poll(&scan(&mods, &registration, String::new()), now)
+            .unwrap()
+            .unwrap_err()
+            .contains("reload failed")
+    );
+    status(&registration, "loaded");
+    assert!(
+        pending
+            .poll(&scan(&mods, &registration, String::new()), now)
+            .unwrap()
+            .unwrap()
+            .contains("Updated zoom.wasm to 1.1.0")
+    );
+    pending.finish();
+    completion.recv().unwrap();
 }

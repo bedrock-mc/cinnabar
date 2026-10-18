@@ -1,7 +1,8 @@
 //! Exact-asset downloads with GitHub's digest, bounded staging and cancellation fencing.
 
-use super::Candidate;
+use super::{Candidate, progress::Progress};
 use anyhow::{Context, Result, ensure};
+use launcher::mods::UpdatePhase;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -89,9 +90,9 @@ fn digest(asset: &Asset) -> Option<[u8; 32]> {
         return None;
     }
     let mut bytes = [0; 32];
-    for (byte, pair) in bytes.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
-        let high = char::from(pair[0]).to_digit(16)?;
-        let low = char::from(pair[1]).to_digit(16)?;
+    for (byte, [high, low]) in bytes.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
+        let high = char::from(*high).to_digit(16)?;
+        let low = char::from(*low).to_digit(16)?;
         *byte = ((high << 4) | low) as u8;
     }
     Some(bytes)
@@ -139,6 +140,7 @@ pub(super) struct Fence {
     pub revision: u64,
     pub permission: Arc<AtomicU64>,
     pub authorization: u64,
+    pub progress: Progress,
 }
 
 /// Fetches the selected immutable asset ID, never a moving `latest` URL, and verifies its digest.
@@ -150,6 +152,13 @@ pub(super) async fn fetch(
     fence: Fence,
     limit: usize,
 ) -> Result<Downloaded> {
+    fence.progress.set(
+        candidate.id,
+        fence.revision,
+        UpdatePhase::Downloading,
+        0,
+        asset.size,
+    );
     let response = client
         .get(format!(
             "https://api.github.com/repos/{}/releases/assets/{}",
@@ -192,8 +201,22 @@ async fn receive(
         );
         hash.update(&chunk);
         file.write_all(&chunk)?;
+        fence.progress.set(
+            candidate.id,
+            fence.revision,
+            UpdatePhase::Downloading,
+            length as u64,
+            asset.size,
+        );
     }
     ensure!(length as u64 == asset.size, "incomplete mod download");
+    fence.progress.set(
+        candidate.id,
+        fence.revision,
+        UpdatePhase::Verifying,
+        length as u64,
+        asset.size,
+    );
     let expected = digest(asset).context("missing mod SHA-256")?;
     ensure!(
         hash.finalize().as_slice() == expected,

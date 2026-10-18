@@ -1,8 +1,11 @@
 //! Replacement of an opted-in installed component, without changing registration or grants.
 
-use super::installed;
+use super::{installed, registered, same_path, selection};
+use crossbeam_channel::Sender;
+use launcher::mods::{Library, Status};
 use launcher_host::mod_updates::Downloaded;
 use mod_host::{MAX_COMPONENT_SOURCE_BYTES, ModHost, declarations_snapshot, local_files};
+use std::time::{Duration, Instant};
 use std::{
     fs,
     io::Write,
@@ -11,7 +14,7 @@ use std::{
 
 /// Validates the exact download and atomically replaces its unchanged installed source.
 /// Existing registration, permission grants and settings companions retain their identities.
-pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<String, String> {
+pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
     let old = local_files::read(&path, MAX_COMPONENT_SOURCE_BYTES)
         .map_err(|error| format!("Could not read {}: {error}", item.file))?;
@@ -46,7 +49,78 @@ pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<String, Stri
         .map_err(|error| format!("Could not replace {}: {error}", item.file))?;
     // The existing source watcher reloads changed component bytes and retains the running
     // instance if activation fails; no registration write can grant additional permissions.
-    Ok(format!("Updated {} to {}.", item.file, download.version))
+    Ok(Installed {
+        path,
+        message: format!("Updated {} to {}.", item.file, download.version),
+    })
+}
+
+/// The installed file and its completion message, before any enabled instance reloads.
+pub(super) struct Installed {
+    path: PathBuf,
+    message: String,
+}
+
+/// Completion is held until the runtime acknowledges the freshly requested instance.
+pub(super) struct PendingReload {
+    pub id: u64,
+    deadline: Instant,
+    message: String,
+    finished: Sender<()>,
+}
+
+impl PendingReload {
+    /// Requests reload under a fresh registration request ID, preserving the existing grants.
+    pub fn start(
+        mods: &Path,
+        registration: &Path,
+        installed: Installed,
+        request: String,
+        finished: Sender<()>,
+        now: Instant,
+    ) -> Result<Option<Self>, String> {
+        if !registered(registration)
+            .iter()
+            .any(|entry| entry.entry.enabled && same_path(&entry.entry.component, &installed.path))
+        {
+            let _ = finished.send(());
+            return Ok(None);
+        }
+        let id = super::installed(mods)
+            .into_iter()
+            .find(|(_, path)| same_path(path, &installed.path))
+            .map(|(item, _)| item.id)
+            .ok_or("The updated mod file changed before reload.")?;
+        selection::reload(registration, &installed.path, request).map_err(|error| {
+            format!("The update was installed, but reload could not start: {error}")
+        })?;
+        Ok(Some(Self {
+            id,
+            deadline: now + Duration::from_secs(60),
+            message: installed.message,
+            finished,
+        }))
+    }
+
+    /// Reports success only from the status belonging to the new registration request.
+    pub fn poll(&self, library: &Library, now: Instant) -> Option<Result<String, String>> {
+        if !library.installed.iter().any(|item| item.id == self.id) {
+            return Some(Err(
+                "The installed mod changed while its update was reloading.".into(),
+            ));
+        }
+        match library.active.iter().find(|active| active.id == self.id).map(|active| &active.status) {
+            Some(Status::Starting) if now < self.deadline => None,
+            Some(Status::Starting) => Some(Err("The update was installed, but reload has not finished. Use Reload or restart Cinnabar.".into())),
+            Some(Status::Failed(error) | Status::ReloadFailed(error)) => Some(Err(format!("The update was installed, but reload failed: {error}"))),
+            Some(Status::Running) | None => Some(Ok(self.message.clone())),
+        }
+    }
+
+    /// Releases the frame-side busy state after an acknowledged completion or explicit failure.
+    pub fn finish(&self) {
+        let _ = self.finished.send(());
+    }
 }
 
 /// Restricts automatic replacement to the same visible regular file in the managed mods folder.

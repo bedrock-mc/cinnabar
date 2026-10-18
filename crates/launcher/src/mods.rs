@@ -21,6 +21,7 @@ pub enum Action {
     Import,
     ViewUpdates,
     OpenUpdate(u64),
+    Update(u64),
     Reload(u64),
     ReloadAll,
     MoveUp(u64),
@@ -141,6 +142,8 @@ pub struct AvailableUpdate {
 /// Directory contents and the ordered Active list, published off-frame by the app.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
+    /// Live update operations, retained through the runtime reload acknowledgement.
+    pub update_progress: Vec<UpdateProgress>,
     pub installed: Vec<InstalledMod>,
     pub active: Vec<ActiveMod>,
     pub busy: bool,
@@ -278,6 +281,52 @@ impl Snapshot {
         self.library = library;
     }
 }
+/// The operation currently owning a mod update, without pretending to know later work's fraction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdatePhase {
+    Downloading,
+    Verifying,
+    Installing,
+    Reloading,
+}
+
+impl UpdatePhase {
+    /// The actual operation shown beside its progress indicator.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Downloading => "Downloading…",
+            Self::Verifying => "Verifying…",
+            Self::Installing => "Installing…",
+            Self::Reloading => "Reloading…",
+        }
+    }
+}
+
+/// Bounded download counters and stage information for one file revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateProgress {
+    pub id: u64,
+    pub phase: UpdatePhase,
+    pub received_bytes: u64,
+    pub total_bytes: u64,
+    pub bytes_per_sec: Option<u64>,
+    pub eta_secs: Option<u64>,
+}
+
+impl UpdateProgress {
+    /// Starts a stage without carrying misleading download estimates into installation or reload.
+    pub fn stage(id: u64, phase: UpdatePhase) -> Self {
+        Self {
+            id,
+            phase,
+            received_bytes: 0,
+            total_bytes: 0,
+            bytes_per_sec: None,
+            eta_secs: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

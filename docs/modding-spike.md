@@ -155,10 +155,18 @@ activation fails. Disabled mods stay disabled. Components registered outside the
 managed mods folder can show notifications but are not replaced automatically.
 
 A newer release shows the launcher's corner update card. **View mod updates**
-opens **Settings → Mods**. **View release** opens the release page for release
-notes or manual installation, including when automatic installation is disabled
-or unavailable. Successful installs report their version on the Mods tab and
-clear the available-update notice. App updates take priority in the corner.
+opens **Settings → Mods**. For mods with a WASM download URL, **Update** downloads,
+validates, replaces and reloads the component inside Cinnabar. It works even when
+automatic installation is off. Its live progress uses the pack downloader's byte
+units, rolling speed estimate and ETA, with a percentage and byte progress bar.
+The stages distinguish **Downloading**, **Verifying**, **Installing** and
+**Reloading**. Installation and reload use an indeterminate indicator rather than
+a fabricated percentage; enabled mods stay busy until the runtime acknowledges
+the new instance. Duplicate presses are blocked until completion or failure. Download or installation failures leave the
+existing file in place, show an error and allow another attempt. Repository-only
+notification sources retain **View release**, which opens GitHub because they do
+not identify an installable file. Successful installs report their version on the
+Mods tab and clear the available-update notice. App updates take priority in the corner.
 
 Players can disable **Install mod updates automatically** in **Settings →
 General** while retaining notifications, or disable **Check for mod updates**
