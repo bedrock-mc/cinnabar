@@ -3,8 +3,8 @@ use crate::inventory_ledger::{
     PERSONAL_INVENTORY_WINDOW_TYPE, lifecycle_tests::accept_cursor_move,
 };
 
-/// Delivers a replacement at each close acknowledgement boundary, then settles its returns.
-fn assert_replacement_retains_returns(old_storage: bool, new_storage: bool) {
+/// Replaces a closing screen at each acknowledgement boundary, then delivers its late returns.
+fn assert_replacement_retires_returns(old_storage: bool, new_storage: bool) {
     for replacement_id in [3, 7] {
         for close_order in 0..3 {
             for take_pending in [false, true] {
@@ -40,6 +40,17 @@ fn assert_replacement_retains_returns(old_storage: bool, new_storage: bool) {
                     InventoryEvent::Open(personal_open(replacement_id))
                 };
                 ledger.apply(&replacement);
+                assert_eq!(ledger.pending_request_count(), 0);
+                let player = ledger.displayed_stack(0).cloned();
+                let cursor = ledger.cursor_stack().cloned();
+                assert_eq!(
+                    player.as_ref().map(|stack| stack.count),
+                    take_pending.then_some(32)
+                );
+                assert_eq!(
+                    cursor.as_ref().map(|stack| stack.count),
+                    (!take_pending).then_some(32)
+                );
                 if close_order == 1 {
                     acknowledge_close(&mut ledger, 3, old_type);
                 }
@@ -53,9 +64,8 @@ fn assert_replacement_retains_returns(old_storage: bool, new_storage: bool) {
 
                 assert_eq!(ledger.pending_request_count(), 0);
                 assert!(!ledger.resync_required());
-                assert!(ledger.cursor_stack().is_none());
-                let returned = ledger.displayed_stack(0).unwrap();
-                assert_eq!((returned.count, returned.stack_network_id), (32, 9));
+                assert_eq!(ledger.displayed_stack(0), player.as_ref());
+                assert_eq!(ledger.cursor_stack(), cursor.as_ref());
                 assert_eq!(
                     ledger.window_kind(),
                     new_storage.then_some(protocol::WindowKind::Storage)
@@ -69,23 +79,23 @@ fn assert_replacement_retains_returns(old_storage: bool, new_storage: bool) {
 }
 
 #[test]
-fn personal_open_retains_admitted_personal_returns() {
-    assert_replacement_retains_returns(false, false);
+fn personal_open_retires_admitted_personal_returns() {
+    assert_replacement_retires_returns(false, false);
 }
 
 #[test]
-fn storage_open_retains_admitted_personal_returns() {
-    assert_replacement_retains_returns(false, true);
+fn storage_open_retires_admitted_personal_returns() {
+    assert_replacement_retires_returns(false, true);
 }
 
 #[test]
-fn personal_open_retains_admitted_storage_returns() {
-    assert_replacement_retains_returns(true, false);
+fn personal_open_retires_admitted_storage_returns() {
+    assert_replacement_retires_returns(true, false);
 }
 
 #[test]
-fn storage_open_retains_admitted_storage_returns() {
-    assert_replacement_retains_returns(true, true);
+fn storage_open_retires_admitted_storage_returns() {
+    assert_replacement_retires_returns(true, true);
 }
 
 #[test]

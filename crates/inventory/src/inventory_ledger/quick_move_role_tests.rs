@@ -681,3 +681,87 @@ fn fact_dependent_moves_keep_requests_when_destinations_do_not_change() {
         assert!(ledger.pending_batch().unwrap().is_some());
     }
 }
+
+/// Checks admission for manually placing an unrelated item into a station input.
+#[test]
+fn parity_actions_manual_station_placement_rejects_foreign_items() {
+    for (window, target) in [
+        (
+            protocol::WINDOW_TYPE_ENCHANTMENT,
+            InventoryTarget::Craft(15),
+        ),
+        (protocol::WINDOW_TYPE_BEACON, InventoryTarget::Craft(27)),
+    ] {
+        let entry = registered("minecraft:dirt");
+        let mut ledger = ledger(&entry, 0);
+        open(&mut ledger, window);
+        ledger.begin_click(SOURCE_SLOT).unwrap();
+        let queued = ledger.pending_request_count();
+        let result = ledger.begin_target_gesture(target, CellGesture::Click);
+        assert!(
+            result.is_err(),
+            "foreign manual placement admitted for {target:?}: {result:?}"
+        );
+        assert_eq!(ledger.pending_request_count(), queued);
+    }
+}
+
+/// Checks the one-item limit on a manually filled enchanting input.
+#[test]
+fn parity_actions_manual_enchant_input_has_one_item_limit() {
+    let entry = registered("minecraft:dirt");
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_ENCHANTMENT);
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[usize::from(SOURCE_SLOT)] = NetworkItemStack {
+        network_id: entry.network_id,
+        stack_network_id: 100,
+        count: 5,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&content(ContainerIdentity::window(0), slots));
+    ledger.begin_click(SOURCE_SLOT).unwrap();
+    ledger
+        .begin_target_gesture(InventoryTarget::Craft(14), CellGesture::Click)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(14))
+            .unwrap()
+            .count,
+        1
+    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+}
+
+/// Checks whether local station close emits a return for an occupied station input.
+#[test]
+fn parity_actions_close_returns_enchanting_input() {
+    let entry = registered("minecraft:diamond_sword");
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_ENCHANTMENT);
+    let mut slots = vec![NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+    slots[14] = NetworkItemStack {
+        network_id: entry.network_id,
+        stack_network_id: 101,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+        slots,
+    ));
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(14))
+            .unwrap()
+            .count,
+        1
+    );
+    ledger.request_storage_close();
+    assert!(
+        ledger.newest_request().is_some(),
+        "close must return the occupied station input"
+    );
+    assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_none());
+}

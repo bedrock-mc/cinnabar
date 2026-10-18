@@ -130,6 +130,17 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         Some(ARMOR_WINDOW_ID) => return armor_cell(slot),
         _ => {}
     }
+    if identity.window_id.is_some_and(|window| {
+        window != UI_INVENTORY_WINDOW_ID && window != DYNAMIC_STORAGE_WINDOW_ID
+    }) {
+        return identity
+            .slot_type
+            .filter(|name| *name == CONTAINER_NAME_LEVEL_ENTITY || is_chest_like_name(*name))
+            .map(|_| CanonicalCell::GenericStorage {
+                dynamic_id: identity.dynamic_id,
+                slot,
+            });
+    }
     match identity.slot_type {
         Some(CONTAINER_NAME_CRAFT_INPUT) => {
             let index = u8::try_from(slot.checked_sub(28)?).ok()?;
@@ -205,7 +216,7 @@ pub fn is_personal_ui_inventory(identity: &ContainerIdentity) -> bool {
 }
 
 fn is_personal_ui_storage(identity: &ContainerIdentity) -> bool {
-    identity.window_id == Some(UI_INVENTORY_WINDOW_ID) && identity.has_legacy_default_descriptor()
+    identity.window_id == Some(UI_INVENTORY_WINDOW_ID)
 }
 
 /// Selects the four personal input references from an exact UI storage snapshot.
@@ -378,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn contextual_personal_inputs_require_exact_identity_and_snapshot_shape() {
+    fn contextual_personal_inputs_require_ui_window_and_exact_snapshot_shape() {
         let valid = identity(124, Some(0));
         assert_eq!(
             personal_craft_content_indices(&valid, 54),
@@ -404,13 +415,8 @@ mod tests {
         for invalid in [
             identity(0, Some(0)),
             identity(123, Some(0)),
-            identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)),
             ContainerIdentity {
                 window_id: None,
-                ..valid
-            },
-            ContainerIdentity {
-                dynamic_id: Some(1),
                 ..valid
             },
         ] {
@@ -420,9 +426,14 @@ mod tests {
     }
 
     #[test]
-    fn contextual_personal_inputs_accept_omitted_and_zero_default_descriptors() {
-        for slot_type in [None, Some(0)] {
-            for dynamic_id in [None, Some(0)] {
+    fn contextual_personal_inputs_ignore_packet_descriptors() {
+        for slot_type in [
+            None,
+            Some(0),
+            Some(CONTAINER_NAME_ARMOR),
+            Some(CONTAINER_NAME_CRAFT_INPUT),
+        ] {
+            for dynamic_id in [None, Some(0), Some(1)] {
                 let identity = ContainerIdentity {
                     window_id: Some(UI_INVENTORY_WINDOW_ID),
                     slot_type,

@@ -56,7 +56,7 @@ impl PlayerInventoryLedger {
         self.personal = Some(crate::inventory_ledger::PersonalWindow::Open { generation });
     }
 
-    /// Retires replaced windows, keeping locally closing windows' admitted item requests correlated.
+    /// Retires replaced screens without clearing inputs owned by their replacements.
     pub(in crate::inventory_ledger) fn retire_replaced_windows(
         &mut self,
         retained_personal_generation: Option<u64>,
@@ -69,7 +69,13 @@ impl PlayerInventoryLedger {
             self.finish_personal_close(locally_closing);
         }
         if let Some(storage) = self.storage.as_ref() {
-            self.acknowledge_storage_close(!storage.closing);
+            if storage.closing {
+                self.acknowledge_storage_close(false);
+            } else {
+                let generation = storage.generation;
+                self.abandon_requests(|request| request.storage_generation == Some(generation));
+                self.discard_storage_window();
+            }
         }
     }
 

@@ -15,9 +15,6 @@ use super::*;
 #[path = "mining_tests.rs"]
 mod mining_tests;
 
-#[path = "settling_tests.rs"]
-mod settling_tests;
-
 #[path = "timeout_tests.rs"]
 mod timeout_tests;
 
@@ -509,7 +506,7 @@ fn storage_sized_content_tracing_is_session_bounded_and_does_not_admit() {
     let mut ledger = ledger_with_slot_zero();
     let rejected = InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity {
-            window_id: Some(4),
+            window_id: Some(9),
             slot_type: Some(211),
             dynamic_id: Some(91),
         },
@@ -554,7 +551,7 @@ fn storage_sized_content_tracing_is_session_bounded_and_does_not_admit() {
     assert_eq!(ledger.storage_slot_count(), None);
     assert_eq!(ledger.storage_identity(), None);
     assert!(ledger.pending_control_packet().unwrap().is_none());
-    assert_eq!(ledger.skipped_unknown_containers(), 2);
+    assert_eq!(ledger.skipped_unknown_containers(), 3);
     assert_eq!(
         ledger.storage_content_traces_remaining,
         MAX_STORAGE_CONTENT_TRACES - 3,
@@ -570,7 +567,7 @@ fn storage_sized_content_tracing_is_session_bounded_and_does_not_admit() {
     assert!(ledger.pending_control_packet().unwrap().is_none());
     assert_eq!(
         ledger.skipped_unknown_containers(),
-        2 + u64::from(MAX_STORAGE_CONTENT_TRACES)
+        3 + u64::from(MAX_STORAGE_CONTENT_TRACES)
     );
     assert_eq!(ledger.storage_content_traces_remaining, 0);
 
@@ -810,9 +807,9 @@ fn open_pressed_during_a_close_is_held_until_the_close_settles() {
     assert_eq!(flushed_packet_names(&mut session, 22), ["InteractPacket"]);
 }
 
-/// A close acknowledgement that overtakes its return's answer still lets the return settle.
+/// A close acknowledgement retires the front request without committing its prediction.
 #[test]
-fn close_ack_before_the_return_response_keeps_the_return_correlated() {
+fn close_ack_before_the_return_response_preserves_confirmed_backing() {
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);
     ledger.begin_click(0).unwrap();
@@ -831,8 +828,8 @@ fn close_ack_before_the_return_response_keeps_the_return_correlated() {
     accept_cursor_move(&mut ledger, -5, true);
 
     assert_eq!(ledger.pending_state(), None);
-    assert!(ledger.cursor_stack().is_none());
-    assert_eq!(ledger.displayed_stack(0).map(|s| s.count), Some(32));
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
+    assert!(ledger.displayed_stack(0).is_none());
     assert!(!ledger.resync_required());
 }
 
