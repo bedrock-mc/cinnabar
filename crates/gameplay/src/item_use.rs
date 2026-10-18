@@ -9,6 +9,7 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 mod admission;
 pub mod classify;
 mod crossbow;
+mod progress;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
@@ -27,6 +28,7 @@ struct ActiveUse {
     slowdown: f64,
     crossbow: bool,
     riptide: bool,
+    last_progress_tick: Option<u64>,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -222,7 +224,7 @@ impl ItemUseRuntime {
         if !self.is_releasing(held) {
             return false;
         }
-        if active.selection_changed(selection) {
+        if active.release_selection_changed(selection, !self.release_pending) {
             self.active = None;
             self.release_pending = false;
             self.riptide_release = None;
@@ -356,7 +358,12 @@ impl ItemUseRuntime {
             return;
         };
         let mut selection = match &frame.selection {
-            Some(_) if active.selection_changed(frame.selection.as_ref()) => {
+            Some(_)
+                if active.release_selection_changed(
+                    frame.selection.as_ref(),
+                    !frame.held && !release_pending,
+                ) =>
+            {
                 // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
                 self.riptide_release = None;
@@ -470,6 +477,7 @@ impl ItemUseRuntime {
                     slowdown,
                     crossbow: crossbow::is_crossbow(air_use),
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
+                    last_progress_tick: None,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
@@ -568,6 +576,18 @@ impl ActiveUse {
         })
     }
 
+    /// Adds count admission for a fresh release while retaining held and retry policies.
+    fn release_selection_changed(
+        &self,
+        selection: Option<&FrozenMiningSelection>,
+        check_count: bool,
+    ) -> bool {
+        self.selection_changed(selection)
+            || (check_count
+                && selection
+                    .is_some_and(|selection| selection.item.count() != self.selection.item.count()))
+    }
+
     /// Resolves launch eligibility from this charge and the facts observed at release.
     fn riptide_launch(
         &self,
@@ -583,7 +603,7 @@ impl ActiveUse {
                     && !riptide.mounted
                     && riptide.usable
                     && selection.is_some()
-                    && !self.selection_changed(selection)
+                    && !self.release_selection_changed(selection, true)
                     && tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
             })
             .map(|riptide| riptide.level)

@@ -104,12 +104,7 @@ fn merge_texture_catalog(paths: &mut HashMap<String, String>, bytes: &[u8]) {
     }
 }
 
-const IMAGE_EXTENSIONS: [(&str, ImageFormat); 4] = [
-    ("png", ImageFormat::Png),
-    ("tga", ImageFormat::Tga),
-    ("jpg", ImageFormat::Jpeg),
-    ("jpeg", ImageFormat::Jpeg),
-];
+use pack_compile_input::texture_path::IMAGE_EXTENSIONS;
 const MAX_TEXTURE_SET_BYTES: u64 = 64 * 1024;
 
 /// Removes the whitespace and relative prefix accepted by texture catalogs.
@@ -117,7 +112,7 @@ pub fn normalize_texture_path(path: &str) -> &str {
     path.trim().trim_start_matches("./")
 }
 
-/// Decodes the winning image at `path`, trying `.png`, `.tga`, and `.jpg` as
+/// Decodes the winning image at `path`, trying `.tga`, `.png`, and `.jpg` as
 /// vanilla does, then the color layer of a `.texture_set.json`.
 pub fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
     decode_pack_texture_with_policy(

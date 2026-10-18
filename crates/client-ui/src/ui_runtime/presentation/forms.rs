@@ -80,6 +80,7 @@ pub mod snapshot;
 #[cfg(test)]
 #[cfg(test)]
 pub mod tests;
+#[cfg(not(target_arch = "wasm32"))]
 mod texture_sources;
 pub mod toast_screen;
 mod touch_controls;
@@ -229,12 +230,28 @@ impl UiPresentationRuntime {
 
     /// Bind the compiled UI carrier: its atlas pages join the texture array and
     /// its catalog drives server forms. On failure the fallback dialog stays.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_json_ui(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
         self.enable_prepared_json_ui(PreparedJsonUi::new(assets)?)
     }
 
     /// [`Self::enable_json_ui`] with the carrier's catalog already parsed.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_prepared_json_ui(&mut self, prepared: PreparedJsonUi) -> Result<(), String> {
+        self.enable_prepared_json_ui_with_sources(
+            prepared,
+            texture_sources::downloads(),
+            texture_sources::image_work(),
+        )
+    }
+
+    /// Binds verified UI data to the host's image source and bounded decode executor.
+    pub fn enable_prepared_json_ui_with_sources(
+        &mut self,
+        prepared: PreparedJsonUi,
+        downloads: Arc<dyn ui_engine::sources::RemoteSource>,
+        work: ui_engine::sources::ImageWork,
+    ) -> Result<(), String> {
         let PreparedJsonUi {
             assets,
             catalog,
@@ -248,13 +265,7 @@ impl UiPresentationRuntime {
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
-        let mut engine = FormEngine::with_prepared(
-            assets,
-            catalog,
-            first_page,
-            texture_sources::downloads(),
-            texture_sources::image_work(),
-        );
+        let mut engine = FormEngine::with_prepared(assets, catalog, first_page, downloads, work);
         engine.textures.server_page =
             (self.textures.dynamic_start() + pages::SERVER_UI_PAGE) as u16;
         self.engine = Some(Box::new(engine));
@@ -392,10 +403,23 @@ impl UiPresentationRuntime {
     /// Let forms draw vanilla images the UI carrier lacks: item textures from
     /// the item icon atlas already on the UI texture array, anything else read
     /// on demand from the local vanilla pack at `vanilla`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn set_form_texture_fallbacks(
         &mut self,
         entities: &assets::RuntimeEntityAssets,
         vanilla: std::path::PathBuf,
+    ) {
+        self.set_form_texture_source(
+            entities,
+            Arc::new(texture_sources::VanillaPack::new(vanilla)),
+        );
+    }
+
+    /// Supplies item atlas fallbacks and a host-owned source for additional pack textures.
+    pub fn set_form_texture_source(
+        &mut self,
+        entities: &assets::RuntimeEntityAssets,
+        source: Arc<dyn ui_engine::sources::LocalPack>,
     ) {
         let mut icons = std::collections::HashMap::new();
         for visual in entities.item_visuals() {
@@ -414,9 +438,7 @@ impl UiPresentationRuntime {
             }
         }
         if let Some(engine) = self.engine.as_mut() {
-            engine
-                .textures
-                .set_fallbacks(icons, Arc::new(texture_sources::VanillaPack::new(vanilla)));
+            engine.textures.set_fallbacks(icons, source);
         }
     }
 

@@ -3,6 +3,7 @@
 //! Control and world channels retain separate bounded FIFOs. Prepared presentation data is
 //! an opaque generic payload: the session publishes it only at the original bootstrap point.
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
 pub mod markers;
 mod session;
@@ -10,11 +11,14 @@ mod session;
 #[cfg(any(test, feature = "test-support"))]
 pub use session::handle_state::CapturedPackets;
 pub use session::{
-    BatchSendError, CONTROL_EVENT_CAPACITY, NetworkConfig, NetworkControlEvent,
-    NetworkFailureOrigin, NetworkHandle, PacketSendError, PreparedSession, SequencedWorldEvent,
-    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, packet_log, session_failure_display,
-    spawn_network,
+    BatchSendError, CONTROL_EVENT_CAPACITY, NetworkControlEvent, NetworkExecutor,
+    NetworkFailureOrigin, NetworkHandle, PacketSendError, PreparedLogin, PreparedSession,
+    SequencedWorldEvent, SessionRead, SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress,
+    prepare_network, session_failure_display,
 };
+
+/// Maximum automatic redirects before the player must request a fresh join.
+pub const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
 
 /// Optional observations at the original transport publication boundaries.
 #[derive(Clone, Copy)]
@@ -43,3 +47,6 @@ impl Default for SessionTrace {
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use session::{NetworkConfig, packet_log, spawn_network};

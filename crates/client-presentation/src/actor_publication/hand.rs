@@ -229,7 +229,7 @@ pub(super) fn vanilla_hand_source(
 ) -> Option<HandSource> {
     let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
     let stream = inputs.stream;
-    let rig = stream.authority().actor_rig(runtime_id)?;
+    let mut rig = stream.authority().actor_rig(runtime_id)?;
     // Java body, arm and item poses win over the combat profile, including native fallbacks.
     let legacy = !java_mode
         && stream
@@ -239,6 +239,7 @@ pub(super) fn vanilla_hand_source(
     let bare = legacy && inputs.equipment_input.main.is_none();
     if !bare || inputs.equipment_input.off.is_some() {
         native_pose.apply(&mut inputs);
+        rig.held_item_scale = native_pose.held_item_scale;
     }
     let HandInputs {
         stream,
@@ -298,7 +299,14 @@ pub(super) fn vanilla_hand_source(
                         .map(|input| {
                             attachable_hand_input(equipment_input, owner_equipment, input, false)
                         })
-                        .unwrap_or_default(),
+                        .map(|input| actor_animation::AttachableAnimationInput {
+                            held_item_scale: rig.held_item_scale,
+                            ..input
+                        })
+                        .unwrap_or(actor_animation::AttachableAnimationInput {
+                            held_item_scale: rig.held_item_scale,
+                            ..Default::default()
+                        }),
                 )
             } else {
                 equipment.first_person_offhand(&presentation.submission, item)

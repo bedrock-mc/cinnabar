@@ -41,6 +41,7 @@ pub(in super::super) struct NativePoseCache {
     key: Option<PoseKey>,
     pose: Option<[RenderPose; 2]>,
     skin_layers: Option<Arc<[actor_animation::SkinRenderLayer]>>,
+    pub(in super::super) held_item_scale: Option<f32>,
     #[cfg(test)]
     pub(super) sample_work: (u64, u64),
 }
@@ -174,6 +175,7 @@ impl NativePoseCache {
         #[cfg(test)]
         let allocated = test_alloc::thread_allocations();
         let mut frame = stream.authority().actor_render_frame(alpha);
+        self.held_item_scale = frame.sample_held_item_scale(rig).held_item_scale;
         self.skin_layers = None;
         let sampled = if sample_skin {
             frame.layers_with_skin(runtime_id)
@@ -183,6 +185,7 @@ impl NativePoseCache {
                 .map(|render| actor_animation::ActorRenderLayers {
                     render,
                     skin: Cow::Borrowed(&[]),
+                    held_item_scale: self.held_item_scale,
                 })
         };
         let pose = sampled.and_then(|sampled| {

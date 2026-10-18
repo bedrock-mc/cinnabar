@@ -1,6 +1,6 @@
 //! Writes delimited packet batches without waiting on inbound traffic.
 //!
-//! Frame completion and committed latency fences submit batch delimiters.
+//! Frame completion submits batch delimiters for ordinary packets and latency replies.
 
 use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;
@@ -15,6 +15,7 @@ pub(super) trait OutboundSession: Send + 'static {
     fn send_batch(
         &mut self,
         packets: Vec<Packet>,
+        opportunity: Option<simulation_clock::Moment>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Takes the one-shot loading-end and initialization packets.
@@ -26,8 +27,12 @@ pub(super) trait OutboundSession: Send + 'static {
 impl OutboundSession for protocol::PlayOutbound {
     type Error = protocol::ProtocolError;
 
-    async fn send_batch(&mut self, packets: Vec<Packet>) -> Result<(), Self::Error> {
-        protocol::PlayOutbound::send_batch(self, packets).await
+    async fn send_batch(
+        &mut self,
+        packets: Vec<Packet>,
+        opportunity: Option<simulation_clock::Moment>,
+    ) -> Result<(), Self::Error> {
+        protocol::PlayOutbound::send_batch(self, packets, opportunity).await
     }
 
     fn take_finish_loading(&mut self) -> Vec<Packet> {
@@ -64,18 +69,9 @@ pub(super) struct OutboundRuntime<O, P, F, W> {
     pub(super) fast_transfer_action_marker: Option<&'static str>,
 }
 
-/// Aborts the outbound task when the pump ends on any path.
-pub(super) struct OutboundTask(pub(super) tokio::task::JoinHandle<()>);
-
-impl Drop for OutboundTask {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 struct QueuedPacket {
     packet: Packet,
-    sub_chunk: Option<SubChunkRequestSend>,
+    sub_chunk: Option<SubChunkRequestReceipt>,
     chat: Option<ChatPacketSend>,
     physics: Option<PhysicsSendIdentity>,
     physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
@@ -97,7 +93,7 @@ impl QueuedPacket {
 
 /// What to publish for one packet once its batch is written.
 struct Receipt {
-    sub_chunk: Option<SubChunkRequestSend>,
+    sub_chunk: Option<SubChunkRequestReceipt>,
     chat: Option<ChatPacketSend>,
     physics: Option<PhysicsSendIdentity>,
     trace_line: Option<String>,
@@ -133,15 +129,18 @@ where
         fast_transfer_action_marker,
     } = runtime;
     let mut frame = Vec::new();
+    let clock_origin = Instant::now();
     loop {
         let command = tokio::select! {
             biased;
             _ = wait_for_shutdown(&mut shutdown_rx) => return,
             command = commands.recv() => command,
         };
-        let (flush, closed) = match command {
-            None => (true, true),
-            Some(NetworkCommand::FlushFrame) => (true, false),
+        let (flush, closed, cache_opportunity) = match command {
+            None => (true, true, false),
+            Some(NetworkCommand::FlushFrame { cache_opportunity }) => {
+                (true, false, cache_opportunity)
+            }
             Some(NetworkCommand::FinishLoading) => {
                 frame.extend(
                     outbound
@@ -149,7 +148,7 @@ where
                         .into_iter()
                         .map(QueuedPacket::plain),
                 );
-                (false, false)
+                (false, false, false)
             }
             Some(NetworkCommand::Send {
                 packet,
@@ -167,7 +166,7 @@ where
                     physics_reanchor,
                     interaction,
                 });
-                (false, false)
+                (false, false, false)
             }
         };
         if flush {
@@ -175,6 +174,7 @@ where
             let flushed = flush_frame(
                 &mut outbound,
                 std::mem::take(&mut frame),
+                cache_opportunity.then_some(clock_origin),
                 &control_event_tx,
                 &hooks,
                 &mut shutdown_rx,
@@ -208,6 +208,7 @@ where
 async fn flush_frame<O, P, F, W>(
     outbound: &mut O,
     frame: Vec<QueuedPacket>,
+    opportunity: Option<Instant>,
     control_event_tx: &mpsc::Sender<NetworkControlEvent<P>>,
     hooks: &mpsc::UnboundedSender<PumpHook>,
     shutdown_rx: &mut watch::Receiver<bool>,
@@ -257,7 +258,7 @@ where
             trace_line: line,
         });
     }
-    if packets.is_empty() {
+    if packets.is_empty() && opportunity.is_none() {
         return Flush::Written;
     }
     let trace_armed = receipts.iter().any(|receipt| {
@@ -285,7 +286,8 @@ where
             .unwrap_or(-1);
         (trace, trace.now(), packets.len() as i64, tick)
     });
-    match wait_for_send_or_cancel(outbound.send_batch(packets), shutdown_rx).await {
+    let now = opportunity.map(|origin| simulation_clock::Moment::from_elapsed(origin.elapsed()));
+    match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
         Some(Err(error)) => Flush::Failed(FlushFailure {
             message: error.to_string(),
@@ -348,8 +350,8 @@ async fn publish_receipt<P, W: FnMut(&str)>(
     if let Some(marker) = receipt.chat.and_then(|chat| {
         let marker_name = fast_transfer_action_marker?;
         chat.fast_transfer_action.map(|action| {
-            let sent_unix_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            let sent_unix_ms = web_time::SystemTime::now()
+                .duration_since(web_time::UNIX_EPOCH)
                 .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
                 .unwrap_or(0);
             action.marker(marker_name, chat.session, chat.sequence, sent_unix_ms)
@@ -362,9 +364,7 @@ async fn publish_receipt<P, W: FnMut(&str)>(
             control_event_tx,
             shutdown_rx,
             NetworkControlEvent::SubChunkRequestSent {
-                chunk: sub_chunk.chunk,
-                base_sub_chunk_y: sub_chunk.base_sub_chunk_y,
-                count: sub_chunk.count,
+                receipt: sub_chunk,
                 sent_at: Instant::now(),
             },
         )

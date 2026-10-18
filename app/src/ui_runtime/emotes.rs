@@ -42,9 +42,7 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
-/// Keeps a closing wheel's physical input from becoming chat or inventory input.
-#[derive(Resource, Default)]
-pub(crate) struct EmoteInputConsumed(pub(crate) bool);
+use client_state::EmoteInputConsumed;
 
 #[derive(SystemParam)]
 pub(crate) struct EmoteInput<'w, 's> {
@@ -67,7 +65,6 @@ pub(crate) struct EmoteInput<'w, 's> {
     consumed: ResMut<'w, EmoteInputConsumed>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
-    movement: Option<ResMut<'w, client_interaction::movement::MovementTicker>>,
 }
 
 /// Runs before chat/menu adapters and before semantic gameplay is finalized.
@@ -151,7 +148,6 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         return;
     }
     let now = u64::try_from(input.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let mut started = None;
     let pointer = input
         .window
         .0
@@ -248,9 +244,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
         }
         if let Some(slot) = slot_key(event.key_code) {
-            started = input.runtime.emotes_mut().activate_slot(slot, now);
+            input.runtime.emotes_mut().activate_slot(slot, now);
         } else if let Some(action) = wheel_key(event.key_code) {
-            started = input.runtime.emotes_mut().handle_action(action, now);
+            input.runtime.emotes_mut().handle_action(action, now);
         }
         dismissed |= !input.runtime.emotes().is_open();
     }
@@ -279,7 +275,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if input.mouse.just_pressed(MouseButton::Left) {
             match hit {
                 Some(EmoteHit::Slot(slot)) => {
-                    started = input.runtime.emotes_mut().activate_slot(slot, now);
+                    input.runtime.emotes_mut().activate_slot(slot, now);
                 }
                 Some(EmoteHit::ChangeEmotes) => input.runtime.emotes_mut().change_emotes(),
                 Some(EmoteHit::Close) => {
@@ -309,7 +305,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
                     }
                     let was_open = input.runtime.emotes().is_open();
-                    started = input.runtime.emotes_mut().handle_action(action, now);
+                    input.runtime.emotes_mut().handle_action(action, now);
                     dismissed |= was_open && !input.runtime.emotes().is_open();
                 }
             }
@@ -317,14 +313,6 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     } else if let Some(presentation) = input.presentation.as_deref_mut() {
         presentation.set_emote_pointer(None);
         input.observed.pointer = None;
-    }
-    if let Some(emote) = started
-        && let Some(movement) = input.movement.as_deref_mut()
-    {
-        let length_ticks = (emote.duration_seconds()
-            / simulation_clock::TICK_DURATION.as_secs_f64())
-        .ceil() as u32;
-        movement.start_emote(length_ticks);
     }
     if let Some(preferences) = input.runtime.emotes_mut().take_preferences()
         && let Some(menu) = input.menu.as_deref_mut()
@@ -354,15 +342,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
 pub(crate) fn cancel_emote_from_gameplay(
     semantic: Res<SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntimeResource>,
-    movement: Option<ResMut<client_interaction::movement::MovementTicker>>,
 ) {
     if should_stop_emote(&semantic) {
         runtime.emotes_mut().stop();
-    }
-    if runtime.emotes().playback().is_none()
-        && let Some(mut movement) = movement
-    {
-        movement.stop_emote();
     }
 }
 

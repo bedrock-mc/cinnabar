@@ -60,7 +60,13 @@ impl RemoteSource for Offline {
 }
 
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
+#[cfg(test)]
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
+    png_at(state, dir, CAPTURE_SECONDS)
+}
+
+/// Samples caller-owned UI and cosmetic animation time without reading the clock.
+pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
@@ -68,13 +74,16 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         Fixture::Loading(stage) => stage.is_world_entry(),
         Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. } => false,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     #[cfg(feature = "test-support")]
-    let craft_icons = matches!(&fixture, Fixture::CraftOverlap { .. })
-        .then(|| crafting::icons(&mut carriers.pages))
-        .transpose()?;
+    let craft_icons = matches!(
+        &fixture,
+        Fixture::CraftOverlap { .. } | Fixture::CursorDurability
+    )
+    .then(|| crafting::icons(&mut carriers.pages))
+    .transpose()?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
         state.size,
@@ -100,6 +109,12 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         renderers: &mut [],
     };
     match fixture {
+        #[cfg(feature = "test-support")]
+        Fixture::CursorDurability => {
+            let mut engine = json_engine(&carriers)?;
+            crafting::paint_cursor(&engine, &carriers.lang, &craft_icons.unwrap(), &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { selected } => {
             let mut engine = json_engine(&carriers)?;
@@ -154,7 +169,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: logo.height(),
                 rgba: logo.into_raw().into(),
             });
-            cosmetic_icons(&mut artwork, &mut carriers.pages);
+            cosmetic_icons(&mut artwork, &mut carriers.pages, seconds);
             mod_icons(&view, &mut artwork, &mut carriers.pages)?;
             let character_page = (view.screen == launcher::menu::MenuScreen::Home)
                 .then(|| character::texture(dir, &mut carriers.pages))
@@ -162,7 +177,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
-            for now in [0.0, CAPTURE_SECONDS] {
+            for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -230,7 +245,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
-            for now in [0.0, CAPTURE_SECONDS] {
+            for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -254,7 +269,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             let words = launcher::menu::join_progress::loading_words(stage, &|key, fallback| {
                 ui_engine::engine::screen::translated(frame.translate, key, fallback)
             });
-            frame.now = CAPTURE_SECONDS;
+            frame.now = seconds;
             screen
                 .paint_loading(
                     oreui::loading_screen::LoadingInput {
@@ -275,16 +290,21 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             suggestions,
             messages,
             options,
+            server_hover,
         } => {
             let mut engine = json_engine(&carriers)?;
+            #[cfg(feature = "test-support")]
+            if server_hover.is_some() {
+                engine.set_server_pack(&[ui_screens::test_support::hover_chat::files()]);
+            }
 
             let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES)
                 .map_err(|error| format!("{error:?}"))?;
             editor.set_text(draft);
-            frame.now = CAPTURE_SECONDS;
+            frame.now = seconds;
             let mut screen = ChatScreen::default();
             screen.settings.set_snapshot((options, None));
-            for now in [0.0, CAPTURE_SECONDS] {
+            for now in [0.0, seconds, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -304,6 +324,18 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
+                if server_hover == Some(true)
+                    && let Some(caption) = screen.nodes().iter().find(|node| node.name == "caption")
+                {
+                    screen.set_pointer(
+                        ui::UiPoint::new(
+                            (caption.dest.x as f32 + caption.dest.w as f32 - 4.0)
+                                * metrics.gui_scale,
+                            (caption.dest.y as f32 + 4.0) * metrics.gui_scale,
+                        )
+                        .ok(),
+                    );
+                }
             }
             if screen.nodes().is_empty() {
                 return Err(Error::Invalid("native chat screen did not resolve".into()));
@@ -446,16 +478,18 @@ pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> or
 mod tests;
 
 /// Uses the production cosmetic gallery renderer for original fixture artwork.
-fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Page>) {
+fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Page>, seconds: f64) {
     for item in cosmetics::Item::all() {
-        let Some(image) = render_model::hats::thumbnail::render(item, 128, 128) else {
+        let [width, height] = render_model::hats::thumbnail::SIZE;
+        let Some(image) = render_model::hats::thumbnail::render_at(item, width, height, seconds)
+        else {
             continue;
         };
         artwork.insert(
             item.thumbnail_key(),
             ui::IconRef {
                 page: pages.len() as u16,
-                uv: [0, 0, 128, 128],
+                uv: [0, 0, image.width as u16, image.height as u16],
                 glint: false,
             },
         );

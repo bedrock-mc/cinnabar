@@ -117,6 +117,26 @@ fn distant_position_rounding_does_not_change_motion_or_invent_collisions() {
 }
 
 #[test]
+fn explicit_position_rebuilds_faces_without_resetting_motion() {
+    use crate::{Aabb, PLAYER_HEIGHT, PlayerState};
+
+    let origin = Vec3::new(0.0, 1.0, f64::from(0.1_f32));
+    let motion = Vec3::new(0.0, 0.0, f64::from(0.1_f32));
+    let bounds = Aabb::player_at(origin).translated(motion);
+    let mut state = PlayerState::new(origin + motion);
+    state.velocity = motion;
+    state.retain_collision_box(bounds, PLAYER_HEIGHT);
+    let rebuilt = Aabb::player_at(state.position);
+    assert_ne!(bounds, rebuilt);
+    assert_eq!(state.collision_box(PLAYER_HEIGHT), bounds);
+
+    state.set_position(state.position);
+
+    assert_eq!(state.collision_box(PLAYER_HEIGHT), rebuilt);
+    assert_eq!(state.velocity, motion);
+}
+
+#[test]
 fn ordinary_steering_uses_native_float_trigonometry_and_product_order() {
     for (yaw, strafe, speed, initial, expected) in [
         (33.333, 0.0, 0.02, [0.0, 0.0], [0xbc30_75d4, 0x3c86_262c]),

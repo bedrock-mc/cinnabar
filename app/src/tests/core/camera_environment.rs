@@ -1,6 +1,6 @@
 use super::*;
 use crate::environment::{CameraMediumState, EnvironmentContext, FogBindings};
-use crate::runtime::world::{ClientWorld, update_camera_medium};
+use crate::runtime::world::{ClientWorld, camera_environment::update_camera_medium};
 use client_presentation::camera::FlyCamera;
 
 #[test]

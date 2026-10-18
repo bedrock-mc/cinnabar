@@ -6,7 +6,7 @@ const ITEM: &str = "fixture:world_cube";
 const VISUAL: assets::BlockVisualId = assets::BlockVisualId(2);
 
 /// Replaces the complete fixture's full-cube texture with original high-resolution art and rotated UVs.
-fn world(entities: &RuntimeEntityAssets) -> RuntimeAssets {
+fn world(entities: &RuntimeEntityAssets, material_flags: u32) -> RuntimeAssets {
     let base = short_models::world(entities.source_manifest_sha256(), 256, 255);
     let mut quads = base.model_quads().to_vec();
     for quad in &mut quads {
@@ -58,7 +58,7 @@ fn world(entities: &RuntimeEntityAssets) -> RuntimeAssets {
             assets::Material::unvaried(),
             assets::Material {
                 texture: assets::TextureRef::new(1, 0).unwrap(),
-                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                flags: material_flags,
                 ..assets::Material::unvaried()
             },
         ],
@@ -108,7 +108,7 @@ fn presentation(
 #[test]
 fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
     let (base, entities) = cubes::catalog_for_visual(ITEM, 255, 255, VISUAL);
-    let world = world(&entities);
+    let world = world(&entities, assets::MATERIAL_FLAG_ALPHA_CUTOUT);
     let block = world.resolve(assets::NetworkIdMode::Sequential, VISUAL.0);
     let material = block.face(assets::BlockFace::West).material_id();
     let (tile, side, _) = assets::gui_item::material_tile(world.materials(), material, |page| {
@@ -153,5 +153,28 @@ fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
                 expected.uv[axis] - f32::from(expected_source.uv[axis])
             );
         }
+    }
+}
+
+#[test]
+fn world_models_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
+    let (base, entities) = cubes::catalog_for_visual(ITEM, 255, 255, VISUAL);
+    for flags in [
+        0,
+        assets::MATERIAL_FLAG_DISABLE_AO,
+        assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+        assets::MATERIAL_FLAG_DISABLE_AO | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+    ] {
+        let world = world(&entities, assets::MATERIAL_FLAG_ALPHA_CUTOUT | flags);
+        let mut presentation = presentation(&entities, base.icon_catalog.as_deref().unwrap());
+        presentation.set_gui_models(&world, &entities).unwrap();
+        let icon = presentation
+            .item_icon(ITEM, 0)
+            .expect("thumbnail remains available");
+        assert_eq!(
+            presentation.gui_models.models.contains_key(&icon_key(icon)),
+            flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING == 0,
+            "a shaded mesh must not replace an unshaded thumbnail"
+        );
     }
 }

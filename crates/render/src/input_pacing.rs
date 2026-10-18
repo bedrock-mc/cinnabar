@@ -15,11 +15,14 @@ use std::{
 };
 
 #[cfg(test)]
-use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
-    ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::{App, First, Last, Plugin, Res, Resource, World},
+    ecs::schedule::ScheduleLabel,
+    prelude::{First, Fixed, FixedUpdate, Last, PreUpdate, Real, ResMut, Time, Update},
+};
+use bevy::{
+    ecs::schedule::MainThreadExecutor,
+    prelude::{App, Plugin, Res, Resource, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};
@@ -48,35 +51,7 @@ const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
 const SPIN_HEADROOM: Duration = Duration::from_micros(25);
 
-/// Starts frame timing before reclaiming background work and running `First`.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameStart;
-
-impl FrameStart {
-    /// Installs the timing boundary once, preserving schedules already placed after it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_before(First, Self);
-        }
-    }
-}
-
-/// Waits for the next frame only after the current frame's work has finished.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameEnd;
-
-impl FrameEnd {
-    /// Installs the wait boundary once so other owners can finish work before it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_after(Last, Self);
-        }
-    }
-}
+use crate::{FrameEnd, FrameStart};
 
 /// The cadence the next frames are admitted at; the app's presentation policy writes it.
 #[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Makes a sparse source page with a glyph far from the demand atlas's first slot.
-fn input() -> UiRenderInput {
+pub(super) fn input() -> UiRenderInput {
     let side = 2048usize;
     let mut pixels = vec![0; side * side];
     for y in 100..118 {

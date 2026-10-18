@@ -18,7 +18,7 @@
   },
   "registry": {
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c"
+    "sha256": "38b45931675c91da339ef1e916e684da541d706d622b4399937f49e91feced82"
   },
   "legacy_registry": {
     "path": "crates/assets/data/block-registry-v1001.bin",

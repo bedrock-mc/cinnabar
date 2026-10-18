@@ -476,7 +476,7 @@ impl EquipmentRuntime {
             bones.right_item
         };
         let Some(hand) = hand else { return };
-        let display = if java.is_some() {
+        let mut display = if java.is_some() {
             let grip = if item.identifier.as_ref() == assets::facts::VanillaItem::Bow.identifier() {
                 render_model::java_animation::JavaHeldItem::Bow
             } else {
@@ -489,6 +489,7 @@ impl EquipmentRuntime {
         } else {
             held_sprite_display(item.grip.upright().unwrap_or(false))
         };
+        display.scale *= input.main_hand_scale();
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),

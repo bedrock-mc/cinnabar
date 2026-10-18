@@ -121,9 +121,10 @@ pub(super) fn resolve_binding(
     motion.horse = super::horse::AnimationState::new(random_seed);
     let samples_camera_poses = plan.camera;
     let samples_swing_poses = plan.swing;
-    // Camera and swing rigs keep tick endpoints so frame-sampled inputs still blend motion.
+    // Live camera, swing and authored motion inputs need retained tick endpoints.
     let motion_sampling = (samples_camera_poses
         || samples_swing_poses
+        || render_frame::sampling::needs_motion_sampling(assets, rig_binding)
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| layout.motion_plan(assets, rig_binding, geometry_binding, &controllers, &[]));
@@ -140,6 +141,7 @@ pub(super) fn resolve_binding(
         render: Vec::new(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
+        held_item_scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
         server_animations: Vec::new(),
@@ -517,6 +519,7 @@ fn reselect_geometry_with_checkpoint(
     state.samples_swing_poses = plan.swing;
     state.motion_sampling = (state.samples_camera_poses
         || state.samples_swing_poses
+        || render_frame::sampling::needs_motion_sampling(assets, state.rig_binding)
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {

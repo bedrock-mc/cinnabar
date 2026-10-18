@@ -5,7 +5,6 @@ use protocol::WindowKind;
 use super::cells::Cell;
 use super::gesture::{
     InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
-    has_meaningful_overlay,
 };
 use super::registry::{OccupiedStackRelation, entry_capacity};
 use super::{InventoryGestureError, PlayerInventoryLedger};
@@ -30,11 +29,10 @@ impl PlayerInventoryLedger {
         self.check_surfaces([Cell::Cursor])?;
         let mut cursor = self
             .named(self.view().get(Cell::Cursor).cloned())?
-            .ok_or(InventoryGestureError::EmptyGesture)?
-            .stack;
+            .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
         let capacity = self
-            .negotiated_item_entry(cursor.network_id)
+            .negotiated_item_entry(cursor.stack.network_id)
             .and_then(entry_capacity)
             .map(u16::from)
             .ok_or(InventoryGestureError::InvalidRequest)?;
@@ -44,17 +42,17 @@ impl PlayerInventoryLedger {
         let (mut distinct, mut registry_bound) = (false, false);
         for pass in 0..2 {
             for cell in &cells {
-                if cursor.count >= capacity {
+                if cursor.stack.count >= capacity {
                     break;
                 }
                 let Some(held) = self.view().get(*cell) else {
                     continue;
                 };
-                if self.awaiting_identity(held) || has_meaningful_overlay(held.overlay.as_ref()) {
+                if self.awaiting_identity(held) {
                     continue;
                 }
                 let OccupiedStackRelation::Compatible { capacity: cap } =
-                    self.occupied_stack_relation(&held.stack, &cursor)
+                    self.occupied_stack_relation(held, &cursor)
                 else {
                     continue;
                 };
@@ -62,7 +60,7 @@ impl PlayerInventoryLedger {
                 if (held.stack.count >= cap) != (pass == 1) {
                     continue;
                 }
-                let amount = held.stack.count.min(cap.saturating_sub(cursor.count));
+                let amount = held.stack.count.min(cap.saturating_sub(cursor.stack.count));
                 if amount == 0 {
                     continue;
                 }
@@ -71,12 +69,12 @@ impl PlayerInventoryLedger {
                     *cell,
                     Cell::Cursor,
                     &held.stack,
-                    &cursor,
+                    &cursor.stack,
                     address,
                     amount,
                     cap,
                 )?;
-                cursor.count += amount;
+                cursor.stack.count += amount;
                 distinct |= built.requires_distinct_stack_ids;
                 registry_bound |= built.registry_bound_merge;
                 actions.push(built.action);
@@ -112,7 +110,10 @@ impl PlayerInventoryLedger {
             .collect();
         cells.extend(
             (0..36u8)
-                .filter(|slot| self.known[usize::from(*slot)])
+                .filter(|slot| {
+                    self.known[usize::from(*slot)]
+                        && self.confirmed.contains(Cell::Inventory(*slot))
+                })
                 .map(Cell::Inventory),
         );
         cells

@@ -190,11 +190,11 @@ fn menu_frames_on_native_gpu() {
         ("loading", MenuScreen::Home),
     ] {
         if name == "inventory" {
-            runtime.toggle_inventory(&mut player_runtime);
+            runtime.toggle_inventory(&mut player_runtime, None);
             assert!(runtime.inventory_open());
         }
         if name == "play" && runtime.inventory_open() {
-            runtime.toggle_inventory(&mut player_runtime);
+            runtime.toggle_inventory(&mut player_runtime, None);
         }
         view.screen = screen;
         view.editing = (screen == MenuScreen::AddServer).then_some(0);

@@ -70,6 +70,7 @@ impl Fixture {
             skin_geometry: Some(&self.skin),
             skin_mesh: None,
             skin_layers: &[],
+            held_item_scale: None,
             hand: [HandPhase::default(); 2],
             item_animation: [ItemAnimationState::default(); 2],
             off_hand_animation: [ItemAnimationState::default(); 2],

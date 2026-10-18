@@ -1,6 +1,11 @@
 use super::*;
 
 fn source(init: &str, frame: &str) -> String {
+    source_from(include_str!("player_state.wat"), init, frame)
+}
+
+/// Resolves the current interface name while preserving a component fixture's import types.
+fn source_from(template: &str, init: &str, frame: &str) -> String {
     let package = include_str!("../../../mod-api/wit/extension.wit")
         .lines()
         .next()
@@ -8,7 +13,7 @@ fn source(init: &str, frame: &str) -> String {
         .trim_start_matches("package ")
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
-    include_str!("player_state.wat")
+    template
         .replace("$PLAYER_STATE", &format!("{name}/player-state@{version}"))
         .replace("$INIT", init)
         .replace("$FRAME", frame)
@@ -95,6 +100,23 @@ fn player_state_read_budget_traps_and_reload_starts_without_previous_facts() {
     )
     .unwrap();
     assert!(host.reload_if_changed().unwrap());
+    host.frame(false).unwrap();
+    assert!(host.is_active());
+}
+
+#[test]
+fn legacy_actor_component_keeps_its_original_import_type() {
+    let source = source_from(include_str!("actors_0_1.wat"), "", "");
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = ModHost::load_snapshot_with_grants(
+        &directory.path().join("legacy-actors.wat"),
+        source.as_bytes(),
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     host.frame(false).unwrap();
     assert!(host.is_active());
 }

@@ -10,11 +10,13 @@ pub(super) fn attach(
     batch: &mut ActorPresentationBatch,
     equipment: &mut EquipmentRuntime,
     stream: &WorldStream,
+    mut render_frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     poses: &super::layers::LayerPoses<'_>,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
     mut style_of: impl FnMut(
         &render_model::ActorRigSubmission,
         bool,
+        Option<&mut actor_animation::ActorRenderFrame<'_>>,
     ) -> Option<crate::presentation::entity_layers::ControllerStyle>,
 ) -> std::collections::BTreeSet<u64> {
     let (partial_tick, delta_seconds, glint_settings) = frame;
@@ -38,13 +40,17 @@ pub(super) fn attach(
             }
             let animation = stream.authority().actor(runtime_id).zip(
                 stream.authority().actor_rig(runtime_id).map(|rig| {
+                    let rig = render_frame
+                        .as_mut()
+                        .map_or(rig, |frame| frame.sample_held_item_scale(rig));
                     poses
                         .emote(runtime_id)
                         .map_or(rig, |pose| pose.snapshot(rig))
                 }),
             );
             let mut styled_body = body.clone();
-            if let Some(style) = runtime_skin.and_then(|runtime_skin| style_of(body, runtime_skin))
+            if let Some(style) = runtime_skin
+                .and_then(|runtime_skin| style_of(body, runtime_skin, render_frame.as_deref_mut()))
             {
                 styled_body.overlay_rgba8 = style.overlay_rgba8;
                 styled_body.light = style.light;

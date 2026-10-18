@@ -62,7 +62,7 @@ pub(super) enum MeshKey {
     Block(u32),
     /// A session icon, by its index in the session layer.
     Session(usize),
-    /// A session custom block item's cube sheet, by its index in the session layer.
+    /// A session custom block item's material sheet, by its index in the session layer.
     SessionBlock(usize),
 }
 
@@ -181,6 +181,7 @@ impl EquipmentAnimation<'_> {
     ) -> actor_animation::AttachableAnimationInput<'a> {
         actor_animation::AttachableAnimationInput {
             off_hand,
+            held_item_scale: self.rig.held_item_scale,
             worn: false,
             ..self.worn_input(equipment, assets::ArmorSlot::Helmet, &[])
         }

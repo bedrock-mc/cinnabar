@@ -93,7 +93,18 @@ pub(in crate::ui_runtime::presentation) fn assert_empty_search_clears_grid(
 fn furnace_recipe_rows_reuse_scroll_and_hover_frames() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.screen_state_mut().furnace_book_open = true;
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&protocol::InventoryEvent::Open(
+            protocol::ContainerOpenEvent {
+                container: protocol::ContainerIdentity::window(7),
+                window_type: protocol::WINDOW_TYPE_FURNACE,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            },
+        ));
+    runtime.observe_inventory_window(&player);
     let frame = HudFrame::default();
     let frame = container_frame(&frame);
     let mut cache = None;
@@ -111,4 +122,62 @@ fn furnace_recipe_rows_reuse_scroll_and_hover_frames() {
     let searched = rows(&runtime, &mut cache);
     assert!(!Arc::ptr_eq(&first, &searched));
     assert!(Arc::ptr_eq(&searched, &rows(&runtime, &mut cache)));
+}
+
+#[test]
+fn furnace_inventory_tab_binding_is_independent_of_the_selected_layout() {
+    for layout in [
+        protocol::FurnaceLayout::InventoryOnly,
+        protocol::FurnaceLayout::RecipeBook,
+    ] {
+        for left_tab in [
+            protocol::FurnaceTab::Inventory,
+            protocol::FurnaceTab::Search,
+        ] {
+            let mut player = player_state::PlayerState::new(1);
+            let mut runtime = crate::test_support::inventory_session(&mut player);
+            player.inventory.set_furnace_options(
+                protocol::FurnaceKind::Furnace,
+                protocol::FurnaceOptions {
+                    left_tab,
+                    filtering: false,
+                    layout,
+                },
+            );
+            player
+                .inventory
+                .ledger_mut()
+                .apply(&protocol::InventoryEvent::Open(
+                    protocol::ContainerOpenEvent {
+                        container: protocol::ContainerIdentity::window(7),
+                        window_type: protocol::WINDOW_TYPE_FURNACE,
+                        position: [0, 64, 0],
+                        runtime_entity_id: -1,
+                    },
+                ));
+            runtime.observe_inventory_window(&player);
+            let mut published = DataSource::new();
+            data(
+                &ContainerAuthority::new(&player, &runtime),
+                &container_frame(&HudFrame::default()),
+                &mut published,
+                &mut Vec::new(),
+                &mut None,
+            );
+            let root = Arc::new(ResolvedControl {
+                name: "selected_inventory".into(), control_type: Some("panel".into()),
+                base: None, unresolved_base: None, factory: None, children: vec![],
+                properties: [("bindings".into(), json!([{
+                    "binding_name": "#is_left_tab_inventory", "binding_name_override": "#visible"
+                }]))].into(),
+            });
+            let (bound, notes) =
+                bind_stateful(&root, &published, &EmptyLibrary, &mut BindState::new());
+            assert!(notes.is_empty(), "{notes:?}");
+            assert_eq!(
+                bound.properties["visible"],
+                json!(left_tab == protocol::FurnaceTab::Inventory)
+            );
+        }
+    }
 }

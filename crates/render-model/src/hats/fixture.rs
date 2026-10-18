@@ -17,6 +17,19 @@ pub fn bunny() -> Item {
     })
 }
 
+/// Admits the animated bunny fixture under a caller-owned ID to isolate its rig caches.
+pub fn named_bunny(id: &str) -> Item {
+    let mut descriptor = bunny().descriptor().clone();
+    descriptor.id = id.into();
+    super::admit(
+        descriptor,
+        include_bytes!("bunny_ears.geo.json"),
+        include_bytes!("bunny_ears.png"),
+        include_bytes!("fixture/animation.json"),
+    )
+    .unwrap()
+}
+
 /// Admits a second slot using the same original surface with no movement animation.
 pub fn rigid() -> Item {
     static ITEM: OnceLock<Item> = OnceLock::new();
@@ -61,17 +74,7 @@ pub fn gallery() -> &'static [Item] {
     static ITEMS: OnceLock<Vec<Item>> = OnceLock::new();
     ITEMS.get_or_init(|| {
         (0..40)
-            .map(|index| {
-                let mut item = bunny().descriptor().clone();
-                item.id = format!("fixture:gallery-{index}");
-                super::admit(
-                    item,
-                    include_bytes!("bunny_ears.geo.json"),
-                    include_bytes!("bunny_ears.png"),
-                    include_bytes!("fixture/animation.json"),
-                )
-                .unwrap()
-            })
+            .map(|index| named_bunny(&format!("fixture:gallery-{index}")))
             .collect()
     })
 }
@@ -112,6 +115,38 @@ pub fn dragon_wings() -> Item {
             include_bytes!("dragon_wings.animation.json"),
         )
         .unwrap()
+    })
+}
+
+/// Two original geometry revisions sharing one item ID and unchanged texture bytes.
+pub fn wing_revisions() -> [Item; 2] {
+    static ITEMS: OnceLock<[Item; 2]> = OnceLock::new();
+    *ITEMS.get_or_init(|| {
+        let mut descriptor = dragon_wings().descriptor().clone();
+        descriptor.id = "fixture:preview-revision-wings".into();
+        let texture = include_bytes!("dragon_wings.png");
+        let animation = include_bytes!("dragon_wings.animation.json");
+        let bytes = include_bytes!("dragon_wings.geo.json");
+        let first = super::admit(descriptor.clone(), bytes, texture, animation).unwrap();
+        let mut geometry: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        for bone in geometry["minecraft:geometry"][0]["bones"]
+            .as_array_mut()
+            .unwrap()
+        {
+            if let Some(positions) = bone
+                .get_mut("poly_mesh")
+                .and_then(|mesh| mesh.get_mut("positions"))
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for position in positions {
+                    position[1] = serde_json::json!(position[1].as_f64().unwrap() + 4.0);
+                }
+            }
+        }
+        let bytes = serde_json::to_vec(&geometry).unwrap();
+        descriptor.assets.geometry = animation_asset(&bytes);
+        let second = super::admit(descriptor, &bytes, texture, animation).unwrap();
+        [first, second]
     })
 }
 

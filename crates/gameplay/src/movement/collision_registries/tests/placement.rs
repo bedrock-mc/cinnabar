@@ -9,6 +9,9 @@ use assets::{NetworkIdMode, RegistryRecord};
 use std::sync::OnceLock;
 use world::{BlockUpdate, ChunkStore, SubChunkKey};
 
+#[path = "placement/custom.rs"]
+mod custom;
+
 /// Shares the pinned palette and synthetic collision fixture across placement tests.
 fn fixtures() -> &'static (Box<[RegistryRecord]>, PhysicsCollisionRegistries) {
     static FIXTURES: OnceLock<(Box<[RegistryRecord]>, PhysicsCollisionRegistries)> =

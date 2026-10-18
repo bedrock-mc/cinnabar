@@ -1,5 +1,11 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "external_armor_tests.rs"]
+mod external_armor_tests;
+
+#[path = "session_model_tests.rs"]
+mod session_model_tests;
+
 #[path = "geometry_admission_tests.rs"]
 mod geometry_admission_tests;
 
@@ -20,6 +26,9 @@ mod block_reload_tests;
 
 #[path = "texture_artwork_tests.rs"]
 mod texture_artwork_tests;
+
+#[path = "held_scale_tests.rs"]
+mod held_scale_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;

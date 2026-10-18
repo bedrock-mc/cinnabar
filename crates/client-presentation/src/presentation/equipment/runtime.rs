@@ -26,6 +26,7 @@ mod combat;
 mod diagnostics;
 mod dials;
 mod elytra;
+mod external_armor;
 mod held_block_entities;
 mod java;
 mod modern;
@@ -107,6 +108,7 @@ pub struct EquipmentRuntime {
     /// Bones of player skins' own models, by skin rig id.
     skin_bones: BTreeMap<EntityRigId, Arc<BodyBones>>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
+    external_armor: external_armor::ExternalArmor,
     armor_maps: BTreeMap<(u32, Box<str>), ArmorBoneMap>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
     pending: Vec<ActorRigGeometry>,
@@ -284,6 +286,7 @@ impl EquipmentRuntime {
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
             dial_frames: Default::default(),
+            external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,
             icons,
             placements: atlas.placements,
@@ -399,6 +402,13 @@ impl EquipmentRuntime {
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
             let Some(item) = item else { continue };
+            let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
+            let scale = actor_animation::AttachableAnimationInput {
+                off_hand: layer == LAYER_OFF_HAND,
+                held_item_scale,
+                ..Default::default()
+            }
+            .main_hand_scale();
             let before = layers.len();
             let route = self.equipment_route(
                 item,
@@ -420,6 +430,7 @@ impl EquipmentRuntime {
                     input.java,
                     actor_animation::AttachableAnimationInput {
                         off_hand: layer == LAYER_OFF_HAND,
+                        held_item_scale,
                         animation_frame: inventory::crossbow_animation_frame(
                             elapsed,
                             item.use_facts.ticks.unwrap_or_default(),
@@ -448,6 +459,7 @@ impl EquipmentRuntime {
                     &bones,
                     source.as_ref(),
                     (input, animation),
+                    scale,
                     layers,
                 );
             }
@@ -482,6 +494,7 @@ impl EquipmentRuntime {
                             layer,
                             bones.head,
                             Some(head_block_display()),
+                            1.0,
                             layers,
                         );
                         continue;
@@ -613,10 +626,15 @@ impl EquipmentRuntime {
             MeshKey::Session(index) => self.session_sprite_pixels(index),
             MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
+        let model = match key {
+            MeshKey::Block(visual) => self.block_model(visual),
+            MeshKey::SessionBlock(index) => self.session_block_model(index),
+            _ => None,
+        };
         let vertices = match (key, sprite) {
-            (MeshKey::Block(visual), _) if self.block_model(visual).is_some() => {
+            (_, _) if model.is_some() => {
                 let rect = placement.uv_rect();
-                self.block_model(visual)?
+                model?
                     .iter()
                     .copied()
                     .map(|mut vertex| {

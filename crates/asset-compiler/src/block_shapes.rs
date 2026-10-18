@@ -84,6 +84,11 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
     );
     flags.set(ShapeFlags::AIR, traits.contains(BlockTraits::AIR));
     flags.set(
+        ShapeFlags::GRASS_OFFSET,
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::GrassCross,
+    );
+    flags.set(
         ShapeFlags::HIDE_OVERLAY,
         shapes.contains(ShapeTraits::END_GATEWAY),
     );

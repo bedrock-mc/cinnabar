@@ -12,10 +12,7 @@ use bevy::{
     },
     window::PrimaryWindow,
 };
-use server_experience::{
-    session::State,
-    trust::{Choice, Settings},
-};
+use server_experience::{policy::Choice, session::State, trust::Settings};
 
 use client_extensions::server_experiences::consent::{can_disable, chrome};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -253,6 +250,10 @@ fn drive(
                     .accept_experience_modal_scroll(&view, range);
             }
         }
+    }
+    if let Some(live) = service.live.as_mut() {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        live.shift_changed(modal_focus && shift);
     }
     service.hotbar = None;
     if modal_focus {

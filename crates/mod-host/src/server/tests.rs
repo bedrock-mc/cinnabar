@@ -19,6 +19,7 @@ fn state() -> State {
                 origins: BTreeSet::new(),
                 memory_bytes: 0,
                 gpu_bytes: 0,
+                personal_mods: Default::default(),
             },
             assets: BTreeSet::new(),
             templates: BTreeSet::new(),
@@ -173,6 +174,7 @@ fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
             origins: BTreeSet::new(),
             memory_bytes: 1 << 20,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::from(["ui/terminal.json".to_owned()]),
         templates: BTreeSet::from(["ui/terminal.json".to_owned()]),
@@ -578,6 +580,34 @@ fn secondary_presses_reach_secondary_action() {
         other => panic!("{other:?}"),
     }
     assert!(host.dispatch(&press("terminal.other"), 1).is_err());
+}
+
+/// `shift-changed` tells a guest granted `input` whether Shift is held; one without `input` is
+/// refused before it runs.
+#[test]
+fn shift_changed_reaches_the_guest() {
+    let mut host = searching_terminal();
+    match host
+        .dispatch(&Event::Shift { held: true }, 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name,
+                value: screen::Value::Bool(held),
+            },
+        ] => {
+            assert_eq!((name.as_str(), *held), ("#shift", true));
+        }
+        other => panic!("{other:?}"),
+    }
+    let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
+    capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let mut blind = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    blind.take_transaction();
+    assert!(blind.dispatch(&Event::Shift { held: true }, 1).is_err());
 }
 
 /// `scroll-changed` delivers a declared scroll view's range; an undeclared view, or a range
