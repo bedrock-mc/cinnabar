@@ -72,7 +72,7 @@ pub fn admit_attack_press(
 ) -> AttackAdmission {
     let result = admit(runtime, mining, swings, movement, frame, effects, false);
     if runtime.press_pending() {
-        runtime.cancel();
+        runtime.cancel_press();
     }
     result
 }

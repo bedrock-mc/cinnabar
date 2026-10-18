@@ -50,7 +50,7 @@ pub(crate) fn press(
         )
     });
     let Some((sample, stream)) = sample.zip(context.client_world.stream.as_ref()) else {
-        runtime.cancel();
+        runtime.cancel_press();
         return;
     };
     let press = PressContext {

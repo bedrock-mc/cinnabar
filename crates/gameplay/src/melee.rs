@@ -183,9 +183,14 @@ impl MeleeRuntime {
         target
     }
 
-    /// Cancels unadmitted presses without removing an earlier accepted break.
-    pub fn cancel(&mut self) {
+    /// Cancels unadmitted presses while keeping the current target competition.
+    pub fn cancel_press(&mut self) {
         self.queue.cancel_pending();
+    }
+
+    /// Cancels input and its target without removing an earlier accepted break.
+    pub fn cancel(&mut self) {
+        self.cancel_press();
         self.actor_in_front = false;
     }
 
