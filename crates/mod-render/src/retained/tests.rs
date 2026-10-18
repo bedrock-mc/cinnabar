@@ -362,7 +362,7 @@ fn instancing_cannot_multiply_a_full_mesh_into_unbounded_gpu_work() {
 }
 
 #[test]
-fn retained_extent_uses_actual_vertices_when_bounds_are_too_conservative() {
+fn cached_sphere_admits_extents_when_box_bounds_are_too_conservative() {
     let mut store = Store::default();
     let extent = mod_api::MAX_PRIMITIVE_EXTENT_BLOCKS;
     let geometry = store
@@ -378,7 +378,7 @@ fn retained_extent_uses_actual_vertices_when_bounds_are_too_conservative() {
             indices: vec![0, 1, 2],
         })
         .unwrap();
-    for scale in [[1.; 3], [-1., 1., -1.], [0.5; 3]] {
+    for scale in [[1.; 3], [-1., 1., -1.], [0.5; 3], [-1., 0.25, 0.], [0.; 3]] {
         let mut instance = drawing(geometry);
         instance.transform.scale = scale;
         instance.transform.translation[0] = extent * (1. - scale[0].abs());

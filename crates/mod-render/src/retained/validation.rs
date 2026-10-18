@@ -1,7 +1,7 @@
 use super::*;
 use mod_api::*;
 
-/// Validates topology and computes cumulative distance once for a reusable polyline.
+/// Admits immutable topology and caches every fact needed by later instance validation.
 pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     let (vertices, indices, closed, polyline) = match spec {
         GeometrySpec::Triangles { vertices, indices } => (vertices, indices, false, false),
@@ -15,65 +15,67 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         || indices
             .iter()
             .any(|&index| index as usize >= vertices.len())
-        || vertices.iter().any(|v| {
-            #[cfg(test)]
-            super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
-            !v.position
-                .iter()
-                .chain(&v.uv)
-                .chain(&v.data)
-                .all(|v| v.is_finite())
-                || v.position
-                    .iter()
-                    .any(|v| v.abs() > MAX_PRIMITIVE_EXTENT_BLOCKS)
-                || !color(v.color)
-        })
     {
         return Err(error(ErrorCode::Invalid, "geometry topology or vertex"));
     }
-    let mut distances = Vec::new();
-    if polyline {
-        distances.push(0.);
-        let mut distance = 0.;
-        for pair in vertices.windows(2) {
-            distance += pair[0]
+    let expanded_vertices =
+        mesh::expanded_vertices(vertices.len(), indices.len(), polyline, closed);
+    if expanded_vertices > MAX_DRAW_EXPANDED_VERTICES {
+        return Err(error(ErrorCode::BudgetExceeded, "expanded vertices"));
+    }
+    let mut bounds = [vertices[0].position; 2];
+    let mut radius_squared = 0_f32;
+    let mut distances = Vec::with_capacity(if polyline { vertices.len() } else { 0 });
+    let mut previous = vertices[0].position;
+    let mut distance = 0.;
+    for vertex in &vertices {
+        #[cfg(test)]
+        super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
+        if !vertex
+            .position
+            .iter()
+            .chain(&vertex.uv)
+            .chain(&vertex.data)
+            .all(|v| v.is_finite())
+            || vertex
                 .position
                 .iter()
-                .zip(pair[1].position)
+                .any(|v| v.abs() > MAX_PRIMITIVE_EXTENT_BLOCKS)
+            || !color(vertex.color)
+        {
+            return Err(error(ErrorCode::Invalid, "geometry topology or vertex"));
+        }
+        for (axis, &position) in vertex.position.iter().enumerate() {
+            bounds[0][axis] = bounds[0][axis].min(position);
+            bounds[1][axis] = bounds[1][axis].max(position);
+        }
+        radius_squared = radius_squared.max(vertex.position.iter().map(|v| v * v).sum());
+        if polyline {
+            distance += vertex
+                .position
+                .iter()
+                .zip(previous)
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f32>()
                 .sqrt();
             distances.push(distance);
+            previous = vertex.position;
         }
     }
-    let bounds = std::array::from_fn(|side| {
-        std::array::from_fn(|axis| {
-            vertices
-                .iter()
-                .map(|v| v.position[axis])
-                .reduce(if side == 0 { f32::min } else { f32::max })
-                .expect("validated nonempty geometry")
-        })
-    });
-    let geometry = Geometry {
+    let bytes = vertices.len() * std::mem::size_of::<Vertex>()
+        + indices.len() * std::mem::size_of::<u32>()
+        + distances.len() * std::mem::size_of::<f32>();
+    Ok(Geometry {
         bounds,
+        radius: radius_squared.sqrt(),
+        bytes,
+        expanded_vertices,
         vertices: vertices.into(),
         indices: indices.into(),
         distances: distances.into(),
         closed,
         polyline,
-    };
-    if mesh::expanded_vertices(&geometry) > MAX_DRAW_EXPANDED_VERTICES {
-        return Err(error(ErrorCode::BudgetExceeded, "expanded vertices"));
-    }
-    Ok(geometry)
-}
-
-/// Measures admitted immutable payloads; shared instances never multiply geometry charges.
-pub(super) fn bytes(geometry: &Geometry) -> usize {
-    geometry.vertices.len() * std::mem::size_of::<Vertex>()
-        + geometry.indices.len() * std::mem::size_of::<u32>()
-        + geometry.distances.len() * std::mem::size_of::<f32>()
+    })
 }
 
 /// Accounts retiring snapshots until their renderer references have been released.
@@ -91,13 +93,13 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
         .values()
         .try_fold(0usize, |sum, instance| {
             let geometry = resources.geometry.get(&instance.geometry)?;
-            sum.checked_add(mesh::expanded_vertices(geometry))
+            sum.checked_add(geometry.expanded_vertices)
         })
         .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
     for (amount, limit, label) in [
         (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
         (
-            geometries.iter().map(|g| mesh::expanded_vertices(g)).sum(),
+            geometries.iter().map(|g| g.expanded_vertices).sum(),
             MAX_DRAW_EXPANDED_VERTICES,
             "expanded vertices",
         ),
@@ -114,7 +116,7 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
             "indices",
         ),
         (
-            geometries.iter().map(|g| bytes(g)).sum(),
+            geometries.iter().map(|g| g.bytes).sum(),
             MAX_DRAW_GEOMETRY_BYTES,
             "geometry bytes",
         ),
@@ -181,7 +183,8 @@ pub(super) fn instance(
     Ok(())
 }
 
-/// Accepts conservative bounds quickly, checking actual vertices before rejecting an extent.
+/// Checks cached box and sphere bounds in constant work, including nonuniform signed scales.
+/// The sphere is exact for uniform scales; either bound may admit a nonuniform scale.
 fn extent(geometry: &Geometry, transform: Transform) -> bool {
     let translation = transform
         .translation
@@ -201,17 +204,9 @@ fn extent(geometry: &Geometry, transform: Transform) -> bool {
         .sqrt()
         + translation;
     bound <= MAX_PRIMITIVE_EXTENT_BLOCKS
-        || geometry.vertices.iter().all(|vertex| {
-            vertex
-                .position
-                .iter()
-                .zip(transform.scale)
-                .map(|(v, s)| (v * s).powi(2))
-                .sum::<f32>()
-                .sqrt()
-                + translation
-                <= MAX_PRIMITIVE_EXTENT_BLOCKS
-        })
+        || geometry.radius * transform.scale.iter().map(|s| s.abs()).fold(0., f32::max)
+            + translation
+            <= MAX_PRIMITIVE_EXTENT_BLOCKS
 }
 
 /// Requires finite linear RGBA with bounded coverage.

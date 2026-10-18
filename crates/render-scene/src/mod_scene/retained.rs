@@ -84,17 +84,18 @@ pub fn visible(
     camera: &GlobalTransform,
     projection: Mat4,
 ) -> bool {
-    if geometry.polyline {
+    if geometry.is_polyline() {
         return true;
     }
     let view = camera.to_matrix();
     let rotation = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, Vec4::W).inverse();
     let clip = projection * rotation * Mat4::from_cols_array_2d(&instance.transform);
+    let bounds = geometry.bounds();
     let corners: [Vec4; 8] = std::array::from_fn(|index| {
         clip * Vec3::new(
-            geometry.bounds[index & 1][0],
-            geometry.bounds[(index >> 1) & 1][1],
-            geometry.bounds[(index >> 2) & 1][2],
+            bounds[index & 1][0],
+            bounds[(index >> 1) & 1][1],
+            bounds[(index >> 2) & 1][2],
         )
         .extend(1.)
     });

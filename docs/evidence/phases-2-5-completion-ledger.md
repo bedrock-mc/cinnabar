@@ -605,17 +605,14 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; the generic unlit renderer is connected. Native output captures, hardware budgets
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
-and actor attachment remain incomplete and do not close any completion requirement.
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Geometry admission validates
+vertices once and caches extent and quota facts for every shared instance and callback
+group. Extent checks use conservative box and sphere bounds without revisiting vertices.
+Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
+renderer is connected; actor attachment, native output captures and hardware budgets
+remain incomplete and do not close any completion requirement.
 
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained
 presets preserve their coverage and placement. TypeScript packaging, renderer
 acceptance and hardware performance gates remain incomplete.
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance
-transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
-Renderer integration and actor attachment remain incomplete and do not close any completion
-requirement.

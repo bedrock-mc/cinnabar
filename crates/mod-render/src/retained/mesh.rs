@@ -18,24 +18,23 @@ pub struct GpuVertex {
 /// Fixed host tessellation for a round join or semicircular end cap.
 pub const ROUND_SEGMENTS: usize = 8;
 
-/// Bounds every selectable line style before allocating GPU geometry.
-pub fn expanded_vertices(geometry: &Geometry) -> usize {
-    if !geometry.polyline {
-        return geometry.indices.len();
+/// Bounds every selectable line style once during geometry admission.
+pub(super) fn expanded_vertices(
+    vertices: usize,
+    indices: usize,
+    polyline: bool,
+    closed: bool,
+) -> usize {
+    if !polyline {
+        return indices;
     }
-    let segments = geometry.vertices.len() - usize::from(!geometry.closed);
-    segments * 6
-        + segments * ROUND_SEGMENTS * 3
-        + if geometry.closed {
-            0
-        } else {
-            ROUND_SEGMENTS * 6
-        }
+    let segments = vertices - usize::from(!closed);
+    segments * 6 + segments * ROUND_SEGMENTS * 3 + if closed { 0 } else { ROUND_SEGMENTS * 6 }
 }
 
 /// Builds a single immutable GPU mesh shared by all placements and line styles.
 pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
-    let mut output = Vec::with_capacity(expanded_vertices(geometry));
+    let mut output = Vec::with_capacity(geometry.expanded_vertices);
     if !geometry.polyline {
         for &index in geometry.indices.iter() {
             let vertex = geometry.vertices[index as usize];
