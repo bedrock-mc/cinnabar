@@ -5,6 +5,7 @@ use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
+use super::presentation::inventory_pointer::InventoryScreen;
 use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
 use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
@@ -174,10 +175,17 @@ pub fn visible_creative_entries<'a>(
 }
 
 impl UiRuntime {
-    /// Releases the keyboard when the inventory search field cannot be shown.
-    pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
+    /// Releases the keyboard when the active inventory renderer cannot show search.
+    pub fn observe_inventory_search_focus(
+        &mut self,
+        player: &player_state::PlayerState,
+        engine_container_shown: bool,
+    ) {
+        // The fallback creative catalog keeps Search visible for every saved layout.
+        let creative_fallback = !engine_container_shown
+            && InventoryScreen::of_runtime(player, self) == InventoryScreen::Creative;
         if self.screen_state().book.is_some()
-            || !super::presentation::forms::recipe_book_shown(player, self)
+            || (!creative_fallback && !super::presentation::forms::recipe_book_shown(player, self))
         {
             self.screen_state_mut().search_focused = false;
         }

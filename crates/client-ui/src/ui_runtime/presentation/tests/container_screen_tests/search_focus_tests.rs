@@ -2,6 +2,99 @@ use super::*;
 use crate::ui_runtime::inventory_drag::PointerAction;
 use protocol::{InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab};
 
+#[test]
+fn creative_fallback_search_retains_focus_with_hidden_recipe_layouts() {
+    use crate::ui_runtime::presentation::{
+        forms::snapshot, inventory_pointer::InventoryScreen, screens,
+    };
+    use ui_screens::container_actions::SEARCH_TAB;
+
+    for layout in [
+        InventoryLayout::InventoryOnly,
+        InventoryLayout::Unknown(-1),
+        InventoryLayout::Unknown(i32::MIN),
+    ] {
+        for captured in [true, false] {
+            let mut player = player_state::PlayerState::new(1);
+            let mut runtime = creative_with(&mut player, 40);
+            let options = InventoryOptions {
+                inventory_layout: layout,
+                ..InventoryOptions::default()
+            };
+            runtime.close_inventory(&mut player);
+            player.inventory.set_inventory_options(options);
+            runtime.toggle_inventory(&mut player, None);
+            if !captured {
+                runtime.screen_state_mut().inventory = None;
+            }
+            let mut presentation = UiPresentationRuntime::with_hud(
+                ui_engine::test_support::fixture_font(),
+                crate::test_support::fixture_hud(),
+            )
+            .unwrap();
+            let size = [1280, 720];
+            let dpi = DpiScale::new(1.0).unwrap();
+            presentation.build(&player, &runtime, 0, size, dpi).unwrap();
+            assert!(presentation.engine_container_frame().is_none());
+            assert!(!super::super::super::forms::recipe_book_shown(
+                &player, &runtime
+            ));
+            let screen = InventoryScreen::of_runtime(&player, &runtime);
+            assert_eq!(screen, InventoryScreen::Creative);
+            let gui_size = presentation
+                .inventory_gui_point(
+                    ui::UiPoint::new(size[0] as f32, size[1] as f32).unwrap(),
+                    size,
+                    1.0,
+                )
+                .unwrap();
+            let origin = screens::panel_origin(screen, gui_size);
+            let tab = screens::tab_origin(SEARCH_TAB);
+            let hit = presentation
+                .inventory_cell_hit(
+                    [origin[0] + tab[0] + 1.0, origin[1] + tab[1] + 1.0],
+                    size,
+                    1.0,
+                    screen,
+                )
+                .expect("fallback Search tab is reachable");
+            assert_eq!(hit, InventoryCellHit::CreativeSearch);
+            runtime.perform_pointer_action(&mut player, PointerAction::Click(hit));
+            assert!(runtime.screen_state().text_focused());
+            runtime.observe_inventory_search_focus(
+                &player,
+                presentation.engine_container_frame().is_some(),
+            );
+            runtime.screen_state_mut().type_text("iron");
+            let input = presentation
+                .build(&player, &runtime, 500, size, dpi)
+                .unwrap();
+            snapshot::write(
+                &input,
+                &format!("creative-fallback-search-{}-{captured}", layout.index()),
+            );
+            assert!(
+                runtime.screen_state().text_focused(),
+                "visible fallback search retains focus for {layout:?}, captured={captured}"
+            );
+            assert_eq!(runtime.screen_state().search, "iron");
+            runtime.observe_inventory_search_focus(
+                &player,
+                presentation.engine_container_frame().is_some(),
+            );
+            runtime.screen_state_mut().backspace_text();
+            assert_eq!(runtime.screen_state().search, "iro");
+            runtime.observe_inventory_search_focus(&player, true);
+            assert!(
+                !runtime.screen_state().text_focused(),
+                "the engine renderer releases hidden search for {layout:?}"
+            );
+            assert_eq!(player.inventory.inventory_options(), options);
+            assert!(runtime.take_client_packet().is_none());
+        }
+    }
+}
+
 /// Clicks the drawn search box and keeps it focused through the next pointer frame.
 fn edit_search(
     presentation: &mut UiPresentationRuntime,
@@ -37,7 +130,7 @@ fn edit_search(
     );
     assert_eq!(runtime.screen_state().creative_row, 4);
     assert_eq!(runtime.screen_state().container_scroll["recipes"], 24.0);
-    runtime.observe_inventory_search_focus(player);
+    runtime.observe_inventory_search_focus(player, presentation.engine_container_frame().is_some());
     assert!(
         runtime.screen_state().text_focused(),
         "the next pointer frame retains visible search focus"
@@ -91,7 +184,10 @@ fn furnace_search_click_retains_focus_without_changing_inventory_options() {
                 ui_screens::container_actions::Widget::InventoryLayout(1),
             )),
         );
-        runtime.observe_inventory_search_focus(&player);
+        runtime.observe_inventory_search_focus(
+            &player,
+            presentation.engine_container_frame().is_some(),
+        );
         assert!(!runtime.screen_state().text_focused());
     }
 }
@@ -127,7 +223,10 @@ fn inventory_search_click_retains_focus_in_personal_and_workbench_screens() {
                 ui_screens::container_actions::Widget::InventoryLayout(1),
             )),
         );
-        runtime.observe_inventory_search_focus(&player);
+        runtime.observe_inventory_search_focus(
+            &player,
+            presentation.engine_container_frame().is_some(),
+        );
         assert!(!runtime.screen_state().text_focused());
     }
 }

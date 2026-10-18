@@ -356,7 +356,7 @@ fn inventory_options_search_focus_does_not_follow_into_a_book_reader() {
             String::new(),
         ));
         runtime.observe_inventory_window(&player);
-        runtime.observe_inventory_search_focus(&player);
+        runtime.observe_inventory_search_focus(&player, true);
         assert!(!runtime.screen_state().search_focused);
         assert_eq!(runtime.screen_state().text_focused(), editable);
         assert_eq!(runtime.screen_state().search, "");

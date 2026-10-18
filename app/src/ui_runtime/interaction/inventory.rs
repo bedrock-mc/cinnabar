@@ -175,7 +175,10 @@ pub(super) fn apply_inventory_pointer(
     mouse_buttons.reset_all();
     runtime.observe_inventory_window(player_runtime);
     let screen = InventoryScreen::of_runtime(player_runtime, runtime);
-    runtime.observe_inventory_search_focus(player_runtime);
+    runtime.observe_inventory_search_focus(
+        player_runtime,
+        presentation.engine_container_frame().is_some(),
+    );
     let Some(position) = window.cursor_position() else {
         // A cancelled touch withdraws the pointer, so its release closes nothing.
         runtime.set_inventory_pointer_gui(None);
