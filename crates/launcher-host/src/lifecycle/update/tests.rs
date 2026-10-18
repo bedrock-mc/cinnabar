@@ -829,7 +829,12 @@ fn manual_checks_preserve_preferences_and_wait_for_an_idle_started_client() {
     state.preferences.checks = false;
     assert!(!state.request_check());
     state.startup = StartupPhase::Complete;
+    state.dismissed = true;
     assert!(state.request_check());
+    assert!(
+        state.dismissed,
+        "a check cannot undo this session’s Later choice"
+    );
     assert!(!state.preferences.checks);
     assert!(state.manual_check && state.check_now);
     state.running = true;

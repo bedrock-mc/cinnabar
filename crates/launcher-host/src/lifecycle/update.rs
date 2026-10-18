@@ -161,7 +161,6 @@ impl State {
         }
         self.manual_check = true;
         self.check_now = true;
-        self.dismissed = false;
         true
     }
 
