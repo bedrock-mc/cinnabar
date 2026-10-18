@@ -69,15 +69,20 @@ impl RenderState {
     pub fn commit_retained(&mut self) {
         self.retained.commit();
         let snapshot = self.retained.snapshot();
-        let retained = if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
-            Vec::new()
+        if snapshot.geometry.is_empty() && snapshot.instances.is_empty() {
+            if self.committed.retained.is_empty() {
+                return;
+            }
+            self.committed.retained.clear();
         } else {
-            vec![Arc::clone(snapshot)]
-        };
-        if self.committed.retained != retained {
-            self.committed.retained = retained;
-            self.generation = next_revision();
+            if matches!(self.committed.retained.as_slice(), [previous] if Arc::ptr_eq(previous, snapshot))
+            {
+                return;
+            }
+            self.committed.retained.clear();
+            self.committed.retained.push(Arc::clone(snapshot));
         }
+        self.generation = next_revision();
     }
 
     /// Publishes immediate primitives and post effects after a successful frame.

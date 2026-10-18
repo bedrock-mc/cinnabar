@@ -10189,6 +10189,9 @@ do not close them.
 Drawing permissions and connection fences cover legacy post effects, block highlights and
 unfiltered world observations. The retained drawing ABI is versioned separately. Retained indexed meshes, polylines,
 shared instances and callback groups are admitted transactionally with per-owner quotas.
+Geometry admission caches conservative position bounds, so shared-instance validation does
+not scan vertices. Callbacks without resource changes preserve snapshots without allocating; revisions
+and snapshot identity determine retained publication.
 Renderer integration and entity anchors are incomplete; no rendering parity or performance
 gate is closed by these contracts.
 ## Chat editor submission prefixes

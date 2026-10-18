@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) mod work;
+
 /// Makes a reusable unit triangle with distinct vertex colours.
 fn mesh() -> GeometrySpec {
     GeometrySpec::Triangles {

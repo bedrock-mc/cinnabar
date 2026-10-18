@@ -10,12 +10,18 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     if vertices.len() > MAX_DRAW_VERTICES || indices.len() > MAX_DRAW_INDICES {
         return Err(error(ErrorCode::BudgetExceeded, "geometry elements"));
     }
+    let mut max_position = [0_f32; 3];
     if vertices.len() < if polyline { 2 } else { 3 }
         || (!polyline && (indices.is_empty() || !indices.len().is_multiple_of(3)))
         || indices
             .iter()
             .any(|&index| index as usize >= vertices.len())
         || vertices.iter().any(|v| {
+            #[cfg(test)]
+            super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
+            for (max, position) in max_position.iter_mut().zip(v.position) {
+                *max = max.max(position.abs());
+            }
             !v.position
                 .iter()
                 .chain(&v.uv)
@@ -50,6 +56,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         distances: distances.into(),
         closed,
         polyline,
+        max_position,
     })
 }
 
@@ -129,22 +136,20 @@ pub(super) fn instance(
         || !instance.width.is_finite()
         || instance.width <= 0.
         || instance.width > MAX_PRIMITIVE_EXTENT_BLOCKS
-        || geometry.vertices.iter().any(|vertex| {
-            vertex
-                .position
+        || geometry
+            .max_position
+            .iter()
+            .zip(transform.scale)
+            .map(|(v, s)| (v * s).powi(2))
+            .sum::<f32>()
+            .sqrt()
+            + transform
+                .translation
                 .iter()
-                .zip(transform.scale)
-                .map(|(v, s)| (v * s).powi(2))
+                .map(|v| v * v)
                 .sum::<f32>()
                 .sqrt()
-                + transform
-                    .translation
-                    .iter()
-                    .map(|v| v * v)
-                    .sum::<f32>()
-                    .sqrt()
-                > MAX_PRIMITIVE_EXTENT_BLOCKS
-        })
+            > MAX_PRIMITIVE_EXTENT_BLOCKS
     {
         return Err(error(
             ErrorCode::Invalid,
