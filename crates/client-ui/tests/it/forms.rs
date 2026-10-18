@@ -671,6 +671,10 @@ fn npc_unsupported_dismissal_and_menu_takeover_send_no_modal_response() {
                 .unwrap();
         }
         assert!(
+            runtime.server_forms().owns_input(),
+            "local retirement captures input until the response phase"
+        );
+        assert!(
             !flush_form_response(
                 &mut runtime,
                 |_| true,

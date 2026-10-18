@@ -38,16 +38,16 @@ impl ServerFormEntry {
     pub const fn fifo_sequence(&self) -> u64 {
         self.fifo_sequence
     }
-    /// Uses the displayed protocol's dismissal, retiring an unsupported NPC without a form reply.
-    fn dismissal(&self) -> Option<RetainedAnswer> {
+    /// Retains a protocol reply or local retirement until the response phase.
+    fn dismissal(&self) -> RetainedAnswer {
         match &self.model {
-            ServerFormModel::NpcDialogue(npc) => Some(RetainedAnswer::Npc {
+            ServerFormModel::NpcDialogue(npc) => RetainedAnswer::Npc {
                 actor: self.npc_actor,
                 scene_name: Arc::clone(&npc.scene_name),
                 request: NpcRequestKind::ExecuteClosingCommands,
-            }),
-            _ if self.kind == FormKind::NpcDialogue => None,
-            _ => Some(RetainedAnswer::Dismissed),
+            },
+            _ if self.kind == FormKind::NpcDialogue => RetainedAnswer::DismissedLocally,
+            _ => RetainedAnswer::Dismissed,
         }
     }
 
@@ -87,6 +87,8 @@ enum RetainedAnswer {
         request: NpcRequestKind,
     },
     Dismissed,
+    /// Holds input until the response phase without sending a packet.
+    DismissedLocally,
     Busy,
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -242,9 +244,9 @@ impl ServerFormStore {
     pub fn reject_active_busy(&mut self) {
         if let Some(entry) = self.active.take() {
             if entry.kind == FormKind::NpcDialogue {
-                self.pending = entry.dismissal().map(|answer| PendingFormResponse {
+                self.pending = Some(PendingFormResponse {
                     identity: entry.identity,
-                    answer,
+                    answer: entry.dismissal(),
                 });
                 self.engine = FormEngineState::default();
                 return;
@@ -274,13 +276,11 @@ impl ServerFormStore {
             .ok_or(FormRespondError::StaleIdentity)?;
         let answer = match action {
             LocalFormAction::CustomElements => match &entry.model {
-                ServerFormModel::Custom(_) => {
-                    Some(RetainedAnswer::Custom(self.engine.submission()))
-                }
+                ServerFormModel::Custom(_) => RetainedAnswer::Custom(self.engine.submission()),
                 _ => return Err(FormRespondError::CustomElementsUnsupported),
             },
             LocalFormAction::Dismiss => entry.dismissal(),
-            LocalFormAction::SubmitButton(index) => Some(match &entry.model {
+            LocalFormAction::SubmitButton(index) => match &entry.model {
                 ServerFormModel::NpcDialogue(npc) => {
                     let button = npc
                         .buttons
@@ -305,9 +305,9 @@ impl ServerFormStore {
                     }
                 }
                 _ => return Err(FormRespondError::UnsupportedControls),
-            }),
+            },
         };
-        self.pending = answer.map(|answer| PendingFormResponse { identity, answer });
+        self.pending = Some(PendingFormResponse { identity, answer });
         self.active = None;
         self.engine = FormEngineState::default();
         Ok(())
@@ -374,6 +374,7 @@ fn pending_packet(
             custom_form_submit_response(pending.identity.form_id, values)
         }
         RetainedAnswer::Dismissed => modal_form_cancel_response(pending.identity.form_id),
+        RetainedAnswer::DismissedLocally => return None,
         RetainedAnswer::Busy => modal_form_busy_response(pending.identity.form_id),
     })
 }

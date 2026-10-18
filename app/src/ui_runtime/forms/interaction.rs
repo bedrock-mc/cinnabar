@@ -290,19 +290,16 @@ pub(crate) fn drive_server_form_input(
     {
         focus.authorize_screen_return();
     }
-    // Consume the answer frame even when dismissal does not queue a response.
-    if runtime.ui_focused(&player_runtime) {
-        suppress_gameplay_input_for_chat(
-            &player_runtime,
-            &runtime,
-            &mut cursor,
-            &mut keys,
-            &mut mouse,
-            &mut motion,
-        );
-    } else {
-        restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
-    }
+    // Also retain ownership through the answer frame; pending enqueue owns
+    // input until the later network phase accepts it or retires the session.
+    suppress_gameplay_input_for_chat(
+        &player_runtime,
+        &runtime,
+        &mut cursor,
+        &mut keys,
+        &mut mouse,
+        &mut motion,
+    );
 }
 
 #[cfg(test)]
