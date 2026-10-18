@@ -94,6 +94,9 @@ interface player-state {
         /// Retained native look origin and direction, not a guessed bounding-box eye height.
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
+    }
+    record observed-actor {
+        actor: actor,
         /// Replicated health attribute maximum; absent when the server has supplied none.
         max-health: option<f32>,
     }
@@ -113,7 +116,7 @@ interface player-state {
     read-actors: func() -> result<list<actor>, string>;
     /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
     /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
-    read-actors-limited: func(limit: u32) -> result<list<actor>, string>;
+    read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;

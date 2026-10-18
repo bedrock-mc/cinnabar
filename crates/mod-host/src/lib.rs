@@ -39,8 +39,9 @@ pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, Bounds as ActorObservationBounds,
     ChatMessage as ObservedChatMessage, CombatEvent as CombatObservation, CombatKind,
     Effect as PlayerStateEffect, Food as FoodObservation, Item as PlayerStateItem,
-    Motion as MotionObservation, Sidebar as SidebarSnapshot, SidebarRow, Slot as PlayerStateSlot,
-    Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation, WorldObservation,
+    Motion as MotionObservation, ObservedActor, Sidebar as SidebarSnapshot, SidebarRow,
+    Slot as PlayerStateSlot, Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation,
+    WorldObservation,
 };
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,

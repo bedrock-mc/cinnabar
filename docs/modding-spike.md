@@ -1184,6 +1184,7 @@ wins over jump pulses in the same callback and never clears physical jump input.
 authorized observations (1 through `MAX_OBSERVED_ACTORS`). It preserves existing
 filters and session fences, allowing guests to bound canonical-ABI copying work.
 
-Actor observations include optional `max-health` from the replicated health
-attribute. Missing attributes remain absent; no default maximum is inferred.
-Components importing the updated actor record require a matching host SDK.
+Each bounded result contains the existing `actor` record and optional `max-health`
+from the replicated health attribute. Missing attributes remain absent; no default
+maximum is inferred. The original `read-actors` import and actor record stay compatible
+with previously built components.
