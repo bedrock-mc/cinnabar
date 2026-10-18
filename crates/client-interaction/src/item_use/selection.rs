@@ -5,6 +5,27 @@ use client_ui::ui_runtime::UiRuntime;
 use gameplay::item_use::{AirUse, classify};
 use protocol_ids::Enchantment;
 
+/// Reads explicit animation facts first, then the admitted retail consumption profile.
+/// Custom items without an explicit animation remain unresolved.
+pub fn progress_animation(
+    player: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+    selected: &gameplay::mining::FrozenMiningSelection,
+) -> Option<assets::facts::ItemUseAnimationFact> {
+    use assets::{facts::ItemUseAnimationFact as Animation, item_use::ItemConsumption};
+    let id = selected.item.network_id();
+    let facts = player.inventory.item_facts();
+    if let Some(animation) = facts.get(id).use_animation {
+        return Some(animation);
+    }
+    facts.retail_id(id)?;
+    match stream.authority().item_use_profile(id).consumption {
+        ItemConsumption::Eat => Some(Animation::Eat),
+        ItemConsumption::Drink | ItemConsumption::Honey => Some(Animation::Drink),
+        _ => None,
+    }
+}
+
 /// Resolves enchantment and durability only for a trident admitted by item facts.
 pub fn selected_riptide_use(
     player: &client_state::PlayerRuntime,

@@ -180,7 +180,7 @@ pub use item::{
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_banner_patterns, item_book, item_bundle_id,
     item_charged_projectile, item_custom_color, item_display, item_enchantment_level,
     item_extra_damage, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    item_use_progress_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
