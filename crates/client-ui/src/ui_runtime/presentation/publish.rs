@@ -187,8 +187,10 @@ pub fn hovered_stack(
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
                     + usize::from(index);
-                let entries =
-                    crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
+                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                    player_runtime,
+                    runtime,
+                );
                 (entries.get(position).map(|item| &item.stack), None)
             }
             Hit::Widget(ui_screens::container_actions::Widget::BookRecipe(index)) => {

@@ -29,6 +29,7 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
+mod anchors;
 mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
@@ -336,6 +337,13 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
+    app.add_systems(
+        Update,
+        anchors::publish
+            .after(ClientFrameSet::ActorPublication)
+            .after(drive_mod)
+            .before(ClientFrameSet::UiPublication),
+    );
     block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
@@ -369,12 +377,11 @@ fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
     ui: Res<UiRuntimeResource>,
-    mut drawing_frame: ResMut<render_scene::mod_scene::retained::DrawingFrame>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
-        drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
+        anchors::reconcile(&mut extension.hosts, &gameplay);
         let needs_targets = (0..extension.hosts.host_count())
             .any(|index| extension.hosts.host(index).grants().entity_highlight);
         let targets = actors
@@ -416,7 +423,6 @@ type ModOutputs<'w> = (
 struct ModObservation<'w, 's> {
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
-    drawing_frame: ResMut<'w, render_scene::mod_scene::retained::DrawingFrame>,
     cameras: Query<
         'w,
         's,
@@ -454,7 +460,6 @@ fn drive_mod(
     let ModObservation {
         watcher,
         render_scene,
-        mut drawing_frame,
         cameras,
         mut frame_rate,
         mut module_observer,
@@ -491,6 +496,7 @@ fn drive_mod(
         return;
     }
     drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
         .single()
@@ -587,7 +593,6 @@ fn drive_mod(
             );
         }
     }
-    drawing_policy::publish_frame(&extension.hosts, &gameplay, &ui, &mut drawing_frame);
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension), Some(&ui));

@@ -633,17 +633,14 @@ Retained mod drawing has authority and lifetime contracts. Geometry admission va
 vertices once and caches extent and quota facts for every shared instance and callback
 group. Extent checks use conservative box and sphere bounds without revisiting vertices.
 Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
-renderer is connected; actor attachment, native output captures and hardware budgets
-remain incomplete and do not close any completion requirement.
+renderer is connected; actor root attachment uses the renderer publication and exact spawn
+references. Bone attachment, native output captures and hardware budgets remain incomplete
+and do not close any completion requirement.
 
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained
 presets preserve their coverage and placement. TypeScript packaging, renderer
 acceptance and hardware performance gates remain incomplete.
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance
-transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
-Renderer integration and actor attachment remain incomplete and do not close any completion
-requirement.
 
 Host-composed outlines and halos use admitted actor masks. Custom effects declare their
 own mask bindings. In-world ordering, resolution transitions and hardware budgets remain

@@ -16,6 +16,7 @@ pub struct InventorySession {
     pub(crate) last_inventory_sequence: Option<u64>,
     pub(crate) pending_inventory: VecDeque<SequencedInventoryEvent>,
     pub(crate) crafting_authority: CraftingAuthority,
+    pub(crate) inventory_options: protocol::InventoryOptions,
     pub(crate) furnace_preferences: crate::furnace_options::FurnacePreferences,
     pub(crate) furnace_cache: std::sync::Arc<std::sync::Mutex<crate::furnace_recipes::Cache>>,
     pub(crate) equipment_router: Arc<InventoryEquipmentRouter>,
@@ -39,6 +40,7 @@ impl InventorySession {
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             crafting_authority: CraftingAuthority::new(session_id),
+            inventory_options: Default::default(),
             furnace_preferences: Default::default(),
             furnace_cache: Default::default(),
             equipment_router: Arc::new(InventoryEquipmentRouter::new(session_id)),
@@ -68,6 +70,7 @@ impl InventorySession {
             last_inventory_sequence: self.last_inventory_sequence,
             pending_inventory: VecDeque::new(),
             crafting_authority: self.crafting_authority.clone(),
+            inventory_options: self.inventory_options,
             furnace_preferences: self.furnace_preferences.clone(),
             furnace_cache: std::sync::Arc::clone(&self.furnace_cache),
             equipment_router: Arc::clone(&self.equipment_router),
@@ -79,6 +82,11 @@ impl InventorySession {
             server_selected_slot: self.server_selected_slot,
             inventory_ledger: ledger,
         }
+    }
+
+    /// Explicit recipe-name authority at the committed inventory frontier.
+    pub fn recipe_unlocks(&self) -> &protocol::RecipeUnlockState {
+        self.crafting_authority.recipe_unlocks()
     }
 
     /// The connection generation that owns every retained value.

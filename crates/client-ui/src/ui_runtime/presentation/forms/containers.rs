@@ -64,8 +64,13 @@ impl<'a> ContainerAuthority<'a> {
             furnace_tab: runtime
                 .furnace_options(player)
                 .map(|options| options.left_tab.index()),
-            creative_tab: state.creative_tab,
-            creative_wide: state.creative_wide,
+            inventory: runtime.inventory_controller(player).unwrap_or_else(|| {
+                inventory::InventoryController::new(
+                    Default::default(),
+                    inventory::InventoryContext::Personal,
+                    false,
+                )
+            }),
             creative_expanded: &state.creative_expanded,
             search: &state.search,
             container_scroll: &state.container_scroll,

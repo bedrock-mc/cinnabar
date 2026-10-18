@@ -1116,6 +1116,21 @@ screen-effect parity remain incomplete.
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
 
+## Authored terrain materials
+
+- Optional authored maps decode texture sets, MER/MERS and explicit LabPBR 1.3.
+  Joint material mip generation preserves cutout coverage and filters normals and roughness.
+  Local packs can reuse a content-addressed decode cache. GPU uploads retain carrier
+  resources and publish complete authored maps after bounded transfers.
+- Enhanced remains hard-disabled, so normal sessions do not load these packs or change
+  rendered output. Renderer integration and visual/performance acceptance remain incomplete.
+- Incomplete: Java LabPBR files pair with Bedrock textures through a provisional name
+  table (`crates/pack-compiler/src/pbr/sources/names.rs`, baselined in the architecture gate).
+  Replace it with a generated Java/Bedrock mapping shared with shader-pack block IDs.
+  Independent authored animation timing remains incomplete; frames use the carrier clock.
+  State and positional variants outside the variant-zero source retain carrier artwork
+  until authored variant resolution is implemented.
+
 ## Anvil screen
 
 - The anvil predicts its result and cost: repair materials restore a
@@ -2121,6 +2136,9 @@ not close a parity or visual acceptance gate.
 - Manual crafting fills compatible destinations through repeated bounded result scopes.
   Each scope declares its per-craft output once. Explicit counts remain atomic when they
   do not fit; craft-all stops at available destination space.
+- Ordinary recipe ingredients match their admitted item identity, aux and tags independently
+  of unrelated item data. Crafting preserves remaining input data and keeps consumption
+  permissions and output merging as separate checks.
 - Secondary creative catalog clicks create one item with an empty cursor and destroy one
   with a held selection. Typed item locks apply to ordinary player removal, storage and
   station placement, drops, destruction and consumption.
@@ -8609,6 +8627,16 @@ Rendered survival/creative selected-name geometry is inspected at the owner's
 Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
 local evidence paths and verification state.
 
+Recipe unlock packets now have a retained authority foundation: exact names and
+contexts survive recipe admission, additions resolve against the ordered catalog,
+and explicit membership survives ordinary catalog clears while a new session
+resets it. Unsupported crafting shapes and furnace-family identities remain
+addressable. Duplicate names across eligible tags are conservatively unresolved;
+exact tag priority and synthesized multi-recipe identities remain incomplete.
+This foundation does not gate existing manual or book consumers. Game-rule
+consumers, category masks, toast presentation, exact player lifecycle and stable
+live acceptance remain incomplete.
+
 Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
@@ -9385,6 +9413,19 @@ Replacements return the previous
 ingredient to its source cells before other available inventory cells. Expanded
 ingredient groups, exact ghost rendering, saturated-inventory replacements,
 recipe discovery remain incomplete; the full furnace parity gate stays open.
+
+2026-10-17 inventory preferences: protocol 2193 inventory-option updates enter
+ordered startup/play ingress and remain session-owned. Classic personal inventories
+and crafting tables snapshot the complete tuple, resolve their own active layout,
+and preserve the inactive layout. Tabs use explicit UI/wire conversion. Changed
+controls save immediately without echoing incoming updates; queued older choices
+cannot suppress a later selection. Filtering defaults to false, with a creative
+model bypass that preserves the saved toggle. The carrier renders Classic's wide
+recipe list, and right-tab selection bindings are supplied. Pocket presentation,
+input-profile selection, persistent profile storage, recipe-unlock category guards,
+full right-panel presentation, additional search-related saves, and stable-client
+visual acceptance remain incomplete;
+these changes do not close the inventory parity gate.
 
 2026-10-17 furnace preferences: protocol 2193 furnace-option updates enter ordered
 inventory ingress and retain separate player choices for furnace, blast furnace
@@ -10358,8 +10399,10 @@ instances. Geometry admission validates each vertex once and caches box and sphe
 payload bytes and expanded vertex counts. Instance validation uses only cached facts;
 nonuniform scales use conservative extent bounds. Callbacks without resource changes
 preserve snapshots without allocating; revisions and snapshot identity determine retained
-publication. Entity anchors, native output captures and hardware budgets remain incomplete;
-no rendering parity or performance gate is closed by these contracts.
+publication. Entity root anchors use exact owner-issued spawn references and the actor
+renderer publication. Missing roots hide, while confirmed despawns release their instances.
+Bone anchors, native output captures and hardware budgets remain incomplete; no rendering
+parity or performance gate is closed by these contracts.
 
 Actor masks retain owner-scoped, session-fenced union selections with bounded entity and
 vertex counts. Masks draw admitted body and equipment meshes with the scene's pose and

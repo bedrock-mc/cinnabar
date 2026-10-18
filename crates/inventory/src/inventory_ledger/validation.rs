@@ -110,7 +110,7 @@ impl PlayerInventoryLedger {
             DeltaGroup::Shrink { source, .. } => {
                 self.validate_removal(*source, cells.get(*source))?;
                 if cells.get(*source).is_some_and(|held| {
-                    protocol::item_extra_lock(&held.stack.extra_data).is_some_and(|lock| lock != 0)
+                    crate::item_permissions::special_removal_locked(&held.stack.extra_data)
                 }) && actions.iter().any(|action| {
                     matches!(action,
                     StackRequestAction::Drop { source: slot, .. }
