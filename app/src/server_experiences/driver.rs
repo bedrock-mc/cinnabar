@@ -251,6 +251,10 @@ fn drive(
             }
         }
     }
+    if let Some(live) = service.live.as_mut() {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        live.shift_changed(modal_focus && shift);
+    }
     service.hotbar = None;
     if modal_focus {
         service.hotbar = cursor

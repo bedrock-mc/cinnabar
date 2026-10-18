@@ -382,12 +382,13 @@ guest's bindings and `mod-host` the host's from that one file. Its imported inte
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
 collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)`,
-`secondary-action(id, collection-index)` and `scroll-changed(view, range)`.
+`secondary-action(id, collection-index)`, `scroll-changed(view, range)` and `shift-changed(held)`.
 A component built against an earlier 1.x still links (its imports resolve to the 1.3.0 host
 by semver) and receives only the callbacks it exports: one built against 1.0.0 exports only
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
-`text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`. 1.1's two callbacks and
+`text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`, and later `shift-changed`
+with no import change. 1.1's two callbacks and
 1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
 from [`session.wit`](../crates/experience-sdk/wit/session/session.wit), the package player mods
 read, under the `items` permission; a component built without that import still links.
@@ -462,6 +463,9 @@ Data binds through the engine's own `#name` bindings:
   Changes coalesce to the latest range per view, so dragging a scrollbar queues one callback,
   not one per frame. A client part can bind only the rows the view shows: give the view's
   content the full list's length (`#size_binding_y`) and lay a fixed grid over the viewport.
+- `shift-changed(held)` tells a bundle holding `input` whether Shift is held, when it changes
+  while its modal has focus and when the modal gains or loses focus with Shift held, the latest
+  replacing one still waiting, so a screen can show what Java screens show on Shift.
 - Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
   screens, driven by the engine's input components: a press selects one, typing,
   Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or
