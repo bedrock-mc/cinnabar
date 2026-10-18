@@ -105,7 +105,7 @@ pub(super) fn observe(
     // Pending presses suppress new starts while accepted uses keep advancing.
     let press_pending = context.block_use.press_pending()
         || (!delay_fix_enabled && context.melee.press_pending())
-        || (context.ordered.is_some() && context.melee.has_queued_work())
+        || (context.ordered.is_some() && context.melee.has_queued_work(movement))
         || crate::ordered_interactions::is_blocked(context.ordered.as_deref());
     let frame = UseFrame {
         riptide: riptide_at(sample.position),

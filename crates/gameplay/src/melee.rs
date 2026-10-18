@@ -91,9 +91,12 @@ pub struct MeleeRuntime {
 }
 
 impl MeleeRuntime {
-    /// Whether any pending press or admitted mining carrier still owns attack admission.
-    pub fn has_queued_work(&self) -> bool {
-        !self.queue.entries.is_empty()
+    /// Whether a press or mining carrier still waits to enter the outbound FIFO.
+    pub fn has_queued_work(&self, movement: &crate::movement::MovementTicker) -> bool {
+        self.queue.entries.iter().any(|entry| match entry.work {
+            queue::Work::Carrying { tick } => movement.unsent_sample_at(tick).is_some(),
+            _ => true,
+        })
     }
 
     /// Latest successfully queued local actor attack in the current position authority.

@@ -191,7 +191,10 @@ pub(crate) fn prepare_melee(
 
 /// Drains ordered presses before advancing this frame's held mining work once.
 pub(crate) fn produce_attacks(world: &mut bevy::prelude::World) {
-    crate::ordered_interactions::drain(world);
+    crate::ordered_interactions::drain(
+        world,
+        crate::ordered_interactions::DispatchPhase::BeforeMovement,
+    );
     world
         .run_system_cached(maintain_attacks)
         .expect("attack maintenance resources");
@@ -309,8 +312,10 @@ fn maintain_attacks(
     let effects = &context.effects;
     let network = &context.network;
     let world = &mut context.client_world;
-    let allow_mining_start = context.ordered.is_none()
-        || !crate::ordered_interactions::release_pending(&item_use, &movement);
+    let allow_mining_start = context.ordered.as_deref().is_none_or(|ordered| {
+        !ordered.has_unconsumed_edges(&context.input)
+            && !crate::ordered_interactions::release_pending(&item_use, &movement)
+    });
     let admitted = gameplay::melee::admit_attack_frame(
         &mut runtime,
         &mut mining,

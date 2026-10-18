@@ -69,7 +69,10 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Consumes new frame edges after movement drains, then advances accepted held item use once.
 pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
-    crate::ordered_interactions::drain(world);
+    crate::ordered_interactions::drain(
+        world,
+        crate::ordered_interactions::DispatchPhase::AfterMovement,
+    );
     world
         .run_system_cached(maintain_item_use)
         .expect("item maintenance resources");

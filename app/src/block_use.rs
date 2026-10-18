@@ -64,7 +64,10 @@ pub(crate) struct BlockUseContext<'w, 's> {
 
 /// Drains physical interactions before physics, then advances held placement once.
 pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
-    crate::ordered_interactions::drain(world);
+    crate::ordered_interactions::drain(
+        world,
+        crate::ordered_interactions::DispatchPhase::BeforeMovement,
+    );
     if !crate::ordered_interactions::pending(world) {
         world
             .run_system_cached(maintain_block_use)

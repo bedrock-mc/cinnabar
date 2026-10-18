@@ -70,6 +70,9 @@ fn mouse_frame(world: &mut World, button: MouseButton, states: &[ButtonState]) {
     world
         .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
     world.resource_mut::<Messages<MouseButtonInput>>().clear();
     world.resource_mut::<Messages<WindowEvent>>().clear();
 }

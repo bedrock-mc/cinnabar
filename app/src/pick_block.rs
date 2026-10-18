@@ -154,7 +154,7 @@ pub(crate) fn produce_pick_block(
     }
 }
 
-/// Attempts this ordered pick once using the current frame's target.
+/// Attempts one ordered pick with the origin published after this frame's camera update.
 pub(crate) fn ordered_pick(
     bevy::prelude::In(input): bevy::prelude::In<crate::ordered_interactions::InteractionInput>,
     player: bevy::prelude::Res<client_state::PlayerRuntime>,

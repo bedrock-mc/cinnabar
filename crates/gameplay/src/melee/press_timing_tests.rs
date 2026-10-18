@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn delivered_mining_carriers_no_longer_block_fresh_input() {
+    let mut movement = crate::test_support::survival_mining::ticker_with_ticks(1);
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, false);
+    runtime.queue.entries.front_mut().unwrap().work = queue::Work::Carrying { tick: 101 };
+    assert!(runtime.has_queued_work(&movement));
+    assert!(
+        crate::movement::flush_player_auth_inputs(
+            &mut movement,
+            1,
+            Some(crate::test_support::survival_mining::evidence()),
+            |_, _| Err(()),
+        )
+        .is_err()
+    );
+    assert!(runtime.has_queued_work(&movement));
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        1,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Ok::<_, ()>(()),
+    )
+    .unwrap();
+    assert!(!runtime.has_queued_work(&movement));
+    runtime.observe_input(true, false);
+    assert!(
+        runtime.has_queued_work(&movement),
+        "a new press still owns admission"
+    );
+}
+
+#[test]
 fn block_press_at_fifo_front_survives_a_maximum_catchup_frame() {
     let count = crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
     let movement = crate::test_support::survival_mining::ticker_with_ticks(count as u64);
@@ -221,7 +253,7 @@ fn refused_ordered_press_does_not_survive_publication() {
         attempts, 1,
         "later calls must not replay the refused ordered press"
     );
-    assert!(!runtime.has_queued_work());
+    assert!(!runtime.has_queued_work(&movement));
     runtime = MeleeRuntime::default();
     runtime.observe_input(true, false);
     resolve_and_send(

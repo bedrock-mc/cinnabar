@@ -83,7 +83,11 @@ fn ordered_frame_local_overflow_cannot_restore_a_cancelled_attack() {
         .facts
         .publish_player_game_mode(PlayerGameMode::Creative);
     mouse_frame(app.world_mut(), MouseButton::Left, &[ButtonState::Pressed]);
-    assert!(app.world().resource::<MeleeRuntime>().has_queued_work());
+    assert!(
+        app.world()
+            .resource::<MeleeRuntime>()
+            .has_queued_work(app.world().resource::<MovementTicker>())
+    );
     // Keep a different physical button down so the overflow cannot rearm on neutrality.
     mouse_frame(app.world_mut(), MouseButton::Back, &[ButtonState::Pressed]);
     for _ in 0..semantic_input::MAX_PENDING_ACTION_EVENTS {

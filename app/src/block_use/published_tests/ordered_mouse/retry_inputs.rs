@@ -250,7 +250,11 @@ fn ordered_mouse_retry_inputs_mode_change_preserves_an_accepted_mining_carrier()
     tap(app.world_mut(), MouseButton::Left);
     frame(&mut app);
     assert!(!app.world().resource::<MeleeRuntime>().press_pending());
-    assert!(app.world().resource::<MeleeRuntime>().has_queued_work());
+    assert!(
+        app.world()
+            .resource::<MeleeRuntime>()
+            .has_queued_work(app.world().resource::<MovementTicker>())
+    );
     captured.drain();
     mode(app.world_mut(), PlayerGameMode::Survival);
     attack_progress_tests::ticks(app.world_mut(), 102, 105);

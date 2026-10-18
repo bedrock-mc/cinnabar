@@ -38,17 +38,36 @@ pub(crate) struct InteractionRuntime {
     overflowed_batches: u64,
 }
 
+/// Picks and later edges wait for camera publication and movement admission.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DispatchPhase {
+    BeforeMovement,
+    AfterMovement,
+}
+
+impl InteractionRuntime {
+    /// Reports whether this frame still has edges waiting for the late dispatch boundary.
+    pub(crate) fn has_unconsumed_edges(&self, input: &SemanticInputSnapshot) -> bool {
+        input
+            .snapshot()
+            .and_then(|input| input.ordered.as_ref())
+            .is_some_and(|ordered| self.ingested < ordered.events().len())
+    }
+}
+
 /// Reports whether an incomplete physical sample still suppresses held input.
 pub(crate) fn is_blocked(runtime: Option<&InteractionRuntime>) -> bool {
     runtime.is_some_and(|runtime| runtime.frames.quarantined())
 }
 
-/// Keeps held placement behind accepted mining, item-use and movement work.
+/// Keeps held placement behind accepted work and edges waiting for camera publication.
 pub(crate) fn pending(world: &World) -> bool {
     let Some(runtime) = world.get_resource::<InteractionRuntime>() else {
         return false;
     };
-    is_blocked(Some(runtime)) || accepted_work_pending(world)
+    is_blocked(Some(runtime))
+        || accepted_work_pending(world)
+        || runtime.has_unconsumed_edges(world.resource::<SemanticInputSnapshot>())
 }
 
 /// Keeps new actions behind an accepted release before and after movement owns its carrier.
@@ -58,7 +77,9 @@ pub(crate) fn release_pending(item_use: &ItemUseRuntime, movement: &MovementTick
 
 /// Reads the gameplay owners shared by pressed actions and held placement.
 fn accepted_work_pending(world: &World) -> bool {
-    world.resource::<MeleeRuntime>().has_queued_work()
+    world
+        .resource::<MeleeRuntime>()
+        .has_queued_work(world.resource::<MovementTicker>())
         || release_pending(
             world.resource::<ItemUseRuntime>(),
             world.resource::<MovementTicker>(),
@@ -83,7 +104,7 @@ fn cancel_pending_owners(world: &mut World) {
         .cancel_pending_input();
 }
 
-/// Captures geometry after UI authority at the existing published picking phase.
+/// Captures the geometry published at this action's dispatch boundary.
 fn capture(world: &mut World, input: &ActionSnapshot) -> CapturedContext {
     let position = world
         .resource::<MovementTicker>()
@@ -113,7 +134,7 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> CapturedContext {
 }
 
 /// Consumes each frame's edges once; unavailable actions never become later-frame input.
-pub(crate) fn drain(world: &mut World) {
+pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     let snapshot = world
         .resource::<SemanticInputSnapshot>()
         .snapshot()
@@ -178,7 +199,8 @@ pub(crate) fn drain(world: &mut World) {
             world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
         }
     }
-    let tail = ordered.events().get(runtime.ingested..).unwrap_or_default();
+    let start = runtime.ingested;
+    let tail = ordered.events().get(start..).unwrap_or_default();
     runtime.ingested = runtime.ingested.max(ordered.events().len());
     if ordered.overflowed() {
         if new_frame {
@@ -212,8 +234,8 @@ pub(crate) fn drain(world: &mut World) {
         && selection_ready
         && !tail.is_empty()
     {
-        let context = capture(world, &snapshot);
-        for edge in tail.iter().copied() {
+        let mut context = None;
+        for (index, edge) in tail.iter().copied().enumerate() {
             if accepted_work_pending(world)
                 || !world
                     .resource::<MovementTicker>()
@@ -221,6 +243,14 @@ pub(crate) fn drain(world: &mut World) {
             {
                 break;
             }
+            if phase == DispatchPhase::BeforeMovement
+                && edge.action == Action::PickItem
+                && edge.pressed
+            {
+                runtime.ingested = start + index;
+                break;
+            }
+            let context = context.get_or_insert_with(|| capture(world, &snapshot));
             dispatch(
                 world,
                 InteractionInput {
