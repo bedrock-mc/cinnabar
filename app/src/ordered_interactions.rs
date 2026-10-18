@@ -20,9 +20,10 @@ pub(crate) struct InteractionInput {
     pub context: CapturedContext,
 }
 
-/// Input authority, pose and assistance captured together before action dispatch.
+/// Geometry, input authority and assistance captured at one dispatch boundary.
 #[derive(Clone)]
 pub(crate) struct CapturedContext {
+    pub attack: crate::melee::crosshair::CapturedInputs,
     pub mode: semantic_input::InputMode,
     pub identity: (
         semantic_input::identity::InputAuthorityGeneration,
@@ -131,7 +132,7 @@ fn cancel_pending_owners(world: &mut World) {
 }
 
 /// Captures the geometry published at this action's dispatch boundary.
-fn capture(world: &mut World, input: &ActionSnapshot) -> CapturedContext {
+fn capture(world: &mut World, input: &ActionSnapshot, phase: DispatchPhase) -> CapturedContext {
     let position = world
         .resource::<MovementTicker>()
         .interaction_authority_identity()
@@ -151,6 +152,9 @@ fn capture(world: &mut World, input: &ActionSnapshot) -> CapturedContext {
             client_interaction::camera::aim_assist::action_rotation(aim, camera)
         });
     CapturedContext {
+        attack: world
+            .run_system_cached_with(crate::melee::ordered::capture, phase)
+            .expect("ordered actor geometry"),
         mode: input.input_mode,
         identity: (input.authority_generation, input.frame_sequence),
         origin: world.resource::<InteractionOriginSnapshot>().clone(),
@@ -274,7 +278,7 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
             {
                 break;
             }
-            let context = context.get_or_insert_with(|| capture(world, &snapshot));
+            let context = context.get_or_insert_with(|| capture(world, &snapshot, phase));
             dispatch(
                 world,
                 InteractionInput {

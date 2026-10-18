@@ -4,6 +4,28 @@ use super::*;
 use bevy::prelude::In;
 use gameplay::melee::{Crosshair, ItemAttackPress};
 
+/// Captures a batch's actor geometry at its early or post-camera dispatch boundary.
+pub(crate) fn capture(
+    In(phase): In<crate::ordered_interactions::DispatchPhase>,
+    context: MeleeContext,
+    mut target: ResMut<MeleeTarget>,
+    movement: Res<MovementTicker>,
+) -> crosshair::CapturedInputs {
+    let position = movement.interaction_authority_identity().1;
+    if phase == crate::ordered_interactions::DispatchPhase::AfterMovement {
+        target.frames.capture_current(&context, position)
+    } else {
+        crosshair::capture_ordered_inputs(
+            &target.frames,
+            position,
+            context.input.snapshot().is_some_and(|input| {
+                target.prepared
+                    == Some((input.authority_generation, input.frame_sequence, position))
+            }),
+        )
+    }
+}
+
 /// Attempts this frame's press once, leaving accepted mining with its gameplay owner.
 #[allow(
     clippy::too_many_arguments,
@@ -13,7 +35,6 @@ pub(crate) fn press(
     In(input): In<crate::ordered_interactions::InteractionInput>,
     mut player: ResMut<client_state::PlayerRuntime>,
     mut context: MeleeContext,
-    target: Res<MeleeTarget>,
     mut runtime: ResMut<MeleeRuntime>,
     mut mining: ResMut<client_interaction::survival_mining::SurvivalMiningRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -24,12 +45,8 @@ pub(crate) fn press(
         return;
     };
     let position = movement.interaction_authority_identity().1;
-    let source = crosshair::capture_ordered_inputs(
-        &target.frames,
-        position,
-        target.prepared == Some((input.context.identity.0, input.context.identity.1, position)),
-    );
-    let Some((mut picked, _)) = crosshair::resolve_captured(&player, &context, &source, &input)
+    let Some((mut picked, _)) =
+        crosshair::resolve_captured(&player, &context, &input.context.attack, &input)
     else {
         return;
     };

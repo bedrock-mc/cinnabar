@@ -13,7 +13,7 @@ use client_interaction::melee::{MeleeRuntime, SwingTracker};
 use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 
-mod crosshair;
+pub(crate) mod crosshair;
 mod hover;
 pub(crate) mod ordered;
 use crosshair::resolve_crosshair;

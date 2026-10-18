@@ -36,6 +36,35 @@ struct Frame {
 }
 
 impl Frame {
+    /// Refreshes a reusable geometry buffer from one coherent published action boundary.
+    fn publish(&mut self, context: &MeleeContext, position_authority: PositionAuthorityGeneration) {
+        self.origin.clone_from(&context.origin);
+        self.action_rotation =
+            client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
+        self.position_authority = position_authority;
+        self.assisted = context.aim.target;
+        self.actors.clear();
+        self.index.clear();
+        self.boxes.clear();
+        if let Some(stream) = context.client_world.stream.as_ref() {
+            let world = stream.authority();
+            for actor in world.remote_actors() {
+                let start = self.boxes.len();
+                self.boxes.extend(world.pick_hit_boxes(actor));
+                self.actors.push(FrameActor {
+                    identity: world.actor_lifetime(actor.runtime_id).unwrap(),
+                    boxes: start..self.boxes.len(),
+                });
+            }
+        }
+        self.index.extend(
+            self.actors
+                .iter()
+                .enumerate()
+                .map(|(index, actor)| (actor.identity.runtime_id, index)),
+        );
+    }
+
     /// Borrows the actor's ordered published boxes through the index derived from this frame.
     fn hit_boxes(&self, runtime_id: u64) -> impl Iterator<Item = ([f32; 3], [f32; 3])> {
         let actor = &self.actors[self.index[&runtime_id]];
@@ -43,11 +72,12 @@ impl Frame {
     }
 }
 
-/// Two reusable input buffers keep the preceding published frame coherent.
+/// Reusable buffers keep publication history and late dispatch geometry independent.
 #[derive(Default)]
 pub(crate) struct FrameInputs {
     previous: Arc<Frame>,
     current: Arc<Frame>,
+    late: Arc<Frame>,
 }
 
 impl FrameInputs {
@@ -66,33 +96,19 @@ impl FrameInputs {
         if Arc::get_mut(&mut self.current).is_none() {
             self.current = Arc::default();
         }
-        let frame = Arc::get_mut(&mut self.current).expect("unshared publication buffer");
-        frame.origin.clone_from(&context.origin);
-        frame.action_rotation =
-            client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-        frame.position_authority = position_authority;
-        frame.assisted = context.aim.target;
-        frame.actors.clear();
-        frame.index.clear();
-        frame.boxes.clear();
-        if let Some(stream) = context.client_world.stream.as_ref() {
-            let world = stream.authority();
-            for actor in world.remote_actors() {
-                let start = frame.boxes.len();
-                frame.boxes.extend(world.pick_hit_boxes(actor));
-                frame.actors.push(FrameActor {
-                    identity: world.actor_lifetime(actor.runtime_id).unwrap(),
-                    boxes: start..frame.boxes.len(),
-                });
-            }
-        }
-        frame.index.extend(
-            frame
-                .actors
-                .iter()
-                .enumerate()
-                .map(|(index, actor)| (actor.identity.runtime_id, index)),
-        );
+        Arc::get_mut(&mut self.current)
+            .expect("unshared publication buffer")
+            .publish(context, position_authority);
+    }
+
+    /// Captures late actions without advancing the regular two-frame publication history.
+    pub(super) fn capture_current(
+        &mut self,
+        context: &MeleeContext,
+        position_authority: PositionAuthorityGeneration,
+    ) -> CapturedInputs {
+        Arc::make_mut(&mut self.late).publish(context, position_authority);
+        CapturedInputs(Arc::clone(&self.late))
     }
 
     /// A first-frame press or position reset uses the current complete input snapshot.
@@ -173,7 +189,7 @@ pub(super) fn resolve_crosshair(
 #[derive(Clone)]
 pub(crate) struct CapturedInputs(Arc<Frame>);
 
-/// An early press retains the last publication; a late press retains the preceding buffer.
+/// Captures the early dispatch boundary from the normal published-frame history.
 pub(super) fn capture_ordered_inputs(
     frames: &FrameInputs,
     position: PositionAuthorityGeneration,
