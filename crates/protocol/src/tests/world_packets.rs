@@ -870,6 +870,23 @@ fn ignores_level_events_without_normalized_world_state() {
 }
 
 #[test]
+fn column_sub_chunk_request_keeps_zero_vertical_origin() {
+    let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
+    let packets::Packet::SubChunkRequest(request) = *packet.data else {
+        panic!("expected SubChunkRequest packet")
+    };
+    assert_eq!(request.center_pos, sub_chunk_pos(12, 0, -8));
+    assert_eq!(
+        request
+            .sub_chunk_position_offset_list
+            .iter()
+            .map(|offset| offset.subchunk_offset_y.0)
+            .collect::<Vec<_>>(),
+        [-4, -3, -2]
+    );
+}
+
+#[test]
 fn builds_bounded_column_sub_chunk_requests() {
     let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
     let packets::Packet::SubChunkRequest(request) = *packet.data else {

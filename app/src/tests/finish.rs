@@ -1163,3 +1163,4 @@ fn biome_blend_marker_is_acceptance_only_render_committed_and_deduplicated() {
 
 include!("finish/camera_mapping.rs");
 include!("finish/completion.rs");
+mod sub_chunk_batching;

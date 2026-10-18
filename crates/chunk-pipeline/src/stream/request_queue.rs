@@ -432,6 +432,25 @@ mod tests {
     }
 
     #[test]
+    fn admitted_requests_keep_order_before_player_and_mesh_work() {
+        let player = ChunkKey::new(0, 0, 0);
+        let first = ChunkKey::new(0, 8, 0);
+        let mut queue = RequestQueue::default();
+        queue.push_ready(request(first, -4), false);
+        queue.push_ready(request(player, -4), true);
+        queue.prioritize_mesh_blocker(player);
+
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::from([player]))
+                .unwrap()
+                .chunk,
+            first,
+            "admitted work keeps its order across request classes"
+        );
+    }
+
+    #[test]
     fn continuous_prefetch_cannot_starve_exact_retry() {
         let player = ChunkKey::new(0, 0, 0);
         let mut queue = RequestQueue::default();
