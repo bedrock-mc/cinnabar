@@ -166,11 +166,11 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
+| Review commit | Independent review is pending. |
+| Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
+| Performance/resource witness | Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE
@@ -636,6 +636,11 @@ Unchanged callbacks preserve snapshot identity without allocations. The generic 
 renderer is connected; actor root attachment uses the renderer publication and exact spawn
 references. Bone attachment, native output captures and hardware budgets remain incomplete
 and do not close any completion requirement.
+
+Bounded procedural materials and SDK presets use a session animation phase.
+Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover
+animated presets, line joins and scaled geometry. These fixtures do not close
+in-world rendering or hardware budget requirements.
 
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained

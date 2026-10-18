@@ -139,7 +139,9 @@ impl InventorySession {
                 if let InventoryEvent::FurnaceOptions(update) = event {
                     self.set_furnace_options(update.kind, update.options);
                 }
-                self.ledger_mut().apply(event);
+                if !matches!(event, InventoryEvent::CraftingRules(_)) {
+                    self.ledger_mut().apply(event);
+                }
                 if let InventoryEvent::SelectedSlot(selected) = event
                     && selected.select_slot
                     && selected.slot < protocol::HOTBAR_SLOT_COUNT
@@ -199,6 +201,9 @@ impl InventorySession {
     /// catalog; `Unavailable` without a catalog or known grid identities.
     #[must_use]
     pub fn crafting_match(&self) -> crate::CraftGridMatch {
+        if !self.crafting_authority.manual_recipes_available() {
+            return crate::CraftGridMatch::Unavailable;
+        }
         let ledger = self.ledger();
         let (Some(catalog), Some(cells)) = (
             self.crafting_authority.catalog(),
@@ -216,7 +221,12 @@ impl InventorySession {
                     .map(super::inventory_ledger::CraftGridCell::item)
             })
             .collect();
-        crate::match_crafting_grid(catalog, ledger.crafting_grid().width(), &items)
+        crate::crafting::match_crafting_grid_where(
+            catalog,
+            ledger.crafting_grid().width(),
+            &items,
+            |recipe| self.crafting_authority.manual_recipe_allowed(recipe),
+        )
     }
 
     /// Crafts the grid's unique recipe once into the cursor.

@@ -571,8 +571,6 @@ impl WorldStream {
         // The 26 neighbours share nine columns, so each column's facts are read once; a loaded
         // column with no outstanding requests owes nothing, whatever the height.
         let mut columns = [None::<ColumnDue>; 9];
-        let mut blockers = [key; 26];
-        let mut count = 0;
         for neighbour in key.mesh_neighbourhood_dependents() {
             if neighbour == key {
                 continue;
@@ -582,18 +580,10 @@ impl WorldStream {
             let column = *columns[index as usize]
                 .get_or_insert_with(|| self.column_due(neighbour.chunk(), now));
             if !column.settled() && self.sub_chunk_is_due_in(neighbour, || column) {
-                blockers[count] = neighbour;
-                count += 1;
+                return true;
             }
         }
-        for &neighbour in &blockers[..count] {
-            if self.requests.is_expected(neighbour) {
-                self.requests
-                    .queue
-                    .prioritize_mesh_blocker(neighbour.chunk());
-            }
-        }
-        count != 0
+        false
     }
     pub(in crate::stream) fn mesh_snapshot(
         &self,

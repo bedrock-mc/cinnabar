@@ -51,6 +51,26 @@ fn test_packet() -> protocol::Packet {
     protocol::request_sub_chunk_column(0, 0, 0, -4, 1).unwrap()
 }
 
+/// Gives transport tests an immutable identity with sparse, cross-column membership.
+fn test_sub_chunk_receipt(x: i32, z: i32) -> protocol::SubChunkRequestReceipt {
+    protocol::SubChunkRequestReceipt {
+        owner: (7, 2),
+        id: x as u64,
+        dimension: 0,
+        members: vec![
+            protocol::SubChunkRequestMember {
+                position: [x, -4, z],
+                demand: 11,
+            },
+            protocol::SubChunkRequestMember {
+                position: [x + 1, -2, z],
+                demand: 12,
+            },
+        ]
+        .into(),
+    }
+}
+
 #[test]
 fn readiness_ingress_counter_excludes_transport_only_events() {
     let counter = ReadinessIngressCounter::default();
@@ -594,9 +614,7 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
             &control_events,
             &mut shutdown_rx,
             NetworkControlEvent::SubChunkRequestSent {
-                chunk: world::ChunkKey::new(0, 4, -3),
-                base_sub_chunk_y: -4,
-                count: 24,
+                receipt: test_sub_chunk_receipt(4, -3),
                 sent_at,
             },
         )
@@ -606,11 +624,8 @@ async fn saturated_world_event_channel_does_not_block_request_sent_control_event
     assert!(matches!(
         control_event_rx.try_recv(),
         Ok(NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y: -4,
-            count: 24,
-            sent_at: observed,
-        }) if chunk == world::ChunkKey::new(0, 4, -3) && observed == sent_at
+            receipt, sent_at: observed,
+        }) if receipt == test_sub_chunk_receipt(4, -3) && observed == sent_at
     ));
     assert!(matches!(
             world_event_rx.try_recv(),
@@ -691,11 +706,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
         commands
             .try_send(NetworkCommand::Send {
                 packet: test_packet(),
-                sub_chunk: Some(super::SubChunkRequestSend {
-                    chunk: world::ChunkKey::new(0, index as i32, 0),
-                    base_sub_chunk_y: -4,
-                    count: 1,
-                }),
+                sub_chunk: Some(test_sub_chunk_receipt(index as i32, 0)),
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
@@ -736,11 +747,8 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
     assert!(matches!(
         acknowledgement,
         NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y: -4,
-            count: 1,
-            ..
-        } if chunk == world::ChunkKey::new(0, 0, 0)
+            receipt, ..
+        } if receipt == test_sub_chunk_receipt(0, 0)
     ));
     assert!(commands.capacity() > 0, "the worker must consume a command");
     assert_eq!(
@@ -795,6 +803,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             death_rules: protocol::DeathRules::default(),
+            crafting_rules: Default::default(),
             packs: (),
             terrain_before_spawn: true,
             level_identity: None,

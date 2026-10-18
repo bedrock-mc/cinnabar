@@ -7,6 +7,8 @@ pub(super) const REGISTRY_DOMAIN: u8 = 1;
 pub(super) const CATALOG_DOMAIN: u8 = 1 << 1;
 pub(super) const AUTHORITY_DOMAIN: u8 = 1 << 2;
 pub(super) const UNLOCKS_DOMAIN: u8 = 1 << 3;
+/// Rule observations form an independent authority domain during queue loss.
+pub(super) const CRAFTING_RULES_DOMAIN: u8 = 1 << 4;
 /// Full loss includes every domain bit, including domains introduced later.
 pub(super) const ALL_DOMAINS: u8 = u8::MAX;
 
@@ -21,6 +23,9 @@ pub(super) fn event_domain(event: &crate::InventoryAuthorityEvent) -> u8 {
         }
         InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::RecipeUnlocks(_)) => {
             UNLOCKS_DOMAIN
+        }
+        InventoryAuthorityEvent::Inventory(protocol::InventoryEvent::CraftingRules(_)) => {
+            CRAFTING_RULES_DOMAIN
         }
         _ => 0,
     }
@@ -114,6 +119,7 @@ pub(super) enum Observation {
     Registry(Option<Arc<RegistryOwner>>),
     Recipes(protocol::RecipeUpdate),
     RecipeUnlocks(protocol::RecipeUnlockUpdate),
+    CraftingRules(protocol::CraftingRules),
     Authority(protocol::InventoryAuthority),
 }
 

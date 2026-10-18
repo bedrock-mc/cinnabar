@@ -33,6 +33,7 @@ fn catalog(count: usize) -> RecipeCatalog {
             screen: Default::default(),
             records: (0..count)
                 .map(|index| Record {
+                    identity_index: None,
                     id: index as u32 + 1,
                     recipe: Some(Recipe {
                         width: 1,
@@ -141,6 +142,7 @@ fn unsupported_advertised_records_are_not_invented_as_supported_recipes() {
             identities: Vec::new(),
             screen: Default::default(),
             records: vec![Record {
+                identity_index: None,
                 id: 123,
                 recipe: None,
             }],

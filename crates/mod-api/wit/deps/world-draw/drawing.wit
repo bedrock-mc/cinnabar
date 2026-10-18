@@ -25,11 +25,13 @@ interface drawing {
     enum join { bevel, miter, round }
     enum cap { butt, round }
     record instance {
-        geometry: handle, anchor: anchor, transform: transform,
+        geometry: handle, material: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
         tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
         width: f32, width-mode: width-mode, join: join, cap: cap,
     }
-    /// Readiness and limits are host authority; shader materials are not part of this version.
+    /// Custom procedural fragments use the render-material grant, without textures or depth output.
+    /// Successful creation means source validation succeeded; native compilation may still fail.
+    create-material: func(source: string) -> result<handle, draw-error>;
     capabilities: func() -> permissions;
     record observed-entity { entity: handle, runtime-id: u64 }
     /// Returns bounded host-selected actor references; retained references need explicit release.

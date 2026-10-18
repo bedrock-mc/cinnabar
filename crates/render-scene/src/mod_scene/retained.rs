@@ -55,6 +55,7 @@ pub struct GpuInstance {
     pub transform: [[f32; 4]; 4],
     pub tint: [f32; 4],
     pub line: [f32; 4],
+    pub params: [f32; mod_api::materials::PARAMS],
 }
 
 /// Resolves admitted world, block and camera anchors from one trusted frame and view.
@@ -116,6 +117,7 @@ pub fn resolve(
     Some(GpuInstance {
         transform: transform.to_cols_array_2d(),
         tint: instance.tint,
+        params: instance.params,
         line: [
             instance.width,
             if instance.width_mode == WidthMode::Pixels {
@@ -179,6 +181,8 @@ mod tests {
                 generation: 1,
                 slot: 1,
             },
+            material: None,
+            params: mod_api::materials::Preset::default().0,
             anchor,
             transform: Transform::default(),
             tint: [1.; 4],
@@ -295,6 +299,7 @@ mod actor_tests {
             entity: handle,
             body_rotation: false,
         }));
+        drawing.params = mod_api::materials::Preset::rainbow(2.).0;
         let mut frame = DrawingFrame {
             connection: 1,
             ..Default::default()
@@ -310,6 +315,7 @@ mod actor_tests {
         let translation = resolve(&drawing, &frame, &GlobalTransform::IDENTITY).unwrap();
         assert_eq!(translation.transform[0], [1., 0., 0., 0.]);
         assert_eq!(translation.transform[3], [5., 0., 0., 1.]);
+        assert_eq!(translation.params, drawing.params);
         drawing.anchor = Anchor::Entity(EntityAnchor {
             entity: handle,
             body_rotation: true,

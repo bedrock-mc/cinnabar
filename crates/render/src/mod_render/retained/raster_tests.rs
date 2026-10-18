@@ -38,24 +38,32 @@ fn transformed_line(
     if vertices.is_empty() {
         vertices.push(mesh::GpuVertex::default());
     }
-    let view = gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO);
-    let view = gpu.buffer(&view, wgpu::BufferUsages::UNIFORM);
+    let frame = super::gpu::CameraFrame {
+        clip: Mat4::IDENTITY.to_cols_array_2d(),
+        viewport: [SNAPSHOT_SIDE as f32, SNAPSHOT_SIDE as f32, 1., 0.],
+        animation: [0.; 4],
+    };
+    let view = gpu.buffer(bytemuck::cast_slice(&[frame]), wgpu::BufferUsages::UNIFORM);
     let storage = gpu.buffer(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let instance = GpuInstance {
         transform: transform.to_cols_array_2d(),
         tint: [1.; 4],
         line: [width, 1., join, 1.],
+        params: mod_api::materials::Preset::default().0,
     };
     let instances = gpu.buffer(
         bytemuck::cast_slice(&[instance]),
         wgpu::BufferUsages::STORAGE,
     );
-    let source = crate::shader_source::standalone(include_str!("drawing.wesl"), &[]);
+    let source = super::materials::source(
+        &mod_render::material::module(mod_render::material::BUILTIN),
+        include_str!("drawing.wgsl"),
+    );
     gpu.render(
         &source,
         "vertex",
         &[Draw {
-            fragment: "fragment",
+            fragment: "material_fragment",
             vertices: 0..vertex_count,
             bindings: &[
                 wgpu::BindGroupEntry {

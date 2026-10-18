@@ -360,6 +360,7 @@ fn death_and_hud_rules_commit_in_one_ui_envelope() {
                 weather_cycle: None,
                 hud,
                 death,
+                crafting: Default::default(),
             }),
             Some(7),
         )

@@ -72,7 +72,6 @@ impl UiRuntime {
                     .cloned()
             })
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        self.inventory_ledger_mut(player_runtime)
-            .begin_auto_craft(&recipe)
+        player_runtime.inventory.begin_book_craft(&recipe)
     }
 }
