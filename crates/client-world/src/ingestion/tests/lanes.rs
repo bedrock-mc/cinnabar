@@ -132,10 +132,8 @@ fn skin_updates_keep_wire_order_with_control_events() {
         uuid: [0; 16],
         skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
     });
-    for events in [
-        [WorldEvent::SetTime(6000), skin.clone()],
-        [skin, WorldEvent::SetTime(6000)],
-    ] {
+    let clock = WorldEvent::SetTime(protocol::SetTimeEvent { time: 6000 });
+    for events in [[clock.clone(), skin.clone()], [skin, clock]] {
         let mut state = OrderedCommitState::new(1);
         admit(&mut state, 1, events[0].clone(), false);
         admit(&mut state, 2, events[1].clone(), true);
