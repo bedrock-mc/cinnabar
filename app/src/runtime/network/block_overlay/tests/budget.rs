@@ -26,6 +26,7 @@ fn budget_rejected_runs_do_not_materialize_visuals_or_item_indices() {
             &definitions,
             hashed,
             &[("test:rejected".into(), "test:rejected".into())],
+            None,
         );
         assert!(icons.icons.is_empty());
         assert!(icons.block_sheets.is_empty());

@@ -108,6 +108,8 @@ pub const MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN: u32 = 1 << 16;
 pub const MODEL_TEMPLATE_FLAG_TORCH: u32 = 1 << 17;
 /// Templates retain all poses and both texture halves for one door class.
 pub const MODEL_TEMPLATE_FLAG_DOOR: u32 = 1 << 18;
+/// Native grass crosses use a coordinate-derived three-axis component displacement.
+pub const MODEL_TEMPLATE_FLAG_SHORT_GRASS: u32 = 1 << 19;
 /// Number of positional sprite variants in each bubble-column surface group.
 pub const BUBBLE_COLUMN_POSITION_VARIANTS: u32 = 4;
 /// Submerged and exposed bubble-column templates, in that order.
@@ -169,6 +171,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN
             | MODEL_TEMPLATE_FLAG_TORCH
             | MODEL_TEMPLATE_FLAG_DOOR
+            | MODEL_TEMPLATE_FLAG_SHORT_GRASS
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

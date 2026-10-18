@@ -14,9 +14,9 @@ import (
 	"slices"
 	"strings"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
-	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
+	"github.com/cinnabar-mc/protocolgen/generated/data/registry"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
@@ -132,7 +132,7 @@ func run(opts options) error {
 
 // projectionStates binds the default palette and any file override to the active shared catalog.
 func projectionStates(projection projectionManifest, target targetManifest, override string) ([]byte, error) {
-	if projection.Source.Module != "github.com/bedrock-mc/protocolgen/generated/data" ||
+	if projection.Source.Module != shared.ModulePath ||
 		projection.Source.SourceLockSHA256 != shared.SourceLockSHA256 ||
 		registry.SourceLockSHA256 != shared.SourceLockSHA256 ||
 		projection.Projection.States != sharedblock.StateCount() ||

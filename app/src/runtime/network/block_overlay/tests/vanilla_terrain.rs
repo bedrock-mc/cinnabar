@@ -276,7 +276,8 @@ fn block_bindings_are_specific_to_the_visual_and_carried_faces() {
         );
         let faces = overlay.vanilla_carried[0].faces;
         let sheet =
-            render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, faces).unwrap();
+            render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, faces, None)
+                .unwrap();
         assert!(
             sheet
                 .rgba8
@@ -285,7 +286,7 @@ fn block_bindings_are_specific_to_the_visual_and_carried_faces() {
                 .iter()
                 .all(|pixel| *pixel == carried)
         );
-        let icon = pack_entity_compiler::overlay_cube_icon(&overlay.overlay, faces).unwrap();
+        let icon = pack_entity_compiler::overlay_cube_icon(&overlay.overlay, faces, None).unwrap();
         assert!(
             icon.rgba8
                 .as_chunks::<4>()
@@ -389,7 +390,8 @@ fn carried_only_keys_trigger_item_preparation_for_catalog_and_raster_changes() {
             .unwrap()
             .faces;
         let sheet =
-            render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, faces).unwrap();
+            render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, faces, None)
+                .unwrap();
         assert!(
             sheet
                 .rgba8
