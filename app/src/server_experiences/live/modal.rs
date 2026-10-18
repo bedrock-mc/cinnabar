@@ -250,7 +250,7 @@ impl<H: Worker> Live<H> {
 
 /// Coalesces one bundle's transition, retaining its old state when a full queue needs retry.
 fn queue_shift<H>(instance: &mut Instance<H>, held: bool) -> bool {
-    if !instance.capabilities.may_read_input() || instance.shift == held {
+    if !instance.capabilities.may_read_input() || instance.shift == Some(held) {
         return false;
     }
     let waiting = instance
@@ -262,7 +262,7 @@ fn queue_shift<H>(instance: &mut Instance<H>, held: bool) -> bool {
     } else if instance.events.len() >= MAX_PENDING_EVENTS {
         return false;
     }
-    instance.shift = held;
+    instance.shift = Some(held);
     instance.events.push_back(Event::Shift { held });
     true
 }

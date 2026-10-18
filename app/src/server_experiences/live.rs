@@ -46,8 +46,8 @@ struct Instance<H> {
     callback: &'static str,
     /// The revision of the session's items its helper last received.
     items_sent: Option<u64>,
-    /// The Shift state already delivered or queued for the current guest.
-    shift: bool,
+    /// The delivered or queued Shift state; None means the guest needs synchronization.
+    shift: Option<bool>,
 }
 
 impl<H: Worker> Instance<H> {
@@ -202,7 +202,7 @@ impl<H: Worker> Live<H> {
                     stopped: None,
                     callback: "init",
                     items_sent: None,
-                    shift: false,
+                    shift: Some(false),
                 },
             );
         }
@@ -573,11 +573,11 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {
-        // The replacement guest starts released; queued transitions still reach it.
-        instance.shift = instance
-            .events
-            .iter()
-            .any(|event| matches!(event, Event::Shift { held: true }));
+        // A restarted guest must refresh retained UI even when Shift is released.
+        instance.shift = instance.events.iter().find_map(|event| match event {
+            Event::Shift { held } => Some(*held),
+            _ => None,
+        });
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");
