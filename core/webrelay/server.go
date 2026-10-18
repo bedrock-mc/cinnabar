@@ -3,7 +3,6 @@ package webrelay
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -32,18 +31,11 @@ func (relay *Relay) Serve(ctx context.Context, cfg ListenConfig) error {
 	if cfg.Hostname == "" || cfg.UDPAddress == "" || cfg.TCPAddress == "" {
 		return errors.New("webrelay: hostname and both listen addresses are required")
 	}
-	certificate, err := tls.LoadX509KeyPair(cfg.CertificateFile, cfg.KeyFile)
+	certificates, err := newCertificateReloader(cfg, time.Now())
 	if err != nil {
 		return err
 	}
-	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
-	if err != nil {
-		return err
-	}
-	if err = leaf.VerifyHostname(cfg.Hostname); err != nil {
-		return err
-	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certificates.getCertificate}
 	wt := relay.transportServer(tlsConfig, cfg.UDPAddress)
 	tcp := relay.socketServer(tlsConfig, cfg.TCPAddress)
 	tcpListener, err := net.Listen("tcp", cfg.TCPAddress)
@@ -64,11 +56,23 @@ func (relay *Relay) Serve(ctx context.Context, cfg ListenConfig) error {
 	go func() { errs <- relay.serveQUIC(ctx, udpListener, wt) }()
 	var result error
 	received := 0
-	select {
-	case result = <-errs:
-		received++
-	case <-ctx.Done():
-	case <-relay.ctx.Done():
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+listening:
+	for {
+		select {
+		case result = <-errs:
+			received++
+			break listening
+		case <-ctx.Done():
+			break listening
+		case <-relay.ctx.Done():
+			break listening
+		case now := <-ticker.C:
+			if err := certificates.reload(now); err != nil {
+				relay.logger.Warn("relay certificate reload failed; retaining previous certificate")
+			}
+		}
 	}
 	cancel()
 	_ = tcp.Close()

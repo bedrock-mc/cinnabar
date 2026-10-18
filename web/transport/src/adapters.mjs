@@ -10,8 +10,6 @@ export function create(origin, quic, config) {
     }
     return t;
 }
-/** Detects the secure-context transport constructor without a browser-name whitelist. */
-export function available() { return globalThis.isSecureContext && typeof WebTransport === "function"; }
 /** Makes one cancellable channel, bounding its queued bytes and message count. */
 function channel(t, limit) {
     if (t.closed) throw new Error("relay closed");
@@ -143,18 +141,3 @@ export function close(t) {
     if (t.closed) return;
     t.closed = true; for (const ch of t.channels) ch.fail(); t.connection?.close();
 }
-/** Returns the browser's live datagram ceiling; fallback has no datagram lane. */
-export function maximum(t) { return t.quic && !t.closed ? Math.min(t.connection.datagrams.maxDatagramSize, t.c.playBytes) : 0; }
-/** Lazily locks the optional datagram lane, with no application datagram queue. */
-function datagrams(t) {
-    if (!t.datagrams) {
-        const ch = t.datagrams = channel(t, maximum(t));
-        ch.reader = t.connection.datagrams.readable.getReader();
-        ch.writer = t.connection.datagrams.writable.getWriter();
-    }
-    return t.datagrams;
-}
-/** Writes one size-checked optional datagram, never gameplay frames. */
-export async function sendDatagram(t, bytes) { const max = maximum(t); if (!max || bytes.byteLength > max) throw new Error("datagram limit"); await write(datagrams(t), bytes); }
-/** Reads at most one datagram on demand. */
-export async function recvDatagram(t) { return maximum(t) ? read(datagrams(t)) : null; }
