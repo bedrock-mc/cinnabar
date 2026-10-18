@@ -126,12 +126,11 @@ fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
         if configure {
             checker.configure(&menu.mods.library.installed, checks, automatic);
         }
-        let updates = checker.updates().to_vec();
-        if let Some(id) = requested {
-            checker.install(id);
-        }
+        let updates = checker.updates();
+        let updates = (menu.mods.library.updates != updates).then(|| updates.to_vec());
+        let started = requested.is_some_and(|id| checker.install(id));
         let pending = checker.pending();
-        let message = checker.take_message();
+        let message = checker.take_message().or_else(|| started.then(String::new));
         let downloads = checker.take_downloads();
         let progress = checker.progress();
         for download in downloads {
@@ -151,28 +150,36 @@ fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
                 Err(crossbeam_channel::TryRecvError::Empty)
             )
         });
-        let snapshot = Arc::make_mut(&mut menu.mods);
-        snapshot.library.updates = updates;
-        snapshot.library.update_progress = library.progress.clone();
-        snapshot.library.update_progress.extend(progress);
+        let mut shown = library.progress.clone();
+        shown.extend(progress);
         for (id, _) in &library.installing {
-            if snapshot.library.installed.iter().any(|item| item.id == *id)
-                && !snapshot
-                    .library
-                    .update_progress
-                    .iter()
-                    .any(|progress| progress.id == *id)
+            if menu
+                .mods
+                .library
+                .installed
+                .iter()
+                .any(|item| item.id == *id)
+                && !shown.iter().any(|progress| progress.id == *id)
             {
-                snapshot
-                    .library
-                    .update_progress
-                    .push(UpdateProgress::stage(*id, UpdatePhase::Installing));
+                shown.push(UpdateProgress::stage(*id, UpdatePhase::Installing));
             }
         }
-        snapshot.library.busy = library.busy || pending.is_some() || !library.installing.is_empty();
-        if let Some(message) = message {
-            snapshot.library.message = message.clone();
-            let _ = library.commands.send(Command::Message(message));
+        let busy = library.busy || pending.is_some() || !library.installing.is_empty();
+        if updates.is_some()
+            || menu.mods.library.update_progress != shown
+            || menu.mods.library.busy != busy
+            || message.is_some()
+        {
+            let snapshot = Arc::make_mut(&mut menu.mods);
+            if let Some(updates) = updates {
+                snapshot.library.updates = updates;
+            }
+            snapshot.library.update_progress = shown;
+            snapshot.library.busy = busy;
+            if let Some(message) = message {
+                snapshot.library.message = message.clone();
+                let _ = library.commands.send(Command::Message(message));
+            }
         }
     }
 }
