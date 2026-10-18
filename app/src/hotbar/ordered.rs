@@ -59,6 +59,7 @@ pub(crate) fn step(
         Ok(()) => {
             let target = attempt.target.expect("selection target");
             player.inventory.set_local_selected_slot(target);
+            player.inventory.clear_pending_hotbar_selection(target);
             item_use.retire_reselected_use(target);
             Progress::Complete
         }
