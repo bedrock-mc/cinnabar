@@ -2,6 +2,7 @@
 
 pub mod geometry;
 pub mod masks;
+pub mod material;
 pub mod retained;
 pub mod shader;
 
@@ -165,6 +166,8 @@ pub struct Pass {
     pub name: String,
     pub order: i32,
     pub depth: bool,
+    /// Only validated owner-scoped selections, bound by declaration order.
+    pub masks: Vec<mod_api::drawing::DrawingHandle>,
     /// The guest's own source, compared to skip recompiling an unchanged registration.
     pub source: Arc<str>,
     pub shader: Arc<str>,

@@ -17,6 +17,7 @@ fn pass(name: &str, revision: u64) -> Pass {
         name: name.into(),
         order: 0,
         depth: false,
+        masks: Vec::new(),
         source: GRADE.into(),
         shader: mod_render::shader::compose(GRADE, false).unwrap().into(),
         revision,

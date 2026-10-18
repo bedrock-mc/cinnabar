@@ -25,7 +25,7 @@ use ui::UiPoint;
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
     },
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},

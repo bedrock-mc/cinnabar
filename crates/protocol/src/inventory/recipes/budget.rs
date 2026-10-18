@@ -7,6 +7,9 @@ use std::sync::{
 pub const RECIPE_OWNED_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_UPDATE_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const MAX_RECORDS: usize = 8192;
+/// Maximum bytes in one recipe string and all strings in one update.
+pub(super) const MAX_STRING_BYTES: usize = 16384;
+pub(super) const MAX_STRING_TOTAL_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(super) struct Credits {

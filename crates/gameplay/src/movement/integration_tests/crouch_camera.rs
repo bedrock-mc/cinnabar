@@ -5,6 +5,7 @@ fn crouch_camera_uses_completed_stance_ticks_without_moving_the_network_anchor()
     let mut physics = LocalPhysicsController::default();
     let network = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
     physics.reanchor_network_position(network, 0, true);
+    let feet = physics.render_feet_position().unwrap();
     let standing = physics.render_eye_position().unwrap()[1];
     let input = MovementInput {
         sneaking: true,
@@ -29,7 +30,7 @@ fn crouch_camera_uses_completed_stance_ticks_without_moving_the_network_anchor()
     assert!(first.samples[0].processed.sneaking);
     assert!(first.samples[0].input.sneak.held);
     assert!((physics.render_eye_position().unwrap()[1] - (standing - 0.0875)).abs() < 1.0e-6);
-    assert_eq!(physics.render_feet_position(), Some([0.0, 1.0, 0.0]));
+    assert_eq!(physics.render_feet_position(), Some(feet));
 
     let held = physics.advance_with_context(Duration::from_millis(50), input, context, &Floor);
     assert_eq!(held.completed_ticks, 1);
@@ -38,7 +39,7 @@ fn crouch_camera_uses_completed_stance_ticks_without_moving_the_network_anchor()
     assert_eq!(release.completed_ticks, 1);
     assert_eq!(physics.latest_sneak_sprint(), Some((false, false)));
     assert!((physics.render_eye_position().unwrap()[1] - (standing - 0.196875)).abs() < 1.0e-6);
-    assert_eq!(physics.render_feet_position(), Some([0.0, 1.0, 0.0]));
+    assert_eq!(physics.render_feet_position(), Some(feet));
 
     physics.reanchor_network_position(network, 4, true);
     assert_eq!(physics.render_eye_position().unwrap()[1], standing);

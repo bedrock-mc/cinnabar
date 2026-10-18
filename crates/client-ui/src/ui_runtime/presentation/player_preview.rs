@@ -510,11 +510,12 @@ impl PlayerPreviewPose {
         else {
             return Self::default();
         };
-        let sneaking = matches!(
-            actor.metadata.get(&0),
-            Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
-        );
-        Self::new(actor.body_yaw, actor.head_yaw, actor.pitch, sneaking)
+        Self::new(
+            actor.body_yaw,
+            actor.head_yaw,
+            actor.pitch,
+            actor.is_sneaking(),
+        )
     }
 }
 

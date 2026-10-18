@@ -103,6 +103,7 @@ pub struct SessionStatus {
     pub owns_directory: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Session facts consumed by the desktop presence driver.
 #[derive(Default, Resource)]
 pub struct PresenceObservation {
@@ -127,3 +128,7 @@ pub enum ShellFrameSet {
 /// Consumes consent input after the experience controller and before ordinary input.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExperienceInputSet;
+
+/// The emote UI consumed the sampled input before gameplay finalization.
+#[derive(Resource, Default)]
+pub struct EmoteInputConsumed(pub bool);

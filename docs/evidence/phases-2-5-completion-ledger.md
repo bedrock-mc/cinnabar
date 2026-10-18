@@ -1,5 +1,24 @@
 # Phases 2-5 Completion Ledger
 
+## Browser host composition
+
+The browser host uses verified memory carriers, the shared game frame and HUD, injected
+session I/O and canvas input. Native owner checks and a wasm artifact pass. Headless Chrome with
+Metal WebGPU boots, renders an offline world's terrain and HUD, and moves its player. WebSocket
+transfer, disconnect and rejoin pass. Audio ranges feed the existing decoder and Web Audio mixer;
+real nonzero playback, gesture activation, cached suspension/resume and single-close disposal
+pass. Initial terrain latency, interactive UI controls, audio parity and hardware budgets remain
+incomplete. This adds no completed parity or browser-release gate.
+transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
+delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
+browser-release gate.
+## Local actor presentation flags
+
+The local rig retains animation flags separately from gameplay metadata. Visual
+item use and locomotion poses no longer author correction-sync flag words.
+Rendering consumers read the separate animation state. Accepted local held-use and
+glide/swim/crawl projection, replay authority and send-phase parity remain open.
+
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last
@@ -147,11 +166,11 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
+| Review commit | Independent review is pending. |
+| Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
+| Performance/resource witness | Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE
@@ -408,6 +427,11 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Selected transaction descriptor regressions cover optional stack-ID omission while
+preserving item contents, inventory action IDs and legacy requests. The shared
+embedded movement payload uses the same conversion. Admission, dynamic actions,
+NBT rewriting and combined runtime acceptance remain incomplete.
+
 Block and actor rays share float normalization. Block traversal and clipping use
 rounded float segments; placement bounds and click coordinates stay in float
 precision. CI must verify the new rounding regressions. Block tie/union rules,
@@ -605,14 +629,24 @@ block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
 
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance transactions are implemented; renderer integration
-and actor attachment remain incomplete and do not close any completion requirement.
+Retained mod drawing has authority and lifetime contracts. Geometry admission validates
+vertices once and caches extent and quota facts for every shared instance and callback
+group. Extent checks use conservative box and sphere bounds without revisiting vertices.
+Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
+renderer is connected; actor root attachment uses the renderer publication and exact spawn
+references. Bone attachment, native output captures and hardware budgets remain incomplete
+and do not close any completion requirement.
+
+Bounded procedural materials and SDK presets use a session animation phase.
+Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover
+animated presets, line joins and scaled geometry. These fixtures do not close
+in-world rendering or hardware budget requirements.
 
 The Rust/WIT drawing SDK supplies deterministic shape builders and depth-tested
 instance defaults. Legacy compatibility paths remain in place until retained
 presets preserve their coverage and placement. TypeScript packaging, renderer
 acceptance and hardware performance gates remain incomplete.
-Retained mod drawing has authority and lifetime contracts. Retained geometry and instance
-transactions cache admission bounds and preserve unchanged snapshot identity without allocations.
-Renderer integration and actor attachment remain incomplete and do not close any completion
-requirement.
+
+Host-composed outlines and halos use admitted actor masks. Custom effects declare their
+own mask bindings. In-world ordering, resolution transitions and hardware budgets remain
+incomplete in `plan.md`; these additions close no rendering or performance gate.

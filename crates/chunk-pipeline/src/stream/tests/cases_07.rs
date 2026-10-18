@@ -48,12 +48,8 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
     let request = stream.pop_next_request().unwrap();
-    stream.record_sub_chunk_request_transport_pending(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-    );
-    assert_eq!(stream.requests.transport_pending, 1);
+    let receipt = record_request_transport(&mut stream, &request);
+    assert_eq!(stream.requests.transport.len(), 1);
 
     stream
         .submit(
@@ -70,14 +66,9 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
     assert!(!stream.tracked_columns().contains(&request.chunk));
     assert!(stream.requests.deadlines.is_empty());
 
-    stream.acknowledge_sub_chunk_request_sent(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-        Instant::now(),
-    );
+    stream.acknowledge_sub_chunk_request_sent(&receipt, Instant::now());
 
-    assert_eq!(stream.requests.transport_pending, 0);
+    assert_eq!(stream.requests.transport.len(), 0);
     assert!(stream.requests.deadlines.is_empty());
     assert!(!stream.tracked_columns().contains(&request.chunk));
     assert_eq!(stream.outstanding_sub_chunk_count(), 0);
@@ -436,7 +427,15 @@ fn required_epoch_reports_stable_only_after_stream_work_drains() {
     let drained = stream.publication_snapshot(ChunkKey::new(0, 0, 0));
     assert!(drained.required_cohort_stable);
 
-    stream.requests.transport_pending = 1;
+    stream.requests.transport.insert(
+        1,
+        SubChunkRequestReceipt {
+            owner: stream.terrain_generation(),
+            id: 1,
+            dimension: stream.current_dimension(),
+            members: Arc::from([]),
+        },
+    );
     let pending = stream.publication_snapshot(ChunkKey::new(0, 0, 0));
     assert!(!pending.required_cohort_stable);
 }

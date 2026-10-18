@@ -82,6 +82,7 @@ mod container_address_tests;
 mod furnace_options_tests;
 mod gameplay_hud_tests;
 mod inventory_open_tests;
+mod inventory_options_tests;
 mod inventory_overlay_tests;
 mod inventory_timeout_tests;
 mod localized_text_tests;

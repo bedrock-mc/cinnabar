@@ -360,3 +360,21 @@ pub fn stack_request_actions(packet: &Packet) -> Option<Vec<StackActionObservati
         });
     Some(actions.collect())
 }
+
+/// Decodes a generated unlock packet through the public world inventory normalizer.
+pub fn recipe_unlock_event(operation: u32, names: &[&str]) -> crate::InventoryEvent {
+    let packet = crate::Packet::new(packets::UnlockedRecipes {
+        packet_type: operation.into(),
+        unlocked_recipes_list: names.iter().map(|name| (*name).into()).collect(),
+    });
+    let decoded = crate::decode_batch(crate::encode(&packet).expect("unlock fixture encoding"))
+        .expect("unlock fixture decoding")
+        .pop()
+        .expect("one unlock packet");
+    let Some(crate::WorldEvent::Inventory(event)) =
+        crate::into_world_event(decoded, 0).expect("unlock fixture normalization")
+    else {
+        panic!("unlock inventory event")
+    };
+    event
+}
