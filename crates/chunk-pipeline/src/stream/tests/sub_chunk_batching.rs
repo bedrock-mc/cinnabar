@@ -170,6 +170,76 @@ fn unencodable_slots_retire_without_terrain_success_and_do_not_block_later_membe
 }
 
 #[test]
+fn unencodable_members_keep_columns_incomplete_after_surviving_replies() {
+    let mut stream = request_stream();
+    let chunk = ChunkKey::new(0, 0, 0);
+    let rejected = SubChunkKey::from_chunk(chunk, -4);
+    let accepted = SubChunkKey::from_chunk(chunk, -3);
+    stream.enqueue_request(chunk, rejected.y, 2, None);
+    let (_, batch) = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
+    assert_eq!(positions(&batch), [[accepted.x, accepted.y, accepted.z]]);
+
+    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+
+    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert!(!stream.loaded_columns.contains(&chunk));
+    assert!(!stream.authority.terrain().is_chunk_loaded(chunk));
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
+    assert!(stream.authority.terrain().is_sub_chunk_loaded(accepted));
+    assert!(!stream.known_air.contains(&rejected));
+    assert!(stream.requests.recoveries.is_empty());
+
+    stream.enqueue_request(chunk, accepted.y, 0, None);
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
+    stream.enqueue_request(chunk, accepted.y, 1, None);
+    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
+
+    stream.evict_column(chunk);
+    stream.enqueue_request(chunk, accepted.y, 1, None);
+    let (_, fresh) = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
+    assert_eq!(positions(&fresh), [[accepted.x, accepted.y, accepted.z]]);
+    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+    assert!(stream.loaded_columns.contains(&chunk));
+    assert!(stream.authority.terrain().is_chunk_loaded(chunk));
+}
+
+#[test]
+fn recovering_surviving_members_does_not_complete_unencodable_heights() {
+    let mut stream = request_stream();
+    let chunk = ChunkKey::new(0, 0, 0);
+    let rejected = SubChunkKey::from_chunk(chunk, -4);
+    let accepted = SubChunkKey::from_chunk(chunk, -3);
+    stream.enqueue_request(chunk, rejected.y, 2, None);
+    let (_, batch) = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
+    assert_eq!(positions(&batch), [[accepted.x, accepted.y, accepted.z]]);
+    stream.complete_requested_sub_chunk(accepted, false);
+    let range = stream.authority.dimension_range(chunk.dimension).unwrap();
+    stream.enqueue_exact_recovery_requests(chunk, range, &[accepted.y], None);
+    let (_, retry) = stream.prepare_sub_chunk_request([0, 124, 0], 1).unwrap();
+    assert_eq!(positions(&retry), [[accepted.x, accepted.y, accepted.z]]);
+
+    apply_sub_chunk_result(&mut stream, accepted, super::PreparedSubChunkResult::AllAir);
+
+    assert!(stream.requests.recoveries.is_empty());
+    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert!(!stream.loaded_columns.contains(&chunk));
+    assert!(!stream.authority.terrain().is_chunk_loaded(chunk));
+    assert!(!stream.authority.terrain().is_sub_chunk_loaded(rejected));
+    assert!(stream.authority.terrain().is_sub_chunk_loaded(accepted));
+
+    stream.enqueue_exact_recovery_requests(chunk, range, &[rejected.y], None);
+    let (_, recovered) = stream.prepare_sub_chunk_request([0; 3], 1).unwrap();
+    assert_eq!(
+        positions(&recovered),
+        [[rejected.x, rejected.y, rejected.z]]
+    );
+    apply_sub_chunk_result(&mut stream, rejected, super::PreparedSubChunkResult::AllAir);
+    assert!(stream.loaded_columns.contains(&chunk));
+    assert!(stream.authority.terrain().is_chunk_loaded(chunk));
+}
+
+#[test]
 fn old_receipt_cannot_arm_a_recreated_slot_or_consume_a_new_packet() {
     let mut stream = request_stream();
     let chunk = ChunkKey::new(0, 0, 0);

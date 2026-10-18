@@ -9,6 +9,8 @@ pub(super) struct SubChunkRequests {
     pub(super) queue: RequestQueue,
     pub(super) requested: BTreeMap<ChunkKey, PendingSubChunkColumn>,
     pub(super) collision_failures: BTreeSet<ChunkKey>,
+    /// Retired heights keep a column incomplete until received or replaced.
+    pub(super) unencodable: BTreeMap<ChunkKey, BTreeSet<i32>>,
     pub(super) deadlines: BTreeSet<(Instant, SubChunkKey)>,
     pub(super) correlated_attempts: ColumnRecords<SubChunkKey, CorrelatedSubChunkAttempts>,
     pub(super) admitted_replies: ColumnRecords<SubChunkKey, u8>,
@@ -24,6 +26,13 @@ pub(super) struct SubChunkRequests {
 }
 
 impl SubChunkRequests {
+    /// Clears the column failure only when no missing heights remain.
+    pub(super) fn clear_recovered_collision_failure(&mut self, chunk: ChunkKey) {
+        if !self.recoveries.contains_key(&chunk) && !self.unencodable.contains_key(&chunk) {
+            self.collision_failures.remove(&chunk);
+        }
+    }
+
     /// Allocates identities that are never reused after a column or dimension retires.
     pub(super) fn allocate_identity(&mut self) -> u64 {
         self.next_identity = self
@@ -121,6 +130,7 @@ impl SubChunkRequests {
             self.correlated_attempts.remove_column(chunk);
             self.admitted_replies.remove_column(chunk);
             self.recoveries.remove(&chunk);
+            self.unencodable.remove(&chunk);
         }
     }
     /// Reads and resets record visits made by the shared column cleanup helpers.
@@ -213,9 +223,7 @@ impl WorldStream {
         count: usize,
         sequence: Option<u64>,
     ) {
-        if !self.requests.recoveries.contains_key(&key) {
-            self.requests.collision_failures.remove(&key);
-        }
+        self.requests.clear_recovered_collision_failure(key);
         if count == 0 {
             if let Some(sequence) = sequence {
                 self.cancel_request_reservation(sequence);
@@ -284,9 +292,7 @@ impl WorldStream {
         ys: &[i32],
         sequence: Option<u64>,
     ) {
-        if !self.requests.recoveries.contains_key(&key) {
-            self.requests.collision_failures.remove(&key);
-        }
+        self.requests.clear_recovered_collision_failure(key);
         let range_end = range
             .base_sub_chunk_y
             .saturating_add(i32::try_from(range.sub_chunk_count).unwrap_or(i32::MAX));

@@ -249,6 +249,12 @@ impl WorldStream {
         if !self.requests.matches_demand(key, demand) {
             return;
         }
+        self.requests.collision_failures.insert(key.chunk());
+        self.requests
+            .unencodable
+            .entry(key.chunk())
+            .or_default()
+            .insert(key.y);
         self.requests.cancel_retry(key);
         if let Some(column) = self.requests.requested.get_mut(&key.chunk()) {
             column.remove(&key.y);

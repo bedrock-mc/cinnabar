@@ -13,13 +13,19 @@ impl WorldStream {
             self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
         }
         if collision_authoritative {
+            if let Some(unencodable) = self.requests.unencodable.get_mut(&chunk) {
+                unencodable.remove(&key.y);
+                if unencodable.is_empty() {
+                    self.requests.unencodable.remove(&chunk);
+                }
+            }
             if let Some(recoveries) = self.requests.recoveries.get_mut(&chunk) {
                 recoveries.remove(&key.y);
                 if recoveries.is_empty() {
                     self.requests.recoveries.remove(&chunk);
-                    self.requests.collision_failures.remove(&chunk);
                 }
             }
+            self.requests.clear_recovered_collision_failure(chunk);
         } else {
             self.schedule_sub_chunk_recovery(key);
         }
