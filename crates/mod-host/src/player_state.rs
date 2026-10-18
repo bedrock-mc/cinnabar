@@ -154,7 +154,16 @@ impl cinnabar::extension::player_state::Host for State {
         Ok(Ok(self.player_state.observations.ping_ms))
     }
     fn read_actors(&mut self) -> Result<Result<Vec<crate::ActorObservation>, String>> {
+        self.read_actors_limited(mod_api::MAX_OBSERVED_ACTORS as u32)
+    }
+    fn read_actors_limited(
+        &mut self,
+        limit: u32,
+    ) -> Result<Result<Vec<crate::ActorObservation>, String>> {
         self.player_state.read_budget()?;
+        if limit == 0 || limit as usize > mod_api::MAX_OBSERVED_ACTORS {
+            return Ok(Err("actor observation limit exceeds bounds".into()));
+        }
         if !self.grants.players && !self.grants.entities {
             return Ok(Err("actor observation capability denied".into()));
         }
@@ -170,6 +179,7 @@ impl cinnabar::extension::player_state::Host for State {
                     self.grants.entities
                 }
             })
+            .take(limit as usize)
             .cloned()
             .collect()))
     }

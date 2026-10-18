@@ -94,6 +94,8 @@ interface player-state {
         /// Retained native look origin and direction, not a guessed bounding-box eye height.
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
+        /// Replicated health attribute maximum; absent when the server has supplied none.
+        max-health: option<f32>,
     }
     enum combat-kind { attack-admitted, hurt, death }
     record combat-event {
@@ -109,6 +111,9 @@ interface player-state {
     read-ping: func() -> result<option<u32>, string>;
     /// At most 16 nearby actors within 128 blocks; player rows require players, other rows entities.
     read-actors: func() -> result<list<actor>, string>;
+    /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
+    /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
+    read-actors-limited: func(limit: u32) -> result<list<actor>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
@@ -315,6 +320,7 @@ interface render {
     record line { points: list<vector3>, width: f32, color: rgba, pattern: line-pattern }
     /// Appends depth-tested lines with the same authority and shared ribbon budget.
     draw-lines: func(lines: list<line>) -> result<_, string>;
+
 }
 
 /// The mod's JSON-UI templates beside the vanilla container screens. Templates are the

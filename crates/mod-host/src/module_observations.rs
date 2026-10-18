@@ -58,6 +58,7 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
                 && a.name.len() <= mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES
                 && !a.name.chars().any(char::is_control)
                 && a.health.is_none_or(|n| n.is_finite() && n >= 0.)
+                && a.max_health.is_none_or(|n| n.is_finite() && n > 0.)
                 && a.boxes.len() <= mod_api::MAX_OBSERVED_ACTOR_BOXES
                 && a.boxes.iter().all(|b| finite(b.min)
                     && finite(b.max)
@@ -112,6 +113,7 @@ mod tests {
                 sneaking: false,
                 hurt: false,
                 health: Some(20.),
+                max_health: Some(20.),
             }],
             combat: vec![CombatObservation {
                 sequence: 1,
@@ -130,6 +132,12 @@ mod tests {
     #[test]
     fn malformed_boxes_and_repeated_evidence_are_rejected() {
         let mut facts = facts();
+        assert!(validate(&facts).is_ok());
+        facts.actors[0].max_health = Some(f32::NAN);
+        assert!(validate(&facts).is_err());
+        facts.actors[0].max_health = Some(0.);
+        assert!(validate(&facts).is_err());
+        facts.actors[0].max_health = None;
         assert!(validate(&facts).is_ok());
         facts.actors[0].boxes[0].min.0 = f32::NAN;
         assert!(validate(&facts).is_err());

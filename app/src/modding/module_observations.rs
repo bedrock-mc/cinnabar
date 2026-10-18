@@ -451,6 +451,10 @@ impl ModuleObserver {
                     health: authority
                         .actor_health_by_unique(actor.unique_id)
                         .map(|(current, _)| current),
+                    max_health: authority
+                        .actor_health_by_unique(actor.unique_id)
+                        .map(|(_, maximum)| maximum)
+                        .filter(|maximum| maximum.is_finite() && *maximum > 0.),
                 }
             })
             .collect();

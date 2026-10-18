@@ -451,3 +451,26 @@ fn remote_combat_statuses_obey_actor_grants_while_local_intent_remains_player_ow
     state.grants.entities = true;
     assert_eq!(state.read_combat(0, 4).unwrap().unwrap().len(), 4);
 }
+
+/// A bounded prefix preserves authority filtering and rejects invalid read limits.
+#[test]
+fn limited_actor_reads_keep_permission_filtering_and_validate_limits() {
+    let mut state = State::new(
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    assert!(state.read_actors_limited(0).unwrap().is_err());
+    assert!(
+        state
+            .read_actors_limited(mod_api::MAX_OBSERVED_ACTORS as u32 + 1)
+            .unwrap()
+            .is_err()
+    );
+    assert!(state.read_actors_limited(1).unwrap().unwrap().is_empty());
+    state.grants.players = false;
+    assert!(state.read_actors_limited(1).unwrap().is_err());
+}
