@@ -29,7 +29,7 @@ Keep internal notes and agent reports in the private checkout. Public implementa
 
 Reproduce bugs in the smallest owning crate and include a regression test that failed before each fix. Assert behavior, not source text, schedule names, wall-clock timing, or exact layout trees. Domain code takes `now` from its caller and only edge code reads the clock; tests never sleep, but wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), which the architecture gate enforces. Tests requiring unavailable local carriers or fixtures skip with a named missing-fixture message, never `#[ignore]`.
 
-Write short, clear documentation and comments. Give helpers documentation comments that explain their contract. Avoid comments that repeat signatures and process notes such as PR numbers or phase names. Keep `plan.md`, its linked phase/topic checklists and the architecture gate's completion ledger consistent with the implementation. Update the owning status section when remaining work changes; do not append per-PR implementation diaries. Change history comes from PR titles and generated release notes linked in `CHANGELOG.md`.
+Write short, clear documentation and comments. Give helpers documentation comments that explain their contract. Avoid comments that repeat signatures and process notes such as PR numbers or phase names. Keep `plan.md` and the architecture gate's completion ledger consistent with the implementation. Update the existing plan section when remaining work changes; keep detailed behavior with its code or existing reference docs, and do not append per-PR implementation diaries. Change history comes from PR titles and generated release notes linked in `CHANGELOG.md`.
 
 ## Branches and verification
 

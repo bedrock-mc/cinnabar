@@ -31,7 +31,7 @@ remain subject to each item's placement rules.
 Cinnabar provisionally preserves the successful destination, locked direction/face,
 first intercept and repeat schedule across slot or item changes. Unconfirmed selection
 pauses attempts and retains deferred presses. Whether native selection callbacks reset
-that history or timing remains incomplete; see [the open gate](../roadmap/status-world-gameplay.md#held-block-placement).
+that history or timing remains incomplete; see [the open gate](../../plan.md#held-block-placement).
 
 The delay is measured in milliseconds rather than counted ticks. For example, a
 100 ms threshold becomes eligible on the third exactly aligned 50 ms opportunity,
