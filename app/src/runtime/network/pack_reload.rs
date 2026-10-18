@@ -21,6 +21,9 @@ use web_time::Instant;
 
 use pack_runtime::PackInputs;
 
+#[cfg(test)]
+mod publication_tests;
+
 struct Prepared {
     revision: u64,
     generation: u64,

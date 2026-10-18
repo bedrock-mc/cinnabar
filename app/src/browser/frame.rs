@@ -30,7 +30,6 @@ pub(super) fn configure(app: &mut App) {
     .init_resource::<crate::melee::MeleeTarget>()
     .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
     .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
-    .init_resource::<network::PackReload>()
     .add_message::<client_audio::audio_ingress::SequencedAudioEvent>()
     .add_observer(crate::runtime::visibility::apply_added_chunk_visibility)
     .add_observer(crate::runtime::visibility::remove_chunk_visibility)

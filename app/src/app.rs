@@ -137,7 +137,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<AcceptanceRun>();
     #[cfg(feature = "acceptance")]
     app.init_resource::<MovementEvidenceEmitter>();
-    app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);

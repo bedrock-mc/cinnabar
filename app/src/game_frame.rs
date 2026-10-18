@@ -6,8 +6,8 @@ use crate::{
     movement::{advance_local_physics, send_movement_prediction_sync},
     runtime::{
         network::{
-            advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
-            receive_network_events,
+            PackReload, advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
+            receive_network_events, reload_resource_packs,
         },
         world::drive_world_stream,
     },
@@ -87,6 +87,7 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
 
 /// Registers the existing world and player systems once for native and browser hosts.
 pub(crate) fn configure_world(app: &mut App) {
+    configure_pack_publication(app);
     configure_actor_render_systems(app);
     interaction::configure(app);
     app.add_systems(
@@ -131,5 +132,17 @@ pub(crate) fn configure_world(app: &mut App) {
             .after(receive_network_events)
             .before(ChunkRenderApplySet)
             .in_set(ClientFrameSet::WorldPublication),
+    );
+}
+
+/// Publishes accepted packs after ingress and before world, UI and render consumers.
+pub(crate) fn configure_pack_publication(app: &mut App) {
+    app.init_resource::<PackReload>().add_systems(
+        Update,
+        reload_resource_packs
+            .after(receive_network_events)
+            .before(ClientFrameSet::WorldPublication)
+            .before(ClientFrameSet::UiPublication)
+            .before(ChunkRenderApplySet),
     );
 }
