@@ -118,6 +118,11 @@ pub struct LoadedPackage {
 }
 
 impl ModHost {
+    /// The modifiers held with the events about to be dispatched (`screen.held-modifiers`).
+    pub fn set_held_modifiers(&mut self, held: KeyModifiers) {
+        self.instance.set_held_modifiers(held);
+    }
+
     /// Delivers coalesced events, retaining lifecycle notifications until they actually run.
     /// Latest edit text remains scoped to its screen; key, click and scroll edges are not replayed.
     pub fn dispatch(&mut self, events: Vec<ModEvent>) -> Result<CallbackOutcome> {
@@ -244,6 +249,7 @@ impl ModHost {
 
     /// Stops current authority immediately, preserving an existing quarantine reason.
     pub fn revoke(&mut self) {
+        self.drawing_restart = crate::DrawingRestart::None;
         self.pending_events.clear();
         self.instance.revoke();
     }
@@ -251,6 +257,7 @@ impl ModHost {
     /// Stops the guest as a trap would, removing everything it presented: the host refused
     /// what it asked to draw.
     pub fn quarantine(&mut self) {
+        self.drawing_restart = crate::DrawingRestart::None;
         self.pending_events.clear();
         self.instance.quarantine();
     }

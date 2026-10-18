@@ -233,6 +233,7 @@ impl PlayerInventoryLedger {
                 };
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -248,6 +249,7 @@ impl PlayerInventoryLedger {
                 stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -272,6 +274,7 @@ impl PlayerInventoryLedger {
                 stack.nbt_digest = Sha256::digest([]).into();
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,

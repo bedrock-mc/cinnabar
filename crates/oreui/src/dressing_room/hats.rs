@@ -1,11 +1,11 @@
-//! Compact preview tiles for removable local headwear.
+//! Compact preview tiles for removable local cosmetics.
 
 use super::{command, enabled, library};
 use crate::{
     icons::{self, Icon},
     motion::{Kind, mix, opacity},
     paint::{Bounds, Canvas},
-    theme::{self, EDGE, TEXT},
+    theme::{self, CAPTION, EDGE, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
 use launcher::{dressing_room::Action, menu::MenuView};
@@ -21,10 +21,21 @@ pub(super) fn collection(
 ) -> Result<f32, PaintError> {
     let [left, top, right, _] = b;
     let side = canvas.r(12.8).min(right - left);
+    let gap = canvas.r(1.2);
+    let control_width = side.min((right - left - gap) * 0.5);
+    let anchor = [left, top, left + control_width, top + canvas.r(4.4)];
+    super::filter::button(canvas, view, anchor)?;
+    preview.filter_anchor = Some(anchor);
+    let remove_left = anchor[2] + gap;
     widgets::button(
         canvas,
         view,
-        [left, top, left + side, top + canvas.r(4.4)],
+        [
+            remove_left,
+            top,
+            remove_left + control_width,
+            top + canvas.r(4.4),
+        ],
         if view
             .dressing_room
             .selected_cosmetics
@@ -39,10 +50,19 @@ pub(super) fn collection(
         enabled(view).then_some(command(Action::SelectCosmetic(None))),
     )?;
     let y = top + canvas.r(6.0);
-    let gap = canvas.r(1.2);
     let columns = (((right - left + gap) / (side + gap)).floor() as usize).max(1);
     let items = cosmetics::Item::all();
-    for (slot, hat) in items.iter().enumerate() {
+    let mut count: usize = 0;
+    for (slot, (index, hat)) in items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            view.dressing_room
+                .cosmetic_category
+                .includes_slot(&item.descriptor().slot)
+        })
+        .enumerate()
+    {
         let x = left + (slot % columns) as f32 * (side + gap);
         let y = y + (slot / columns) as f32 * (side + gap);
         let bounds = [x, y, x + side, y + side];
@@ -51,11 +71,23 @@ pub(super) fn collection(
             && bounds[1] < viewport[3]
             && bounds[3] > viewport[1]
         {
-            preview.visible_cosmetics.push(slot);
+            preview.visible_cosmetics.push(index);
         }
         tile(canvas, view, bounds, *hat)?;
+        count += 1;
     }
-    Ok(y + items.len().div_ceil(columns) as f32 * (side + gap))
+    if count == 0 {
+        let height = canvas.text(
+            "No cosmetics in this category.",
+            [left, y],
+            right - left,
+            CAPTION,
+            TEXT_DIMMER,
+            false,
+        )?;
+        return Ok(y + height);
+    }
+    Ok(y + count.div_ceil(columns) as f32 * (side + gap))
 }
 
 /// Uses the existing surface feedback, selection mark and focus frame around the preview.

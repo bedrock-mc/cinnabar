@@ -35,6 +35,12 @@ pub struct Draw<'a> {
 }
 
 pub struct RasterState {
+    /// Optional production actor fragment selected by the actor raster fixture.
+    pub actor_fragment: Option<&'static str>,
+    /// Optional dissolve companion, rendered with its independent coverage parameter.
+    pub actor_companion: Option<render_model::ActorMaterial>,
+    /// Optional attachment retained for a later pass to sample or probe.
+    pub depth_target: Option<wgpu::Texture>,
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
@@ -59,6 +65,9 @@ struct RasterConfiguration<'a> {
 impl Default for RasterState {
     fn default() -> Self {
         Self {
+            actor_fragment: None,
+            actor_companion: None,
+            depth_target: None,
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
@@ -97,6 +106,18 @@ fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) 
 }
 
 impl Gpu {
+    /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
+    pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
+        let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
+            .try_into()
+            .expect("256 RGBA light entries");
+        let table = render_model::LightmapUniform::new(*raw);
+        self.buffer(
+            bytemuck::cast_slice(bytemuck::bytes_of(&table)),
+            wgpu::BufferUsages::UNIFORM,
+        )
+    }
+
     /// Creates a physical device for explicitly requested snapshot fixtures.
     pub fn new() -> Option<Self> {
         Self::for_fixture("native GPU snapshot")
@@ -387,11 +408,13 @@ impl Gpu {
                 state.multisample.count,
             )
         });
-        let depth = texture(
-            wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-            state.multisample.count,
-        );
+        let depth = state.depth_target.clone().unwrap_or_else(|| {
+            texture(
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                state.multisample.count,
+            )
+        });
         let view = target.create_view(&Default::default());
         let multisampled_view = multisampled
             .as_ref()

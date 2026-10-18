@@ -4,7 +4,10 @@ use super::{
     grammar,
     model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
-    screen::{MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipes},
+    screen::{
+        BrewingRecipe, MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe,
+        ScreenRecipes,
+    },
 };
 use std::{mem::size_of, sync::Arc};
 
@@ -23,6 +26,7 @@ pub(super) fn decode_with_credits(
         let mut screen_count = 0usize;
         let mut screen_names = 0usize;
         let mut multi_count = 0usize;
+        let mut brewing_count = 0usize;
         let (clear, total) = grammar::walk(
             &mut reader,
             |_, candidate| {
@@ -42,6 +46,9 @@ pub(super) fn decode_with_credits(
                         screen_names += record.len;
                     }
                     grammar::ScreenItem::Multi { .. } => multi_count += 1,
+                    grammar::ScreenItem::Brewing(_) if brewing_count < MAX_SCREEN_RECIPES => {
+                        brewing_count += 1;
+                    }
                     _ => {}
                 }
                 Ok(())
@@ -59,6 +66,7 @@ pub(super) fn decode_with_credits(
             .and_then(|n| n.checked_add(screen_names.checked_mul(size_of::<ScreenIngredient>())?))
             .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
             .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
+            .and_then(|n| n.checked_add(brewing_count.checked_mul(size_of::<BrewingRecipe>())?))
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -79,6 +87,10 @@ pub(super) fn decode_with_credits(
         screens
             .multi
             .try_reserve_exact(multi_count)
+            .map_err(|_| Refusal::Policy)?;
+        screens
+            .brewing
+            .try_reserve_exact(brewing_count)
             .map_err(|_| Refusal::Policy)?;
         grammar::walk(
             &mut reader,
@@ -119,6 +131,11 @@ pub(super) fn decode_with_credits(
             |item| {
                 match item {
                     grammar::ScreenItem::Skipped => screens.skipped += 1,
+                    grammar::ScreenItem::Brewing(recipe) => {
+                        if screens.brewing.len() < MAX_SCREEN_RECIPES {
+                            screens.brewing.push(recipe);
+                        }
+                    }
                     grammar::ScreenItem::Multi { uuid, id } => {
                         screens.multi.push(MultiRecipe { uuid, id })
                     }

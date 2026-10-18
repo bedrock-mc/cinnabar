@@ -10,13 +10,14 @@ impl MenuRuntime {
             return view;
         }
         let auth_state = self.current_auth().into_owned();
-        let catalog_loading = matches!(
-            &auth_state,
-            AuthState::Checking
-                | AuthState::AwaitingCode { .. }
-                | AuthState::AwaitingXboxSignup { .. }
-        ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog.is_running()));
+        let catalog_loading = self.external.is_none()
+            && (matches!(
+                &auth_state,
+                AuthState::Checking
+                    | AuthState::AwaitingCode { .. }
+                    | AuthState::AwaitingXboxSignup { .. }
+            ) || (auth_state == AuthState::Authenticated
+                && (!self.catalog_started || self.catalog.is_running())));
         let auth_state = if self.presentation_accounts {
             AuthState::Authenticated
         } else {
@@ -64,7 +65,11 @@ impl MenuRuntime {
             saved_icon: None,
             profile_icon: None,
             catalog_loading,
-            catalog_message: self.catalog_message.clone(),
+            catalog_message: if self.external.is_some() {
+                Some(external::SERVICE_JOINS_UNAVAILABLE.into())
+            } else {
+                self.catalog_message.clone()
+            },
             sign_in_browser: self.sign_in_browser.state(&auth_state),
             sign_in_requested: self.sign_in_requested,
             auth_state,

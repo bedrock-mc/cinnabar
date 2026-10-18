@@ -5,7 +5,8 @@ use std::path::Path;
 
 use common::{
     client_message, current_api, edit_manifest, epoch, focused, hello_wasm, interact, p, probe_dir,
-    probe_dir_with, probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir, v0_3_dir, v0_4_dir,
+    probe_dir_with, probe_wasm, rehash, scheduled, send, tell, v0_1_dir, v0_2_dir, v0_3_dir,
+    v0_4_dir, v0_5_dir,
 };
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
@@ -450,6 +451,7 @@ fn worlds_from_0_4_on_take_a_focus() {
     assert_eq!(loaded.manifest.api, current_api());
     assert!(loaded.focus);
     assert!(load(&engine, v0_4_dir().path()).unwrap().focus);
+    assert!(load(&engine, v0_5_dir().path()).unwrap().focus);
     for dir in [v0_1_dir(), v0_2_dir(), v0_3_dir()] {
         assert!(!load(&engine, dir.path()).unwrap().focus);
     }
@@ -478,6 +480,27 @@ fn v0_4_artifact_loads_and_runs() {
     );
 }
 
+/// A 0.5 artifact runs against the frozen 0.5 world, and the runtime refuses it a scheduled
+/// update, which the 0.5 world has no export for.
+#[test]
+fn v0_5_artifact_loads_and_runs() {
+    let dir = v0_5_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.5");
+    assert!(loaded.blocks.is_empty() && loaded.items.is_empty());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.5")]
+        }
+    );
+    let Outcome::Rejected { reason } = run(&engine, &loaded, &scheduled(p(0))) else {
+        panic!("a 0.5 guest ran a scheduled update");
+    };
+    assert!(reason.contains("no on-scheduled-update"), "{reason}");
+}
+
 /// The manifest's `api` names the world that `server.wasm` must target.
 #[test]
 fn api_must_match_the_component() {
@@ -491,7 +514,9 @@ fn api_must_match_the_component() {
         with_api(v0_1_dir(), "0.2"),
         with_api(v0_2_dir(), "0.3"),
         with_api(v0_3_dir(), "0.4"),
-        with_api(v0_4_dir(), current_api()),
+        with_api(v0_4_dir(), "0.5"),
+        with_api(v0_5_dir(), current_api()),
+        with_api(probe_dir(), "0.5"),
         with_api(probe_dir(), "0.4"),
         with_api(probe_dir(), "0.3"),
         with_api(probe_dir(), "0.2"),

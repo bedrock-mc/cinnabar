@@ -7,7 +7,7 @@ branding or release filename snapshots need synchronization.
 
 ```sh
 python3 website/render.py
-node --test website/tests/app.test.cjs
+node --test website/tests/*.test.cjs
 python3 -m unittest discover -s website/tests -p 'test_*.py' -v
 ```
 
@@ -26,3 +26,9 @@ The `RestartFU/configurations` repository owns the custom domain's Caddy proxy.
 It forwards requests to the Worker over HTTPS while preserving the public domain,
 path and query string. No local Go server or SSH deployment is needed. The
 workflow's `WEBSITE_URL` selects the destination for post-deploy file checks.
+
+The line below the downloads shows unique connected, visible Cinnabar accounts
+from `GET /v1/presence/count`. The API origin comes from the shared bridge contract.
+It refreshes once per minute while the page is visible, with a five-second request
+timeout. Failed or invalid responses clear the count; background tabs stop polling.
+Deploy the API endpoint before the website to enable the count.

@@ -61,6 +61,21 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_experience_modal(modal, page);
     }
 
+    /// The player inventory slot of the client part modal's read-only inventory or hotbar rows
+    /// under window-logical `point`, which a hotbar key acts on as in a container screen; none
+    /// while one of its edit boxes takes typing.
+    pub fn experience_modal_inventory_hit(
+        &self,
+        point: [f32; 2],
+    ) -> Option<ui_screens::container_actions::InventoryCellHit> {
+        let modal = &self.screens.mod_ui;
+        if modal.experience_modal_text_focused() {
+            return None;
+        }
+        let (collection, index) = modal.experience_modal_cell_at(point)?;
+        ui_screens::containers::player_cell(collection, index)
+    }
+
     /// Follows the player mod's screens in the dynamic pages reserved to their atlas.
     pub fn set_mod_screens(&mut self, input: Option<ModScreensInput<'_>>) {
         let page = (self.textures.dynamic_start() + pages::MOD_UI_PAGE) as u16;

@@ -2,6 +2,82 @@
 
 use super::*;
 
+const CONSUMPTION_TICKS: u32 = 32;
+
+/// Installs a selected component food with an explicitly declared use duration.
+fn selected_food() -> (client_state::PlayerRuntime, WorldStream, UiRuntime) {
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let (mut stream, mut ui) = fixture(&mut player, "fixture:food");
+    let mut entry = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:apple")
+        .unwrap()
+        .clone();
+    entry.network_id = BOW;
+    entry.identifier = "fixture:food".into();
+    entry.component_based = true;
+    entry.version = ItemRegistryVersion::DataDriven;
+    entry.canonical_empty_component_data = false;
+    entry.components = Some(Arc::new(protocol::ItemComponents {
+        food: true,
+        food_can_always_eat: Some(false),
+        use_animation: Some("eat".into()),
+        use_duration_ticks: Some(CONSUMPTION_TICKS),
+        item_properties_declared: true,
+        max_stack_size: Some(64),
+        ..Default::default()
+    }));
+    assert!(stream.seed_item_registry(ItemRegistryEvent {
+        entries: vec![entry.clone()].into()
+    }));
+    let ledger = ui.inventory_ledger_mut(&mut player);
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: vec![entry].into(),
+    });
+    ledger.apply(&InventoryEvent::Authority(
+        protocol::InventoryAuthority::Server,
+    ));
+    let mut food = stack(BOW);
+    food.count = 2;
+    food.nbt_digest = Sha256::digest([]).into();
+    write_cell(ledger, protocol::PLAYER_INVENTORY_WINDOW_ID, 2, food);
+    (player, stream, ui)
+}
+
+#[test]
+fn consumption_animation_survives_pending_backing_transport() {
+    let (mut player, stream, _) = selected_food();
+    let duration = super::super::selection::consume_ticks(&player, &stream);
+    assert_eq!(duration, Some(CONSUMPTION_TICKS));
+    player
+        .inventory
+        .ledger_mut()
+        .begin_world_drop(2, Some(1))
+        .unwrap();
+    assert_eq!(player.selected_stack().unwrap().count, 1);
+    assert!(selected_air_use(&player, &stream).is_none());
+    assert_eq!(
+        super::super::selection::consume_ticks(&player, &stream),
+        duration
+    );
+}
+
+#[test]
+fn consumption_animation_classifies_the_presented_stack() {
+    let (mut player, stream, mut ui) = selected_food();
+    open_screen(&mut player, &mut ui);
+    ui.inventory_ledger_mut(&mut player).begin_click(2).unwrap();
+    assert!(player.selected_stack().is_none());
+    assert!(selected_air_use(&player, &stream).is_some());
+    assert_eq!(
+        super::super::selection::consume_ticks(&player, &stream),
+        None
+    );
+}
+
 /// Enables screen prediction without changing the world fixture's selected item.
 fn open_screen(player: &mut client_state::PlayerRuntime, ui: &mut UiRuntime) {
     player

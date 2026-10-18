@@ -141,17 +141,22 @@ fn assert_installed_creeper_samples(powered: bool) {
         if powered {
             assert!(layers.len() > 1);
         }
-        for layer in layers.iter() {
-            for pose in [&layer.previous_pose[head], &layer.pose[head]] {
-                for (actual, expected) in pose.rotation.into_iter().zip(expected) {
-                    assert!(
-                        (actual - expected).abs() < 1e-6,
-                        "swelling must preserve head motion at fraction {alpha}: {actual} != {expected}"
-                    );
-                }
-            }
+        for (index, layer) in layers.iter().enumerate() {
+            let drawn = interpolated_pitch(
+                [
+                    layer.previous_pose[head].rotation,
+                    layer.pose[head].rotation,
+                ],
+                alpha,
+            );
+            let expected = interpolated_pitch([expected; 2], alpha);
+            assert!(
+                (drawn - expected).abs() < 1e-4,
+                "layer {index} head pitch at {alpha}: {drawn}, expected {expected}"
+            );
         }
     }
+
     let mut actor = store.get(1).unwrap().clone();
     let mut animation = ActorAnimationStore::with_assets(Arc::clone(&assets));
     animation.insert(1, 0, &actor);
@@ -294,7 +299,7 @@ fn assert_installed_creeper_samples(powered: bool) {
             ActorTickContext::default()
         });
     }
-    let completed = resting.get(1).unwrap().render;
+    let completed = resting.get(1).unwrap();
     for alpha in [0.25, 0.75] {
         let mut remaining = MAX_MOLANG_OPS_PER_RENDER_FRAME;
         let layers = resting
@@ -309,17 +314,35 @@ fn assert_installed_creeper_samples(powered: bool) {
             .unwrap()
             .render;
         if powered {
-            assert!(Arc::ptr_eq(&completed[1].pose, &layers[1].pose));
+            assert!(Arc::ptr_eq(&completed.render[1].pose, &layers[1].pose));
             assert!(Arc::ptr_eq(
-                &completed[1].previous_pose,
+                &completed.render[1].previous_pose,
                 &layers[1].previous_pose
             ));
+        }
+        for layer in layers.iter().take(if powered { 2 } else { 1 }) {
+            for (pose, fallback) in [
+                (layer.previous_pose.as_ref(), completed.previous),
+                (layer.pose.as_ref(), completed.current),
+            ] {
+                let body_pose = if pose.is_empty() {
+                    &fallback[body]
+                } else {
+                    &pose[body]
+                };
+                assert_eq!(
+                    total_scale(body_pose),
+                    total_scale(&completed.rest[body]),
+                    "a steady defused creeper must retain its rest scale"
+                );
+            }
         }
         assert!(
             layers[0].pose.is_empty() && layers[0].previous_pose.is_empty(),
             "unchanged swelling must reuse tick-owned poses"
         );
     }
+
     store.apply(
         1,
         4,
@@ -364,4 +387,33 @@ fn assert_installed_creeper_samples(powered: bool) {
             );
         }
     }
+}
+
+/// Checks the pitch of the blended transformed vertices between tick endpoints.
+#[test]
+fn displayed_pitch_follows_interpolated_vertices() {
+    let radians = 30.0_f32.to_radians();
+    let half = radians * 0.5;
+    let rotations = [[0.0, 0.0, 0.0, 1.0], [half.sin(), 0.0, 0.0, half.cos()]];
+    for alpha in [0.25, 0.75] {
+        let expected = (alpha * radians.sin()).atan2(1.0 - alpha + alpha * radians.cos());
+        assert!(
+            (interpolated_pitch(rotations, alpha) - expected).abs() < 1.0e-6,
+            "displayed pitch follows the blended transformed up vector"
+        );
+    }
+}
+
+/// Measures this fixture's pure X-axis pitch after blending transformed up vectors.
+fn interpolated_pitch(rotations: [[f32; 4]; 2], alpha: f32) -> f32 {
+    let up = rotations.map(|[x, y, z, w]| {
+        assert!(
+            y.abs() < 1e-6 && z.abs() < 1e-6,
+            "fixture must rotate around X"
+        );
+        [2.0 * x * w, 1.0 - 2.0 * x * x]
+    });
+    let sine = up[0][0] + (up[1][0] - up[0][0]) * alpha;
+    let cosine = up[0][1] + (up[1][1] - up[0][1]) * alpha;
+    sine.atan2(cosine)
 }

@@ -81,6 +81,8 @@ interface recipes {
         furnace,
         blast-furnace,
         smoker,
+        /// The brewing stand: the input potion, then the reagent. Brewing has no network id (0).
+        brewing,
     }
 
     record recipe {

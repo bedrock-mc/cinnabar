@@ -5,6 +5,9 @@ use crate::Vec3;
 pub const PLAYER_WIDTH: f64 = 0.6;
 pub const PLAYER_HEIGHT: f64 = 1.8;
 
+/// Face penetrations within this distance count as contact rather than overlap.
+const FACE_CONTACT_TOLERANCE: f32 = 1.0e-6;
+
 /// Axis-aligned collision box with inclusive contact faces.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Aabb {
@@ -124,10 +127,10 @@ impl Aabb {
         for axis in 0..3 {
             let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
             let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
-            if min_penetration.abs() <= 1.0e-7 {
+            if min_penetration.abs() <= FACE_CONTACT_TOLERANCE {
                 min_penetration = 0.0;
             }
-            if max_penetration.abs() <= 1.0e-7 {
+            if max_penetration.abs() <= FACE_CONTACT_TOLERANCE {
                 max_penetration = 0.0;
             }
 
@@ -207,10 +210,10 @@ impl Aabb {
         for axis in 0..3 {
             let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
             let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
-            if min_penetration.abs() <= 1.0e-7 {
+            if min_penetration.abs() <= FACE_CONTACT_TOLERANCE {
                 min_penetration = 0.0;
             }
-            if max_penetration.abs() <= 1.0e-7 {
+            if max_penetration.abs() <= FACE_CONTACT_TOLERANCE {
                 max_penetration = 0.0;
             }
             let min_positive = min_penetration.max(0.0);
@@ -360,5 +363,32 @@ mod tests {
         assert_eq!(airborne.overlap_minimal_translation(floor), None);
         let zero_volume = Aabb::new(Vec3::ONE, Vec3::ONE);
         assert_eq!(resting.overlap_minimal_translation(zero_volume), None);
+    }
+
+    /// A sub-microblock wall overlap cannot supply a floor while the player falls beside it.
+    #[test]
+    fn near_contact_does_not_turn_wall_into_landing() {
+        let wall = Aabb::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 1.0, 1.0));
+        let falling = Aabb::new(
+            Vec3::new(0.0, 1.25, 0.0),
+            Vec3::new(f64::from(1.000_000_5_f32), 2.25, 1.0),
+        );
+        let down = Vec3::new(0.0, -0.5, 0.0);
+        assert_eq!(falling.clip_against(wall, down), down);
+    }
+
+    /// Nearly touching faces are separate for overlap recovery, while larger overlaps still resolve.
+    #[test]
+    fn near_contact_does_not_create_a_depenetration() {
+        let wall = Aabb::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 1.0, 1.0));
+        let mut moving = Aabb::new(
+            Vec3::new(0.0, 0.25, 0.0),
+            Vec3::new(f64::from(1.000_000_5_f32), 1.25, 1.0),
+        );
+        assert_eq!(moving.clip_against(wall, Vec3::ZERO), Vec3::ZERO);
+        assert_eq!(moving.overlap_minimal_translation(wall), None);
+        moving.max.x = f64::from(1.000_002_f32);
+        assert!(moving.overlap_minimal_translation(wall).is_some());
+        assert!(moving.clip_against(wall, Vec3::ZERO).x < 0.0);
     }
 }

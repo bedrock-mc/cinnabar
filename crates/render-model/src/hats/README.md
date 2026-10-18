@@ -1,20 +1,60 @@
-# Headwear
+# Cosmetic rendering and fixtures
 
-Open `bunny_ears.bbmodel` in Blockbench with `bunny_ears.png` beside it.
-Open `crown.bbmodel` with `crown.png` beside it for the rigid gold crown.
-Open `devil_horns.bbmodel` for red stepped horns attached directly to the head;
-its original palette texture is also embedded in the project.
-All projects and textures are original Cinnabar artwork under the repository license.
-After editing, run `python3 crates/render-model/src/hats/export.py` to regenerate
-`bunny_ears.geo.json`, the runtime export. Add `crown` or `devil_horns` to export the other headwear.
-Tests check the exports against their editable projects.
+The API serves production cosmetics. The client downloads, verifies, caches and
+renders them; it does not bundle the catalog artwork.
 
-Each ear is a connected, shallow extrusion of a stepped pixel silhouette.
-The ears sit directly on the head; there is no headband. Flat polygon normals
-keep the faces crisp. Upper-half rings follow a chain of joints, with shared ring positions across adjacent faces. There are no internal
-caps, gaps or separate rigid pieces at the joints. The lower half stays upright.
-Keep each joint pivot aligned with its surface ring and parents before children.
-Bake mesh transforms and group rotations into the surface before exporting.
+Editable Blockbench projects, textures, animations, export tooling and the full
+catalog belong in [cinnabar-api/art/cosmetics](https://github.com/cinnabar-mc/cinnabar-api/tree/main/art/cosmetics).
+That repository checks project/export consistency and packaged asset digests in CI.
+Adding an item with supported features must not require a client change.
 
-For bunny ears, the first four texture pixels are black, highlight, pink and light-pink swatches.
-Face UVs select these swatches in discrete pixel patches; keep the texture unfiltered.
+The geometry, textures and fixture catalog retained here are stable regression
+inputs for client behavior. They are not synchronized with the live catalog. Keep
+fixtures limited to the features under test; test emission, lighting and playback
+with focused fixtures rather than copying each new catalog item.
+
+To check the entire API catalog with the production client validator:
+
+```sh
+CINNABAR_API_CHECKOUT=/path/to/cinnabar-api cargo test -p render-model api_catalog_assets_admit_through_client_validation -- --nocapture
+```
+
+Without that checkout the test reports a named missing fixture. An explicitly
+configured checkout must exist and its catalog assets must all validate. Run this
+compatibility check when changing the asset format or qualifying a catalog release.
+
+## Emissive items
+
+`render_flags.emissive: true` (optional, default false) draws the item fullbright in the
+world. Admission derives a world raster from the texture: texels with alpha of at least 128
+keep their colour with alpha 0, which the actor's emissive-alpha material draws without world
+lighting; all other texels are discarded. Pure black is lifted to `(1, 1, 1)` so it still
+draws. Gallery thumbnails and HUD or wardrobe previews use the authored texture unchanged.
+
+## Particle emitters
+
+An animation file may add a top-level `particles` array of at most eight entries:
+
+```json
+{"bone": "nozzle_left", "offset": [0, -2.5, 0], "sprites": [0, 16], "effect": {"format_version": "1.10.0", "particle_effect": {...}}}
+```
+
+- `bone` names a bone in the item's geometry.
+- `offset` is in model pixels from that bone's pivot, on the authored geometry axes (the same
+  axes as `.geo.json` cube origins); each component is finite and within ±64. The renderer
+  mirrors X with the geometry, so the emitter sits exactly where a cube corner at
+  `pivot + offset` renders, and it turns with the bone's rest rotation and animation.
+- `effect` is a complete Bedrock particle effect object with a string
+  `particle_effect.description.identifier`. Admission replaces that identifier with
+  `cinnabar_cosmetic:<first 16 hex digits of the animation SHA-256>_<index>`, so revisions never
+  collide with each other or with pack effects. Use a looping emitter lifetime; finished
+  emitters restart while the item remains drawn. Textures resolve against the runtime particle
+  atlas, for example `textures/particle/particles`.
+- An effect whose texture is `atlas.cosmetic` draws the item's own art instead: `sprites` gives
+  the top-left texel `[u, v]` of a 16x16 region of the item texture, which must fit inside it.
+  Its UVs and flipbooks address that region with `texture_width` and `texture_height` set to 16.
+  `sprites` is required with `atlas.cosmetic` and rejected with any other texture.
+
+The emitter basis is the posed bone's axes in world space, including player scale. Any
+malformed entry rejects the whole item. Emitters run only for world-visible attachments, with at
+most 128 alive at once (sixteen players with eight each); previews never emit.
