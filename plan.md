@@ -10247,3 +10247,13 @@ screen. Only a present replacement ID updates that screen; pending replacements
 coalesce before the update. A new player or session starts a separate lifetime.
 The final report retains the active ID through transport retries. Full loading
 screen, respawn, startup and presentation timing parity remain incomplete.
+
+
+### Keep mouse boating requests independent of forward motion
+
+Mouse boating no longer derives both paddle request bits from forward motion.
+Side steering retains its existing requests. The other device modes retain
+their provisional mapping. Independent simultaneous digital paddle requests,
+input locks, mapping transitions, correction replay and full current-version
+vehicle input parity remain incomplete. This change closes only the bounded
+forward-motion flag mismatch; it is not a full vehicle parity gate.
