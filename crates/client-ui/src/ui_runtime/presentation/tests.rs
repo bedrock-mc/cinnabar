@@ -85,7 +85,7 @@ fn unchanged_frames_skip_tree_layout_and_draw_list() {
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 42)
         .unwrap();
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     let dpi = DpiScale::new(1.0).unwrap();
     let first = presentation
         .build(&player_runtime, &runtime, 100, [1280, 720], dpi)
@@ -99,13 +99,13 @@ fn unchanged_frames_skip_tree_layout_and_draw_list() {
         assert_eq!(again, first);
     }
     assert_eq!(presentation.tree_builds, builds);
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     let closed = presentation
         .build(&player_runtime, &runtime, 120, [1280, 720], dpi)
         .unwrap();
     assert_ne!(closed.vertices, first.vertices);
     assert_eq!(presentation.tree_builds, builds + 1);
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     let resized = presentation
         .build(&player_runtime, &runtime, 121, [1920, 1080], dpi)
         .unwrap();

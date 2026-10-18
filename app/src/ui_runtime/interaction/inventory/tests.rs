@@ -208,7 +208,7 @@ fn book_exit_retains_written_pages_before_closing() {
 fn hidden_inventory_close_control_does_not_take_a_mod_views_pointer() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let mut presentation = presentation(&player, &runtime);
     let at = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let window = window(at);
@@ -286,7 +286,7 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let presentation = presentation(&player, &runtime);
     let at = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let mut app = App::new();
@@ -372,7 +372,7 @@ fn batched_tap(
 fn a_batched_touch_lifted_over_close_does_not_close() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let presentation = presentation(&player, &runtime);
     let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let off_close = Vec2::new(1.0, 1.0);
