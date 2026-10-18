@@ -340,12 +340,11 @@ pub fn resolve_and_send(
 ) -> bool {
     if runtime.queue.front_pending().is_some()
         && swings.tick_is_published(press.tick)
-        && (runtime
+        && runtime
             .queue
             .front_pending()
             .and_then(|pending| pending.rejected_tick)
             != Some(press.tick)
-            || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_attack_target(crosshair, press.item_attack.is_some());
         runtime.defer(now_millis);

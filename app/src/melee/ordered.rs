@@ -3,10 +3,7 @@
 use super::*;
 use crate::ordered_interactions::{Progress, Step};
 use bevy::prelude::In;
-use gameplay::{
-    melee::{Crosshair, ItemAttackPress},
-    survival_mining::DestroyTarget,
-};
+use gameplay::melee::{Crosshair, ItemAttackPress};
 
 /// Each press shares published geometry while resolving its own target and selected item.
 #[derive(Clone)]
@@ -44,7 +41,7 @@ pub(crate) struct AttackAttempt {
     initialized: bool,
     selection: Option<client_interaction::mining::SelectionObservation>,
     press: Option<PressContext>,
-    destroy: Option<DestroyTarget>,
+    destroy: Option<crate::survival_mining::DestroyObservation>,
     fence: Option<gameplay::movement::InteractionFence>,
 }
 
@@ -117,6 +114,10 @@ pub(crate) fn step(
         attempt.initialized = true;
     }
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let caps = player.facts.game_mode_capabilities();
+    let focused =
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
+    let mining_active = gameplay::survival_mining::mining_active(caps, focused, true);
     if attempt.press.is_none() {
         if let Some(selection) = &attempt.selection {
             if !selection.current(&player, &context.ui) {
@@ -176,12 +177,12 @@ pub(crate) fn step(
                     cooldown: timing.attack_cooldown.clone(),
                 }),
         });
-        if picked.crosshair == Crosshair::Block {
+        if picked.crosshair == Crosshair::Block && mining_active {
             attempt.destroy = crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
                 &input.context.origin,
-                player.facts.game_mode_capabilities(),
+                caps,
                 input.context.mode,
                 input.context.identity,
                 movement.interaction_authority_identity().1,
@@ -196,6 +197,20 @@ pub(crate) fn step(
     {
         runtime.cancel();
         return Step::new(attempt, Progress::Complete);
+    }
+    if runtime.press_pending() {
+        if !mining_active {
+            attempt.destroy = None;
+        } else if attempt.destroy.as_ref().is_some_and(|observation| {
+            !crate::interaction_authority::world_identity_current(
+                &context.client_world,
+                &context.collisions,
+                &observation.world,
+            )
+        }) {
+            runtime.cancel();
+            return Step::new(attempt, Progress::Complete);
+        }
     }
     let authority = player
         .facts
@@ -214,7 +229,10 @@ pub(crate) fn step(
         &mut movement,
         gameplay::melee::AttackFrame {
             attack: Some((picked.crosshair, press.clone())),
-            mining_target: attempt.destroy.as_ref(),
+            mining_target: attempt
+                .destroy
+                .as_ref()
+                .map(|observation| &observation.target),
             attack_held: input.edge.buttons.held(Action::Attack),
             authority,
             now_millis: now,

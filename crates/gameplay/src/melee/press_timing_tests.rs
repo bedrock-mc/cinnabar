@@ -172,3 +172,55 @@ fn fresh_press_still_obeys_the_half_swing_guard_after_the_tick() {
     assert!(!swings.try_attack_swing(101, duration));
     assert!(swings.try_attack_swing(100 + (duration / 2) as u64 + 1, duration));
 }
+
+#[test]
+fn refused_block_press_keeps_admission_after_publication_advances() {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let press = press(100);
+    runtime.observe_input(true, false);
+    resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        Crosshair::Block,
+        &press,
+        1_000,
+        |_| Err(BatchSendError::Full),
+    );
+    assert!(runtime.press_pending());
+    swings.published_progress(102);
+    let mut attempts = 0;
+    for full in [true, false] {
+        resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            Crosshair::Block,
+            &press,
+            1_001,
+            |_| {
+                attempts += 1;
+                if full {
+                    Err(BatchSendError::Full)
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert_eq!(runtime.press_pending(), full);
+    }
+    assert_eq!(attempts, 2, "only the refused press owns this old tick");
+    assert!(matches!(
+        runtime.queue.entries.front().unwrap().work,
+        queue::Work::Block { tick: 100 }
+    ));
+    runtime = MeleeRuntime::default();
+    runtime.observe_input(true, false);
+    resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        Crosshair::Block,
+        &press,
+        1_002,
+        |_| panic!("a fresh press cannot reuse another press's published tick"),
+    );
+}
