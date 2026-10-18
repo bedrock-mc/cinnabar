@@ -6,7 +6,10 @@
 mod scene_policy;
 pub mod tooltip;
 
-use std::{borrow::Borrow, sync::Arc};
+use std::{
+    borrow::{Borrow, Cow},
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
@@ -491,6 +494,9 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
+/// Selects a label's optional default formatting color after binding and localization.
+pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
 #[derive(Clone, Copy, Default)]
@@ -504,6 +510,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
+    /// Default formatting color chosen per label after binding and localization.
+    pub text_color: Option<TextColor<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -767,7 +775,13 @@ impl Canvas<'_> {
             self.art.clocks,
             Some(&self.textures),
         );
-        let clip = self.logical(&drawn.clip);
+        let floats =
+            matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
+        let clip = if floats {
+            self.screen
+        } else {
+            self.logical(&drawn.clip)
+        };
         let dest = if let Draw::Text { options, .. } = &node.draw {
             text_paint::label_positioned(
                 [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
@@ -798,8 +812,7 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || dest[2] <= dest[0]
-            || dest[3] <= dest[1]
+            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
@@ -807,11 +820,6 @@ impl Canvas<'_> {
         let alpha = |color: [u8; 4]| {
             let a = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
-        };
-        // Tooltips ignore the hovered control's clip.
-        let clip = match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
-            _ => clip,
         };
         if let Draw::Text {
             text,
@@ -827,6 +835,21 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
+            let colored = self
+                .art
+                .text_color
+                .and_then(|color| color(node))
+                .map(|code| {
+                    let text = if *localize {
+                        text_paint::localized(text, self.translate)
+                    } else {
+                        Cow::Borrowed(text.as_str())
+                    };
+                    format!("§{code}{text}")
+                });
+            let (text, localize) = colored
+                .as_deref()
+                .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {
                 edit: feedback,
                 color: alpha(*color),
@@ -837,7 +860,7 @@ impl Canvas<'_> {
                 },
                 align: *align,
                 scale: *scale,
-                localize: *localize,
+                localize,
                 options,
             };
             return self.text(text, dest, clip, style);

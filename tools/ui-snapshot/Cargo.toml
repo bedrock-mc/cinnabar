@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["protocol/test-support", "render-model/test-support"]
+test-support = ["protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
 
 [dependencies]
 cosmetics = { path = "../../crates/cosmetics" }

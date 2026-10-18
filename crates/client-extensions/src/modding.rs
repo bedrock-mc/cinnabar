@@ -5,3 +5,5 @@ pub mod grants;
 pub mod multi;
 pub mod panel_ui;
 pub mod player_state;
+
+pub mod drawing_policy;

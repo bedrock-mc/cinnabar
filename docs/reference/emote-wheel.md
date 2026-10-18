@@ -79,7 +79,8 @@ Movement, jump, attack/use, other modal screens, loss of focus, and actor/sessio
 reset cancel local playback. F5 perspective remains user controlled.
 
 Starting or restarting a custom clip reports its owned identifier and current phase through
-the authenticated Cinnabar API. Custom identifiers stay off the Bedrock emote packet channel;
+the authenticated Cinnabar API. Custom playback does not set Bedrock's native Emoting
+input flag. Custom identifiers stay off the Bedrock emote packet channel;
 standard clients do not carry these clips. Nearby Cinnabar players receive the same render-only
 body, clothing and cape poses when both clients report each other nearby. The visibility setting
 controls publishing. Stops, world changes, actor-lifetime changes and expired API leases retire

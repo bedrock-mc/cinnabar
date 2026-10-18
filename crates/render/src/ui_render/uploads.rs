@@ -4,10 +4,11 @@ use std::{ops::Range, sync::Arc};
 
 use render_model::{FontAtlasFrame, UiRenderInput};
 
-/// Retains the last planned publication's indices; vertices are retained by the font frame.
+/// Retains committed indices and whether both arenas still match the committed publication.
 #[derive(Default)]
 pub(super) struct BufferUploads {
     indices: Arc<[u32]>,
+    valid: bool,
 }
 
 pub(super) struct UploadPlan {
@@ -16,21 +17,33 @@ pub(super) struct UploadPlan {
 }
 
 impl BufferUploads {
-    /// Plans exact byte changes of the remapped vertices `fonts` last committed and of the
-    /// previously planned indices, forcing complete uploads for newly allocated buffers.
+    /// Compares committed bytes without advancing them, rewriting fresh or invalid arenas fully.
     pub(super) fn plan(
-        &mut self,
+        &self,
         input: &UiRenderInput,
         fonts: &FontAtlasFrame,
         fresh_vertices: bool,
         fresh_indices: bool,
     ) -> UploadPlan {
-        let plan = UploadPlan {
-            vertices: changed_range(&fonts.previous_vertices, &fonts.vertices, fresh_vertices),
-            indices: changed_range(&self.indices, &input.indices, fresh_indices),
-        };
+        UploadPlan {
+            vertices: changed_range(
+                &fonts.previous_vertices,
+                &fonts.vertices,
+                fresh_vertices || !self.valid,
+            ),
+            indices: changed_range(&self.indices, &input.indices, fresh_indices || !self.valid),
+        }
+    }
+
+    /// Advances the comparison baseline only after both geometry uploads succeed.
+    pub(super) fn commit(&mut self, input: &UiRenderInput) {
         self.indices = Arc::clone(&input.indices);
-        plan
+        self.valid = true;
+    }
+
+    /// Forces both arenas to be restored after a partial replacement or staging failure.
+    pub(super) fn invalidate(&mut self) {
+        self.valid = false;
     }
 }
 

@@ -434,6 +434,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
     bevy::log::info!("{}", icon_assets.startup_summary());
+    crate::runtime::network::set_vanilla_item_sprites(&entity_runtime, icon_assets.runtime());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(

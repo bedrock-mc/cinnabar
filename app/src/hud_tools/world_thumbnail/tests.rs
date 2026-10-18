@@ -20,7 +20,7 @@ fn due_captures_wait_for_in_game_overlays_to_close() {
             .due_world(Duration::ZERO, Some("world"), true)
             .is_none()
     );
-    ui.toggle_inventory(&mut player);
+    ui.toggle_inventory(&mut player, None);
     assert!(ui.inventory_open());
     assert!(
         state

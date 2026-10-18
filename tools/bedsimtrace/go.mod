@@ -1,4 +1,4 @@
-module github.com/bedrock-mc/cinnabar/tools/bedsimtrace
+module github.com/cinnabar-mc/cinnabar/tools/bedsimtrace
 
 go 1.26.1
 

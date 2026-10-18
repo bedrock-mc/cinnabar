@@ -30,10 +30,14 @@ fn visibility_waits_for_new_pipeline_variants_when_msaa_changes() {
         Msaa::Off,
         camera_transform(),
     );
-    app.sub_app_mut(RenderApp)
-        .world_mut()
-        .resource_mut::<DirectOcclusion>()
-        .same_frame = true;
+    {
+        let mut occlusion = app
+            .sub_app_mut(RenderApp)
+            .world_mut()
+            .resource_mut::<DirectOcclusion>();
+        occlusion.same_frame = true;
+        occlusion.adaptive = false;
+    }
     insert_meshes(&mut app, &KEYS);
     for _ in 0..8 {
         frame(&mut app);
@@ -124,4 +128,119 @@ fn metal_visibility_bindings_allocate_nothing_on_unchanged_frames() {
     let before = test_alloc::thread_allocations();
     masks.prepare(device, &page, Some(&bits), &mut bindings);
     assert_eq!(test_alloc::thread_allocations() - before, 0);
+}
+
+#[test]
+fn adaptive_visibility_requests_fresh_depth_and_resets_masks_on_fallback() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    {
+        let mut occlusion = world.resource_mut::<DirectOcclusion>();
+        occlusion.adaptive = true;
+        occlusion.same_frame = false;
+        occlusion.stats.candidates = 128;
+        occlusion.frame = 2;
+        occlusion.admission.observe(1, 128, 100);
+    }
+    use bevy::ecs::system::RunSystemOnce;
+    world.run_system_once(select_visibility).unwrap();
+    assert!(world.resource::<DirectOcclusion>().same_frame());
+    {
+        let mut occlusion = world.resource_mut::<DirectOcclusion>();
+        occlusion.admission.observe(2, 128, 0);
+        occlusion.frame = 3;
+    }
+    world.run_system_once(select_visibility).unwrap();
+    let occlusion = world.resource::<DirectOcclusion>();
+    assert!(!occlusion.same_frame());
+    assert!(
+        occlusion.reset_masks,
+        "a direct draw must not reuse a previous GPU mask"
+    );
+    world.run_system_once(select_visibility).unwrap();
+    assert!(!world.resource::<DirectOcclusion>().reset_masks);
+}
+
+#[test]
+fn adaptive_visibility_keeps_a_settled_still_view_on_the_cheaper_readback_path() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Off,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    {
+        let mut occlusion = world.resource_mut::<DirectOcclusion>();
+        let tag = VerdictTag {
+            frame: occlusion.frame,
+            basis: occlusion.last_view.unwrap().1,
+            slots: occlusion.table.slot_count(),
+        };
+        for _ in 0..super::super::occlusion::REQUIRED_OCCLUDED_READBACKS {
+            occlusion.history.apply(&tag, &[0]);
+        }
+        assert!(occlusion.history.settled(&tag.basis));
+        occlusion.same_frame = true;
+        occlusion.adaptive = true;
+        occlusion.stats.candidates = 128;
+        occlusion.admission.observe(tag.frame, 128, 100);
+    }
+    use bevy::ecs::system::RunSystemOnce;
+    world.run_system_once(select_visibility).unwrap();
+    let occlusion = world.resource::<DirectOcclusion>();
+    assert!(!occlusion.same_frame());
+    assert!(occlusion.reset_masks);
+}
+
+#[test]
+fn adaptive_visibility_uses_restored_msaa_for_settled_views() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    {
+        let mut occlusion = app
+            .sub_app_mut(RenderApp)
+            .world_mut()
+            .resource_mut::<DirectOcclusion>();
+        let tag = VerdictTag {
+            frame: occlusion.frame,
+            basis: occlusion.last_view.unwrap().1,
+            slots: occlusion.table.slot_count(),
+        };
+        for _ in 0..super::super::occlusion::REQUIRED_OCCLUDED_READBACKS {
+            occlusion.history.apply(&tag, &[0]);
+        }
+        assert!(occlusion.history.settled(&tag.basis));
+        occlusion.same_frame = true;
+        occlusion.adaptive = true;
+        occlusion.admission.observe(tag.frame, 128, 100);
+    }
+    for _ in 0..4 {
+        app.sub_app_mut(RenderApp)
+            .world_mut()
+            .resource_mut::<DirectOcclusion>()
+            .stats
+            .candidates = 128;
+        frame(&mut app);
+        let occlusion = app.sub_app(RenderApp).world().resource::<DirectOcclusion>();
+        assert!(occlusion.history.settled(&occlusion.last_view.unwrap().1));
+        assert!(
+            !occlusion.same_frame(),
+            "a temporary sample override must not request fresh occlusion for a settled view"
+        );
+    }
 }

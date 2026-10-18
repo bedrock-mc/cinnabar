@@ -5,8 +5,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::session_wire::{ConnectRequest, CoreMessage, HandoffPackReceiver, SessionHandoff};
-use bridge::{BridgeError, FramedReader};
+use bridge::{BridgeError, FrameQueue, FrameRead};
 use futures::StreamExt;
+use std::future::Future;
 
 use super::client_data::{ClientRandomId, LoginSettings};
 use super::{LoginSequence, PlaySession};
@@ -19,81 +20,112 @@ use crate::{
     ResourcePackHandoff, ServerTransferEvent,
 };
 
+/// Prepared ordered play I/O and the host's timer registration function.
+pub struct SessionIo<R> {
+    pub reader: R,
+    pub frames: FrameQueue,
+    pub timers: bridge::tasks::Timers,
+}
+
+/// Login choices shared by native endpoints and relay play streams.
+pub struct SessionLogin<'a> {
+    pub display_name: &'a str,
+    pub client_random_id: ClientRandomId,
+    pub cache: Option<ClientBlobCache>,
+    pub skin: Option<ClientSkin>,
+    pub settings: &'a LoginSettings,
+    pub tap: Option<Arc<dyn PacketTap>>,
+    pub target: Option<bridge::ConnectTarget>,
+}
+
+/// Schedules the two startup jobs while login continues reading the ordered play stream.
+/// Native hosts offload blocking work; a local host owns yielding and cancellation.
+pub trait JoinPreparation {
+    type Task<T: Send + 'static>: Future<Output = T>;
+
+    /// Submits one finite startup job without running it inside the receive loop.
+    fn submit<T: Send + 'static>(&self, work: impl FnOnce() -> T + Send + 'static)
+    -> Self::Task<T>;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::NativeJoinPreparation;
+
 impl LoginSequence {
-    /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
-    /// open local world, using the caller's persisted login ID, and returns `prepare`'s result for
-    /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
-    /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
-    /// `finish_loading` after presenting the world. `tap` sees every session packet from the
-    /// first handed-off startup packet on, in both directions.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "each argument is an independent caller choice for one join"
-    )]
-    pub async fn connect_session<R: Send + 'static>(
-        socket_dir: &Path,
-        display_name: &str,
-        client_random_id: ClientRandomId,
-        cache: Option<ClientBlobCache>,
-        skin: Option<ClientSkin>,
-        settings: &LoginSettings,
-        tap: Option<Arc<dyn PacketTap>>,
-        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> R + Send + 'static,
-    ) -> Result<(PlaySession, R), ProtocolError> {
-        let (mut reader, frames) = bridge::connect_session(socket_dir)
-            .await
-            .map_err(ProtocolError::Bridge)?;
-        let request = ConnectRequest {
-            protocol: PROTOCOL_VERSION,
-            target: None,
-            client_cache: cache.is_some(),
-            client_data: super::client_data::login_client_data(
-                display_name,
-                client_random_id,
-                skin.as_ref(),
-                settings,
-            ),
-        };
-        frames
-            .send(crate::session_wire::encode_connect(&request).map_err(bridge_error)?)
-            .await
-            .map_err(bridge_error)?;
-        let (handoff, archives) =
-            receive_handoff(&mut reader, settings.resource_pack_cache_dir.as_deref()).await?;
+    /// Joins over prepared play I/O using the existing handoff and spawn sequence. Dropping
+    /// this future ends this join; the host must also cancel its writer and startup jobs.
+    pub async fn connect_prepared<R: FrameRead, P: Send + 'static>(
+        mut io: SessionIo<R>,
+        login: SessionLogin<'_>,
+        preparation: &impl JoinPreparation,
+        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
+    ) -> Result<(PlaySession<R>, P), ProtocolError> {
+        send_connect(&io.frames, &login).await?;
+        let (handoff, archives) = receive_handoff(
+            &mut io.reader,
+            login.settings.resource_pack_cache_dir.as_deref(),
+            preparation,
+        )
+        .await?;
+        Self::continue_handoff(io, login, preparation, prepare, handoff, archives).await
+    }
+
+    /// Runs the shared spawn and preparation sequence after the transport verifies its packs.
+    pub(super) async fn continue_handoff<R: FrameRead, P: Send + 'static>(
+        io: SessionIo<R>,
+        login: SessionLogin<'_>,
+        preparation: &impl JoinPreparation,
+        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
+        handoff: SessionHandoff,
+        archives: Vec<Vec<u8>>,
+    ) -> Result<(PlaySession<R>, P), ProtocolError> {
+        let SessionIo {
+            reader,
+            frames,
+            timers,
+        } = io;
+        let SessionLogin {
+            cache,
+            settings,
+            tap,
+            ..
+        } = login;
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
         reader.set_trace_conn(handoff.trace_conn);
-        let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
-        let mut preparation = None;
-        let spawned =
-            match super::startup::await_spawn(&mut transport, |start_game, item_registry| {
-                preparation = Some(tokio::task::spawn_blocking(move || {
+        let mut transport =
+            SessionTransport::with_timers(reader, frames, &handoff.startup, timers).with_tap(tap);
+        let mut prepared_job = None;
+        let spawned = match super::startup::await_spawn(
+            &mut transport,
+            settings.view_distance_chunks,
+            |start_game, item_registry| {
+                prepared_job = Some(preparation.submit(move || {
                     prepare(packs, GameData::from_wire(&start_game, &item_registry))
                 }));
-            })
-            .await
-            {
-                Ok(spawned) => spawned,
-                Err(error) => {
-                    if let ProtocolError::Session(session) = &error
-                        && session.0.is_packet_failure()
-                    {
-                        transport.reject_current(PacketOutcome::Failed);
-                    }
-                    return Err(error);
+            },
+        )
+        .await
+        {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                if let ProtocolError::Session(session) = &error
+                    && session.0.is_packet_failure()
+                {
+                    transport.reject_current(PacketOutcome::Failed);
                 }
-            };
-        let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
+                return Err(error);
+            }
+        };
+        let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");
+        tokio::pin!(preparation);
         // Keep reading while the packs prepare, so the server's backlog never stalls the core.
         let prepared = tokio::select! {
             prepared = &mut preparation => prepared,
             () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => preparation.await,
-        };
-        let prepared = match prepared {
-            Ok(prepared) => prepared,
-            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-            Err(_) => return Err(unexpected("startup facts reader failed")),
         };
         let session = PlaySession::new(
             transport,
@@ -105,22 +137,45 @@ impl LoginSequence {
     }
 }
 
+/// Sends the same login request through native or injected web play I/O.
+pub(super) async fn send_connect(
+    frames: &FrameQueue,
+    login: &SessionLogin<'_>,
+) -> Result<(), ProtocolError> {
+    let request = ConnectRequest {
+        protocol: PROTOCOL_VERSION,
+        target: login.target.clone(),
+        client_cache: login.cache.is_some(),
+        client_data: super::client_data::login_client_data(
+            login.display_name,
+            login.client_random_id,
+            login.skin.as_ref(),
+            login.settings,
+        ),
+    };
+    frames
+        .send(crate::session_wire::encode_connect(&request).map_err(bridge_error)?)
+        .await
+        .map_err(bridge_error)
+}
+
 /// Reads the handoff and every archive it announces; a terminal message ends the join instead.
-async fn receive_handoff(
-    reader: &mut FramedReader,
+async fn receive_handoff<R: FrameRead>(
+    reader: &mut R,
     cache_root: Option<&Path>,
+    preparation: &impl JoinPreparation,
 ) -> Result<(SessionHandoff, Vec<Vec<u8>>), ProtocolError> {
     let handoff = match next_message(reader).await? {
         CoreMessage::Handoff(handoff) => handoff,
         message => return Err(join_ended(message)),
     };
     let cache_root = cache_root.map(Path::to_path_buf);
-    let (handoff, receiver) = tokio::task::spawn_blocking(move || {
-        let receiver = HandoffPackReceiver::new(&handoff, cache_root.as_deref());
-        (handoff, receiver)
-    })
-    .await
-    .map_err(|_| unexpected("cache archive reader failed"))?;
+    let (handoff, receiver) = preparation
+        .submit(move || {
+            let receiver = HandoffPackReceiver::new(&handoff, cache_root.as_deref());
+            (handoff, receiver)
+        })
+        .await;
     let mut receiver = receiver.map_err(bridge_error)?;
     while !receiver.is_complete() {
         match next_message(reader).await? {
@@ -134,7 +189,11 @@ async fn receive_handoff(
     Ok((handoff, archives))
 }
 
-async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, ProtocolError> {
+/// Decodes the next bridge frame without choosing a transport implementation.
+pub(super) async fn next_message<S>(reader: &mut S) -> Result<CoreMessage, ProtocolError>
+where
+    S: futures::Stream<Item = Result<bytes::Bytes, BridgeError>> + Unpin,
+{
     match reader.next().await {
         Some(Ok(frame)) => crate::session_wire::decode_core_message(frame).map_err(bridge_error),
         Some(Err(error)) => Err(bridge_error(error)),
@@ -143,7 +202,7 @@ async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, Protocol
 }
 
 /// The error a message other than the next setup step ends the join with, as a login ended before.
-fn join_ended(message: CoreMessage) -> ProtocolError {
+pub(super) fn join_ended(message: CoreMessage) -> ProtocolError {
     match message {
         CoreMessage::Disconnect(disconnect) => join_disconnect(
             "login",
@@ -172,7 +231,8 @@ fn unexpected(reason: &'static str) -> ProtocolError {
     bridge_error(BridgeError::InvalidSessionMessage { reason })
 }
 
-fn bridge_error(error: BridgeError) -> ProtocolError {
+/// Preserves bridge failures as the protocol owner's public error.
+pub(super) fn bridge_error(error: BridgeError) -> ProtocolError {
     ProtocolError::Bridge(error.into())
 }
 

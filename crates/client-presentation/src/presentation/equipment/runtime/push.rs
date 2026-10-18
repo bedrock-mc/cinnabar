@@ -306,9 +306,34 @@ impl EquipmentRuntime {
             .map_or(binding.geometry.identifier.as_ref(), |selected| {
                 selected.geometry.as_ref()
             });
-        let geometry = self
-            .armor_geometry_for(geometry_identifier, from_pack)
+        let direct = self.armor_geometry_for(geometry_identifier, from_pack);
+        let external = if direct.is_none()
+            && binding.geometry.resolution == EntityDependencyResolution::External
+        {
+            if let Some(animation) = animation {
+                match self.external_armor_model(
+                    geometry_identifier,
+                    (item, equipment, animation, slot),
+                    body,
+                    bones,
+                ) {
+                    Ok(None) => return,
+                    Ok(model) => model,
+                    Err(()) => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let geometry = direct
             .map(|geometry| (geometry_identifier, geometry))
+            .or_else(|| {
+                external
+                    .as_ref()
+                    .map(|model| (model.identifier.as_ref(), Arc::clone(&model.geometry)))
+            })
             .or_else(|| {
                 if from_pack
                     || selected.is_some()
@@ -328,6 +353,27 @@ impl EquipmentRuntime {
                     })
             });
         let Some((geometry_identifier, geometry)) = geometry else {
+            // An external family may have no model for this owner. Keep its admitted startup draw.
+            if from_pack
+                && let Some(index) = source.startup
+                && let Some(catalog) = self.catalog.as_ref().map(Arc::clone)
+            {
+                self.push_armor(
+                    body,
+                    bones,
+                    body_geometry,
+                    (slot, layer),
+                    item,
+                    pack::BindingSource {
+                        catalog,
+                        from_pack: false,
+                        index,
+                        startup: Some(index),
+                    },
+                    (equipment, animation, profile),
+                    layers,
+                );
+            }
             return;
         };
         if selected.is_some()
@@ -363,7 +409,10 @@ impl EquipmentRuntime {
             remap_pose(&map, &body.input.previous_bones),
             remap_pose(&map, &body.input.current_bones),
         );
-        if let Some(selected) = &selected {
+        if let Some(selected) = selected
+            .as_ref()
+            .or_else(|| external.as_ref().and_then(|model| model.render.as_ref()))
+        {
             for poses in [&mut previous, &mut current] {
                 for (index, pose) in poses.iter_mut().enumerate() {
                     if selected.layer.hidden_bones.contains(&(index as u32)) {
@@ -409,7 +458,7 @@ impl EquipmentRuntime {
 
     /// Returns selected worn artwork and shading; the binding supplies missing state.
     #[allow(clippy::too_many_arguments)]
-    fn worn_render(
+    pub(super) fn worn_render(
         &mut self,
         item: &WornItem,
         slot: ArmorSlot,
