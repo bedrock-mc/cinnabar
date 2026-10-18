@@ -1,6 +1,8 @@
 use crate::button_events::{button_edges, discard_button_edges};
 use crate::identity::{InputAuthorityGeneration, InputSequence};
 
+mod ordered;
+
 use crate::{
     Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings,
     ControllerFrame, DeviceFrame, FrameError, InputChord, InputContext, InputMode,
@@ -200,6 +202,15 @@ impl SemanticInputRouter {
             .pending
             .take()
             .ok_or(RouterError::MissingPendingFrame)?;
+        if frame
+            .desktop_events
+            .as_ref()
+            .is_some_and(crate::DesktopEvents::overflowed)
+        {
+            self.queue_held_releases(ReleaseReason::InputOverflow);
+            self.pending_release_barrier = true;
+            quarantine_active_controls(&frame, &mut self.quarantined_controls, &self.settings);
+        }
 
         if !frame.disconnected_controllers.is_empty() && self.input_mode == InputMode::GamePad {
             self.queue_held_releases(ReleaseReason::ControllerDisconnected);
@@ -225,11 +236,12 @@ impl SemanticInputRouter {
             &self.settings,
         );
         let (input_mode, activity_sequence) = self.selected_input_mode(&filtered);
-        let sample = if self.pending_release_barrier {
+        let mut sample = if self.pending_release_barrier {
             Sample::default()
         } else {
             self.sample(&filtered, input_mode)
         };
+        let ordered = self.finalize_desktop_events(&frame, input_mode, &mut sample);
         let mut phases = [ActionPhase::default(); Action::COUNT];
         let mut release_reasons = [None; Action::COUNT];
 
@@ -292,6 +304,7 @@ impl SemanticInputRouter {
         }
 
         Ok(ActionSnapshot {
+            ordered,
             frame_sequence: self.frame_sequence,
             authority_generation: self.authority_generation,
             movement: sample.movement,
@@ -475,11 +488,21 @@ impl SemanticInputRouter {
     }
 
     fn sample(&self, frame: &DeviceFrame, input_mode: InputMode) -> Sample {
+        self.sample_against(frame, input_mode, &self.previous_frame)
+    }
+
+    /// Resolves bindings against an explicit preceding state, including within a frame.
+    fn sample_against(
+        &self,
+        frame: &DeviceFrame,
+        input_mode: InputMode,
+        previous: &DeviceFrame,
+    ) -> Sample {
         let controller_axes =
             evaluate_controller_state(frame.controllers.iter(), &self.settings).axes;
         let touch_movement = merged_touch_movement(frame);
         let previous_controller_axes =
-            evaluate_controller_state(self.previous_frame.controllers.iter(), &self.settings).axes;
+            evaluate_controller_state(previous.controllers.iter(), &self.settings).axes;
         let mut strengths = [0.0_f32; Action::COUNT];
         let mut axis_strengths = [0.0_f32; Action::COUNT];
         let mut pressed = [false; Action::COUNT];
@@ -508,7 +531,7 @@ impl SemanticInputRouter {
             }
             let previous_strength = physical_strength(
                 binding.chord,
-                &self.previous_frame,
+                previous,
                 previous_controller_axes,
                 &self.touch_layout,
             );

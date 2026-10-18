@@ -120,7 +120,7 @@ bindings! {
         None, false, None;
     Drop => "key.drop", None, Some(DeviceRow::Extra(3, Some(PhysicalControl::KeyboardUsage(0x14)))), Some(DeviceRow::Extra(2, Some(PhysicalControl::GamepadButton(12)))),
         None, false, None;
-    PickItem => "key.pickItem", None, Some(DeviceRow::Extra(4, Some(PhysicalControl::MouseButton(3)))), Some(DeviceRow::Extra(3, None)),
+    PickItem => "key.pickItem", Some(Action::PickItem), Some(DeviceRow::Extra(4, Some(PhysicalControl::MouseButton(3)))), Some(DeviceRow::Extra(3, None)),
         None, false, None;
     Screenshot => "key.screenshot", None, Some(DeviceRow::Extra(5, Some(PhysicalControl::KeyboardUsage(0x3b)))), None,
         None, false, None;

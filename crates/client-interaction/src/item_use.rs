@@ -27,6 +27,18 @@ impl std::ops::DerefMut for ItemUseRuntime {
 }
 
 impl ItemUseRuntime {
+    /// Lends one attempt's input only to its admission call; maintenance keeps accepted state.
+    pub fn with_pending_input<R>(
+        &mut self,
+        input: &mut gameplay::item_use::PendingUseInput,
+        run: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.swap_pending_input(input);
+        let result = run(self);
+        self.swap_pending_input(input);
+        result
+    }
+
     /// Exposes accepted-use state to the existing presentation adapters.
     pub fn is_using(&self) -> bool {
         self.0.is_using()

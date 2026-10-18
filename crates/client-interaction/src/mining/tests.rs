@@ -81,3 +81,12 @@ fn sent_world_drop_remainders_remain_available_to_gameplay_selections() {
         assert_eq!(selection.item.stack_network_id(), legacy_id);
     }
 }
+
+#[test]
+fn hand_and_verified_use_keep_their_eligibility_distinct() {
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
+    player.inventory.set_local_selected_slot(0);
+    let ui = client_ui::ui_runtime::UiRuntime::new(7);
+    assert!(super::hand_interaction_selection(&player).is_some());
+    assert!(crate::block_use::verified_use_selection(&player, &ui).is_none());
+}

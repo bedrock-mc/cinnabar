@@ -63,11 +63,7 @@ impl PaletteWorld<'_> {
             }
             SelectionContext::MovingBlock => {
                 let Some((shape, piston, expanding)) = self.moving_visual(position) else {
-                    if self
-                        .store
-                        .block_entity(actor_key(self.dimension, position))
-                        .is_some()
-                    {
+                    if self.selection_actor(position).is_some() {
                         let _ = self.unsupported_actor_selections.try_update(
                             std::sync::atomic::Ordering::Relaxed,
                             std::sync::atomic::Ordering::Relaxed,
@@ -102,11 +98,21 @@ impl PaletteWorld<'_> {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Reads selection metadata through the same column observation as palette cells.
+    fn selection_actor(&self, position: [i32; 3]) -> Option<std::sync::Arc<world::BlockEntityNbt>> {
+        self.record_cell_read(world::SubChunkKey::new(
+            self.dimension,
+            position[0] >> 4,
+            position[1] >> 4,
+            position[2] >> 4,
+        ))
+        .ok()?;
+        self.store.block_entity(actor_key(self.dimension, position))
+    }
+
     /// Resolves usable carried geometry before any piston-column dependency is required.
     fn moving_visual(&self, position: [i32; 3]) -> Option<(Aabb, [i32; 3], bool)> {
-        let actor = self
-            .store
-            .block_entity(actor_key(self.dimension, position))?;
+        let actor = self.selection_actor(position)?;
         let ShapeActor::Moving {
             state_identity,
             piston,
@@ -122,9 +128,7 @@ impl PaletteWorld<'_> {
 
     /// Reads a finite piston progress value already validated during NBT ingestion.
     fn piston_progress(&self, position: [i32; 3]) -> Option<f32> {
-        let actor = self
-            .store
-            .block_entity(actor_key(self.dimension, position))?;
+        let actor = self.selection_actor(position)?;
         match actor.shape_actor() {
             ShapeActor::Piston { progress_bits } => Some(f32::from_bits(*progress_bits)),
             _ => None,

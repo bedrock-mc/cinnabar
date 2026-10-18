@@ -35,7 +35,9 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 
 mod admission;
 mod queue;
-pub use admission::{AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame};
+pub use admission::{
+    AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame, admit_attack_press,
+};
 
 mod swing;
 pub use swing::SwingTracker;
@@ -89,6 +91,14 @@ pub struct MeleeRuntime {
 }
 
 impl MeleeRuntime {
+    /// Whether a press or mining carrier still waits to enter the outbound FIFO.
+    pub fn has_queued_work(&self, movement: &crate::movement::MovementTicker) -> bool {
+        self.queue.entries.iter().any(|entry| match entry.work {
+            queue::Work::Carrying { tick } => movement.unsent_sample_at(tick).is_some(),
+            _ => true,
+        })
+    }
+
     /// Latest successfully queued local actor attack in the current position authority.
     pub const fn admitted_attack(&self) -> Option<AdmittedActorAttack> {
         self.admitted_attack
@@ -173,9 +183,14 @@ impl MeleeRuntime {
         target
     }
 
-    /// Cancels unadmitted presses without removing an earlier accepted break.
-    pub fn cancel(&mut self) {
+    /// Cancels unadmitted presses while keeping the current target competition.
+    pub fn cancel_press(&mut self) {
         self.queue.cancel_pending();
+    }
+
+    /// Cancels input and its target without removing an earlier accepted break.
+    pub fn cancel(&mut self) {
+        self.cancel_press();
         self.actor_in_front = false;
     }
 
@@ -331,13 +346,9 @@ pub fn resolve_and_send(
     now_millis: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
-    if runtime.queue.front_pending().is_some()
+    if let Some(pending) = runtime.queue.front_pending()
         && swings.tick_is_published(press.tick)
-        && (runtime
-            .queue
-            .front_pending()
-            .and_then(|pending| pending.rejected_tick)
-            != Some(press.tick)
+        && (pending.rejected_tick != Some(press.tick)
             || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_attack_target(crosshair, press.item_attack.is_some());
