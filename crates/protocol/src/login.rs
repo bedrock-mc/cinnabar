@@ -16,6 +16,8 @@ use crate::{
 
 mod blob_prefetch;
 mod boundary;
+#[cfg(test)]
+mod cache_status_ingress_tests;
 mod client_data;
 mod game_data;
 mod latency_probe;
