@@ -487,6 +487,7 @@ world extension {
     import panel;
     import settings;
     import render;
+    import cinnabar:world-draw/drawing@0.1.0;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.
