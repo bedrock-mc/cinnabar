@@ -21,7 +21,7 @@ interface drawing {
     record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
     enum depth { test, always }
     enum blend { premultiplied, additive }
-    enum width-mode { world, pixels }
+    enum width-mode { %world, pixels }
     enum join { bevel, miter, round }
     enum cap { butt, round }
     record instance {
