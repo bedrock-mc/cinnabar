@@ -17,18 +17,16 @@ fn held_equipment_waits_for_a_tick_and_follows_older_movement() {
         .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .ledger_mut()
-        .apply(&protocol::InventoryEvent::Slot(
-            protocol::InventorySlotEvent {
-                identity: protocol::SlotIdentity {
-                    container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
-                    slot: 0,
-                },
-                stack: protocol::NetworkItemStack {
+        .apply(&protocol::InventoryEvent::Content(
+            protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                slots: [protocol::NetworkItemStack {
                     network_id: 7,
                     count: 1,
                     ..protocol::NetworkItemStack::empty()
-                },
-                storage_item: None,
+                }]
+                .into(),
+                storage_item: protocol::NetworkItemStack::empty(),
             },
         ));
     let mut app = interaction_app(world);
@@ -147,19 +145,23 @@ fn retry_counts(world: &mut World, main: u16, off: u16) {
     ] {
         let mut stack = backing.clone();
         stack.count = count;
-        player
-            .inventory
-            .ledger_mut()
-            .apply(&protocol::InventoryEvent::Slot(
-                protocol::InventorySlotEvent {
-                    identity: protocol::SlotIdentity {
-                        container: protocol::ContainerIdentity::window(window_id),
-                        slot: 0,
-                    },
-                    stack,
-                    storage_item: None,
+        let event = if window_id == protocol::OFFHAND_WINDOW_ID {
+            protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(window_id),
+                slots: [stack].into(),
+                storage_item: protocol::NetworkItemStack::empty(),
+            })
+        } else {
+            protocol::InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: protocol::ContainerIdentity::window(window_id),
+                    slot: 0,
                 },
-            ));
+                stack,
+                storage_item: None,
+            })
+        };
+        player.inventory.ledger_mut().apply(&event);
     }
 }
 
