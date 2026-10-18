@@ -1,3 +1,4 @@
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
 use client_shell::ui_resources::UiRuntimeResource;
@@ -17,10 +18,7 @@ use client_audio::audio_ingress::drain_committed_audio;
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
-        app::{
-            configure_client_frame_schedule, configure_client_production_frame_systems,
-            session::configure_finish_system,
-        },
+        app::{configure_client_production_frame_systems, session::configure_finish_system},
         runtime::world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
         session::{drive_session, follow_server_transfer, recover_session_failure},
         session_audio::drain_sequenced_audio_into_session,

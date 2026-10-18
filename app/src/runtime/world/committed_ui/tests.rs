@@ -2,6 +2,8 @@
 use super::*;
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::app::authority::configure_client_authority_systems;
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
@@ -29,7 +31,6 @@ use semantic_input::Action;
 use std::sync::Arc;
 use {
     crate::{
-        app::{configure_client_authority_systems, configure_client_frame_schedule},
         environment::{WeatherState, bind_session_generation},
         runtime::movement_evidence::MovementEvidenceEmitter,
         semantic_controls::{

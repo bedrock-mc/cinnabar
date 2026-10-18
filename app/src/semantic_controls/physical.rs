@@ -28,6 +28,13 @@ pub(crate) struct PendingDeviceFrame {
     ignored_touches: u64,
 }
 
+impl PendingDeviceFrame {
+    /// Replaces the current platform sample before the common semantic router runs.
+    pub(crate) fn replace(&mut self, frame: DeviceFrame) {
+        self.frame = Some(frame);
+    }
+}
+
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SemanticRouteState {
     routed: bool,
@@ -63,7 +70,7 @@ pub(crate) fn collect_raw_input(
     pending.ignored_touches = pending
         .ignored_touches
         .saturating_add(translated.ignored_touches as u64);
-    pending.frame = Some(translated.frame);
+    pending.replace(translated.frame);
 }
 
 pub(crate) fn route_semantic_input(
@@ -88,7 +95,7 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
-    emote_input: Option<Res<crate::ui_runtime::emotes::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
 ) {
     let routed = std::mem::take(&mut route.routed);
     if !routed {

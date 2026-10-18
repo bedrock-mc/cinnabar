@@ -1,5 +1,17 @@
 # Phases 2-5 Completion Ledger
 
+## Browser host composition
+
+The browser host uses verified memory carriers, the shared game frame and HUD, injected
+session I/O and canvas input. Native owner checks and a wasm artifact pass. Headless Chrome with
+Metal WebGPU boots, renders an offline world's terrain and HUD, and moves its player. WebSocket
+transfer, disconnect and rejoin pass. Audio ranges feed the existing decoder and Web Audio mixer;
+real nonzero playback, gesture activation, cached suspension/resume and single-close disposal
+pass. Initial terrain latency, interactive UI controls, audio parity and hardware budgets remain
+incomplete. This adds no completed parity or browser-release gate.
+transfer, disconnect and rejoin pass. Initial terrain latency, interactive UI controls, audio
+delivery/playback and hardware budgets remain incomplete. This adds no completed parity or
+browser-release gate.
 ## Correction-sync posture retries
 
 Correction syncs retain accepted server sneak/sprint updates newer than the last

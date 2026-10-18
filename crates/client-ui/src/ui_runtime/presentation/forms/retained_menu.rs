@@ -19,6 +19,10 @@ pub(in crate::ui_runtime::presentation) struct RetainedMenu {
 impl UiPresentationRuntime {
     /// Only launcher scenes with no live overlay or continuously animated preview are retained.
     fn retainable_menu(&self, runtime: &UiRuntime) -> Option<&MenuView> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if runtime.experiences.active || runtime.experiences.holds_world_entry() {
+            return None;
+        }
         let view = self.menu_view.as_deref()?;
         (view.visible
             && !view.over_world
@@ -57,8 +61,6 @@ impl UiPresentationRuntime {
             && !runtime.forms.owns_input()
             && !runtime.credits.owns_input()
             && runtime.hud.toasts().is_empty()
-            && !runtime.experiences.active
-            && !runtime.experiences.holds_world_entry()
             && !self.screens.mod_ui.mod_panel_painting()
             && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)

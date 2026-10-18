@@ -11,7 +11,7 @@ use std::{collections::HashMap, ops::Range};
 use super::MeleeContext;
 use crate::{
     interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
-    modding::interaction::{block_pick_reach, effective_reach},
+    interaction_override::{block_pick_reach, effective_reach},
 };
 use client_interaction::mining::hand_interaction_selection;
 use gameplay::mining::{creative_reach, protocol_input_mode, survival_reach};

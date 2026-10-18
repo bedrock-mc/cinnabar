@@ -215,7 +215,7 @@ impl ActorSnapshot {
     ) -> Self {
         let terrain_interlock = terrain_interlock::TerrainInterlock::attached(
             entity_fact.native_class,
-            std::time::Instant::now(),
+            web_time::Instant::now(),
         );
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);

@@ -38,50 +38,34 @@ pub fn startup_carriers() -> impl Iterator<Item = &'static Carrier> {
     required().chain(std::iter::once(&ACTOR))
 }
 
+/// The required delivery set plus supported optional artwork, from the canonical table.
+fn delivery_carriers() -> impl Iterator<Item = &'static Carrier> {
+    startup_carriers().chain([&carriers::FONT, &carriers::AUDIO])
+}
+
 impl DeliveryManifest {
-    /// Checks the schema, exact startup set, duplicate names and aggregate byte bounds.
+    /// Resolves indexed carriers through the same canonical table used for admission.
+    pub fn carriers(&self) -> impl Iterator<Item = &'static Carrier> + '_ {
+        delivery_carriers()
+            .filter(|carrier| self.entries.iter().any(|entry| entry.name == carrier.name))
+    }
+
+    /// Checks the required set, supported optional carriers, unique names and byte bounds.
     pub fn validate(&self) -> Result<(), DeliveryError> {
-        if self.version != DELIVERY_VERSION || self.entries.len() != startup_carriers().count() {
-            return Err(DeliveryError(
-                "unsupported or incomplete delivery manifest".into(),
-            ));
+        if self.version != DELIVERY_VERSION {
+            return Err(DeliveryError("unsupported delivery manifest".into()));
         }
+        let mut names = std::collections::HashSet::new();
         let mut total = 0_u64;
-        let mut recipes = std::collections::HashSet::new();
-        for carrier in startup_carriers() {
-            if !recipes.insert(carrier.recipe)
-                || !matches!(
-                    carrier.recipe,
-                    Recipe::World
-                        | Recipe::ItemFacts
-                        | Recipe::EntityFacts
-                        | Recipe::Atmosphere
-                        | Recipe::Entity
-                        | Recipe::Actor
-                        | Recipe::Lang
-                        | Recipe::Ui
-                        | Recipe::Icon
-                        | Recipe::BlockPhysics
-                        | Recipe::Hud
-                )
-            {
-                return Err(DeliveryError(format!(
-                    "unsupported startup carrier {}",
-                    carrier.output
-                )));
-            }
-            let mut entries = self
-                .entries
-                .iter()
-                .filter(|entry| entry.name == carrier.name);
-            let entry = entries.next().ok_or_else(|| missing(carrier))?;
-            if entries.next().is_some()
+        for entry in &self.entries {
+            if !names.insert(entry.name.as_str())
+                || !delivery_carriers().any(|carrier| carrier.name == entry.name)
                 || entry.bytes == 0
                 || entry.bytes > MAX_DELIVERY_ENTRY_BYTES
             {
                 return Err(DeliveryError(format!(
                     "invalid delivery entry for {}",
-                    carrier.output
+                    entry.name
                 )));
             }
             total = total
@@ -89,12 +73,40 @@ impl DeliveryManifest {
                 .filter(|total| *total <= MAX_DELIVERY_BYTES)
                 .ok_or_else(|| DeliveryError("delivery exceeds memory limit".into()))?;
         }
+        for carrier in startup_carriers() {
+            if !matches!(
+                carrier.recipe,
+                Recipe::World
+                    | Recipe::ItemFacts
+                    | Recipe::EntityFacts
+                    | Recipe::Atmosphere
+                    | Recipe::Entity
+                    | Recipe::Actor
+                    | Recipe::Lang
+                    | Recipe::Ui
+                    | Recipe::Icon
+                    | Recipe::BlockPhysics
+                    | Recipe::Hud
+            ) {
+                return Err(DeliveryError(format!(
+                    "unsupported startup carrier {}",
+                    carrier.output
+                )));
+            }
+            if !names.contains(carrier.name) {
+                return Err(missing(carrier));
+            }
+        }
         Ok(())
     }
 
     /// Generates the index from locally compiled carriers; no game bytes enter the index.
     pub fn from_directory(directory: &Path) -> Result<Self, DeliveryError> {
-        let entries = startup_carriers()
+        let entries = delivery_carriers()
+            .filter(|carrier| {
+                startup_carriers().any(|required| required.name == carrier.name)
+                    || directory.join(carrier.output).is_file()
+            })
             .map(|carrier| {
                 let path = directory.join(carrier.output);
                 let length = std::fs::metadata(&path)
@@ -136,6 +148,33 @@ impl MemoryCarriers {
             manifest,
             bytes: BTreeMap::new(),
         })
+    }
+
+    /// Resolves only indexed carrier names to canonical filenames before host downloads.
+    pub fn entries(&self) -> impl Iterator<Item = &'static Carrier> + '_ {
+        self.manifest.carriers()
+    }
+
+    /// Decodes the optional bundled font; an absent or unusable font keeps diagnostic text.
+    fn font(&self) -> Option<Arc<crate::RuntimeFontCatalog>> {
+        let manifest = carriers::FONT.font_face?.manifest;
+        crate::RuntimeFontCatalog::decode(
+            self.read(&carriers::FONT).ok()?,
+            canonical_source_manifest_sha256(manifest),
+        )
+        .ok()
+        .map(Arc::new)
+    }
+
+    /// Keeps startup muted when the optional catalog is absent, invalid or from another source.
+    fn audio(&self) -> Option<Arc<crate::RuntimeAudioCatalog>> {
+        crate::RuntimeAudioCatalog::decode(self.read(&carriers::AUDIO).ok()?)
+            .ok()
+            .filter(|audio| {
+                audio.source_manifest_sha256()
+                    == canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
+            })
+            .map(Arc::new)
     }
 
     /// Verifies size and SHA-256 before publishing bytes; failed replacements retain old data.
@@ -212,9 +251,12 @@ impl MemoryCarriers {
                 protocol,
             )?;
             Ok(StartupCarriers {
-                world,
+                audio: self.audio(),
+                font: self.font(),
+                world: Arc::new(world),
                 item_facts,
-                atmosphere,
+                atmosphere: Arc::new(atmosphere),
+                atmosphere_identity: Sha256::digest(self.read(&carriers::ATMOSPHERE)?).into(),
                 entities,
                 actors,
                 language,
@@ -241,9 +283,12 @@ impl MemoryCarriers {
 }
 /// Validated domain data for client composition; no browser objects escape the web host.
 pub struct StartupCarriers {
-    pub world: RuntimeAssets,
+    pub audio: Option<Arc<crate::RuntimeAudioCatalog>>,
+    pub font: Option<Arc<crate::RuntimeFontCatalog>>,
+    pub world: Arc<RuntimeAssets>,
     pub item_facts: Arc<crate::facts::ItemFacts>,
-    pub atmosphere: RuntimeAtmosphereAssets,
+    pub atmosphere: Arc<RuntimeAtmosphereAssets>,
+    pub atmosphere_identity: [u8; 32],
     pub entities: RuntimeEntityAssets,
     pub actors: RuntimeActorCatalog,
     pub language: RuntimeLangCatalog,
@@ -275,6 +320,74 @@ mod tests {
                 .collect(),
         }
     }
+
+    #[test]
+    fn absent_optional_audio_keeps_startup_muted() {
+        let missing = MemoryCarriers::new(manifest(b"unused")).unwrap();
+        assert!(missing.audio().is_none());
+    }
+
+    #[test]
+    fn valid_optional_audio_uses_the_pinned_catalog() {
+        let pinned = canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes());
+        let source = delivered_audio(crate::encode_audio_catalog(pinned, [0; 32], &[]).unwrap());
+        assert_eq!(source.audio().unwrap().source_manifest_sha256(), pinned);
+    }
+
+    /// Delivers audio with a matching transport digest so catalog validation decides admission.
+    fn delivered_audio(bytes: Vec<u8>) -> MemoryCarriers {
+        let mut index = manifest(b"unused");
+        index.entries.push(DeliveryEntry {
+            name: carriers::AUDIO.name.into(),
+            bytes: bytes.len() as u64,
+            sha256: Sha256::digest(&bytes).into(),
+        });
+        let mut source = MemoryCarriers::new(index).unwrap();
+        source.insert(carriers::AUDIO.name, bytes).unwrap();
+        source
+    }
+
+    #[test]
+    fn malformed_optional_audio_keeps_startup_muted() {
+        let source = delivered_audio(b"invalid audio".to_vec());
+        assert!(source.audio().is_none());
+    }
+
+    #[test]
+    fn stale_optional_audio_keeps_startup_muted() {
+        let source = delivered_audio(crate::encode_audio_catalog([0; 32], [0; 32], &[]).unwrap());
+        assert!(source.audio().is_none());
+    }
+    #[test]
+    fn optional_font_is_indexed_but_unknown_or_duplicate_entries_are_rejected() {
+        let mut index = manifest(b"font bytes");
+        let entry = DeliveryEntry {
+            name: carriers::FONT.name.into(),
+            bytes: 10,
+            sha256: Sha256::digest(b"font bytes").into(),
+        };
+        index.entries.push(entry.clone());
+        let mut source = MemoryCarriers::new(index.clone()).unwrap();
+        assert!(
+            source
+                .entries()
+                .any(|carrier| carrier.name == carriers::FONT.name)
+        );
+        assert!(source.font().is_none());
+        source
+            .insert(carriers::FONT.name, b"font bytes".to_vec())
+            .unwrap();
+        assert!(
+            source.font().is_none(),
+            "a delivery digest does not bypass font validation"
+        );
+        index.entries.push(entry);
+        assert!(index.validate().is_err());
+        index.entries.pop();
+        index.entries.last_mut().unwrap().name = "unknown".into();
+        assert!(index.validate().is_err());
+    }
+
     #[test]
     fn good_hash_bad_hash_and_missing_entry() {
         let mut source = MemoryCarriers::new(manifest(b"original")).unwrap();
