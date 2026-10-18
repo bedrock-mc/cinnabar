@@ -16,10 +16,15 @@ use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen(module = "/src/adapters.mjs")]
 extern "C" {
-    fn available() -> bool;
     #[wasm_bindgen(catch)]
     fn create(origin: &str, quic: bool, config: &str) -> Result<JsValue, JsValue>;
-    fn open(transport: &JsValue, name: &str) -> Promise;
+    fn open(transport: &JsValue, name: &str, join: &str) -> Promise;
+    #[wasm_bindgen(js_name = packChannel)]
+    fn pack_channel(transport: &JsValue) -> JsValue;
+    #[wasm_bindgen(js_name = acceptPacks)]
+    fn accept_packs(transport: &JsValue, channel: &JsValue) -> Promise;
+    #[wasm_bindgen(js_name = finishPlay)]
+    fn finish_play(transport: &JsValue);
     fn read(channel: &JsValue) -> Promise;
     fn write(channel: &JsValue, bytes: &Uint8Array) -> Promise;
     fn flush(channel: &JsValue) -> Promise;
@@ -27,26 +32,17 @@ extern "C" {
     #[wasm_bindgen(js_name = closeChannel)]
     fn close_channel(channel: &JsValue);
     fn close(transport: &JsValue);
-    fn maximum(transport: &JsValue) -> usize;
-    #[wasm_bindgen(js_name = sendDatagram)]
-    fn send_datagram(transport: &JsValue, bytes: &Uint8Array) -> Promise;
-    #[wasm_bindgen(js_name = recvDatagram)]
-    fn recv_datagram(transport: &JsValue) -> Promise;
 }
 
 /// Event-loop-owned QUIC candidate or WebSocket fallback; no thread-mobility wrapper.
 pub struct BrowserTransport(JsValue);
 impl BrowserTransport {
-    /// Reports constructor availability; successful Hello still decides whether QUIC works.
-    pub fn quic_available() -> bool {
-        available()
-    }
     /// Creates a cancellable candidate with wire values supplied by the generated contract.
     pub fn new(origin: &str, quic: bool) -> Result<Self, CloseReason> {
         let config = serde_json::json!({"transport": RELAY_TRANSPORT_PATH,
             "controlPath": RELAY_CONTROL_PATH, "playPath": RELAY_PLAY_PATH,
             "control": RELAY_CHANNEL_CONTROL, "protocol": RELAY_SOCKET_PROTOCOL,
-            "controlBytes": RELAY_CONTROL_BYTES, "playBytes": RELAY_PLAY_MESSAGE_BYTES, "chunks": 16});
+            "controlBytes": RELAY_CONTROL_BYTES, "playBytes": RELAY_PLAY_MESSAGE_BYTES, "chunks": bridge::contract::QUEUED_FRAMES});
         create(origin, quic, &config.to_string())
             .map(Self)
             .map_err(|_| CloseReason::Transport)
@@ -55,53 +51,37 @@ impl BrowserTransport {
 impl RelayTransport for BrowserTransport {
     type Stream = BrowserStream;
     async fn open(&mut self, channel: Channel) -> Result<BrowserStream, CloseReason> {
-        let handle = JsFuture::from(open(&self.0, channel.name()))
+        let join = match channel {
+            Channel::Control => String::new(),
+            Channel::Play { join } => join.to_string(),
+        };
+        let handle = JsFuture::from(open(&self.0, channel.name(), &join))
             .await
             .map_err(|_| CloseReason::Transport)?;
-        Ok(BrowserStream {
-            handle,
-            buffer: Uint8Array::new_with_length(0),
-            offset: 0,
-            reading: None,
-            writing: None,
-            flushing: None,
-            eof: false,
-            shutting_down: None,
-            finished: false,
-            shutdown_started: false,
-        })
+        Ok(BrowserStream::new(handle))
     }
-    fn max_datagram_size(&self) -> Option<usize> {
-        let size = maximum(&self.0);
-        (size > 0).then_some(size)
-    }
-    async fn send_datagram(&mut self, bytes: &[u8]) -> Result<(), CloseReason> {
-        if self.max_datagram_size().is_none_or(|max| bytes.len() > max) {
-            return Err(CloseReason::Protocol);
-        }
-        JsFuture::from(send_datagram(&self.0, &Uint8Array::from(bytes)))
-            .await
-            .map(|_| ())
-            .map_err(|_| CloseReason::Transport)
-    }
-    async fn recv_datagram(&mut self) -> Result<Option<Vec<u8>>, CloseReason> {
-        let value = JsFuture::from(recv_datagram(&self.0))
+    fn accept_packs(
+        &self,
+    ) -> impl Future<Output = Result<Option<BrowserStream>, CloseReason>> + 'static + use<> {
+        let transport = self.0.clone();
+        let mut acceptance = PackAcceptance {
+            channel: Some(pack_channel(&transport)),
+        };
+        async move {
+            let handle = JsFuture::from(accept_packs(
+                &transport,
+                acceptance.channel.as_ref().expect("pending pack channel"),
+            ))
             .await
             .map_err(|_| CloseReason::Transport)?;
-        if value.is_null() {
-            return Ok(None);
+            let _ = acceptance.channel.take();
+            Ok((!handle.is_null()).then(|| BrowserStream::new(handle)))
         }
-        let bytes = value
-            .dyn_into::<Uint8Array>()
-            .map_err(|_| CloseReason::Protocol)?;
-        if self
-            .max_datagram_size()
-            .is_none_or(|max| bytes.length() as usize > max)
-        {
-            return Err(CloseReason::Protocol);
-        }
-        Ok(Some(bytes.to_vec()))
     }
+    fn finish_play(&mut self) {
+        finish_play(&self.0);
+    }
+
     fn close(&mut self, _reason: CloseReason) {
         close(&self.0);
     }
@@ -109,6 +89,20 @@ impl RelayTransport for BrowserTransport {
 impl Drop for BrowserTransport {
     fn drop(&mut self) {
         close(&self.0);
+    }
+}
+
+/// Cancels a pending archive wait even when its Rust future is dropped before first poll.
+struct PackAcceptance {
+    channel: Option<JsValue>,
+}
+impl Drop for PackAcceptance {
+    fn drop(&mut self) {
+        if let Some(channel) = &self.channel
+            && !channel.is_null()
+        {
+            close_channel(channel);
+        }
     }
 }
 
@@ -124,6 +118,23 @@ pub struct BrowserStream {
     shutting_down: Option<JsFuture>,
     finished: bool,
     shutdown_started: bool,
+}
+impl BrowserStream {
+    /// Retains one newly locked browser byte reader and optional writer.
+    fn new(handle: JsValue) -> Self {
+        Self {
+            handle,
+            buffer: Uint8Array::new_with_length(0),
+            offset: 0,
+            eof: false,
+            reading: None,
+            writing: None,
+            flushing: None,
+            shutting_down: None,
+            finished: false,
+            shutdown_started: false,
+        }
+    }
 }
 /// Hides browser exception details from public errors.
 fn io_error(_: JsValue) -> io::Error {
@@ -169,13 +180,15 @@ impl AsyncRead for BrowserStream {
             this.buffer = array;
             this.offset = 0;
         }
-        let count = out
-            .remaining()
-            .min((this.buffer.length() - this.offset) as usize);
-        this.buffer
-            .subarray(this.offset, this.offset + count as u32)
-            .copy_to(out.initialize_unfilled_to(count));
-        out.advance(count);
+        let count = crate::receive::copy_chunk(
+            out,
+            (this.buffer.length() - this.offset) as usize,
+            |destination| {
+                this.buffer
+                    .subarray(this.offset, this.offset + destination.len() as u32)
+                    .copy_to(destination);
+            },
+        );
         this.offset += count as u32;
         Poll::Ready(Ok(()))
     }
@@ -234,36 +247,5 @@ impl AsyncWrite for BrowserStream {
 impl Drop for BrowserStream {
     fn drop(&mut self) {
         close_channel(&self.handle);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::mem::{ManuallyDrop, MaybeUninit};
-
-    #[test]
-    fn small_receive_initializes_only_delivered_bytes() {
-        let mut stream = ManuallyDrop::new(BrowserStream {
-            handle: JsValue::NULL,
-            buffer: Uint8Array::from(&[1, 2][..]),
-            offset: 0,
-            eof: false,
-            reading: None,
-            writing: None,
-            flushing: None,
-            shutting_down: None,
-            finished: false,
-            shutdown_started: false,
-        });
-        let mut storage = [MaybeUninit::uninit(); 4096];
-        let mut out = ReadBuf::uninit(&mut storage);
-        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
-        assert!(matches!(
-            Pin::new(&mut *stream).poll_read(&mut cx, &mut out),
-            Poll::Ready(Ok(()))
-        ));
-        assert_eq!(out.filled(), &[1, 2]);
-        assert_eq!(out.initialized().len(), 2);
     }
 }

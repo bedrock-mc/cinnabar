@@ -1,11 +1,12 @@
-//! Reconciliation of retained rollback authority and unsent predictions.
+//! Reconciliation of rollback authority and item data across retained requests.
 
 use super::{
     Cell, Held, InventoryPendingState, PlayerInventoryLedger, RollbackAuthority, same_name,
 };
 
 impl PlayerInventoryLedger {
-    /// Rebases all later rollback sources and replays only requests not yet transported.
+    /// Rebases later rollback sources and routes their item data through dependent results.
+    /// Only requests not yet transported replay actions, counts and wire identities.
     pub(in crate::inventory_ledger) fn rebase_predictions(
         &mut self,
         predecessor: i32,
@@ -22,6 +23,7 @@ impl PlayerInventoryLedger {
             .filter(|request| request.request_id < predecessor)
         {
             let mut changed = false;
+            let mut metadata = Vec::new();
             for prediction in request
                 .predicted
                 .iter_mut()
@@ -56,6 +58,10 @@ impl PlayerInventoryLedger {
                     {
                         invalid = Some(request.request_id);
                         break 'requests;
+                    }
+                    // This dependency edge also identifies split-off items without an original ID.
+                    if same_item && let Some(held) = replacement {
+                        metadata.push((prediction.cell, held.clone()));
                     }
                     prediction.before = replacement.clone();
                     prediction.rollback = *authority;
@@ -101,6 +107,33 @@ impl PlayerInventoryLedger {
                         prediction.cell,
                         old,
                         prediction.held.clone(),
+                        RollbackAuthority::Pending(request.request_id),
+                        request.request_id,
+                    ));
+                }
+            } else if changed && !request.locally_committed() {
+                for prediction in request.predicted.iter_mut().filter(|p| p.current) {
+                    let Some(source) = request
+                        .groups
+                        .iter()
+                        .rev()
+                        .try_fold(prediction.cell, |cell, group| group.item_data_source(cell))
+                        .and_then(|cell| metadata.iter().find(|(source, _)| *source == cell))
+                        .map(|(_, held)| held)
+                    else {
+                        continue;
+                    };
+                    let old = prediction.held.clone();
+                    let Some(held) = &mut prediction.held else {
+                        continue;
+                    };
+                    if !held.inherit_item_data(source) {
+                        continue;
+                    }
+                    replacements.push((
+                        prediction.cell,
+                        old,
+                        Some(held.clone()),
                         RollbackAuthority::Pending(request.request_id),
                         request.request_id,
                     ));

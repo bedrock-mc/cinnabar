@@ -25,8 +25,12 @@ impl UiRuntime {
         self.chat_source_name = source_name;
     }
 
+    /// Queues an editor submission after removing leading ASCII whitespace.
     pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
-        let message = self.chat_editor.as_str();
+        let message = self
+            .chat_editor
+            .as_str()
+            .trim_start_matches(|c| matches!(c, '\t'..='\r' | ' '));
         let request = self.chat_sends.push(self.session_id, message, now_millis)?;
         self.chat_history.push(Arc::clone(&request.message));
         self.chat_editor.clear();

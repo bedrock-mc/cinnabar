@@ -249,6 +249,7 @@ impl ModHost {
 
     /// Stops current authority immediately, preserving an existing quarantine reason.
     pub fn revoke(&mut self) {
+        self.drawing_restart = crate::DrawingRestart::None;
         self.pending_events.clear();
         self.instance.revoke();
     }
@@ -256,6 +257,7 @@ impl ModHost {
     /// Stops the guest as a trap would, removing everything it presented: the host refused
     /// what it asked to draw.
     pub fn quarantine(&mut self) {
+        self.drawing_restart = crate::DrawingRestart::None;
         self.pending_events.clear();
         self.instance.quarantine();
     }

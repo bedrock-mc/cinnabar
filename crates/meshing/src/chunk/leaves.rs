@@ -20,14 +20,20 @@ const CACHE_WORDS: usize = (CACHE_SIDE * CACHE_SIDE * CACHE_SIDE).div_ceil(u64::
 
 pub(crate) struct LeafOcclusion<'assets, 'chunks> {
     bits: &'assets NeighbourhoodBlockBits<'assets, 'chunks>,
+    transparent: bool,
     known: [Cell<u64>; CACHE_WORDS],
     deep: [Cell<u64>; CACHE_WORDS],
 }
 
 impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
-    pub(crate) fn new(bits: &'assets NeighbourhoodBlockBits<'assets, 'chunks>) -> Self {
+    /// Captures the leaf mode so every face of this mesh uses one opacity policy.
+    pub(crate) fn new(
+        bits: &'assets NeighbourhoodBlockBits<'assets, 'chunks>,
+        transparent: bool,
+    ) -> Self {
         Self {
             bits,
+            transparent,
             known: std::array::from_fn(|_| Cell::new(0)),
             deep: std::array::from_fn(|_| Cell::new(0)),
         }
@@ -39,6 +45,9 @@ impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
     }
 
     pub(crate) fn is_deep(&self, coordinate: [i32; 3]) -> bool {
+        if !self.transparent {
+            return self.primary(coordinate) & ENTRY_LEAF_VARIANT != 0;
+        }
         let Some(index) = cache_index(coordinate) else {
             return false;
         };
@@ -67,6 +76,9 @@ impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
         let neighbour = adjacent(source, face);
         if self.primary(neighbour) & ENTRY_LEAF == 0 {
             return false;
+        }
+        if !self.transparent {
+            return true;
         }
         if self.is_deep(neighbour) {
             return true;

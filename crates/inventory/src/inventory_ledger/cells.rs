@@ -128,6 +128,21 @@ impl Held {
             acknowledged_request_id: None,
         })
     }
+
+    /// Inherits materialized item data without changing count, wire identity or lineage.
+    /// Returns whether NBT, its digest or the response overlay changed.
+    pub(super) fn inherit_item_data(&mut self, source: &Self) -> bool {
+        if self.stack.extra_data == source.stack.extra_data
+            && self.stack.nbt_digest == source.stack.nbt_digest
+            && self.overlay == source.overlay
+        {
+            return false;
+        }
+        self.stack.extra_data = Arc::clone(&source.stack.extra_data);
+        self.stack.nbt_digest = source.stack.nbt_digest;
+        self.overlay = source.overlay.clone();
+        true
+    }
 }
 
 #[derive(Debug, Clone)]

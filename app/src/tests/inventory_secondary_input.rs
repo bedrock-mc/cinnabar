@@ -253,7 +253,7 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
     unknown
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&cursor_content(None));
-    unknown.toggle_inventory(&mut player_runtime);
+    unknown.toggle_inventory(&mut player_runtime, None);
     assert!(
         unknown
             .inventory_ledger_mut(&mut player_runtime)
@@ -693,7 +693,7 @@ fn personal_runtime(
     runtime
         .inventory_ledger_mut(player_runtime)
         .apply(&cursor_content(cursor));
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(
         runtime

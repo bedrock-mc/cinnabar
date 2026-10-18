@@ -42,14 +42,19 @@ pub(crate) struct GraphBuilder<'a> {
     graph: AnimGraph,
     names: Vec<(ControlRef, usize, Option<Value>)>,
     load: &'a mut LoadDef<'a>,
+    reference: &'a dyn Fn(&str, &str) -> ControlRef,
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub(crate) fn new(load: &'a mut LoadDef<'a>) -> Self {
+    pub(crate) fn new(
+        load: &'a mut LoadDef<'a>,
+        reference: &'a dyn Fn(&str, &str) -> ControlRef,
+    ) -> Self {
         Self {
             graph: AnimGraph::default(),
             names: Vec::new(),
             load,
+            reference,
         }
     }
 
@@ -58,7 +63,7 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn add_head(&mut self, value: &Value, owner_ns: &str) -> Option<Option<Value>> {
         let (index, initial) = match value {
             Value::String(text) if text.starts_with('@') => {
-                self.add_ref(&ControlRef::parse(text, owner_ns))?
+                self.add_ref(&(self.reference)(text, owner_ns))?
             }
             Value::Object(props) if props.contains_key("anim_type") => {
                 let index = self.add_props(props, owner_ns)?;
@@ -104,7 +109,7 @@ impl<'a> GraphBuilder<'a> {
             .and_then(Value::as_str)
             .filter(|text| text.starts_with('@'));
         if let Some(next) = next
-            && let Some((target, _)) = self.add_ref(&ControlRef::parse(next, namespace))
+            && let Some((target, _)) = self.add_ref(&(self.reference)(next, namespace))
         {
             self.graph.nodes[index].next = Some(target);
         }

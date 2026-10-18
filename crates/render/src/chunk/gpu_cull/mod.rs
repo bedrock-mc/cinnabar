@@ -21,6 +21,7 @@ mod slots;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
+mod visibility_admission;
 
 use bevy::{
     camera::{primitives::Frustum, visibility::RenderLayers},
