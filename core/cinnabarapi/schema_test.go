@@ -9,6 +9,9 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -178,6 +181,69 @@ func TestPinnedSchemaDigest(t *testing.T) {
 	if hex.EncodeToString(digest[:]) != source.SHA256 {
 		t.Fatal("schema differs from recorded server digest")
 	}
+	t.Run("WindowsCheckout", func(t *testing.T) {
+		digest := sha256.Sum256(windowsSchemaCheckout(t))
+		if hex.EncodeToString(digest[:]) != source.SHA256 {
+			t.Fatal("Windows checkout changes the pinned schema digest")
+		}
+	})
+}
+
+// windowsSchemaCheckout checks out the schema with Windows line-ending conversion enabled.
+func windowsSchemaCheckout(t *testing.T) []byte {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("missing fixture: git executable for the Windows checkout test")
+	}
+	attributes, err := os.ReadFile("../../.gitattributes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	schemaPath := filepath.Join("core", "cinnabarapi", "schema", "v1.json")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, schemaPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		".gitattributes": attributes,
+		schemaPath:       pinnedSchema,
+		"control.txt":    []byte("Windows checkout control\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// runGit keeps checkout settings independent of the developer's Git configuration.
+	runGit := func(args ...string) {
+		t.Helper()
+		command := exec.Command(git, append([]string{
+			"-c", "core.autocrlf=true", "-c", "core.eol=crlf",
+			"-c", "core.safecrlf=false", "-c", "core.attributesFile=" + os.DevNull,
+		}, args...)...)
+		command.Dir = root
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	runGit("init", "--quiet", "--template=")
+	runGit("add", "--", ".gitattributes", schemaPath, "control.txt")
+	for _, name := range []string{schemaPath, "control.txt"} {
+		if err := os.Remove(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit("checkout-index", "--force", "--all")
+	control, err := os.ReadFile(filepath.Join(root, "control.txt"))
+	if err != nil || string(control) != "Windows checkout control\r\n" {
+		t.Fatalf("Windows checkout did not produce CRLF: %q, %v", control, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, schemaPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 //go:embed schema/source.json

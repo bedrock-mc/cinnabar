@@ -3,6 +3,8 @@ use bevy::ecs::system::RunSystemOnce;
 
 #[path = "raster_tests.rs"]
 pub(crate) mod raster_tests;
+#[path = "../ui_render/world_tests.rs"]
+mod world_tests;
 
 #[test]
 fn depth_smaa_unchanged_filter_sync_allocates_nothing() {

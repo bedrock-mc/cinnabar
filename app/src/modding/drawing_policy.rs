@@ -32,7 +32,7 @@ pub(super) fn bind(
         } else {
             remote_permissions(
                 grant,
-                &host.admitted_source_digest(),
+                &host.source_digest(),
                 client_ui::experience_session::unix_seconds(),
             )
         };

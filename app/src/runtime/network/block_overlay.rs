@@ -5,6 +5,8 @@
 use assets::material_keys::MaterialKeys;
 
 mod condition;
+mod items;
+pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
@@ -119,6 +121,7 @@ pub(super) fn compile_block_overlay(
     let mut builder = Builder {
         catalog,
         base_assets,
+        base_keys: vanilla_keys,
         vanilla_carried: Vec::new(),
         terrain_materials: HashMap::new(),
         overlay: BlockOverlay {
@@ -248,6 +251,7 @@ impl TextureRoute {
 struct Builder<'a> {
     catalog: TextureCatalog<'a>,
     base_assets: Option<&'a assets::RuntimeAssets>,
+    base_keys: Option<&'a MaterialKeys>,
     vanilla_carried: Vec<CarriedBlock>,
     terrain_materials: HashMap<(String, u32, u32), u32>,
     overlay: BlockOverlay,
@@ -561,8 +565,14 @@ impl Builder<'_> {
             variant: 0,
             choice: 0,
         };
+        // Custom aliases resolve their selected filename against the complete pack stack,
+        // including carrier donors, with destination tint and UV sampling retained.
+        if self.catalog.redefined(key, 0)
+            && let Some(keys) = self.base_keys
+        {
+            return self.carrier_slot(route, keys);
+        }
         self.route_slot(route.clone()).or_else(|| {
-            // A changed catalog can name different pixels, tint, or UV sampling.
             if self.catalog.redefined(key, 0) {
                 return None;
             }

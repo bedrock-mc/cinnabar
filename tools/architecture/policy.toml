@@ -1980,3 +1980,8 @@ name = "cosmetics"
 path = "crates/cosmetics"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[identifier_literal_exceptions]]
+path = "app/src/runtime/network/item_icons/tints.rs"
+literal = "grass_carried"
+reason = "Terrain-atlas carried-grass colour source; this selects authored inventory tint metadata, not a block identity."

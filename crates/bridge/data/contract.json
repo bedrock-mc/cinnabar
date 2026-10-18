@@ -133,6 +133,42 @@
   ],
   "enums": [
     {
+      "rust_name": "RefusalCode",
+      "doc": "A safe relay refusal code; unrecognized codes use the generic refusal.",
+      "derive": [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "variants": [
+        {
+          "rust_name": "ResumeRefused",
+          "go_name": "RelayRefusalResume",
+          "value": "resume_refused"
+        },
+        {
+          "rust_name": "AdmissionRefused",
+          "go_name": "RelayRefusalAdmission",
+          "value": "admission_refused"
+        },
+        {
+          "rust_name": "SessionBusy",
+          "go_name": "RelayRefusalSessionBusy",
+          "value": "session_busy"
+        },
+        {
+          "rust_name": "Refused",
+          "go_name": "RelayRefusalUnknown",
+          "value": "refused",
+          "other": true
+        }
+      ]
+    },
+    {
       "rust_name": "GameMode",
       "doc": "Game mode a world starts players in.",
       "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
@@ -259,6 +295,7 @@
       "doc": "Join progress stage reported by the core.",
       "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
       "variants": [
+        {"rust_name": "Idle", "go_name": "ConnectStageIdle", "value": "", "doc": "No join is being prepared."},
         {"rust_name": "Realm", "go_name": "ConnectStageRealm", "value": "realm", "doc": "The Realm lookup."},
         {"rust_name": "Packs", "go_name": "ConnectStagePacks", "value": "packs", "doc": "Resource pack acquisition."},
         {"rust_name": "Connecting", "go_name": "ConnectStageConnecting", "value": "connecting", "doc": "Transport connect and login; also any stage this client does not know.", "other": true}
@@ -486,7 +523,16 @@
       {"version": 2, "channel": "play", "generation": 1},
       {"type": "welcome", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
       {"op": "sign_in"},
-      {"op": "pong", "resume": "test-token"}
+      {"op": "pong", "resume": "test-token"},
+      {"op": "sign_out"},
+      {"type": "account", "account": {"state": "awaiting_code", "verification_uri": "https://example.test/verify", "user_code": "TEST-CODE"}},
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 3, "total_bytes": 4}},
+      {"type": "connect", "connect": {"stage": ""}},
+      {"type": "error", "error": "resume_refused"},
+      {"type": "error", "error": "admission_refused"},
+      {"type": "error", "error": "session_busy"},
+      {"type": "error", "error": "refused"},
+      {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120}
     ]
   }
 }

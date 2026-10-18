@@ -57,8 +57,12 @@ fn geometry_blocks_without_ambient_occlusion_get_thumbnails() {
     for flags in [
         MATERIAL_FLAG_ALPHA_CUTOUT,
         MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_DISABLE_AO,
+        MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+        MATERIAL_FLAG_ALPHA_CUTOUT
+            | MATERIAL_FLAG_DISABLE_AO
+            | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
     ] {
-        let sprite = pack_entity_compiler::overlay_block_icon(&geometry_block(flags), 0)
+        let sprite = pack_entity_compiler::overlay_block_icon(&geometry_block(flags), 0, None)
             .unwrap_or_else(|| panic!("no thumbnail for material flags {flags:#x}"));
         assert!(
             sprite
@@ -79,10 +83,10 @@ fn carried_cube_icons_sample_the_referenced_overlay_shard() {
     second.mips[0].rgba8 = [50, 160, 220, 255].repeat(16 * 16).into();
     overlay.textures.push(second.clone());
     overlay.materials[1].texture = TextureRef::new(2, 0).unwrap();
-    let actual = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6]).unwrap();
+    let actual = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
     overlay.textures = vec![second];
     overlay.materials[1].texture = TextureRef::new(1, 0).unwrap();
-    let expected = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6]).unwrap();
+    let expected = pack_entity_compiler::overlay_cube_icon(&overlay, [1; 6], None).unwrap();
     assert_eq!(actual.rgba8, expected.rgba8);
     assert!(
         actual
@@ -91,5 +95,65 @@ fn carried_cube_icons_sample_the_referenced_overlay_shard() {
             .0
             .iter()
             .any(|pixel| pixel[3] != 0)
+    );
+}
+
+#[test]
+fn disabled_face_dimming_keeps_inventory_faces_unshaded() {
+    let mut overlay = geometry_block(assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING);
+    overlay.model_quads[0].positions = [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]];
+    let sprite = pack_entity_compiler::overlay_block_icon(&overlay, 0, None).unwrap();
+    let visible = sprite
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] != 0)
+        .collect::<Vec<_>>();
+    assert!(!visible.is_empty());
+    assert!(visible.iter().all(|pixel| pixel[..3] == [200, 200, 200]));
+    overlay.materials[1].flags = 0;
+    let shaded = pack_entity_compiler::overlay_block_icon(&overlay, 0, None).unwrap();
+    assert!(
+        shaded
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0 && pixel[0] < 200)
+    );
+}
+
+#[test]
+fn explicit_inventory_tints_preserve_texels_alpha_and_material_rejection() {
+    let flags = assets::MATERIAL_FLAG_GRASS_TINT | assets::MATERIAL_FLAG_ALPHA_BLEND;
+    let mut overlay = geometry_block(flags);
+    assert!(pack_entity_compiler::overlay_block_icon(&overlay, 0, None).is_none());
+    let resolve = |flags| {
+        (flags & assets::MATERIAL_FLAG_TINT_MASK == assets::MATERIAL_FLAG_GRASS_TINT)
+            .then_some([80, 180, 120])
+    };
+    let tinted = pack_entity_compiler::overlay_block_icon_with_tint(&overlay, 0, None, &resolve)
+        .expect("a resolved tint is drawable");
+    overlay.materials[1].flags &= !assets::MATERIAL_FLAG_TINT_MASK;
+    pack_compile_input::apply_atlas_tint(&mut overlay.textures[0].mips[0].rgba8, [80, 180, 120]);
+    let expected = pack_entity_compiler::overlay_block_icon(&overlay, 0, None).unwrap();
+    assert_eq!(tinted.rgba8, expected.rgba8);
+    assert!(
+        tinted
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] == 200)
+    );
+    overlay.materials[1].flags |=
+        assets::MATERIAL_FLAG_GRASS_TINT | assets::MATERIAL_FLAG_ROTATE_UV;
+    assert!(
+        pack_entity_compiler::overlay_block_icon_with_tint(&overlay, 0, None, &resolve).is_none()
+    );
+    overlay.materials[1].flags = assets::MATERIAL_FLAG_FOLIAGE_TINT;
+    assert!(
+        pack_entity_compiler::overlay_block_icon_with_tint(&overlay, 0, None, &resolve).is_none()
     );
 }

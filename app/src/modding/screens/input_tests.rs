@@ -37,7 +37,7 @@ struct Host(ModHost);
 fn input_app() -> (App, Entity) {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut ui = inventory_session(&mut player);
-    ui.toggle_inventory(&mut player);
+    ui.toggle_inventory(&mut player, None);
     assert!(ui.inventory_open());
     let mut app = App::new();
     app.add_message::<KeyboardInput>()
@@ -699,7 +699,7 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
                 |world, mut player: Mut<client_state::PlayerRuntime>| {
                     world
                         .resource_mut::<UiRuntimeResource>()
-                        .toggle_inventory(&mut player);
+                        .toggle_inventory(&mut player, None);
                 },
             );
             app.world_mut().resource_scope(
