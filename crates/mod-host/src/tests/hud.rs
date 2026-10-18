@@ -140,3 +140,5 @@ fn a_duplicate_hud_slot_is_refused_and_counted_without_trapping_the_losing_mod()
     assert!(second.is_active());
     assert_eq!(second.refused_outputs(), 1);
 }
+
+mod native;

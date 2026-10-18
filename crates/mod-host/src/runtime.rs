@@ -381,8 +381,8 @@ impl Instance {
         state.pressed = false;
     }
 
-    /// Restores the call budget and commits output only on successful return.
-    pub(super) fn frame(
+    /// Validates and stages current observations even when lifecycle delivery defers.
+    pub(super) fn observe_frame(
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
@@ -415,8 +415,21 @@ impl Instance {
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
-        state.controls.begin_text_frame();
-        let result = self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store));
+        Ok(())
+    }
+
+    /// Refreshes native presentation on deferred delivery and publishes guest output on success.
+    pub(super) fn frame(&mut self, delivery: CallbackOutcome) -> Result<()> {
+        if !self.is_active() {
+            return Ok(());
+        }
+        self.store.data_mut().controls.begin_text_frame();
+        let result = match delivery {
+            CallbackOutcome::Executed => {
+                self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
+            }
+            CallbackOutcome::Deferred => Ok(CallbackOutcome::Deferred),
+        };
         if matches!(&result, Ok(CallbackOutcome::Deferred)) {
             hud::sources::refresh(self.store.data_mut());
         }

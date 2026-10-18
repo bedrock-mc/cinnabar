@@ -440,7 +440,7 @@ fn has_potion_effect(item: &crate::PlayerStateItem, effect: &str) -> bool {
     }
     i16::try_from(item.metadata)
         .ok()
-        .and_then(assets::potion_descriptor)
+        .and_then(assets::potion::potion_descriptor)
         .is_some_and(|potion| potion.effects.iter().any(|entry| entry.effect == effect))
 }
 

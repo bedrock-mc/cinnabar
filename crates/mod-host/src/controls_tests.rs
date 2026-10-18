@@ -133,13 +133,15 @@ fn native_text_input_survives_callback_deferral() {
     let budget = crate::CallbackBudget::new(0);
     instance.callback_budget = Some(budget.clone());
     instance
-        .frame(false, None, Vec::new(), None, None, empty_controls())
+        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
         .unwrap();
+    instance.frame(crate::CallbackOutcome::Executed).unwrap();
     assert_eq!(instance.store.data().controls.text_events[0].value, "PvP");
     budget.reset(FRAME_FUEL);
     instance
-        .frame(false, None, Vec::new(), None, None, empty_controls())
+        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
         .unwrap();
+    instance.frame(crate::CallbackOutcome::Executed).unwrap();
     assert!(instance.store.data().controls.text_events.is_empty());
     assert!(instance.is_active());
 }

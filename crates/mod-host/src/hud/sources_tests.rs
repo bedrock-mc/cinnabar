@@ -130,7 +130,7 @@ fn native_potion_counts_use_effect_facts_and_ignore_unrelated_auxiliary_values()
         slot.item = None;
     }
     let auxiliary = |identifier: &str| {
-        assets::POTION_DESCRIPTORS
+        assets::potion::POTION_DESCRIPTORS
             .iter()
             .position(|p| p.identifier == identifier)
             .unwrap() as u32

@@ -293,6 +293,9 @@ fn grid(card: &Card, row_index: &mut usize, header: f64) -> Vec<Value> {
             true,
         );
         count["shadow"] = json!(card.shadow);
+        count["bindings"].as_array_mut().unwrap().push(
+            json!({"binding_name":format!("#row_{index}_color"),"binding_name_override":"#color"}),
+        );
         controls.push(named(&format!("grid_count_{index}"), count));
     }
     controls

@@ -18,39 +18,6 @@ fn next_revision() -> u64 {
     REVISION.fetch_add(1, Ordering::Relaxed)
 }
 
-#[cfg(test)]
-mod native_line_tests {
-    use super::*;
-
-    /// Native overlays share the ribbon budget and revocation invalidates even native-only output.
-    #[test]
-    fn native_lines_respect_existing_budget_and_revoke_their_generation() {
-        let mut state = RenderState::new();
-        let ribbon = mod_render::Ribbon {
-            pattern: mod_render::LinePattern::Solid,
-            taper: false,
-            points: vec![[0.; 3], [1., 0., 0.]],
-            width: 1.,
-            color: [1.; 4],
-        };
-        state.staged_primitives.ribbons = vec![ribbon.clone(); mod_api::MAX_RENDER_RIBBONS];
-        state.commit();
-        state.native_lines(vec![ribbon.clone()]);
-        assert_eq!(
-            state.output().primitives.ribbons.len(),
-            mod_api::MAX_RENDER_RIBBONS
-        );
-        state.begin_frame();
-        state.commit();
-        state.native_lines(vec![ribbon]);
-        assert_eq!(state.output().primitives.ribbons.len(), 1);
-        let generation = state.generation();
-        state.revoke();
-        assert!(state.output().primitives.is_empty());
-        assert_ne!(state.generation(), generation);
-    }
-}
-
 /// Preserves the admission category while legacy callers continue receiving plain detail.
 fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     DrawError {
@@ -131,6 +98,7 @@ impl RenderState {
         }
         if changed {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
     }
 
@@ -146,6 +114,7 @@ impl RenderState {
         }
         if changed {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
     }
 
@@ -158,6 +127,7 @@ impl RenderState {
         self.retained.reconcile_entities(candidates, despawned)?;
         if self.publish_retained() {
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
         Ok(())
     }
@@ -192,6 +162,7 @@ impl RenderState {
         if native || self.committed != RenderOutput::default() {
             self.committed = RenderOutput::default();
             self.generation = next_revision();
+            self.refresh_native_lines();
         }
     }
 
@@ -200,8 +171,15 @@ impl RenderState {
         if ribbons == self.native_ribbons && self.native_generation == self.generation {
             return;
         }
-        let changed = ribbons != self.native_ribbons;
-        self.native_ribbons = ribbons;
+        if ribbons != self.native_ribbons {
+            self.native_ribbons = ribbons;
+            self.generation = next_revision();
+        }
+        self.refresh_native_lines();
+    }
+
+    /// Rebuilds the overlay from the current retained and immediate renderer output.
+    fn refresh_native_lines(&mut self) {
         if self.native_ribbons.is_empty() {
             self.combined = None;
         } else {
@@ -215,9 +193,6 @@ impl RenderState {
             let mut combined = self.committed.clone();
             combined.primitives = Arc::new(primitives);
             self.combined = Some(combined);
-        }
-        if changed {
-            self.generation = next_revision();
         }
         self.native_generation = self.generation;
     }

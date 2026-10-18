@@ -96,11 +96,10 @@ impl ModHost {
     ) -> Result<()> {
         self.begin_frame();
         let result = match self.dispatch(Vec::new()) {
-            Ok(CallbackOutcome::Executed) => {
-                self.instance
-                    .frame(pressed, snapshot, mobs, player_state, movement, controls)
-            }
-            Ok(CallbackOutcome::Deferred) => Ok(()),
+            Ok(delivery) => self
+                .instance
+                .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                .and_then(|()| self.instance.frame(delivery)),
             Err(error) => Err(error),
         };
         self.instance.finish_frame();
