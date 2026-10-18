@@ -155,7 +155,7 @@ mod tests {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "console::signal_drain::tests::full_terminal_fixture",
+                "console::native::signal_drain::tests::full_terminal_fixture",
             ])
             .env("CINNABAR_FULL_TERMINAL_FIXTURE", dir.path())
             .stdout(std::process::Stdio::null())

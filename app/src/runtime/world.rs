@@ -320,18 +320,22 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 }
 
 /// Diagnostics, player authority and per-system correction history used while polling the world.
-type WorldPollInputs<'w, 's> = (
-    Option<Res<'w, VisibilityDiagnosticsInput>>,
-    Option<Res<'w, RuntimeStageProfiler>>,
-    ResMut<'w, client_state::PlayerRuntime>,
-    Option<Res<'w, client_presentation::camera::ServerCameraView>>,
-    Local<'s, gameplay::movement::CorrectionContextLog>,
-    Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
-    ResMut<'w, client_interaction::movement::LocomotionState>,
-    ResMut<'w, client_presentation::camera::look::LookSmoother>,
-    Option<Res<'w, client_shell::menu::MenuRuntime>>,
-    Option<ResMut<'w, ChunkRenderQueue>>,
-);
+#[derive(SystemParam)]
+pub(crate) struct WorldPollInputs<'w, 's> {
+    visibility_diagnostics: Option<Res<'w, VisibilityDiagnosticsInput>>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    player_runtime: ResMut<'w, client_state::PlayerRuntime>,
+    server_camera_view: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    correction_log: Local<'s, gameplay::movement::CorrectionContextLog>,
+    item_use: Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
+    locomotion: ResMut<'w, client_interaction::movement::LocomotionState>,
+    look_smoother: ResMut<'w, client_presentation::camera::look::LookSmoother>,
+    #[cfg(not(target_arch = "wasm32"))]
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
+    render_queue: Option<ResMut<'w, ChunkRenderQueue>>,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
@@ -350,7 +354,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<client_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
-    (
+    inputs: WorldPollInputs<'_, '_>,
+) {
+    let WorldPollInputs {
         visibility_diagnostics,
         profiler,
         mut player_runtime,
@@ -359,10 +365,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut item_use,
         mut locomotion,
         mut look_smoother,
+        #[cfg(not(target_arch = "wasm32"))]
         menu,
+        #[cfg(target_arch = "wasm32")]
+        options,
         mut render_queue,
-    ): WorldPollInputs<'_, '_>,
-) {
+    } = inputs;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::WorldPoll));
@@ -395,17 +403,20 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     };
     stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
-    let rendering = menu
+    #[cfg(not(target_arch = "wasm32"))]
+    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    #[cfg(target_arch = "wasm32")]
+    let options = Some(Arc::clone(&options.0));
+    let rendering = options
         .as_ref()
-        .map_or_else(meshing::MeshRenderSettings::default, |menu| {
-            let options = menu.settings_snapshot().0;
+        .map_or_else(meshing::MeshRenderSettings::default, |options| {
             use launcher::menu::settings_options::SettingId;
             meshing::MeshRenderSettings {
                 smooth_lighting: options.value(SettingId::SmoothLighting) != 0,
                 transparent_leaves: options.value(SettingId::TransparentLeaves) != 0,
             }
         });
-    if stream.set_mesh_render_settings(rendering, std::time::Instant::now())
+    if stream.set_mesh_render_settings(rendering, web_time::Instant::now())
         && let Some(queue) = render_queue.as_mut()
     {
         queue.discard_resource_work();
@@ -516,7 +527,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             let camera = server_camera_view.as_deref();
             correction_log.note(
                 movement.session_generation(),
-                std::time::Instant::now(),
+                web_time::Instant::now(),
                 packet,
                 gameplay::movement::CorrectionContext::read(
                     &player_runtime.facts,

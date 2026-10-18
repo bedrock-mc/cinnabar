@@ -81,6 +81,7 @@ fn pass(name: &str, order: i32, revision: u64) -> Pass {
         name: name.into(),
         order,
         depth: false,
+        masks: Vec::new(),
         source: Arc::from(""),
         shader: Arc::from(""),
         revision,

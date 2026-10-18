@@ -15,18 +15,9 @@ const WORKER_UNAVAILABLE: &str = "The resource pack worker is unavailable. Resta
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
 pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) {
     app.insert_resource(worker::Worker::new(root, config_root, files))
-        .init_resource::<PackReload>()
         .add_systems(
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
-        )
-        .add_systems(
-            Update,
-            crate::runtime::network::reload_resource_packs
-                .after(crate::runtime::network::receive_network_events)
-                .before(crate::runtime::world::drive_world_stream)
-                .before(client_state::ClientFrameSet::UiPublication)
-                .before(render_scene::ChunkRenderApplySet),
         );
 }
 

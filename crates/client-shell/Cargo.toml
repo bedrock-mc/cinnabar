@@ -13,10 +13,19 @@ developer-control = ["dep:developer-control"]
 test-support = ["launcher/test-support", "launcher-host/test-support"]
 
 [dependencies]
-cosmetics = { path = "../cosmetics" }
 bevy.workspace = true
-image.workspace = true
+client-ui = { path = "../client-ui" }
+semantic-input = { path = "../input" }
+
+cosmetics = { path = "../cosmetics" }
 sha2.workspace = true
+launcher = { path = "../launcher" }
+protocol = { path = "../protocol" }
+render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+image.workspace = true
 tokio.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
@@ -30,18 +39,12 @@ bridge = { path = "../bridge" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-session = { path = "../client-session" }
 client-state = { path = "../client-state" }
-client-ui = { path = "../client-ui" }
 json-ui = { path = "../json-ui" }
-launcher = { path = "../launcher" }
 launcher-host = { path = "../launcher-host" }
 pack-runtime = { path = "../pack-runtime" }
-protocol = { path = "../protocol" }
 render-scene = { path = "../render-scene" }
-render-api = { path = "../render-api" }
-render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack" }
 rich-presence = { path = "../rich-presence" }
-semantic-input = { path = "../input" }
 server-experience = { path = "../server-experience" }
 ui = { path = "../ui" }
 

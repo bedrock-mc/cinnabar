@@ -20,7 +20,7 @@ use client_ui::ui_runtime::UiRuntime;
 use diagnostics::metrics::MetricsCollector;
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         runtime::{
             network::session::NetworkControlEvent,
             shutdown::{FatalError, record_fatal_error},

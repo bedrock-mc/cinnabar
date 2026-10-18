@@ -1,4 +1,5 @@
 use super::forms_fixture::retained;
+use crate::game_frame::configure_client_frame_schedule;
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet, graph::DiGraph},
     input::{
@@ -24,7 +25,7 @@ mod npc_dismissal_tests;
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
     use {
         crate::{
-            app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+            app::configure_client_production_frame_systems,
             runtime::world::{
                 drain_committed_ui_before_authority, drive_world_stream,
                 reconcile_world_stream_before_physics,

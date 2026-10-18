@@ -53,7 +53,7 @@ impl UiPresentationRuntime {
         &self,
         player_runtime: &player_state::PlayerState,
         runtime: &UiRuntime,
-        menu: &dyn MenuScene,
+        menu: Option<&dyn MenuScene>,
     ) -> bool {
         if self
             .loading_stage
@@ -67,7 +67,8 @@ impl UiPresentationRuntime {
                 engine.scene_settings(reference, engine.context())
             })
         };
-        if menu.is_visible()
+        if let Some(menu) = menu
+            && menu.is_visible()
             && (!self.menu_settings(runtime, &menu.view()).render_game_behind
                 || menu.uses_panorama())
         {

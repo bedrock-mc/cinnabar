@@ -266,6 +266,31 @@ finishing a join resets its play and pack channels while retaining control.
 A valid resume replaces the prior relay controller and cancels its channels even during
 transport teardown. New play waits for the old handler to finish while retaining the account.
 
+The browser entry accepts verified memory carriers and an optional bundled font, then builds
+shared world, actor, movement and HUD owners on the page canvas. A server-address field opens
+one relay play lease through the existing login and packet pump. Disconnect retires gameplay
+authority; bounded server transfers open fresh play generations. Canvas input enters the same
+semantic router. Native pacing, processes, signing, disk caches and menu services remain native.
+Renderer, geometry, UI preparation and retired snapshots use bounded browser job slots.
+Pending cloud windows yield until their exact geometry is ready. WebGPU reports allocation
+errors asynchronously; recoverable browser GPU exhaustion remains incomplete.
+
+The optional sound bank uses bounded, cancellable HTTP ranges pinned to a strong ETag.
+The existing decoder and mixer feed Web Audio. Headless Chrome with Metal WebGPU fetches
+encoded ranges, plays nonzero game samples after a canvas gesture, suspends on cached
+navigation, resumes on another gesture and closes its stream once on final disposal.
+Native owner checks and a wasm artifact pass. The host boots, renders an offline world's
+terrain and HUD, and moves its player. WebSocket transfer, disconnect and rejoin pass.
+Incomplete: interactive inventory/chat/forms controls, initial terrain latency, shader output
+comparisons, audio parity and indivisible job costs remain unverified. Cached navigation retains
+page resources and restores relay controls with an unexpired capability. No browser release
+or parity gate closes here.
+
+The browser account adapter projects device-code prompts, refusals and identity into the shared
+menu. External services expose account intents and preference changes without native helper
+launches. Browser preferences bound saved servers and GUI scale; storage failures are reported.
+The sign-in gesture bridge validates links and removes listeners on teardown. Wiring these
+menu, gesture and persistence handoffs into the running browser host remains incomplete.
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
 Memory startup requires the same bounded item-glint artwork as native startup. Cached
 navigation retains page resources and restores relay controls with an unexpired capability.
@@ -7977,6 +8002,24 @@ apply the selected mode to existing worlds. The local-world parity gate remains 
 
 ## Phase 8 — Audio, polish, packaging
 
+**Optional mod updates:** Components can declare a GitHub latest-release WASM URL
+for automatic background updates, or a repository URL for notifications alone.
+The launch-scoped worker compares stable SemVer tags, caches repository checks,
+and bounds API responses, asset downloads and redirects. Exact assets require a
+verified SHA-256, matching embedded version/source and host compatibility before
+atomic replacement of an unchanged managed file. Settings and grants persist;
+the existing watcher reloads enabled mods. Separate General settings disable
+automatic installation or all mod checks, including in passive app-updater builds.
+The per-mod Update button downloads and installs the exact WASM in-app when
+automatic installation is off. Pack-compatible progress reports bytes, percentage,
+smoothed speed and ETA, then verification, installation and reload. Reload completes
+only on the new runtime acknowledgement; duplicate presses are rejected and failures
+can be retried without changing the automatic preference.
+Regressions cover metadata, versions, cancellation, stale sources, download
+integrity and unchanged permissions/settings. Offline home and Mods-tab captures
+pass at desktop and small window sizes; live automatic-update acceptance remains
+incomplete.
+
 **Rain ambience:** completed weather ticks now admit overlapping finite rain
 sounds from loaded warm precipitation columns. Sample density follows rain
 strength and the graphics setting; sheltered rain uses reduced volume and pitch.
@@ -10296,7 +10339,13 @@ vertex counts. Masks draw admitted body and equipment meshes with the scene's po
 material coverage. Depth-tested coverage is filtered before post effects; always-visible
 coverage needs separate through-wall authority. Unfiltered target lookup requires explicit
 observation and through-wall consent until a visibility-filtered target source exists.
-Incomplete: outline/glow composition, rendered-frame acceptance and hardware budget captures.
+Bounded host outlines and shared downsampled halos compose display-space colours after grading,
+independently of world bloom. Loading waits for the shared blur and both scene-format composites,
+even before a selection is published. Styles retain bindings for both scene textures until
+their coverage, halo, sampler or scene inputs change. Custom post effects declare only their
+owner's masks and need separate post authority. Incomplete: in-world Enhanced bloom on/off,
+hand/UI ordering acceptance, resolution-transition captures and hardware budget measurements.
+Offscreen tests do not close those live or performance gates.
 
 The Rust SDK builds retained wireframe boxes, circles, three-ring spheres, arrows,
 polylines, distance-based color gradients, grids and chunk borders directly in the

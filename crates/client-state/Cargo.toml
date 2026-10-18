@@ -6,11 +6,13 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-rich-presence = { path = "../rich-presence" }
 bevy.workspace = true
 player-state = { path = "../player-state" }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rich-presence = { path = "../rich-presence" }
 
 [lints]
 workspace = true

@@ -7,6 +7,8 @@ use assets::RuntimeAudioPcm;
 use bevy::prelude::{MessageReader, NonSendMut, ResMut, Resource};
 use std::sync::Arc;
 mod backend;
+#[cfg(target_arch = "wasm32")]
+pub use backend::BrowserAudio;
 pub use backend::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
 use backend::{CancelablePcm, PermitPool, VOICE_LIMIT, VoiceControl};
 

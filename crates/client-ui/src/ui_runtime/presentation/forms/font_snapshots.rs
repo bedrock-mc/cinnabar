@@ -22,7 +22,7 @@ fn compact_font_snapshots() {
     let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
         "../../../../../../assets/cinnangles-sans-source.json"
     ));
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => {

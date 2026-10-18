@@ -5,7 +5,7 @@ use crate::{
     negotiation::{Grant, Hello, Pending, VerifiedOffer},
     policy::*,
     rate_limit::RateLimit,
-    trust::{Choice, Decision, Settings},
+    trust::{Decision, Settings},
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
