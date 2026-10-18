@@ -84,6 +84,11 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
     );
     flags.set(ShapeFlags::AIR, traits.contains(BlockTraits::AIR));
     flags.set(
+        ShapeFlags::GRASS_OFFSET,
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::GrassCross,
+    );
+    flags.set(
         ShapeFlags::HIDE_OVERLAY,
         shapes.contains(ShapeTraits::END_GATEWAY),
     );
@@ -115,6 +120,7 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
     let mut pick_rule = pick_rule(record, shapes);
     let selection = (pick_rule == PickRule::Never)
         .then(|| Box::new([]) as Box<[ShapeBox]>)
+        .or_else(|| plants::shelf_selection(record, shapes, input))
         .or_else(|| hopper::selection(record))
         .or_else(|| vessels::selection(record))
         .or_else(|| stairs::selection(record))

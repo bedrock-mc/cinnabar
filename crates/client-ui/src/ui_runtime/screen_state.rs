@@ -46,9 +46,8 @@ pub struct ScreenState {
     pub mount_equipment: assets::entity::mount::MountEquipment,
     /// An explicit layout choice; otherwise the current game mode selects its default.
     pub book_open: Option<bool>,
-    pub furnace_book_open: bool,
-    /// Furnace tabs have their own food/items/blocks/search indexes.
-    pub furnace_tab: Option<u8>,
+    /// Preferences owned by the open furnace controller, independent of later server updates.
+    pub furnace: Option<protocol::FurnaceOptions>,
     /// Creative's wide list stands in for its recipe book layout.
     pub creative_wide: bool,
     /// The recipe book's filter toggle, once flipped on this screen.
@@ -114,6 +113,11 @@ impl ScreenState {
         };
     }
 
+    /// Whether the retained input state belongs to this window generation.
+    pub(super) fn observes_window(&self, generation: Option<u64>) -> bool {
+        self.window == generation
+    }
+
     /// Clears per-window choices when a different window becomes current.
     pub fn observe_window(&mut self, generation: Option<u64>) {
         if self.window != generation {
@@ -123,7 +127,7 @@ impl ScreenState {
             self.beacon = (0, 0);
             self.search_focused = false;
             self.recipe_choice = None;
-            self.furnace_tab = None;
+            self.furnace = None;
             self.loom_pattern = None;
             self.loom_row = 0;
             self.anvil_name.clear();

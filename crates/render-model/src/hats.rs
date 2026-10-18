@@ -24,9 +24,14 @@ pub struct HatRig {
     head: usize,
     offset: [f32; 3],
     wind: Option<cosmetics_animation::Wind>,
+    playback: Option<cosmetics_animation::Playback>,
     pub rest_vertices: Arc<[ActorVertex]>,
+    preview_part: u32,
+    preview_frame: std::sync::OnceLock<thumbnail::Frame>,
     pub texture: CapeImage,
     pub pixels: SkinRgba8,
+    world_pixels: Option<SkinRgba8>,
+    emitters: Box<[emitters::CosmeticEmitter]>,
 }
 
 static RIGS: RwLock<Vec<(Item, &'static HatRig)>> = RwLock::new(Vec::new());
@@ -88,7 +93,7 @@ impl HatRig {
     pub fn pose(
         &self,
         mut attachment: RenderBoneTransform,
-        bend: f32,
+        motion: Motion,
     ) -> Arc<[RenderBoneTransform]> {
         let rotation = Quat::from_array(attachment.rotation);
         let scale = Vec3::from_array(
@@ -97,19 +102,47 @@ impl HatRig {
         let position = Vec3::from_slice(&attachment.translation_scale[..3])
             + rotation * (Vec3::from_array(self.offset) * scale);
         attachment.translation_scale[..3].copy_from_slice(&position.to_array());
+        let curvature = self
+            .playback
+            .as_ref()
+            .map_or(0.0, |clip| clip.curvature(motion.seconds));
         let mut poses: Vec<RenderBoneTransform> = Vec::with_capacity(self.parents.len());
         for index in 0..self.parents.len() {
             let mut pose = attachment;
             if index == self.head {
-                pose.rotation = (rotation * self.rest_rotations[index]).to_array();
+                let delta = self
+                    .playback
+                    .as_ref()
+                    .map_or(Vec3::ZERO, |clip| clip.translation(index, motion.seconds));
+                let position = position + rotation * (delta * scale);
+                pose.translation_scale[..3].copy_from_slice(&position.to_array());
+                pose.rotation = (rotation
+                    * self.rest_rotations[index]
+                    * self
+                        .playback
+                        .as_ref()
+                        .map_or(Quat::IDENTITY, |clip| clip.rotation(index, motion.seconds)))
+                .to_array();
             }
             if index != self.head {
                 let parent = self.parents[index].expect("admitted attachment parent");
                 let parent_pose = poses[parent];
                 let offset = Vec3::from_array(self.geometry.bone_pivots[index])
                     - Vec3::from_array(self.geometry.bone_pivots[parent]);
+                let (delta, span_rotation) = self
+                    .playback
+                    .as_ref()
+                    .map_or((Vec3::ZERO, Quat::IDENTITY), |clip| {
+                        clip.span(index, curvature)
+                    });
                 let position = Vec3::from_slice(&parent_pose.translation_scale[..3])
-                    + Quat::from_array(parent_pose.rotation) * (offset * scale);
+                    + Quat::from_array(parent_pose.rotation)
+                        * ((offset
+                            + delta
+                            + self.playback.as_ref().map_or(Vec3::ZERO, |clip| {
+                                clip.translation(index, motion.seconds)
+                            }))
+                            * scale);
                 pose.translation_scale[..3].copy_from_slice(&position.to_array());
                 let axis = self
                     .wind
@@ -121,8 +154,16 @@ impl HatRig {
                     });
                 pose.rotation = (Quat::from_array(parent_pose.rotation)
                     * self.rest_rotations[index]
-                    * Quat::from_axis_angle(axis, bend * (self.flex[index] - self.flex[parent])))
-                .to_array();
+                    * Quat::from_axis_angle(
+                        axis,
+                        motion.bend * (self.flex[index] - self.flex[parent]),
+                    )
+                    * self
+                        .playback
+                        .as_ref()
+                        .map_or(Quat::IDENTITY, |clip| clip.rotation(index, motion.seconds))
+                    * span_rotation)
+                    .to_array();
             }
             poses.push(pose);
         }
@@ -170,9 +211,28 @@ impl EarWind {
     }
 }
 
+/// Evaluated cosmetic motion shared by world and HUD renderers.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Motion {
+    pub bend: f32,
+    pub seconds: f32,
+}
+impl Motion {
+    /// Advances caller-owned playback time; invalid frame deltas leave the phase unchanged.
+    pub fn advance(&mut self, item: Item, seconds: f32) {
+        self.seconds = match &rig(item).playback {
+            Some(clip) if seconds.is_finite() && seconds > 0.0 => {
+                clip.normalize(f64::from(self.seconds) + f64::from(seconds))
+            }
+            Some(_) => self.seconds,
+            None => 0.0,
+        };
+    }
+}
+
 #[derive(Default)]
 pub struct HatPoseCache {
-    key: Option<(Item, RenderBoneTransform, f32)>,
+    key: Option<(Item, RenderBoneTransform, Motion)>,
     pose: Arc<[RenderBoneTransform]>,
 }
 impl HatPoseCache {
@@ -181,22 +241,45 @@ impl HatPoseCache {
         &mut self,
         item: Item,
         head: RenderBoneTransform,
-        bend: f32,
+        mut motion: Motion,
     ) -> Arc<[RenderBoneTransform]> {
-        let bend = if rig(item).bends_in_wind() { bend } else { 0.0 };
-        let key = (item, head, bend);
+        let model = rig(item);
+        if !model.bends_in_wind() || !motion.bend.is_finite() {
+            motion.bend = 0.0;
+        }
+        motion.seconds = model
+            .playback
+            .as_ref()
+            .filter(|_| motion.seconds.is_finite())
+            .map_or(0.0, |clip| clip.normalize(f64::from(motion.seconds)));
+        let key = (item, head, motion);
         if self.key != Some(key) {
-            self.pose = rig(item).pose(head, bend);
+            self.pose = model.pose(head, motion);
             self.key = Some(key);
         }
         self.pose.clone()
     }
 }
 
+#[cfg(test)]
+mod animation_tests;
+#[cfg(test)]
+mod catalog_tests;
+mod clip_playback;
 mod cosmetics_animation;
+#[cfg(test)]
+mod emitter_tests;
+mod emitters;
+pub use emitters::{
+    COSMETIC_EFFECT_NAMESPACE, COSMETIC_PARTICLE_TEXTURE, COSMETIC_SPRITE_SIDE, CosmeticEmitter,
+    CosmeticSprite, MAX_COSMETIC_EMITTERS,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture;
+#[cfg(test)]
+mod flight_tests;
 mod model;
+mod preview;
 #[cfg(test)]
 mod tests;
 pub mod thumbnail;

@@ -657,6 +657,11 @@ fn append_dialog(
                 .unwrap_or(MenuAction::DismissDialog),
         ),
         MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
+        MenuDialog::Notice => (
+            launcher::PRODUCT_NAME,
+            view.message.as_deref().unwrap_or_default(),
+            MenuAction::DismissDialog,
+        ),
         MenuDialog::DeathQuit => (
             "Quit to Main Menu?",
             "Are you sure you want to exit the game to the main menu?",

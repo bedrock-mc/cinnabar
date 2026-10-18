@@ -1106,7 +1106,7 @@ fn open_personal_inventory(player_runtime: &mut PlayerRuntime, runtime: &mut UiR
     runtime
         .publish_local_runtime_id(player_runtime, runtime.session_id(), 42)
         .unwrap();
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(
         runtime
@@ -1149,15 +1149,15 @@ fn partial_content(first: NetworkItemStack) -> InventoryEvent {
     })
 }
 
+/// Restates the held cursor through the fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 

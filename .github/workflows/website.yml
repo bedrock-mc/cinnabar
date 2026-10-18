@@ -8,6 +8,7 @@ on:
       - 'assets/branding/title.png'
       - 'packaging/icons/cinnabar.svg'
       - 'packaging/release-assets.json'
+      - 'crates/bridge/data/contract.json'
       - '.github/workflows/website.yml'
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - 'assets/branding/title.png'
       - 'packaging/icons/cinnabar.svg'
       - 'packaging/release-assets.json'
+      - 'crates/bridge/data/contract.json'
       - '.github/workflows/website.yml'
   workflow_dispatch:
 
@@ -40,7 +42,7 @@ jobs:
       - name: Test website and deployment boundary
         run: |
           python3 website/render.py
-          node --test website/tests/app.test.cjs
+          node --test website/tests/*.test.cjs
           python3 -m unittest discover -s website/tests -p 'test_*.py' -v
       - name: Validate the Cloudflare configuration
         working-directory: website

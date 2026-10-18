@@ -44,6 +44,7 @@ pub(crate) fn advance_local_physics(
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
+    movement_effects.begin_frame();
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
     }

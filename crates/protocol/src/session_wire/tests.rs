@@ -1,3 +1,4 @@
+mod bulk;
 mod cache;
 
 use bytes::{Buf, Bytes, BytesMut};
@@ -228,6 +229,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 content_key: PackContentKey("secret-key".into()),
                 size,
                 cache: None,
+                sha256: None,
             })
             .collect(),
         ..SessionHandoff::default()
@@ -327,4 +329,25 @@ fn server_encoding_matches_the_core_stream_fixture() {
         CONNECT_FIXTURE
     );
     assert!(decode_connect(b"\x01{\"client_data\":null}").is_err());
+}
+
+/// Receiver admission checks every declaration before reading cache files or archive bytes.
+#[test]
+fn pack_receiver_rejects_unadmitted_declarations() {
+    use bridge::contract::{MAX_PACK_ARCHIVE_BYTES, MAX_SELECTED_PACK_BYTES, MAX_SELECTED_PACKS};
+    for sizes in [
+        vec![0; MAX_SELECTED_PACKS + 1],
+        vec![MAX_PACK_ARCHIVE_BYTES as u64 + 1],
+        vec![
+            MAX_PACK_ARCHIVE_BYTES as u64,
+            MAX_PACK_ARCHIVE_BYTES as u64,
+            1,
+        ],
+        vec![u64::MAX],
+    ] {
+        assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_err());
+    }
+    let sizes = [MAX_PACK_ARCHIVE_BYTES as u64; 2];
+    assert_eq!(sizes.iter().sum::<u64>(), MAX_SELECTED_PACK_BYTES as u64);
+    assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_ok());
 }

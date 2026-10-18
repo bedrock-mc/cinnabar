@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn item_use_progress_preserves_the_negotiated_item_payload_without_a_position() {
+    for (item_id, auxiliary) in [(300, 5), (-32768, 0), (12, -1)] {
+        let packet = item_use_progress_packet(42, item_id, auxiliary);
+        let bedrock_protocol_1_26_51::packets::Packet::ActorEvent(event) = &*packet.data else {
+            panic!("expected actor event");
+        };
+        assert_eq!(event.target_runtime_id.0, 42);
+        assert_eq!(
+            event.event_id,
+            bedrock_protocol_1_26_51::enums::ActorEventType::Feed
+        );
+        let expected = match (item_id, auxiliary) {
+            (300, 5) => 19_660_805,
+            (-32768, 0) => i32::MIN,
+            _ => -1,
+        };
+        assert_eq!(event.data.0, expected);
+        assert!(event.fire_at_position.is_none());
+    }
+}
+
+#[test]
 fn server_animation_preserves_transition_expression_version_and_blend() {
     let packet = AnimateEntityPacket {
         m_animation: "animation.fixture.kill".into(),

@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["protocol/test-support", "render-model/test-support"]
+test-support = ["protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
 
 [dependencies]
 cosmetics = { path = "../../crates/cosmetics" }
@@ -15,10 +15,12 @@ image.workspace = true
 inventory = { path = "../../crates/inventory" }
 json-ui = { path = "../../crates/json-ui" }
 jsonui-editor = { path = "../jsonui-editor" }
+bridge = { path = "../../crates/bridge" }
 launcher = { path = "../../crates/launcher" }
 oreui = { path = "../../crates/oreui" }
 player-state = { path = "../../crates/player-state" }
 protocol = { path = "../../crates/protocol" }
+render-api = { path = "../../crates/render-api" }
 render-model = { path = "../../crates/render-model" }
 serde_json = "1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

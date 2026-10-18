@@ -68,7 +68,7 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
     let table = render_model::LightmapInputs::default()
         .build()
         .map(|_| [1.0_f32; 4]);
-    let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
     let mut failures = Vec::new();
     for face in Face::ALL {
         // The ordinary top duplicates its reverse; sides do so only

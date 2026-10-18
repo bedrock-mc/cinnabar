@@ -248,6 +248,7 @@ impl PlayerInventoryLedger {
             cell: Cell::CreatedOutput,
             held: Held {
                 source_stack_id: Some(created.stack_network_id),
+                source_origin: None,
                 stack: created,
                 overlay: None,
                 acknowledged_request_id: None,

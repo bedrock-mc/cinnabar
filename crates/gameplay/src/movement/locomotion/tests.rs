@@ -196,7 +196,7 @@ impl CollisionWorld for Unavailable {
 fn review_failed_mode_selection_retains_the_server_flight_clear() {
     let mut tracker = ModeTracker {
         mode: MovementMode::Flying,
-        last_server_flying: true,
+        last_flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         ..ModeTracker::default()
     };
     let intent = ModeIntent {
@@ -266,7 +266,7 @@ fn every_ability_update_overwrites_local_flight() {
     let mut tracker = ModeTracker::default();
     let update = |sequence, server_flying| ModeIntent {
         can_fly: true,
-        server_flying,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(server_flying),
         ability_sequence: Some(sequence),
         ..ModeIntent::default()
     };
@@ -306,7 +306,7 @@ fn server_set_flight_starts_on_its_edge_and_survives_the_ground() {
     let mut tracker = ModeTracker::default();
     let server = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         ..ModeIntent::default()
     };
     let landed = ModeObservation {

@@ -523,6 +523,7 @@ impl PlayerInventoryLedger {
             placements: Vec::new(),
             mining: None,
             world_drop: None,
+            consumed_after: Vec::new(),
         });
         Ok(request_id)
     }

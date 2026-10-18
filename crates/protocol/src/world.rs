@@ -55,7 +55,7 @@ pub use self::clocks::{
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
     CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
-    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
     CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
@@ -445,7 +445,16 @@ world_packets! {
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
+    ContainerRegistryCleanup(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_container_registry_cleanup(packet)?)
+    },
     ContainerSetData(packet) => WorldEvent::Inventory(normalize_container_data(packet)?),
+    SetPlayerFurnaceOptions(packet) => {
+        let Some(event) = crate::inventory::normalize_furnace_options(packet) else {
+            return Ok(None);
+        };
+        WorldEvent::Inventory(event)
+    },
     PlayerEnchantOptions(packet) => {
         WorldEvent::Inventory(crate::inventory::normalize_enchant_options(packet)?)
     },
