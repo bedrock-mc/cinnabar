@@ -141,3 +141,39 @@ fn duplicate_endpoints_and_corners_render_the_same_caps_and_joins() {
         }
     }
 }
+
+#[test]
+fn short_reversing_polylines_keep_joins_within_the_stroke_bounds() {
+    let Some(gpu) = Gpu::for_fixture("retained polyline reversal bounds") else {
+        return;
+    };
+    let blend = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
+    for join in [0., 1., 2.] {
+        for sign in [1., -1.] {
+            for end in [[-0.5, 0.01 * sign, 0.5], [-0.1, 0.002 * sign, 0.5]] {
+                let pixels = line(&gpu, &[[-0.5, 0., 0.5], [0., 0., 0.5], end], join, blend);
+                if join == 0. && sign > 0. && end[0] == -0.5 {
+                    gpu_snapshot::save("retained-polyline-reversal", &pixels);
+                }
+                let clear = pixel(&pixels, 0, 0);
+                let max_x = if join == 1. { 168 } else { 138 };
+                assert_ne!(
+                    pixel(&pixels, 100, 128),
+                    clear,
+                    "stroke must remain visible"
+                );
+                for y in 0..SNAPSHOT_SIDE as usize {
+                    for x in 0..SNAPSHOT_SIDE as usize {
+                        if !(54..=max_x).contains(&x) || !(116..=140).contains(&y) {
+                            assert_eq!(
+                                pixel(&pixels, x, y),
+                                clear,
+                                "join escaped the segment bounds: join={join}, sign={sign}, end={end:?}, pixel=({x},{y})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

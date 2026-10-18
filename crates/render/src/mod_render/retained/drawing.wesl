@@ -45,6 +45,14 @@ fn miter(n0: vec2<f32>, n1: vec2<f32>, bounded: bool) -> vec2<f32> {
     if bounded { extent = min(MITER_LIMIT, extent); }
     return bisector * extent;
 }
+/// Keeps the inner intersection within both adjacent clipped segment lengths.
+fn inner_miter(n0: vec2<f32>, n1: vec2<f32>, lengths: vec2<f32>, radius: f32) -> vec2<f32> {
+    let corner = miter(n0,n1,false);
+    let advance = abs(n0.x*corner.y-n0.y*corner.x)*radius;
+    // Projected coordinates span twice the pixel distance used by the stroke radius.
+    let available = min(lengths.x,lengths.y)*0.5;
+    return corner * min(1.0,available/max(advance,1e-5));
+}
 @vertex
 fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_index: u32) -> Output {
     let vertex = vertices[index]; let instance = instances[instance_index];
@@ -60,6 +68,9 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
     let tangent = direction(pa, pb); let normal = vec2<f32>(tangent.y, -tangent.x);
     let endpoint = vertex.shape.y;
     var center = mix(pair.a, pair.b, endpoint);
+    var radius = instance.line.x * 0.5;
+    if instance.line.y < 0.5 { radius = radius * abs(view.clip_from_view[1][1]) * viewport.y * 0.5 / center.w; }
+    radius = min(radius, max(viewport.x,viewport.y));
     var offset = normal * vertex.shape.z;
     let t = mix(pair.ta, pair.tb, endpoint);
     output.color = mix(vertex.color_a, vertex.color_b, t) * instance.tint;
@@ -70,7 +81,9 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
             var neighbor = clip_pair(c, a);
             if endpoint > 0.5 { neighbor = clip_pair(b, c); }
             if neighbor.valid {
-                let other = direction(neighbor.a.xy/neighbor.a.w*viewport, neighbor.b.xy/neighbor.b.w*viewport);
+                let neighbor_a = neighbor.a.xy/neighbor.a.w*viewport;
+                let neighbor_b = neighbor.b.xy/neighbor.b.w*viewport;
+                let other = direction(neighbor_a, neighbor_b);
                 var incoming = other; var outgoing = tangent;
                 if endpoint > 0.5 { incoming = tangent; outgoing = other; }
                 let turn = incoming.x*outgoing.y-incoming.y*outgoing.x;
@@ -78,7 +91,7 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
                 if vertex.shape.z*side < 0.0 {
                     let n0 = vec2<f32>(incoming.y,-incoming.x)*side;
                     let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
-                    offset = -miter(n0,n1,false);
+                    offset = -inner_miter(n0,n1,vec2<f32>(length(pb-pa),length(neighbor_b-neighbor_a)),radius);
                 }
             }
         }
@@ -94,12 +107,13 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
         let c = clip_position(instance, vertex.c.xyz); let next = clip_pair(b, c);
         if !next.valid { return output; }
         center = b;
-        let outgoing = direction(b.xy/b.w*viewport, next.b.xy/next.b.w*viewport);
+        let next_b = next.b.xy/next.b.w*viewport;
+        let outgoing = direction(pb, next_b);
         let turn = tangent.x*outgoing.y-tangent.y*outgoing.x;
         let side = select(-1.0, 1.0, turn >= 0.0);
         let n0 = normal*side; let n1 = vec2<f32>(outgoing.y,-outgoing.x)*side;
         // Both segment quads end at this inner corner; the fan owns the remaining wedge.
-        offset = -miter(n0,n1,false);
+        offset = -inner_miter(n0,n1,vec2<f32>(length(pb-pa),length(next_b-pb)),radius);
         if vertex.shape.z >= 0.0 {
             let phase = vertex.shape.z;
             if instance.line.z > 1.5 {
@@ -112,9 +126,6 @@ fn vertex(@builtin(vertex_index) index: u32, @builtin(instance_index) instance_i
         }
         output.color = vertex.color_b*instance.tint;
     }
-    var radius = instance.line.x * 0.5;
-    if instance.line.y < 0.5 { radius = radius * abs(view.clip_from_view[1][1]) * viewport.y * 0.5 / center.w; }
-    radius = min(radius, max(viewport.x,viewport.y));
     output.position = vec4<f32>(center.xy + offset * radius * 2.0 / viewport * center.w, center.zw);
     return output;
 }
