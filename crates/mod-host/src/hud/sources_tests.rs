@@ -338,25 +338,28 @@ fn native_health_is_granted_session_fenced_and_does_not_accumulate_labels() {
         .player_state
         .observations
         .actors
-        .push(crate::ActorObservation {
-            session: 1,
-            dimension: 0,
-            runtime_id: 1,
-            player: false,
-            position: (1., 64., 2.),
-            boxes: Vec::new(),
-            name: "Offline actor".into(),
-            identifier: String::new(),
-            yaw: 0.,
-            pitch: 0.,
-            pickable: true,
-            hittable: None,
-            look_origin: None,
-            look_direction: None,
-            invisible: false,
-            sneaking: false,
-            hurt: false,
-            health: Some(20.),
+        .push(crate::ObservedActor {
+            actor: crate::ActorObservation {
+                session: 1,
+                dimension: 0,
+                runtime_id: 1,
+                player: false,
+                position: (1., 64., 2.),
+                boxes: Vec::new(),
+                name: "Offline actor".into(),
+                identifier: String::new(),
+                yaw: 0.,
+                pitch: 0.,
+                pickable: true,
+                hittable: None,
+                look_origin: None,
+                look_direction: None,
+                invisible: false,
+                sneaking: false,
+                hurt: false,
+                health: Some(20.),
+            },
+            max_health: Some(40.),
         });
     for _ in 0..3 {
         sources::refresh(&mut state);
@@ -366,7 +369,13 @@ fn native_health_is_granted_session_fenced_and_does_not_accumulate_labels() {
         assert_eq!(hud.world_labels[0].text, "20 HP");
         assert!(state.hud.content.as_ref().unwrap().world_labels.is_empty());
     }
-    state.player_state.observations.actors[0].session = 2;
+    state.player_state.observations.actors[0].actor.health = Some(12.);
+    sources::refresh(&mut state);
+    assert_eq!(
+        state.hud.resolved.as_ref().unwrap().world_labels[0].text,
+        "12 HP"
+    );
+    state.player_state.observations.actors[0].actor.session = 2;
     sources::refresh(&mut state);
     assert!(state.hud.resolved.as_ref().unwrap().world_labels.is_empty());
 }

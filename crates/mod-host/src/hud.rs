@@ -31,7 +31,7 @@ pub(super) struct HudState {
     source_sidebar: Option<crate::SidebarSnapshot>,
     sources_dirty: bool,
     pub(super) resolved: Option<Hud>,
-    source_actors: Vec<crate::ActorObservation>,
+    source_actors: Vec<crate::ObservedActor>,
     source_world: Option<crate::WorldObservation>,
     source_motion: Option<crate::MotionObservation>,
     source_clock: Option<clock::LocalMinute>,

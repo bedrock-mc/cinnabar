@@ -17,7 +17,8 @@ pub(in super::super) fn update(state: &mut State) {
             .and_then(|hud| hud.actor_bounds.as_ref())
         && let Some(world) = &state.player_state.world
     {
-        for actor in &state.player_state.observations.actors {
+        for observed in &state.player_state.observations.actors {
+            let actor = &observed.actor;
             if actor.session != world.session
                 || actor.dimension != world.dimension
                 || actor.invisible

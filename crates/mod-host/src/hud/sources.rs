@@ -151,14 +151,15 @@ pub(super) fn refresh_with_clock(state: &mut State, clock: Option<super::clock::
 /// Projects only admitted current-session actors, leaving authored labels in their own slots.
 pub(super) fn hydrate_health(
     hud: &mut Hud,
-    actors: &[crate::ActorObservation],
+    actors: &[crate::ObservedActor],
     world: Option<&crate::WorldObservation>,
 ) {
     let Some(style) = hud.actor_health.take() else {
         return;
     };
     let Some(world) = world else { return };
-    for actor in actors.iter().take(mod_api::MAX_OBSERVED_ACTORS) {
+    for observed in actors.iter().take(mod_api::MAX_OBSERVED_ACTORS) {
+        let actor = &observed.actor;
         if actor.session != world.session
             || actor.dimension != world.dimension
             || actor.invisible
