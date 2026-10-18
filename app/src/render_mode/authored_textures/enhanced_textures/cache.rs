@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 use super::{LOW_PBR_TILE_SIZE, Source};
 
 const CACHE_PATH: &str = ".local/enhanced-pbr.cache";
-// Includes inherited atlas tints, opacity-weighted resizing and aligned height detail.
-const MAGIC: &[u8; 8] = b"CINPBR15";
+// Includes unclamped signed normal filtering and opacity-weighted resizing.
+const MAGIC: &[u8; 8] = b"CINPBR16";
 const MAX_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 static OVERSIZED_CACHE_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -529,6 +529,32 @@ mod tests {
             assets::texture::PBR_REF_COLOR | 1
         );
         assert_eq!(maps.material_reference(3, texture), u32::MAX);
+    }
+
+    #[test]
+    fn cache_rejects_mips_from_clamped_signed_normal_filtering() {
+        let key = [7; 32];
+        let mut bytes = Vec::new();
+        encode(&mut bytes, &key, &payload(1, 1)).unwrap();
+        assert!(
+            decode(
+                &mut bytes.as_slice(),
+                bytes.len() as u64,
+                &key,
+                MAX_CACHE_BYTES
+            )
+            .is_some()
+        );
+        bytes[..MAGIC.len()].copy_from_slice(b"CINPBR15");
+        assert!(
+            decode(
+                &mut bytes.as_slice(),
+                bytes.len() as u64,
+                &key,
+                MAX_CACHE_BYTES
+            )
+            .is_none()
+        );
     }
 
     #[test]
