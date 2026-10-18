@@ -228,8 +228,7 @@ pub(super) fn run(
                 error,
                 reload,
             }) => {
-                statuses.retain(|status| status.component != component);
-                statuses.push(Status::new(component, "error", Some(error), Some(reload)));
+                status::record_trap(&mut statuses, component, error, reload);
                 let _ = status::write_json(
                     &directory.join(STATUS_FILE),
                     &StatusList::new(request_id.clone(), statuses.clone()),
