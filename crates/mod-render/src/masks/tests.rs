@@ -146,7 +146,7 @@ fn hidden_lookup_and_always_depth_fail_closed_independently() {
 
 #[test]
 fn attachment_accounting_includes_resolve_and_all_samples() {
-    assert_eq!(attachment_bytes(1920, 1080, 1), Some(1920 * 1080 * 4));
-    assert_eq!(attachment_bytes(1920, 1080, 4), Some(1920 * 1080 * 4 * 5));
+    assert_eq!(attachment_bytes(1920, 1080, 1), Some(1920 * 1080 * 4 * 2));
+    assert_eq!(attachment_bytes(1920, 1080, 4), Some(1920 * 1080 * 4 * 9));
     assert_eq!(attachment_bytes(u32::MAX, u32::MAX, u32::MAX), None);
 }

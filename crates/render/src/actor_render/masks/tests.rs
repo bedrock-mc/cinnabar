@@ -2,6 +2,76 @@ use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
 
 #[test]
+fn mask_selection_keeps_the_dissolve_companion() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 20], 1);
+    let instances = std::sync::Arc::make_mut(&mut frame.rig.instances);
+    instances[0].material = assets::EntityRenderMaterial::DissolveDepth as u32;
+    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let manifest = std::sync::Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity = render_model::ActorRenderIdentity {
+        layer: 1,
+        ..manifest[0].identity
+    };
+    draw_frame(&mut app, &frame);
+    let identity = frame.rig.manifest[0].identity;
+    let mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        depth: MaskDepth::Always,
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
+    assert_eq!(
+        spans.len(),
+        2,
+        "the color layer needs its rejecting depth companion"
+    );
+}
+
+#[test]
+fn mask_dissolve_prepass_writes_only_private_depth() {
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        for depth in [MaskDepth::Test, MaskDepth::Always] {
+            let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+            MaskSpecializer
+                .specialize(
+                    Key {
+                        actor: ActorPipelineKey {
+                            msaa,
+                            hdr: false,
+                            enhanced: false,
+                            material: assets::EntityRenderMaterial::DissolveDepth as u32,
+                        },
+                        depth,
+                    },
+                    &mut descriptor,
+                )
+                .unwrap();
+            assert_eq!(
+                descriptor.depth_stencil.unwrap().depth_write_enabled,
+                Some(true)
+            );
+            assert!(descriptor.fragment.unwrap().targets.is_empty());
+        }
+    }
+}
+
+#[test]
 fn actor_only_renderer_draws_without_a_mod_scene() {
     let mut app = fixture();
     assert!(
@@ -143,7 +213,13 @@ fn production_mask_shaders_validate_for_opaque_blended_and_msaa_cutout_coverage(
             "ACTOR_RIG_VERTEX_WORDS",
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
-    for defines in [vec![], vec!["MASK_BLEND"], vec!["ALPHA_TO_COVERAGE"]] {
+    for defines in [
+        vec![],
+        vec!["MASK_BLEND"],
+        vec!["ALPHA_TO_COVERAGE"],
+        vec!["MASK_DISSOLVE"],
+        vec!["MASK_DISSOLVE", "MASK_DISSOLVE_MSAA"],
+    ] {
         let source = crate::shader_source::standalone_prepared(&source, &defines);
         let module = naga::front::wgsl::parse_str(&source).unwrap();
         naga::valid::Validator::new(
@@ -243,6 +319,87 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
         "blended coverage must remain fractional: {:?}",
         &pixels[middle..middle + 4]
     );
+}
+
+#[test]
+fn actor_mask_pixels_preserve_dissolve_rejection() {
+    use crate::{
+        actor_raster,
+        gpu_snapshot::{self, Gpu, RasterState, SNAPSHOT_SIDE},
+    };
+    let Some(gpu) = Gpu::for_fixture_with_limits(
+        "actor mask dissolve rejection",
+        wgpu::Features::empty(),
+        wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+    ) else {
+        return;
+    };
+    let vertices = actor_raster::cube([16; 3], true, false);
+    let middle = ((SNAPSHOT_SIDE / 2 * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) * 4) as usize;
+    let mut failures = Vec::new();
+    for samples in [1, 4] {
+        for depth in [MaskDepth::Test, MaskDepth::Always] {
+            for (alpha, multiplier, retained) in [
+                (255, 0.0, false),
+                (255, 0.49, false),
+                (255, 0.5, true),
+                (128, 1.0, true),
+                (127, 2.0, false),
+            ] {
+                let pixels = actor_raster::raster_material_with_state(
+                    &gpu,
+                    &vertices,
+                    render_model::ActorMaterial {
+                        kind: assets::EntityRenderMaterial::DissolveColor,
+                        // The companion, rather than this independent parameter, owns rejection.
+                        dissolve_multiplier: 0.0,
+                        ..Default::default()
+                    },
+                    false,
+                    [[255, 255, 255, alpha]; 2],
+                    false,
+                    false,
+                    render_model::pack_actor_light(15, 15),
+                    0,
+                    0,
+                    &[],
+                    RasterState {
+                        actor_fragment: Some("actor_mask_fragment"),
+                        actor_companion: Some(render_model::ActorMaterial {
+                            kind: assets::EntityRenderMaterial::DissolveDepth,
+                            dissolve_multiplier: multiplier,
+                            ..Default::default()
+                        }),
+                        depth_compare: if depth == MaskDepth::Test {
+                            wgpu::CompareFunction::GreaterEqual
+                        } else {
+                            wgpu::CompareFunction::Always
+                        },
+                        multisample: wgpu::MultisampleState {
+                            count: samples,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                );
+                if alpha == 255 && multiplier == 0.49 {
+                    gpu_snapshot::save(&format!("mask-dissolve-{depth:?}-{samples}"), &pixels);
+                }
+                let expected = if retained {
+                    255
+                } else {
+                    (gpu_snapshot::CLEAR_COLOR.r * 255.0).round() as u8
+                };
+                if pixels[middle].abs_diff(expected) > 1 {
+                    failures.push(format!("{depth:?}, {samples} samples, alpha {alpha}, multiplier {multiplier}: {:?}", &pixels[middle..middle + 4]));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

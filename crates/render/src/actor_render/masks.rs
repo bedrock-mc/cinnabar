@@ -5,6 +5,7 @@ use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::{SubApp, SystemSet},
     render::{
+        render_resource::RenderPassDepthStencilAttachment,
         renderer::{RenderContext, ViewQuery},
         view::{ViewDepthStencilTexture, ViewTarget},
     },
@@ -12,7 +13,7 @@ use bevy::{
 use mod_api::drawing::{
     DrawingHandle, MAX_MASK_ATTACHMENT_BYTES, MAX_MASK_VERTICES, MaskDepth, MaskEntity,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub(crate) const FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
@@ -29,6 +30,29 @@ impl SpecializerKey for Key {
 
 struct MaskSpecializer;
 
+/// Binds only the private companion depth, with the view's exact sample count.
+fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "mask dissolve depth",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Depth,
+                view_dimension: TextureViewDimension::D2,
+                multisampled,
+            },
+            count: None,
+        }],
+    )
+}
+
+/// Identifies the depth-only companion independently of authored material flags.
+fn dissolve_depth(material: u32) -> bool {
+    material & assets::EntityRenderMaterialState::KIND_MASK
+        == assets::EntityRenderMaterial::DissolveDepth as u32
+}
+
 impl Specializer<RenderPipeline> for MaskSpecializer {
     type Key = Key;
 
@@ -39,6 +63,15 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Key>, BevyError> {
         let contract = ActorPipelineSpecializer.specialize(key.actor, descriptor)?;
+        if dissolve_depth(key.actor.material) {
+            descriptor
+                .depth_stencil
+                .as_mut()
+                .unwrap()
+                .depth_write_enabled = Some(true);
+            descriptor.fragment.as_mut().unwrap().targets.clear();
+            return Ok((contract, key.depth));
+        }
         let depth = descriptor.depth_stencil.as_mut().unwrap();
         depth.depth_write_enabled = Some(false);
         depth.depth_compare = Some(if key.depth == MaskDepth::Always {
@@ -48,6 +81,21 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         });
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.entry_point = Some("actor_mask_fragment".into());
+        let dissolve = key.actor.material & assets::EntityRenderMaterialState::KIND_MASK
+            == assets::EntityRenderMaterial::DissolveColor as u32;
+        if dissolve {
+            descriptor
+                .layout
+                .push(dissolve_layout(key.actor.msaa.samples() > 1));
+            fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
+                "MASK_DISSOLVE".into(),
+                true,
+            ));
+            fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
+                "MASK_DISSOLVE_MSAA".into(),
+                key.actor.msaa.samples() > 1,
+            ));
+        }
         fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
             "MASK_BLEND".into(),
             crate::actor::material::state(key.actor.material).is_some_and(|state| state.blend),
@@ -75,7 +123,9 @@ pub(crate) struct MaskTarget {
     render_view: TextureView,
     _resolved: Option<Texture>,
     pub(crate) view: TextureView,
-    draws: Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>,
+    dissolve_view: TextureView,
+    dissolve_binding: Option<BindGroup>,
+    draws: Vec<Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>>,
     frame_generation: u64,
     ready: bool,
 }
@@ -98,9 +148,22 @@ impl MaskTarget {
                 view_formats: &[],
             })
         };
-        let (texture, resolved) =
+        let (texture, resolved, dissolve) =
             gpu_allocation::checked(device, "owner actor mask", bytes, || {
-                (allocate(samples), (samples > 1).then(|| allocate(1)))
+                (
+                    allocate(samples),
+                    (samples > 1).then(|| allocate(1)),
+                    device.create_texture(&TextureDescriptor {
+                        label: Some("private mask dissolve depth"),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: samples,
+                        dimension: TextureDimension::D2,
+                        format: CORE_3D_DEPTH_FORMAT,
+                        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    }),
+                )
             })?;
         let render_view = texture.create_view(&default());
         let view = resolved.as_ref().map_or_else(
@@ -112,6 +175,8 @@ impl MaskTarget {
             render_view,
             _resolved: resolved,
             view,
+            dissolve_view: dissolve.create_view(&default()),
+            dissolve_binding: None,
             draws: Vec::new(),
             frame_generation: 0,
             ready: false,
@@ -204,11 +269,6 @@ fn selection(
     let mut draws = Vec::new();
     let mut vertices = 0u64;
     for span in &gpu.spans {
-        if span.material & assets::EntityRenderMaterialState::KIND_MASK
-            == assets::EntityRenderMaterial::DissolveDepth as u32
-        {
-            continue;
-        }
         for first in span.first..span.first.checked_add(span.count)? {
             let entry = gpu.manifest.get(first as usize)?;
             if !selected(mask, &entry.identity) {
@@ -280,7 +340,7 @@ fn prepare(
                 masks.targets.insert(key, target);
             }
             let spans = selection(mask, &gpu);
-            let mut draws = Vec::new();
+            let mut draws = BTreeMap::<_, Vec<_>>::new();
             let mut ready = spans.is_some();
             for span in spans.into_iter().flatten() {
                 let actor = ActorPipelineKey {
@@ -310,10 +370,31 @@ fn prepare(
                             .get(usize::from(span.page) - 1)
                             .is_some_and(|page| page.bind_group.is_some())
                 };
-                draws.push((span, id));
+                let kind = span.material & assets::EntityRenderMaterialState::KIND_MASK;
+                let companion = dissolve_depth(span.material)
+                    || kind == assets::EntityRenderMaterial::DissolveColor as u32;
+                let owner = companion.then(|| render_model::ActorRenderIdentity {
+                    layer: 0,
+                    ..gpu.manifest[span.first as usize].identity
+                });
+                draws.entry(owner).or_default().push((span, id));
             }
             let target = masks.targets.get_mut(&key).unwrap();
-            target.draws = draws;
+            if target.dissolve_binding.is_none() {
+                target.dissolve_binding =
+                    gpu_allocation::checked(&device, "mask dissolve binding", 0, || {
+                        device.create_bind_group(
+                            "mask dissolve binding",
+                            &cache.get_bind_group_layout(&dissolve_layout(msaa.samples() > 1)),
+                            &[BindGroupEntry {
+                                binding: 0,
+                                resource: BindingResource::TextureView(&target.dissolve_view),
+                            }],
+                        )
+                    });
+            }
+            target.draws = draws.into_values().collect();
+            ready &= target.dissolve_binding.is_some();
             target.ready = ready;
             target.frame_generation = gpu.frame_generation;
         }
@@ -357,19 +438,15 @@ fn draw(
                 store: wgpu::StoreOp::Store,
             },
         })];
-        let mut attachment = depth.get_attachment(wgpu::StoreOp::Store);
-        attachment.depth_ops = Some(wgpu::Operations {
-            load: wgpu::LoadOp::Load,
-            store: wgpu::StoreOp::Store,
-        });
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("owner actor coverage"),
+        // Clear the union once; each actor's companion gets independent private depth.
+        drop(context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("clear owner actor coverage"),
             color_attachments: &attachments,
-            depth_stencil_attachment: Some(attachment),
+            depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        });
+        }));
         if !target.ready || target.frame_generation != gpu.frame_generation {
             continue;
         }
@@ -384,34 +461,90 @@ fn draw(
         ) else {
             continue;
         };
-        pass.set_viewport(
-            rect.x as f32,
-            rect.y as f32,
-            rect.width as f32,
-            rect.height as f32,
-            depth_range.start,
-            depth_range.end,
-        );
-        pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
-        pass.set_bind_group(1, &lightmap.bind_group, &[]);
-        for (span, id) in &target.draws {
-            let Some(pipeline) = cache.get_render_pipeline(*id) else {
-                continue;
-            };
-            let binding = if span.page == 0 {
-                gpu.bind_group.as_ref()
-            } else {
-                gpu.artwork
-                    .pages
-                    .get(usize::from(span.page) - 1)
-                    .and_then(|page| page.bind_group.as_ref())
-            };
-            let Some(binding) = binding else {
-                continue;
-            };
-            pass.set_render_pipeline(pipeline);
-            pass.set_bind_group(0, binding, &[offset.offset]);
-            pass.draw(0..span.vertex_count, span.first..span.first + span.count);
+        for draws in &target.draws {
+            let paired = draws.iter().any(|(span, _)| {
+                let kind = span.material & assets::EntityRenderMaterialState::KIND_MASK;
+                dissolve_depth(span.material)
+                    || kind == assets::EntityRenderMaterial::DissolveColor as u32
+            });
+            for prepass in [true, false] {
+                if prepass && !paired {
+                    continue;
+                }
+                let mut attachment = depth.get_attachment(wgpu::StoreOp::Store);
+                attachment.depth_ops = Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                });
+                let private_depth = RenderPassDepthStencilAttachment {
+                    view: &target.dissolve_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                };
+                let attachments = [Some(RenderPassColorAttachment {
+                    view: &target.render_view,
+                    depth_slice: None,
+                    resolve_target: (target.texture.sample_count() > 1).then_some(&target.view),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })];
+                let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                    label: Some(if prepass {
+                        "private mask dissolve depth"
+                    } else {
+                        "owner actor coverage"
+                    }),
+                    color_attachments: if prepass { &[] } else { &attachments },
+                    depth_stencil_attachment: Some(if prepass {
+                        private_depth
+                    } else {
+                        attachment
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_viewport(
+                    rect.x as f32,
+                    rect.y as f32,
+                    rect.width as f32,
+                    rect.height as f32,
+                    depth_range.start,
+                    depth_range.end,
+                );
+                pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
+                pass.set_bind_group(1, &lightmap.bind_group, &[]);
+                for (span, id) in draws {
+                    if dissolve_depth(span.material) != prepass {
+                        continue;
+                    }
+                    let Some(pipeline) = cache.get_render_pipeline(*id) else {
+                        continue;
+                    };
+                    let binding = if span.page == 0 {
+                        gpu.bind_group.as_ref()
+                    } else {
+                        gpu.artwork
+                            .pages
+                            .get(usize::from(span.page) - 1)
+                            .and_then(|page| page.bind_group.as_ref())
+                    };
+                    let Some(binding) = binding else {
+                        continue;
+                    };
+                    pass.set_render_pipeline(pipeline);
+                    pass.set_bind_group(0, binding, &[offset.offset]);
+                    if !prepass && paired {
+                        pass.set_bind_group(2, target.dissolve_binding.as_ref().unwrap(), &[]);
+                    }
+                    pass.draw(0..span.vertex_count, span.first..span.first + span.count);
+                }
+            }
         }
     }
     Ok(())
