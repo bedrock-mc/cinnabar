@@ -555,6 +555,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 hardcore: false,
                 hud_rules: protocol::HudRules::default(),
                 death_rules: protocol::DeathRules::default(),
+                crafting_rules: Default::default(),
                 packs,
                 terrain_before_spawn: true,
                 level_identity: None,

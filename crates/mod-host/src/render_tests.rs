@@ -52,6 +52,78 @@ fn retained_publication_allocates_nothing_for_empty_callbacks() {
     assert_eq!(render.generation(), generation);
 }
 
+#[test]
+fn material_only_output_survives_entity_reconciliation() {
+    let mut render = RenderState::new();
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    render.retained.bind_session(1, 0);
+    render.update_entities(vec![actor], &[]).unwrap();
+    let entity = render.retained.observe_entities().unwrap()[0].0;
+    let material = render
+        .retained
+        .create_material(
+            mod_render::material::BUILTIN,
+            mod_api::drawing::DrawingPermissions::ALL,
+        )
+        .unwrap();
+    render.commit_retained();
+    assert_eq!(render.output().retained.len(), 1);
+    let before = Arc::clone(&render.output().retained[0]);
+    let generation = render.generation();
+
+    render.update_entities(Vec::new(), &[]).unwrap();
+    assert!(Arc::ptr_eq(&before, &render.output().retained[0]));
+    assert_eq!(render.generation(), generation);
+
+    render.update_entities(Vec::new(), &[actor]).unwrap();
+    let after = &render.output().retained[0];
+    assert!(!after.entities.contains_key(&entity));
+    assert!(after.materials.contains_key(&material));
+    assert!(Arc::ptr_eq(
+        &before.materials[&material],
+        &after.materials[&material]
+    ));
+    assert_ne!(render.generation(), generation);
+}
+
+#[test]
+fn material_only_publication_preserves_allocation_free_empty_callbacks() {
+    let mut render = RenderState::new();
+    let material = render
+        .retained
+        .create_material(
+            mod_render::material::BUILTIN,
+            mod_api::drawing::DrawingPermissions::ALL,
+        )
+        .unwrap();
+    render.commit_retained();
+    assert!(
+        render.output().retained[0]
+            .materials
+            .contains_key(&material)
+    );
+    let before = render.output().retained[0].clone();
+    let generation = render.generation();
+    let (_, allocations) = test_alloc::count(|| {
+        render.begin_callback();
+        render.commit_retained();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(render.generation(), generation);
+    assert!(Arc::ptr_eq(&before, &render.output().retained[0]));
+
+    render.begin_callback();
+    render.retained.remove(material).unwrap();
+    render.commit_retained();
+    assert!(render.output().retained.is_empty());
+    assert_ne!(render.generation(), generation);
+}
+
 fn state() -> State {
     let grants = ModGrants {
         render: true,

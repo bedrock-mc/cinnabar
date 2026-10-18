@@ -108,6 +108,7 @@ impl Recipe {
 pub(in crate::inventory) struct Record {
     pub(in crate::inventory) id: u32,
     pub(in crate::inventory) recipe: Option<Recipe>,
+    pub(super) identity_index: Option<usize>,
 }
 
 /// Decoded crafting and station storage share one lifetime credit.
@@ -115,6 +116,7 @@ pub(in crate::inventory) struct Record {
 pub(in crate::inventory) struct Batch {
     pub(in crate::inventory) records: Vec<Record>,
     pub(super) screen: super::screen::ScreenRecipes,
+    pub(super) identities: Vec<super::identity::RecipeIdentity>,
     pub(in crate::inventory) clear: bool,
     pub(super) _permit: Permit,
 }
@@ -148,7 +150,10 @@ impl PartialEq for RecipeUpdate {
     fn eq(&self, other: &Self) -> bool {
         match (&self.batch, &other.batch) {
             (Some(a), Some(b)) => {
-                a.clear == b.clear && a.records == b.records && a.screen == b.screen
+                a.clear == b.clear
+                    && a.records == b.records
+                    && a.screen == b.screen
+                    && a.identities == b.identities
             }
             (None, None) => true,
             _ => false,
@@ -164,6 +169,13 @@ pub struct RecipeHandle {
     pub(in crate::inventory) index: usize,
 }
 impl RecipeHandle {
+    /// Reads the exact named metadata parsed with this numeric record, including after ID sorting.
+    pub fn identity(&self) -> Option<&super::identity::RecipeIdentity> {
+        self.batch.records[self.index]
+            .identity_index
+            .and_then(|index| self.batch.identities.get(index))
+    }
+
     pub fn network_id(&self) -> u32 {
         self.batch.records[self.index].id
     }

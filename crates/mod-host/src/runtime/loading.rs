@@ -17,9 +17,39 @@ impl Instance {
         state.block_highlights.revoke();
         state.grants = grants;
         state.drawing_policy = Some(session);
+        state
+            .render
+            .retained
+            .bind_session(session.connection, session.dimension);
         let mut effective = session;
         effective.permissions = state.grants.drawing_permissions();
         state.render.masks.bind(effective);
+    }
+
+    /// Reads the last committed actor references for native liveness reconciliation.
+    pub(crate) fn drawing_entity_keys(
+        &self,
+    ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
+        self.store
+            .data()
+            .render
+            .retained
+            .snapshot()
+            .entities
+            .values()
+            .copied()
+    }
+
+    /// Reconciles native actor lifetime changes outside guest callback transactions.
+    pub(crate) fn update_drawing_entities(
+        &mut self,
+        candidates: Vec<mod_render::retained::EntityKey>,
+        despawned: &[mod_render::retained::EntityKey],
+    ) -> Result<(), mod_render::retained::DrawError> {
+        self.store
+            .data_mut()
+            .render
+            .update_entities(candidates, despawned)
     }
 
     /// Returns current effective grants rather than the retained loader consent.
@@ -78,6 +108,10 @@ impl Instance {
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
         if let Some(mut session) = policy {
+            state
+                .render
+                .retained
+                .bind_session(session.connection, session.dimension);
             session.permissions = state.grants.drawing_permissions();
             state.render.masks.bind(session);
         }

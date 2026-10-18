@@ -95,14 +95,6 @@ impl<K: ColumnOwned + Copy + Ord, V> ColumnRecords<K, V> {
         records
     }
 
-    /// Iterates keys from one authoritative column bucket.
-    pub(super) fn keys_in_column(&self, column: ChunkKey) -> impl Iterator<Item = &K> {
-        self.columns
-            .get(&column)
-            .into_iter()
-            .flat_map(BTreeMap::keys)
-    }
-
     /// Iterates live records for diagnostics and acknowledgment ordering.
     pub(super) fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.columns.values().flat_map(BTreeMap::iter)
@@ -166,12 +158,6 @@ impl<T: ColumnOwned> ColumnQueue<T> {
     pub(super) fn entries(&self) -> impl Iterator<Item = (i128, &T)> {
         self.entries
             .iter()
-            .map(|(&position, entry)| (position, entry))
-    }
-    /// Allows payload updates that preserve the entry's column.
-    pub(super) fn entries_mut(&mut self) -> impl Iterator<Item = (i128, &mut T)> {
-        self.entries
-            .iter_mut()
             .map(|(&position, entry)| (position, entry))
     }
     /// Reads a live entry by its stable position.

@@ -509,19 +509,19 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
                 }),
                 None,
             ),
-            (
-                None,
-                None,
-                Some(super::super::SubChunkRequestSend {
-                    chunk: world::ChunkKey::new(0, 1, 2),
-                    base_sub_chunk_y: -4,
-                    count: 1,
-                }),
-            ),
+            (None, None, Some(test_sub_chunk_receipt(1, 2))),
         ] {
+            let packet = sub_chunk.as_ref().map_or_else(test_packet, |receipt| {
+                protocol::request_sub_chunks(
+                    receipt.dimension,
+                    [0; 3],
+                    receipt.members.iter().map(|member| member.position),
+                )
+                .unwrap()
+            });
             commands
                 .try_send(NetworkCommand::Send {
-                    packet: test_packet(),
+                    packet,
                     sub_chunk,
                     chat,
                     physics,
@@ -579,6 +579,18 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
             })
             .count();
         assert_eq!(receipts, if failed { 0 } else { 3 });
+        let groups = events
+            .iter()
+            .filter_map(|event| match event {
+                NetworkControlEvent::SubChunkRequestSent { receipt, .. } => Some(receipt),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if failed {
+            assert!(groups.is_empty());
+        } else {
+            assert_eq!(groups, vec![&test_sub_chunk_receipt(1, 2)]);
+        }
         shutdown.send_replace(true);
         worker.await.unwrap();
     }

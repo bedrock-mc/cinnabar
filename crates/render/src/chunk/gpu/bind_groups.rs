@@ -1,5 +1,13 @@
 use super::resource_geometry::PreparedResourceGeometry;
+use super::texture_upload::build_carrier_texture_assets;
+#[cfg(test)]
 use super::texture_upload::build_chunk_texture_assets;
+#[cfg(feature = "enhanced")]
+use super::{authored_upload, authored_upload::AuthoredUpload};
+#[cfg(feature = "enhanced")]
+use render_scene::EnhancedTextureAssets;
+#[cfg(all(test, feature = "enhanced"))]
+mod carrier_tests;
 
 mod reload;
 use crate::chunk::*;
@@ -7,10 +15,9 @@ use bevy::color::ColorToPacked;
 pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
 use render_scene::{
-    BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
-    TextureMipUploadPlan, TextureUploadPlanError, plan_texture_mip_uploads,
-    texture_asset_needs_rebuild,
+    BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets,
+    ChunkTextureBindingIdentity, ChunkTexturePreparation, ChunkTextureReload, TextureMipUploadPlan,
+    TextureUploadPlanError, plan_texture_mip_uploads, texture_asset_needs_rebuild,
 };
 
 #[cfg(test)]
@@ -38,7 +45,7 @@ pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) biome_tints: BufferId,
     pub(in crate::chunk) atmosphere: BufferId,
     pub(in crate::chunk) biome_tint_table: ChunkBiomeTintResourceIdentity,
-    pub(in crate::chunk) textures: ChunkTextureAssetIdentity,
+    pub(in crate::chunk) textures: ChunkTextureBindingIdentity,
 }
 
 #[repr(C)]
@@ -151,6 +158,14 @@ pub(in crate::chunk) fn biome_tint_bind_group_needs_rebuild(
     current != Some(next)
 }
 
+/// Checks carrier ownership and revision independently of optional authored maps.
+pub(super) fn same_carrier(
+    current: ChunkTextureBindingIdentity,
+    next: ChunkTextureBindingIdentity,
+) -> bool {
+    current.carrier == next.carrier
+}
+
 pub(in crate::chunk) fn prepare_chunk_biome_tints(
     render_device: Res<RenderDevice>,
     source: Res<ChunkBiomeTints>,
@@ -162,7 +177,7 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         && textures
             .prepared
             .as_ref()
-            .is_none_or(|prepared| prepared.identity != assets.identity())
+            .is_none_or(|prepared| !same_carrier(prepared.identity, assets.binding_identity()))
     {
         return;
     }
@@ -195,14 +210,33 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
     });
 }
 
+#[derive(Clone)]
 pub(in crate::chunk) struct PreparedChunkTextureAssets {
-    pub(in crate::chunk) identity: ChunkTextureAssetIdentity,
+    /// Retains the authored source represented by the current GPU bindings.
+    #[cfg(feature = "enhanced")]
+    pub(super) authored_source: Option<Arc<EnhancedTextureAssets>>,
+    pub(in crate::chunk) identity: ChunkTextureBindingIdentity,
     pub(in crate::chunk) material_buffer: Buffer,
     pub(in crate::chunk) animation_buffer: Buffer,
     pub(in crate::chunk) animation_frame_buffer: Buffer,
     pub(in crate::chunk) model_template_buffer: Buffer,
     pub(in crate::chunk) _textures: [Texture; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) views: [TextureView; assets::MAX_TEXTURE_PAGES],
+    /// Neutral normal and MER pages that stand in for detached authored maps.
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) _pbr_textures: [Texture; 4],
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) pbr_views: [TextureView; 4],
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) _enhanced_textures: [Texture; 6],
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) enhanced_views: [TextureView; 6],
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) enhanced_texture_refs: Buffer,
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) authored_bytes: u64,
+    #[cfg(feature = "enhanced")]
+    pub(in crate::chunk) authored_upload_bytes: u64,
     pub(in crate::chunk) native_leaf_views: [TextureView; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) sampler: Sampler,
     pub(in crate::chunk) native_leaf_sampler: Sampler,
@@ -253,11 +287,13 @@ struct StagedTextures {
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
-    pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
+    pub(in crate::chunk) attempted_identity: Option<ChunkTextureBindingIdentity>,
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
     staged: Option<StagedTextures>,
+    #[cfg(feature = "enhanced")]
+    authored_pending: Option<AuthoredUpload>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]

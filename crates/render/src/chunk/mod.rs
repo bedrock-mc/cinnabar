@@ -12,8 +12,9 @@ use std::{
         Arc, Mutex,
         mpsc::{Receiver, SyncSender, sync_channel},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]

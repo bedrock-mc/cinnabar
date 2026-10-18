@@ -40,6 +40,19 @@ export async function boundedBytes(response, maximum, exact = true) {
   } finally { await reader.cancel(); }
 }
 
+/** Keeps required delivery failures fatal while unavailable optional carriers use startup fallbacks. */
+export async function downloadCarriers(carriers, manifest, base, fetcher = fetch) {
+  for (const [name, path, required] of JSON.parse(carriers.entries())) {
+    try {
+      const entry = manifest.entries.find((entry) => entry.name === name);
+      const response = await fetcher(new URL(path, base), { credentials: "omit" });
+      carriers.insert(name, await boundedBytes(response, entry.bytes));
+    } catch (error) {
+      if (required !== false) throw error;
+    }
+  }
+}
+
 /** Suspends cached pages and tears down resources only when navigation is final. */
 export function pageLifecycle(input, audio, page, dispose, view = window) {
   let cached = false, disposed = false;
@@ -91,7 +104,7 @@ export function canvasEdges(canvas, input, audio, view = window, doc = document)
     audio.resume().catch(() => {});
     canvas.requestPointerLock()?.catch(() => {});
   });
-  listen(doc, "pointerlockchange", () => { if (!locked()) input.release(); });
+  listen(doc, "pointerlockchange", () => { input.focus?.(locked()); if (!locked()) input.release(); });
   listen(view, "blur", () => input.release());
   for (const [name, down] of [["keydown", true], ["keyup", false]]) {
     listen(doc, name, (event) => { if (locked()) { event.preventDefault(); input.key(event.code, down); } });

@@ -21,8 +21,8 @@ struct Session {
 }
 
 static SESSION: LazyLock<Session> = LazyLock::new(|| {
-    let started_at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let started_at_ms = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |elapsed| {
             u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
         });

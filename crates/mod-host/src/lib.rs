@@ -4,7 +4,9 @@ mod declarations;
 mod drawing_policy;
 use drawing_policy::DrawingRestart;
 mod grants;
-pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
+pub use declarations::{
+    Declarations, REQUESTED_GRANTS_SECTION, declarations, declarations_snapshot,
+};
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod callback_budget;

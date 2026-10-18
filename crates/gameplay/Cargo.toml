@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+web-time.workspace = true
 protocol-ids = { path = "../protocol-ids" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
