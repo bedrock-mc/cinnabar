@@ -194,7 +194,7 @@ impl WorldStream {
             .map_or_else(BTreeSet::new, |_| self.publisher.required_columns.clone());
         let mut stages = self.stats.publication_stages;
         stages.requests_ready = self.pending_request_count();
-        stages.requests_transport_pending = self.requests.transport_pending;
+        stages.requests_transport_pending = self.requests.transport.len();
         stages.subchunks_awaiting_response = self.requests.deadlines.len();
         stages.decode_jobs_queued = self.pending_decode.len();
         stages.decode_jobs_in_flight = self.in_flight_decode_jobs;
@@ -227,7 +227,7 @@ impl WorldStream {
                 && self.in_flight_decode_jobs == 0
                 && self.decode_rx.is_empty()
                 && self.requests.queue.is_empty()
-                && self.requests.transport_pending == 0
+                && self.requests.transport.is_empty()
                 && self.requests.requested.is_empty()
                 && self.requests.deferred_retries.is_empty()
                 && self.requests.deferred_recovery.is_empty()

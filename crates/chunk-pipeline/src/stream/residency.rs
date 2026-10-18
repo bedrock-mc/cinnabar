@@ -23,7 +23,6 @@ impl WorldStream {
         // Vanilla keeps chunk data across a teleport and drops only what the moved view no
         // longer covers, so overlap stays presented.
         self.arrival_cohort = None;
-        self.requests.transport_pending = 0;
         self.publisher.center = Some(center);
         // The same resumable scan retires the old view before the next ordered commit.
         self.retention_due = true;
@@ -329,6 +328,7 @@ impl WorldStream {
                 self.publisher.required_columns.remove(&column);
                 self.unsent_column_deadlines.remove(&column);
                 self.requests.collision_failures.remove(&column);
+                self.requests.unencodable.remove(&column);
                 if self.loaded_columns.contains(&column)
                     || self.requests.requested.contains_key(&column)
                     || self.resident.column(column).next().is_some()
