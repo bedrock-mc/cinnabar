@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use aes::cipher::{BlockEncrypt, KeyInit};
+use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde::Deserialize;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -56,13 +56,14 @@ impl Drop for ContentKey {
     }
 }
 
-fn cfb8_decrypt<C: BlockEncrypt<BlockSize = aes::cipher::consts::U16>>(
+/// Decrypts CFB8 using the first 16 bytes of the supplied IV.
+fn cfb8_decrypt<C: BlockCipherEncrypt<BlockSize = aes::cipher::consts::U16>>(
     cipher: &C,
-    key: &[u8],
+    iv: &[u8],
     data: &mut [u8],
 ) {
     let mut register = [0u8; 16];
-    register.copy_from_slice(&key[..16]);
+    register.copy_from_slice(&iv[..16]);
     let mut block = aes::Block::default();
     for byte in data {
         block.copy_from_slice(&register);
@@ -169,6 +170,58 @@ pub(crate) mod tests {
         assert_ne!(data, plain);
         ContentKey::new(KEY).unwrap().decrypt(&mut data);
         assert_eq!(data, plain);
+    }
+
+    /// Converts a public known-answer fixture into bytes without a parsing dependency.
+    fn hex(text: &str) -> Vec<u8> {
+        text.as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn cfb8_matches_nist_decryption_vectors_for_every_key_size() {
+        // NIST SP 800-38A, F.3.8, F.3.10 and F.3.12 (CFB8 decryption).
+        let iv = hex("000102030405060708090a0b0c0d0e0f");
+        let plain = hex("6bc1bee22e409f96e93d7e117393172aae2d");
+        for (key, encrypted) in [
+            (
+                "2b7e151628aed2a6abf7158809cf4f3c",
+                "3b79424c9c0dd436bace9e0ed4586a4f32b9",
+            ),
+            (
+                "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+                "cda2521ef0a905ca44cd057cbf0d47a0678a",
+            ),
+            (
+                "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+                "dc1f1a8520a64db55fcc8ac554844e889700",
+            ),
+        ] {
+            let key = hex(key);
+            let mut actual = hex(encrypted);
+            match key.len() {
+                16 => cfb8_decrypt(
+                    &aes::Aes128::new_from_slice(&key).unwrap(),
+                    &iv,
+                    &mut actual,
+                ),
+                24 => cfb8_decrypt(
+                    &aes::Aes192::new_from_slice(&key).unwrap(),
+                    &iv,
+                    &mut actual,
+                ),
+                _ => cfb8_decrypt(
+                    &aes::Aes256::new_from_slice(&key).unwrap(),
+                    &iv,
+                    &mut actual,
+                ),
+            }
+            assert_eq!(actual, plain);
+        }
     }
 
     #[test]

@@ -3662,6 +3662,10 @@ Incomplete: exact mip-drop ordering and memory-pressure parity remain unverified
 Incomplete: native frame and process-memory acceptance for HD packs, exact GUI
 sampling at high UI scales, and pack coverage beyond the supported device and
 storage bounds. This does not close a rendered parity gate.
+Encrypted pack reads use the AES library's runtime CPU detection, including ARM
+hardware acceleration on supported operating systems and a portable software fallback.
+Independent NIST CFB8 vectors cover all three accepted key sizes.
+Complete native join budgets and performance on other hardware remain incomplete.
 Pack readers share BOM, UTF-8 and Latin-1 text decoding and JSONC normalization;
 UI documents retain their existing parser recovery. Incomplete: native display
 comparison for legacy pack labels and arbitrary malformed UTF-8, and a full
