@@ -795,6 +795,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             death_rules: protocol::DeathRules::default(),
+            crafting_rules: Default::default(),
             packs: (),
             terrain_before_spawn: true,
             level_identity: None,

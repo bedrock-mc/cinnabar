@@ -31,7 +31,8 @@ pub(super) fn decode_with_credits(
         let mut identities_count = 0usize;
         let (clear, total) = grammar::walk(
             &mut reader,
-            |_, candidate| {
+            |_, candidate, identity| {
+                identities_count += usize::from(identity.is_some());
                 retained_names += candidate.map_or(0, |candidate| {
                     candidate
                         .ingredients
@@ -48,7 +49,6 @@ pub(super) fn decode_with_credits(
                         screen_names += record.len;
                     }
                     grammar::ScreenItem::Multi { .. } => multi_count += 1,
-                    grammar::ScreenItem::Identity { .. } => identities_count += 1,
                     grammar::ScreenItem::Brewing(_) if brewing_count < MAX_SCREEN_RECIPES => {
                         brewing_count += 1;
                     }
@@ -104,7 +104,19 @@ pub(super) fn decode_with_credits(
             .map_err(|_| Refusal::Policy)?;
         grammar::walk(
             &mut reader,
-            |id, candidate| {
+            |id, candidate, identity| {
+                let identity_index = if let Some(identity) = identity {
+                    let index = identities.len();
+                    identities.push(RecipeIdentity {
+                        name: owned_text(identity.name)?,
+                        tag: owned_text(identity.tag)?,
+                        context: RecipeUnlockingContext::from_index(identity.context),
+                        network_id: id,
+                    });
+                    Some(index)
+                } else {
+                    None
+                };
                 let recipe = if let Some(candidate) = candidate {
                     let mut ingredients: [Option<Ingredient>; MAX_INGREDIENTS] =
                         std::array::from_fn(|_| None);
@@ -135,24 +147,15 @@ pub(super) fn decode_with_credits(
                 } else {
                     None
                 };
-                records.push(Record { id, recipe });
+                records.push(Record {
+                    id,
+                    recipe,
+                    identity_index,
+                });
                 Ok(())
             },
             |item| {
                 match item {
-                    grammar::ScreenItem::Identity {
-                        name,
-                        tag,
-                        context,
-                        id,
-                    } => {
-                        identities.push(RecipeIdentity {
-                            name: owned_text(name)?,
-                            tag: owned_text(tag)?,
-                            context: RecipeUnlockingContext::from_index(context),
-                            network_id: id,
-                        });
-                    }
                     grammar::ScreenItem::Skipped => screens.skipped += 1,
                     grammar::ScreenItem::Brewing(recipe) => {
                         if screens.brewing.len() < MAX_SCREEN_RECIPES {

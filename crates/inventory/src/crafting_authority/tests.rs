@@ -513,6 +513,19 @@ fn runtime_clones_share_credited_authority_without_sharing_mutable_state() {
 }
 
 #[test]
+fn bootstrap_cannot_restore_authority_after_an_empty_stream_is_lost() {
+    let mut state = CraftingAuthority::new(1);
+    state.bootstrap(None, InventoryAuthority::Server);
+    state.synchronize(Some((1, 0, Some(0))));
+    state.synchronize(None);
+    state.bootstrap(None, InventoryAuthority::Server);
+    state.bootstrap_rules(protocol::CraftingRules::default());
+    assert!(state.authority.is_none());
+    assert!(state.crafting_rules().is_none());
+    assert_eq!(state.unlock_component, None);
+}
+
+#[test]
 fn absent_replaced_stale_or_wrong_session_receipts_cannot_revive_retired_authority() {
     let mut state = CraftingAuthority::new(1);
     state.bootstrap(None, InventoryAuthority::Server);

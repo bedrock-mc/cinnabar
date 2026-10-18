@@ -169,7 +169,7 @@ pub(super) fn book_page(
                 .take(presentation::screens::BOOK_CELLS)
                 .enumerate()
             {
-                let output = recipe.output();
+                let output = recipe.recipe.output();
                 let stack = protocol::NetworkItemStack {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),

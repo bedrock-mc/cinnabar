@@ -24,6 +24,22 @@ pub(super) struct Candidate<'a> {
     pub(super) output: Output,
 }
 
+/// Borrowed identity metadata carried beside the numeric recipe it describes.
+pub(super) struct Identity<'a> {
+    pub(super) name: &'a str,
+    pub(super) tag: &'a str,
+    pub(super) context: i32,
+}
+
+/// One parsed record keeps its identity and supported crafting shape together.
+struct ParsedRecipe<'a> {
+    id: u32,
+    candidate: Option<Candidate<'a>>,
+    identity: Option<Identity<'a>>,
+    screen: Option<ScreenRecord<'a>>,
+    skipped: bool,
+}
+
 /// A screen recipe as read from the wire, borrowing its strings.
 pub(super) struct ScreenRecord<'a> {
     pub(super) id: u32,
@@ -38,12 +54,6 @@ pub(super) enum ScreenItem<'a> {
     Recipe(ScreenRecord<'a>),
     Multi {
         uuid: [u8; 16],
-        id: u32,
-    },
-    Identity {
-        name: &'a str,
-        tag: &'a str,
-        context: i32,
         id: u32,
     },
     /// A station recipe outside the supported input shape.
@@ -149,8 +159,7 @@ fn normal<'a>(
     reader: &mut Reader<'a>,
     shaped: bool,
     eligible: bool,
-    identity: &mut impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
-) -> ReadResult<(u32, Option<Candidate<'a>>, Option<ScreenRecord<'a>>, bool)> {
+) -> ReadResult<ParsedRecipe<'a>> {
     let name = reader.text()?;
     let (width, height) = if shaped {
         (reader.int()?, reader.int()?)
@@ -199,19 +208,16 @@ fn normal<'a>(
     let id = reader.uint()?;
     // Keep unsupported ingredients, output data and large shapes addressable by name.
     // Missing network IDs/results and inconsistent shapes never enter this identity view.
-    if id != 0
+    let identity = if id != 0
         && results > 0
         && (!shaped
             || (width >= 0 && height >= 0 && width.checked_mul(height) == Some(count as i32)))
-        && let (Some(name), Some(tag)) = (name, tag)
     {
-        identity(ScreenItem::Identity {
-            name,
-            tag,
-            context,
-            id,
-        })?;
-    }
+        name.zip(tag)
+            .map(|(name, tag)| Identity { name, tag, context })
+    } else {
+        None
+    };
     valid &= id != 0;
     let screen_kind = match block {
         "stonecutter" => Some(ScreenRecipeKind::Stonecutter),
@@ -246,9 +252,9 @@ fn normal<'a>(
             }
         });
     valid &= block == "crafting_table";
-    Ok((
+    Ok(ParsedRecipe {
         id,
-        if valid {
+        candidate: if valid {
             result.map(|output| Candidate {
                 width: width as u8,
                 height: height as u8,
@@ -261,9 +267,10 @@ fn normal<'a>(
         } else {
             None
         },
+        identity,
         screen,
         skipped,
-    ))
+    })
 }
 
 /// Traverses all eleven vectors, including unavailable families, without
@@ -271,7 +278,7 @@ fn normal<'a>(
 /// it does not attest to the unseen tail's wire validity.
 pub(super) fn walk<'a>(
     reader: &mut Reader<'a>,
-    mut record: impl FnMut(u32, Option<Candidate<'a>>) -> ReadResult<()>,
+    mut record: impl FnMut(u32, Option<Candidate<'a>>, Option<Identity<'a>>) -> ReadResult<()>,
     mut screen: impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
 ) -> ReadResult<(bool, usize)> {
     let mut total = 0usize;
@@ -284,25 +291,20 @@ pub(super) fn walk<'a>(
         for _ in 0..count {
             match family {
                 0 | 1 | 3 | 4 | 5 => {
-                    let (id, candidate, screen_recipe, skipped) = normal(
-                        reader,
-                        matches!(family, 0 | 5),
-                        matches!(family, 0 | 1),
-                        &mut screen,
-                    )?;
-                    if skipped {
+                    let parsed = normal(reader, matches!(family, 0 | 5), matches!(family, 0 | 1))?;
+                    if parsed.skipped {
                         screen(ScreenItem::Skipped)?;
                     }
-                    if let Some(recipe) = screen_recipe {
+                    if let Some(recipe) = parsed.screen {
                         screen(ScreenItem::Recipe(recipe))?;
                     }
-                    record(id, candidate)?;
+                    record(parsed.id, parsed.candidate, parsed.identity)?;
                 }
                 2 => {
                     let uuid: [u8; 16] = reader.take(16)?.try_into().map_err(|_| Refusal::Wire)?;
                     let id = reader.uint()?;
                     screen(ScreenItem::Multi { uuid, id })?;
-                    record(id, None)?;
+                    record(id, None, None)?;
                 }
                 6 | 7 => {
                     let name = reader.text()?;
@@ -313,16 +315,15 @@ pub(super) fn walk<'a>(
                     let result = if family == 6 { output(reader)? } else { None };
                     let tag = reader.text()?;
                     let id = reader.uint()?;
-                    if id != 0
-                        && let (Some(name), Some(tag)) = (name, tag)
-                    {
-                        screen(ScreenItem::Identity {
-                            name,
-                            tag,
-                            context: 0,
-                            id,
-                        })?;
-                    }
+                    let identity =
+                        (id != 0)
+                            .then_some(name.zip(tag))
+                            .flatten()
+                            .map(|(name, tag)| Identity {
+                                name,
+                                tag,
+                                context: 0,
+                            });
                     let sound = ingredients.iter().all(|item| item.valid && item.count == 1)
                         && id != 0
                         && (family == 7 || result.is_some());
@@ -342,7 +343,7 @@ pub(super) fn walk<'a>(
                     if !sound {
                         screen(ScreenItem::Skipped)?;
                     }
-                    record(id, None)?;
+                    record(id, None, identity)?;
                 }
                 8 => {
                     let mut item = || -> ReadResult<BrewingItem> {

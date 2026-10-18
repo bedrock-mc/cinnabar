@@ -4,13 +4,14 @@
 
 mod cache;
 #[cfg(test)]
+mod discovery_tests;
+#[cfg(test)]
 mod tests;
 pub use cache::BookCache;
 
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{
-    CreativeGroup, CreativeItem, InventoryLayout, InventoryRightTab, InventoryTab,
-    NetworkItemStack, RecipeHandle,
+    CreativeGroup, CreativeItem, InventoryLayout, InventoryRightTab, InventoryTab, NetworkItemStack,
 };
 use serde_json::Value;
 
@@ -47,11 +48,11 @@ const ITEM_BACKGROUND: &str = "textures/ui/recipe_book_item_bg";
 const GROUP_FOLDED: &str = "textures/ui/recipe_book_light_button";
 const GROUP_UNFOLDED: &str = "textures/ui/recipe_book_dark_button_pressed";
 const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
-/// A recipe the inventory cannot supply (`FilterResult::Disable`).
+/// A recipe output whose ingredients the inventory cannot supply.
 const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// One entry of the recipe book: in creative a catalog item or a named group's
-/// head, else a recipe the player can craft now.
+/// head, else a grouped recipe output and its current material availability.
 pub enum BookEntry<'a> {
     Creative {
         item: &'a CreativeItem,
@@ -63,7 +64,7 @@ pub enum BookEntry<'a> {
         group: &'a CreativeGroup,
         expanded: bool,
     },
-    Recipe(RecipeHandle),
+    Recipe(inventory::BookRecipe),
     Furnace(&'a protocol::ScreenRecipe),
 }
 
@@ -74,7 +75,7 @@ impl BookEntry<'_> {
             Self::Creative { item, .. } => item.stack.clone(),
             Self::Group { group, .. } => group.icon.clone().unwrap_or_default(),
             Self::Recipe(recipe) => {
-                let output = recipe.output();
+                let output = recipe.recipe.output();
                 NetworkItemStack {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),
@@ -264,17 +265,30 @@ fn modifier(entry: &BookEntry<'_>) -> i64 {
     }
 }
 
+/// Chooses a row's appearance from material availability and group state.
 fn background(source: &dyn ContainerSource, entry: &BookEntry<'_>) -> &'static str {
     match entry {
-        BookEntry::Recipe(recipe) if !source.player().inventory.ledger().can_auto_craft(recipe) => {
-            RECIPE_DISABLED
-        }
+        BookEntry::Recipe(recipe) => recipe_background(source.player(), recipe),
         BookEntry::Group {
             expanded: false, ..
         } => GROUP_FOLDED,
         BookEntry::Group { expanded: true, .. } => GROUP_UNFOLDED,
         BookEntry::Creative { grouped: true, .. } => GROUP_ITEM,
         _ => ITEM_BACKGROUND,
+    }
+}
+
+/// Selects a recipe row's background independently of group and selection artwork.
+fn recipe_background(
+    player: &player_state::PlayerState,
+    recipe: &inventory::BookRecipe,
+) -> &'static str {
+    if recipe.craftable
+        || player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
+    {
+        ITEM_BACKGROUND
+    } else {
+        RECIPE_DISABLED
     }
 }
 

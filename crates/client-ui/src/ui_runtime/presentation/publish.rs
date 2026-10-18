@@ -199,7 +199,7 @@ pub fn hovered_stack(
                 let output = runtime
                     .book_recipes(player_runtime, skip, 1)
                     .first()
-                    .map(protocol::RecipeHandle::output);
+                    .map(|entry| entry.recipe.output());
                 return output.map(|output| {
                     let stack = protocol::NetworkItemStack {
                         network_id: output.network_id,

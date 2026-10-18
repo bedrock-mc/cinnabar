@@ -136,7 +136,8 @@ pub fn recipe_book_entries<'a>(
         .book_recipes(player_runtime, 0, usize::MAX)
         .into_iter()
         .filter(|recipe| {
-            ledger.creative_catalog().is_none() || shown.contains(&recipe.output().network_id)
+            ledger.creative_catalog().is_none()
+                || shown.contains(&recipe.recipe.output().network_id)
         })
         .map(BookEntry::Recipe)
         .collect()
@@ -787,8 +788,7 @@ impl UiRuntime {
                     .into_iter()
                     .next()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_auto_craft(&recipe)
+                player_runtime.inventory.begin_book_craft(&recipe.recipe)
             }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
@@ -820,7 +820,7 @@ impl UiRuntime {
             .map(|entry| match entry {
                 BookEntry::Creative { item, .. } => Clicked::Item(item.creative_network_id),
                 BookEntry::Group { index, .. } => Clicked::Group(index),
-                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe),
+                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe.recipe),
                 BookEntry::Furnace(recipe) => Clicked::Furnace(recipe.clone()),
             });
         match entry {
@@ -841,9 +841,7 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_auto_craft(&recipe),
+            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
