@@ -18,6 +18,7 @@ impl EquipmentRuntime {
         bones: &BodyBones,
         source: Option<&pack::BindingSource>,
         (equipment, animation): (&ActorEquipmentInput, Option<EquipmentAnimation<'_>>),
+        scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
         if let Some(source) = source {
@@ -46,25 +47,26 @@ impl EquipmentRuntime {
             } else {
                 bones.right_item
             };
-            if self.push_attachable(body, item, layer, hand, source, layers) {
+            if self.push_attachable(body, item, layer, hand, source, scale, layers) {
                 return;
             }
         }
         if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
-            self.push_java_held(body, item, bones, grip, layers);
+            self.push_java_held(body, item, bones, grip, scale, layers);
         } else {
             let hand = if layer == LAYER_OFF_HAND {
                 bones.left_item
             } else {
                 bones.right_item
             };
-            self.push_attached(body, item, layer, hand, None, layers);
+            self.push_attached(body, item, layer, hand, None, scale, layers);
         }
     }
 
     /// A held item whose attachable ships its own single-bone geometry and a literal
     /// third-person placement (trident, shield). `false` when the item is not one, or its
     /// placement is Molang-driven (then the sprite/cube path draws it).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_attachable(
         &mut self,
         body: &ActorRigSubmission,
@@ -72,6 +74,7 @@ impl EquipmentRuntime {
         layer: u8,
         hand: Option<usize>,
         source: &pack::BindingSource,
+        scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
         let Some(hand) = hand else {
@@ -137,8 +140,18 @@ impl EquipmentRuntime {
             return false;
         };
         let (Some(previous), Some(current)) = (
-            attachable::attach(*previous, *pivot, channels, *has_binding_expression),
-            attachable::attach(*current, *pivot, channels, *has_binding_expression),
+            attachable::attach(
+                scaled_parent(*previous, scale),
+                *pivot,
+                channels,
+                *has_binding_expression,
+            ),
+            attachable::attach(
+                scaled_parent(*current, scale),
+                *pivot,
+                channels,
+                *has_binding_expression,
+            ),
         ) else {
             return false;
         };
@@ -207,6 +220,7 @@ impl EquipmentRuntime {
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_attached(
         &mut self,
         body: &ActorRigSubmission,
@@ -214,6 +228,7 @@ impl EquipmentRuntime {
         layer: u8,
         bone: Option<usize>,
         override_display: Option<ItemDisplay>,
+        scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
         let Some(hand) = bone else {
@@ -223,13 +238,14 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        let display = override_display.unwrap_or_else(|| {
+        let mut display = override_display.unwrap_or_else(|| {
             if block {
                 held_block_display()
             } else {
                 held_sprite_display(item.grip.upright().unwrap_or(false))
             }
         });
+        display.scale *= scale;
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -571,6 +587,12 @@ impl EquipmentRuntime {
         let poses = self.poses.share(body, layer, [&[*previous], &[*current]]);
         layers.push(layer_presentation(body, layer, rig, poses, location, 0));
     }
+}
+
+/// Scales a held model about its parent origin without moving the owner's hand.
+fn scaled_parent(mut parent: RenderBoneTransform, scale: f32) -> RenderBoneTransform {
+    parent.translation_scale[3] *= scale;
+    parent
 }
 
 /// Returns one sprite's UV span, or one face's span within a block's six-face sheet.

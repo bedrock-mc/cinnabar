@@ -131,6 +131,37 @@ pub(super) fn validate(snapshot: Option<&PlayerStateSnapshot>) -> Result<()> {
     Ok(())
 }
 
+impl State {
+    /// Charges one shared read and selects authorized rows before applying the caller's bound.
+    fn read_actor_observations(
+        &mut self,
+        limit: u32,
+    ) -> Result<Result<impl Iterator<Item = &crate::ObservedActor>, String>> {
+        self.player_state.read_budget()?;
+        if limit == 0 || limit as usize > mod_api::MAX_OBSERVED_ACTORS {
+            return Ok(Err("actor observation limit exceeds bounds".into()));
+        }
+        if !self.grants.players && !self.grants.entities {
+            return Ok(Err("actor observation capability denied".into()));
+        }
+        let players = self.grants.players;
+        let entities = self.grants.entities;
+        Ok(Ok(self
+            .player_state
+            .observations
+            .actors
+            .iter()
+            .filter(move |actor| {
+                if actor.actor.player {
+                    players
+                } else {
+                    entities
+                }
+            })
+            .take(limit as usize)))
+    }
+}
+
 impl cinnabar::extension::player_state::Host for State {
     fn read_motion(&mut self) -> Result<Result<Option<crate::MotionObservation>, String>> {
         self.player_state.read_budget()?;
@@ -154,24 +185,17 @@ impl cinnabar::extension::player_state::Host for State {
         Ok(Ok(self.player_state.observations.ping_ms))
     }
     fn read_actors(&mut self) -> Result<Result<Vec<crate::ActorObservation>, String>> {
-        self.player_state.read_budget()?;
-        if !self.grants.players && !self.grants.entities {
-            return Ok(Err("actor observation capability denied".into()));
-        }
-        Ok(Ok(self
-            .player_state
-            .observations
-            .actors
-            .iter()
-            .filter(|actor| {
-                if actor.player {
-                    self.grants.players
-                } else {
-                    self.grants.entities
-                }
-            })
-            .cloned()
-            .collect()))
+        Ok(self
+            .read_actor_observations(mod_api::MAX_OBSERVED_ACTORS as u32)?
+            .map(|actors| actors.map(|observed| observed.actor.clone()).collect()))
+    }
+    fn read_actors_limited(
+        &mut self,
+        limit: u32,
+    ) -> Result<Result<Vec<crate::ObservedActor>, String>> {
+        Ok(self
+            .read_actor_observations(limit)?
+            .map(|actors| actors.cloned().collect()))
     }
     fn read_combat(
         &mut self,

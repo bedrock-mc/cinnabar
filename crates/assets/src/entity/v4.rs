@@ -264,6 +264,9 @@ pub struct EntityRigBinding {
     /// per axis; `scale` then holds only the constant fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale_expressions: Option<[u32; 4]>,
+    /// Optional main-hand item scale expression; omitted descriptions retain unit scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_item_scale: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

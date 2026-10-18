@@ -3,6 +3,9 @@ use assets::SessionEntityPack;
 use resource_pack::LayeredPackView;
 use std::{path::PathBuf, sync::Arc};
 
+#[path = "pixel_reuse.rs"]
+mod pixel_reuse;
+
 /// Pack content, reference definitions, and the startup artwork paths a compile reads.
 #[derive(Clone)]
 pub(super) struct EntityInputs {
@@ -133,7 +136,7 @@ impl EntityCache {
             if let Some(dependencies) = view.dependencies() {
                 dependencies.extend(files);
             }
-            pack
+            self.reuse_pixels(pack)
         } else {
             let (pack, blob) = compile(
                 view,
@@ -143,6 +146,7 @@ impl EntityCache {
                 disk.is_some(),
                 cancelled,
             )?;
+            let pack = self.reuse_pixels(pack);
             if let (Some(disk), Some(key), Some(files)) = (disk, key, view.dependencies()) {
                 let (disk, files, stored) = (disk.clone(), files.snapshot(), pack.clone());
                 (self.store)(Box::new(move || {
@@ -159,6 +163,15 @@ impl EntityCache {
             view.dependencies().map(|files| files.snapshot()),
         ));
         Some(pack)
+    }
+
+    /// Shares unchanged rasters before another owner or disk writer retains the new catalog.
+    fn reuse_pixels(&self, next: Option<Arc<SessionEntityPack>>) -> Option<Arc<SessionEntityPack>> {
+        let previous = self.lock().as_ref().and_then(|(_, pack, _)| pack.clone());
+        next.map(|next| match previous {
+            Some(previous) => pixel_reuse::reuse(&previous, next),
+            None => next,
+        })
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<CachedEntities>> {

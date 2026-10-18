@@ -653,6 +653,7 @@ fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
     Ok(())
 }
 
+/// Resolves untinted petals and grass-tinted stems from the pack's ordered texture pair.
 fn flowerbed_material_descriptors(
     pack: &PackSources,
     record: &RegistryRecord,
@@ -669,7 +670,12 @@ fn flowerbed_material_descriptors(
                 flipbook_selector: None,
                 path: path.into(),
                 texture_key: key.clone(),
-                flags,
+                flags: flags
+                    | if index == 1 {
+                        MATERIAL_FLAG_GRASS_TINT
+                    } else {
+                        0
+                    },
             },
             key.clone(),
         )

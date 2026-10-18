@@ -81,7 +81,7 @@ impl ActorArtworkPages {
         }
         if changed {
             self.identity = hasher.finalize().into();
-            self.pages = pages.into();
+            self.replace_pages(pages, &[]);
             self.equipment = Arc::new(equipment);
         }
         (self, locations)

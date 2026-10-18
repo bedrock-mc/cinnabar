@@ -16,6 +16,9 @@ Uninstall an earlier CI test build before installing a release APK; this clears 
 
 On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
 device, exit reason and the end of the client log. Include those details when reporting a crash.
+**Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
+when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
+attach the ZIP to the crash report. Nothing is uploaded automatically.
 
 ## Build and install
 

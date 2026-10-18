@@ -79,6 +79,34 @@ fn later_vanilla_refs_replace_earlier_ones() {
 
 const FIXTURE_MATERIAL_PATH: &str = "materials/fixture.material";
 
+#[test]
+fn recompiled_entities_share_unchanged_pixels_with_the_live_catalog() {
+    use std::sync::Arc;
+    let cache = super::EntityCache::default();
+    let view = resource_pack::LayeredPackView::tracked(entity_stack());
+    let resolve = |input| {
+        cache
+            .get_or_compile(input, &view, None, &|| false, super::super::compile_encoded)
+            .unwrap()
+            .unwrap()
+    };
+    let first = resolve(inputs(None));
+    let next = resolve(inputs(Some(refs_with_animation())));
+    assert!(
+        !Arc::ptr_eq(&first, &next),
+        "the changed inputs still recompile"
+    );
+    assert!(Arc::ptr_eq(
+        &first.textures[0].rgba8,
+        &next.textures[0].rgba8
+    ));
+    let pixels = Arc::downgrade(&first.textures[0].rgba8);
+    drop(first);
+    drop(next);
+    drop(cache);
+    assert!(pixels.upgrade().is_none());
+}
+
 fn entity_stack() -> std::sync::Arc<resource_pack::ValidatedPackStack> {
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))

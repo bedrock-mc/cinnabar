@@ -113,7 +113,8 @@ impl BlockUpdate {
         }
     }
 
-    pub(crate) fn validate(self) -> Result<(), MutationError> {
+    /// Rejects coordinates and layers outside one supported sub-chunk.
+    pub fn validate(self) -> Result<(), MutationError> {
         if self.x >= 16 || self.y >= 16 || self.z >= 16 {
             return Err(MutationError::LocalCoordinatesOutOfBounds {
                 x: self.x,

@@ -538,7 +538,11 @@ pub(super) fn hand_source(
     let artwork = inputs.artwork;
     let motion = inputs.motion;
     let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
-    let rig = stream.authority().actor_rig(runtime_id)?;
+    let mut rig = stream.authority().actor_rig(runtime_id)?;
+    if rig.held_item_scale.is_some() {
+        cache.native_pose.apply(&mut inputs);
+        rig.held_item_scale = cache.native_pose.held_item_scale;
+    }
     if render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0)) {
         return None;
     }
@@ -651,7 +655,14 @@ pub(super) fn hand_source(
                             false,
                         )
                     })
-                    .unwrap_or_default(),
+                    .map(|input| actor_animation::AttachableAnimationInput {
+                        held_item_scale: rig.held_item_scale,
+                        ..input
+                    })
+                    .unwrap_or(actor_animation::AttachableAnimationInput {
+                        held_item_scale: rig.held_item_scale,
+                        ..Default::default()
+                    }),
             )
         })?;
         let atlas = item_atlas(&layer, artwork)?;

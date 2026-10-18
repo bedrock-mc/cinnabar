@@ -3,9 +3,12 @@
 use super::{CustomPlacement, Nbt};
 
 /// Reads the yaw offset once, applying the trait's quarter-turn rounding.
-pub(super) fn traits(traits: &[&Nbt], trait_state_count: usize) -> CustomPlacement {
+pub(super) fn traits<'a>(
+    traits: impl IntoIterator<Item = &'a Nbt>,
+    trait_state_count: usize,
+) -> CustomPlacement {
     let offset = traits
-        .iter()
+        .into_iter()
         .find_map(|trait_| trait_.field("y_rotation_offset").and_then(Nbt::number))
         .unwrap_or(0.0) as f32;
     CustomPlacement {

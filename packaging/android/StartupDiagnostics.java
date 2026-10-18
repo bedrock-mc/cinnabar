@@ -35,22 +35,27 @@ final class StartupDiagnostics {
             String details = "@PRODUCT_NAME@ @VERSION_NAME@\n" + Build.MANUFACTURER + " "
                     + Build.MODEL + ", Android " + Build.VERSION.RELEASE + "\n\n"
                     + "Exit reason: " + exit.getReason() + ", status: " + exit.getStatus()
-                    + "\n" + exit.getDescription() + "\n\n"
+                    + "\n" + exit.getDescription() + "\n"
+                    + "Process: " + exit.getProcessName() + " (" + exit.getPid() + ")\n"
+                    + "Exit timestamp: " + exit.getTimestamp() + "\n\n"
                     + logTail(new File(activity.getFilesDir(), "data/logs/client.log"));
             AlertDialog dialog = new AlertDialog.Builder(activity)
                     .setTitle("@PRODUCT_NAME@ stopped unexpectedly")
-                    .setMessage(details)
+                    .setMessage("Save report puts this log and any Android crash trace in Downloads.\n\n" + details)
                     .setPositiveButton("Retry", (which, button) -> retry.run())
-                    .setNegativeButton("Close", (which, button) -> activity.finish())
+                    .setNegativeButton("Save report", null)
                     .setNeutralButton("Copy details", null)
                     .setOnCancelListener(which -> activity.finish())
                     .create();
-            dialog.setOnShowListener(which -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                    .setOnClickListener(view -> {
-                        activity.getSystemService(ClipboardManager.class)
-                                .setPrimaryClip(ClipData.newPlainText("@PRODUCT_NAME@ diagnostics", details));
-                        Toast.makeText(activity, "Diagnostic details copied", Toast.LENGTH_SHORT).show();
-                    }));
+            dialog.setOnShowListener(which -> {
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+                    activity.getSystemService(ClipboardManager.class)
+                            .setPrimaryClip(ClipData.newPlainText("@PRODUCT_NAME@ diagnostics", details));
+                    Toast.makeText(activity, "Diagnostic details copied", Toast.LENGTH_SHORT).show();
+                });
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(view ->
+                        CrashReport.save(activity, dialog, exit, details));
+            });
             dialog.show();
             return true;
         } catch (RuntimeException error) {
