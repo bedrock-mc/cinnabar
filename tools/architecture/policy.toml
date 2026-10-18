@@ -1343,7 +1343,10 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-baselines = []
+# The provisional PBR texture-name table must move to a generated mapping (plan.md).
+baselines = [
+    { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
+]
 
 [[identifier_literal_exceptions]]
 path = "tools/devtool/src/web.rs"
