@@ -13,6 +13,15 @@ use time::OffsetDateTime;
 use update_installer::stage::{self, Download, Selection};
 use update_manifest::{TrustedKeys, channel::Channel, select::Check};
 
+/// A manual check bypasses scheduling and cached manifests without enabling automatic checks.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FetchMode {
+    Scheduled,
+    Fresh,
+    Cached,
+    Manual,
+}
+
 #[derive(Deserialize, Serialize)]
 struct Stamp {
     checked_at: u64,
@@ -78,7 +87,7 @@ pub(super) fn start(force: bool) {
     let Some(layout) = LAYOUT.get().cloned() else {
         return;
     };
-    let (preferences, switch_now, check_now, generation, announcement) = {
+    let (preferences, switch_now, mode, generation, announcement) = {
         let Ok(mut state) = STATE.lock() else {
             return;
         };
@@ -90,11 +99,22 @@ pub(super) fn start(force: bool) {
             return;
         }
         state.running = true;
+        state.status = Status::Checking;
         let check_now = std::mem::take(&mut state.check_now);
+        let manual = std::mem::take(&mut state.manual_check);
+        let mode = if manual {
+            FetchMode::Manual
+        } else if force {
+            FetchMode::Cached
+        } else if check_now || state.announcement.is_some() {
+            FetchMode::Fresh
+        } else {
+            FetchMode::Scheduled
+        };
         (
             state.preferences,
             state.switch_now,
-            check_now,
+            mode,
             state.generation,
             (!force && !check_now)
                 .then(|| state.announcement.clone())
@@ -110,8 +130,7 @@ pub(super) fn start(force: bool) {
                     preferences,
                     switch_now,
                     generation,
-                    force || check_now || announcement.is_some(),
-                    force,
+                    mode,
                     announcement.as_ref(),
                 )
             },
@@ -151,21 +170,25 @@ fn active(generation: u64) -> bool {
 }
 
 /// Reopens a verified ready stage, or checks the selected channel and resumes its artifact.
-/// `immediate` ignores the completion stamp; `cached` also reuses a verified cached manifest.
+/// Manual checks bypass the completion stamp, cached manifests and the automatic-check preference.
 fn run(
     layout: &InstallLayout,
     preferences: Preferences,
     switch_now: bool,
     generation: u64,
-    immediate: bool,
-    cached: bool,
+    mode: FetchMode,
     announcement: Option<&Announcement>,
 ) -> Result<()> {
     let Some(_) = preferences.channel.manifest_url() else {
+        ensure!(mode != FetchMode::Manual, "unpublished update channel");
         return Ok(());
     };
     let keys = update_manifest::parse_keys(update_installer::TRUSTED_KEYS)?;
     if keys.is_empty() {
+        ensure!(
+            mode != FetchMode::Manual,
+            "no trusted update keys configured"
+        );
         return Ok(());
     }
     let platform = update_manifest::platform_key(std::env::consts::OS, std::env::consts::ARCH)
@@ -220,11 +243,14 @@ fn run(
         let (directory, reader) = stage::retain(&destination, &lease, &selected)?;
         publish(directory, reader, selected, switch_now, generation);
     }
-    if (!preferences.checks && !switch_now) || !active(generation) {
+    if (!preferences.checks && !switch_now && mode != FetchMode::Manual) || !active(generation) {
         return Ok(());
     }
     let stamp_path = stamp_path(&root, preferences.channel);
-    if !immediate && !switch_now && !due(last_check(&root, preferences.channel), now_secs()) {
+    if mode == FetchMode::Scheduled
+        && !switch_now
+        && !due(last_check(&root, preferences.channel), now_secs())
+    {
         // The skipped check would have found the same release, so restore what it offered.
         let switch_available =
             staged.is_none() && cached_switch_offer(&root, &keys, check, OffsetDateTime::now_utc());
@@ -257,7 +283,7 @@ fn run(
             &root,
             &keys,
             check,
-            cached,
+            mode == FetchMode::Cached,
             OffsetDateTime::now_utc(),
             async |channel| {
                 fetch(
@@ -289,10 +315,14 @@ fn run(
                 check.current_build,
             )?
         {
-            return record(&stamp_path, check, now_secs());
+            record(&stamp_path, check, now_secs())?;
+            set_status(generation, Status::UpToDate);
+            return Ok(());
         }
         if !supersedes(&selected.manifest, staged.as_ref(), switch_now)? {
-            return record(&stamp_path, check, now_secs());
+            record(&stamp_path, check, now_secs())?;
+            set_status(generation, Status::UpToDate);
+            return Ok(());
         }
         ensure!(active(generation), "update check cancelled");
         let artifact = selected.artifact.clone();
@@ -309,6 +339,7 @@ fn run(
         let directory = if let Some(directory) = reused {
             directory
         } else {
+            set_status(generation, Status::Downloading);
             let mut download = Download::begin(&root, selected)?;
             let offset = download.offset();
             // Retain only the current partial transfer. A channel change can restart another digest safely.
@@ -380,6 +411,15 @@ fn run(
         publish(directory, reader, selected, switch_now, generation);
         record(&stamp_path, check, now_secs())
     })
+}
+
+/// Publishes worker progress only while its channel and consent are still current.
+fn set_status(generation: u64, status: Status) {
+    if let Ok(mut state) = STATE.lock()
+        && state.accepts_worker(generation)
+    {
+        state.status = status;
+    }
 }
 
 /// Revalidates the offered files themselves, independently of the replaceable shared cache.

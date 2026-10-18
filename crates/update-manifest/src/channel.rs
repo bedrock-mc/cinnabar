@@ -28,7 +28,7 @@ impl Channel {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Beta => "Beta",
-            Self::Nightly => "Nightly",
+            Self::Nightly => "Nightly (Unstable)",
             Self::Stable => "Stable",
         }
     }

@@ -18,7 +18,7 @@ macro_rules! panels {
 }
 
 panels! {
-AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,General,GeneralPause,GeneralNetwork,GeneralUpdates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat
+AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,General,GeneralPause,GeneralNetwork,Updates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat
 }
 
 /// Derives ordered rows once and rejects duplicate or missing row positions.
