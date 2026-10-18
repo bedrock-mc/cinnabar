@@ -176,12 +176,14 @@ mod tests {
     /// Refreshing a retained offer reports current work and restores the offer afterward.
     #[test]
     fn update_status_keeps_downloaded_offers_separate_from_checks() {
-        let mut view = View::default();
-        view.ready = Some(Ready {
-            version: crate::PRODUCT_VERSION.into(),
-            writable: true,
-            protocol_required: false,
-        });
+        let mut view = View {
+            ready: Some(Ready {
+                version: crate::PRODUCT_VERSION.into(),
+                writable: true,
+                protocol_required: false,
+            }),
+            ..Default::default()
+        };
         let ready = view.status_text();
         assert_eq!(ready, view.ready.as_ref().unwrap().title());
         for status in [Status::Checking, Status::Downloading, Status::Failed] {
