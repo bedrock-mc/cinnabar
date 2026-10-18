@@ -14,7 +14,10 @@ pub(super) fn bind(
         .world
         .as_ref()
         .and_then(|world| (!world.dimension_transfer.active()).then_some(world.stream.as_ref()?))
-        .map(|stream| (ui.session_id(), stream.authority().current_dimension()));
+        .map(|stream| {
+            let authority = stream.authority();
+            (authority.actor_session_id(), authority.current_dimension())
+        });
     let grant = match &ui.experiences.session.state {
         server_experience::session::State::Granted(grant) => Some(grant),
         _ => None,
@@ -51,7 +54,6 @@ pub(super) fn bind(
 pub(super) fn publish_frame(
     hosts: &ModHosts,
     gameplay: &super::gameplay::GameplayContext<'_>,
-    ui: &client_ui::ui_runtime::UiRuntime,
     frame: &mut render_scene::mod_scene::retained::DrawingFrame,
 ) {
     *frame = Default::default();
@@ -65,7 +67,7 @@ pub(super) fn publish_frame(
     let Some(stream) = world.stream.as_ref() else {
         return;
     };
-    frame.connection = ui.session_id();
+    frame.connection = stream.authority().actor_session_id();
     frame.dimension = stream.authority().current_dimension();
     for (output, _) in hosts.render_outputs() {
         for resources in &output.retained {

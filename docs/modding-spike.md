@@ -1177,3 +1177,14 @@ subject to the simulator's ground contact and jump cooldown rules.
 `cancel-jump` commits an explicit cancellation even outside gameplay, allowing a
 component to revoke a sub-tick pulse as soon as its module is disabled. Cancellation
 wins over jump pulses in the same callback and never clears physical jump input.
+
+### Bounded actor reads and observed maximum health
+
+`player-state.read-actors-limited` returns a caller-bounded prefix of the same
+authorized observations (1 through `MAX_OBSERVED_ACTORS`). It preserves existing
+filters and session fences, allowing guests to bound canonical-ABI copying work.
+
+Each bounded result contains the existing `actor` record and optional `max-health`
+from the replicated health attribute. Missing attributes remain absent; no default
+maximum is inferred. The original `read-actors` import and actor record stay compatible
+with previously built components.

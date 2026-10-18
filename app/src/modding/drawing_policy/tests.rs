@@ -1,5 +1,10 @@
 use super::*;
+use bevy::{ecs::system::SystemState, prelude::World};
+use chunk_pipeline::WorldStream;
+use client_ui::ui_runtime::UiRuntime;
+use mod_host::{ModGrants, ModHost};
 use mod_render::retained::{Anchor, GeometrySpec, Instance, Store, Vertex};
+use protocol::WorldBootstrap;
 use render_scene::mod_scene::retained::DrawingFrame;
 use world::{ChunkStore, SubChunkKey};
 
@@ -97,4 +102,84 @@ fn material_only_snapshots_publish_their_live_owner() {
     let mut frame = DrawingFrame::default();
     publish_retained(store.snapshot(), &ChunkStore::default(), &mut frame);
     assert!(frame.live_owners.is_empty());
+}
+
+/// Builds a world stream with an independently allocated actor session.
+fn stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+#[test]
+fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
+    let bytes = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let directory = tempfile::tempdir().unwrap();
+    let host = ModHost::load_snapshot_with_grants(
+        &directory.path().join("selection.wasm"),
+        bytes,
+        ModGrants::default(),
+    )
+    .unwrap();
+    let mut hosts = ModHosts::new(host, vec![]);
+    let stream = stream();
+    let actor_session = stream.authority().actor_session_id();
+    let ui = UiRuntime::new(actor_session + 1);
+    let mut world = World::new();
+    world.insert_resource(crate::runtime::world::ClientWorld {
+        stream: Some(stream),
+        ..Default::default()
+    });
+    let mut state = SystemState::<super::super::gameplay::GameplayContext>::new(&mut world);
+    let mut frame = DrawingFrame::default();
+    {
+        let gameplay = state.get_mut(&mut world).unwrap();
+        bind(&mut hosts, &gameplay, &ui);
+        publish_frame(&hosts, &gameplay, &mut frame);
+    }
+    assert_eq!(
+        hosts.host(0).drawing_session().unwrap().connection,
+        actor_session
+    );
+
+    assert_eq!(frame.connection, actor_session);
+
+    let replacement = self::stream();
+    let replacement_session = replacement.authority().actor_session_id();
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .stream = Some(replacement);
+    let mut frame = DrawingFrame::default();
+    {
+        let gameplay = state.get_mut(&mut world).unwrap();
+        bind(&mut hosts, &gameplay, &ui);
+        publish_frame(&hosts, &gameplay, &mut frame);
+    }
+    assert_eq!(
+        hosts.host(0).drawing_session().unwrap().connection,
+        replacement_session
+    );
+    assert_eq!(frame.connection, replacement_session);
+    assert_ne!(actor_session, replacement_session);
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .stream = None;
+    let mut frame = DrawingFrame::default();
+    {
+        let gameplay = state.get_mut(&mut world).unwrap();
+        bind(&mut hosts, &gameplay, &ui);
+        publish_frame(&hosts, &gameplay, &mut frame);
+    }
+    assert_eq!(hosts.host(0).drawing_session().unwrap().connection, 0);
+    assert_eq!(frame.connection, 0);
 }
