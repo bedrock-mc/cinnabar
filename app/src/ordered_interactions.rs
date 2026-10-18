@@ -45,7 +45,10 @@ pub(crate) fn is_blocked(runtime: Option<&InteractionRuntime>) -> bool {
 
 /// Keeps held placement behind accepted work owned by mining and movement.
 pub(crate) fn pending(world: &World) -> bool {
-    is_blocked(world.get_resource::<InteractionRuntime>())
+    let Some(runtime) = world.get_resource::<InteractionRuntime>() else {
+        return false;
+    };
+    is_blocked(Some(runtime))
         || world
             .get_resource::<MeleeRuntime>()
             .is_some_and(|runtime| runtime.has_queued_work())
