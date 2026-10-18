@@ -9,7 +9,7 @@ const config = {
     transport: values.RELAY_TRANSPORT_PATH, controlPath: values.RELAY_CONTROL_PATH,
     playPath: values.RELAY_PLAY_PATH, control: values.RELAY_CHANNEL_CONTROL,
     protocol: values.RELAY_SOCKET_PROTOCOL, controlBytes: values.RELAY_CONTROL_BYTES,
-    playBytes: values.RELAY_PLAY_MESSAGE_BYTES, chunks: 2,
+    playBytes: values.RELAY_PLAY_MESSAGE_BYTES, chunks: values.QUEUED_FRAMES,
 };
 
 /** Advances promise continuations without using wall-clock timers. */
@@ -39,7 +39,7 @@ class Quic {
             writable: { getWriter: () => ({ ready: Promise.resolve(), write: async bytes => { this.sent.push(bytes); },
                 abort: async () => {}, releaseLock: () => { this.released++; } }) },
         };
-        this.datagrams = { ...this.stream, maxDatagramSize: 1234 }; Quic.instances.push(this);
+        Quic.instances.push(this);
     }
     /** Returns the fixture's next reliable stream. */
     async createBidirectionalStream() { return this.stream; }
@@ -49,7 +49,6 @@ class Quic {
 globalThis.WebSocket = Socket; globalThis.WebTransport = Quic; globalThis.isSecureContext = true;
 
 test("both adapters preserve byte chunks and release their owned handles", async () => {
-    assert.equal(adapter.available(), true);
     for (const quic of [true, false]) {
         const transport = adapter.create("https://relay.invalid", quic, JSON.stringify(config));
         const channel = await adapter.open(transport, config.control);
@@ -60,10 +59,8 @@ test("both adapters preserve byte chunks and release their owned handles", async
         assert.deepEqual(peer.sent[0], new Uint8Array([3, 4]));
         if (quic) {
             assert.equal(peer.url.pathname, config.transport);
-            assert.equal(adapter.maximum(transport), peer.datagrams.maxDatagramSize);
-            await assert.rejects(adapter.sendDatagram(transport, new Uint8Array(adapter.maximum(transport) + 1)));
         } else {
-            assert.equal(peer.url.pathname, config.controlPath); assert.equal(adapter.maximum(transport), 0);
+            assert.equal(peer.url.pathname, config.controlPath);
             peer.bufferedAmount = 0; await adapter.flush(channel);
         }
         adapter.close(transport); await turns();
@@ -72,11 +69,13 @@ test("both adapters preserve byte chunks and release their owned handles", async
 });
 
 test("WebSocket receive bounds reject oversized, over-budget and excessive messages before copying", async () => {
-    for (const sizes of [[config.controlBytes + 5], [config.controlBytes, 5], [1, 1, 1]]) {
+    for (const sizes of [[config.controlBytes + 5], [config.controlBytes, 5], Array(config.chunks + 1).fill(1)]) {
         const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
         const ch = await adapter.open(t, config.control); const ws = Socket.instances.at(-1);
         for (const size of sizes) ws.onmessage({ data: new ArrayBuffer(size) });
-        assert.equal(t.closed, true); assert.equal(ch.bytes, 0); assert.equal(ch.queue.length, 0);
+        assert.equal(ws.readyState, 3);
+        await assert.rejects(adapter.write(ch, new Uint8Array([1])));
+        assert.equal(ws.sent.length, 0);
         await assert.rejects(adapter.read(ch));
     }
 });

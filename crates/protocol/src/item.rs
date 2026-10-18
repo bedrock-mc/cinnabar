@@ -15,18 +15,19 @@ use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
-
 #[cfg(test)]
 mod animation_tests;
 mod attack;
 mod banner;
 mod components;
 mod display;
+mod equipment;
 mod facts;
+pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
+mod nbt_equal;
 mod registry_properties;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
@@ -55,38 +56,14 @@ type ItemStackDescriptor =
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
-/// Builds the vanilla outbound packet announcing a local hotbar-slot selection.
-///
-/// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a
-/// `MobEquipment` packet against the inventory window (`PlayerHotbar` is server->client and is not
-/// what a client sends). The selected stack must be the exact known player-inventory value: this
-/// boundary verifies its retained bytes and shape before converting it to the vendor wire type.
-/// `runtime_id` must be the local player's StartGame-assigned runtime id — servers reject a
-/// foreign runtime id on this packet.
-pub fn select_hotbar_slot_packet(
-    runtime_id: u64,
-    slot: u8,
-    stack: &NetworkItemStack,
-) -> Result<crate::Packet, InventoryPacketError> {
-    if slot >= HOTBAR_SLOT_COUNT {
-        return Err(InventoryPacketError::InvalidSelectedSlot(i32::from(slot)));
-    }
-    // Vanilla's client equipment descriptor never includes a stack network id, so a
-    // predicted request id is neither validated nor sent.
-    let mut untracked = stack.clone();
-    if !untracked.is_empty() {
-        untracked.stack_network_id = -1;
-    }
-    let item =
-        VerifiedNetworkItemStack::try_new(untracked, stack.nbt_digest)?.into_vendor_item()?;
-    Ok(crate::Packet::new(MobEquipmentPacket {
+/// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
+pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
+    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorEvent {
         target_runtime_id: ActorRuntimeID(runtime_id),
-        item,
-        slot: wire::U8(slot),
-        selected_slot: wire::U8(slot),
-        // The inventory container: a raw ID rather than a named WindowId enum.
-        container_id: wire::U8(0),
-    }))
+        event_id: bedrock_protocol_1_26_51::enums::ActorEventType::Feed,
+        data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
+        fire_at_position: None,
+    })
 }
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;

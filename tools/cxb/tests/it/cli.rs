@@ -117,6 +117,7 @@ fn verify(bytes: &[u8], seed: &Path) -> anyhow::Result<VerifiedBundle> {
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     VerifiedBundle::read(bytes, &offer, &scope, MAX_EXPANDED_BYTES)
 }

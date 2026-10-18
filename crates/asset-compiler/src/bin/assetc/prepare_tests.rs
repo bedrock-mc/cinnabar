@@ -388,6 +388,11 @@ fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
     result.unwrap();
     let ctx = context(dir.path());
     let output = fs::read(ctx.out.join(BLOCK_PHYSICS.output)).unwrap();
+    assert_eq!(
+        format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&output)),
+        include_str!("../../../../assets/data/block-physics-v2193.sha256").trim(),
+        "prepared physics must match the client's startup pin"
+    );
     let protocol = assets::active_content_registry_protocol();
     let records =
         assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)

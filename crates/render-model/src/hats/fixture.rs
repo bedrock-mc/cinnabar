@@ -17,6 +17,19 @@ pub fn bunny() -> Item {
     })
 }
 
+/// Admits the animated bunny fixture under a caller-owned ID to isolate its rig caches.
+pub fn named_bunny(id: &str) -> Item {
+    let mut descriptor = bunny().descriptor().clone();
+    descriptor.id = id.into();
+    super::admit(
+        descriptor,
+        include_bytes!("bunny_ears.geo.json"),
+        include_bytes!("bunny_ears.png"),
+        include_bytes!("fixture/animation.json"),
+    )
+    .unwrap()
+}
+
 /// Admits a second slot using the same original surface with no movement animation.
 pub fn rigid() -> Item {
     static ITEM: OnceLock<Item> = OnceLock::new();
@@ -61,17 +74,7 @@ pub fn gallery() -> &'static [Item] {
     static ITEMS: OnceLock<Vec<Item>> = OnceLock::new();
     ITEMS.get_or_init(|| {
         (0..40)
-            .map(|index| {
-                let mut item = bunny().descriptor().clone();
-                item.id = format!("fixture:gallery-{index}");
-                super::admit(
-                    item,
-                    include_bytes!("bunny_ears.geo.json"),
-                    include_bytes!("bunny_ears.png"),
-                    include_bytes!("fixture/animation.json"),
-                )
-                .unwrap()
-            })
+            .map(|index| named_bunny(&format!("fixture:gallery-{index}")))
             .collect()
     })
 }

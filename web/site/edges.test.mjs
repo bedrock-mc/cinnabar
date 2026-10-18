@@ -65,3 +65,34 @@ test("canvas preserves pixels on unchanged size and releases focus", () => {
     stop(); view.dispatchEvent(new Event("blur")); assert.equal(releases, 3);
   } finally { [globalThis.ResizeObserver, globalThis.requestAnimationFrame] = saved; }
 });
+
+test("owned retry timers register once and settle on cancellation or expiry", async () => {
+  const { startTimer, timerPromise, cancelTimer } = await import("./edges.mjs");
+  const previousSet = globalThis.setTimeout;
+  const previousClear = globalThis.clearTimeout;
+  const active = new Map();
+  let sequence = 0;
+  globalThis.setTimeout = (callback, ms) => { active.set(++sequence, { callback, ms }); return sequence; };
+  globalThis.clearTimeout = (id) => active.delete(id);
+  try {
+    const cancelled = startTimer(1250);
+    assert.equal(timerPromise(cancelled), timerPromise(cancelled));
+    assert.equal(active.size, 1);
+    let settled = false;
+    timerPromise(cancelled).then(() => { settled = true; });
+    cancelTimer(cancelled); cancelTimer(cancelled);
+    assert.equal(active.size, 0);
+    await Promise.resolve();
+    assert.equal(settled, true);
+    const completed = startTimer(40);
+    const { callback, ms } = active.get(sequence);
+    assert.equal(ms, 40);
+    active.delete(sequence); callback();
+    await timerPromise(completed);
+    cancelTimer(completed);
+    assert.equal(active.size, 0);
+  } finally {
+    globalThis.setTimeout = previousSet;
+    globalThis.clearTimeout = previousClear;
+  }
+});

@@ -1346,6 +1346,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = []
 
 [[identifier_literal_exceptions]]
+path = "tools/devtool/src/web.rs"
+literal = "web"
+reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
+
+[[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
