@@ -10207,3 +10207,9 @@ Sign edits retain existing trailing blank lines and line breaks entered before c
 Unused editor rows do not add line breaks to the outbound text. The regression checks
 encoded sign NBT, explicit Enter input and cursor-only navigation. Full sign text filtering,
 length limits, structured text and complete editor behavior remain incomplete.
+## Near-contact collision faces
+
+Swept collision clipping and overlap recovery share the same face-contact tolerance.
+Tiny overlaps no longer create a landing against an adjacent wall or an unsolicited
+separation move. Larger penetrations still resolve. This bounded geometry correction
+does not close complete collision-engine, terrain or current-version movement parity.
