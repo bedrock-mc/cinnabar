@@ -21,7 +21,7 @@ struct Icons {
 #[derive(Debug)]
 struct Inputs {
     supplied: Arc<[usize]>,
-    tab: u8,
+    tab: i32,
     query: String,
     components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     base: Option<Arc<assets::RuntimeLangCatalog>>,
@@ -43,7 +43,11 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
         .inventory
         .furnace_recipes(runtime.recipe_filtering(player));
     let state = runtime.screen_state();
-    let tab = state.furnace_tab.unwrap_or(4);
+    let tab = runtime
+        .furnace_options(player)
+        .map_or(protocol::FurnaceTab::Search.index(), |options| {
+            options.left_tab.index()
+        });
     let mut cache = runtime.furnace_projection.lock().unwrap();
     let reusable = cache.inputs.as_ref().is_some_and(|previous| {
         Arc::ptr_eq(&previous.supplied, supplied.shared_indices())
@@ -67,8 +71,8 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
                 else {
                     return false;
                 };
-                if tab != 4 {
-                    return category(player, runtime, recipe) == tab;
+                if tab != protocol::FurnaceTab::Search.index() {
+                    return i32::from(category(player, runtime, recipe)) == tab;
                 }
                 query.is_empty()
                     || player

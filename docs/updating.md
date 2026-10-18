@@ -7,8 +7,10 @@ restarts safely if the server does not support ranges.
 
 Only one running client per install handles updates; other windows stay passive until they take over on a due check tick.
 
-When the download is ready, choose **Restart and update** or **Later**. Later defers installation
-for this session; periodic checks continue, and a newer release replaces the waiting one. In
+When the download is ready, a compact card in the home screen's top-right corner shows the
+release version and **Restart and update** button. The card stays outside the Play panel, and
+installation only starts when you choose the button. An update required to connect uses stronger
+wording. Periodic checks continue, and a newer release replaces the waiting one. In
 **Settings → General**, you can turn off update checks, select a channel, or enable **Install
 updates when I quit**. Installation on quit is off by default. The in-game pause menu only shows
 a small ready badge; update actions remain in the launcher.

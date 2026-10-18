@@ -9,6 +9,8 @@ use std::{
 };
 use zip::ZipArchive;
 
+pub mod picked;
+
 /// Imported items retained by one skin library.
 pub const MAX_IMPORTED_SKINS: usize = 256;
 /// Geometry without an explicit minimum engine version uses Bedrock's default.
@@ -59,91 +61,118 @@ struct Entry {
 
 /// Reads every declared free skin, rejecting the entire import before any files are persisted.
 pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportError> {
-    if bytes.len() > resource_pack::MAX_ARCHIVE_BYTES {
-        return Err(SkinImportError::TooLarge);
-    }
-    let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(|_| SkinImportError::Archive)?;
-    if zip.len() > resource_pack::MAX_ENTRIES_PER_PACK {
-        return Err(SkinImportError::TooLarge);
-    }
-    let mut paths = HashSet::new();
-    let mut total = 0u64;
-    let mut catalogs = Vec::new();
-    for index in 0..zip.len() {
-        let file = zip
-            .by_index_raw(index)
-            .map_err(|_| SkinImportError::Archive)?;
-        let name = file.name();
-        if file.is_dir() {
-            continue;
-        }
-        if !safe_path(name)
-            || !paths.insert(name.to_ascii_lowercase())
-            || file.encrypted()
-            || file.is_symlink()
-        {
-            return Err(SkinImportError::Archive);
-        }
-        total = total
-            .checked_add(file.size())
-            .ok_or(SkinImportError::TooLarge)?;
-        if file.size() > resource_pack::MAX_FILE_BYTES
-            || total > resource_pack::MAX_DECLARED_BYTES_PER_PACK
-        {
+    SkinPackReader::new(bytes)?.collect()
+}
+
+/// A validated archive whose entries can be decoded separately between browser frames.
+pub struct SkinPackReader<T: AsRef<[u8]>> {
+    zip: ZipArchive<Cursor<T>>,
+    entries: std::vec::IntoIter<Entry>,
+    root: String,
+    data: Option<Vec<u8>>,
+    engine_version: Arc<str>,
+    retained: usize,
+}
+
+impl<T: AsRef<[u8]>> SkinPackReader<T> {
+    /// Validates archive framing and metadata before decompressing individual skins.
+    pub fn new(bytes: T) -> Result<Self, SkinImportError> {
+        if bytes.as_ref().len() > resource_pack::MAX_ARCHIVE_BYTES {
             return Err(SkinImportError::TooLarge);
         }
-        if name == "skins.json" || name.ends_with("/skins.json") {
-            catalogs.push(name.to_owned());
+        let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(|_| SkinImportError::Archive)?;
+        if zip.len() > resource_pack::MAX_ENTRIES_PER_PACK {
+            return Err(SkinImportError::TooLarge);
         }
-    }
-    if catalogs.len() != 1 {
-        return Err(SkinImportError::Metadata);
-    }
-    let catalog_path = &catalogs[0];
-    let root = catalog_path
-        .strip_suffix("skins.json")
-        .ok_or(SkinImportError::Metadata)?;
-    let manifest = read(
-        &mut zip,
-        &format!("{root}manifest.json"),
-        resource_pack::MAX_MANIFEST_BYTES,
-    )?;
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&manifest).map_err(|_| SkinImportError::Metadata)?;
-    let modules = manifest
-        .get("modules")
-        .and_then(|v| v.as_array())
-        .ok_or(SkinImportError::Metadata)?;
-    if modules.is_empty()
-        || modules
-            .iter()
-            .any(|v| v.get("type").and_then(|v| v.as_str()) != Some("skin_pack"))
-    {
-        return Err(SkinImportError::Unsupported);
-    }
-    let engine_version = engine_version(&manifest)?;
-    let catalog = read(
-        &mut zip,
-        catalog_path,
-        render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
-    )?;
-    let catalog: Catalog =
-        serde_json::from_slice(&catalog).map_err(|_| SkinImportError::Metadata)?;
-    if catalog.skins.is_empty() || catalog.skins.len() > MAX_IMPORTED_SKINS {
-        return Err(SkinImportError::TooLarge);
-    }
-    let data = if paths.contains(&format!("{root}geometry.json").to_ascii_lowercase()) {
-        Some(read(
+        let mut paths = HashSet::new();
+        let mut total = 0u64;
+        let mut catalogs = Vec::new();
+        for index in 0..zip.len() {
+            let file = zip
+                .by_index_raw(index)
+                .map_err(|_| SkinImportError::Archive)?;
+            let name = file.name();
+            if file.is_dir() {
+                continue;
+            }
+            if !safe_path(name)
+                || !paths.insert(name.to_ascii_lowercase())
+                || file.encrypted()
+                || file.is_symlink()
+            {
+                return Err(SkinImportError::Archive);
+            }
+            total = total
+                .checked_add(file.size())
+                .ok_or(SkinImportError::TooLarge)?;
+            if file.size() > resource_pack::MAX_FILE_BYTES
+                || total > resource_pack::MAX_DECLARED_BYTES_PER_PACK
+            {
+                return Err(SkinImportError::TooLarge);
+            }
+            if name == "skins.json" || name.ends_with("/skins.json") {
+                catalogs.push(name.to_owned());
+            }
+        }
+        if catalogs.len() != 1 {
+            return Err(SkinImportError::Metadata);
+        }
+        let catalog_path = &catalogs[0];
+        let root = catalog_path
+            .strip_suffix("skins.json")
+            .ok_or(SkinImportError::Metadata)?;
+        let manifest = read(
             &mut zip,
-            &format!("{root}geometry.json"),
+            &format!("{root}manifest.json"),
+            resource_pack::MAX_MANIFEST_BYTES,
+        )?;
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&manifest).map_err(|_| SkinImportError::Metadata)?;
+        let modules = manifest
+            .get("modules")
+            .and_then(|v| v.as_array())
+            .ok_or(SkinImportError::Metadata)?;
+        if modules.is_empty()
+            || modules
+                .iter()
+                .any(|v| v.get("type").and_then(|v| v.as_str()) != Some("skin_pack"))
+        {
+            return Err(SkinImportError::Unsupported);
+        }
+        let engine_version = engine_version(&manifest)?;
+        let catalog = read(
+            &mut zip,
+            catalog_path,
             render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
-        )?)
-    } else {
-        None
-    };
-    let mut entries = Vec::with_capacity(catalog.skins.len());
-    let mut retained = 0usize;
-    for entry in catalog.skins {
+        )?;
+        let catalog: Catalog =
+            serde_json::from_slice(&catalog).map_err(|_| SkinImportError::Metadata)?;
+        if catalog.skins.is_empty() || catalog.skins.len() > MAX_IMPORTED_SKINS {
+            return Err(SkinImportError::TooLarge);
+        }
+        let data = if paths.contains(&format!("{root}geometry.json").to_ascii_lowercase()) {
+            Some(read(
+                &mut zip,
+                &format!("{root}geometry.json"),
+                render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+            )?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            zip,
+            entries: catalog.skins.into_iter(),
+            root: root.to_owned(),
+            data,
+            engine_version,
+            retained: 0,
+        })
+    }
+
+    /// Validates one declared skin and bounds the aggregate retained input bytes.
+    fn read_entry(&mut self, entry: Entry) -> Result<SkinPackEntry, SkinImportError> {
+        let root = &self.root;
         if entry.kind != "free" || !entry.animations.is_null() {
             return Err(SkinImportError::Unsupported);
         }
@@ -161,7 +190,7 @@ pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportErr
             name if name == SkinModel::Slim.geometry() => SkinModel::Slim,
             _ => SkinModel::Custom,
         };
-        let geometry = match &data {
+        let geometry = match &self.data {
             Some(data) => match parse_skin_geometry(data, Some(&entry.geometry)) {
                 Ok(geometry) => Some(geometry),
                 Err(SkinImportError::MissingGeometry) if model != SkinModel::Custom => None,
@@ -176,25 +205,38 @@ pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportErr
             model
         };
         let png = read(
-            &mut zip,
+            &mut self.zip,
             &format!("{root}{}", entry.texture),
             resource_pack::MAX_PACK_TEXTURE_BYTES as usize,
         )?;
-        retained = retained
+        self.retained = self
+            .retained
             .checked_add(png.len() + geometry.as_ref().map_or(0, |source| source.byte_len()))
             .ok_or(SkinImportError::TooLarge)?;
-        if retained > resource_pack::MAX_ARCHIVE_BYTES {
+        if self.retained > resource_pack::MAX_ARCHIVE_BYTES {
             return Err(SkinImportError::TooLarge);
         }
-        entries.push(SkinPackEntry {
+        Ok(SkinPackEntry {
             name: entry.localization_name,
             png,
             model,
             geometry,
-            engine_version: engine_version.clone(),
-        });
+            engine_version: self.engine_version.clone(),
+        })
     }
-    Ok(entries)
+}
+
+impl<T: AsRef<[u8]>> Iterator for SkinPackReader<T> {
+    type Item = Result<SkinPackEntry, SkinImportError>;
+    /// Reads at most one declared skin, allowing the caller to yield between entries.
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.entries.next()?;
+        let result = self.read_entry(entry);
+        if result.is_err() {
+            self.entries = Vec::new().into_iter();
+        }
+        Some(result)
+    }
 }
 
 /// Validates an explicit geometry identifier, or the sole model in a loose JSON file.
@@ -280,8 +322,8 @@ fn safe_path(name: &str) -> bool {
 }
 
 /// Bounded decompression also detects truncated content and CRC errors.
-fn read(
-    zip: &mut ZipArchive<Cursor<&[u8]>>,
+fn read<T: AsRef<[u8]>>(
+    zip: &mut ZipArchive<Cursor<T>>,
     path: &str,
     limit: usize,
 ) -> Result<Vec<u8>, SkinImportError> {

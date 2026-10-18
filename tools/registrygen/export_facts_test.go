@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 // TestBlockFactKeepsExactFloat32Values covers float32 values shortened by JSON, which shifts fixed-point collision and friction.

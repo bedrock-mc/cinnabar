@@ -160,7 +160,7 @@ mod entity_texture_reload;
 mod glyph_sheets;
 mod item_icons;
 mod server_animation;
-pub(crate) use item_icons::set_vanilla_item_paths;
+pub(crate) use item_icons::{set_vanilla_item_paths, set_vanilla_item_sprites};
 #[cfg(test)]
 mod join_first_frame_tests;
 #[cfg(test)]

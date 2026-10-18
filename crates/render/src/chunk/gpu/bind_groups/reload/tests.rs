@@ -1,7 +1,33 @@
 use super::*;
 use crate::chunk::tests::solid_test_mesh;
 use bevy::ecs::system::RunSystemOnce;
+use bevy::render::render_resource::{TextureId, TextureViewId};
 use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority};
+
+/// The physical atlas resources selected by terrain draw preparation.
+type AtlasResources = (
+    ChunkTextureAssetIdentity,
+    [TextureId; assets::MAX_TEXTURE_PAGES],
+    [TextureViewId; assets::MAX_TEXTURE_PAGES],
+    [BufferId; 4],
+);
+
+/// Records every page, view and table so partial atlas replacements cannot pass unnoticed.
+fn atlas_resources(app: &App) -> AtlasResources {
+    let gpu = app.world().resource::<ChunkGpuTextureAssets>();
+    let prepared = gpu.prepared.as_ref().unwrap();
+    (
+        prepared.identity,
+        prepared._textures.each_ref().map(Texture::id),
+        prepared.views.each_ref().map(TextureView::id),
+        [
+            prepared.material_buffer.id(),
+            prepared.animation_buffer.id(),
+            prepared.animation_frame_buffer.id(),
+            prepared.model_template_buffer.id(),
+        ],
+    )
+}
 
 /// Creates real main-world queue instances and uploads them through the ordinary GPU owner.
 fn publication_app() -> (App, Vec<(Entity, ChunkRenderInstance)>) {
@@ -259,6 +285,83 @@ fn an_unblocked_worker_keeps_the_existing_two_world_publication_order() {
             .resource::<ChunkGpuTextureAssets>()
             .staged
             .is_none()
+    );
+}
+
+#[test]
+fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
+    let (mut app, instances) = publication_app();
+    let before = atlas_resources(&app);
+    let geometry_before = published(&app).2;
+    let stats_before = *app.world().resource::<ChunkTextureUploadStats>();
+    let reload = app.world().resource::<ChunkTextureReload>().clone();
+    let failed = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 10);
+    reload.request(failed.clone());
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.world_mut()
+        .resource_mut::<ChunkGpuTextureAssets>()
+        .pending = Some(PendingTextures {
+        request: reload.preparation().unwrap(),
+        result: std::sync::Mutex::new(receiver),
+    });
+    sender.send(None).unwrap();
+    app.world_mut()
+        .run_system_once(prepare_chunk_texture_assets)
+        .unwrap();
+    assert!(reload.status(failed.identity()).unwrap().is_err());
+    assert_eq!(atlas_resources(&app), before);
+    assert_eq!(published(&app).2, geometry_before);
+    assert_eq!(
+        *app.world().resource::<ChunkTextureUploadStats>(),
+        stats_before
+    );
+
+    let candidate = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 11);
+    complete_worker(
+        &mut app,
+        &candidate,
+        instances
+            .iter()
+            .map(|(_, instance)| instance.clone())
+            .collect(),
+    );
+    app.world_mut()
+        .run_system_once(prepare_chunk_texture_assets)
+        .unwrap();
+    assert_eq!(reload.status(candidate.identity()), Some(Ok(())));
+    assert_eq!(atlas_resources(&app), before);
+    assert_eq!(published(&app).2, geometry_before);
+    assert_eq!(
+        *app.world().resource::<ChunkTextureUploadStats>(),
+        stats_before
+    );
+
+    app.insert_resource(candidate.clone());
+    app.world_mut()
+        .run_system_once(prepare_chunk_texture_assets)
+        .unwrap();
+    let after = atlas_resources(&app);
+    assert_eq!(after.0, candidate.identity());
+    for (old, new) in before.1.into_iter().zip(after.1) {
+        assert_ne!(old, new);
+    }
+    for (old, new) in before.2.into_iter().zip(after.2) {
+        assert_ne!(old, new);
+    }
+    for (old, new) in before.3.into_iter().zip(after.3) {
+        assert_ne!(old, new);
+    }
+    assert_ne!(published(&app).2, geometry_before);
+    let stats_after = *app.world().resource::<ChunkTextureUploadStats>();
+    assert_eq!(stats_after.upload_count, 1);
+    assert!(stats_after.queue_upload_bytes > 0);
+    app.world_mut()
+        .run_system_once(prepare_chunk_texture_assets)
+        .unwrap();
+    assert_eq!(atlas_resources(&app), after);
+    assert_eq!(
+        *app.world().resource::<ChunkTextureUploadStats>(),
+        stats_after
     );
 }
 

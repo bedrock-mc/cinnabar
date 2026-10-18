@@ -6,6 +6,9 @@ use launcher_host::video_settings::{SavedVideoSettings, save, writer};
 /// Run after the fullscreen and GUI adapters so the stored tuple is the applied
 /// mode plus the raw modifier. A viewport clamp never changes the saved value.
 pub fn persist_video_settings(mut menu: ResMut<MenuRuntime>) {
+    if menu.external.is_some() {
+        return;
+    }
     let settings = SavedVideoSettings {
         fullscreen: menu.fullscreen,
         gui_scale_offset: menu.gui_scale_offset,
