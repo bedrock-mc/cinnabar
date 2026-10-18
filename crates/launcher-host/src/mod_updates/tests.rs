@@ -474,3 +474,64 @@ fn completed_download_is_handed_to_the_installer_without_a_spurious_failure() {
     assert!(final_response.manual.is_none() && final_response.message.is_none());
     assert!(final_response.downloads.is_empty());
 }
+
+#[test]
+fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
+    let limit = worker::MAX_REPOSITORIES;
+    let (requests, incoming) = unbounded();
+    let (outgoing, responses) = unbounded();
+    let generation = Arc::new(AtomicU64::new(1));
+    let current = generation.clone();
+    let worker = std::thread::spawn(move || {
+        let mut attempts = 0;
+        worker::run(
+            incoming,
+            outgoing,
+            &current,
+            |_| Ok(Some(release("1.1.0", false, false))),
+            |candidate, _, _, _| {
+                attempts += 1;
+                (attempts > limit).then(|| {
+                    Downloaded::fixture(
+                        candidate.id,
+                        "1.1.0",
+                        "example/zoom",
+                        "zoom.wasm",
+                        b"component",
+                    )
+                })
+            },
+        );
+        attempts
+    });
+    let candidate = |id| Candidate {
+        id,
+        repository: "example/zoom".into(),
+        version: "1.0.0".into(),
+        asset: Some("zoom.wasm".into()),
+    };
+    requests
+        .send(Request {
+            manual: None,
+            generation: 1,
+            permission: 0,
+            candidates: (1..=limit as u64).map(candidate).collect(),
+        })
+        .unwrap();
+    responses.recv().unwrap();
+    generation.store(2, Ordering::SeqCst);
+    requests
+        .send(Request {
+            manual: Some(1),
+            generation: 2,
+            permission: 0,
+            candidates: vec![candidate(1)],
+        })
+        .unwrap();
+    drop(requests);
+    assert_eq!(worker.join().unwrap(), limit + 1);
+    let manual = responses.recv().unwrap();
+    assert_eq!(manual.manual, Some(1));
+    assert_eq!(manual.downloads.len(), 1);
+    assert!(manual.message.is_none());
+}

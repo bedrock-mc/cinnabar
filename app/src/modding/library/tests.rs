@@ -880,7 +880,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
             serde_json::to_vec(&serde_json::json!({
                 "version": record["version"], "request_id": record["request_id"],
                 "independent_registration": true, "client_pid": std::process::id(),
-                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing"}]
+                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing", "reload": record["mods"][0]["reload"].as_u64().unwrap_or_default()}]
             })).unwrap()).unwrap();
         let original_id = scan(&mods, &registration, String::new()).active[0].id;
         if rename_directory {

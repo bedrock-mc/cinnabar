@@ -183,7 +183,7 @@ fn status(registration: &Path, state: &str) {
     fs::write(registration.join(STATUS_FILE), serde_json::to_vec(&serde_json::json!({
         "version": record["version"], "request_id": record["request_id"],
         "independent_registration": true, "client_pid": std::process::id(),
-        "mods": [{"component": record["mods"][0]["component"], "state": state, "message": "fixture reload error"}]
+        "mods": [{"component": record["mods"][0]["component"], "state": state, "message": "fixture reload error", "reload": record["mods"][0]["reload"].as_u64().unwrap_or_default()}]
     })).unwrap()).unwrap();
 }
 
@@ -225,6 +225,18 @@ fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
     assert_eq!(waiting.active[0].status, launcher::mods::Status::Starting);
     assert!(pending.poll(&waiting, now).is_none());
     assert!(completion.try_recv().is_err());
+    // Another mod's trap can republish an old loaded status under the new list request.
+    status(&registration, "loaded");
+    let status_path = registration.join(crate::modding::registration::STATUS_FILE);
+    let mut old: serde_json::Value =
+        serde_json::from_slice(&fs::read(&status_path).unwrap()).unwrap();
+    old["mods"][0]["reload"] = original.reload.into();
+    fs::write(&status_path, serde_json::to_vec(&old).unwrap()).unwrap();
+    assert!(
+        pending
+            .poll(&scan(&mods, &registration, String::new()), now)
+            .is_none()
+    );
     let current = selection::registered(&registration).remove(0).entry;
     assert_eq!(current.grants, original.grants);
     assert_eq!(current.reload, original.reload + 1);

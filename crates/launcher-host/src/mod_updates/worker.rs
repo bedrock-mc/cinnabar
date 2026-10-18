@@ -14,7 +14,7 @@ use std::{
 };
 
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
-const MAX_REPOSITORIES: usize = 32;
+pub(super) const MAX_REPOSITORIES: usize = 32;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Deserialize)]
@@ -164,10 +164,13 @@ pub(super) fn run(
                 let key = (candidate.id, candidate.asset.clone(), request.permission);
                 if candidate.asset.is_some()
                     && request.generation == generation.load(Ordering::SeqCst)
-                    && downloads_started < MAX_REPOSITORIES
+                    && (request.manual == Some(candidate.id)
+                        || downloads_started < MAX_REPOSITORIES)
                     && (request.manual == Some(candidate.id) || attempted.insert(key.clone()))
                 {
-                    downloads_started += 1;
+                    if request.manual != Some(candidate.id) {
+                        downloads_started += 1;
+                    }
                     if let Some(download) =
                         download(candidate, release, request.generation, request.permission)
                     {

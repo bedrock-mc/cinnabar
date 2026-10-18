@@ -223,9 +223,13 @@ pub(super) fn run(
                     &StatusList::new(id, statuses.clone()),
                 );
             }
-            Ok(Message::Failed { component, error }) => {
+            Ok(Message::Failed {
+                component,
+                error,
+                reload,
+            }) => {
                 statuses.retain(|status| status.component != component);
-                statuses.push(Status::new(component, "error", Some(error)));
+                statuses.push(Status::new(component, "error", Some(error), Some(reload)));
                 let _ = status::write_json(
                     &directory.join(STATUS_FILE),
                     &StatusList::new(request_id.clone(), statuses.clone()),
