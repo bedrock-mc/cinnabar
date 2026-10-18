@@ -315,13 +315,7 @@ fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
             0,
             "newly available evidence must not replay an old use edge; actor={actor}"
         );
-        assert_eq!(
-            sent.iter()
-                .filter_map(equipment)
-                .map(|e| e.selected_slot)
-                .collect::<Vec<_>>(),
-            []
-        );
+        assert!(sent.iter().all(|packet| equipment(packet).is_none()));
         assert!(!crate::ordered_interactions::pending(app.world()));
     }
 }
