@@ -7,7 +7,7 @@ use bevy::time::Real;
 use diagnostics::rate::LogBudget;
 use render_scene::{AtmosphereFrame, WorldLighting};
 
-use super::{EnvironmentContext, EnvironmentProfileRoute, WorldClock};
+use client_presentation::environment::{EnvironmentContext, EnvironmentProfileRoute, WorldClock};
 use {
     crate::runtime::world::ClientWorld, client_presentation::local_player::LocalPlayerFrameCarrier,
 };

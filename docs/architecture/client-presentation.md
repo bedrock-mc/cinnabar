@@ -34,6 +34,21 @@ The presentation crate owns prepared actor artwork and item presentation bundles
 pack compilation and session admission remain outside it. Original asset identity
 and pointer-equality checks continue to fence prepared artwork across reloads.
 
+## Environment presentation
+
+`client-presentation::environment` owns world-clock and weather snapshots, named
+clock transitions, renderer-clock progression, weather interpolation and its shared
+tick batches, weather-fog accumulation, fog registry bindings and sampling, and
+atmosphere/profile derivation. Its callers supply elapsed time from the host's
+existing clock. The renderer clock uses the shared simulation frame limit without
+a gameplay dependency.
+
+The app retains system registration and ordering, `ClientWorld` borrowing, seasonal
+palette publication, precipitation and lightning scene updates, UI boss-bar access,
+and native menu/browser preference access. Its validated mod-time adapter asks the
+clock owner for a frozen rendering copy while retaining the server snapshot.
+The existing provisional lighting and fog limitations still apply.
+
 ## Evidence and optional builds
 
 `diagnostics` owns ordinary metrics and shared marker names. The optional

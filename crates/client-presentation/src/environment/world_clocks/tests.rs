@@ -6,6 +6,7 @@ use protocol::{
 
 use super::super::{WeatherState, apply_environment_control, replace_session};
 
+/// Builds an initialized clock with its elapsed-time origin at five seconds.
 fn running_clock(time: i32, paused: bool) -> WorldClock {
     let mut clock = WorldClock {
         daylight_cycle_enabled: true,
@@ -24,6 +25,7 @@ fn running_clock(time: i32, paused: bool) -> WorldClock {
     clock
 }
 
+/// Applies one named-clock synchronization at the supplied elapsed time.
 fn sync(clock: &mut WorldClock, id: u64, time: i32, paused: bool, elapsed: f64) {
     apply_clock_update(
         clock,

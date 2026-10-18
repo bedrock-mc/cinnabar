@@ -6,11 +6,11 @@ use client_presentation::local_player_camera_receipt::{
 use std::{path::Path, sync::Arc, time::Duration};
 use {
     crate::{
-        environment::WorldClock,
         local_player::{publish_local_player_frame, resolve_camera_pose},
         runtime::world::ClientWorld,
     },
     client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+    client_presentation::environment::WorldClock,
     client_presentation::{
         camera::{CameraSettingsAuthority, FlyCamera},
         local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},

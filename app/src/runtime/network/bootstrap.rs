@@ -1,8 +1,5 @@
 use super::{NetworkLocalPlayerState, PackReload, bootstrap_timing, session::NetworkControlEvent};
-use crate::{
-    environment::{bind_session_generation, replace_session},
-    runtime::{shutdown::record_fatal_error, world::AppWorldState},
-};
+use crate::runtime::{shutdown::record_fatal_error, world::AppWorldState};
 #[cfg(feature = "acceptance")]
 use acceptance::{
     AcceptanceRun, committed_control::acceptance_surface_anchor,
@@ -12,6 +9,7 @@ use bevy::{
     log::{debug, info},
     prelude::Mut,
 };
+use client_presentation::environment::{bind_session_generation, replace_session};
 use client_presentation::local_player::{LocalPlayerFrameReset, reset_local_player_session};
 use client_runtime::{
     inventory::publish_bootstrap_inventory, pack_admission::ResourcePackAdmissionState,

@@ -59,8 +59,8 @@ pub(crate) struct PublishExtras<'w, 's> {
     actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
     local_frame: Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
     local_visibility: Res<'w, client_presentation::local_player::LocalAvatarVisibilityCarrier>,
-    clock: Res<'w, crate::environment::WorldClock>,
-    weather: Res<'w, crate::environment::WeatherState>,
+    clock: Res<'w, client_presentation::environment::WorldClock>,
+    weather: Res<'w, client_presentation::environment::WeatherState>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     glint_settings: Option<ResMut<'w, render_scene::UiGlintSettings>>,
     item_use: Res<'w, client_interaction::item_use::ItemUseRuntime>,
@@ -379,10 +379,9 @@ pub(crate) fn prepare_ui_runtime(
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
-    presentation.hud_frame_mut().world_time = Some(crate::environment::visual_world_time(
-        *clock,
-        time.elapsed_secs_f64(),
-    ));
+    presentation.hud_frame_mut().world_time = Some(
+        client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
+    );
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.

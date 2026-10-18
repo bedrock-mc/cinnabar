@@ -3,6 +3,7 @@ use crate::runtime::network::resource_packs::PackApplication;
 use crate::runtime::visibility::AppMetrics;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use client_presentation::environment::{WeatherState, WorldClock, apply_environment_control};
 use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use {
@@ -66,12 +67,9 @@ use render_scene::{
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
-    crate::{
-        environment::{WeatherState, WorldClock, apply_environment_control},
-        runtime::{
-            shutdown::{FatalError, record_fatal_error},
-            visibility::{CaveVisibilityCache, DiagnosticQuads},
-        },
+    crate::runtime::{
+        shutdown::{FatalError, record_fatal_error},
+        visibility::{CaveVisibilityCache, DiagnosticQuads},
     },
     client_interaction::movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,

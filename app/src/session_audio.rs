@@ -7,7 +7,7 @@ use client_audio::session_audio::{SessionAudio, SessionAudioCatalog};
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drain_sequenced_audio_into_session(
     messages: MessageReader<SequencedAudioEvent>,
-    clock: Res<crate::environment::WorldClock>,
+    clock: Res<client_presentation::environment::WorldClock>,
     client_world: Res<crate::runtime::world::ClientWorld>,
     catalog: Res<SessionAudioCatalog>,
     #[cfg(feature = "acceptance")] mut wire_messages: MessageReader<SequencedAudioEvent>,

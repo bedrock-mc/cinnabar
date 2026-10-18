@@ -11,9 +11,9 @@ use super::super::EnvironmentProfileRoute;
 use assets::facts::dimension_fallback_biome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BiomeProfileIndex(pub usize);
+pub struct BiomeProfileIndex(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FogProfileIndex(pub usize);
+pub struct FogProfileIndex(pub usize);
 
 #[derive(Clone)]
 struct Binding {
@@ -29,11 +29,11 @@ struct BiomeBinding {
 
 /// Joins immutable registries once and retains their generation identity.
 #[derive(bevy::prelude::Resource, Default)]
-pub(crate) struct FogBindings {
+pub struct FogBindings {
     atmosphere: Option<Arc<RuntimeAtmosphereAssets>>,
     biome_generation: Option<meshing::ChunkBiomeTintIdentity>,
     /// Published atmosphere identity that owns these indices and routes.
-    pub(crate) atmosphere_generation: Option<[u8; 32]>,
+    pub atmosphere_generation: Option<[u8; 32]>,
     by_id: BTreeMap<u32, BiomeBinding>,
     defaults: [Option<Binding>; 3],
     pub default_fog: Option<FogProfileIndex>,

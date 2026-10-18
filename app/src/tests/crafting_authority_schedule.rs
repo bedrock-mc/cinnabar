@@ -1,9 +1,11 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
+
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::ecs::system::RunSystemOnce;
+use client_presentation::environment::{WeatherState, WorldClock, bind_session_generation};
 use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 use simulation_clock::identity::SessionGeneration;
@@ -19,7 +21,6 @@ use protocol::{
 };
 use {
     crate::{
-        environment::{WeatherState, WorldClock, bind_session_generation},
         runtime::{
             movement_evidence::MovementEvidenceEmitter,
             shutdown::FatalError,

@@ -1,4 +1,5 @@
 //! Real ordered-stream commit-to-authority witnesses, not network-ingress tests.
+
 use super::*;
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
@@ -16,6 +17,7 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
+use client_presentation::environment::{WeatherState, bind_session_generation};
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_runtime::network::NetworkHandle;
 use client_shell::ui_resources::UiPresentationResource;
@@ -31,7 +33,6 @@ use semantic_input::Action;
 use std::sync::Arc;
 use {
     crate::{
-        environment::{WeatherState, bind_session_generation},
         runtime::movement_evidence::MovementEvidenceEmitter,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,

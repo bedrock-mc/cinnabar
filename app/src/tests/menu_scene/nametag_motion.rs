@@ -1,10 +1,8 @@
 //! Own labels follow the frozen body pose while remote labels retain actor interpolation.
 
 use super::*;
-use crate::{
-    environment::{WeatherState, WorldClock, bind_session_generation},
-    ui_runtime::presentation::prepare_ui_runtime,
-};
+use crate::ui_runtime::presentation::prepare_ui_runtime;
+use client_presentation::environment::{WeatherState, WorldClock, bind_session_generation};
 use client_presentation::{
     actor_publication::ActorFramePartialTick,
     camera::{CameraSettingsAuthority, FlyCamera, perspective_pose},

@@ -19,6 +19,7 @@ pub(super) struct WeatherFog {
 }
 
 impl WeatherFog {
+    /// Bounds the admitted lattice count, treating unavailable samples as empty.
     pub(super) fn set_precipitation_count(&mut self, count: Option<usize>) {
         self.precipitation_count = count.unwrap_or(0).min(PRECIPITATION_SAMPLE_OFFSETS.len());
     }
@@ -47,6 +48,7 @@ impl WeatherFog {
         self.smoothed = self.smoothed * PREVIOUS_FOG_WEIGHT + target * TARGET_FOG_WEIGHT;
     }
 
+    /// Returns the retained fog level only in weather-admitting dimensions.
     pub(super) fn level(&self, dimension: i32) -> f32 {
         if dimension == 0 { self.smoothed } else { 0.0 }
     }

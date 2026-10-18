@@ -2,16 +2,14 @@
 
 use bevy::prelude::{Local, Query, Res, ResMut, Transform, With};
 use client_audio::audio::{AudioEngine, weather::RainSoundScheduler};
+use client_presentation::environment::{WorldClock, weather::WeatherTickFrame};
 use client_presentation::{
     camera::{FlyCamera, ServerCameraView},
     local_player::LocalViewPose,
 };
 use launcher::menu::settings_options::SettingId;
 
-use crate::{
-    environment::{WeatherTickFrame, WorldClock},
-    runtime::world::ClientWorld,
-};
+use crate::runtime::world::ClientWorld;
 
 /// Samples rain on the same completed weather ticks that update the atmosphere.
 #[allow(clippy::too_many_arguments)]

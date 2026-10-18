@@ -4,6 +4,7 @@ use std::sync::Arc;
 use {
     crate::named_audio::{SequencedAudioEvent, drain_live_named_audio},
     client_audio::named_audio::NamedAudio,
+    client_presentation::environment::WorldClock,
 };
 
 fn play(sequence: u64) -> SequencedAudioEvent {
@@ -68,7 +69,6 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
     };
     use {
         crate::{
-            environment::WorldClock,
             local_player::{publish_local_player_frame, resolve_camera_pose},
             runtime::world::ClientWorld,
         },

@@ -1043,6 +1043,11 @@ forbidden_modules = ["cinnabar", "gameplay", "client_session", "NetworkHandle", 
 forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "melee", "menu", "acceptance", "asset_startup", "player_runtime", "semantic_controls", "settings_runtime", "screen_policy"]
 forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
 
+# Environment derivation consumes observations without app world or preference wrappers.
+[[module_boundaries]]
+path = "crates/client-presentation/src/environment"
+forbidden_modules = ["client_shell", "ClientWorld", "UiRuntimeResource", "BrowserOptions", "MenuRuntime"]
+
 [[module_boundaries]]
 path = "crates/client-audio/src"
 forbidden_modules = ["cinnabar", "client_presentation", "render", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController"]

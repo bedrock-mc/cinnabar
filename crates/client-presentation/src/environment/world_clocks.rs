@@ -11,6 +11,7 @@ use protocol::{OVERWORLD_CLOCK_ID, WorldClockState, WorldClockUpdateEvent};
 
 use super::{WorldClock, numeric::finite_nonnegative, visual_world_time};
 
+/// Reanchors a legacy time update only when its integer tick changes.
 pub(super) fn apply_legacy_time(clock: &mut WorldClock, time: i32, elapsed_seconds: f64) {
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
     // The legacy handler compares the current level time first; identical integer
@@ -23,6 +24,7 @@ pub(super) fn apply_legacy_time(clock: &mut WorldClock, time: i32, elapsed_secon
     }
 }
 
+/// Applies known named-clock records and counts unsupported clock IDs.
 pub(super) fn apply_clock_update(
     clock: &mut WorldClock,
     update: WorldClockUpdateEvent,
@@ -55,6 +57,7 @@ pub(super) fn apply_clock_update(
     }
 }
 
+/// Applies time and pause changes without discarding an unchanged fractional tick.
 fn apply_state(clock: &mut WorldClock, state: WorldClockState, elapsed_seconds: f64) {
     let current_time = visual_world_time(*clock, elapsed_seconds);
     // Vanilla compares the integer clock time, rather than resetting the

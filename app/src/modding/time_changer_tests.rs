@@ -1,6 +1,6 @@
 use super::*;
-use crate::environment::{self, WeatherState, WorldClock};
 use crate::runtime::network::resource_packs::PackApplication;
+use client_presentation::environment::{WeatherState, WorldClock};
 use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::UiRuntime;
 
@@ -36,7 +36,7 @@ fn configured_time_changer_is_visual_only_offline() {
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
     let mut clock = WorldClock::default();
-    environment::replace_session(
+    client_presentation::environment::replace_session(
         &mut clock,
         &mut WeatherState::default(),
         protocol::WorldEnvironmentBootstrap {

@@ -21,7 +21,7 @@ pub(super) struct GameplayContext<'w> {
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
     real_time: Option<Res<'w, Time<Real>>>,
-    clock: Option<Res<'w, crate::environment::WorldClock>>,
+    clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
     pub(super) player: Option<Res<'w, client_state::PlayerRuntime>>,

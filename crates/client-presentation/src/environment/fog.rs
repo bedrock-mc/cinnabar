@@ -1,5 +1,5 @@
 mod bindings;
-pub(crate) use bindings::{BiomeProfileIndex, FogBindings, FogProfileIndex};
+pub use bindings::{BiomeProfileIndex, FogBindings, FogProfileIndex};
 use chunk_pipeline::WorldStream;
 use render_model::PRECIPITATION_SAMPLE_OFFSETS;
 
@@ -11,7 +11,7 @@ fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSE
 }
 
 /// Samples the current client's 27-position biome layer.
-pub(crate) fn fog_biome_samples(
+pub fn fog_biome_samples(
     stream: &WorldStream,
     position: [f32; 3],
     bindings: &FogBindings,
@@ -32,7 +32,7 @@ fn count_precipitation_samples(samples: impl IntoIterator<Item = Option<bool>>) 
 }
 
 /// Samples the session registry on the same bounded lattice as weather.
-pub(crate) fn fog_precipitation_count(stream: &WorldStream, position: [f32; 3]) -> Option<usize> {
+pub fn fog_precipitation_count(stream: &WorldStream, position: [f32; 3]) -> Option<usize> {
     let registry = stream.authority().resolved_biome_tints();
     count_precipitation_samples(sample_positions(position).map(|position| {
         let id = stream.camera_biome_id(position)?;

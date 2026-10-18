@@ -334,7 +334,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
             ..Default::default()
         })
         .init_resource::<crate::runtime::shutdown::FatalError>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()

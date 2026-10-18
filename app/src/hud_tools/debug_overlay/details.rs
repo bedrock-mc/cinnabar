@@ -82,7 +82,7 @@ impl DebugContext<'_, '_> {
             .as_deref()
             .filter(|clock| clock.server_time().is_some())
         {
-            let tick = crate::environment::visual_world_time(*clock, elapsed_seconds);
+            let tick = client_presentation::environment::visual_world_time(*clock, elapsed_seconds);
             lines.left.push(format_args!(
                 "World time: {tick:.0} ticks | daylight: {}",
                 if clock.daylight_cycle_enabled() {

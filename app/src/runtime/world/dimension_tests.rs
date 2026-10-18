@@ -341,9 +341,9 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
 
 #[test]
 fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_terrain() {
-    use crate::environment::WorldClock;
     use crate::runtime::world::ClientWorld;
     use bevy::prelude::{App, Update};
+    use client_presentation::environment::WorldClock;
     let clock = WorldClock::default();
     let session = clock.session_generation();
     let mut world = ClientWorld {

@@ -153,7 +153,7 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
         world.entity_assets = Some(entities.clone());
     }
     *app.world_mut()
-        .resource_mut::<crate::environment::WorldClock>() = Default::default();
+        .resource_mut::<client_presentation::environment::WorldClock>() = Default::default();
     let (network, sender) =
         NetworkHandle::<resource_packs::PackApplication>::stub_with_control_sender();
     sender.try_send(bootstrap(packs, blocks.clone())).unwrap();

@@ -20,6 +20,9 @@ use bevy::{
     render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
+use client_presentation::environment::{
+    EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+};
 use client_runtime::blob_cache::ClientBlobCacheOwner;
 use client_runtime::network::NetworkHandle;
 use client_state::ClientFrameSet;
@@ -58,8 +61,7 @@ use {
         block_use::produce_block_use,
         camera::FlyCameraPlugin,
         environment::{
-            self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-            update_atmosphere_frame, update_lightning, update_precipitation_scene,
+            self, update_atmosphere_frame, update_lightning, update_precipitation_scene,
             update_seasonal_foliage,
         },
         local_player::publish_local_player_frame,
@@ -696,10 +698,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(UiPresentationResource(ui_presentation))
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())
-    .init_resource::<environment::WeatherTickFrame>()
+    .init_resource::<client_presentation::environment::weather::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
-    .insert_resource(environment::LightningFlashState::default())
-    .init_resource::<environment::FogBindings>()
+    .insert_resource(client_presentation::environment::weather::LightningFlashState::default())
+    .init_resource::<client_presentation::environment::fog::FogBindings>()
     .insert_resource(EnvironmentContext::default())
     .insert_resource(EnvironmentProfileRoute::default())
     .insert_resource(movement_ticker)

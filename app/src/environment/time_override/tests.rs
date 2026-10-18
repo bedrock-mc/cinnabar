@@ -1,6 +1,7 @@
 use super::*;
-use crate::environment::{self, WeatherState};
+use crate::environment;
 use bevy::{prelude::*, time::Real};
+use client_presentation::environment::WeatherState;
 use client_world::CommittedControlEvent;
 use protocol::{DaylightCycleUpdateEvent, SetTimeEvent, WorldEnvironmentBootstrap};
 use render_scene::{AtmosphereFrame, WorldLighting};
@@ -9,7 +10,7 @@ use render_scene::{AtmosphereFrame, WorldLighting};
 fn atmosphere_app(cycle: bool) -> App {
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
-    environment::replace_session(
+    client_presentation::environment::replace_session(
         &mut clock,
         &mut weather,
         WorldEnvironmentBootstrap {
@@ -27,10 +28,10 @@ fn atmosphere_app(cycle: bool) -> App {
         .insert_resource(weather)
         .init_resource::<VisualTimeOverride>()
         .init_resource::<environment::CameraMediumState>()
-        .init_resource::<environment::EnvironmentContext>()
-        .init_resource::<environment::EnvironmentProfileRoute>()
-        .init_resource::<environment::LightningFlashState>()
-        .init_resource::<environment::WeatherTickFrame>()
+        .init_resource::<client_presentation::environment::EnvironmentContext>()
+        .init_resource::<client_presentation::environment::EnvironmentProfileRoute>()
+        .init_resource::<client_presentation::environment::weather::LightningFlashState>()
+        .init_resource::<client_presentation::environment::weather::WeatherTickFrame>()
         .init_resource::<render_scene::AtmosphereTextureAssets>()
         .init_resource::<AtmosphereFrame>()
         .init_resource::<render_scene::AtmosphereViewInputs>()
@@ -116,7 +117,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(
             advancing_server.0.day_fraction(),
             render_scene::AtmosphereFrame::from_bedrock_time(
-                environment::visual_world_time(server, 10.0),
+                client_presentation::environment::visual_world_time(server, 10.0),
                 0.0,
                 0.0
             )
@@ -126,7 +127,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(output(&mut app), advancing_clouds);
         let mut clock = *app.world().resource::<WorldClock>();
         let mut weather = *app.world().resource::<WeatherState>();
-        environment::apply_environment_control(
+        client_presentation::environment::apply_environment_control(
             CommittedControlEvent::SetTime {
                 sequence: 1,
                 update: SetTimeEvent { time: 1_000 },
@@ -135,7 +136,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
             &mut weather,
             10.0,
         );
-        environment::apply_environment_control(
+        client_presentation::environment::apply_environment_control(
             CommittedControlEvent::DaylightCycle {
                 sequence: 2,
                 update: DaylightCycleUpdateEvent { enabled: false },
@@ -149,7 +150,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         app.world_mut().resource_mut::<VisualTimeOverride>().0 = None;
         let restored = output(&mut app);
         let expected = render_scene::AtmosphereFrame::from_bedrock_time(
-            environment::visual_world_time(clock, 12.0),
+            client_presentation::environment::visual_world_time(clock, 12.0),
             0.0,
             0.0,
         )

@@ -1,6 +1,6 @@
 use bevy::prelude::Resource;
 
-use super::WorldClock;
+use client_presentation::environment::WorldClock;
 
 /// Validated mod output, applied only to a copy used by atmosphere rendering.
 #[derive(Resource, Default)]
@@ -10,12 +10,7 @@ impl VisualTimeOverride {
     /// Keeps the server snapshot intact while fixing the rendered clock.
     pub(crate) fn rendering_clock(&self, server: WorldClock) -> WorldClock {
         match self.0 {
-            Some(ticks) => WorldClock {
-                server_time: Some(f64::from(ticks)),
-                server_time_anchor_seconds: Some(0.0),
-                daylight_cycle_enabled: false,
-                ..server
-            },
+            Some(ticks) => server.with_visual_time(ticks),
             None => server,
         }
     }

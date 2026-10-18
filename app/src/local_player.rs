@@ -5,9 +5,10 @@ use bevy::{
 use simulation_clock::identity::SessionGeneration;
 
 use {
-    crate::{environment::WorldClock, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
     client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
+    client_presentation::environment::WorldClock,
 };
 
 use client_presentation::local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose};

@@ -15,7 +15,7 @@ pub(crate) fn advance_dimension_transfer(
     mut client_world: bevy::prelude::ResMut<super::ClientWorld>,
     mut fatal_error: bevy::prelude::ResMut<super::FatalError>,
     network: bevy::prelude::Res<NetworkHandle<PackApplication>>,
-    clock: bevy::prelude::Res<crate::environment::WorldClock>,
+    clock: bevy::prelude::Res<client_presentation::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
     #[cfg(not(target_arch = "wasm32"))] mut menu: Option<
         bevy::prelude::ResMut<client_shell::menu::MenuRuntime>,

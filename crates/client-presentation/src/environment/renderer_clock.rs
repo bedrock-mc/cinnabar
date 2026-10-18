@@ -4,7 +4,7 @@
 use super::numeric::finite_nonnegative;
 
 #[derive(Default)]
-pub(crate) struct RendererClock {
+pub struct RendererClock {
     generation: Option<u64>,
     last_elapsed: f64,
     ticks: u64,
@@ -12,7 +12,8 @@ pub(crate) struct RendererClock {
 }
 
 impl RendererClock {
-    pub(super) fn advance(&mut self, generation: Option<u64>, elapsed: f64) -> f64 {
+    /// Advances bounded renderer ticks from host elapsed time, resetting for a new session.
+    pub fn advance(&mut self, generation: Option<u64>, elapsed: f64) -> f64 {
         let elapsed = finite_nonnegative(elapsed);
         if self.generation != generation {
             *self = Self {
@@ -30,9 +31,9 @@ impl RendererClock {
         let tick_seconds = simulation_clock::TICK_DURATION.as_secs_f64();
         let due = ((self.remainder + f64::EPSILON) / tick_seconds).floor();
         self.remainder = (self.remainder - due * tick_seconds).max(0.0);
-        self.ticks = self.ticks.saturating_add(
-            (due as u64).min(gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64),
-        );
+        self.ticks = self
+            .ticks
+            .saturating_add((due as u64).min(simulation_clock::MAX_TICKS_PER_FRAME as u64));
         self.ticks as f64 + self.remainder / tick_seconds
     }
 }
@@ -56,10 +57,7 @@ mod tests {
         let mut clock = RendererClock::default();
         clock.advance(Some(1), 0.0);
         let ticks = clock.advance(Some(1), 100.0);
-        assert_eq!(
-            ticks,
-            gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as f64
-        );
+        assert_eq!(ticks, simulation_clock::MAX_TICKS_PER_FRAME as f64);
         assert_eq!(clock.advance(Some(1), 99.0), ticks);
         assert_eq!(clock.advance(Some(1), 100.0), ticks);
     }

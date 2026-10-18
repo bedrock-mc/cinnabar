@@ -55,7 +55,7 @@ coordinates work that crosses these owners.
 | `crates/client-shell` | `client-shell` | Menu input, launcher services and desktop settings; install its shell plugin. | `launcher-host` owns services; `launcher` owns models; screen crates draw the menus. |
 | `crates/client-interaction` | `client-interaction` | Input-to-movement, camera and interaction adapters; install its interaction plugin. | `gameplay`, `sim` and `inventory` own decisions; `client-presentation` owns visual results. |
 | `crates/client-ui` | `client-ui` | Retained client UI state, input routing and frame publication; call its UI runtime from client adapters. | `ui-screens`, `oreui` and `mod-ui` draw screen families; `ui-engine` retains their nodes. |
-| `crates/client-presentation` | `client-presentation` | Camera, actor and equipment frame preparation; use its plugin and borrowed observation inputs. | `actor-animation` evaluates poses; `render-model` defines CPU data; `render` submits it. |
+| `crates/client-presentation` | `client-presentation` | Camera, actor, equipment and environment frame preparation; use its plugin, environment state and borrowed observation inputs. | `actor-animation` evaluates poses; `render-model` defines CPU data; `render` submits it. |
 | `crates/client-audio` | `client-audio` | Sound admission, playback and local audio cues; install its audio plugin. | `assets` supplies sound data; interaction and session adapters publish observations. |
 | `crates/client-extensions` | `client-extensions` | Local mod and server Experience adapters, including consent input; install its extension plugin. | `mod-host` executes guests; `server-experience` negotiates them; `mod-ui` draws their surfaces. |
 

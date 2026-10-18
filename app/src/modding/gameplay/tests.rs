@@ -183,10 +183,10 @@ fn player_state_effects_follow_real_time_while_gameplay_keeps_virtual_delta() {
         )
         .unwrap();
     }
-    let mut clock = crate::environment::WorldClock::default();
-    crate::environment::bind_session_generation(
+    let mut clock = client_presentation::environment::WorldClock::default();
+    client_presentation::environment::bind_session_generation(
         &mut clock,
-        &mut crate::environment::WeatherState::default(),
+        &mut client_presentation::environment::WeatherState::default(),
         session,
     );
     let mut real_time = Time::<Real>::default();

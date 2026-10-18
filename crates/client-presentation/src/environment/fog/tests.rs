@@ -3,7 +3,7 @@ use assets::RuntimeAssets;
 
 #[test]
 fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("assets/bedrock-target.json")).unwrap())
             .unwrap();

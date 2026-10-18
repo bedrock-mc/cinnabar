@@ -15,6 +15,7 @@ use protocol::{
 use std::sync::Arc;
 use ui::{BossBarView, BossColor, BossOverlay, BossStyle};
 
+/// Builds a boss bar with the requested environment flags.
 fn boss_bar_view(darken_sky: Option<bool>, create_world_fog: Option<bool>) -> BossBarView {
     BossBarView {
         target_entity_id: 1,
@@ -87,6 +88,7 @@ fn boss_effects_apply_only_in_air_and_removal_restores_the_exact_frame() {
     );
 }
 
+/// Builds an environment bootstrap with a running weather cycle.
 fn bootstrap(
     initial_time: i64,
     day_cycle_lock_time: i32,
@@ -104,6 +106,7 @@ fn bootstrap(
     }
 }
 
+/// Applies a legacy time control to the supplied environment snapshot.
 fn set_time(clock: &mut WorldClock, weather: &mut WeatherState, time: i32, elapsed: f64) {
     assert!(apply_environment_control(
         CommittedControlEvent::SetTime {
@@ -689,6 +692,7 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
     assert_eq!(frame.fog_end(), 179.2);
 }
 
+/// Builds sorted biome profiles for atmosphere and registry-binding tests.
 pub(super) fn profiles() -> Vec<BiomeVisualProfile> {
     vec![
         BiomeVisualProfile {
@@ -715,6 +719,7 @@ pub(super) fn profiles() -> Vec<BiomeVisualProfile> {
     ]
 }
 
+/// Builds sorted fog profiles with representative medium-specific distances.
 pub(super) fn fog_profiles() -> Vec<FogProfile> {
     let mut profiles = vec![
         FogProfile {
@@ -788,6 +793,7 @@ pub(super) fn fog_profiles() -> Vec<FogProfile> {
     profiles
 }
 
+/// Builds an air-fog profile with the supplied distance rule.
 fn fog_profile(
     identifier: &str,
     mode: FogDistanceMode,
@@ -801,6 +807,7 @@ fn fog_profile(
     }
 }
 
+/// Builds a medium-specific fog distance without a transition.
 fn fog_distance(
     medium: FogMedium,
     mode: FogDistanceMode,

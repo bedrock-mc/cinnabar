@@ -13,8 +13,9 @@ use protocol::CameraAimAssistPresetSettings;
 use semantic_input::PerspectiveMode;
 
 use {
-    crate::{environment::WorldClock, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
     client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+    client_presentation::environment::WorldClock,
     client_presentation::{
         camera::{CameraSettingsAuthority, ServerCameraView},
         local_player::InteractionOriginSnapshot,
