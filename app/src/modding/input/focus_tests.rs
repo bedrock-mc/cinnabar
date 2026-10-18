@@ -306,7 +306,7 @@ fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world
         app.world_mut()
             .resource_mut::<ModRuntime>()
             .hosts
-            .host
+            .host_mut(0)
             .set_panel_open(false);
         app.update();
         assert!(!app.world().resource::<UiRuntimeResource>().chat_focused());
