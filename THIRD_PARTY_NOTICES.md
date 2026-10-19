@@ -6,6 +6,17 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Native Bedrock catalog facts
+
+Block hardness, ordinary-tool tags, harvest requirements and recipe item tags
+come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/cf01aa84b74df45df5fa24569e1ac358e4afbb87/generated/data).
+Its selected native 1.26.51 measurements are from
+[didntpot/bedrock-data](https://github.com/didntpot/bedrock-data), commit
+`bb896a46ba856c58383e3cfb962a38c45a0dea78`, under CC0-1.0. The source lock and
+upstream licence are retained in protocolgen. Sword/shears speed targets still
+use the provisional Prismarine input described below; complete mining parity
+remains incomplete.
+
 ## Block property and component data
 
 `crates/assets/data/block-properties-v2193.json` and
