@@ -24,6 +24,9 @@ func (server *Server) serveCinnabarPlayers(conn net.Conn, id uint64, raw json.Ra
 	if updates.Emotes == nil {
 		updates.Emotes = []bridgecontract.CinnabarRemoteEmote{}
 	}
+	if updates.OwnedCosmetics == nil {
+		updates.OwnedCosmetics = []string{}
+	}
 	for i := range updates.Loadouts {
 		if updates.Loadouts[i].Slots == nil {
 			updates.Loadouts[i].Slots = []bridgecontract.CinnabarCosmeticSlot{}
