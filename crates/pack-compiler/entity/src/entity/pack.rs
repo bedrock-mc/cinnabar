@@ -282,12 +282,15 @@ fn compile_selected(
     // by its freed source/byte budget can only increase these counts.
     let excess_symbols = symbols.len().saturating_sub(MAX_ENTITY_ASSET_SYMBOLS);
     let excess_geometries = geometries.len().saturating_sub(MAX_ENTITY_GEOMETRIES);
-    *can_isolate = selected.iter().any(|source| {
-        source.parsed.as_ref().is_ok_and(|prepared| {
-            prepared.symbols.len() >= excess_symbols
-                && prepared.geometries.len() >= excess_geometries
-        })
-    });
+    *can_isolate = selected
+        .iter()
+        .filter(|source| payloads.contains_key(source.path.as_ref()))
+        .any(|source| {
+            source.parsed.as_ref().is_ok_and(|prepared| {
+                prepared.symbols.len() >= excess_symbols
+                    && prepared.geometries.len() >= excess_geometries
+            })
+        });
     let remaining_budget = (MAX_PACK_ENTITY_SOURCES - sources.len(), byte_limit - total);
     super::painting::complete_bindings(
         Path::new(""),
