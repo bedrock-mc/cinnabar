@@ -537,7 +537,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "mod-ui"
 path = "crates/mod-ui"
-allowed_dependencies = ["assets", "json-ui", "render-model", "server-experience", "ui", "ui-engine"]
+allowed_dependencies = ["assets", "json-ui", "render-model", "server-experience", "test-alloc", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "oreui", "ui-screens"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "oreui", "ui-screens", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]

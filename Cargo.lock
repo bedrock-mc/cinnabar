@@ -5875,6 +5875,7 @@ dependencies = [
  "render-model",
  "serde_json",
  "server-experience",
+ "test-alloc",
  "tracing",
  "ui",
  "ui-engine",
