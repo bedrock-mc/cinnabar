@@ -28,6 +28,7 @@ def build(repository, output):
     api_origin = next(value["value"] for value in contract["constants"]
                       if value["rust_name"] == "CINNABAR_API_BASE_URL")
     config["online_count_url"] = api_origin.rstrip("/") + "/v1/presence/count"
+    config["online_history_url"] = api_origin.rstrip("/") + "/v1/presence/history"
     icon = (repository / "packaging/icons/cinnabar.svg").read_text()
     red = ET.fromstring(icon).find("{http://www.w3.org/2000/svg}rect").attrib["fill"]
     page = (HERE / "index.html.in").read_text()
@@ -39,6 +40,7 @@ def build(repository, output):
     (output / "downloads.js").write_text("window.CINNABAR_DOWNLOADS = " + json.dumps(config) + ";\n")
     shutil.copyfile(HERE / "app.js", output / "app.js")
     shutil.copyfile(HERE / "presence.js", output / "presence.js")
+    shutil.copyfile(HERE / "history.js", output / "history.js")
     shutil.copyfile(repository / "assets/branding/title.png", output / "title.png")
     rng = random.Random(27)
     colors = ["#1c221d", "#202620", "#242a23", "#262d25", "#1f251f"]
