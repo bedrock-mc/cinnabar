@@ -166,7 +166,8 @@
       load();
     });
   });
-  plot.addEventListener("pointermove", function (event) {
+  /** Selects the nearest observation for a hover, drag, or tap. */
+  function inspectPointer(event) {
     if (!coordinates || !data.points.length) return;
     const x = event.clientX - plot.getBoundingClientRect().left;
     let nearest = 0;
@@ -174,10 +175,12 @@
       if (Math.abs(coordinates.x(point.at) - x) < Math.abs(coordinates.x(data.points[nearest].at) - x)) nearest = index;
     });
     inspect(nearest);
-  });
-  plot.addEventListener("pointerleave", clearSelection);
+  }
+  plot.addEventListener("pointermove", inspectPointer);
+  plot.addEventListener("pointerdown", inspectPointer);
+  plot.addEventListener("pointerleave", function (event) { if (event.pointerType !== "touch") clearSelection(); });
   plot.addEventListener("blur", clearSelection);
-  plot.addEventListener("focus", function () { if (data) inspect(data.points.length - 1); });
+  plot.addEventListener("focus", function () { if (data && selected < 0) inspect(data.points.length - 1); });
   plot.addEventListener("keydown", function (event) {
     if (!data || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();

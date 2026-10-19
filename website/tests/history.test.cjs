@@ -84,6 +84,10 @@ test('renders measured data, supports keyboard inspection, and retries after err
   assert.match(p.elements['history-detail'].textContent, /0 players/);
   plot.events.keydown({key: 'ArrowRight', preventDefault() {}});
   assert.match(p.elements['history-detail'].textContent, /8 players/);
+  plot.events.pointerdown({clientX: 32, pointerType: 'touch'});
+  plot.events.focus();
+  plot.events.pointerleave({pointerType: 'touch'});
+  assert.match(p.elements['history-detail'].textContent, /0 players/);
   assert.equal([...p.timers.values()][0].delay, 60000);
   [...p.timers.values()][0].callback();
   await p.reply(1, null, false);
