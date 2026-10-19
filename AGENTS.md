@@ -50,8 +50,12 @@ Cinnabar's Gophertunnel integration uses `HashimTheArab/gophertunnel:resource-pa
 
 ## Cosmetic asset ownership
 
-The API repository owns cosmetic authoring projects, exports, production catalog
-assets and export/catalog checks. The client owns download, validation, caching,
-rendering and small stable regression fixtures. Do not copy new catalog items into
-the client for tests. Use the external-catalog compatibility check documented in
-`crates/render-model/src/hats/README.md` when validating the complete API catalog.
+The private `cinnabar-mc/cinnabar-cosmetics` repository owns cosmetic and emote
+authoring projects, exports, production catalog assets and export/catalog checks.
+Keep new geometry, texture, animation and embedded preview assets out of public
+repositories. The API owns delivery and database entitlements; account ownership
+belongs in its database rather than code or catalog allowlists. The client owns
+download, validation, caching, rendering and small stable regression fixtures.
+Do not copy new catalog items into the client for tests. Use the external-catalog
+compatibility check documented in `crates/render-model/src/hats/README.md` when
+validating the complete private catalog.
