@@ -5,7 +5,7 @@ use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::*;
-use crate::{crypto::ContentKey, parser::validate_archive_parts};
+use crate::{MAX_FILE_BYTES, crypto::ContentKey, parser::validate_archive_parts};
 
 const PACK_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_5a3e);
 const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";

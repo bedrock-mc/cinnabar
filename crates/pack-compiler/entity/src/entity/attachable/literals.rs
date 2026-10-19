@@ -1,4 +1,4 @@
-//! Compiles literal equipment channels from one animation document at a time.
+//! Compiles literal equipment channels from shared assembly documents.
 
 use super::*;
 
@@ -9,21 +9,18 @@ struct Request {
     slots: &'static [Option<&'static str>],
 }
 
-/// Fills final binding products and releases each animation document before reading the next.
+/// Fills final binding products from each requested animation document once.
 pub(super) fn compile(
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     symbols: &[EntityAssetSymbol],
     sources: &[EntityAssetSource],
     attachables: &mut [ParsedAttachable],
 ) {
     let sources = animation_source_index(symbols, sources);
     for (source, requests) in requests(attachables, &sources) {
-        let Some(bytes) = payloads.get(source.as_ref()) else {
-            continue;
-        };
         #[cfg(test)]
         ANIMATION_PARSES.update(|count| count + 1);
-        let Ok(document) = pack_json::parse_jsonc::<Value>(bytes) else {
+        let Ok(document) = payloads.read(Path::new(""), &source) else {
             continue;
         };
         for request in requests {

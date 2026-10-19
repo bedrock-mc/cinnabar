@@ -97,7 +97,15 @@ struct PendingGeometry {
     bones: Box<[EntityGeometryBone]>,
 }
 
+mod documents;
+use documents::SourceDocuments;
+
 type SourcePayloads = BTreeMap<Box<str>, Box<[u8]>>;
+
+#[cfg(test)]
+thread_local! {
+    static DOCUMENT_PARSES: std::cell::RefCell<BTreeMap<String, usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
 
 /// Validates a complete geometry document with the compiler's version and schema checks.
 pub(crate) fn validate_geometry_document(value: &Value) -> Result<(), AssetError> {
@@ -461,10 +469,11 @@ fn assemble(
             false,
         )?;
     }
+    let documents = SourceDocuments::new(source_payloads);
     let mut molang_compiler = molang::MolangCompiler::default();
     let animation = animation::compile(
         root,
-        source_payloads,
+        &documents,
         &sources,
         &symbols,
         &geometries,
@@ -477,7 +486,7 @@ fn assemble(
     let controller_resources =
         attachable::controller_resources(&animation, &symbols, &sources, &geometries);
     let equipment_bindings = attachable::compile_bindings(
-        source_payloads,
+        &documents,
         &symbols,
         &sources,
         &controller_resources,

@@ -6746,6 +6746,7 @@ dependencies = [
  "pack-compile-input",
  "pack-compiler",
  "pack-json",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",

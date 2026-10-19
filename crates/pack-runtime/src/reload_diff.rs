@@ -296,12 +296,10 @@ fn layer_fingerprint(
                     Err(_) => Read::Rejected,
                 })
             }
-            Part::Contents(path) => Some(
-                match pack.file_fingerprint_with_limit(path, resource_pack::MAX_FILE_BYTES) {
-                    Ok(Some(hash)) => Read::Bytes(hash),
-                    _ => Read::Missing,
-                },
-            ),
+            Part::Contents(path) => Some(match pack.file_fingerprint_with_limit(path, u64::MAX) {
+                Ok(Some(hash)) => Read::Bytes(hash),
+                _ => Read::Missing,
+            }),
             Part::Listed { .. } => None,
         })
         .collect();
