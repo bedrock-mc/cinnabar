@@ -412,16 +412,34 @@ jobs:
     permissions:
       contents: read
       actions: write
+    name: ${{ matrix.name }}
     needs: prepare
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            arch: x86_64
+            appimage_arch: x86_64
+            runner: ubuntu-24.04
+            appimagetool_sha256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+            runtime_sha256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          - name: Raspberry Pi Linux
+            arch: arm64
+            appimage_arch: aarch64
+            # Keep the glibc baseline below Raspberry Pi OS Bookworm's 2.36.
+            runner: ubuntu-22.04-arm
+            appimagetool_sha256: f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+            runtime_sha256: 00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
     env:
       # Runs AppImages without FUSE.
       APPIMAGE_EXTRACT_AND_RUN: 1
-      APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
-      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
-      APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
-      APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+      APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${{ matrix.appimage_arch }}.AppImage
+      APPIMAGETOOL_SHA256: ${{ matrix.appimagetool_sha256 }}
+      APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-${{ matrix.appimage_arch }}
+      APPIMAGE_RUNTIME_SHA256: ${{ matrix.runtime_sha256 }}
       # Keep debug info in the linked binaries; release-symbols.py split moves it to .debug files.
       # The profile's strip would also drop the line tables and skeleton units a packed .dwp needs.
       CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
@@ -437,8 +455,13 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
+      - uses: actions/setup-python@v6
+        if: matrix.arch == 'arm64'
+        with:
+          # Ubuntu 22.04's system Python predates tomllib and hashlib.file_digest.
+          python-version: '3.13'
       - name: Resolve the downloadable artifact name
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux x86_64 --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux "${{ matrix.arch }}" --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Restore Rust release build cache
@@ -480,11 +503,11 @@ jobs:
           shipped="$RUNNER_TEMP/release-binaries"
           python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" split target/release "$shipped"
           BINARIES="$shipped" ASSETC="$shipped/assetc" bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
-          mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
+          mv .local/dist/linux-release/Cinnabar-*-"${{ matrix.appimage_arch }}".AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Collect release symbols
         id: symbols
         run: |
-          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect linux x86_64 \
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect linux "${{ matrix.arch }}" \
             --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
             --binaries "$RUNNER_TEMP/release-binaries" --out "$RUNNER_TEMP/$SYMBOLS_ASSET"
       - name: Check the AppImage against the payload allowlist
@@ -523,13 +546,13 @@ jobs:
           prefix: ${{ steps.go-cache.outputs.prefix }}
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-x86_64
+          name: linux-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
       - if: steps.symbols.outputs.archived == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: symbols-linux-x86_64
+          name: symbols-linux-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
           if-no-files-found: error
 
@@ -537,7 +560,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: build-timings-linux-x86_64
+          name: build-timings-linux-${{ matrix.arch }}
           path: source/target/cargo-timings/cargo-timing.html
           if-no-files-found: warn
 
@@ -648,7 +671,7 @@ jobs:
         with:
           path: source/dist
           # Timing reports are CI diagnostics, never release downloads; symbol archives are.
-          pattern: "{macos-*,windows-x64,linux-x86_64,android-arm64,symbols-*}"
+          pattern: "{macos-*,windows-x64,linux-*,android-arm64,symbols-*}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"

@@ -101,6 +101,10 @@ class RenderTests(unittest.TestCase):
         for selection in page.downloads:
             platform, architecture = selection.split("/")
             self.assertIn(architecture, config["assets"][platform])
+        self.assertEqual(set(page.downloads), {
+            f"{platform}/{architecture}"
+            for platform, arches in config["assets"].items() for architecture in arches
+        })
         self.assertIn('aria-haspopup="menu"', html)
         self.assertEqual(html.count('role="menuitemradio"'), 2)
         self.assertIn("Nightly (Unstable)", html)

@@ -61,3 +61,48 @@ fn replay_scissors_never_expand_authored_clipping_or_dirty_coverage() {
         None
     );
 }
+
+#[test]
+fn scaled_clipping_preserves_offset_edges_and_odd_sized_targets() {
+    assert_eq!(
+        scaled_scissor(UiScissor::new(101, 51, 199, 99), [800, 600], [400, 300]),
+        Some(UiScissor::new(50, 25, 100, 50))
+    );
+    assert_eq!(
+        scaled_scissor(UiScissor::new(800, 600, 1, 1), [801, 601], [401, 301]),
+        Some(UiScissor::new(400, 300, 1, 1))
+    );
+    assert_eq!(
+        scaled_scissor(UiScissor::new(0, 0, 801, 601), [801, 601], [401, 301]),
+        Some(UiScissor::new(0, 0, 401, 301))
+    );
+    let authored = UiScissor::new(101, 51, 199, 99);
+    assert_eq!(
+        scaled_scissor(authored, [800, 600], [800, 600]),
+        Some(authored)
+    );
+    // Cropped and override views retain the ordinary physical intersection path.
+    assert_eq!(
+        crate::render_bounds::scissor(authored, [400, 300]),
+        Some(authored)
+    );
+}
+
+#[test]
+fn scaled_clipping_rejects_empty_targets_and_clamps_before_integer_mapping() {
+    let full = UiScissor::new(0, 0, u32::MAX, u32::MAX);
+    assert_eq!(
+        scaled_scissor(full, [800, 600], [400, 300]),
+        Some(UiScissor::new(0, 0, 400, 300))
+    );
+    assert_eq!(scaled_scissor(full, [0, 600], [400, 300]), None);
+    assert_eq!(scaled_scissor(full, [800, 600], [400, 0]), None);
+    assert_eq!(
+        scaled_scissor(UiScissor::new(800, 0, 1, 1), [800, 600], [400, 300]),
+        None
+    );
+    assert_eq!(
+        scaled_scissor(full, [u32::MAX; 2], [u32::MAX; 2]),
+        Some(full)
+    );
+}

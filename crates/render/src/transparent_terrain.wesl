@@ -45,8 +45,8 @@ fn vertex(
         let liquid = vertex_for_record(record, vertex_index);
         out.clip_position = liquid.clip_position;
         out.routing.x = 1u;
-        out.textures.x = liquid.current_texture;
-        out.textures.y = liquid.next_texture;
+        out.textures.x = liquid.textures.x;
+        out.textures.y = liquid.textures.y;
         out.frame_face.x = liquid.frame_blend;
         out.routing.y = liquid.two_sided;
         out.world_position = liquid.world_position;
@@ -70,8 +70,8 @@ fn vertex(
     let model = model_vertex(vertex_index, instance_index);
     out.clip_position = model.clip_position;
     out.routing.x = 0u;
-    out.textures.x = model.current_texture;
-    out.textures.y = model.next_texture;
+    out.textures.x = model.textures.x;
+    out.textures.y = model.textures.y;
     out.frame_face.x = model.frame_blend;
     out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
@@ -100,8 +100,8 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     var liquid: LiquidOutput;
     liquid.clip_position = in.clip_position;
     liquid.uv = in.liquid_uv;
-    liquid.current_texture = in.textures.x;
-    liquid.next_texture = in.textures.y;
+    liquid.textures.x = in.textures.x;
+    liquid.textures.y = in.textures.y;
     liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
     liquid.lighting = in.lighting;
@@ -126,12 +126,12 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     var model: ModelOutput;
     model.clip_position = in.clip_position;
     model.uv = in.model_uv;
-    model.current_texture = in.textures.x;
+    model.textures.x = in.textures.x;
     model.normal = in.normal;
     model.material_flags = in.material_biome.x;
     model.local_position = in.local_position;
     model.biome_record = in.material_biome.y;
-    model.next_texture = in.textures.y;
+    model.textures.y = in.textures.y;
     model.frame_blend = in.frame_face.x;
     model.visibility.x = in.routing.w;
     model.lighting = in.lighting;

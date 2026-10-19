@@ -195,8 +195,8 @@ const WITNESS: &str = r#"
     let raster_uv = select(uv, uv.yx, witness_case[2].w != 0.0);
     out.clip_position = vec4(raster_uv * 2.0 - vec2(1.0), 0.5, 1.0);
     out.uv = uv;
-    out.current_texture = 0u;
-    out.next_texture = 1u;
+    out.textures.x = 0u;
+    out.textures.y = 1u;
     out.frame_blend = witness_case[1].w;
     out.water_tint = tint_to_linear(witness_case[0]);
     out.water_tint.a = liquid_vertex_alpha(out.water_tint.a, witness_case[2].x, atmosphere.liquid_distance.x);

@@ -5,6 +5,7 @@
 //! The layer is retained per view and redrawn only when what it holds changes.
 //! The last composite of a frame runs in place of the output blit, writing the
 //! camera's output directly.
+use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use bevy::{
     camera::{CameraOutputMode, ClearColor, ClearColorConfig},
@@ -262,7 +263,12 @@ pub(crate) fn prepare_ui_layers(
     mut commands: Commands,
     mut store: ResMut<UiLayerStore>,
     device: Res<RenderDevice>,
-    views: Query<(Entity, &ViewTarget, Option<&ExtractedCamera>)>,
+    views: Query<(
+        Entity,
+        &ViewTarget,
+        Option<&ExtractedCamera>,
+        Option<&NativeUiTarget>,
+    )>,
     gpu: Option<Res<UiGpu>>,
 ) {
     store.synchronize_device(&device);
@@ -283,12 +289,13 @@ pub(crate) fn prepare_ui_layers(
             super::segments::plan_ui_passes(&batches, false).layer_count()
         });
     let mut writers = HashMap::<_, usize>::new();
-    for (_, target, _) in &views {
+    for (_, target, _, _) in &views {
         if let Some(output) = target.out_texture() {
             *writers.entry(output.id()).or_default() += 1;
         }
     }
-    for (entity, target, camera) in &views {
+    for (entity, target, camera, native) in &views {
+        let target = UiTarget::new(target, native);
         let size = target.main_texture().size();
         let size = Extent3d {
             width: size.width,
@@ -313,9 +320,10 @@ pub(crate) fn prepare_ui_layers(
             )
         });
         let direct_output = unblended
-            && target
-                .out_texture()
-                .is_some_and(|output| writers[&output.id()] == 1);
+            && target.out_texture().is_some_and(|output| {
+                writers[&output.id()] == 1
+                    && crate::render_bounds::extent(output) == [size.width, size.height]
+            });
         let mut frame = frame_layer(
             layers.last().expect("one scratch layer is always resident"),
             direct_output,
@@ -566,7 +574,7 @@ pub(crate) struct CompositePipelines {
 pub(crate) fn composite(
     context: &mut RenderContext,
     world: &World,
-    target: &ViewTarget,
+    target: UiTarget<'_>,
     layer: &UiLayerTexture,
     pipeline: &RenderPipeline,
     layout: &BindGroupLayout,
@@ -600,7 +608,7 @@ pub(crate) fn composite(
 struct CompositeSources<'a> {
     layer: &'a UiLayerTexture,
     scene: &'a TextureView,
-    target: &'a ViewTarget,
+    target: UiTarget<'a>,
 }
 
 /// Blends a raster over its current scene and releases bindings for retired scene targets.
@@ -665,7 +673,7 @@ fn encode_composite(
     pass.draw(0..3, 0..1);
 }
 
-/// Composites the deferred HUD directly into the camera output when its pipeline is ready.
+/// Presents native screen UI after the world upscale, with or without a final alpha layer.
 pub(crate) fn ui_present(
     world: &World,
     view: bevy::render::renderer::ViewQuery<(
@@ -673,75 +681,83 @@ pub(crate) fn ui_present(
         &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
         Option<&ExtractedCamera>,
         Option<&UiLayerTexture>,
+        Option<&NativeUiTarget>,
     )>,
     mut context: RenderContext,
 ) {
     let entity = view.entity();
-    let (target, _, camera, layer) = view.into_inner();
-    let Some(layer) = layer else {
-        return;
-    };
-    layer.presented.store(false, Ordering::Relaxed);
-    if !layer.present.load(Ordering::Relaxed) {
+    let (output, _, camera, layer, native) = view.into_inner();
+    if let Some(layer) = layer {
+        layer.presented.store(false, Ordering::Relaxed);
+    }
+    // A native layer cannot be composited against an unseeded or reduced scene.
+    if native.is_some_and(|native| !native.is_ready()) {
         return;
     }
-    let pipelines = world
+    let target = UiTarget::new(output, native);
+    let resources = world
         .get_resource::<UiGpu>()
-        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied());
-    let (Some(pipelines), Some(cache), Some(composite_pipeline)) = (
-        pipelines,
-        world.get_resource::<PipelineCache>(),
-        world.get_resource::<UiCompositePipeline>(),
-    ) else {
-        return;
-    };
-    let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
-    if layer.direct_output
-        && let Some(pipeline) = pipelines
-            .output
-            .and_then(|id| cache.get_render_pipeline(id))
+        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied())
+        .zip(world.get_resource::<PipelineCache>())
+        .zip(world.get_resource::<UiCompositePipeline>());
+    if let Some(layer) = layer.filter(|layer| layer.present.load(Ordering::Relaxed))
+        && let Some(((pipelines, cache), composite_pipeline)) = resources
     {
-        let clear = match camera.map(|camera| &camera.output_mode) {
-            Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
-            _ => ClearColorConfig::Default,
-        };
-        let clear = match clear {
-            ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
-            ClearColorConfig::Custom(color) => Some(color.into()),
-            ClearColorConfig::None => None,
-        };
-        let Some(attachment) = target.out_texture_color_attachment(clear) else {
-            return;
-        };
-        let scissor = camera
-            .and_then(|camera| camera.viewport.as_ref())
-            .map(|viewport| (viewport.physical_position, viewport.physical_size));
-        encode_composite(
-            &mut context,
-            world,
-            CompositeSources {
-                layer,
-                scene: target.main_texture_view(),
-                target,
-            },
-            attachment,
-            scissor,
-            pipeline,
-            &layout,
-        );
-        layer.presented.store(true, Ordering::Relaxed);
-        return;
+        let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
+        if layer.direct_output
+            && let Some(pipeline) = pipelines
+                .output
+                .and_then(|id| cache.get_render_pipeline(id))
+        {
+            let clear = match camera.map(|camera| &camera.output_mode) {
+                Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
+                _ => ClearColorConfig::Default,
+            };
+            let clear = match clear {
+                ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
+                ClearColorConfig::Custom(color) => Some(color.into()),
+                ClearColorConfig::None => None,
+            };
+            if let Some(attachment) = target.out_texture_color_attachment(clear) {
+                let scissor = camera
+                    .and_then(|camera| camera.viewport.as_ref())
+                    .map(|viewport| (viewport.physical_position, viewport.physical_size));
+                encode_composite(
+                    &mut context,
+                    world,
+                    CompositeSources {
+                        layer,
+                        scene: target.main_texture_view(),
+                        target,
+                    },
+                    attachment,
+                    scissor,
+                    pipeline,
+                    &layout,
+                );
+                layer.presented.store(true, Ordering::Relaxed);
+                if let Some(native) = native {
+                    native.mark_presented();
+                }
+                return;
+            }
+        }
+        if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
+            composite(&mut context, world, target, layer, pipeline, &layout);
+        }
     }
-    if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-        composite(&mut context, world, target, layer, pipeline, &layout);
+    if let Some(native) = native {
+        native.present(world, &mut context, output);
     }
 }
 
-/// Runs Bevy's output blit unless the HUD composite already wrote the final image.
-fn needs_output_blit(view: bevy::render::renderer::ViewQuery<Option<&UiLayerTexture>>) -> bool {
-    !view
-        .into_inner()
-        .is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
+/// Runs Bevy's output blit only while neither native composition nor the HUD wrote the output.
+fn needs_output_blit(
+    view: bevy::render::renderer::ViewQuery<(Option<&UiLayerTexture>, Option<&NativeUiTarget>)>,
+) -> bool {
+    let (layer, native) = view.into_inner();
+    !layer.is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
+        && !native.is_some_and(NativeUiTarget::was_presented)
 }
 
 /// Presents the HUD after post-processing, then blits only if direct output was unavailable.

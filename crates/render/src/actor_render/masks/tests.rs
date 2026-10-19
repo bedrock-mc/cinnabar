@@ -288,6 +288,7 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {
@@ -378,6 +379,7 @@ fn actor_mask_pixels_preserve_dissolve_rejection() {
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {

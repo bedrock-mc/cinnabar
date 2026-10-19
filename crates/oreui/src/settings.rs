@@ -379,6 +379,12 @@ impl Content<'_, '_> {
         {
             return Ok(());
         }
+        if id == SettingId::RenderResolution && self.view.render_mode != ui::RenderMode::Vanilla {
+            return self.label(
+                id.definition().label,
+                launcher::menu::settings_options::render_resolution::DESCRIPTION,
+            );
+        }
         if id == SettingId::FullScreen {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");
@@ -405,6 +411,8 @@ impl Content<'_, '_> {
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
         let description = if id == SettingId::GraphicsApi {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
+        } else if id == SettingId::RenderResolution {
+            launcher::menu::settings_options::render_resolution::DESCRIPTION.to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if id == SettingId::CinnabarVisible {

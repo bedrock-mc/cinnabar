@@ -62,10 +62,9 @@ struct VertexOutput {
     @location(8) world_position: vec3<f32>,
     @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
     @location(10) native_lighting: vec3<f32>,
-    @location(11) @interpolate(flat) material: u32,
-    // Stored float bits and surface kind share a slot within default motion interface limits.
-    @location(12) @interpolate(flat) material_parameters: vec2<u32>,
-    @location(14) back_native_lighting: vec3<f32>,
+    // Dissolve float bits, surface kind and material word share one flat varying.
+    @location(12) @interpolate(flat) material_parameters: vec3<u32>,
+    @location(11) back_native_lighting: vec3<f32>,
     @if(ALPHA_TO_COVERAGE)
     @location(13) @interpolate(flat) chart_bounds: vec4<u32>,
     @if(ACTOR_MOTION)
@@ -190,9 +189,9 @@ fn actor_vertex(
     out.back_native_lighting = vec3(1.0);
     out.material_parameters.y = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
-    out.material = instance_words[instance_base + 27u];
-    if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
-    let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
+    out.material_parameters.z = instance_words[instance_base + 27u];
+    if ((out.material_parameters.z & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
+    let has_glint = (out.material_parameters.z & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
     out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
     out.material_parameters.x = instance_words[instance_base + 28u];
     let light_color_multiplier = word_f32(instance_base + 29u);
@@ -328,19 +327,19 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // Gradients precede per-pixel rejection and remain valid inside material branches.
     let uv_dx = dpdx(uv);
     let uv_dy = dpdy(uv);
-    let material = input.material & ACTOR_MATERIAL_KIND_MASK;
-    let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
-    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
-    let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
-    let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
+    let material = input.material_parameters.z & ACTOR_MATERIAL_KIND_MASK;
+    let legacy = (input.material_parameters.z & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
+    let color_mask_material = material_class.y != 0u || (input.material_parameters.z & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
+    let legacy_mask = legacy && (input.material_parameters.z & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
+    let authored = (input.material_parameters.z & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
+    let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material_parameters.z & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
         discard;
     }
     if (!front && input.back_uv.x < -1.0e8) {
         discard;
     }
-    if (!front && authored && (input.material & ACTOR_MATERIAL_CULL_FLAG) != 0u) { discard; }
+    if (!front && authored && (input.material_parameters.z & ACTOR_MATERIAL_CULL_FLAG) != 0u) { discard; }
     let one_sided_material = material == ACTOR_MATERIAL_DRAGON || material == ACTOR_MATERIAL_DISSOLVE_DEPTH || material == ACTOR_MATERIAL_DISSOLVE_COLOR;
     if (!front && one_sided_material && input.material_parameters.y == 0u) {
         discard;
@@ -369,7 +368,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (material == ACTOR_MATERIAL_GLINT && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (legacy_mask && color.a == 0.0) { discard; }
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
-    if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
+    if (authored && (input.material_parameters.z & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
         if (emissive && all(color == vec4(0.0))) { discard; }
         @if(!ALPHA_TO_COVERAGE)
         if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
@@ -384,7 +383,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
             // Native entity_change_color: alpha weights dye, never coverage/opacity. The
             // material has no alpha test and the pipeline has no blending, with depth writes.
             color = vec4(mix(color.rgb, color.rgb * dye, color.a), color.a * change_color.a);
-        } else if (!multitexture_material && authored && (input.material & ACTOR_MATERIAL_BLEND_FLAG) != 0u) {
+        } else if (!multitexture_material && authored && (input.material_parameters.z & ACTOR_MATERIAL_BLEND_FLAG) != 0u) {
             color *= change_color;
         } else if (!multitexture_material && color.a > 0.99) {
             color = vec4(color.rgb * dye, color.a);

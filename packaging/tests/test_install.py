@@ -443,8 +443,21 @@ esac
                 self.assertFalse((self.app / "current").exists())
                 self.assertEqual(self.builds(), [])
 
+    def test_arm64_linux_aliases_select_and_verify_the_native_appimage(self):
+        asset = CONFIG["assets"]["linux"]["arm64"]
+        image = self.image.rename(self.release / asset)
+        (self.release / CONFIG["checksums"]).write_text(
+            f"{hashlib.sha256(image.read_bytes()).hexdigest()}  {asset}\n")
+        for arch in ("aarch64", "arm64"):
+            with self.subTest(arch=arch):
+                result = self.install("--version", "v1.2.3", FIXTURE_ARCH=arch)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.requests()[-1], f"{BASE}/download/v1.2.3/{asset}")
+                self.assertNotIn(f"{BASE}/download/v1.2.3/{ASSET}", self.requests())
+                self.assertEqual(self.launch("native").returncode, 0)
+
     def test_unsupported_arch_and_invalid_tag_fail_before_network(self):
-        for args, env in (((), {"FIXTURE_ARCH": "aarch64"}),
+        for args, env in (((), {"FIXTURE_ARCH": "armv7l"}),
                           (("--version", "../other"), {})):
             with self.subTest(args=args, env=env):
                 result = self.install(*args, **env)

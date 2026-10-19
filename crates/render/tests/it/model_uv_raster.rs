@@ -104,7 +104,10 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     }
     geometry.extend(crate::solid_terrain_raster::lighting_words(CASES));
     let geometry = gpu.words(&geometry, storage);
-    let templates = gpu.words(&templates(), storage);
+    let asset_tables = gpu.words(
+        &gpu_snapshot::chunk_asset_table_words(&[], &[], &templates()),
+        storage,
+    );
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 64], storage);
     let clock = gpu.words(&[0; 4], uniform);
@@ -156,10 +159,8 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, empty.as_entire_binding()),
         (8, empty.as_entire_binding()),
-        (9, empty.as_entire_binding()),
-        (10, empty.as_entire_binding()),
+        (9, asset_tables.as_entire_binding()),
         (11, clock.as_entire_binding()),
-        (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (
             crate::material_shader::BIOME_QUERY_TABLES_BINDING,

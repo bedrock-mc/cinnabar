@@ -46,6 +46,8 @@ mod font_atlas;
 mod font_atlas_tests;
 #[path = "ui_render/item_glint.rs"]
 mod item_glint;
+#[path = "ui_render/target.rs"]
+mod target;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
@@ -174,14 +176,19 @@ fn install_ui_render(app: &mut App) {
 fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+        target::prepare_native_ui_targets
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets),
         composite::prepare_ui_layers
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         backdrop::prepare_ui_backdrops
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
         queue_ui_overlay
             .in_set(RenderSystems::PrepareBindGroups)

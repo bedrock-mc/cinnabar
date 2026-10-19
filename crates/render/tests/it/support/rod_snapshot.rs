@@ -215,7 +215,10 @@ pub(crate) fn render_at(
             .collect::<Vec<_>>(),
         storage,
     );
-    let templates = gpu.words(&templates(assets), storage);
+    let asset_tables = gpu.words(
+        &gpu_snapshot::chunk_asset_table_words(&[], &[], &templates(assets)),
+        storage,
+    );
     let origins = gpu.words(&[0; 8], storage);
     let materials = gpu.words(
         &assets
@@ -268,10 +271,8 @@ pub(crate) fn render_at(
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, empty.as_entire_binding()),
         (8, empty.as_entire_binding()),
-        (9, empty.as_entire_binding()),
-        (10, empty.as_entire_binding()),
+        (9, asset_tables.as_entire_binding()),
         (11, clock.as_entire_binding()),
-        (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),
         (

@@ -24,6 +24,7 @@ struct ChunkOrigin {
 
 
 // ANIMATION_GPU_LAYOUT
+// CHUNK_ASSET_TABLES
 
 struct AnimationClockGpu {
     tick: u32,
@@ -52,8 +53,6 @@ struct AtmosphereUniform {
 @group(0) @binding(20) var block_textures_page_3: texture_2d_array<f32>;
 @group(0) @binding(21) var block_textures_page_4: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
-@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
 @group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
@@ -74,15 +73,15 @@ fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu
     if (material.animation == 0xffffffffu) {
         return AnimationFrameSampleGpu(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = chunk_animation(material.animation);
     let current_index =
         (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current_texture = animation_frames[animation.frame_start + current_index];
+    let current_texture = chunk_animation_frame(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return AnimationFrameSampleGpu(current_texture, current_texture, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
-    let next_texture = animation_frames[animation.frame_start + next_index];
+    let next_texture = chunk_animation_frame(animation.frame_start + next_index);
     let frame_tick = clock.tick % animation.ticks_per_frame;
     let blend = (f32(frame_tick) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);

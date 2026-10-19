@@ -58,6 +58,13 @@ Implemented: [terrain meshing](crates/meshing/src/lib.rs),
 rendering. The criteria below concern complete target coverage, native comparisons
 and resource qualification; they do not imply these systems need to be written.
 
+Render Resolution provides a 10-100% world-resolution slider while menus, HUD and
+inventory previews retain native output pixels. Raspberry Pi defaults to 15%;
+other devices default to 100%, and saved choices take priority. Reduced rendering
+requires a single full-window LDR player view; launcher, HDR and custom views stay
+native.
+Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
@@ -353,6 +360,10 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain storage
+bindings and shader interfaces fit Pi Vulkan resource limits. Clean-install and
+displayed-frame acceptance across supported Pi models remain incomplete.
 
 ## Experimental hosts and extensions
 

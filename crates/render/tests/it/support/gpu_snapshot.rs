@@ -11,6 +11,9 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 
+#[path = "../../../src/chunk/gpu/asset_tables.rs"]
+mod asset_tables;
+
 pub const SNAPSHOT_SIDE: u32 = 256;
 /// Color retained by pixels where a fixture fragment is discarded.
 pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
@@ -19,6 +22,16 @@ pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     b: 0.25,
     a: 1.0,
 };
+
+/// Packs immutable terrain tables with offsets relative to their shared word payload.
+pub(crate) fn chunk_asset_table_words(
+    animations: &[[u32; 4]],
+    frames: &[u32],
+    models: &[u32],
+) -> Vec<u32> {
+    asset_tables::encode_asset_table_words(animations, frames, models)
+        .expect("fixture tables fit the GPU word range")
+}
 
 pub struct Gpu {
     pub device: wgpu::Device,
@@ -161,7 +174,12 @@ impl Gpu {
         }
         let descriptor = wgpu::DeviceDescriptor {
             required_features: adapter.features() & features,
-            required_limits: limits,
+            required_limits: wgpu::Limits {
+                max_inter_stage_shader_variables: limits
+                    .max_inter_stage_shader_variables
+                    .min(adapter.limits().max_inter_stage_shader_variables),
+                ..limits.using_resolution(adapter.limits())
+            },
             ..Default::default()
         };
         let (device, queue) = finish(adapter.request_device(&descriptor))

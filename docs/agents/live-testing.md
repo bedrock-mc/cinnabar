@@ -219,6 +219,20 @@ Both `main_frame` and input pacing's main-thread estimate include that wait.
 `CINNABAR_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
 same-binary control for chunk-streaming comparisons.
 
+Video Render Resolution is a 10-100% slider for the 3D player's view. Raspberry Pi
+defaults to 15%; other devices default to native 100%. Saved choices take priority,
+and resetting Video settings restores the device default. The finished world is
+upscaled before screen-space UI draws; JSON UI, scoreboard panels, HUD text,
+menus, clipping and inventory previews retain native output pixels. The launcher
+also remains native. Reduced rendering applies
+to one full-target, unblended LDR player camera; HDR, custom viewports, and shared
+outputs retain native rendering. `CINNABAR_RENDER_SCALE=0.5` overrides the setting
+for a half-width, half-height comparison; `1` forces native rendering. Values outside
+0.1 through 1 or invalid values use the saved setting. Record output and internal
+resolution, inspect text, clipping, inventory, hands and empty HUD presentation at
+10%, 100% and after a resize. Measure GPU work without per-stage timestamp
+instrumentation before changing a device's saved setting.
+
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
 window they appear in. `gpu_frame` spans the first to last timestamp only when the sampled graph covers the frame.

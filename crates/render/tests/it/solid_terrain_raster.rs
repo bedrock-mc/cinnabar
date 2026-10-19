@@ -148,8 +148,10 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
         &[0, 0, no_animation, 0, 0, 0, 1, 0, no_animation, 0, 0, 0],
         storage,
     );
-    let animations = gpu.words(&[0; 8], storage);
-    let animation_frames = gpu.words(&[0; 4], storage);
+    let asset_tables = gpu.words(
+        &gpu_snapshot::chunk_asset_table_words(&[], &[], &[]),
+        storage,
+    );
     let clock = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
     let streams = gpu.words(&lighting_words(quads.len()), storage);
     let records = gpu.buffer(&[0.0], storage);
@@ -209,8 +211,7 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
             (6, wgpu::BindingResource::Sampler(&sampler)),
             (7, records.as_entire_binding()),
             (8, tints.as_entire_binding()),
-            (9, animations.as_entire_binding()),
-            (10, animation_frames.as_entire_binding()),
+            (9, asset_tables.as_entire_binding()),
             (11, clock.as_entire_binding()),
             (13, streams.as_entire_binding()),
             (15, atmosphere.as_entire_binding()),

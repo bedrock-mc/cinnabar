@@ -16,7 +16,7 @@ use std::{
 };
 use web_time::Instant;
 
-use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
+use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray};
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,

@@ -25,9 +25,7 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
         (
             prepared.identity,
             prepared.material_buffer.id(),
-            prepared.animation_buffer.id(),
-            prepared.animation_frame_buffer.id(),
-            prepared.model_template_buffer.id(),
+            prepared.asset_table_buffer.id(),
             prepared._textures.each_ref().map(|texture| texture.id()),
         )
     };

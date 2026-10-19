@@ -448,32 +448,12 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
-                binding: 10,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            BindGroupLayoutEntry {
                 binding: 11,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: Some(ChunkAnimationClock::min_size()),
-                },
-                count: None,
-            },
-            BindGroupLayoutEntry {
-                binding: 12,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
                 },
                 count: None,
             },
@@ -612,6 +592,14 @@ mod review_tests {
         assert!(
             count <= required_vertex_storage_buffers(),
             "layout needs {count} vertex storage slots"
+        );
+    }
+
+    #[test]
+    fn terrain_fits_eight_vertex_storage_slots() {
+        assert!(
+            required_vertex_storage_buffers() <= 8,
+            "terrain must fit the portable eight-slot storage budget"
         );
     }
 }

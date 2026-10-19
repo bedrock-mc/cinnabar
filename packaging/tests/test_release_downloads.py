@@ -159,7 +159,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
         script = output.read_text()
         self.assertIsNone(re.search(r"@[A-Z_0-9]+@", script))
         for value in (self.config["repository"], self.config["checksums"],
-                      self.config["assets"]["linux"]["x86_64"]):
+                      *self.config["assets"]["linux"].values()):
             self.assertIn(value, script)
         self.assertTrue(output.stat().st_mode & stat.S_IXUSR)
         result = subprocess.run(["sh", str(output), "--help"], text=True, capture_output=True)

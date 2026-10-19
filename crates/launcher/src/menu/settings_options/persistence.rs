@@ -58,6 +58,9 @@ impl SettingsOptions {
                 .entry(ANIMATIONS_OPTION.name.to_owned())
                 .or_insert(1 - toggle.clamp(0, 1));
         }
+        if let Some(value) = saved.values.get_mut(SettingId::RenderResolution.name()) {
+            *value = super::render_resolution::migrate_saved_percent(*value);
+        }
         let mut validated = Self::default();
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
             if matches!(option.kind, super::SettingKind::Host) {

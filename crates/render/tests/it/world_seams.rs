@@ -63,7 +63,7 @@ struct Streams {
     origins: wgpu::Buffer,
     cube_quads: wgpu::Buffer,
     cube_geometry: wgpu::Buffer,
-    model_templates: wgpu::Buffer,
+    asset_tables: wgpu::Buffer,
     model_geometry: wgpu::Buffer,
     liquid_geometry: wgpu::Buffer,
     /// First section-map word of the model and liquid geometry streams.
@@ -152,7 +152,10 @@ impl Streams {
                 storage,
             ),
             cube_geometry: gpu.words(&cube_geometry, storage),
-            model_templates: gpu.words(&slab_top_template(), storage),
+            asset_tables: gpu.words(
+                &gpu_snapshot::chunk_asset_table_words(&[], &[], &slab_top_template()),
+                storage,
+            ),
             model_geometry: gpu.words(&model_geometry, storage),
             liquid_geometry: gpu.words(&liquid_geometry, storage),
             model_sections,
@@ -297,7 +300,7 @@ impl Fixture {
         streams: &'a Streams,
         uniform: &'a wgpu::Buffer,
         geometry: &'a wgpu::Buffer,
-    ) -> [(u32, wgpu::BindingResource<'a>); 24] {
+    ) -> [(u32, wgpu::BindingResource<'a>); 22] {
         [
             (0, uniform.as_entire_binding()),
             (1, streams.cube_quads.as_entire_binding()),
@@ -312,10 +315,8 @@ impl Fixture {
                 material_shader::BIOME_QUERY_TABLES_BINDING,
                 self.query_tables.as_entire_binding(),
             ),
-            (9, self.zeros.as_entire_binding()),
-            (10, self.zeros.as_entire_binding()),
+            (9, streams.asset_tables.as_entire_binding()),
             (11, self.clock.as_entire_binding()),
-            (12, streams.model_templates.as_entire_binding()),
             (13, geometry.as_entire_binding()),
             (14, self.zeros.as_entire_binding()),
             (15, self.atmosphere.as_entire_binding()),

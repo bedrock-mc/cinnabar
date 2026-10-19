@@ -27,7 +27,7 @@ fi
 
 printf '## Installing\n\n'
 printf 'First launch asks you to accept the Minecraft EULA, then downloads Mojang'"'"'s public sample resource pack and converts it locally; the installers themselves contain no Mojang assets.\n\n'
-printf -- '- Linux: `chmod +x Cinnabar-x86_64.AppImage`, then run it.\n'
+printf -- '- Linux: choose the x86_64 or Raspberry Pi Linux (64-bit ARM) AppImage, mark it executable with `chmod +x`, then run it.\n'
 if [[ "${MACOS_SIGNED:-}" != true ]]; then
     printf -- '- macOS (unsigned build): drag Cinnabar to Applications, then run `xattr -dr com.apple.quarantine /Applications/Cinnabar.app` once (System Settings → Privacy & Security → Open Anyway also works, but setup helpers may then be blocked). Use the arm64 DMG on Apple silicon and x86_64 on Intel.\n'
 else

@@ -129,7 +129,7 @@
     <button type="button" class="close" id="close-dialog" aria-label="Close">×</button>
     <h2 id="install-title">Install Cinnabar</h2>
     <div id="linux-install" hidden>
-      <p>Paste this command into your terminal. It installs Cinnabar for your user and adds it to your app menu.</p>
+      <p>Paste this command into your terminal. It selects your CPU, including 64-bit Raspberry Pi Linux, installs Cinnabar for your user and adds it to your app menu.</p>
       <div class="command-row"><input id="install-command" aria-label="Linux install command" readonly><button type="button" id="copy-command">Copy</button></div>
       <p id="copy-status" role="status"></p>
     </div>
@@ -143,6 +143,7 @@
       <p>Cinnabar is available for desktop computers.</p>
       <a class="download-option" data-release-asset="windows/x86_64">Windows setup</a>
       <a class="download-option" data-release-asset="linux/x86_64">Linux AppImage</a>
+      <a class="download-option" data-release-asset="linux/arm64">Raspberry Pi Linux (64-bit ARM)</a>
       <a class="download-option" data-release-asset="macos/arm64">macOS — Apple silicon</a>
       <a class="download-option" data-release-asset="macos/x86_64">macOS — Intel</a>
     </div>
