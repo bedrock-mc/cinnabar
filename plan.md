@@ -336,6 +336,9 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.
+- Entity pack isolation reuses prepared files and supports cancellation between attempts;
+  attachable bindings index shared animation documents once. Byte-output and work-count
+  fixtures cover these paths; complete join and hardware-performance acceptance remain open.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 

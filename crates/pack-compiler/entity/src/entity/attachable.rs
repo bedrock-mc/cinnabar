@@ -24,6 +24,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid};
+
+#[cfg(test)]
+thread_local! {
+    static ANIMATION_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 mod item_attack;
 mod item_food;
 pub use item_food::compile_item_foods;
@@ -73,7 +78,7 @@ pub(super) fn compile_bindings(
 ) -> Result<Box<[EquipmentBinding]>, AttachableError> {
     let materials = super::materials::MaterialStates::load(Path::new(""), payloads, sources)
         .map_err(|_| AttachableError::Malformed)?;
-    let animation_sources = animation_source_index(symbols, sources);
+    let animation_bones = animation_bone_index(payloads, symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
     let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
@@ -84,12 +89,7 @@ pub(super) fn compile_bindings(
         let parsed = match parse_unique_json(Path::new(path.as_ref()), bytes)
             .map_err(|_| AttachableError::Malformed)
             .and_then(|value| {
-                parse_attachable(
-                    &value,
-                    payloads,
-                    &animation_sources,
-                    controller_resources.get(path),
-                )
+                parse_attachable(&value, &animation_bones, controller_resources.get(path))
             }) {
             Ok(parsed) => parsed,
             // A server pack's bad attachable drops only itself.
@@ -272,8 +272,7 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
 
 fn parse_attachable(
     value: &Value,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
+    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
     controller_resources: Option<&ControllerResources>,
 ) -> Result<ParsedAttachable, AttachableError> {
     let description = parse_description(value)?;
@@ -293,13 +292,10 @@ fn parse_attachable(
     // Elytra and shields pose their own bones from literal clips; a shield's clip picks values by
     // the hand it is held in, so it stores one pose per hand.
     let poses = match category(&item_identifier, &geometry) {
-        EquipmentCategory::Elytra => {
-            literal_poses(animations, payloads, animation_sources, &[None])
-        }
+        EquipmentCategory::Elytra => literal_poses(animations, animation_bones, &[None]),
         EquipmentCategory::Shield => literal_poses(
             animations,
-            payloads,
-            animation_sources,
+            animation_bones,
             &[Some("main_hand"), Some("off_hand")],
         ),
         _ => Box::new([]),
@@ -315,18 +311,8 @@ fn parse_attachable(
         )?,
         material: named_resource(description, "materials", None)?,
         render_controller: first_render_controller(description)?,
-        first_person: wield_transform(
-            animations,
-            "wield_first_person",
-            payloads,
-            animation_sources,
-        ),
-        third_person: wield_transform(
-            animations,
-            "wield_third_person",
-            payloads,
-            animation_sources,
-        ),
+        first_person: wield_transform(animations, "wield_first_person", animation_bones),
+        third_person: wield_transform(animations, "wield_third_person", animation_bones),
         item_identifier,
         attachable_identifier,
     })
@@ -378,16 +364,22 @@ fn first_render_controller(description: &Value) -> Result<Box<str>, AttachableEr
     bounded_identifier(identifier)
 }
 
+/// Reads one animation document for literal equipment channels.
+fn parse_animation_document(bytes: &[u8]) -> Option<Value> {
+    #[cfg(test)]
+    ANIMATION_PARSES.update(|count| count + 1);
+    pack_json::parse_jsonc(bytes).ok()
+}
+
 fn wield_transform(
     animations: Option<&serde_json::Map<String, Value>>,
     local_key: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
+    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
 ) -> EquipmentTransform {
     let literal = animations
         .and_then(|animations| animations.get(local_key))
         .and_then(Value::as_str)
-        .and_then(|identifier| literal_bone_transform(identifier, payloads, animation_sources));
+        .and_then(|identifier| literal_bone_transform(identifier, animation_bones));
     match literal {
         Some(transform) => EquipmentTransform::Literal { transform },
         None => EquipmentTransform::NeedsMeasurement,
@@ -398,17 +390,9 @@ fn wield_transform(
 /// rotation (and scale, if any) are pure numeric arrays; Molang strings -> None.
 fn literal_bone_transform(
     identifier: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
+    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
 ) -> Option<ItemDisplayTransform> {
-    let source = animation_sources.get(identifier)?;
-    let bytes = payloads.get(*source)?;
-    let document: Value = pack_json::parse_jsonc(bytes).ok()?;
-    let bones = document
-        .get("animations")?
-        .get(identifier)?
-        .get("bones")?
-        .as_object()?;
+    let bones = animation_bones.get(identifier)?;
     if bones.len() != 1 {
         return None;
     }
@@ -431,8 +415,7 @@ fn literal_bone_transform(
 /// with any other Molang are left out (`NeedsMeasurement` at the consumer).
 fn literal_poses(
     animations: Option<&serde_json::Map<String, Value>>,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
+    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
     slots: &[Option<&str>],
 ) -> Box<[AttachablePose]> {
     let mut poses = Vec::new();
@@ -441,8 +424,7 @@ fn literal_poses(
             continue;
         };
         for slot in slots {
-            let Some(bones) = literal_clip_bones(identifier, payloads, animation_sources, *slot)
-            else {
+            let Some(bones) = literal_clip_bones(identifier, animation_bones, *slot) else {
                 continue;
             };
             let key = match slot {
@@ -458,19 +440,13 @@ fn literal_poses(
     poses.into_boxed_slice()
 }
 
+/// Extracts literal pose channels, resolving supported hand-dependent values for the slot.
 fn literal_clip_bones(
     identifier: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
+    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
     slot: Option<&str>,
 ) -> Option<Box<[AttachablePoseBone]>> {
-    let source = animation_sources.get(identifier)?;
-    let document: Value = pack_json::parse_jsonc(payloads.get(*source)?).ok()?;
-    let bones = document
-        .get("animations")?
-        .get(identifier)?
-        .get("bones")?
-        .as_object()?;
+    let bones = animation_bones.get(identifier)?;
     let channel = |bone: &Value, name: &str| -> Option<Option<[ItemDisplayScalar; 3]>> {
         match bone.get(name) {
             None => Some(None),
@@ -534,6 +510,47 @@ fn numeric_vec3(value: Option<&Value>) -> Option<[ItemDisplayScalar; 3]> {
 
 fn scalar(value: f32) -> Option<ItemDisplayScalar> {
     ItemDisplayScalar::new(value)
+}
+
+/// Indexes each selected animation's bones, parsing shared documents only once.
+fn animation_bone_index(
+    payloads: &SourcePayloads,
+    symbols: &[EntityAssetSymbol],
+    sources: &[EntityAssetSource],
+) -> BTreeMap<Box<str>, serde_json::Map<String, Value>> {
+    if !payloads.keys().any(|path| path.starts_with("attachables/")) {
+        return BTreeMap::new();
+    }
+    let mut by_source = BTreeMap::<&str, Vec<&str>>::new();
+    for (identifier, source) in animation_source_index(symbols, sources) {
+        by_source.entry(source).or_default().push(identifier);
+    }
+    let mut index = BTreeMap::new();
+    for (source, identifiers) in by_source {
+        let Some(mut document) = payloads
+            .get(source)
+            .and_then(|bytes| parse_animation_document(bytes))
+        else {
+            continue;
+        };
+        let Some(animations) = document
+            .get_mut("animations")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        for identifier in identifiers {
+            let Some(bones) = animations
+                .get_mut(identifier)
+                .and_then(|animation| animation.get_mut("bones"))
+                .and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            index.insert(identifier.into(), std::mem::take(bones));
+        }
+    }
+    index
 }
 
 fn animation_source_index<'a>(

@@ -1,7 +1,7 @@
 //! Neutral actor artwork for a server pack's entities, compiled in memory.
 
 use super::*;
-use crate::entity::{EntityPackSkips, compile_entity_pack};
+use crate::entity::{EntityPackSkips, compile_entity_pack_unless};
 
 /// A pack's entity catalog with the artwork of its eligible rigs. Indices are
 /// local to `entities`, which is its own index space beside the vanilla catalog.
@@ -64,7 +64,7 @@ fn compile_stages(
             Ok(())
         }
     };
-    let Some(pack) = compile_entity_pack(files)? else {
+    let Some(pack) = compile_entity_pack_unless(files, cancelled).ok_or(Stop::Cancelled)?? else {
         return Ok(None);
     };
     check()?;

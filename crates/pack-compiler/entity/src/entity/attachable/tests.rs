@@ -452,3 +452,41 @@ fn equipment_category_uses_the_admitted_slot_with_neutral_geometry() {
         );
     }
 }
+
+#[test]
+fn merged_animation_document_is_parsed_once_for_many_attachables() {
+    let mut payloads = payloads(&[("animations/_pack.json", TRIDENT_ANIM)]);
+    for index in 0..65 {
+        payloads.insert(
+            format!("attachables/item_{index}.json").into(),
+            TRIDENT
+                .replace("minecraft:trident", &format!("fixture:item_{index}"))
+                .into_bytes()
+                .into(),
+        );
+    }
+    let symbols = symbols(&[
+        (
+            EntityAssetKind::Animation,
+            "animation.trident.wield_first_person",
+            0,
+        ),
+        (
+            EntityAssetKind::Animation,
+            "animation.trident.wield_third_person",
+            0,
+        ),
+    ]);
+    let sources = sources(&["animations/_pack.json"]);
+    ANIMATION_PARSES.set(0);
+    let bindings =
+        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    assert_eq!(bindings.len(), 65);
+    assert!(
+        bindings
+            .iter()
+            .all(|binding| binding.first_person.literal().is_some()
+                && binding.third_person.literal().is_some())
+    );
+    assert_eq!(ANIMATION_PARSES.get(), 1);
+}

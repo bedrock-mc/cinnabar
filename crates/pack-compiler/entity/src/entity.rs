@@ -40,6 +40,7 @@ mod versions;
 pub use molang::{BlockMolang, BlockStateValue, compile_molang_expression};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
+pub(crate) use pack::compile_entity_pack_unless;
 pub use pack::{
     EntityPackCompilation, EntityPackSkips, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES,
     compile_entity_pack,
