@@ -332,8 +332,7 @@ SOFTWARE.<!-- END AXOLOTL-STACK-MIT -->
 - Copyright: Copyright (c) 2019 Dragonfly Tech
 - Upstream license SHA-256:
   `9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755`
-- Item tag table: `crates/protocol/data/item_tags_dragonfly.tsv`, derived from
-  the `hashimthearab/dragonfly` fork at
+- Earlier item-tag tables were derived from the `hashimthearab/dragonfly` fork at
   `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` under the same license.
 
 <!-- BEGIN DRAGONFLY-MIT -->

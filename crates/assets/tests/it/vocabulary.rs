@@ -55,7 +55,7 @@ impl Vocabulary {
         }
         domains.insert(
             "item_tag".into(),
-            include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+            include_str!("../../../protocol/data/item_tags_native.tsv")
                 .lines()
                 .filter(|row| !row.starts_with('#') && !row.is_empty())
                 .map(|row| row.split_once('\t').unwrap().0.to_owned())
