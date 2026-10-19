@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use assets::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 
+/// Reads a complete optional language table from the supplied bytes.
 fn overlay(bytes: &[u8]) -> Option<Arc<ServerLangOverlay>> {
     ServerLangOverlay::read(bytes.len(), |target| {
         assert_eq!(target.len(), bytes.len());
@@ -32,9 +33,44 @@ fn rejected_input_does_not_invoke_reader_or_publish_partial_text() {
     );
     assert!(overlay(b"a=valid\nb=\xff").is_none());
     assert!(ServerLangOverlay::read(5, |_| false).is_none());
-    assert!(overlay(format!("a={}", "x".repeat(1025)).as_bytes()).is_none());
-    assert!(overlay(format!("{}=v", "x".repeat(257)).as_bytes()).is_none());
-    assert!(overlay("a=v\n".repeat(4097).as_bytes()).is_none());
+}
+
+#[test]
+fn session_table_accepts_more_than_4096_distinct_entries() {
+    let input = (0..4097)
+        .map(|index| format!("key{index}=value{index}\n"))
+        .collect::<String>();
+    let table = overlay(input.as_bytes()).unwrap();
+    for index in 0..4097 {
+        assert_eq!(
+            table.lookup(&format!("key{index}")),
+            Some(format!("value{index}").as_str())
+        );
+    }
+}
+
+#[test]
+fn session_table_accepts_a_257_byte_key() {
+    let key = "k".repeat(257);
+    let table = overlay(format!("{key}=value\nsentinel=kept").as_bytes()).unwrap();
+    assert_eq!(table.lookup(&key), Some("value"));
+    assert_eq!(table.lookup("sentinel"), Some("kept"));
+}
+
+#[test]
+fn session_table_accepts_a_1025_byte_value() {
+    let value = "v".repeat(1025);
+    let table = overlay(format!("key={value}\nsentinel=kept").as_bytes()).unwrap();
+    assert_eq!(table.lookup("key"), Some(value.as_str()));
+    assert_eq!(table.lookup("sentinel"), Some("kept"));
+}
+
+#[test]
+fn session_table_keeps_the_last_of_4097_duplicate_entries() {
+    let mut input = "key=old\n".repeat(4096);
+    input.push_str("key=final\n");
+    let table = overlay(input.as_bytes()).unwrap();
+    assert_eq!(table.lookup("key"), Some("final"));
 }
 
 #[test]

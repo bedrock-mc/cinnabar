@@ -6,7 +6,6 @@ use std::sync::{
 };
 
 pub const MAX_SERVER_LANG_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_ENTRIES: usize = 4096;
 const MAX_TABLE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_METADATA_BYTES: usize = 512 * 1024;
 const POOL_BYTES: usize = 8 * 1024 * 1024;
@@ -95,7 +94,9 @@ impl ServerLangOverlay {
         }
         let text = std::str::from_utf8(&input).ok()?;
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        let metadata = MAX_ENTRIES
+        let rows = translation_rows(text);
+        let entry_count = rows.clone().count();
+        let metadata = entry_count
             .checked_mul(std::mem::size_of::<Entry>())?
             .checked_add(std::mem::size_of::<Self>())?
             .checked_add(ALLOCATION_OVERHEAD)?;
@@ -103,27 +104,9 @@ impl ServerLangOverlay {
             return None;
         }
         let metadata_permit = credits.reserve(metadata)?;
-        let mut entries = Vec::with_capacity(MAX_ENTRIES);
+        let mut entries = Vec::with_capacity(entry_count);
         let mut table_bytes = metadata;
-        for (ordinal, line) in text.lines().enumerate() {
-            let line = line.trim_end_matches('\r');
-            if line.is_empty() || line.starts_with("##") {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            if key.is_empty() {
-                continue;
-            }
-            let value = value.split_once("\t#").map_or(value, |(value, _)| value);
-            if entries.len() == MAX_ENTRIES
-                || key.len() > super::MAX_LANG_KEY_BYTES
-                || value.len() > super::MAX_LANG_VALUE_BYTES
-            {
-                return None;
-            }
+        for (ordinal, key, value) in rows {
             let strings = key
                 .len()
                 .checked_add(value.len())?
@@ -160,12 +143,90 @@ impl ServerLangOverlay {
     }
 }
 
+/// Borrows valid translations in source order so counting and allocation use the same rows.
+fn translation_rows(text: &str) -> impl Iterator<Item = (usize, &str, &str)> + Clone {
+    text.lines().enumerate().filter_map(|(ordinal, line)| {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() || line.starts_with("##") {
+            return None;
+        }
+        let (key, value) = line.split_once('=')?;
+        let key = key.trim();
+        if key.is_empty() {
+            return None;
+        }
+        let value = value.split_once("\t#").map_or(value, |(value, _)| value);
+        Some((ordinal, key, value))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Creates an isolated credit pool for deterministic allocation tests.
     fn owner() -> Arc<Credits> {
         Arc::new(Credits(AtomicUsize::new(0)))
+    }
+
+    #[test]
+    fn small_tables_fit_without_reserving_unused_rows() {
+        let credits = owner();
+        let occupied = credits
+            .reserve(POOL_BYTES - READER_SCRATCH_BYTES - 4096)
+            .unwrap();
+        let table = ServerLangOverlay::read_with_credits(
+            3,
+            |target| {
+                target.copy_from_slice(b"k=v");
+                true
+            },
+            Arc::clone(&credits),
+        )
+        .unwrap();
+        assert_eq!(table.lookup("k"), Some("v"));
+        drop(table);
+        assert_eq!(credits.0.load(Ordering::Acquire), occupied.bytes);
+        drop(occupied);
+        assert_eq!(credits.0.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn ignored_rows_do_not_consume_metadata_budget() {
+        let credits = owner();
+        let mut input = "## comment\nmalformed\n=empty\n"
+            .repeat(MAX_METADATA_BYTES / std::mem::size_of::<Entry>());
+        input.push_str("k=v\n");
+        let table = ServerLangOverlay::read_with_credits(
+            input.len(),
+            |target| {
+                target.copy_from_slice(input.as_bytes());
+                true
+            },
+            Arc::clone(&credits),
+        )
+        .unwrap();
+        assert_eq!(table.lookup("k"), Some("v"));
+        drop(table);
+        assert_eq!(credits.0.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn metadata_budget_refusal_returns_all_candidate_credits() {
+        let credits = owner();
+        let input = "k=v\n".repeat(MAX_METADATA_BYTES / std::mem::size_of::<Entry>() + 1);
+        assert!(
+            ServerLangOverlay::read_with_credits(
+                input.len(),
+                |target| {
+                    target.copy_from_slice(input.as_bytes());
+                    true
+                },
+                Arc::clone(&credits),
+            )
+            .is_none()
+        );
+        assert_eq!(credits.0.load(Ordering::Acquire), 0);
     }
 
     #[test]
@@ -182,7 +243,7 @@ mod tests {
         .unwrap();
         let retained = Arc::clone(&table);
         let charged = credits.0.load(Ordering::Acquire);
-        assert!(charged >= MAX_ENTRIES * std::mem::size_of::<Entry>());
+        assert!(charged > 0);
         drop(table);
         assert_eq!(credits.0.load(Ordering::Acquire), charged);
         let new = ServerLangOverlay::read_with_credits(
