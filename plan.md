@@ -2081,6 +2081,9 @@ not close a parity or visual acceptance gate.
   details on an independent worker, so Home cannot delay them; background layout reads do not
   request them. The existing selected-details binding shows only positive counts as plain
   decimal numbers, without capacity or digit grouping.
+- Failed experience selections preserve the launcher error. Unresolved experience selectors
+  cannot start a direct fallback core; direct-server fallback and local-world ownership remain
+  unchanged. End-to-end experience acceptance remains incomplete.
 - Incomplete parity: the OreUI experience banner still needs its count badge wired by its screen
   owner; this change only supplies data and existing JSON-UI bindings. The menu rereads counts
   through its independent featured worker every 30 seconds; exact refresh dispatch timing remains
