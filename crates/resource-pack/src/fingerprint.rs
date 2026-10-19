@@ -1,10 +1,15 @@
-//! Archive digests shared by admitted stacks and their composed copies.
+//! Content digests for admitted archives and their decoded entries.
 
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
 /// Pack identity and archive digest in lowest-to-highest precedence order.
 pub type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
+
+/// Hashes the supplied bytes consistently for both archives and decoded files.
+pub(crate) fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
+}
 
 /// A digest belongs to the immutable archive bytes, including across pack clones.
 #[derive(Default)]
@@ -21,7 +26,7 @@ impl ContentHash {
             #[cfg(test)]
             self.computations
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Sha256::digest(bytes).into()
+            hash_bytes(bytes)
         })
     }
 

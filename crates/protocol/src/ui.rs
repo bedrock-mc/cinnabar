@@ -39,6 +39,8 @@ pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, Tit
 pub(crate) use text::{normalize_text, normalize_title};
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
+/// Text message and filtered-message schema bound, checked against the generated codec in tests.
+pub(crate) const MAX_TEXT_MESSAGE_BYTES: usize = 65_536;
 pub const MAX_CHAT_PARAMETERS: usize = 128;
 pub const MAX_COMMAND_OUTPUT_MESSAGES: usize = 128;
 pub const MAX_CHAT_AUTOCOMPLETE: usize = 256;

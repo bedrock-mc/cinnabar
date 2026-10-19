@@ -373,6 +373,7 @@ impl GlobalPackLibrary {
             return Err(AdmissionError::TooManyPacks.into());
         }
         let mut seen = std::collections::HashSet::new();
+        let reads = Arc::new(crate::read_cache::ReadCache::default());
         let mut stack = ValidatedPackStack {
             packs: Box::default(),
             rejections: Box::default(),
@@ -401,13 +402,14 @@ impl GlobalPackLibrary {
             } else {
                 read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?
             };
-            let (pack, _) = validate_archive_parts(
+            let (pack, _) = crate::parser::validate_archive_parts_cached(
                 active.id,
                 &metadata.version_text(),
                 &active.subpack,
                 bytes,
                 None,
                 None,
+                Arc::clone(&reads),
             )?;
             let next = ValidatedPackStack {
                 packs: vec![pack].into_boxed_slice(),

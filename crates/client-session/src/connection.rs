@@ -69,10 +69,18 @@ impl<D> JoinAttempt<D> {
                         socket_dir,
                         directory: None,
                     },
-                    Err(error) if self.local_world => JoinPoll::Failed {
-                        message: format!("Could not open {}: {error}", self.address),
-                        directory: None,
-                    },
+                    Err(error)
+                        if self.local_world
+                            || self
+                                .address
+                                .trim()
+                                .starts_with(bridge::contract::GATHERING_TARGET_PREFIX) =>
+                    {
+                        JoinPoll::Failed {
+                            message: format!("Could not open {}: {error}", self.address),
+                            directory: None,
+                        }
+                    }
                     Err(_) => JoinPoll::StartCore(self),
                 }
             }
@@ -154,15 +162,92 @@ mod tests {
     }
 
     #[test]
-    fn launcher_failure_falls_back_only_for_external_servers() {
-        let external = launcher_attempt(false, Err("no launcher response".into()));
-        assert!(matches!(
-            external.poll(7, true, || panic!("launcher has no session core")),
-            JoinPoll::StartCore(_)
-        ));
+    fn launcher_failure_preserves_supported_remote_fallbacks_and_local_errors() {
+        for address in [
+            "fixture.invalid".to_owned(),
+            format!("{}42", bridge::contract::REALM_TARGET_PREFIX),
+            format!("{}1234", bridge::contract::FRIEND_TARGET_PREFIX),
+        ] {
+            let mut external = launcher_attempt(false, Err("no launcher response".into()));
+            external.address = address;
+            assert!(matches!(
+                external.poll(7, true, || panic!("launcher has no session core")),
+                JoinPoll::StartCore(_)
+            ));
+        }
         let local = launcher_attempt(true, Err("no launcher response".into()));
+        let JoinPoll::Failed {
+            message,
+            directory: None,
+        } = local.poll(7, true, || panic!("launcher has no session core"))
+        else {
+            panic!("local joins require their owning launcher core");
+        };
+        assert_eq!(
+            message,
+            "Could not open fixture.invalid: no launcher response"
+        );
+    }
+
+    #[test]
+    fn gathering_failure_preserves_the_launcher_error_without_starting_a_core() {
+        for error in [
+            "the launcher core did not answer",
+            "launcher: join gathering: service unavailable",
+        ] {
+            let mut attempt = launcher_attempt(false, Err(error.into()));
+            attempt.address = format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX);
+            let address = attempt.address.clone();
+            let result = attempt.poll(7, true, || panic!("launcher has no session core"));
+            let JoinPoll::Failed {
+                message,
+                directory: None,
+            } = result
+            else {
+                panic!("a gathering must not fall back to an unresolved network address");
+            };
+            assert_eq!(message, format!("Could not open {address}: {error}"));
+        }
+    }
+
+    #[test]
+    fn gathering_waits_for_the_launcher_endpoint() {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let attempt = JoinAttempt::<()> {
+            generation: 7,
+            address: format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX),
+            auth_cache: None,
+            local_world: false,
+            stage: JoinStage::Launcher(receiver),
+        };
+        let JoinPoll::Pending(attempt) = attempt.poll(7, true, || panic!("no session core")) else {
+            panic!("an unanswered launcher request must remain pending");
+        };
+        let socket_dir = PathBuf::from("gathering-fixture-endpoint");
+        sender.send(Ok(socket_dir.clone())).unwrap();
+        let JoinPoll::Ready {
+            socket_dir: ready,
+            directory: None,
+        } = attempt.poll(7, true, || panic!("no session core"))
+        else {
+            panic!("a gathering must use the resolved launcher endpoint");
+        };
+        assert_eq!(ready, socket_dir);
+    }
+
+    #[test]
+    fn disconnected_gathering_worker_does_not_start_a_core() {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        drop(sender);
+        let attempt = JoinAttempt::<()> {
+            generation: 7,
+            address: format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX),
+            auth_cache: None,
+            local_world: false,
+            stage: JoinStage::Launcher(receiver),
+        };
         assert!(matches!(
-            local.poll(7, true, || panic!("launcher has no session core")),
+            attempt.poll(7, true, || panic!("no session core")),
             JoinPoll::Failed {
                 directory: None,
                 ..
