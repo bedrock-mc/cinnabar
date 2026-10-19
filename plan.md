@@ -314,8 +314,11 @@ table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unre
 and allocation failures are diagnosed without discarding other definitions. Complete pack-content
 acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
 or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
-and default member reads retain complete declared content. Explicit subscriber limits and
-large-content live and performance acceptance remain open. Saved server lists retain every
+and default member reads retain complete declared content. Manifest subpack lists have no separate
+row-count cutoff; server and local loading share the existing field validation and device-tier
+selection. Native runtime and device acceptance for larger subpack lists remain open.
+Explicit subscriber limits and large-content live and performance acceptance remain open.
+Saved server lists retain every
 imported entry. Declared sizes, identity, digests and framing remain validated. Experience
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
