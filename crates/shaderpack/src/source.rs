@@ -180,18 +180,25 @@ impl PackSource {
         let mut budget = Budget::new(limits);
         let mut files = BTreeMap::new();
         for i in 0..archive.len() {
+            // Filter by name first so unread entries never need a decryptor or codec.
+            let Some(rel) = archive
+                .name_for_index(i)
+                .and_then(|name| name.strip_prefix(prefix.as_str()))
+                .filter(|rel| {
+                    !rel.is_empty()
+                        && !rel.ends_with('/')
+                        && !is_binary_name(rel)
+                        && !rel.split('/').any(|seg| seg == "..")
+                })
+                .map(str::to_string)
+            else {
+                continue;
+            };
             let mut entry = archive.by_index(i).map_err(|error| PackError::Zip {
                 path: path.to_path_buf(),
                 error,
             })?;
             if entry.is_dir() || entry.is_symlink() {
-                continue;
-            }
-            let Some(rel) = entry.name().strip_prefix(prefix.as_str()) else {
-                continue;
-            };
-            let rel = rel.to_string();
-            if is_binary_name(&rel) || rel.split('/').any(|seg| seg == "..") {
                 continue;
             }
             if let Some(text) = budget.text(&mut entry, &path.join(&rel))? {

@@ -410,3 +410,35 @@ fn directory_layout_preserves_explicit_shaders_symlinks() {
         Err(PackError::NotAShaderPack(path)) if path == target
     ));
 }
+
+#[test]
+fn archives_ignore_unreadable_entries_they_do_not_load_as_text() {
+    let root = TempPack::new();
+    let archive = root.0.join("pack.zip");
+    let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+    let unreadable = ["shaders/texture.png", "README.txt"];
+    for name in ["shaders/a.glsl"].iter().chain(&unreadable) {
+        writer
+            .start_file(*name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"text").unwrap();
+    }
+    let mut bytes = writer.finish().unwrap().into_inner();
+    // Mark both headers of each unreadable entry as bzip2, which this build cannot decode.
+    for name in unreadable {
+        let starts: Vec<_> = bytes
+            .windows(name.len())
+            .enumerate()
+            .filter_map(|(offset, value)| (value == name.as_bytes()).then_some(offset))
+            .collect();
+        let [local, central] = starts[..] else {
+            panic!("expected local and central names for {name}");
+        };
+        bytes[local - 22..local - 20].copy_from_slice(&12u16.to_le_bytes());
+        bytes[central - 36..central - 34].copy_from_slice(&12u16.to_le_bytes());
+    }
+    std::fs::write(&archive, bytes).unwrap();
+    let source = PackSource::open(&archive).unwrap();
+    assert_eq!(source.files().collect::<Vec<_>>(), [("a.glsl", "text")]);
+    assert!(source.read_bytes("texture.png").is_err());
+}
