@@ -126,7 +126,10 @@ impl Fixture {
             );
             templates.extend([1, 0]);
         }
-        let templates = gpu.words(&templates, storage);
+        let asset_tables = gpu.words(
+            &gpu_snapshot::chunk_asset_table_words(&[], &[], &templates),
+            storage,
+        );
         let empty = gpu.words(&[0; 64], storage);
         // Biome tint 0 is the fallback: a blue water tint at half opacity.
         let mut tint = [0.0_f32; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4];
@@ -134,8 +137,6 @@ impl Fixture {
         tint[7] = 0.5;
         let tints = gpu.buffer(&tint, storage);
         let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-        let animations = gpu.words(&[0; 8], storage);
-        let frames = gpu.words(&[0; 4], storage);
         let clock = gpu.words(&[0; 4], uniform);
         let frame = render_scene::AtmosphereFrame::default();
         let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
@@ -196,9 +197,7 @@ impl Fixture {
                     buffer(7, read),
                     buffer(8, read),
                     buffer(9, read),
-                    buffer(10, read),
                     buffer(11, wgpu::BufferBindingType::Uniform),
-                    buffer(12, read),
                     buffer(13, read),
                     buffer(14, read),
                     buffer(15, wgpu::BufferBindingType::Uniform),
@@ -227,10 +226,8 @@ impl Fixture {
             (6, wgpu::BindingResource::Sampler(&sampler)),
             (7, empty.as_entire_binding()),
             (8, tints.as_entire_binding()),
-            (9, animations.as_entire_binding()),
-            (10, frames.as_entire_binding()),
+            (9, asset_tables.as_entire_binding()),
             (11, clock.as_entire_binding()),
-            (12, templates.as_entire_binding()),
             (13, geometry.as_entire_binding()),
             (14, refs.as_entire_binding()),
             (15, atmosphere.as_entire_binding()),
@@ -460,13 +457,13 @@ fn mismatches(a: &[u8], b: &[u8]) -> usize {
 
 #[test]
 fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines() {
-    // Both programs' storage buffers together exceed the default per-stage limit, which the
-    // renderer raises to the shared layout's count.
+    // Exercise the shared and dedicated programs with the Raspberry Pi's varying budget.
     let Some(gpu) = Gpu::for_fixture_with_limits(
         "shared transparent pipeline",
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: render::required_vertex_storage_buffers(),
+            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {

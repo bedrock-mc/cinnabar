@@ -10,10 +10,12 @@
   },
   "artifact": {
     "build-v1-rust-Linux-X64-release-": 3500000000,
+    "build-v1-rust-Linux-ARM64-release-": 3500000000,
     "build-v1-rust-Windows-X64-release-": 3500000000,
     "build-v1-rust-macOS-ARM64-aarch64-apple-darwin-release-": 3500000000,
     "build-v1-rust-macOS-ARM64-x86_64-apple-darwin-release-": 3500000000,
     "build-v1-go-Linux-X64-release-": 1200000000,
+    "build-v1-go-Linux-ARM64-release-": 1200000000,
     "build-v1-go-Windows-X64-release-": 1200000000,
     "build-v1-go-macOS-ARM64-darwin-arm64-release-": 600000000,
     "build-v1-go-macOS-ARM64-darwin-amd64-release-": 600000000

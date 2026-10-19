@@ -380,7 +380,7 @@ fn packed_chunk_shader_parses_and_validates() {
         naga::ShaderStage::Fragment,
         material_shader::BIOME_QUERY_TABLES_BINDING,
     ));
-    for binding in 0..=11 {
+    for binding in (0..=9).chain([11]) {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
             "packed chunk shader is missing global texture binding {binding}"
@@ -445,8 +445,7 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("material.animation == 4294967295u"));
     assert!(shader.contains("var block_textures_page_0: texture_2d_array<f32>"));
     assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
-    assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
-    assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
+    assert!(shader.contains("var<storage, read> chunk_asset_tables: ChunkAssetTables"));
     assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
     assert!(!shader.contains("debug_color"));
 }

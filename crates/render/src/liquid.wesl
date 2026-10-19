@@ -2,7 +2,7 @@ import render::chunk_bindings::{
     view, chunk_origins, block_textures_page_0, block_textures_page_1, block_textures_page_2,
     block_textures_page_3, block_textures_page_4, block_sampler, terrain_gamma_page_0,
     terrain_gamma_page_1, terrain_gamma_page_2, terrain_gamma_page_3, terrain_gamma_page_4,
-    animations, animation_frames, clock,
+    chunk_animation, chunk_animation_frame, clock,
     geometry_streams, atmosphere, transparent_refs,
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
     TRANSPARENT_WATER_RECORD_FLAG,
@@ -48,8 +48,7 @@ const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BI
 struct VertexOutput {
     @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) current_texture: u32,
-    @location(2) @interpolate(flat) next_texture: u32,
+    @location(1) @interpolate(flat) textures: vec2<u32>,
     @location(3) @interpolate(flat) frame_blend: f32,
     @location(4) water_tint: vec4<f32>,
     @location(5) lighting: vec3<f32>,
@@ -61,7 +60,7 @@ struct VertexOutput {
     @location(9) world_position: vec3<f32>,
     @location(12) native_light_levels: vec2<f32>,
     @location(13) @interpolate(flat) native_face_shade: f32,
-    @location(14) @interpolate(flat) two_sided: u32,
+    @location(2) @interpolate(flat) two_sided: u32,
     @if(ENHANCED)
     @location(10) normal: vec3<f32>,
     @if(ENHANCED)
@@ -72,14 +71,14 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = chunk_animation(material.animation);
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current = animation_frames[animation.frame_start + current_index];
+    let current = chunk_animation_frame(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
-    let next = animation_frames[animation.frame_start + next_index];
+    let next = chunk_animation_frame(animation.frame_start + next_index);
     let blend = (
         f32(clock.tick % animation.ticks_per_frame) +
         clamp(clock.partial_tick, 0.0, 0.99999994)
@@ -260,8 +259,8 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
         signed_i8(geometry, 16u),
         signed_i8(geometry, 24u),
     );
-    out.current_texture = frame.current;
-    out.next_texture = frame.next;
+    out.textures.x = frame.current;
+    out.textures.y = frame.next;
     out.frame_blend = frame.blend;
     out.water_tint = blended_biome_tint(
         0x30u,
@@ -392,10 +391,10 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
     // Vanilla duplicates only faces marked by the liquid tessellator.
     // In particular, the bottom never has a reverse face at the ice surface.
     if (!front_facing && in.two_sided == 0u) { discard; }
-    let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
+    let current_sample = sample_texture_ref(in.textures.x, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
+        let next_sample = sample_texture_ref(in.textures.y, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     @if(ENHANCED)
@@ -432,10 +431,10 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
+    let current_sample = sample_texture_ref(in.textures.x, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
+        let next_sample = sample_texture_ref(in.textures.y, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     @if(ENHANCED)

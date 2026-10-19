@@ -172,6 +172,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("MATERIAL_CAULDRON_WATER_FLAG", &format!("{}u", assets::MATERIAL_FLAG_CAULDRON_WATER))
         .replace("CAULDRON_WATER_COLOUR", &format!("vec4<f32>({}) / 255.0", assets::CAULDRON_WATER_COLOUR.map(|c| format!("{c}.0")).join(", ")))
         .replace("// ANIMATION_GPU_LAYOUT", "struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }")
+        .replace("// CHUNK_ASSET_TABLES", include_str!("chunk/gpu/asset_tables.wesl"))
         .replace("// LIQUID_GEOMETRY_CONSTANTS", &format!(
             "const LIQUID_FACE_INSET: f32 = {:?};\nconst LIQUID_TOP_INSET_BIT: u32 = {}u;\nconst LIQUID_DEPTH_WRITE_BIT: u32 = {}u;\nconst LIQUID_TWO_SIDED_BIT: u32 = {}u;\nconst TRANSPARENT_WATER_DRAW_FLAG: u32 = {}u;\nconst TRANSPARENT_WATER_RECORD_FLAG: u32 = {}u;",
             meshing::liquid::LIQUID_FACE_INSET,

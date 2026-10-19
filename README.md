@@ -22,6 +22,9 @@ client.
 - **Stable:** [latest release](https://github.com/cinnabar-mc/cinnabar/releases/latest)
 - **Nightly:** daily builds of `dev` for macOS, Windows and Linux ([nightly](https://github.com/cinnabar-mc/cinnabar/releases/tag/nightly))
 
+Linux downloads include x86_64 and Raspberry Pi Linux (64-bit ARM). Raspberry Pi Linux targets
+64-bit Raspberry Pi OS Bookworm or newer, with Vulkan graphics drivers.
+
 On first launch, Cinnabar downloads the vanilla resource pack after you accept the Minecraft EULA.
 No Mojang assets are bundled. The release notes explain how to open unsigned builds.
 

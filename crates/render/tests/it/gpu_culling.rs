@@ -918,8 +918,10 @@ impl Raster {
             ],
             storage,
         );
-        let animations = gpu.words(&[0; 8], storage);
-        let animation_frames = gpu.words(&[0; 4], storage);
+        let asset_tables = gpu.words(
+            &gpu_snapshot::chunk_asset_table_words(&[], &[], &[]),
+            storage,
+        );
         let clock = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
         let streams = gpu.words(
             &solid_terrain_raster::lighting_words(terrain.quads.len()),
@@ -960,8 +962,7 @@ impl Raster {
                 (6, wgpu::BindingResource::Sampler(&sampler)),
                 (7, records.as_entire_binding()),
                 (8, tints.as_entire_binding()),
-                (9, animations.as_entire_binding()),
-                (10, animation_frames.as_entire_binding()),
+                (9, asset_tables.as_entire_binding()),
                 (11, clock.as_entire_binding()),
                 (13, streams.as_entire_binding()),
                 (15, atmosphere.as_entire_binding()),

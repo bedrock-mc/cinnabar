@@ -354,6 +354,10 @@ Complete clean-install, first-run asset preparation, update/install recovery, st
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain storage
+bindings and shader interfaces fit Pi Vulkan resource limits. Clean-install and
+displayed-frame acceptance across supported Pi models remain incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,

@@ -1,6 +1,6 @@
 //! Execute production model vertices with packed offsets and ordinary quarter turns.
 use crate::{
-    gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE},
+    gpu_snapshot::{self, Draw, Gpu, SNAPSHOT_SIDE},
     shader_source,
 };
 
@@ -43,10 +43,11 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
     let view = gpu.buffer(&[0.0; 104], uniform);
     let origins = gpu.words(&[0; 8], storage);
     let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
-    let animations = gpu.words(&[0; 5], storage);
-    let frames = gpu.words(&[0], storage);
     let clock = gpu.words(&[0; 4], uniform);
-    let templates = gpu.words(&template_words(), storage);
+    let asset_tables = gpu.words(
+        &gpu_snapshot::chunk_asset_table_words(&[], &[], &template_words()),
+        storage,
+    );
     let geometry = gpu.words(&geometry_words(), storage);
     let frame = gpu.buffer(&[0.0; 256], uniform);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(
@@ -84,10 +85,8 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
         (0, view.as_entire_binding()),
         (2, origins.as_entire_binding()),
         (3, materials.as_entire_binding()),
-        (9, animations.as_entire_binding()),
-        (10, frames.as_entire_binding()),
+        (9, asset_tables.as_entire_binding()),
         (11, clock.as_entire_binding()),
-        (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (27, frame.as_entire_binding()),
         (30, wgpu::BindingResource::TextureView(&classes)),

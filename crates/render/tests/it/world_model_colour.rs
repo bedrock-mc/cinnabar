@@ -220,8 +220,8 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     var out = invisible_vertex();
     out.clip_position = vec4(-1.0 + (f32(case_index) + corner.x) * (2.0 / GRID_COLUMNS), -1.0 + corner.y * 2.0, 0.5, 1.0);
     out.uv = vec2(0.5);
-    out.current_texture = bitcast<u32>(witness.light_texture.w);
-    out.next_texture = NEXT_FRAME;
+    out.textures.x = bitcast<u32>(witness.light_texture.w);
+    out.textures.y = NEXT_FRAME;
     out.material_flags = MATERIAL_FLAGS;
     out.frame_blend = witness.distance_frames.y * 0.5;
     out.normal = vec3(0.0, 1.0, 0.0);

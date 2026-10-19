@@ -394,11 +394,14 @@ fn render_fixture(cache_admission: bool) {
     let records = gpu.words(&biome_words, storage);
     let tints = gpu.words(&tint_words(), storage);
     let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-    let animations = gpu.words(
-        &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
+    let asset_tables = gpu.words(
+        &gpu_snapshot::chunk_asset_table_words(
+            &[[0, 2, 4, assets::ANIMATION_FLAG_BLEND]],
+            &[0, 1],
+            &[],
+        ),
         storage,
     );
-    let frames = gpu.words(&[0, 1], storage);
     let clock = gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform);
     let streams = gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage);
     let mut atmosphere = [0.0; 32];
@@ -421,8 +424,7 @@ fn render_fixture(cache_admission: bool) {
         (6, wgpu::BindingResource::Sampler(&sampler)),
         (7, records.as_entire_binding()),
         (8, tints.as_entire_binding()),
-        (9, animations.as_entire_binding()),
-        (10, frames.as_entire_binding()),
+        (9, asset_tables.as_entire_binding()),
         (11, clock.as_entire_binding()),
         (13, streams.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),

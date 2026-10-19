@@ -12,7 +12,7 @@ type AtlasResources = (
     ChunkTextureBindingIdentity,
     [TextureId; assets::MAX_TEXTURE_PAGES],
     [TextureViewId; assets::MAX_TEXTURE_PAGES],
-    [BufferId; 4],
+    [BufferId; 2],
 );
 
 /// Records every page, view and table so partial atlas replacements cannot pass unnoticed.
@@ -25,9 +25,7 @@ fn atlas_resources(app: &App) -> AtlasResources {
         prepared.views.each_ref().map(TextureView::id),
         [
             prepared.material_buffer.id(),
-            prepared.animation_buffer.id(),
-            prepared.animation_frame_buffer.id(),
-            prepared.model_template_buffer.id(),
+            prepared.asset_table_buffer.id(),
         ],
     )
 }

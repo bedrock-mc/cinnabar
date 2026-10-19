@@ -99,8 +99,14 @@ fn shader_definition_names(values: &[bevy::shader::ShaderDefVal]) -> Vec<&str> {
 }
 
 #[test]
-fn production_motion_fragment_fits_default_device_interface_limits() {
-    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+fn production_motion_fragment_fits_fifteen_variable_device_interface_limits() {
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_inter_stage_shader_variables: 15,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     let layouts: Vec<_> = [
         actor_bind_group_layout(),
         crate::lighting::layout(),
@@ -154,7 +160,7 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
             ),
         });
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("default actor motion limits"),
+            label: Some("fifteen-variable actor motion limits"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex,

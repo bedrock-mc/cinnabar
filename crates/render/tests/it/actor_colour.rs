@@ -769,8 +769,8 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
     out.light = actor_witness.words.w;
     out.world_position = vec3(actor_witness.distance_multi.x, 0.0, 0.0);
     out.multitexture_layers = select(vec2(0xffffffffu), vec2(2u, 3u), bitcast<u32>(actor_witness.distance_multi.y) != 0u);
-    out.material = bitcast<u32>(actor_witness.distance_multi.z);
-    if ((out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT) { out.multitexture_layers.x = 0u; }
+    out.material_parameters.z = bitcast<u32>(actor_witness.distance_multi.z);
+    if ((out.material_parameters.z & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT) { out.multitexture_layers.x = 0u; }
     out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a);
     return out;
 }

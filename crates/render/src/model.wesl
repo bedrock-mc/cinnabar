@@ -2,8 +2,8 @@ import render::chunk_bindings::{
     view, chunk_origins, block_textures_page_0, block_textures_page_1, block_textures_page_2,
     block_textures_page_3, block_textures_page_4, block_sampler, terrain_gamma_page_0,
     terrain_gamma_page_1, terrain_gamma_page_2, terrain_gamma_page_3, terrain_gamma_page_4,
-    model_sampler, animations, animation_frames,
-    clock, model_templates, geometry_streams, atmosphere,
+    model_sampler, chunk_animation, chunk_animation_frame,
+    clock, model_template_word, model_template_word_count, geometry_streams, atmosphere,
 };
 import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
 @if(ENHANCED_SHADOW)
@@ -24,23 +24,22 @@ struct VertexOutput {
     @builtin(position) @invariant clip_position: vec4<f32>,
     // Partially covered MSAA pixels must sample inside the authored quad.
     @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
-    @location(1) @interpolate(flat) current_texture: u32,
+    @location(1) @interpolate(flat) textures: vec2<u32>,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
     @location(4) @interpolate(flat) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
-    @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visibility: vec2<u32>,
     @location(9) lighting: vec3<f32>,
     @if(ENHANCED)
     @location(11) sky_light: f32,
     @if(ENHANCED)
-    @location(14) ambient_occlusion: f32,
+    @location(6) ambient_occlusion: f32,
     @if(!ENHANCED)
     @location(11) native_light_levels: vec2<f32>,
     @if(!ENHANCED)
-    @location(14) native_ao_face: f32,
+    @location(6) native_ao_face: f32,
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) world_position: vec3<f32>,
     @if(ENHANCED)
@@ -58,12 +57,12 @@ fn invisible_vertex() -> VertexOutput {
     var invisible: VertexOutput;
     invisible.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
     invisible.uv = vec2(0.0);
-    invisible.current_texture = 0u;
+    invisible.textures.x = 0u;
     invisible.normal = vec3(0.0);
     invisible.material_flags = 0u;
     invisible.local_position = vec3(0.0);
     invisible.biome_record = 0u;
-    invisible.next_texture = 0u;
+    invisible.textures.y = 0u;
     invisible.frame_blend = 0.0;
     invisible.visibility.x = 0u;
     invisible.lighting = vec3(0.0);
@@ -89,16 +88,16 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = chunk_animation(material.animation);
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current = animation_frames[animation.frame_start + current_index];
+    let current = chunk_animation_frame(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
     let partial = (f32(clock.tick % animation.ticks_per_frame) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);
-    return FrameSample(current, animation_frames[animation.frame_start + next_index], partial);
+    return FrameSample(current, chunk_animation_frame(animation.frame_start + next_index), partial);
 }
 
 fn signed_i16(word: u32, high: bool) -> i32 {
@@ -107,12 +106,12 @@ fn signed_i16(word: u32, high: bool) -> i32 {
 }
 
 fn packed_i16(words: u32, component: u32) -> i32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_template_word(words + component / 2u);
     return signed_i16(word, (component & 1u) != 0u);
 }
 
 fn packed_u16(words: u32, component: u32) -> u32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_template_word(words + component / 2u);
     return select(word & 0xffffu, word >> 16u, (component & 1u) != 0u);
 }
 
@@ -199,17 +198,17 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let template_id = geometry_streams[ref_word + 1u];
     let lighting_base_index = geometry_streams[ref_word + 2u];
     let visible_quad_mask = geometry_streams[ref_word + 3u];
-    let template_word_count = arrayLength(&model_templates);
+    let template_word_count = model_template_word_count();
     if (template_word_count < 4u) {
         return invisible_vertex();
     }
-    let template_count = model_templates[0];
+    let template_count = model_template_word(0u);
     if (template_count > (template_word_count - 1u) / 3u || template_id >= template_count) {
         return invisible_vertex();
     }
     let descriptor = 1u + template_id * 3u;
-    let quad_start = model_templates[descriptor];
-    let quad_count = model_templates[descriptor + 1u];
+    let quad_start = model_template_word(descriptor);
+    let quad_count = model_template_word(descriptor + 1u);
     if (quad_count == 0u || quad_index >= quad_count) {
         return invisible_vertex();
     }
@@ -236,8 +235,8 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
         f32((packed_transform >> 8u) & 15u),
     );
     let origin = chunk_origins[metadata_index];
-    let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
-    let is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
+    let is_lily_pad = (model_template_word(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u;
+    let is_bamboo = (model_template_word(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u;
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
     var rotation = packed_transform >> 12u;
     if (is_bamboo) {
@@ -260,8 +259,8 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
             bitcast<f32>(geometry_streams[offset_word + 1u]), bitcast<f32>(geometry_streams[offset_word + 2u]));
     }
     let local_position = block_position + template_position;
-    let material_id = model_templates[template_quad_base + 10u];
-    let quad_flags = model_templates[template_quad_base + 11u];
+    let material_id = model_template_word(template_quad_base + 10u);
+    let quad_flags = model_template_word(template_quad_base + 11u);
     let material = positional_material(material_id, origin.value.xyz + vec3<i32>(block_position));
     let frame = animation_sample(material);
     let uv_component = corner * 2u;
@@ -294,13 +293,13 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
         out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
-    out.current_texture = frame.current;
+    out.textures.x = frame.current;
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
     out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
-    out.next_texture = frame.next;
+    out.textures.y = frame.next;
     out.frame_blend = frame.blend;
     out.visibility.x = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
@@ -601,18 +600,18 @@ fn fragment(
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     // Both views already hold the working colour space, so frames blend before the alpha test.
-    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
+    var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.textures.y, dx, dy), in.frame_blend);
     }
     let alpha_cutout = (in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u;
     @if(!ALPHA_TO_COVERAGE)
     if (alpha_cutout && sampled.a < MODEL_ALPHA_THRESHOLD) { discard; }
     @if(ALPHA_TO_COVERAGE)
     if (alpha_cutout) {
-        var cutout = model_alpha_footprint(in.current_texture, in.uv, dx, dy, sampled);
+        var cutout = model_alpha_footprint(in.textures.x, in.uv, dx, dy, sampled);
         if (in.frame_blend > 0.0) {
-            cutout = cutout_mix(cutout, model_alpha_footprint(in.next_texture, in.uv, dx, dy, sampled), in.frame_blend);
+            cutout = cutout_mix(cutout, model_alpha_footprint(in.textures.y, in.uv, dx, dy, sampled), in.frame_blend);
         }
         if (sampled.a < MODEL_ALPHA_THRESHOLD && cutout.coverage > 0.0) { sampled = cutout.colour; }
         sampled.a = cutout.coverage;
@@ -654,9 +653,9 @@ fn fragment_blend(
 fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     if (in.visibility.x == 0u) { discard; }
     if (!front_facing && in.visibility.y == 0u) { discard; }
-    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
+    var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.textures.y, dx, dy), in.frame_blend);
     }
     if ((in.material_flags & MATERIAL_CAULDRON_WATER_FLAG) != 0u) {
         @if(ENHANCED)
@@ -694,9 +693,9 @@ fn fragment_shadow(@if(ENHANCED_SHADOW)
 in: VertexOutput) {
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
+    var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.textures.y, dx, dy), in.frame_blend);
     }
     if (in.visibility.x == 0u || ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < MODEL_ALPHA_THRESHOLD)) { discard; }
 }
