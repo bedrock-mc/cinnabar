@@ -96,16 +96,17 @@ fn request_dump(context: &Context, crash: &CrashContext) -> bool {
     .to_bytes();
     #[cfg(windows)]
     let request: &[u8] = if context.full_dump { &request } else { &[] };
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let request: &[u8] = &[];
     let _ = context;
+    #[cfg(not(target_os = "macos"))]
     if !monitor::send_on(&client, super::protocol::DUMP_REQUEST, request) {
         return false;
     }
     // macOS receives dumps on a Mach port before it drains socket messages, then closes
     // the socket. Wait for the metadata to arrive before sending the crash context.
     #[cfg(target_os = "macos")]
-    if client.ping().is_err() {
+    if !monitor::announce_dump(&client) {
         return false;
     }
     client.request_dump(crash).is_ok()
