@@ -5,6 +5,9 @@ use std::{
 };
 use zip::{ZipWriter, write::SimpleFileOptions};
 
+#[path = "tests/contents.rs"]
+mod contents;
+
 /// Previously admitted inputs used by the subscriber comparison tests.
 struct Previous {
     admission: PackAdmission,
