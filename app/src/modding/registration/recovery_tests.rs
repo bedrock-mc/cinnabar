@@ -41,12 +41,22 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
         connection: 1,
         ..Default::default()
     };
-    prepared.host.bind_drawing_session(session);
-    assert!(prepared.host.reload_if_changed().unwrap());
+    prepared
+        .frame_host_mut()
+        .unwrap()
+        .bind_drawing_session(session);
+    assert!(
+        prepared
+            .frame_host_mut()
+            .unwrap()
+            .reload_if_changed()
+            .unwrap()
+    );
     let watcher = Watcher::start(directory.path().into()).unwrap();
     watcher.drawing.lock().unwrap().insert(
         entry.component.clone(),
-        crate::modding::admission::DrawingContext::capture(&prepared.host, None).unwrap(),
+        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap(), None)
+            .unwrap(),
     );
     select_entry(directory.path(), entry.clone());
     let update = wait_update(&watcher, "initial drawing admission", |update| {
@@ -73,16 +83,21 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
             .is_some_and(|status| status.request_id == "fence-admitted")
     });
     prepared
-        .host
+        .frame_host_mut()
+        .unwrap()
         .bind_drawing_session(mod_api::drawing::DrawingSession {
             dimension: 1,
             ..session
         });
-    prepared.host.bind_drawing_session(session);
-    assert!(prepared.host.is_revoked());
+    prepared
+        .frame_host_mut()
+        .unwrap()
+        .bind_drawing_session(session);
+    assert!(prepared.frame_host().unwrap().is_revoked());
     watcher.drawing.lock().unwrap().insert(
         entry.component,
-        crate::modding::admission::DrawingContext::capture(&prepared.host, None).unwrap(),
+        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap(), None)
+            .unwrap(),
     );
     let replacement = wait_update(
         &watcher,
@@ -90,9 +105,9 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
         |update| !update.changes.is_empty(),
     );
     let fresh = replacement.changes[0].result.as_ref().unwrap();
-    assert!(fresh.host.is_active());
+    assert!(fresh.frame_host().unwrap().is_active());
     assert_eq!(fresh.identity, identity);
-    assert_eq!(fresh.host.drawing_session(), Some(session));
+    assert_eq!(fresh.frame_host().unwrap().drawing_session(), Some(session));
 }
 
 #[test]
@@ -114,7 +129,7 @@ fn repaired_disk_settings_retry_a_cached_initial_admission_failure() {
     let fresh = admissions
         .prepare(source::source_snapshot(entry).unwrap(), None)
         .expect("a repaired settings companion retries the same component");
-    assert_eq!(fresh.host.settings_snapshot(), Some(seed));
+    assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
 }
 
 #[test]
@@ -140,8 +155,8 @@ fn repaired_initial_settings_trigger_admission_without_a_registration_edit() {
         |update| !update.changes.is_empty(),
     );
     let fresh = accepted.changes[0].result.as_ref().unwrap();
-    assert!(fresh.host.is_active());
-    assert_eq!(fresh.host.settings_snapshot(), Some(seed));
+    assert!(fresh.frame_host().unwrap().is_active());
+    assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
 }
 
 #[test]
@@ -164,7 +179,10 @@ fn committed_settings_override_an_unreadable_companion_on_retry() {
     let accepted = admissions
         .prepare(source::source_snapshot(entry).unwrap(), Some(&committed))
         .unwrap();
-    assert_eq!(accepted.host.settings_snapshot(), Some(seed));
+    assert_eq!(
+        accepted.frame_host().unwrap().settings_snapshot(),
+        Some(seed)
+    );
 }
 
 #[test]
@@ -179,7 +197,10 @@ fn captured_disk_settings_survive_a_later_companion_edit() {
     let snapshot = source::source_snapshot(entry).unwrap();
     fs::write(path, [0xff]).unwrap();
     let accepted = build_candidate(snapshot).unwrap();
-    assert_eq!(accepted.host.settings_snapshot(), Some(seed));
+    assert_eq!(
+        accepted.frame_host().unwrap().settings_snapshot(),
+        Some(seed)
+    );
 }
 
 #[test]
@@ -242,7 +263,7 @@ fn unloaded_settings_do_not_override_a_later_disk_seed() {
     let fresh = candidate::Admissions::default()
         .prepare(source::source_snapshot(entry).unwrap(), current.as_ref())
         .unwrap();
-    assert_eq!(fresh.host.settings_snapshot(), Some(seed));
+    assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
 }
 
 #[test]
@@ -304,7 +325,10 @@ fn delayed_admission_keeps_the_observed_settings_input() {
     let accepted = candidate::Admissions::default()
         .prepare(snapshot, None)
         .expect("admission uses the exact observed seed");
-    assert_eq!(accepted.host.settings_snapshot(), Some(seed));
+    assert_eq!(
+        accepted.frame_host().unwrap().settings_snapshot(),
+        Some(seed)
+    );
 }
 
 #[test]
@@ -351,6 +375,6 @@ fn delayed_worker_reobserves_changed_preferences_before_admission() {
             panic!("restored preferences admit the original selection");
         };
         let fresh = accepted.changes[0].result.as_ref().unwrap();
-        assert_eq!(fresh.host.settings_snapshot(), Some(seed));
+        assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
     }
 }

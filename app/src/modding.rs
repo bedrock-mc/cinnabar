@@ -34,7 +34,8 @@ mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
 mod library;
-mod registration;
+pub(crate) mod packets;
+pub(crate) mod registration;
 mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
@@ -228,7 +229,12 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     configure_systems(app, true);
                 }
             }
-            Err(error) => warn!("Local extension watcher unavailable: {error}"),
+            Err(error) => {
+                warn!("Local extension watcher unavailable: {error}");
+                if !configured && app.world().contains_resource::<packets::PacketMods>() {
+                    configure_systems(app, false);
+                }
+            }
         }
     }
 }
@@ -265,6 +271,12 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 /// Loads components and packages in order, each with its own grants; one failing to load
 /// leaves the rest.
 fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
+    if let Some(selection) = multi::packet_mod_entry(&mods) {
+        app.world_mut().init_resource::<packets::PacketMods>();
+        app.world_mut()
+            .resource_mut::<packets::PacketMods>()
+            .select_environment(selection);
+    }
     install(app, multi::load_entries(mods));
 }
 

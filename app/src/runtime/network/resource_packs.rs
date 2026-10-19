@@ -142,7 +142,7 @@ pub(super) fn prepare_join(
         profile.run(|| prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases))
     };
     #[cfg(not(target_arch = "wasm32"))]
-    if preparation.has_applied_packs() {
+    if preparation.has_packs() {
         return chunk_pipeline::on_idle_world_cores(prepare);
     }
     prepare()

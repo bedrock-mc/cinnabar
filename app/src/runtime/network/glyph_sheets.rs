@@ -17,7 +17,7 @@ const MAX_CELLS: usize = 65_536;
 
 /// Crops every sheet present in the stack into glyph cells, or `None` when it has none. Each
 /// sheet is dropped once cropped so a large one is not retained for the session.
-pub(super) fn compile_session_glyphs(view: &LayeredPackView) -> Option<Arc<SessionGlyphSheets>> {
+pub(crate) fn compile_session_glyphs(view: &LayeredPackView) -> Option<Arc<SessionGlyphSheets>> {
     let cells = bitmap(view, Some("font/default8"), Some("font/glyph_"));
     let mut named = std::collections::BTreeMap::new();
     named.insert("rune".into(), bitmap(view, Some("font/ascii_sga"), None));

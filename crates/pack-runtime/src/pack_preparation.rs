@@ -49,6 +49,8 @@ pub struct PackPreparation {
     pub inputs: Arc<PackInputs>,
     pub admission: PackAdmission,
     required: bool,
+    /// Whether the server's own handed-off packs were applied, apart from relay packs.
+    server_packs: bool,
 }
 
 impl PackPreparation {
@@ -67,15 +69,21 @@ impl PackPreparation {
         Some(Ok(application))
     }
 
-    /// Reports whether the session must bracket its pump with pack-application reports.
+    /// Reports whether the session must bracket its pump with pack-application reports: the
+    /// server's handed-off packs were applied.
     pub fn has_applied_packs(&self) -> bool {
+        self.server_packs
+    }
+
+    /// Whether any pack, the server's or a relay's, applies to this session.
+    pub fn has_packs(&self) -> bool {
         matches!(&self.admission, PackAdmission::Validated(stack) if !stack.packs().is_empty())
     }
 }
 
 /// Reads StartGame pack facts and validates the one-shot login handoff.
 pub fn prepare_session_packs(
-    handoff: protocol::ResourcePackHandoff,
+    mut handoff: protocol::ResourcePackHandoff,
     game_data: &protocol::GameData,
     physical_memory_bytes: u64,
 ) -> PackPreparation {
@@ -92,7 +100,10 @@ pub fn prepare_session_packs(
         "START_GAME_BLOCK_IDS"
     );
     let required = handoff.required();
+    let added = handoff.take_relay_packs();
     let stack = resource_pack::validate_handoff_for_device(handoff, physical_memory_bytes);
+    let server_packs = !stack.packs().is_empty();
+    let stack = with_relay_packs(stack, added, physical_memory_bytes);
     let admission = if stack.packs().is_empty() && stack.rejections().is_empty() {
         PackAdmission::None
     } else {
@@ -107,7 +118,33 @@ pub fn prepare_session_packs(
         }),
         admission,
         required,
+        server_packs,
     }
+}
+
+/// Layers a packet relay's packs around the server stack. They are admitted apart, so one that
+/// fails is only logged and never rejects a required server stack.
+fn with_relay_packs(
+    server: Arc<resource_pack::ValidatedPackStack>,
+    added: Vec<protocol::RelayPack>,
+    physical_memory_bytes: u64,
+) -> Arc<resource_pack::ValidatedPackStack> {
+    if added.is_empty() {
+        return server;
+    }
+    let added = added
+        .into_iter()
+        .map(|pack| resource_pack::AddedPack {
+            archive: pack.archive,
+            above_server: pack.above_server,
+        })
+        .collect();
+    let (stack, refused) =
+        resource_pack::compose_added_packs(&server, added, physical_memory_bytes);
+    for error in refused {
+        tracing::warn!(%error, "skipping a resource pack the packet mod added");
+    }
+    Arc::new(stack)
 }
 
 /// Optional packs that fail validation are dropped; a required one ends the join.
@@ -320,6 +357,7 @@ mod tests {
                     protocol::ResourcePackHandoff::from_archives(vec![archive]),
                 )),
                 required,
+                server_packs: false,
             };
             let order = RefCell::new(Vec::new());
             let result = preparation
@@ -377,5 +415,78 @@ mod tests {
         assert!(preparation.inputs.blocks.blocks.is_empty());
         drop(preparation);
         assert!(validated.unwrap().upgrade().is_none());
+    }
+
+    /// A one-file resource pack under `id`, version 1.0.0.
+    fn pack_zip(id: &str) -> Vec<u8> {
+        use std::io::Write;
+        let manifest = format!(
+            r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+        );
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (path, bytes) in [("manifest.json", manifest.as_bytes()), ("a.txt", b"a")] {
+            writer
+                .start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    // A relay's packs layer around a required server stack, and one that fails admission never
+    // refuses the join or counts as the server's packs.
+    #[test]
+    fn relay_packs_layer_around_a_required_server_stack() {
+        let server = "11111111-2222-3333-4444-555555555555";
+        let relay = "66666666-2222-3333-4444-555555555555";
+        let handoff = protocol::ResourcePackHandoff::from_archives(vec![
+            protocol::ResourcePackArchive::unencrypted(
+                server.parse().unwrap(),
+                "1.0.0".into(),
+                String::new(),
+                pack_zip(server),
+            ),
+        ])
+        .with_required(true)
+        .with_relay_packs(vec![
+            protocol::RelayPack {
+                archive: b"not a pack".to_vec(),
+                above_server: false,
+            },
+            protocol::RelayPack {
+                archive: pack_zip(relay),
+                above_server: true,
+            },
+        ]);
+        let preparation = prepare_session_packs(handoff, &protocol::GameData::default(), u64::MAX);
+        let PackAdmission::Validated(stack) = &preparation.admission else {
+            panic!("the stack is validated");
+        };
+        let order: Vec<_> = stack
+            .packs()
+            .iter()
+            .map(|pack| pack.pack_id().to_string())
+            .collect();
+        assert_eq!(order, [server, relay]);
+        assert!(preparation.has_applied_packs() && preparation.has_packs());
+        let applied = preparation.prepare_application(|_| Some(()), |_| {});
+        assert!(matches!(applied, Some(Ok(()))));
+    }
+
+    #[test]
+    fn relay_only_packs_prepare_without_server_application_reports() {
+        let id = "66666666-2222-3333-4444-555555555555";
+        let handoff =
+            protocol::ResourcePackHandoff::from_archives(Vec::new()).with_relay_packs(vec![
+                protocol::RelayPack {
+                    archive: pack_zip(id),
+                    above_server: true,
+                },
+            ]);
+        let preparation = prepare_session_packs(handoff, &protocol::GameData::default(), u64::MAX);
+        assert!(preparation.has_packs());
+        assert!(!preparation.has_applied_packs());
+        let applied = preparation.prepare_application(|_| Some(()), |_| {});
+        assert!(matches!(applied, Some(Ok(()))));
     }
 }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
+mod added;
 mod crypto;
 mod dependencies;
 mod fingerprint;
@@ -26,6 +27,7 @@ pub mod subpacks;
 pub mod test_support;
 mod view;
 
+pub use added::{AddedPack, compose_added_packs};
 pub use dependencies::{PackDependencies, PackDependency};
 pub use fingerprint::StackFingerprint;
 pub use import::{
