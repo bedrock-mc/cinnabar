@@ -2084,6 +2084,8 @@ not close a parity or visual acceptance gate.
 - Failed experience selections preserve the launcher error. Unresolved experience selectors
   cannot start a direct fallback core; direct-server fallback and local-world ownership remain
   unchanged. End-to-end experience acceptance remains incomplete.
+- Target selection waits for the account core's service result without a shorter launcher
+  timeout. The core still owns service deadlines; their native parity remains unverified.
 - Incomplete parity: the OreUI experience banner still needs its count badge wired by its screen
   owner; this change only supplies data and existing JSON-UI bindings. The menu rereads counts
   through its independent featured worker every 30 seconds; exact refresh dispatch timing remains
