@@ -32,3 +32,14 @@ from `GET /v1/presence/count`. The API origin comes from the shared bridge contr
 It refreshes once per minute while the page is visible, with a five-second request
 timeout. Failed or invalid responses clear the count; background tabs stop polling.
 Deploy the API endpoint before the website to enable the count.
+
+The player chart reads `GET /v1/presence/history?range=24h|7d|30d` from the same
+origin. The API collects one anonymous count per minute independently of website
+visits. The 7-day and 30-day views show ten-minute and hourly averages, with peaks
+and averages calculated from observed minutes only. Missing buckets appear as
+gaps; recorded zeroes sit on the baseline. History starts when the API collector
+is deployed, without backfilled estimates.
+
+The chart refreshes every minute while visible. Range changes cancel older
+requests; empty history and errors have explicit messages. Hover or touch the
+plot to inspect a sample, or focus it and use the arrow, Home and End keys.
