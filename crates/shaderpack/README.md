@@ -6,10 +6,16 @@ archive or in-memory text files. Open a pack with `PackSource::open`, inspect it
 and read text by its `shaders/`-relative name with `PackSource::text`.
 
 Folders may contain `shaders/` or be that directory themselves. ZIP archives may
-hold `shaders/` at the root or under one top-level folder. Directory roots are
-canonicalized. Known binary extensions and files with NUL bytes in their first
-8 KiB are excluded from the text view. Text has its UTF-8 BOM removed and invalid
-UTF-8 replaced. `PackSource::from_files` accepts caller-owned text without the
+hold `shaders/` at the root or under one top-level folder. Directory roots and ZIP
+archive paths are canonicalized when opened, so deferred asset reads keep the
+same origin if the working directory changes. Directory source keys join native
+path components with `/`; non-Unicode components and literal backslashes within
+a component are rejected with a located error. Native Windows directory
+separators still delimit components normally. ZIP names marked as UTF-8 must
+contain valid UTF-8; legacy ZIP names retain their CP437 decoding. ZIP and memory
+keys otherwise retain their exact spelling. Known binary extensions and files with
+NUL bytes in their first 8 KiB are excluded from the text view. Text has its UTF-8
+BOM removed and invalid UTF-8 replaced. `PackSource::from_files` accepts caller-owned text without the
 filesystem ingestion limits.
 
 `PackSource::read_bytes` reads binary assets as well as text. It rejects absolute

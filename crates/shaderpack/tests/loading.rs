@@ -2,7 +2,7 @@
 
 use shaderpack::{PackError, PackOrigin, PackSource};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// An isolated temporary pack directory removed only by its owning test.
@@ -11,9 +11,14 @@ struct TempPack(PathBuf);
 impl TempPack {
     /// Creates a fresh pack without deleting paths left by another process.
     fn new() -> Self {
+        Self::in_dir(&std::env::temp_dir())
+    }
+
+    /// Creates an isolated pack inside the supplied directory without changing the working directory.
+    fn in_dir(parent: &Path) -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         loop {
-            let path = std::env::temp_dir().join(format!(
+            let path = parent.join(format!(
                 "shaderpack-api-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
@@ -108,7 +113,7 @@ fn archives_accept_root_or_one_top_folder_and_preserve_raw_assets() {
         assert_eq!(
             source.origin(),
             &PackOrigin::Zip {
-                archive: archive.clone(),
+                archive: archive.canonicalize().unwrap(),
                 prefix: prefix.to_owned(),
             }
         );
@@ -170,4 +175,188 @@ fn missing_shaders_and_truncated_archives_return_errors() {
         PackSource::open(&archive),
         Err(PackError::NotAShaderPack(path)) if path == archive
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn source_paths_directory_rejects_literal_backslashes() {
+    let root = TempPack::new();
+    let shaders = root.0.join("shaders");
+    std::fs::create_dir_all(shaders.join("a")).unwrap();
+    std::fs::write(shaders.join("a/b.glsl"), "nested").unwrap();
+    let unsupported = shaders.join("a\\b.glsl");
+    std::fs::write(&unsupported, "literal backslash").unwrap();
+    match PackSource::open(&root.0).expect_err("ambiguous component rejected") {
+        PackError::Io { path, error } => {
+            assert_eq!(path, unsupported.canonicalize().unwrap());
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("backslash"));
+        }
+        error => panic!("unexpected path error: {error}"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn source_paths_directory_rejects_non_unicode_names() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let root = TempPack::new();
+    let shaders = root.0.join("shaders");
+    std::fs::create_dir(&shaders).unwrap();
+    for name in [b"a\xff.glsl".as_slice(), b"a\xfe.glsl"] {
+        let unsupported = shaders.join(OsString::from_vec(name.to_vec()));
+        std::fs::write(&unsupported, "invalid name").unwrap();
+        match PackSource::open(&root.0).expect_err("non-Unicode component rejected") {
+            PackError::Io { path, error } => {
+                assert_eq!(path, unsupported.canonicalize().unwrap());
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                assert!(error.to_string().contains("UTF-8"));
+            }
+            error => panic!("unexpected path error: {error}"),
+        }
+        std::fs::remove_file(unsupported).unwrap();
+    }
+}
+
+#[test]
+fn source_paths_preserve_unicode_and_nested_components() {
+    let root = TempPack::new();
+    let shaders = root.0.join("shaders");
+    std::fs::create_dir_all(shaders.join("層")).unwrap();
+    let path = "層/é.glsl";
+    std::fs::write(shaders.join(path), "unicode").unwrap();
+    let source = PackSource::open(&root.0).unwrap();
+    assert_eq!(source.files().collect::<Vec<_>>(), [(path, "unicode")]);
+    assert_eq!(source.read_bytes(path).unwrap(), b"unicode");
+}
+
+#[test]
+fn source_paths_relative_zip_origin_is_canonical_for_deferred_reads() {
+    let cwd = std::env::current_dir().unwrap();
+    let root = TempPack::in_dir(&cwd);
+    let archive = root.0.join("pack.zip");
+    let mut writer = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+    writer
+        .start_file(
+            "shaders/asset.bin",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+    writer.write_all(b"retained archive").unwrap();
+    writer.finish().unwrap();
+    let relative = archive.strip_prefix(&cwd).unwrap();
+    assert!(relative.is_relative());
+    let source = PackSource::open(relative).unwrap();
+    assert_eq!(
+        source.origin(),
+        &PackOrigin::Zip {
+            archive: archive.canonicalize().unwrap(),
+            prefix: "shaders/".to_owned(),
+        }
+    );
+    assert_eq!(source.read_bytes("asset.bin").unwrap(), b"retained archive");
+}
+
+#[test]
+fn source_paths_zip_rejects_lossy_utf8_name_collisions() {
+    let root = TempPack::new();
+    let archive = root.0.join("pack.zip");
+    let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+    for suffix in ["X", "Y"] {
+        writer
+            .start_file(
+                format!("shaders/é{suffix}.glsl"),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer.write_all(suffix.as_bytes()).unwrap();
+    }
+    let mut bytes = writer.finish().unwrap().into_inner();
+    for (suffix, replacement) in [("X", 0xff), ("Y", 0xfe)] {
+        let name = format!("shaders/é{suffix}.glsl");
+        let starts: Vec<_> = bytes
+            .windows(name.len())
+            .enumerate()
+            .filter_map(|(offset, value)| (value == name.as_bytes()).then_some(offset))
+            .collect();
+        assert_eq!(starts.len(), 2);
+        for start in starts {
+            bytes[start + name.len() - ".glsl".len() - 1] = replacement;
+        }
+    }
+    std::fs::write(&archive, bytes).unwrap();
+    match PackSource::open(&archive).expect_err("lossy ZIP names rejected") {
+        PackError::Io { path, error } => {
+            assert_eq!(path, archive.canonicalize().unwrap());
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("UTF-8"));
+        }
+        error => panic!("unexpected path error: {error}"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn source_paths_memory_and_zip_keep_exact_distinct_names() {
+    let files = [
+        ("a\\b.glsl", "literal"),
+        ("a/b.glsl", "nested"),
+        ("層/é.glsl", "unicode"),
+    ];
+    let memory = PackSource::from_files(files);
+    let root = TempPack::new();
+    let archive = root.0.join("pack.zip");
+    let mut writer = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+    for (path, text) in files {
+        writer
+            .start_file(
+                format!("shaders/{path}"),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer.write_all(text.as_bytes()).unwrap();
+    }
+    writer.finish().unwrap();
+    let zipped = PackSource::open(&archive).unwrap();
+    assert_eq!(
+        memory.files().collect::<Vec<_>>(),
+        zipped.files().collect::<Vec<_>>()
+    );
+    for source in [&memory, &zipped] {
+        for (path, text) in files {
+            assert_eq!(source.text(path), Some(text));
+            assert_eq!(source.read_bytes(path).unwrap(), text.as_bytes());
+        }
+    }
+}
+
+#[test]
+fn source_paths_zip_keeps_legacy_cp437_names() {
+    let root = TempPack::new();
+    let archive = root.0.join("pack.zip");
+    let name = b"shaders/X.glsl";
+    let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+    writer
+        .start_file(
+            std::str::from_utf8(name).unwrap(),
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+    writer.write_all(b"legacy name").unwrap();
+    let mut bytes = writer.finish().unwrap().into_inner();
+    let starts: Vec<_> = bytes
+        .windows(name.len())
+        .enumerate()
+        .filter_map(|(offset, value)| (value == name).then_some(offset))
+        .collect();
+    assert_eq!(starts.len(), 2);
+    for start in starts {
+        bytes[start + b"shaders/".len()] = 0x82;
+    }
+    std::fs::write(&archive, bytes).unwrap();
+    let source = PackSource::open(&archive).unwrap();
+    assert_eq!(source.text("é.glsl"), Some("legacy name"));
+    assert_eq!(source.read_bytes("é.glsl").unwrap(), b"legacy name");
 }

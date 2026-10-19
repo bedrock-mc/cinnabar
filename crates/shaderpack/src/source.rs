@@ -53,7 +53,7 @@ impl std::error::Error for PackError {}
 pub enum PackOrigin {
     /// The pack's `shaders/` directory.
     Directory(PathBuf),
-    /// The archive path and the entry prefix of its `shaders/` folder (`""` or `"<top>/"`
+    /// The canonical archive path and the entry prefix of its `shaders/` folder (`""` or `"<top>/"`
     /// followed by `shaders/`).
     Zip { archive: PathBuf, prefix: String },
     /// Files supplied in memory (tests and tools).
@@ -105,7 +105,8 @@ impl PackSource {
     /// whose root or single top-level folder contains `shaders/`. Text, inflated bytes,
     /// entries and paths share finite ingestion budgets. Directory symlinks are skipped.
     /// Archives use an unambiguous standard ZIP end record with no prepended or trailing
-    /// payload.
+    /// payload. Directory source paths must have valid Unicode components without literal
+    /// backslashes. Directory and archive origins are canonical absolute paths.
     pub fn open(path: &Path) -> Result<PackSource, PackError> {
         if path.is_dir() {
             Self::open_dir(path)
@@ -181,7 +182,10 @@ impl PackSource {
                 let Ok(rel) = p.strip_prefix(&root) else {
                     continue;
                 };
-                let rel = rel.to_string_lossy().replace('\\', "/");
+                let rel = portable_relative_path(rel).map_err(|error| PackError::Io {
+                    path: p.clone(),
+                    error,
+                })?;
                 if is_binary_name(&rel) {
                     continue;
                 }
@@ -207,6 +211,11 @@ impl PackSource {
 
     /// Loads an archive within the supplied ingestion budget.
     fn open_zip_limited(path: &Path, limits: LoadLimits) -> Result<PackSource, PackError> {
+        let archive_path = path.canonicalize().map_err(|error| PackError::Io {
+            path: path.to_path_buf(),
+            error,
+        })?;
+        let path = archive_path.as_path();
         let zip_err = |error| PackError::Zip {
             path: path.to_path_buf(),
             error,
@@ -235,7 +244,7 @@ impl PackSource {
         }
         Ok(PackSource {
             origin: PackOrigin::Zip {
-                archive: path.to_path_buf(),
+                archive: archive_path,
                 prefix,
             },
             files,
@@ -308,6 +317,36 @@ impl PackSource {
                 .and_then(|text| read_bounded(text.as_bytes(), LoadLimits::DEFAULT.total_bytes)),
         }
     }
+}
+
+/// Joins native relative components losslessly into an unambiguous portable source key.
+fn portable_relative_path(path: &Path) -> io::Result<String> {
+    let mut relative = String::new();
+    for component in path.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "source path must be relative",
+            ));
+        };
+        let name = name.to_str().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "source path must be valid UTF-8",
+            )
+        })?;
+        if name.contains('\\') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "source path component contains a backslash",
+            ));
+        }
+        if !relative.is_empty() {
+            relative.push('/');
+        }
+        relative.push_str(name);
+    }
+    Ok(relative)
 }
 
 /// The entry prefix ending in `shaders/` at the archive root or under one top-level folder.
@@ -646,7 +685,16 @@ fn check_zip_index(
             path,
             "index text",
         )?;
-        file.seek(SeekFrom::Current((len(28) + len(30) + len(32)) as i64))
+        let mut name = vec![0; len(28)];
+        file.read_exact(&mut name).map_err(io_err)?;
+        let flags = u16::from_le_bytes([header[8], header[9]]);
+        if flags & (1 << 11) != 0 && std::str::from_utf8(&name).is_err() {
+            return Err(io_err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "ZIP source path must be valid UTF-8",
+            )));
+        }
+        file.seek(SeekFrom::Current((len(30) + len(32)) as i64))
             .map_err(io_err)?;
         if file.stream_position().map_err(io_err)? > footer_start {
             return Err(limit_error(path, "ZIP framing"));
