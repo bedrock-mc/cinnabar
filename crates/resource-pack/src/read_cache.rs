@@ -37,7 +37,7 @@ pub(crate) struct ReadCache {
 pub(crate) struct CachedEntry {
     id: usize,
     fingerprint: Mutex<Option<Fingerprint>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) reads: AtomicUsize,
 }
 
@@ -71,7 +71,7 @@ impl ReadCache {
         Arc::new(CachedEntry {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             fingerprint: Mutex::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             reads: AtomicUsize::new(0),
         })
     }
@@ -120,7 +120,7 @@ impl ReadCache {
         {
             return Ok(bytes);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         entry.reads.fetch_add(1, Ordering::Relaxed);
         let bytes = match load() {
             Ok(bytes) => Arc::new(bytes),

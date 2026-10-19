@@ -2,6 +2,61 @@ use super::*;
 use pack_runtime::reload_diff::{Changes, Subscriber};
 
 #[test]
+fn first_reload_skips_unused_file_reads() {
+    use resource_pack::test_support::file_read_count;
+    for enable_globals in [false, true] {
+        let server = super::super::pack_reload_tests::stack(&[(
+            "extras/unused.bin",
+            b"unconsumed server payload",
+        )]);
+        let globals = super::super::pack_reload_tests::stack(&[(
+            "extras/unused.bin",
+            b"unconsumed global payload",
+        )]);
+        let joined = resource_packs::prepare_validated_application(server.clone(), Arc::default());
+        assert_eq!(
+            file_read_count(&server.packs()[0], "extras/unused.bin"),
+            Some(0)
+        );
+        let mut reload = PackReload::default();
+        if enable_globals {
+            reload.request_globals(globals.clone());
+        }
+        reload.begin_session(1, &joined);
+        reload.start(
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            Some(EnvironmentBase::new(
+                Default::default(),
+                None,
+                Default::default(),
+            )),
+            None,
+            None,
+        );
+        let prepared = reload
+            .pending
+            .as_ref()
+            .unwrap()
+            .result
+            .lock()
+            .unwrap()
+            .recv()
+            .unwrap()
+            .unwrap();
+        for source in [&server, &globals] {
+            assert_eq!(
+                file_read_count(&source.packs()[0], "extras/unused.bin"),
+                Some(0)
+            );
+        }
+        for subscriber in [Subscriber::Atmosphere, Subscriber::Particles] {
+            assert!(prepared.application.dependencies.contains_key(&subscriber));
+        }
+    }
+}
+
+#[test]
 fn global_packs_only_recompile_subscribers_with_changed_reads() {
     let server = super::super::pack_reload_tests::stack(&[("texts/en_US.lang", b"server=value")]);
     let joined = resource_packs::prepare_validated_application(server, Arc::default());

@@ -169,6 +169,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"

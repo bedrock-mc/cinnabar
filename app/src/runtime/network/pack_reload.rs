@@ -199,7 +199,7 @@ impl PackReload {
             let result = ValidatedPackStack::compose(&globals, &server)
                 .map_err(|error| error.to_string())
                 .map(|stack| {
-                    let mut changes = {
+                    let changes = {
                         let _zone = bevy::log::info_span!("pack_apply.diff").entered();
                         pack_runtime::reload_diff::Changes::between(
                             &stack,
@@ -209,13 +209,6 @@ impl PackReload {
                         )
                     };
                     let biomes_changed = changes.blocks || previous_assets.is_none();
-                    // Joins do not prepare environment layers; each new session still needs them.
-                    if let Some(old) = &previous {
-                        use pack_runtime::reload_diff::Subscriber;
-                        changes.atmosphere |=
-                            !old.dependencies.contains_key(&Subscriber::Atmosphere);
-                        changes.particles |= !old.dependencies.contains_key(&Subscriber::Particles);
-                    }
                     let stack = Arc::new(stack);
                     let view = resource_pack::LayeredPackView::new(stack.clone());
                     // Environment layers and the other subscribers read the stack independently.
