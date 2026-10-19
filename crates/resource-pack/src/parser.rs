@@ -76,10 +76,13 @@ pub(super) fn validate_stack(
         }
     }
     packs.reverse();
-    ValidatedPackStack {
+    let stack = ValidatedPackStack {
         packs: packs.into_boxed_slice(),
         rejections: rejections.into_boxed_slice(),
-    }
+        fingerprint: Default::default(),
+    };
+    let _ = stack.fingerprint();
+    stack
 }
 
 #[cfg(feature = "handoff")]
@@ -213,6 +216,7 @@ pub(crate) fn validate_archive_parts_cached(
         archive_bytes,
         declared_bytes: declared,
         zip,
+        content_hash: Arc::default(),
         reads,
         files: rooted,
         folded: HashMap::new(),

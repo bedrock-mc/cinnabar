@@ -14,6 +14,7 @@ use thiserror::Error;
 mod added;
 mod crypto;
 mod dependencies;
+mod fingerprint;
 mod import;
 mod library;
 mod manifest;
@@ -28,6 +29,7 @@ mod view;
 
 pub use added::{AddedPack, compose_added_packs};
 pub use dependencies::{PackDependencies, PackDependency};
+pub use fingerprint::StackFingerprint;
 pub use import::{
     GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
     is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,

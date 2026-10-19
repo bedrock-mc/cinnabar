@@ -12,6 +12,7 @@ test-support = ["handoff"]
 
 [dependencies]
 pack-json = { path = "../pack-json" }
+rayon.workspace = true
 aes = "0.9.3"
 protocol = { path = "../protocol", optional = true }
 serde = { version = "1", features = ["derive"] }

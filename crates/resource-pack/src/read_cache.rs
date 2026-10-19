@@ -8,9 +8,7 @@ use std::{
     },
 };
 
-use sha2::{Digest, Sha256};
-
-use crate::AdmissionError;
+use crate::{AdmissionError, fingerprint::hash_bytes};
 
 /// Each admitted stack retains at most 64 MiB of plaintext, evicting in insertion order.
 /// Cloned packs share the budget; composing independently admitted stacks keeps their budgets.
@@ -39,7 +37,7 @@ pub(crate) struct ReadCache {
 pub(crate) struct CachedEntry {
     id: usize,
     fingerprint: Mutex<Option<Fingerprint>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) reads: AtomicUsize,
 }
 
@@ -73,7 +71,7 @@ impl ReadCache {
         Arc::new(CachedEntry {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             fingerprint: Mutex::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             reads: AtomicUsize::new(0),
         })
     }
@@ -122,7 +120,7 @@ impl ReadCache {
         {
             return Ok(bytes);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         entry.reads.fetch_add(1, Ordering::Relaxed);
         let bytes = match load() {
             Ok(bytes) => Arc::new(bytes),
@@ -131,7 +129,7 @@ impl ReadCache {
                 return Err(error);
             }
         };
-        fingerprint.get_or_insert_with(|| Ok(Sha256::digest(bytes.as_ref()).into()));
+        fingerprint.get_or_insert_with(|| Ok(hash_bytes(bytes.as_ref())));
         if bytes.len() <= self.budget && self.budget != 0 {
             let mut retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
             while retained.bytes + bytes.len() > self.budget {

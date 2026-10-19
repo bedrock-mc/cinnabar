@@ -46,6 +46,30 @@ fn entity_cache_keys_on_vanilla_refs() {
 }
 
 #[test]
+fn join_and_global_reload_entities_do_not_evict_each_other() {
+    let (view, cache) = (empty_view(), super::EntityCache::default());
+    let compiles = std::cell::Cell::new(0);
+    for vanilla in [
+        None,
+        Some(refs_with_animation()),
+        None,
+        Some(refs_with_animation()),
+    ] {
+        cache.get_or_compile(
+            inputs(vanilla),
+            &view,
+            None,
+            &|| false,
+            |_, _, _, _, _, _| {
+                compiles.set(compiles.get() + 1);
+                Some((None, None))
+            },
+        );
+    }
+    assert_eq!(compiles.get(), 2);
+}
+
+#[test]
 fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
     let (view, cache) = (empty_view(), super::EntityCache::default());
     let compiles = std::cell::Cell::new(0);

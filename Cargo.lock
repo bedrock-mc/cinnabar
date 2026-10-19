@@ -7814,6 +7814,7 @@ dependencies = [
  "aes",
  "pack-json",
  "protocol",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",
