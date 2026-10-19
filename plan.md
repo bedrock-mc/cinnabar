@@ -2064,10 +2064,16 @@ not close a parity or visual acceptance gate.
 
 ## Servers tab experiences
 
-- Required server packs use one generated admission policy across the Go core, Rust handoff
-  and archive parser: 128 MiB per archive and 256 MiB per selected stack. Large experience
-  offers remain subject to the existing transfer, entry and decompressed-content limits.
-  Live compatibility coverage beyond the tested catalog remains incomplete.
+- Server pack acquisition, handoff and stack composition retain every selected archive without
+  fixed archive-count or compressed-byte quotas. Declared sizes must fit addressable buffers;
+  identity, length, digest and framing checks still apply. Saved server storage and imports
+  retain complete lists without fixed entry or serialized-byte quotas, including restore backups.
+- Incomplete limit parity: local pack import quotas, ZIP entry/decompressed-size policies,
+  startup deferral, batch/frame limits, registry and actor retention, UI/text expansion,
+  geometry/animation work, language memory, audio and texture admission still need their
+  version-matched acceptance boundaries verified. Internal cache or scheduling budgets only
+  qualify as compatible when they preserve accepted content. The limit inventory does not
+  close whole-client parity or the full featured-server and experience acceptance gate.
 
 - The Servers tab lists the ServerTab layout's experiences, joined by experience ID. The Go core
   now consumes typed player counts, using the service client's five-minute cache and retaining

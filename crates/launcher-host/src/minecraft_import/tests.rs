@@ -327,8 +327,8 @@ fn changed_pack_catalog_requires_a_fresh_preview() {
 }
 
 #[test]
-fn merged_servers_fit_the_existing_storage_byte_limit() {
-    let incoming = (0..crate::servers::MAX_SAVED_SERVERS)
+fn merged_servers_preserve_large_valid_lists() {
+    let incoming = (0..600)
         .map(|index| SavedServer {
             name: "n".repeat(launcher::menu::MAX_SERVER_NAME_BYTES),
             address: format!(
@@ -340,12 +340,8 @@ fn merged_servers_fit_the_existing_storage_byte_limit() {
         })
         .collect::<Vec<_>>();
     let (merged, skipped) = preview::merge_servers(&[], &incoming);
-    assert!(skipped > 0);
-    assert_eq!(merged.len() + skipped, incoming.len());
-    assert!(
-        serde_json::to_vec_pretty(&merged).unwrap().len()
-            <= crate::servers::MAX_SAVED_SERVER_FILE_BYTES
-    );
+    assert_eq!(skipped, 0);
+    assert_eq!(merged, incoming);
     crate::servers::validate(&merged).unwrap();
 }
 

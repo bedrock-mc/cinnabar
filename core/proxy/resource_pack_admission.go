@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"sync"
@@ -28,19 +29,10 @@ const (
 	// PackAdmissionRequiredUnsupported means the upstream requires one or more
 	// packs that Cinnabar cannot truthfully apply yet.
 	PackAdmissionRequiredUnsupported PackAdmissionFailureReason = iota + 1
-
-	maxSelectedResourcePacks          = bridgecontract.MaxSelectedPacks
-	maxSelectedResourcePackTotalBytes = bridgecontract.MaxSelectedPackBytes
-	maxResourcePackArchiveBytes       = bridgecontract.MaxPackArchiveBytes
-	// Transfer sizes may differ from their offer, so downloads are bounded
-	// separately: gophertunnel holds every downloaded pack in memory until the
-	// handoff is captured, and past this ceiling the dial is cancelled.
-	maxResourcePackTransferBytes = 2 * maxSelectedResourcePackTotalBytes
 )
 
-// Like vanilla, a slow or silent pack download is never cancelled here: it ends when the
-// server finishes, the user cancels, or the client's login deadline passes.
-var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers exceeded their memory bound")
+// Archive offsets and resource.Pack.Size use signed machine integers.
+var errResourcePackSizeUnsupported = errors.New("proxy: resource-pack size cannot be represented")
 
 // ConnectStage names the vanilla progress handler a join is in.
 type ConnectStage string
@@ -74,21 +66,15 @@ func reportConnectStage(ctx context.Context, stage ConnectStage) {
 	}
 }
 
-// resourcePackAcquisitionBudget admits the first offer for each pack identity
-// within the count and byte bounds; later entries are ignored, not fatal.
-// Transfer sizes replace offer estimates within the archive and selection byte bounds;
-// transfers past the memory ceiling cancel the upstream dial.
-// It turns gophertunnel's acquisition events into vanilla's progress figures.
+// resourcePackAcquisitionBudget tracks the first offer for each identity and reports
+// acquisition progress. Archive count and byte totals do not exclude valid content.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
 	cancel context.CancelCauseFunc
 
-	mu          sync.Mutex
-	accepted    []bool
-	offered     map[string]uint64 // admitted UUID/version -> latest bounded transfer size
-	reserved    uint64            // admitted sizes, including packs not yet downloaded
-	excluded    map[string]bool
-	transferred uint64
+	mu       sync.Mutex
+	accepted []bool
+	offered  map[string]uint64 // admitted UUID/version -> latest declared transfer size
 
 	packs      uint32                   // admitted packs not served from the cache
 	finished   uint32                   // downloads completed
@@ -121,8 +107,6 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
-	budget.reserved = 0
-	budget.excluded, budget.transferred = map[string]bool{}, 0
 	budget.downloads = map[string]*packDownload{}
 	budget.packs, budget.finished, budget.total, budget.received = 0, 0, 0, 0
 	defer budget.reportLocked()
@@ -131,23 +115,19 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	}
 	budget.accepted = make([]bool, len(info.TexturePacks))
 	seen := make(map[string]bool, len(info.TexturePacks))
-	var total uint64
 	for index, pack := range info.TexturePacks {
 		id := resourcePackIdentity(pack.UUID.String(), pack.Version)
 		if seen[id] {
 			continue
 		}
 		seen[id] = true
-		if int(budget.packs) == maxSelectedResourcePacks || pack.Size > maxResourcePackArchiveBytes ||
-			pack.Size > maxSelectedResourcePackTotalBytes-total {
+		if pack.Size > math.MaxInt {
 			continue
 		}
-		total += pack.Size
 		budget.packs++
 		budget.accepted[index] = true
 		budget.offered[id] = pack.Size
 	}
-	budget.reserved = total
 }
 
 // event is the Dialer's ResourcePackProgress callback.
@@ -157,21 +137,13 @@ func (budget *resourcePackAcquisitionBudget) event(event minecraft.ResourcePackE
 	defer budget.mu.Unlock()
 	switch event.Kind {
 	case minecraft.ResourcePackStarted:
-		offered, known := budget.offered[id]
-		withinArchiveBound := event.Size <= maxResourcePackArchiveBytes
-		remaining := maxSelectedResourcePackTotalBytes - budget.reserved
-		withinSelectionBound := event.Size <= remaining+offered
-		if !known || !withinArchiveBound || !withinSelectionBound {
-			budget.excluded[id] = true // dropped from the handoff; login continues
-		} else {
-			// ResourcePacksInfo may contain an estimate. Use the transfer's size for
-			// admission while reserving the other accepted packs' byte budgets.
-			budget.reserved = budget.reserved - offered + event.Size
-			budget.offered[id] = event.Size
+		if event.Size > math.MaxInt {
+			budget.cancel(errResourcePackSizeUnsupported)
+			return
 		}
-		budget.transferred = saturatingAdd(budget.transferred, event.Size)
-		if budget.transferred > maxResourcePackTransferBytes {
-			budget.cancel(errResourcePackTransferTooLarge)
+		if _, known := budget.offered[id]; known {
+			// The transfer declaration replaces the offer's estimate.
+			budget.offered[id] = event.Size
 		}
 		if previous := budget.downloads[id]; previous != nil {
 			budget.revertLocked(id)
@@ -208,7 +180,6 @@ func (budget *resourcePackAcquisitionBudget) revertLocked(id string) {
 	}
 	budget.total -= min(download.size, budget.total)
 	budget.received -= min(download.received, budget.received)
-	budget.transferred -= min(download.size, budget.transferred)
 	delete(budget.downloads, id)
 }
 
@@ -227,7 +198,7 @@ func (budget *resourcePackAcquisitionBudget) reportLocked() {
 
 // excludes validates the actual archive against the admitted transfer. This also
 // catches chunk downloads whose manifest identity differs from their transfer.
-// Count limits apply in offer order; transfer sizes also retain the archive and total byte limits.
+// Length checks use the current transfer declaration, independently of progress totals.
 func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
 	if budget == nil {
 		return false
@@ -237,7 +208,7 @@ func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool 
 	id := packIdentity(pack)
 	offered, admitted := budget.offered[id]
 	size := pack.Size()
-	return !admitted || size < 0 || uint64(size) > offered || budget.excluded[id]
+	return !admitted || size < 0 || uint64(size) > offered
 }
 
 // admit is the Dialer's DownloadResourcePack callback.

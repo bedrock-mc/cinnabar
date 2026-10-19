@@ -1515,21 +1515,15 @@ func admitted(budget *resourcePackAcquisitionBudget, total int) []bool {
 	return result
 }
 
-// Packs past the count or byte bound are ignored individually, never fatal.
-func TestAcquisitionBudgetAdmitsOfferOrderWithinCountAndByteBounds(t *testing.T) {
-	const mib = 1024 * 1024
-	budget, _ := observedBudget(t, packInfos(10*mib, maxResourcePackArchiveBytes+1, maxResourcePackArchiveBytes, maxResourcePackArchiveBytes, 8*mib))
-	if got, want := admitted(budget, 5), []bool{true, false, true, false, true}; !slices.Equal(got, want) {
-		t.Fatalf("admitted = %v, want %v", got, want)
-	}
-	sizes := make([]uint64, maxSelectedResourcePacks+2)
+// TestAcquisitionBudgetKeepsOfferOrder admits every unique representable offer.
+func TestAcquisitionBudgetKeepsOfferOrder(t *testing.T) {
+	sizes := make([]uint64, 40)
 	for index := range sizes {
-		sizes[index] = 1
+		sizes[index] = 300 * 1024 * 1024
 	}
-	budget, _ = observedBudget(t, packInfos(sizes...))
-	got := admitted(budget, len(sizes))
-	if slices.Index(got, false) != maxSelectedResourcePacks || got[len(got)-1] {
-		t.Fatalf("admitted = %v, want the first %d only", got, maxSelectedResourcePacks)
+	budget, _ := observedBudget(t, packInfos(sizes...))
+	if got := admitted(budget, len(sizes)); slices.Contains(got, false) {
+		t.Fatalf("valid offers excluded: %v", got)
 	}
 	if budget.admit(uuid.New(), "1.0.0", 0, len(sizes)+1) {
 		t.Fatal("admit accepted a callback total that disagrees with the decoded offer")
@@ -1568,9 +1562,8 @@ func started(source minecraft.ResourcePackSource, id uuid.UUID, size uint64) min
 	return minecraft.ResourcePackEvent{Kind: minecraft.ResourcePackStarted, Source: source, UUID: id, Version: "1.0.0", Size: size}
 }
 
-// Bounded transfer sizes may exceed an offer estimate; unadvertised packs are excluded,
-// and only the memory ceiling cancels.
-func TestAcquisitionBudgetAcceptsGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
+// Transfer sizes may exceed an offer estimate; identities and addressable sizes are validated.
+func TestAcquisitionBudgetAcceptsGrownTransfersAndRejectsUnrepresentableSizes(t *testing.T) {
 	const mib = 1024 * 1024
 	info := packInfos(mib, mib)
 	grown, honest, unadvertised := info.TexturePacks[0].UUID, info.TexturePacks[1].UUID, uuid.New()
@@ -1584,9 +1577,9 @@ func TestAcquisitionBudgetAcceptsGrownTransfersAndCancelsOnlyPastMemoryCeiling(t
 	}
 
 	over, overCauses := observedBudget(t, packInfos(mib))
-	over.event(started(minecraft.ResourcePackSourceURL, uuid.New(), maxResourcePackTransferBytes+1))
-	if len(*overCauses) != 1 || !errors.Is((*overCauses)[0], errResourcePackTransferTooLarge) {
-		t.Fatalf("memory ceiling causes = %v", *overCauses)
+	over.event(started(minecraft.ResourcePackSourceURL, uuid.New(), ^uint64(0)))
+	if len(*overCauses) != 1 || !errors.Is((*overCauses)[0], errResourcePackSizeUnsupported) {
+		t.Fatalf("unrepresentable size causes = %v", *overCauses)
 	}
 }
 
@@ -1776,7 +1769,7 @@ func TestBudgetedDialerAcquiresRequiredCachedOfferBeforeStartGame(t *testing.T) 
 		t.Fatalf("budgeted dial: %v", result.err)
 	}
 	defer result.conn.Close()
-	if budget.packs != 0 || budget.transferred != 0 {
+	if budget.packs != 0 || budget.total != 0 {
 		t.Fatal("cached offer unexpectedly downloaded pack bytes")
 	}
 	stack, err := captureSelectedResourcePackStack(result.conn, budget.excludes)
@@ -1934,7 +1927,7 @@ func TestAcquisitionBudgetChecksActualArchiveIdentityAndSize(t *testing.T) {
 		},
 		{
 			name:   "identity declined before download",
-			info:   []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: pack.Version(), Size: maxResourcePackArchiveBytes + 1}},
+			info:   []protocol.TexturePackInfo{{UUID: pack.UUID(), Version: pack.Version(), Size: ^uint64(0)}},
 			source: minecraft.ResourcePackSourceCache, excluded: true,
 		},
 	}
@@ -1965,7 +1958,7 @@ func TestAcquisitionBudgetChecksActualArchiveIdentityAndSize(t *testing.T) {
 func TestSelectedStackPreservesRepeatedEntriesAndOrder(t *testing.T) {
 	first := testAdmissionPack(t)
 	second := admissionPackWithUUID(t, "11223344-5566-7788-99aa-bbccddeeff00")
-	repeated := make([]*resource.Pack, maxSelectedResourcePacks+1)
+	repeated := make([]*resource.Pack, 40)
 	for i := range repeated {
 		repeated[i] = second
 	}

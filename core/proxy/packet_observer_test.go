@@ -141,7 +141,7 @@ func TestSelectiveBudgetResetsWhenTheProtocolHasNoOfferFactory(t *testing.T) {
 	budget.proto = observerMissingOfferProtocol{minecraft.DefaultProtocol}
 	dialer := withResourcePackAcquisitionBudget(minecraft.Dialer{}, budget)
 	dialer.PacketObserver.Func(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)), nil, nil)
-	if len(budget.accepted) != 0 || budget.reserved != 0 {
+	if len(budget.accepted) != 0 || len(budget.offered) != 0 {
 		t.Fatal("unrecognized offer retained the previous admission")
 	}
 	nilBudget := withResourcePackAcquisitionBudget(minecraft.Dialer{}, nil)
