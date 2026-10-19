@@ -230,6 +230,35 @@ pub struct MeasureCache {
 }
 
 impl MeasureCache {
+    /// Counts dimensional memo entries retained by this cache for memory regressions.
+    #[cfg(test)]
+    pub(crate) fn retained_entries(&self) -> usize {
+        let Self {
+            children,
+            natural,
+            sizes,
+            lengths,
+            flags,
+            placed,
+            targets,
+            styles,
+            suppressed,
+            roles,
+            root: _,
+            placements: _,
+        } = self;
+        children.len()
+            + natural.len()
+            + sizes.len()
+            + lengths.len()
+            + flags.len()
+            + placed.len()
+            + targets.len()
+            + styles.len()
+            + suppressed.len()
+            + roles.len()
+    }
+
     /// Replace changed controls in place and retain measurements of untouched subtrees.
     pub fn update_tree(&mut self, tree: &mut ResolvedControl, next: ResolvedControl) {
         let mut dirty = Dirty::default();

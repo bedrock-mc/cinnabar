@@ -89,7 +89,9 @@ impl Inherited {
             if fades {
                 alpha_anims.push(Arc::clone(own));
             }
-            if own.moves() {
+            if own.moves()
+                && control.properties.get(super::GEOMETRY_KEY) != Some(&Value::Bool(true))
+            {
                 movers.push(Arc::clone(own));
             }
         }

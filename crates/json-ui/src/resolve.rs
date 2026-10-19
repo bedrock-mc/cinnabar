@@ -201,6 +201,7 @@ impl<'a> Resolver<'a> {
         control: &RawControl,
     ) {
         properties.remove(anim::GRAPH_KEY);
+        properties.remove(anim::GEOMETRY_KEY);
         let catalog = self.catalog;
         let owner_ns = &control.owner_ns;
         let mut load = |target: &ControlRef| {

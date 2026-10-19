@@ -302,7 +302,7 @@ fn lay_out<'a>(
         key,
         rect,
         screen,
-        (0, true, false, true),
+        (0, true, false, true, false),
         &Inherited::default(),
         &mut ctx,
     );
@@ -418,7 +418,7 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
+    (parent_layer, shown, packed, parent_allows, replaced): (i32, bool, bool, bool, bool),
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
@@ -447,6 +447,7 @@ fn place_subtree<'a>(
             layer: parent_layer,
             shown,
             packed,
+            replaced,
             allows: parent_allows,
             enabled: enabled_above,
             emitting: reuse.emitting,
@@ -512,7 +513,15 @@ fn place_subtree<'a>(
     if !enabled {
         ctx.disabled += 1;
     }
-    let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let own_anims = control_anims(
+        control,
+        &key,
+        rect,
+        parent_rect,
+        inherited,
+        (packed, replaced),
+        ctx.env,
+    );
     let spaces = inherited.space.place(
         style.transform,
         crate::transform::ClipInputs {
@@ -638,6 +647,7 @@ fn place_subtree<'a>(
         .flatten();
     let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
+        let mut replaced = false;
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
@@ -656,6 +666,7 @@ fn place_subtree<'a>(
                 placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
             child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
+            replaced = true;
             clip_for_child = *area_clip;
         }
         let mut child_shown = child_shown;
@@ -664,8 +675,14 @@ fn place_subtree<'a>(
             match frame.adjust(child, child_rect) {
                 Adjusted::Kept => continue,
                 Adjusted::Moved(moved) => child_rect = moved,
-                Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
-                Adjusted::Hidden => child_shown = false,
+                Adjusted::Box(moved, fade) => {
+                    (child_rect, box_fade) = (moved, fade);
+                    replaced = true;
+                }
+                Adjusted::Hidden => {
+                    child_shown = false;
+                    replaced = true;
+                }
             }
             break;
         }
@@ -678,6 +695,7 @@ fn place_subtree<'a>(
         // Stack items and grid cells have no offset delta term.
         if !packs {
             if place::follows_pointer(child) {
+                replaced = true;
                 ctx.report.tracks_pointer = true;
                 ctx.taint();
             }
@@ -694,6 +712,7 @@ fn place_subtree<'a>(
             && frame.names[0].as_deref() == Some(child.name.as_str())
         {
             child_rect = frame.place_box(child_rect);
+            replaced = true;
         }
         // Clipped cells cannot paint outside their bounds. Other cells retain a viewport of
         // margin so a selection frame or shifted label can reach in from a built cell.
@@ -744,7 +763,7 @@ fn place_subtree<'a>(
             next_key,
             child_rect,
             clip_for_child,
-            (absolute_layer, child_shown, packs, allows),
+            (absolute_layer, child_shown, packs, allows, replaced),
             &inherit,
             ctx,
         );

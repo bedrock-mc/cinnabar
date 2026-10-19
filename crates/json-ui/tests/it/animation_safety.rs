@@ -32,6 +32,7 @@ fn program(graph: AnimGraph) -> Arc<ControlAnims> {
         disable_fast_forward: false,
         reset_name: Some("reset".into()),
         has_sprite: true,
+        layout_authoritative: true,
     })
 }
 
@@ -59,5 +60,53 @@ fn invalid_heads_and_links_are_ignored_before_sampling() {
         assert_eq!(animator.sample(&anims, 1.0, None), Written::default());
         animator.fire("reset");
         assert!(animator.take_events().is_empty());
+    }
+}
+
+#[test]
+fn authored_geometry_sampling_marker_cannot_disable_motion() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/fixture.json",
+        r#"{
+        "namespace":"fixture",
+        "move":{"anim_type":"offset","from":[0,0],"to":[20,10],"duration":1},
+        "image":{"type":"image","texture":"textures/fixture","size":[10,10],
+            "anchor_from":"top_left","anchor_to":"top_left","offset":"@fixture.move",
+            "anim_geometry_sampled":true}
+    }"#,
+    );
+    let control = resolve(&catalog, "fixture.image", &Context::desktop())
+        .control
+        .unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &NoText,
+        textures: &NoTextures,
+    };
+    let frame = json_ui::render_bound(
+        control,
+        [200.0, 100.0],
+        &env,
+        &json_ui::ViewState::default(),
+    );
+    let node = frame.nodes.first().unwrap();
+    let mut animator = Animator::new();
+    node.animate(&mut animator, 0.0, None, None);
+    let drawn = node.animate(&mut animator, 1.0, None, None);
+    assert_eq!([drawn.dest.x, drawn.dest.y], [20.0, 10.0]);
+}
+
+struct NoText;
+impl json_ui::TextMeasure for NoText {
+    /// This original motion fixture contains no labels.
+    fn extent(&self, _: &str) -> [f64; 2] {
+        [0.0; 2]
+    }
+}
+struct NoTextures;
+impl json_ui::TextureSource for NoTextures {
+    /// Motion does not require installed image metadata.
+    fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
+        None
     }
 }

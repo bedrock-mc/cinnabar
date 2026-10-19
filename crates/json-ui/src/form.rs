@@ -139,7 +139,7 @@ pub enum CustomElement {
 }
 
 /// The output of rendering a form.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FormRender {
     /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,

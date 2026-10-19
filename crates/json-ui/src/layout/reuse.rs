@@ -25,6 +25,7 @@ pub(super) struct Inputs {
     pub(super) layer: i32,
     pub(super) shown: bool,
     pub(super) packed: bool,
+    pub(super) replaced: bool,
     pub(super) allows: bool,
     pub(super) enabled: bool,
     /// Whether every ancestor shows, so the subtree emits.
@@ -42,6 +43,7 @@ impl Inputs {
             && self.layer == other.layer
             && self.shown == other.shown
             && self.packed == other.packed
+            && self.replaced == other.replaced
             && self.allows == other.allows
             && self.enabled == other.enabled
             && self.emitting == other.emitting

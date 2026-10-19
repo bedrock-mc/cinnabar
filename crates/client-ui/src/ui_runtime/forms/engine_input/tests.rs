@@ -299,6 +299,7 @@ fn idle_input_relays_pending_animation_end_events() {
         disable_fast_forward: false,
         reset_name: None,
         has_sprite: false,
+        layout_authoritative: true,
     });
     let mut animator = json_ui::Animator::starting_at(0.0);
     animator.sample(&anims, 0.0, None);

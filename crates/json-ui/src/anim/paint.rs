@@ -34,9 +34,33 @@ pub struct ControlAnims {
     pub reset_name: Option<String>,
     /// Sprite animations (clip, color, uv) only run on a control with a sprite.
     pub has_sprite: bool,
+    /// Placement consumes the entrance's authored property without replacing it.
+    pub layout_authoritative: bool,
 }
 
 impl ControlAnims {
+    /// Selects an automatic entrance using only the existing component clock.
+    pub(crate) fn entrance_property(&self) -> Option<&'static str> {
+        let Self {
+            key: _,
+            graph,
+            rest_alpha: _,
+            rest_offset: _,
+            rect: _,
+            anchor: _,
+            born: _,
+            clock: _,
+            disable_fast_forward,
+            reset_name,
+            has_sprite: _,
+            layout_authoritative,
+        } = self;
+        if !layout_authoritative || *disable_fast_forward || reset_name.is_some() {
+            return None;
+        }
+        graph.entrance_property()
+    }
+
     /// Whether `other` runs the same animations, whatever their pixel ends.
     pub(crate) fn same_program(&self, other: &ControlAnims) -> bool {
         let graph = (&self.graph, &other.graph);
@@ -135,14 +159,14 @@ impl DrawNode {
             hidden: false,
             transform: None,
         };
-        let Some(anim) = &self.anim else {
-            return out;
-        };
-        out.transform = anim.transform;
         if animator.hides(&self.key) {
             out.hidden = true;
             return out;
         }
+        let Some(anim) = &self.anim else {
+            return out;
+        };
+        out.transform = anim.transform;
         out.opacity = anim
             .alpha
             .iter()

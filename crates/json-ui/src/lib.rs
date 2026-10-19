@@ -53,7 +53,7 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
     AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
-    NodeAnim, Written,
+    GeometryLayout, NodeAnim, Written,
 };
 pub use bind::{
     BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,

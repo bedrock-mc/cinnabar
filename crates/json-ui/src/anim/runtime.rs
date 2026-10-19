@@ -48,6 +48,13 @@ pub struct Written {
     pub size: Option<[f32; 2]>,
 }
 
+/// The last layout writer and its normalized progress, before resolving dimensional terms.
+#[derive(Clone, Copy)]
+pub(super) struct LayoutSample {
+    pub(super) node: usize,
+    pub(super) progress: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Playing,
@@ -70,6 +77,7 @@ struct Component {
     instances: Vec<Instance>,
     active: Vec<usize>,
     written: Written,
+    layout_sample: Option<LayoutSample>,
     rendered: bool,
     /// Clock value the component was created at, when set by the caller.
     born: Option<f64>,
@@ -107,6 +115,19 @@ fn initial_state(node: &AnimNode, rendered: bool) -> State {
 }
 
 impl Animator {
+    /// Samples an eligible entrance and returns its last actual geometry write.
+    pub(super) fn sample_entrance(
+        &mut self,
+        anims: &Arc<ControlAnims>,
+        now: f64,
+        clocks: Option<&BTreeMap<String, f64>>,
+    ) -> Option<LayoutSample> {
+        self.sample(anims, now, clocks);
+        self.components
+            .get(&anims.key)
+            .and_then(|component| component.layout_sample)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -225,6 +246,7 @@ impl Component {
             anims,
             instances,
             written: Written::default(),
+            layout_sample: None,
             rendered: false,
             born,
             last: now,
@@ -424,6 +446,12 @@ impl Component {
             AnimKind::Size => written.size = Some([ease(0), ease(1)]),
             _ => {}
         }
+        if matches!(node.kind, AnimKind::Offset | AnimKind::Size) {
+            self.layout_sample = Some(LayoutSample {
+                node: index,
+                progress: t,
+            });
+        }
         (raw >= 1.0).then(|| (instance.elapsed - node.duration.max(0.0)).max(0.0))
     }
 }
@@ -467,4 +495,57 @@ fn flip_step(
         vertical: node.vertical,
     });
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anim::{AnimGraph, Easing};
+
+    #[test]
+    fn entrance_sample_identifies_the_last_write_when_a_chain_yields() {
+        let count = MAX_LINKS_PER_TICK + 2;
+        let graph = AnimGraph {
+            heads: vec![0],
+            nodes: (0..count)
+                .map(|index| {
+                    let mut node = AnimNode::parse(
+                        serde_json::json!({"anim_type":"offset","duration":1})
+                            .as_object()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    node.from = [index as f32, 0.0, 0.0, 0.0];
+                    node.to = [index as f32 + 1.0, 0.0, 0.0, 0.0];
+                    node.next = (index + 1 < count).then_some(index + 1);
+                    node
+                })
+                .collect(),
+        };
+        let anim = Arc::new(ControlAnims {
+            key: "/root".into(),
+            graph,
+            rest_alpha: 1.0,
+            rest_offset: [0.0; 2],
+            rect: [0.0, 0.0, 10.0, 10.0],
+            anchor: [0.0; 2],
+            born: None,
+            clock: None,
+            disable_fast_forward: false,
+            reset_name: None,
+            has_sprite: false,
+            layout_authoritative: true,
+        });
+        assert_eq!(anim.entrance_property(), Some("offset"));
+        let mut animator = Animator::new();
+        animator.sample_entrance(&anim, 0.0, None);
+        let sample = animator.sample_entrance(&anim, count as f64, None).unwrap();
+        let written = animator.sample(&anim, count as f64, None).offset.unwrap();
+        let node = &anim.graph.nodes[sample.node];
+        assert_eq!(
+            written[0],
+            Easing::Linear.apply(node.from[0], node.to[0], sample.progress)
+        );
+        assert_eq!(written[0], MAX_LINKS_PER_TICK as f32);
+    }
 }

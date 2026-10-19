@@ -135,13 +135,18 @@ pub struct StateGate {
     pub mask: u8,
 }
 
+impl StateGate {
+    /// Whether the controlling component shows this state child in the current view.
+    pub(crate) fn shown(&self, state: &crate::state::ViewState) -> bool {
+        self.mask & (1 << crate::widgets::state_index(state, &self.key)) != 0
+    }
+}
+
 impl DrawNode {
     /// Whether the node shows under `state`: every state child it sits under is
     /// the one its control shows.
     pub fn shown(&self, state: &crate::state::ViewState) -> bool {
-        self.gates
-            .iter()
-            .all(|gate| gate.mask & (1 << crate::widgets::state_index(state, &gate.key)) != 0)
+        self.gates.iter().all(|gate| gate.shown(state))
     }
 }
 
@@ -161,26 +166,28 @@ pub fn emit(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
 pub fn emit_gated(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
     let mut nodes = Vec::new();
     let mut order = 0usize;
-    let mut gates = Vec::new();
-    collect_gated(
-        root,
-        env,
-        &mut nodes,
-        &mut order,
-        &mut gates,
-        &mut Vec::new(),
-    );
+    visit_gated(root, |node, gates| {
+        let first = nodes.len();
+        emit_own(node, env, &mut nodes, &mut order);
+        for (_, _, drawn) in &mut nodes[first..] {
+            drawn.gates = gates.to_vec();
+        }
+    });
     nodes.sort_by_key(|(layer, index, _)| (*layer, *index));
     nodes.into_iter().map(|(_, _, node)| node).collect()
 }
 
+/// Visits every potentially shown control with the same inherited interaction gates as paint.
+pub(crate) fn visit_gated(root: &LaidOut, mut visit: impl FnMut(&LaidOut, &[StateGate])) {
+    collect_gated(root, &mut Vec::new(), &mut Vec::new(), &mut visit);
+}
+
+/// Carries state-target overrides through controls, including those without draw primitives.
 fn collect_gated(
     node: &LaidOut,
-    env: &LayoutEnv,
-    out: &mut Vec<(i32, usize, DrawNode)>,
-    order: &mut usize,
     gates: &mut Vec<StateGate>,
     pending: &mut Vec<(usize, StateGate)>,
+    visit: &mut impl FnMut(&LaidOut, &[StateGate]),
 ) {
     let gate = pending
         .iter()
@@ -194,11 +201,7 @@ fn collect_gated(
     }
     let gated = gate.is_some();
     gates.extend(gate);
-    let first = out.len();
-    emit_own(node, env, out, order);
-    for (_, _, drawn) in &mut out[first..] {
-        drawn.gates.clone_from(gates);
-    }
+    visit(node, gates);
     let before = pending.len();
     pending.extend(
         node.state_targets
@@ -215,7 +218,7 @@ fn collect_gated(
             }),
     );
     for child in &node.children {
-        collect_gated(child, env, out, order, gates, pending);
+        collect_gated(child, gates, pending, visit);
     }
     pending.truncate(before);
     if gated {

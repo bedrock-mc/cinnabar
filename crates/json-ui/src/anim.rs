@@ -1,8 +1,9 @@
 //! Animations as the 1.26.50 `UIAnimationComponent` runs them. Resolution links
 //! each control's `@ns.anim` references (in `alpha`/`offset`/`size`/`uv`/`color`/
 //! `clip_ratio` or `anims`, by name or inline) into an [`AnimGraph`]; layout gives
-//! offset/size ends pixels; a caller-held [`Animator`] ticks each control's
-//! instances at paint time, so layout never depends on the clock.
+//! offset/size ends pixels for standalone paint sampling. [`GeometryLayout`] samples
+//! dimensional expressions before measurement and placement; a caller-held [`Animator`]
+//! supplies the same retained timeline to layout and paint, without reading a clock.
 
 use serde_json::{Map, Value};
 
@@ -10,12 +11,14 @@ use crate::tree::ControlRef;
 
 mod def;
 mod ease;
+mod geometry;
 mod layout;
 mod paint;
 mod runtime;
 
 pub use def::{AnimGraph, AnimKind, AnimNode};
 pub use ease::Easing;
+pub use geometry::GeometryLayout;
 pub(crate) use layout::Inherited;
 pub use paint::{Animated, ControlAnims, NodeAnim};
 pub use runtime::{AnimEvent, Animator, FlipWrite, Written};
@@ -27,6 +30,8 @@ pub(crate) const BORN_KEY: &str = "anim_born";
 /// Property naming the caller clock that holds an instance's creation time, so
 /// a re-sent title restarts its fade without re-binding the screen.
 pub(crate) const CLOCK_KEY: &str = "anim_clock";
+/// Geometry already sampled into the layout inputs, so paint must not move it again.
+pub(crate) const GEOMETRY_KEY: &str = "anim_geometry_sampled";
 /// Properties whose value may be an animation reference or inline animation.
 pub(crate) const ANIMATED_PROPERTIES: [&str; 6] =
     ["alpha", "uv", "color", "clip_ratio", "size", "offset"];

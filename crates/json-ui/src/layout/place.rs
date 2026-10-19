@@ -167,56 +167,85 @@ fn offset_pixels(
     siblings: [f64; 2],
     env: &LayoutEnv,
 ) -> [f64; 2] {
+    if !pair.is_array() {
+        return [0.0; 2];
+    }
+    offset_values(
+        pair,
+        &offset_contexts(control, parent_rect, size, siblings, env),
+    )
+}
+
+/// Evaluates an offset pair against already measured dimensions; keywords add no offset.
+fn offset_values(pair: &Value, contexts: &[AxisContext; 2]) -> [f64; 2] {
     let Value::Array(items) = pair else {
         return [0.0; 2];
     };
-    let children = measure::children(control, env, [Some(size[0]), Some(size[1])]);
     let axis_value = |axis: Axis| {
         let index = axis_index(axis);
         let Some(Length::Terms(terms)) = items.get(index).map(expr::length_from_value) else {
             return 0.0;
         };
-        let ctx = AxisContext {
-            parent: [parent_rect.w, parent_rect.h][index],
-            own_width: Some(size[0]),
-            own_height: Some(size[1]),
-            children: Some(children.content[index]),
-            children_max: Some(children.maximum[index]),
-            sibling_max: Some(siblings[index]),
-            natural: None,
-        };
-        Length::Terms(terms).eval_pixels(&ctx)
+        Length::Terms(terms).eval_pixels(&contexts[index])
     };
     [axis_value(Axis::X), axis_value(Axis::Y)]
 }
 
+/// The resolved dimensions shared by offset evaluation and animation endpoints.
+fn offset_contexts(
+    control: &ResolvedControl,
+    parent_rect: Rect,
+    size: [f64; 2],
+    siblings: [f64; 2],
+    env: &LayoutEnv,
+) -> [AxisContext; 2] {
+    let children = measure::children(control, env, size.map(Some));
+    std::array::from_fn(|index| AxisContext {
+        parent: [parent_rect.w, parent_rect.h][index],
+        own_width: Some(size[0]),
+        own_height: Some(size[1]),
+        children: Some(children.content[index]),
+        children_max: Some(children.maximum[index]),
+        sibling_max: Some(siblings[index]),
+        natural: None,
+    })
+}
+
 /// The control's animations with offset and size ends in pixels, `%` of the
-/// parent and `%x`/`%y` of the control's own size.
+/// parent and `%x`/`%y` of the control's own size. Packed children ignore offset;
+/// a replaced rect belongs to a widget or pointer rather than ordinary placement.
 pub(super) fn control_anims(
     control: &ResolvedControl,
     key: &str,
     rect: Rect,
     parent_rect: Rect,
     inherited: &Inherited,
-    packed: bool,
+    (packed, replaced): (bool, bool),
     env: &LayoutEnv,
 ) -> Option<Arc<ControlAnims>> {
     let mut graph: AnimGraph = AnimGraph::deserialize(control.properties.get(GRAPH_KEY)?).ok()?;
     if !graph.valid() {
         return None;
     }
+    let layout_authoritative = !replaced
+        && (graph.entrance_property() != Some("offset")
+            || (!packed && anchored_offset(control).is_none()));
     let size = [rect.w, rect.h];
     let rest_offset = offset(control, parent_rect, size, [0.0; 2], env);
+    let mut contexts = None;
     for node in &mut graph.nodes {
-        let ends = match node.kind {
-            AnimKind::Offset => [&node.from_expr, &node.to_expr]
-                .map(|pair| offset_pixels(control, pair, parent_rect, size, [0.0; 2], env)),
-            AnimKind::Size => [&node.from_expr, &node.to_expr].map(|pair| match pair {
-                Value::Array(_) => offset_pixels(control, pair, parent_rect, size, [0.0; 2], env),
-                _ => size,
-            }),
-            _ => continue,
-        };
+        if !matches!(node.kind, AnimKind::Offset | AnimKind::Size) {
+            continue;
+        }
+        let contexts = contexts
+            .get_or_insert_with(|| offset_contexts(control, parent_rect, size, [0.0; 2], env));
+        let ends = [&node.from_expr, &node.to_expr].map(|pair| {
+            if node.kind == AnimKind::Size && !pair.is_array() {
+                size
+            } else {
+                offset_values(pair, contexts)
+            }
+        });
         // A stack item or grid cell has no offset term, so its offset animation is inert.
         let ends = if packed && node.kind == AnimKind::Offset {
             [rest_offset; 2]
@@ -225,6 +254,17 @@ pub(super) fn control_anims(
         };
         node.from = [ends[0][0] as f32, ends[0][1] as f32, 0.0, 0.0];
         node.to = [ends[1][0] as f32, ends[1][1] as f32, 0.0, 0.0];
+        for expression in [&mut node.from_expr, &mut node.to_expr] {
+            if packed && node.kind == AnimKind::Offset {
+                *expression = serde_json::json!(rest_offset);
+            } else if let Value::Array(axes) = expression {
+                for (axis, ctx) in axes.iter_mut().zip(contexts.iter()) {
+                    *axis = expr::length_from_value(axis)
+                        .animation_terms(ctx, node.kind == AnimKind::Size)
+                        .to_value();
+                }
+            }
+        }
     }
     let context = inherited.own(control);
     let wait_scale = control
@@ -263,6 +303,7 @@ pub(super) fn control_anims(
             .filter(|name| !name.is_empty())
             .map(str::to_owned),
         has_sprite: control.control_type.as_deref() == Some("image"),
+        layout_authoritative,
     }))
 }
 
