@@ -147,3 +147,87 @@ fn flagged_rawtext_preserves_literal_and_resolved_percent_text() {
         }
     }
 }
+
+#[test]
+fn large_server_translation_streams_through_text_and_death_consumers() {
+    let value = "a".repeat(assets::MAX_LANG_VALUE_BYTES);
+    let language = format!("k={value}\n");
+    assert!(language.len() <= assets::MAX_SERVER_LANG_INPUT_BYTES);
+    let overlay = assets::ServerLangOverlay::read(language.len(), |target| {
+        target.copy_from_slice(language.as_bytes());
+        true
+    })
+    .expect("the server language value fits the retained input policy");
+    let message: Arc<str> = "%k ".repeat(5_000).into();
+    assert!(message.len() <= protocol::MAX_UI_TEXT_BYTES);
+    let localized_token = format!("{value} ");
+    let retained_tokens = protocol::MAX_RAW_TEXT_OUTPUT_BYTES.div_ceil(localized_token.len()) + 1;
+    let expected = protocol::format_translation(&localized_token.repeat(retained_tokens), &[]);
+    for kind in [
+        TextKind::Raw,
+        TextKind::System,
+        TextKind::Popup,
+        TextKind::Translation,
+    ] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = UiRuntime::new(1);
+        runtime.set_server_lang(Some(Arc::clone(&overlay)));
+        runtime
+            .apply(
+                &mut player,
+                envelope(
+                    1,
+                    1,
+                    UiEvent::Text(TextEvent {
+                        category: if matches!(kind, TextKind::Raw | TextKind::System) {
+                            TextCategory::MessageOnly
+                        } else {
+                            TextCategory::Parameters
+                        },
+                        kind,
+                        needs_translation: true,
+                        source: None,
+                        message: Arc::clone(&message),
+                        parameters: Arc::from([]),
+                        xuid: Arc::from(""),
+                        platform_chat_id: Arc::from(""),
+                        filtered_message: None,
+                    }),
+                ),
+            )
+            .unwrap();
+        match kind {
+            TextKind::Popup => {
+                assert_eq!(runtime.hud().actionbar().unwrap().text.as_ref(), expected)
+            }
+            TextKind::Translation => {
+                let translator = runtime.translator();
+                assert_eq!(
+                    ui_screens::text::resolve_chat_line(
+                        runtime.chat().messages().back().unwrap(),
+                        |key| translator.lookup(key)
+                    ),
+                    expected
+                );
+            }
+            _ => assert_eq!(
+                runtime.chat().messages().back().unwrap().message.as_ref(),
+                expected
+            ),
+        }
+        runtime
+            .apply(
+                &mut player,
+                envelope(
+                    1,
+                    2,
+                    UiEvent::DeathInfo(protocol::DeathInfoEvent {
+                        message: Arc::clone(&message),
+                        parameters: Arc::from([]),
+                    }),
+                ),
+            )
+            .unwrap();
+        assert_eq!(runtime.death_reason(), expected);
+    }
+}

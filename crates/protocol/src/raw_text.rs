@@ -205,35 +205,43 @@ fn resolve_component(
 /// form, and a non-numeric argument for `%.Nf` presents verbatim. Output is
 /// bounded by [`MAX_RAW_TEXT_OUTPUT_BYTES`].
 pub fn format_translation(template: &str, arguments: &[String]) -> String {
-    let mut output = TranslationPrefix::new(template.len());
+    format_translation_chars(template.chars(), arguments)
+}
+
+/// Formats a lazy template with the same substitutions and output budget as [`format_translation`].
+/// Stops consuming input once no later scalar can enter the retained output.
+pub fn format_translation_chars(
+    template: impl Iterator<Item = char>,
+    arguments: &[String],
+) -> String {
+    let mut output = TranslationPrefix::new(template.size_hint().0);
     let mut sequential = 0usize;
-    let mut chars = template.char_indices().peekable();
-    while let Some((_, current)) = chars.next() {
+    let mut chars = template.peekable();
+    while !output.sealed && output.text.len() < MAX_FORMATTED_PREFIX_BYTES {
+        let Some(current) = chars.next() else {
+            break;
+        };
         if current != '%' {
             output.push(current);
             continue;
         }
         match chars.peek().copied() {
-            Some((_, '%')) => {
+            Some('%') => {
                 chars.next();
                 output.push('%');
             }
-            Some((_, 's' | 'd')) => {
+            Some('s' | 'd') => {
                 chars.next();
                 if let Some(argument) = arguments.get(sequential) {
                     output.push_str(argument);
                 }
                 sequential += 1;
             }
-            Some((_, '.')) => {
+            Some('.') => {
                 chars.next();
-                match (chars.peek().copied(), {
-                    let mut lookahead = chars.clone();
-                    lookahead.next();
-                    lookahead.peek().copied()
-                }) {
-                    (Some((_, precision @ '0'..='9')), Some((_, 'f'))) => {
-                        chars.next();
+                if let Some(precision @ '0'..='9') = chars.peek().copied() {
+                    chars.next();
+                    if chars.peek() == Some(&'f') {
                         chars.next();
                         let precision = precision as usize - '0' as usize;
                         if let Some(argument) = arguments.get(sequential) {
@@ -250,20 +258,23 @@ pub fn format_translation(template: &str, arguments: &[String]) -> String {
                             }
                         }
                         sequential += 1;
-                    }
-                    _ => {
+                    } else {
                         output.push('%');
                         output.push('.');
+                        output.push(precision);
                     }
+                } else {
+                    output.push('%');
+                    output.push('.');
                 }
             }
-            Some((_, digit @ '1'..='9')) => {
+            Some(digit @ '1'..='9') => {
                 chars.next();
                 let index = digit as usize - '1' as usize;
                 // Optional Java-style `$s` suffix after the position.
-                if let Some((_, '$')) = chars.peek().copied() {
+                if let Some('$') = chars.peek().copied() {
                     chars.next();
-                    if let Some((_, 's' | 'd')) = chars.peek().copied() {
+                    if let Some('s' | 'd') = chars.peek().copied() {
                         chars.next();
                     }
                 }
@@ -801,6 +812,40 @@ struct WireSelector {
 #[cfg(test)]
 mod formatting_tests {
     use super::*;
+
+    #[test]
+    fn lazy_template_stops_consumption_at_the_existing_output_budget() {
+        let consumed = Cell::new(0);
+        let characters = std::iter::repeat_n('a', MAX_FORMATTED_PREFIX_BYTES * 2).inspect(|_| {
+            consumed.set(consumed.get() + 1);
+        });
+        let (formatted, allocations) =
+            test_alloc::measure(|| format_translation_chars(characters, &[]));
+        assert_eq!(formatted, "a".repeat(MAX_FORMATTED_PREFIX_BYTES));
+        assert_eq!(consumed.get(), MAX_FORMATTED_PREFIX_BYTES);
+        assert!(allocations.bytes <= MAX_FORMATTED_PREFIX_BYTES * 2);
+    }
+
+    #[test]
+    fn lazy_template_preserves_substitutions_and_malformed_specifiers() {
+        let arguments = ["1.25".into(), "A".into()];
+        for (template, expected) in [
+            ("%s|%d|%s", "1.25|A|"),
+            ("%2$s/%1$d/%9$s/%1$x/%12", "A/1.25/%9/1.25x/1.252"),
+            ("%.2f", "1.25"),
+            ("%.2x|%.2|%.f|%.x|%.%s", "%.2x|%.2|%.f|%.x|%.1.25"),
+            ("%%|%|%0|%🌍", "%|%|%0|%🌍"),
+        ] {
+            // Each scalar may come from a different localization chunk.
+            let mut scalars = template.chars();
+            let characters = std::iter::from_fn(|| scalars.next());
+            assert_eq!(
+                format_translation_chars(characters, &arguments),
+                expected,
+                "{template:?}"
+            );
+        }
+    }
 
     #[test]
     fn repeated_translation_argument_has_a_bounded_intermediate_prefix() {

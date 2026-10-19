@@ -155,7 +155,7 @@ impl UiRuntime {
     ) -> Result<UiApplyOutcome, UiRuntimeError> {
         if event.needs_translation && event.kind != TextKind::Translation {
             let translate = |key: &str| self.translation(key);
-            let template = json_ui::localize_text(&event.message, &translate);
+            let template = json_ui::localize_text_chars(&event.message, &translate);
             let parameters = event
                 .parameters
                 .iter()
@@ -164,7 +164,7 @@ impl UiRuntime {
                         .into_owned()
                 })
                 .collect::<Vec<_>>();
-            event.message = Arc::from(protocol::format_translation(&template, &parameters));
+            event.message = Arc::from(protocol::format_translation_chars(template, &parameters));
             event.parameters = Arc::from([]);
         }
         self.apply_resolved_text(event, fifo_sequence, event_millis)
