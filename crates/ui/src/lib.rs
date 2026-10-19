@@ -52,10 +52,10 @@ pub use scoreboard::{
 pub use settings::{
     ANTI_ALIASING_SAMPLE_COUNTS, AntiAliasingSupport, CURRENT_SETTINGS_SCHEMA,
     DEFAULT_ANTI_ALIASING_SAMPLES, DEFAULT_FOV_DEGREES, DEFAULT_OUTLINE_SELECTION,
-    DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
-    MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
-    RenderDistanceDefaults, RenderDistanceDevice, RenderMode, SmaaMode, UserSettings,
-    VideoSettings,
+    DEFAULT_RENDER_SCALE_PERCENT, DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES,
+    MAX_RENDER_SCALE_PERCENT, MIN_FOV_DEGREES, MIN_RENDER_DISTANCE_CHUNKS,
+    MIN_RENDER_SCALE_PERCENT, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality, RenderDistanceDefaults,
+    RenderDistanceDevice, RenderMode, SmaaMode, UserSettings, VideoSettings,
 };
 pub use text::{
     BedrockColor, ColorDescriptor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS,
