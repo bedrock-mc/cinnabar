@@ -30,6 +30,9 @@
       "$ref": "#/$defs/OnlineCountResponse"
     },
     {
+      "$ref": "#/$defs/OnlineNamesResponse"
+    },
+    {
       "$ref": "#/$defs/EmoteClip"
     },
     {
@@ -752,6 +755,18 @@
         }
       },
       "additionalProperties": true
+    },
+    "OnlineNamesResponse": {
+      "description": "Authenticated GET /v1/presence/players: verified names for the same visible online accounts as the count, without identifiers.",
+      "type": "object",
+      "required": ["names"],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      },
+      "additionalProperties": false
     },
     "EmoteClip": {
       "type": "object",

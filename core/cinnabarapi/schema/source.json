@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/cinnabar-mc/cinnabar-api",
-  "commit": "a58b3a2525ce94782c82b025fcaa12cd49fada26",
+  "commit": "630561f1762a99aecc474b274f42e38ed660e320",
   "path": "schema/v1.json",
-  "sha256": "1cc270c7f9b99ca37bf590b7fd7d31619216f3c353fce8769245b511efd17b08",
+  "sha256": "af7c963a6be5f800707d2ceeb5a841d98393482e6f233890dafd2be818c2ca08",
   "conformance": {
     "path": "schema/fixtures/emote-clips.json",
     "sha256": "bea4c1aeb485d66dab6c31b1037548f675e463495b761c30919571327358bafe"
