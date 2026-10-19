@@ -228,7 +228,7 @@ pub fn dependency_fingerprint(
     hash.finalize().into()
 }
 
-/// One input as a layer replays it; reads hash their bytes separately so they inflate in parallel.
+/// One input as a layer replays it; uncached reads inflate in parallel.
 enum Part<'a> {
     File {
         path: &'a str,
@@ -291,19 +291,22 @@ fn layer_fingerprint(
             }
         }
     }
-    let digest = |bytes: &[u8]| Read::Bytes(Sha256::digest(bytes).into());
     let reads: Vec<_> = parts
         .par_iter()
         .map(|part| match part {
-            Part::File { path, limit } => Some(match pack.read_file_with_limit(path, *limit) {
-                Ok(Some(bytes)) => digest(&bytes),
-                Ok(None) => Read::Missing,
-                Err(_) => Read::Rejected,
-            }),
-            Part::Contents(path) => Some(match pack.read_file(path) {
-                Ok(Some(bytes)) => digest(&bytes),
-                _ => Read::Missing,
-            }),
+            Part::File { path, limit } => {
+                Some(match pack.file_fingerprint_with_limit(path, *limit) {
+                    Ok(Some(hash)) => Read::Bytes(hash),
+                    Ok(None) => Read::Missing,
+                    Err(_) => Read::Rejected,
+                })
+            }
+            Part::Contents(path) => Some(
+                match pack.file_fingerprint_with_limit(path, resource_pack::MAX_FILE_BYTES) {
+                    Ok(Some(hash)) => Read::Bytes(hash),
+                    _ => Read::Missing,
+                },
+            ),
             Part::Listed { .. } => None,
         })
         .collect();
