@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,9 @@ type sessionConn struct {
 	pending []byte // the Batch frame being formed, kind byte included
 	ended   bool   // a terminal message was written
 
+	virtualWindowsMu sync.Mutex
+	virtualWindows   map[byte]bool
+
 	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
 	traceConn   int64
 	traceFrames int64    // Batch frames written to the client
@@ -50,12 +54,13 @@ type sessionRead struct {
 
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 	session := &sessionConn{
-		conn:       conn,
-		frames:     make(chan sessionRead),
-		done:       make(chan struct{}),
-		readDone:   make(chan struct{}),
-		clientPool: minecraft.DefaultProtocol.Packets(true),
-		serverPool: minecraft.DefaultProtocol.Packets(false),
+		conn:           conn,
+		frames:         make(chan sessionRead),
+		done:           make(chan struct{}),
+		readDone:       make(chan struct{}),
+		clientPool:     minecraft.DefaultProtocol.Packets(true),
+		serverPool:     minecraft.DefaultProtocol.Packets(false),
+		virtualWindows: make(map[byte]bool),
 	}
 	if trace := latencytrace.Active(); trace != nil {
 		session.trace, session.traceConn = trace, trace.NextConn()
@@ -128,6 +133,35 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if err != nil {
 		return nil, err
 	}
+	for i, raw := range packets {
+		if id, ok := sessionPacketID(raw); ok {
+			switch id {
+			case packet.IDInventoryTransaction:
+				slog.Info("CLIENT sent InventoryTransaction")
+			case packet.IDContainerClose:
+				slog.Info("CLIENT sent ContainerClose")
+				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.ContainerClose); ok {
+					session.virtualWindowsMu.Lock()
+					wasVirtual := session.virtualWindows[pk.WindowID]
+					delete(session.virtualWindows, pk.WindowID)
+					session.virtualWindowsMu.Unlock()
+
+					if wasVirtual {
+						pk.ContainerType = 255
+						buf := new(bytes.Buffer)
+						(&packet.Header{PacketID: pk.ID()}).Write(buf)
+						pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+						packets[i] = buf.Bytes()
+						slog.Info("Rewrote client CONTAINER CLOSE to type 255", "window_id", pk.WindowID)
+					}
+				}
+			case packet.IDInteract:
+				slog.Info("CLIENT sent Interact")
+			case packet.IDItemStackRequest:
+				slog.Info("CLIENT sent ItemStackRequest")
+			}
+		}
+	}
 	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
 }
 
@@ -150,6 +184,64 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
 				}
+			}
+		case packet.IDContainerOpen:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ContainerOpen); ok {
+				slog.Info("CONTAINER OPEN received from server",
+					"window_id", pk.WindowID,
+					"container_type", pk.ContainerType,
+					"pos", pk.ContainerPosition,
+					"entity_id", pk.ContainerEntityUniqueID,
+				)
+				if pk.ContainerType == 255 {
+					session.virtualWindowsMu.Lock()
+					session.virtualWindows[pk.WindowID] = true
+					session.virtualWindowsMu.Unlock()
+
+					pk.ContainerType = 0
+					buf := new(bytes.Buffer)
+					(&packet.Header{PacketID: pk.ID()}).Write(buf)
+					pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+					data = buf.Bytes()
+					slog.Info("Rewrote virtual CONTAINER OPEN to type 0", "window_id", pk.WindowID)
+				}
+			}
+		case packet.IDContainerClose:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ContainerClose); ok {
+				slog.Info("CONTAINER CLOSE received from server",
+					"window_id", pk.WindowID,
+					"container_type", pk.ContainerType,
+					"server_side", pk.ServerSide,
+				)
+				session.virtualWindowsMu.Lock()
+				wasVirtual := session.virtualWindows[pk.WindowID]
+				if pk.ServerSide {
+					delete(session.virtualWindows, pk.WindowID)
+				}
+				session.virtualWindowsMu.Unlock()
+
+				if wasVirtual && pk.ContainerType == 255 {
+					pk.ContainerType = 0
+					buf := new(bytes.Buffer)
+					(&packet.Header{PacketID: pk.ID()}).Write(buf)
+					pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+					data = buf.Bytes()
+					slog.Info("Rewrote server CONTAINER CLOSE to type 0", "window_id", pk.WindowID)
+				}
+			}
+		case packet.IDInventoryContent:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), false).(*packet.InventoryContent); ok {
+				slog.Info("INVENTORY CONTENT received from server",
+					"window_id", pk.WindowID,
+					"slots_count", len(pk.Content),
+				)
+			}
+		case packet.IDInventorySlot:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), false).(*packet.InventorySlot); ok {
+				slog.Info("INVENTORY SLOT received from server",
+					"window_id", pk.WindowID,
+					"slot", pk.Slot,
+				)
 			}
 		}
 	}

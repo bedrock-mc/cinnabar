@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -381,7 +382,16 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		for _, entry := range snapshot.Entries() {
 			id := resourcePackIdentity(entry.UUID(), entry.Version())
 			if offerIDs[id] && !admitted[id] {
-				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+				matched := false
+				for admittedID := range admitted {
+					if strings.HasPrefix(admittedID, entry.UUID()+"_") {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+				}
 			}
 		}
 	}
