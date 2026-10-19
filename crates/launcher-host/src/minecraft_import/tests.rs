@@ -133,11 +133,11 @@ fn combined_selected_archives_remain_available_during_import() {
     assert_eq!(preview.selection.len(), original.len() + 2);
     assert_eq!(
         preview.selection[0].id.to_string(),
-        "44444444-4444-4444-4444-444444444444"
+        "33333333-3333-3333-3333-333333333333"
     );
     assert_eq!(
         preview.selection[1].id.to_string(),
-        "33333333-3333-3333-3333-333333333333"
+        "44444444-4444-4444-4444-444444444444"
     );
     assert_eq!(&preview.selection[2..], original);
     let selected = preview.selection.clone();
