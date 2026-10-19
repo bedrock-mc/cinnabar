@@ -3,7 +3,7 @@
 //! source is skipped and counted, and items and equipment are not compiled.
 
 use super::*;
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 mod prepared;
 use prepared::{PreparedFile, Skip};
