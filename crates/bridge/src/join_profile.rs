@@ -4,13 +4,14 @@
 /// Whether this build includes join timing instrumentation.
 pub const ENABLED: bool = cfg!(feature = "join-profile");
 
-/// First results that split terrain preparation without logging every chunk.
+/// First startup and terrain results, without logging every packet or chunk.
 #[derive(Clone, Copy)]
 pub enum Milestone {
     ChunkDecoded,
     LightingReady,
     MeshReady,
     MeshUploaded,
+    ChunkRadiusReply,
 }
 
 impl Milestone {
@@ -21,6 +22,7 @@ impl Milestone {
             Self::LightingReady => "first_lighting_ready",
             Self::MeshReady => "first_mesh_ready",
             Self::MeshUploaded => "first_mesh_uploaded",
+            Self::ChunkRadiusReply => "chunk_radius_reply",
         }
     }
 }
@@ -70,7 +72,7 @@ mod disabled {
         pub fn presentation_pending(&self) -> bool {
             false
         }
-        /// Ignores terrain observations in shipping builds.
+        /// Ignores startup and terrain observations in shipping builds.
         pub fn mark_once(&self, _milestone: super::Milestone) {}
         /// Records an instantaneous milestone when instrumentation is compiled.
         pub fn mark(&self, _stage: &'static str) {}

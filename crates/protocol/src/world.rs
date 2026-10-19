@@ -523,7 +523,13 @@ world_packets! {
     BlockEvent(packet) => {
         WorldEvent::BlockEvent(block_side::normalize_block_event(&packet, current_dimension))
     },
-    ChunkRadiusUpdated(packet) => WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0),
+    ChunkRadiusUpdated(packet) => {
+        if packet.chunk_radius.0 > 0 {
+            bridge::join_profile::JoinProfile::current()
+                .mark_once(bridge::join_profile::Milestone::ChunkRadiusReply);
+        }
+        WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0)
+    },
     NetworkChunkPublisherUpdate(packet) => {
         let center = &packet.new_position_for_view;
         WorldEvent::PublisherUpdate(PublisherUpdateEvent {

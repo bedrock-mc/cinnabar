@@ -107,7 +107,7 @@ impl JoinProfile {
         })
     }
 
-    /// Logs only the first observation of each bounded terrain milestone.
+    /// Logs only the first observation of each bounded startup or terrain milestone.
     pub fn mark_once(&self, milestone: super::Milestone) {
         if let Some(attempt) = &self.0 {
             let bit = 1 << milestone as u8;

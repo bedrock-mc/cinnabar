@@ -284,7 +284,9 @@ See [inventory ownership](docs/architecture/inventory.md),
 
 ## Phase 6 — Online product surface
 
-Online services are implemented; complete acceptance still covers authenticated
+Online services are implemented. Startup requires login facts and PlayerSpawn;
+radius replies remain ordered play updates without holding startup. Complete
+acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
