@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Repoints a base material at an overlay texture, keeping its flags and variation range.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MaterialOverride {
     /// Index into the base carrier's material table; never the diagnostic material.
     pub material: u32,
@@ -27,7 +27,7 @@ pub struct MaterialOverride {
 /// material ids index `materials`, templates index `model_templates`, and
 /// texture references use overlay shards on higher pages, or static vanilla-fallback
 /// materials on the base carrier's page zero.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BlockOverlay {
     pub visuals: Vec<BlockVisual>,
     /// Carried unit-cube faces keyed by sorted session visual ids; independent of world offsets.
@@ -544,6 +544,7 @@ impl RuntimeAssets {
                 .clone()
                 .unwrap_or_else(|| self.biomes.clone()),
             provenance: self.provenance,
+            carrier_identity: None,
             missing: AtomicU64::new(0),
         })
     }

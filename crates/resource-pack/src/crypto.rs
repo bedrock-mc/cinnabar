@@ -28,6 +28,12 @@ impl ContentKey {
         self.0 == other.0
     }
 
+    /// Identifies a decryption binding without exposing its key bytes to cache callers.
+    pub(crate) fn digest(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.0).into()
+    }
+
     /// Decrypts `data` in place.
     pub(crate) fn decrypt(&self, data: &mut [u8]) {
         match self.0.len() {

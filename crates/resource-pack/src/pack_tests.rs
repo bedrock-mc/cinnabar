@@ -322,6 +322,7 @@ fn a_different_file_key_makes_the_same_bytes_differ() {
         reference.read_file("texts/en_US.lang").unwrap(),
         rekeyed.read_file("texts/en_US.lang").unwrap()
     );
+    assert_ne!(reference.compile_identity(), rekeyed.compile_identity());
     assert!(!stack(vec![reference], &[]).same_contents(&stack(vec![rekeyed], &[])));
 }
 
@@ -417,4 +418,17 @@ fn keyed_jsonc_reads_keep_the_previous_plaintext_selection() {
             );
         }
     }
+}
+
+#[test]
+fn compile_identity_tracks_admitted_paths_and_is_stable_across_admissions() {
+    let bytes = zip_files(&[("a.txt", b"a"), ("b.txt", b"b")]);
+    let original = admit(bytes.clone(), "", None);
+    let mut changed = admit(bytes.clone(), "", None);
+    assert_eq!(original.compile_identity(), changed.compile_identity());
+    changed.files.remove("a.txt");
+    assert_ne!(original.compile_identity(), changed.compile_identity());
+    let mut reordered = admit(bytes, "", None);
+    reordered.file_order.reverse();
+    assert_ne!(original.compile_identity(), reordered.compile_identity());
 }

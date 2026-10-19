@@ -4,14 +4,14 @@
 pub const MAX_AXIS_OFFSET: f32 = 0.5;
 
 /// One axis's block-unit range and equally spaced sample count; zero is continuous.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RandomOffsetAxis {
     pub range: [f32; 2],
     pub steps: u32,
 }
 
 /// An admitted block component. Absence is distinct from an explicit zero override.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RandomOffsetComponent {
     pub axes: [RandomOffsetAxis; 3],
 }

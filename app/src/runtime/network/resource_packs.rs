@@ -4,15 +4,18 @@ use super::compile_execution::scope;
 use rayon::scope;
 use std::sync::Arc;
 
+#[cfg(test)]
+use super::block_overlay::compile_block_overlay;
 use resource_pack::{LayeredPackView, PackAdmission};
 
 use super::{
-    block_overlay::{CompiledBlockOverlay, compile_block_overlay},
+    block_overlay::CompiledBlockOverlay,
     glyph_sheets::compile_session_glyphs,
     item_icons::{BlockIcons, compile_session_icons, custom_block_icons_with_tint},
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
+mod disk_cache;
 pub(super) mod reuse;
 mod ui;
 pub(super) mod ui_catalog;
@@ -329,6 +332,7 @@ fn compile_application(
         });
         scope.spawn(|_| {
             let _binding = profile.enter();
+            let textures = super::block_overlay::SharedTextures::default();
             blocks = compile_part(
                 &stack,
                 cancelled,
@@ -343,13 +347,14 @@ fn compile_application(
                         hashed_block_ids,
                         max_layers,
                         || {
-                            compile_block_overlay(
+                            super::block_overlay::compile_block_overlay_with_textures(
                                 view,
                                 custom_blocks,
                                 hashed_block_ids,
                                 BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
                                 max_layers,
                                 base_world_assets(),
+                                Some(&textures),
                             )
                             .map(Arc::new)
                         },
@@ -368,6 +373,7 @@ fn compile_application(
                 changes.icons || changes.blocks,
                 previous.and_then(|old| old.item_icons.clone()),
                 icon_keys,
+                disk_cache::icon_key(&stack, &inputs, max_layers),
                 |view| {
                     let item_overlay = super::block_overlay::compile_block_item_overlay(
                         view,
@@ -375,6 +381,7 @@ fn compile_application(
                         BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
                         max_layers,
                         base_world_assets(),
+                        Some(&textures),
                     );
                     let grass = super::item_icons::carried_grass_tint(
                         view,
@@ -679,6 +686,7 @@ fn compile_icons(
     changed: bool,
     reuse: Option<Arc<SessionIcons>>,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    key: Option<[u8; 32]>,
     bake_blocks: impl FnOnce(&LayeredPackView) -> BlockIcons,
 ) -> CompiledIcons {
     pack_runtime::reload_diff::compile_part(
@@ -687,19 +695,24 @@ fn compile_icons(
         changed,
         pack_runtime::reload_diff::Subscriber::Icons,
         reuse,
-        |view| compile_session_icons(view, icon_keys, bake_blocks(view)),
+        |view| {
+            disk_cache::compile(view, key, || {
+                compile_session_icons(view, icon_keys, bake_blocks(view))
+            })
+        },
     )
 }
 
 use pack_runtime::pack_language::merged_server_lang;
 
-use resource_pack::StackFingerprint;
 #[cfg(test)]
 use pack_runtime::stack_fingerprint;
+use resource_pack::StackFingerprint;
 
 struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
     stack: StackFingerprint,
+    readers: Vec<[u8; 32]>,
     hashed: bool,
     max_layers: u32,
     blocks: protocol::CustomBlocks,
@@ -723,6 +736,12 @@ fn cached_block_overlay(
     max_layers: u32,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
+    let readers: Vec<_> = view
+        .stack()
+        .packs()
+        .iter()
+        .map(|pack| pack.compile_identity())
+        .collect();
     let mut cache = OVERLAY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
@@ -730,6 +749,7 @@ fn cached_block_overlay(
         cached.hashed == hashed
             && cached.max_layers == max_layers
             && cached.stack == *fingerprint
+            && cached.readers == readers
             && cached.blocks == *blocks
             && (view.dependencies().is_none() || cached.dependencies.is_some())
     }) {
@@ -741,12 +761,17 @@ fn cached_block_overlay(
         cache.push_front(cached);
         return overlay;
     }
-    let overlay = compile();
+    let overlay = disk_cache::compile(
+        view,
+        disk_cache::block_key(view.stack(), blocks, hashed, max_layers),
+        compile,
+    );
     cache.push_front(CachedOverlay {
         dependencies: view
             .dependencies()
             .map(|dependencies| dependencies.snapshot()),
         stack: fingerprint.clone(),
+        readers,
         hashed,
         max_layers,
         blocks: blocks.clone(),

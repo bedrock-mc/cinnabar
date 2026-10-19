@@ -1843,6 +1843,9 @@ dependencies = [
 [[package]]
 name = "block-transform"
 version = "0.1.21"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "block2"
@@ -6785,14 +6788,17 @@ dependencies = [
  "assets",
  "block-transform",
  "bridge",
+ "flate2",
  "image",
  "json-ui",
  "pack-compile-input",
  "pack-entity-compiler",
  "pack-json",
+ "postcard",
  "protocol",
  "rayon",
  "resource-pack",
+ "serde",
  "serde_json",
  "sha2",
  "sim",

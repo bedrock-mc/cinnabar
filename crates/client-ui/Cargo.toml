@@ -48,7 +48,7 @@ ui-screens = { path = "../ui-screens" }
 world = { path = "../world" }
 server-experience = { path = "../server-experience", default-features = false, features = ["data"] }
 image.workspace = true
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true

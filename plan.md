@@ -361,6 +361,10 @@ reference hardware, frame/hitch, streaming, join and capture budgets. Capture th
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
 
+Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+records; archive, session, startup artwork and device inputs invalidate affected entries.
+Hardware join and frame acceptance still needs the full capture matrix below.
+
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release
 performance on hardware; existing source refactors and unmeasured optimizations
