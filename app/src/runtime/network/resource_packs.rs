@@ -15,7 +15,7 @@ use super::{
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
-mod disk_cache;
+pub(super) mod disk_cache;
 pub(super) mod reuse;
 mod ui;
 pub(super) mod ui_catalog;

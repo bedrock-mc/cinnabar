@@ -68,6 +68,7 @@ pub(crate) struct OverlayGaps {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CompiledBlockOverlay {
+    #[serde(with = "super::resource_packs::disk_cache::blocks::BlockOverlay")]
     pub(crate) overlay: BlockOverlay,
     pub(crate) gaps: OverlayGaps,
     pub(crate) vanilla_carried: Vec<CarriedBlock>,

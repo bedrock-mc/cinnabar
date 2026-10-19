@@ -4,6 +4,8 @@ use pack_runtime::PackInputs;
 use pack_runtime::compile_cache::{cache_key, part};
 use sha2::Digest;
 
+pub(in crate::runtime::network) mod blocks;
+
 /// Immutable artwork and texture policy inputs shared by both subscribers.
 #[derive(Clone, Debug)]
 struct References {

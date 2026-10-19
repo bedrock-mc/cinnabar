@@ -27,7 +27,7 @@ pub struct MaterialOverride {
 /// material ids index `materials`, templates index `model_templates`, and
 /// texture references use overlay shards on higher pages, or static vanilla-fallback
 /// materials on the base carrier's page zero.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockOverlay {
     pub visuals: Vec<BlockVisual>,
     /// Carried unit-cube faces keyed by sorted session visual ids; independent of world offsets.

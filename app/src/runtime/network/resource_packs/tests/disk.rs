@@ -4,6 +4,8 @@ use std::{cell::Cell, sync::Arc};
 
 #[test]
 fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
+    use block_transform::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
+
     let dir = tempfile::tempdir().unwrap();
     let keys = assets::material_keys::MaterialKeys::from_entries([(5, "fixture_key")]);
     let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(
@@ -23,7 +25,51 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
             ],
         )],
     ));
-    let blocks = protocol::CustomBlocks::default();
+    let components = [
+        RandomOffsetComponent {
+            axes: [
+                RandomOffsetAxis {
+                    range: [-0.5, 0.25],
+                    steps: 0,
+                },
+                RandomOffsetAxis {
+                    range: [-0.125, 0.5],
+                    steps: 1,
+                },
+                RandomOffsetAxis {
+                    range: [0.0, 0.375],
+                    steps: u32::MAX,
+                },
+            ],
+        },
+        RandomOffsetComponent::default(),
+    ];
+    let blocks = protocol::CustomBlocks {
+        blocks: components
+            .into_iter()
+            .enumerate()
+            .map(|(index, component)| protocol::CustomBlock {
+                name: format!("fixture:offset_{index}").into(),
+                tags: Default::default(),
+                state_count: 1,
+                collides: true,
+                collision_boxes: None,
+                selection: Default::default(),
+                friction: None,
+                visual: Arc::new(protocol::CustomBlockVisuals {
+                    base: protocol::CustomVisualComponents {
+                        random_offset: Some(component),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                player_interact: false,
+                state_physics: Default::default(),
+                state_physics_complete: false,
+            })
+            .collect(),
+        ..Default::default()
+    };
     let compiles = Cell::new(0);
     let mut expected = None;
     for _ in 0..2 {
@@ -43,6 +89,15 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
                 .map(Arc::new)
             });
         let output = output.expect("the fixture overrides a terrain material");
+        assert_eq!(
+            output
+                .overlay
+                .model_random_offsets
+                .iter()
+                .map(|&(_, component)| component)
+                .collect::<Vec<_>>(),
+            components,
+        );
         let reads = view.dependencies().unwrap().snapshot();
         let actual = (output, reads);
         if let Some(expected) = &expected {

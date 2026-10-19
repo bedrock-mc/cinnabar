@@ -1843,9 +1843,6 @@ dependencies = [
 [[package]]
 name = "block-transform"
 version = "0.1.21"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "block2"
