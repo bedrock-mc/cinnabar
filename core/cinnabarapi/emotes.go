@@ -82,7 +82,8 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 		value.ValidForMS -= uint64(age / time.Millisecond)
 		result = append(result, value)
 	}
-	return PlayerUpdates{Emotes: result, Loadouts: collectLoadouts(s, state)}
+	return PlayerUpdates{Emotes: result, Loadouts: collectLoadouts(s, state),
+		OwnershipXUID: s.ownershipXUID, OwnedCosmetics: append([]string(nil), s.ownedCosmetics...)}
 }
 
 // watches resolves either identity namespace while keeping subscription memory bounded.
@@ -148,4 +149,23 @@ func (c *Client) emotePayload(s *session) []byte {
 	}
 	payload, _ := json.Marshal(message)
 	return payload
+}
+
+// admittedOwnership rejects malformed server snapshots rather than accepting a partial grant list.
+func admittedOwnership(ids []string) []string {
+	if len(ids) > 256 {
+		return nil
+	}
+	result := make([]string, 0, len(ids))
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		if !sharedIDPattern.MatchString(id) {
+			return nil
+		}
+		if !seen[id] {
+			result = append(result, id)
+			seen[id] = true
+		}
+	}
+	return result
 }

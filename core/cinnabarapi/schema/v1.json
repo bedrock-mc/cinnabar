@@ -31,6 +31,9 @@
     },
     {
       "$ref": "#/$defs/EmoteClip"
+    },
+    {
+      "$ref": "#/$defs/OnlineHistoryResponse"
     }
   ],
   "$defs": {
@@ -270,6 +273,9 @@
         },
         {
           "$ref": "#/$defs/Loadout"
+        },
+        {
+          "$ref": "#/$defs/CosmeticOwnership"
         }
       ]
     },
@@ -335,6 +341,14 @@
         },
         "loadout_revision": {
           "$ref": "#/$defs/Build"
+        },
+        "owned_cosmetics": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/CosmeticItemId"
+          }
         }
       }
     },
@@ -1045,6 +1059,89 @@
         },
         "clip": {
           "$ref": "#/$defs/CosmeticAsset"
+        }
+      }
+    },
+    "OnlineHistoryResponse": {
+      "description": "GET /v1/presence/history?range=24h|7d|30d. Anonymous minute observations, averaged into chart buckets. Times and intervals are milliseconds since the Unix epoch. Missing buckets mean unavailable data, not zero players.",
+      "type": "object",
+      "required": [
+        "range",
+        "interval_ms",
+        "from",
+        "to",
+        "points"
+      ],
+      "properties": {
+        "range": {
+          "enum": [
+            "24h",
+            "7d",
+            "30d"
+          ]
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 60000
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 1441,
+          "items": {
+            "type": "object",
+            "required": [
+              "at",
+              "online",
+              "peak",
+              "samples"
+            ],
+            "properties": {
+              "at": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "online": {
+                "type": "number",
+                "minimum": 0
+              },
+              "peak": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "samples": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "CosmeticOwnership": {
+      "type": "object",
+      "required": [
+        "type",
+        "owned_cosmetics"
+      ],
+      "properties": {
+        "type": {
+          "const": "cosmetic_ownership"
+        },
+        "owned_cosmetics": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/CosmeticItemId"
+          }
         }
       }
     }

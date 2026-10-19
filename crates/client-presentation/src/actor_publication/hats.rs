@@ -54,6 +54,7 @@ fn emissive_material(body: ActorMaterial) -> ActorMaterial {
 
 #[derive(Default)]
 struct Attachment {
+    cloth: hats::cloth::ClothState,
     wind: hats::EarWind,
     motion: hats::Motion,
     poses: [HatPoseCache; 2],
@@ -193,6 +194,31 @@ impl HatState {
                 } else {
                     attachment.poses[0].pose(item, *previous, attachment.motion)
                 };
+                if model.has_cloth() {
+                    let colliders: Vec<_> = stream
+                        .authority()
+                        .actor_rig(id)
+                        .into_iter()
+                        .flat_map(|rig| rig.bone_names.iter().zip(body.input.current_bones.iter()))
+                        .filter_map(|(name, bone)| {
+                            hats::cloth::Collider::biped(
+                                name,
+                                *bone,
+                                hats::cloth::placement(body.world_from_actor),
+                            )
+                        })
+                        .collect();
+                    if let Some((previous, current)) = attachment.cloth.pose(
+                        item,
+                        submission.input.current_bones.clone(),
+                        body.world_from_actor,
+                        self.seconds,
+                        &colliders,
+                    ) {
+                        submission.input.previous_bones = previous;
+                        submission.input.current_bones = current;
+                    }
+                }
                 submission.texture_layer = texture_layer;
                 submission.tint = 0;
                 if model.emissive() {

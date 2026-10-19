@@ -223,6 +223,11 @@ and rendered qualification, not initial implementation of those systems.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
+Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
+inertia and player-body contacts. Self-collision and world collision remain open.
+Paid cosmetic selections use session ownership from the API database and withdraw
+on disconnect or revocation; production rollout qualification remains open.
+
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
