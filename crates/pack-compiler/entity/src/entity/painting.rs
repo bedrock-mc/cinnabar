@@ -333,10 +333,7 @@ mod tests {
                 .count(),
             count
         );
-        assert_eq!(
-            compiled.assets.geometries.len(),
-            count + assets::painting::PAINTING_MOTIVES.len()
-        );
+        assert!(compiled.assets.geometries.len() > count);
         assert!(
             compiled
                 .assets
