@@ -50,11 +50,11 @@ fn streamed_sizes_pixels_and_hashes_equal_global_planning() {
                 for budget in [12, 20, 64, 256] {
                     for limit in 1..=rasters.len() {
                         let expected_plan = global_plan(&rasters, budget, limit);
-                        let mut calls = Vec::new();
+                        let calls = std::sync::Mutex::new(Vec::new());
                         let mut prepared = prepare_rasters(
                             rasters.iter().map(|&(source, _, _)| source),
                             |source| {
-                                calls.push(source);
+                                calls.lock().unwrap().push(source);
                                 let &(_, width, height) = rasters
                                     .iter()
                                     .find(|&&(candidate, _, _)| candidate == source)
@@ -65,7 +65,16 @@ fn streamed_sizes_pixels_and_hashes_equal_global_planning() {
                             limit,
                         );
                         assert_eq!(
-                            calls,
+                            {
+                                let mut calls = calls.lock().unwrap().clone();
+                                calls.sort_by_key(|source| {
+                                    rasters
+                                        .iter()
+                                        .position(|raster| raster.0 == *source)
+                                        .unwrap()
+                                });
+                                calls
+                            },
                             rasters[..limit]
                                 .iter()
                                 .map(|raster| raster.0)
@@ -159,11 +168,11 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
     }
     let broken_header = encoded[0][..33].to_vec();
     let images = [&encoded[0], &encoded[1], &broken_header, &encoded[2]];
-    let mut calls = Vec::new();
+    let calls = std::sync::Mutex::new(Vec::new());
     let prepared = prepare_rasters(
         0..4,
         |source| {
-            calls.push(source);
+            calls.lock().unwrap().push(source);
             Ok(decode_raster(
                 "fixture.png",
                 images[source as usize],
@@ -174,6 +183,8 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
         64,
         2,
     );
+    let mut calls = calls.into_inner().unwrap();
+    calls.sort();
     assert_eq!(calls, [0, 1, 2, 3]);
     assert!(
         prepared[&1].is_none(),
@@ -203,4 +214,49 @@ fn a_failed_prepass_read_is_left_absent_for_the_rig_to_retry() {
     );
     assert!(!prepared.contains_key(&1));
     assert!(prepared[&2].is_some());
+}
+
+#[test]
+fn parallel_decode_uses_the_callers_pool_and_preserves_pixels() {
+    let run = |threads| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let barrier = std::sync::Barrier::new(threads);
+                let prepared = prepare_rasters(
+                    0..threads as u32,
+                    |source| {
+                        assert_eq!(rayon::current_num_threads(), threads);
+                        barrier.wait();
+                        Ok(Some(patterned(7, 9, source)))
+                    },
+                    128,
+                    threads,
+                );
+                prepared
+                    .into_iter()
+                    .map(|(source, raster)| {
+                        let raster = raster.unwrap();
+                        (source, raster.width, raster.height, raster.pixels.to_vec())
+                    })
+                    .collect::<Vec<_>>()
+            })
+    };
+    let parallel = run(4);
+    let serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            prepare_rasters(0..4, |source| Ok(Some(patterned(7, 9, source))), 128, 4)
+                .into_iter()
+                .map(|(source, raster)| {
+                    let raster = raster.unwrap();
+                    (source, raster.width, raster.height, raster.pixels.to_vec())
+                })
+                .collect::<Vec<_>>()
+        });
+    assert_eq!(parallel, serial);
 }

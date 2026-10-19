@@ -596,3 +596,78 @@ fn referenced_painting_texture_still_inherits_the_installed_raster() {
             .any(|(file, bytes)| file.as_ref() == path && bytes == b"installed raster")
     );
 }
+
+#[test]
+fn many_file_collection_is_identical_on_one_and_four_threads() {
+    let mut files = Vec::new();
+    for index in 0..64 {
+        files.push((
+            format!("entity/model_{index:03}.json"),
+            json!({
+                "format_version":"1.10.0", "minecraft:client_entity":{"description":{
+                    "identifier":format!("fixture:model_{index}"),
+                    "geometry":{"default":format!("geometry.fixture_{index}")},
+                    "textures":{"default":format!("textures/entity/model_{index}")},
+                    "animations":{"idle":format!("animation.fixture_{index}.idle")}
+                }}
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("models/entity/model_{index:03}.json"),
+            json!({
+                "format_version":"1.12.0", "minecraft:geometry":[{
+                    "description":{"identifier":format!("geometry.fixture_{index}")},"bones":[]
+                }]
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("animations/model_{index:03}.json"),
+            json!({
+                "format_version":"1.8.0", "animations":{
+                    format!("animation.fixture_{index}.idle"):{"bones":{}}
+                }
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("textures/entity/model_{index}.png"),
+            vec![index as u8; 16],
+        ));
+    }
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    let collect = |threads| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let view = resource_pack::LayeredPackView::tracked(std::sync::Arc::clone(&stack));
+                let files = super::collect_files(&view, None, None);
+                assert_eq!(
+                    files
+                        .iter()
+                        .filter(|(path, _)| path.starts_with("entity/"))
+                        .count(),
+                    64
+                );
+                assert_eq!(
+                    files
+                        .iter()
+                        .filter(|(path, _)| path.starts_with("textures/"))
+                        .count(),
+                    64
+                );
+                files
+            })
+    };
+    assert_eq!(collect(1), collect(4));
+}

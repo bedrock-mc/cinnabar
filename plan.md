@@ -306,6 +306,8 @@ or compressed-byte quotas. Saved server lists retain every imported entry. Decla
 identity, digests and framing remain validated. Experience selections preserve service errors
 and wait for the account core result. Complete featured-server acceptance remains open:
 large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Entity source preparation and raster decoding use the caller's worker pool, and assembly
+shares parsed documents. Live large-pack latency and memory acceptance remain open.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 

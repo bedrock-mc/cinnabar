@@ -6,7 +6,6 @@
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
-use pack_compile_input::json::parse_unique_json;
 use pack_compile_input::source::read_bounded_source;
 
 mod literals;
@@ -24,7 +23,9 @@ use assets::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid};
+#[cfg(test)]
+use super::SourcePayloads;
+use super::{SourceDocuments, invalid};
 
 #[cfg(test)]
 thread_local! {
@@ -72,7 +73,7 @@ pub(super) fn validate_source(value: &Value) -> Result<(), AttachableError> {
 
 /// Builds the sorted per-item binding table from every collected attachable.
 pub(super) fn compile_bindings(
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     symbols: &[EntityAssetSymbol],
     sources: &[EntityAssetSource],
     controller_resources: &BTreeMap<Box<str>, ControllerResources>,
@@ -83,13 +84,14 @@ pub(super) fn compile_bindings(
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
     let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
-    for (path, bytes) in payloads {
+    for path in payloads.paths() {
         if !path.starts_with("attachables/") {
             continue;
         }
-        let parsed = match parse_unique_json(Path::new(path.as_ref()), bytes)
+        let parsed = match payloads
+            .read(Path::new(""), path)
             .map_err(|_| AttachableError::Malformed)
-            .and_then(|value| parse_attachable(&value, controller_resources.get(path)))
+            .and_then(|value| parse_attachable(value, controller_resources.get(path)))
         {
             Ok(parsed) => parsed,
             // A server pack's bad attachable drops only itself.

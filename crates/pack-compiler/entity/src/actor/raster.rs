@@ -1,6 +1,7 @@
-//! Sequential decoded-raster staging and shared, budgeted actor texture pixels.
+//! Parallel decoded-raster staging and shared, budgeted actor texture pixels.
 
 use super::{ActorTexture, AssetError, DecodedRaster, MAX_ACTOR_TEXTURES};
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
     cmp::Reverse,
@@ -61,29 +62,41 @@ impl RasterPlan {
 /// Largest-first planning is prefix-monotone: added rasters cannot undo an earlier halving.
 pub(super) fn prepare_rasters(
     sources: impl IntoIterator<Item = u32>,
-    mut decode: impl FnMut(u32) -> Result<Option<DecodedRaster>, AssetError>,
+    decode: impl Fn(u32) -> Result<Option<DecodedRaster>, AssetError> + Sync,
     budget: usize,
     limit: usize,
 ) -> BTreeMap<u32, Option<SharedRaster>> {
     let mut rasters = BTreeMap::<u32, Option<DecodedRaster>>::new();
     let mut plan = RasterPlan::default();
     let mut usable = 0;
-    for source in sources {
-        if usable == limit {
+    let mut sources = sources.into_iter();
+    while usable < limit {
+        let batch = sources
+            .by_ref()
+            .take((limit - usable).min(rayon::current_num_threads().max(1)))
+            .collect::<Vec<_>>();
+        if batch.is_empty() {
             break;
         }
-        let Ok(raster) = decode(source) else {
-            continue;
-        };
-        if let Some(raster) = &raster {
-            plan.insert(source, raster.width, raster.height);
-            usable += 1;
-        }
-        rasters.insert(source, raster);
-        while let Some(source) = plan.shrink(budget) {
-            let raster = rasters.get_mut(&source).unwrap().as_mut().unwrap();
-            raster.pixels = halve(&raster.pixels, raster.width, raster.height);
-            (raster.width, raster.height) = (raster.width.div_ceil(2), raster.height.div_ceil(2));
+        let decoded = batch
+            .par_iter()
+            .map(|&source| decode(source))
+            .collect::<Vec<_>>();
+        for (source, raster) in batch.into_iter().zip(decoded) {
+            let Ok(raster) = raster else {
+                continue;
+            };
+            if let Some(raster) = &raster {
+                plan.insert(source, raster.width, raster.height);
+                usable += 1;
+            }
+            rasters.insert(source, raster);
+            while let Some(source) = plan.shrink(budget) {
+                let raster = rasters.get_mut(&source).unwrap().as_mut().unwrap();
+                raster.pixels = halve(&raster.pixels, raster.width, raster.height);
+                (raster.width, raster.height) =
+                    (raster.width.div_ceil(2), raster.height.div_ceil(2));
+            }
         }
     }
     rasters

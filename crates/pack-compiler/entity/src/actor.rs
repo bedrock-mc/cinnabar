@@ -68,7 +68,7 @@ pub fn compile_actor_assets_for_assets(
 ) -> Result<CompiledActorCarrier, AssetError> {
     let entity_bytes = encode_entity_blob(entities)?;
     let runtime_entities = assets::RuntimeEntityAssets::decode(&entity_bytes)?;
-    let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
+    let read = |index: u32| -> Result<Vec<u8>, AssetError> {
         let source = &entities.sources[index as usize];
         let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
         if bytes.len() != source.source_bytes as usize
@@ -83,7 +83,7 @@ pub fn compile_actor_assets_for_assets(
         bindings,
         fallbacks,
         pixel_bytes,
-    } = build_artwork(entities, &runtime_entities, &mut read, false)?;
+    } = build_artwork(entities, &runtime_entities, &read, false)?;
     let bytes = encode_actor_catalog(&entity_bytes, &textures, &bindings)?;
     let report = ActorCompileReport {
         source_manifest_sha256: entities.source_manifest_sha256,
@@ -207,11 +207,12 @@ struct SourceDecoder {
 }
 
 impl SourceDecoder {
-    fn decode(
+    /// Reads and decodes one source without retaining its encoded payload.
+    fn decode<B: AsRef<[u8]>>(
         &self,
         entities: &CompiledEntityAssets,
         source: u32,
-        read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
+        read: &(impl Fn(u32) -> Result<B, AssetError> + Sync),
     ) -> Result<Option<DecodedRaster>, AssetError> {
         let asset = &entities.sources[source as usize];
         let binary_alpha = !self.lenient
@@ -235,7 +236,7 @@ impl SourceDecoder {
         };
         Ok(decode_raster(
             asset.path.as_ref(),
-            &read(source)?,
+            read(source)?.as_ref(),
             binary_alpha.then_some(&sampled as &dyn Fn(u16, u16) -> Option<Vec<bool>>),
             !self.lenient && self.crystal_sources.contains(&source),
         ))
@@ -302,10 +303,11 @@ fn decode_raster(
     })
 }
 
-fn build_artwork(
+/// Builds artwork with parallel source decoding and ordered texture admission.
+fn build_artwork<B: AsRef<[u8]>>(
     entities: &CompiledEntityAssets,
     _runtime_entities: &assets::RuntimeEntityAssets,
-    read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
+    read: &(impl Fn(u32) -> Result<B, AssetError> + Sync),
     lenient: bool,
 ) -> Result<ArtworkBuild, AssetError> {
     let mut textures = Vec::<ActorTexture>::new();

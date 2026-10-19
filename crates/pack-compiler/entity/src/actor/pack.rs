@@ -70,14 +70,14 @@ fn compile_stages(
     check()?;
     let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone())?;
     check()?;
-    let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
+    let read = |index: u32| -> Result<&[u8], AssetError> {
         let source = &pack.assets.sources[index as usize];
         pack.payloads
             .get(source.path.as_ref())
-            .map(|bytes| bytes.to_vec())
+            .map(AsRef::as_ref)
             .ok_or_else(|| invalid("pack entity source payload is absent"))
     };
-    let build = build_artwork(&pack.assets, &runtime, &mut read, true)?;
+    let build = build_artwork(&pack.assets, &runtime, &read, true)?;
     check()?;
     let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with(
         &pack.assets,
