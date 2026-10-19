@@ -102,3 +102,14 @@ fn cancellation_stops_before_preparing_sources() {
     assert!(result.is_none());
     assert_eq!(SOURCE_PARSES.get(), 0);
 }
+
+#[test]
+fn isolation_caches_invalid_admitted_sources() {
+    let mut files = cyclic_pack();
+    files.push(file("entity/invalid.json", "{invalid"));
+    let expected = files.len();
+    SOURCE_PARSES.set(0);
+    let error = compile_entity_pack(files).unwrap_err().to_string();
+    assert!(error.contains("cycle"), "{error}");
+    assert_eq!(SOURCE_PARSES.get(), expected);
+}

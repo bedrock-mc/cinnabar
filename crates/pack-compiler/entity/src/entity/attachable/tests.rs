@@ -490,3 +490,22 @@ fn merged_animation_document_is_parsed_once_for_many_attachables() {
     );
     assert_eq!(ANIMATION_PARSES.get(), 1);
 }
+
+#[test]
+fn unreferenced_animation_documents_are_not_parsed_for_bindings() {
+    let payloads = payloads(&[
+        ("attachables/helmet.json", HELMET_MOB),
+        ("animations/unused.json", TRIDENT_ANIM),
+    ]);
+    let symbols = symbols(&[(
+        EntityAssetKind::Animation,
+        "animation.trident.wield_first_person",
+        0,
+    )]);
+    let sources = sources(&["animations/unused.json"]);
+    ANIMATION_PARSES.set(0);
+    let bindings =
+        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(ANIMATION_PARSES.get(), 0);
+}

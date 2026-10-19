@@ -2,81 +2,89 @@
 
 use super::*;
 
-pub(super) enum Skip {
-    Oversized,
-    Unparsable,
-}
-
 pub(super) struct ParsedSource {
     pub(super) record: EntityAssetSource,
-    pub(super) bytes: Box<[u8]>,
     pub(super) symbols: BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     pub(super) geometries: BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
-    pub(super) valid: bool,
 }
 
 pub(super) struct PreparedFile {
-    pub(super) path: Box<str>,
-    pub(super) parsed: Result<ParsedSource, Skip>,
+    pub(super) source: PackSource,
+    normalized: Option<bool>,
+    geometry: Option<Value>,
+    pub(super) parsed: std::cell::OnceCell<Option<ParsedSource>>,
 }
 
 impl PreparedFile {
-    /// Retains normalization, extracted definitions and the digest for every later attempt.
-    pub(super) fn new(mut source: PackSource) -> Self {
+    /// Retains authored input without parsing or hashing it before admission.
+    pub(super) fn new(source: PackSource) -> Self {
         Self {
-            parsed: prepare(&mut source),
-            path: source.path,
+            source,
+            normalized: None,
+            geometry: None,
+            parsed: std::cell::OnceCell::new(),
         }
+    }
+
+    /// Normalizes geometry once before returning the byte count used for admission.
+    pub(super) fn bytes_len(&mut self) -> Option<usize> {
+        if self.source.path.starts_with("models/entity/") && self.normalized.is_none() {
+            let geometry = normalize_geometry(&self.source.bytes);
+            self.normalized = Some(geometry.is_some());
+            if let Some((bytes, value)) = geometry {
+                self.source.bytes = bytes;
+                // An oversized document cannot be admitted on a later attempt.
+                self.geometry =
+                    (self.source.bytes.len() <= assets::MAX_ENTITY_SOURCE_BYTES).then_some(value);
+            }
+        }
+        (self.normalized != Some(false)).then_some(self.source.bytes.len())
+    }
+
+    /// Extracts and hashes admitted input once, caching malformed definitions as failures.
+    pub(super) fn parsed(&mut self) -> Option<&ParsedSource> {
+        let geometry = self.geometry.take();
+        self.parsed
+            .get_or_init(|| {
+                let mut symbols = BTreeMap::new();
+                let mut geometries = BTreeMap::new();
+                #[cfg(test)]
+                SOURCE_PARSES.update(|count| count + 1);
+                if let Some(value) = geometry {
+                    parse_geometry(
+                        &self.source.path,
+                        Path::new(self.source.authored_path.as_ref()),
+                        &value,
+                        &mut symbols,
+                        &mut geometries,
+                    )
+                } else {
+                    self.source
+                        .parse(&self.source.bytes, &mut symbols, &mut geometries)
+                }
+                .ok()?;
+                if !file_identifiers_are_valid(&symbols, &geometries) {
+                    return None;
+                }
+                Some(ParsedSource {
+                    record: EntityAssetSource {
+                        path: self.source.path.clone(),
+                        source_bytes: self.source.bytes.len() as u32,
+                        source_sha256: Sha256::digest(&self.source.bytes).into(),
+                    },
+                    symbols,
+                    geometries,
+                })
+            })
+            .as_ref()
     }
 }
 
-/// Parses a source independently; admission and its byte budget are decided at merge time.
-fn prepare(source: &mut PackSource) -> Result<ParsedSource, Skip> {
-    let mut geometry = None;
-    let bytes = if source.path.starts_with("models/entity/") {
-        let mut value =
-            pack_json::parse_jsonc::<Value>(&source.bytes).map_err(|_| Skip::Unparsable)?;
-        if !sanitize::sanitize_geometry(&mut value) {
-            return Err(Skip::Unparsable);
-        }
-        let bytes = serde_json::to_vec(&value).map_err(|_| Skip::Unparsable)?;
-        geometry = Some(value);
-        bytes.into_boxed_slice()
-    } else {
-        std::mem::take(&mut source.bytes).into_boxed_slice()
-    };
-    if bytes.len() > assets::MAX_ENTITY_SOURCE_BYTES {
-        return Err(Skip::Oversized);
+/// Returns the sanitized payload and parsed value without parsing the serialized bytes again.
+fn normalize_geometry(bytes: &[u8]) -> Option<(Vec<u8>, Value)> {
+    let mut value = pack_json::parse_jsonc::<Value>(bytes).ok()?;
+    if !sanitize::sanitize_geometry(&mut value) {
+        return None;
     }
-    let mut symbols = BTreeMap::new();
-    let mut geometries = BTreeMap::new();
-    #[cfg(test)]
-    SOURCE_PARSES.update(|count| count + 1);
-    let result = if let Some(value) = geometry {
-        parse_geometry(
-            &source.path,
-            Path::new(source.authored_path.as_ref()),
-            &value,
-            &mut symbols,
-            &mut geometries,
-        )
-    } else {
-        source.parse(&bytes, &mut symbols, &mut geometries)
-    };
-    let valid = result.is_ok() && file_identifiers_are_valid(&symbols, &geometries);
-    if !valid {
-        symbols.clear();
-        geometries.clear();
-    }
-    Ok(ParsedSource {
-        record: EntityAssetSource {
-            path: source.path.clone(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: Sha256::digest(&bytes).into(),
-        },
-        bytes,
-        symbols,
-        geometries,
-        valid,
-    })
+    Some((serde_json::to_vec(&value).ok()?, value))
 }

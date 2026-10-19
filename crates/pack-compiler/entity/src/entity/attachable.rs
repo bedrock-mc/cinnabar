@@ -78,7 +78,7 @@ pub(super) fn compile_bindings(
 ) -> Result<Box<[EquipmentBinding]>, AttachableError> {
     let materials = super::materials::MaterialStates::load(Path::new(""), payloads, sources)
         .map_err(|_| AttachableError::Malformed)?;
-    let animation_bones = animation_bone_index(payloads, symbols, sources);
+    let mut animation_bones = AnimationBones::new(payloads, symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
     let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
@@ -89,7 +89,7 @@ pub(super) fn compile_bindings(
         let parsed = match parse_unique_json(Path::new(path.as_ref()), bytes)
             .map_err(|_| AttachableError::Malformed)
             .and_then(|value| {
-                parse_attachable(&value, &animation_bones, controller_resources.get(path))
+                parse_attachable(&value, &mut animation_bones, controller_resources.get(path))
             }) {
             Ok(parsed) => parsed,
             // A server pack's bad attachable drops only itself.
@@ -272,7 +272,7 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
 
 fn parse_attachable(
     value: &Value,
-    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
+    animation_bones: &mut AnimationBones<'_>,
     controller_resources: Option<&ControllerResources>,
 ) -> Result<ParsedAttachable, AttachableError> {
     let description = parse_description(value)?;
@@ -374,7 +374,7 @@ fn parse_animation_document(bytes: &[u8]) -> Option<Value> {
 fn wield_transform(
     animations: Option<&serde_json::Map<String, Value>>,
     local_key: &str,
-    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
+    animation_bones: &mut AnimationBones<'_>,
 ) -> EquipmentTransform {
     let literal = animations
         .and_then(|animations| animations.get(local_key))
@@ -390,7 +390,7 @@ fn wield_transform(
 /// rotation (and scale, if any) are pure numeric arrays; Molang strings -> None.
 fn literal_bone_transform(
     identifier: &str,
-    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
+    animation_bones: &mut AnimationBones<'_>,
 ) -> Option<ItemDisplayTransform> {
     let bones = animation_bones.get(identifier)?;
     if bones.len() != 1 {
@@ -415,7 +415,7 @@ fn literal_bone_transform(
 /// with any other Molang are left out (`NeedsMeasurement` at the consumer).
 fn literal_poses(
     animations: Option<&serde_json::Map<String, Value>>,
-    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
+    animation_bones: &mut AnimationBones<'_>,
     slots: &[Option<&str>],
 ) -> Box<[AttachablePose]> {
     let mut poses = Vec::new();
@@ -443,7 +443,7 @@ fn literal_poses(
 /// Extracts literal pose channels, resolving supported hand-dependent values for the slot.
 fn literal_clip_bones(
     identifier: &str,
-    animation_bones: &BTreeMap<Box<str>, serde_json::Map<String, Value>>,
+    animation_bones: &mut AnimationBones<'_>,
     slot: Option<&str>,
 ) -> Option<Box<[AttachablePoseBone]>> {
     let bones = animation_bones.get(identifier)?;
@@ -512,45 +512,51 @@ fn scalar(value: f32) -> Option<ItemDisplayScalar> {
     ItemDisplayScalar::new(value)
 }
 
-/// Indexes each selected animation's bones, parsing shared documents only once.
-fn animation_bone_index(
-    payloads: &SourcePayloads,
-    symbols: &[EntityAssetSymbol],
-    sources: &[EntityAssetSource],
-) -> BTreeMap<Box<str>, serde_json::Map<String, Value>> {
-    if !payloads.keys().any(|path| path.starts_with("attachables/")) {
-        return BTreeMap::new();
-    }
-    let mut by_source = BTreeMap::<&str, Vec<&str>>::new();
-    for (identifier, source) in animation_source_index(symbols, sources) {
-        by_source.entry(source).or_default().push(identifier);
-    }
-    let mut index = BTreeMap::new();
-    for (source, identifiers) in by_source {
-        let Some(mut document) = payloads
-            .get(source)
-            .and_then(|bytes| parse_animation_document(bytes))
-        else {
-            continue;
-        };
-        let Some(animations) = document
-            .get_mut("animations")
-            .and_then(Value::as_object_mut)
-        else {
-            continue;
-        };
-        for identifier in identifiers {
-            let Some(bones) = animations
-                .get_mut(identifier)
-                .and_then(|animation| animation.get_mut("bones"))
-                .and_then(Value::as_object_mut)
-            else {
-                continue;
-            };
-            index.insert(identifier.into(), std::mem::take(bones));
+type AnimationBoneDocument = BTreeMap<String, serde_json::Map<String, Value>>;
+
+/// Resolves selected clips while retaining only animation documents a binding requests.
+struct AnimationBones<'a> {
+    payloads: &'a SourcePayloads,
+    sources: BTreeMap<&'a str, &'a str>,
+    documents: BTreeMap<&'a str, Option<AnimationBoneDocument>>,
+}
+
+impl<'a> AnimationBones<'a> {
+    /// Records the existing first-source selection without parsing any document.
+    fn new(
+        payloads: &'a SourcePayloads,
+        symbols: &'a [EntityAssetSymbol],
+        sources: &'a [EntityAssetSource],
+    ) -> Self {
+        Self {
+            payloads,
+            sources: animation_source_index(symbols, sources),
+            documents: BTreeMap::new(),
         }
     }
-    index
+
+    /// Indexes a requested clip's source once, including missing or malformed documents.
+    fn get(&mut self, identifier: &str) -> Option<&serde_json::Map<String, Value>> {
+        let source = *self.sources.get(identifier)?;
+        let document = self
+            .documents
+            .entry(source)
+            .or_insert_with(|| {
+                let mut document = parse_animation_document(self.payloads.get(source)?)?;
+                let animations = document.get_mut("animations")?.as_object_mut()?;
+                Some(
+                    std::mem::take(animations)
+                        .into_iter()
+                        .filter_map(|(identifier, mut clip)| {
+                            let bones = clip.get_mut("bones")?.as_object_mut()?;
+                            Some((identifier, std::mem::take(bones)))
+                        })
+                        .collect(),
+                )
+            })
+            .as_ref()?;
+        document.get(identifier)
+    }
 }
 
 fn animation_source_index<'a>(
