@@ -128,12 +128,7 @@ impl LoginSequence {
         drop(spawn_stage);
         let pack_wait = profile.stage("remaining_pack_preparation");
         let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");
-        tokio::pin!(preparation);
-        // Keep reading while the packs prepare, so the server's backlog never stalls the core.
-        let prepared = tokio::select! {
-            prepared = &mut preparation => prepared,
-            () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => preparation.await,
-        };
+        let prepared = prepare_with_read_ahead(&mut transport, preparation).await?;
         drop(pack_wait);
         profile.mark("session_ready");
         let session = PlaySession::new(
@@ -143,6 +138,26 @@ impl LoginSequence {
             spawned.terrain_before_spawn,
         );
         Ok((session, prepared))
+    }
+}
+
+/// Keeps bounded play frames in order while preparation runs, abandoning obsolete work on a
+/// usable core terminal. An unusable transfer retains its ordinary later handling.
+async fn prepare_with_read_ahead<R: FrameRead, P>(
+    transport: &mut SessionTransport<R>,
+    preparation: impl Future<Output = P>,
+) -> Result<P, ProtocolError> {
+    tokio::pin!(preparation);
+    tokio::select! {
+        prepared = &mut preparation => Ok(prepared),
+        () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => {
+            if let Some(terminal) = transport.buffered_startup_terminal()?
+                && let Ok(error) = super::startup::terminal_error(terminal)
+            {
+                return Err(error);
+            }
+            Ok(preparation.await)
+        },
     }
 }
 

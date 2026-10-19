@@ -288,6 +288,9 @@ Online services are implemented; complete acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
+preparation and presentation readiness remain required for a successful join. Live
+server latency impact and the complete transfer acceptance matrix remain unqualified.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware

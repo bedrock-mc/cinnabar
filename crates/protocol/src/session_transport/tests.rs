@@ -202,6 +202,13 @@ pub(crate) mod unix {
         write_frame(peer, &time(3)).await;
         transport.read_ahead(usize::MAX).await;
         assert_eq!(transport.ahead.len(), 3, "the terminal ends the read-ahead");
+        let ahead_bytes = transport.ahead_bytes;
+        assert!(matches!(
+            transport.buffered_startup_terminal().unwrap(),
+            Some(Terminal::Transfer(_))
+        ));
+        assert_eq!(transport.ahead.len(), 3);
+        assert_eq!(transport.ahead_bytes, ahead_bytes);
 
         let mut times = Vec::new();
         for _ in 0..2 {
