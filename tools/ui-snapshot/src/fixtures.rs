@@ -23,6 +23,12 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// An equipped original cosmetic rendered by the full production particle-preview path.
+    #[cfg(feature = "test-support")]
+    CosmeticParticles {
+        view: client_ui::ui_runtime::presentation::player_preview::PreviewView,
+        emitting: bool,
+    },
     Menu(Box<MenuView>),
     Loading(ui::LoadingStage),
     Chat {
@@ -55,6 +61,42 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "paper-doll-particles-before",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Doll {
+                yaw: 30.0,
+                tilt: -10.0,
+            },
+            emitting: false,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "paper-doll-particles",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Doll {
+                yaw: 30.0,
+                tilt: -10.0,
+            },
+            emitting: true,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "hud-doll-particles",
+        size: [288, 336],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Hud,
+            emitting: true,
+        },
+    },
     State {
         name: "home-mod-update-before",
         size: SIZE,

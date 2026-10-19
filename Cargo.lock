@@ -2725,6 +2725,7 @@ dependencies = [
  "pack-compiler",
  "pack-entity-compiler",
  "pack-json",
+ "particles",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -9129,6 +9130,7 @@ version = "0.1.21"
 dependencies = [
  "assets",
  "bridge",
+ "client-ui",
  "cosmetics",
  "image",
  "inventory 0.1.21",

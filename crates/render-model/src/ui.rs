@@ -76,6 +76,10 @@ pub const UI_STYLE_GLINT: u32 = 1 << 1;
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 /// Texture alpha weights dye color; every surviving sampled texel is opaque.
 pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
+/// Premultiplied RGB contributes light while preserving destination coverage.
+pub const UI_STYLE_ADDITIVE: u32 = 1 << 9;
+/// Particle materials threshold cutout texels before applying the emitter's independent alpha.
+pub const UI_STYLE_PARTICLE: u32 = 1 << 10;
 
 #[cfg(test)]
 mod style_tests {

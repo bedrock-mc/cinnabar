@@ -220,6 +220,10 @@ and rendered qualification, not initial implementation of those systems.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
+Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
+shared particle engine and attachment poses. Catalog-wide, in-world interaction
+and performance qualification for these previews remains open.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,

@@ -161,7 +161,13 @@ impl Canvas {
                     v[0].style_flags,
                     scale,
                 );
-                blend_into(&mut self.pixels[row + x as usize], texel, color, blend);
+                blend_styled(
+                    &mut self.pixels[row + x as usize],
+                    texel,
+                    color,
+                    blend,
+                    v[0].style_flags,
+                );
             }
         }
     }
@@ -236,7 +242,7 @@ impl Canvas {
                     (shaded_sample(texture, [u, t], color, flags, scale), color)
                 };
                 let at = y as usize * self.width as usize + x as usize;
-                blend_into(&mut self.pixels[at], texel, tint, blend);
+                blend_styled(&mut self.pixels[at], texel, tint, blend, flags);
             }
         }
     }
@@ -360,6 +366,35 @@ fn mul(a: u8, b: u8) -> u32 {
     (u32::from(a) * u32::from(b) + 127) / 255
 }
 
+/// Adds particle light without changing coverage; other styles retain ordinary compositing.
+fn blend_styled(
+    dst: &mut [u8; 4],
+    mut texel: [u8; 4],
+    tint: [u8; 4],
+    blend: UiBlendMode,
+    flags: u16,
+) {
+    if u32::from(flags) & render_model::UI_STYLE_PARTICLE != 0 {
+        if u32::from(flags) & render_model::UI_STYLE_ALPHA_TEST != 0 {
+            if texel[3] < 128 {
+                return;
+            }
+            texel[3] = 255;
+        }
+        if mul(texel[3], tint[3]) < 3 {
+            return;
+        }
+    }
+    if u32::from(flags) & render_model::UI_STYLE_ADDITIVE != 0 {
+        let alpha = mul(texel[3], tint[3]) as u8;
+        for c in 0..3 {
+            dst[c] = (u32::from(dst[c]) + mul(mul(texel[c], tint[c]) as u8, alpha)).min(255) as u8;
+        }
+    } else {
+        blend_into(dst, texel, tint, blend);
+    }
+}
+
 fn blend_into(dst: &mut [u8; 4], texel: [u8; 4], tint: [u8; 4], blend: UiBlendMode) {
     let alpha = mul(texel[3], tint[3]);
     if alpha == 0 {
@@ -390,6 +425,19 @@ fn blend_into(dst: &mut [u8; 4], texel: [u8; 4], tint: [u8; 4], blend: UiBlendMo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn additive_particles_preserve_destination_coverage() {
+        let mut destination = [40, 60, 80, 255];
+        super::blend_styled(
+            &mut destination,
+            [200, 100, 0, 128],
+            [255; 4],
+            ui::UiBlendMode::Alpha,
+            render_model::UI_STYLE_ADDITIVE as u16,
+        );
+        assert_eq!(destination, [140, 110, 80, 255]);
+    }
+
     use super::*;
     use ui::{UiNode, UiNodeId, UiPoint, UiRect, UiTree, UiVisual};
 

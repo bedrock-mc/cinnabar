@@ -203,3 +203,17 @@ pub fn glowing_crown() -> Item {
         .unwrap()
     })
 }
+
+/// Admits the original crown with a looping particle sampling its own first sprite region.
+pub fn sprite_crown() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut effect: serde_json::Value = serde_json::from_str(EMITTER_EFFECT).unwrap();
+        effect["particle_effect"]["description"]["basic_render_parameters"]["texture"] = super::COSMETIC_PARTICLE_TEXTURE.into();
+        let animation = serde_json::to_vec(&serde_json::json!({"particles": [{"bone": "head", "offset": [0, 10, 0], "effect": effect, "sprites": [0, 0]}]})).unwrap();
+        let mut item = glowing_crown().descriptor().clone();
+        item.id = "fixture:sprite_crown".into();
+        item.assets.animation = Some(animation_asset(&animation));
+        super::admit(item, include_bytes!("crown.geo.json"), include_bytes!("crown.png"), &animation).unwrap()
+    })
+}

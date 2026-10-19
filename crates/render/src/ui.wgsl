@@ -13,6 +13,8 @@ const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
+const STYLE_ADDITIVE: u32 = UI_STYLE_ADDITIVE;
+const STYLE_PARTICLE: u32 = UI_STYLE_PARTICLE;
 const STYLE_RADIAL_GRADIENT: u32 = UI_STYLE_RADIAL_GRADIENT;
 const STYLE_COVERAGE_PAINT: u32 = UI_STYLE_COVERAGE_PAINT;
 
@@ -157,6 +159,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     } else if (input.style_flags & STYLE_ALPHA_TEST) != 0u && sample.a < 0.5 {
         discard;
     }
+    if (input.style_flags & STYLE_PARTICLE) != 0u {
+        if (input.style_flags & STYLE_ALPHA_TEST) != 0u { sample.a = 1.0; }
+        if sample.a * input.color.a < 0.01 { discard; }
+    }
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.
@@ -184,7 +190,9 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if direct { shine = srgb_to_linear(shine); }
         premultiplied_rgb += shine * viewport.glint_strength * alpha;
     }
-    return vec4<f32>(premultiplied_rgb, alpha);
+    // Zero coverage keeps alpha-over's destination factor at one for authored additive effects.
+    let coverage = select(alpha, 0.0, (input.style_flags & STYLE_ADDITIVE) != 0u);
+    return vec4<f32>(premultiplied_rgb, coverage);
 }
 
 // Keep the existing UI clock and scrolling rates while sampling pack artwork.
