@@ -116,3 +116,40 @@ fn a_different_file_key_makes_the_same_bytes_differ() {
     );
     assert!(!stack(vec![reference], &[]).same_contents(&stack(vec![rekeyed], &[])));
 }
+
+#[test]
+fn keyed_jsonc_reads_keep_the_previous_plaintext_selection() {
+    for body in [
+        br#"{"a":1,"a":2,"number":1.0000000000000002}"#.as_slice(),
+        b"\xef\xbb\xbf{/* comment */\"text\":\"\xff\",\"a\":[1,],}",
+        b"{\"ignored\":1e309}",
+        b"{} {}",
+        b"{,}",
+    ] {
+        let index = format!(r#"{{"content":[{{"path":"test.json","key":"{FILE_KEY}"}}]}}"#);
+        let mut ciphertext = body.to_vec();
+        crate::crypto::tests::encrypt(FILE_KEY.as_bytes(), &mut ciphertext);
+        for raw in [body, ciphertext.as_slice()] {
+            let mut decrypted = raw.to_vec();
+            ContentKey::new(FILE_KEY.as_bytes())
+                .unwrap()
+                .decrypt(&mut decrypted);
+            let expected = if pack_json::normalize_jsonc(&decrypted).is_none()
+                && pack_json::normalize_jsonc(raw).is_some()
+            {
+                raw
+            } else {
+                &decrypted
+            };
+            let pack = admit(
+                zip_files(&[("contents.json", index.as_bytes()), ("test.json", raw)]),
+                "",
+                ContentKey::new(PACK_KEY),
+            );
+            assert_eq!(
+                pack.read_file("test.json").unwrap().unwrap().as_ref(),
+                expected
+            );
+        }
+    }
+}
