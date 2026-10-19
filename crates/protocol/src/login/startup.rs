@@ -61,7 +61,7 @@ impl DeferredPackets {
 }
 
 /// Runs the spawn sequence: requests the radius once StartGame has arrived, then returns once the
-/// first item registry, the radius reply and PlayerSpawn have all arrived, leaving every deferred
+/// first item registry and PlayerSpawn have both arrived, leaving every deferred
 /// packet ahead of unread ones. `on_startup` receives the first StartGame and item registry as soon
 /// as both have arrived, while the sequence keeps reading. Dropping the future cancels it.
 pub(super) async fn await_spawn<R: bridge::FrameRead>(
@@ -75,7 +75,6 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
     let mut item_registry: Option<ItemRegistry> = None;
     let mut registry_seen = false;
     let mut sent_chunk_radius = false;
-    let mut received_chunk_radius = false;
     let mut received_player_spawn = false;
     let mut terrain_before_spawn = false;
     let mut deferred = DeferredPackets::default();
@@ -134,7 +133,6 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                     .into());
                 }
                 deferred.push(raw)?;
-                received_chunk_radius = true;
             }
             PacketId::Disconnect => {
                 let packets::Packet::Disconnect(disconnect) = *raw.decode()?.data else {
@@ -171,11 +169,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
             }
             sent_chunk_radius = true;
         }
-        if sent_chunk_radius
-            && received_chunk_radius
-            && received_player_spawn
-            && on_startup.is_none()
-        {
+        if sent_chunk_radius && received_player_spawn && on_startup.is_none() {
             break;
         }
     }

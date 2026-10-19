@@ -4407,10 +4407,12 @@ is open.
 2026-10-12 protocol session layer: `protocol::login` owns the play stream on the core's session
 endpoint. Its spawn sequence keeps the first item registry, defers every other packet to play in
 order, records whether terrain preceded spawn and sends loading-end and initialization once the
-app presents the world. The core's terminal Transfer and Disconnect are retained directly rather
-than as server packets. The vendored client session crate and its crypto dependencies are gone;
-Valentine stays the only codec until the generated contract crate replaces it. Behaviour and
-parity are unchanged; the ported startup and play tests are unexecuted until CI.
+app presents the world. Startup requires StartGame, the first item registry and PlayerSpawn;
+the radius request is sent once, while its reply remains an optional update delivered to play.
+The core's terminal Transfer and Disconnect are retained directly rather than as server packets.
+The vendored client session crate and its crypto dependencies are gone; Valentine stays the
+only codec until the generated contract crate replaces it. Missing-reply and late-reply protocol
+regressions cover startup; live startup and parity acceptance remain open.
 
 2026-10-12 protocol boundary: `protocol` exposes only Cinnabar-owned types: an opaque
 `Packet`, owned `GameData` startup facts, the login skin and version constants, the pack
