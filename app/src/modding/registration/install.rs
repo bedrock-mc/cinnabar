@@ -43,10 +43,9 @@ pub(super) fn sync_authority(world: &mut World) {
     for program in retired {
         world.resource::<Watcher>().retire(Retired::Packet(program));
     }
-    world.resource::<Watcher>().remember_settings(
-        world.get_resource::<ModRuntime>(),
-        world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-    );
+    world
+        .resource::<Watcher>()
+        .remember_settings(world.get_resource::<ModRuntime>());
     refresh_presentation(world);
 }
 
@@ -132,7 +131,6 @@ fn publish(world: &mut World, candidate: Candidate) -> Result<(), Box<Candidate>
     if previous.is_some_and(|index| {
         super::super::admission::DrawingContext::capture(
             world.resource::<ModRuntime>().hosts.host(index),
-            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
         ) != candidate.drawing
     }) {
         return Err(Box::new(candidate));
@@ -303,10 +301,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
             })
         });
     if stale_settings {
-        watcher.remember_settings(
-            world.get_resource::<ModRuntime>(),
-            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-        );
+        watcher.remember_settings(world.get_resource::<ModRuntime>());
         for change in update.changes {
             if let Ok(candidate) = change.result {
                 candidate.retire(watcher);

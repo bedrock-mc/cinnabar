@@ -527,7 +527,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
-    watcher.remember_settings(Some(world.resource::<ModRuntime>()), None);
+    watcher.remember_settings(Some(world.resource::<ModRuntime>()));
     let permit = removal::Permit::new(
         watcher.latest.load(Ordering::Acquire),
         watcher.latest.clone(),
@@ -841,7 +841,6 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
         .bind_drawing_session(session);
     let context = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
-        None,
     );
     let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = context;
@@ -862,7 +861,6 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
     let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
-        None,
     );
     let stale = Box::new(build_candidate(snapshot).unwrap());
     world

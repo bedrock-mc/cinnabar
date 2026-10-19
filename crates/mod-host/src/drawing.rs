@@ -28,11 +28,7 @@ impl wit::Host for State {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
-        if !permissions.entity_observe
-            || self
-                .drawing_policy
-                .is_some_and(|policy| !policy.local && !permissions.render_through_walls)
-        {
+        if !permissions.entity_observe {
             return Ok(Err(convert_error(domain::DrawError {
                 code: domain::ErrorCode::Denied,
                 detail: "unfiltered entity observation",
@@ -445,11 +441,10 @@ mod entity_tests {
     use wit::Host as _;
 
     #[test]
-    fn remote_actor_references_need_explicit_unfiltered_observation_authority() {
+    fn actor_references_require_user_observation_consent() {
         let mut state = State::new(
             crate::ModGrants {
                 world_draw: true,
-                entity_observe: true,
                 ..Default::default()
             },
             String::new(),
@@ -463,7 +458,7 @@ mod entity_tests {
             state.observe_entities().unwrap().unwrap_err().code,
             wit::ErrorCode::Denied
         );
-        state.grants.render_through_walls = true;
+        state.grants.entity_observe = true;
         state
             .render
             .retained

@@ -17,7 +17,7 @@ use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInt
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
 use candidate::{Candidate, Runtime as CandidateRuntime};
-use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModHost, SettingsSnapshot};
 pub(super) use schema::Entry;
@@ -74,12 +74,9 @@ struct SourceSnapshot {
 }
 
 impl SourceSnapshot {
-    /// Resolves this snapshot's digest against its captured drawing authority.
+    /// Retains the live-world fence captured for this snapshot.
     fn drawing_policy(&self) -> Option<mod_api::drawing::DrawingSession> {
-        use sha2::{Digest, Sha256};
-        self.drawing
-            .as_ref()
-            .map(|drawing| drawing.policy(Sha256::digest(&self.component).into()))
+        self.drawing.as_ref().map(|drawing| drawing.policy())
     }
 
     /// Selects source edits and recoverable fence changes without reviving a stopped identity.
@@ -347,11 +344,7 @@ impl Watcher {
             .collect();
     }
     /// Captures each mod's latest in-memory preferences before preparing replacements.
-    pub(super) fn remember_settings(
-        &self,
-        runtime: Option<&ModRuntime>,
-        ui: Option<&client_ui::ui_runtime::UiRuntime>,
-    ) {
+    pub(super) fn remember_settings(&self, runtime: Option<&ModRuntime>) {
         self.remember_companions(runtime);
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
         drawing.clear();
@@ -363,7 +356,7 @@ impl Watcher {
                 continue;
             };
             let host = runtime.hosts.host(index);
-            if let Some(context) = super::admission::DrawingContext::capture(host, ui) {
+            if let Some(context) = super::admission::DrawingContext::capture(host) {
                 drawing.insert(registered.entry.component.clone(), context);
             }
             if let Some(snapshot) = SettingsSnapshot::capture(host) {

@@ -269,10 +269,14 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
-The user-consented `players` and `camera` grants remain available in multiplayer
-independently of drawing-session negotiation. They do not grant entity,
-terrain, highlighting or drawing permissions; those retain their separate
-consent and session limits.
+Personal-mod capabilities use explicit user consent in both local and remote worlds.
+Servers do not grant or restrict those permissions. Drawing, entity observation,
+terrain reads, block highlights, materials and post effects each retain their own
+permission controls and component-declared requests. Drawing resources and observations
+remain scoped to the live connection and dimension; disconnects, transfers, reloads,
+traps and revocation clear the previous instance's output. Mod updates retain this
+user-consent policy independently of server negotiation, mod digest allowlists and
+server-grant expiry.
 
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads
@@ -1080,7 +1084,9 @@ rendered frame yet; see `plan.md`.
 ## Loaded block highlights
 
 The separate `block_highlights` grant (`CINNABAR_MOD_BLOCK_HIGHLIGHTS=1`) permits
-`render.set-block-highlights`. A retained specification names up to
+`render.set-block-highlights`. User consent is sufficient in local and remote
+sessions, including servers without drawing negotiation.
+A retained specification names up to
 `mod_api::MAX_BLOCK_HIGHLIGHT_IDENTIFIERS` canonical block identifiers, a bounded
 camera-relative range, and linear RGBA colour. The host scans only loaded primary
 block layers, caches palettes and subchunk identities, and draws full unit cubes
