@@ -99,6 +99,7 @@ fn assemble(
     let layer = |packs: &[ValidatedPack]| ValidatedPackStack {
         packs: packs.into(),
         rejections: Box::default(),
+        fingerprint: Default::default(),
     };
     let lower = ValidatedPackStack::compose(&layer(below), server)?;
     ValidatedPackStack::compose(&lower, &layer(above))
