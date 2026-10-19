@@ -1129,3 +1129,6 @@ fn importing_a_large_packet_source_keeps_bytes_and_permissions_default_off() {
         "importing and enabling never silently grant packet authority"
     );
 }
+
+#[path = "tests/packet_flow.rs"]
+mod packet_flow;

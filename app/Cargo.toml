@@ -18,6 +18,7 @@ reads = [
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/protocol/fixtures/start_game.bin",
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
