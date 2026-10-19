@@ -245,42 +245,58 @@ pub struct ClothState {
     seconds: f32,
     previous_center: Option<Vec3>,
     last_pins: Vec<Vec3>,
-    current: Arc<[RenderBoneTransform]>,
+    previous_scale: Option<Vec3>,
 }
 
 impl ClothState {
     /// Deform only the declared fabric; preserve the item's fixed clasps and ordinary animations.
+    /// Timing contains frame duration and tick interpolation; fabric uses identical render endpoints.
     pub fn pose(
         &mut self,
         item: Item,
-        base: Arc<[RenderBoneTransform]>,
+        bases: [Arc<[RenderBoneTransform]>; 2],
         actor: [[f32; 4]; 3],
-        delta: f32,
+        timing: (f32, f32),
         colliders: &[Collider],
     ) -> Option<(Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>)> {
         let model: &HatRig = rig(item);
         let cloth = model.cloth.as_ref()?;
+        let (delta, alpha) = timing;
         let world = placement(actor);
         if !world.is_finite() || world.determinant().abs() < 1e-8 {
             self.previous_center = None;
             return None;
         }
         let inverse = world.inverse();
-        let root = base[cloth.source];
-        let scale = Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3];
-        if !root.is_finite() || scale.min_element() <= 1e-5 {
+        let roots = [bases[0][cloth.source], bases[1][cloth.source]];
+        let root_scales =
+            roots.map(|root| Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3]);
+        if roots.iter().any(|root| !root.is_finite())
+            || root_scales.iter().any(|scale| scale.min_element() <= 1e-5)
+        {
             self.previous_center = None;
             return None;
         }
-        let transform = world
-            * Mat4::from_scale_rotation_translation(
-                scale,
-                Quat::from_array(root.rotation),
-                Vec3::from_slice(&root.translation_scale[..3]),
+        let sampled =
+            crate::actor::sampled_bone_offset([0.0; 3], roots[0], roots[1], actor, alpha)?;
+        let transform = Mat4::from_cols(
+            Vec3::from_array(sampled.basis[0]).extend(0.0),
+            Vec3::from_array(sampled.basis[1]).extend(0.0),
+            Vec3::from_array(sampled.basis[2]).extend(0.0),
+            Vec3::from_array(sampled.position).extend(1.0),
+        );
+        let scale = root_scales[0].lerp(root_scales[1], alpha.clamp(0.0, 1.0))
+            * Vec3::new(
+                world.x_axis.length(),
+                world.y_axis.length(),
+                world.z_axis.length(),
             );
         let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
         let center = world.w_axis.truncate();
         let reset = self.points.len() != cloth.rest.len()
+            || self
+                .previous_scale
+                .is_none_or(|old| !old.abs_diff_eq(scale, 1e-5))
             || self
                 .previous_center
                 .is_none_or(|p| p.distance(center) > 4.0);
@@ -305,7 +321,12 @@ impl ClothState {
             self.accumulator = 0.0;
         }
         self.previous_center = Some(center);
-        let previous = self.current.clone();
+        self.previous_scale = Some(scale);
+        for constraint in &mut self.constraints {
+            constraint.length = transform
+                .transform_vector3(cloth.rest[constraint.b] - cloth.rest[constraint.a])
+                .length();
+        }
         let delta = if delta.is_finite() {
             delta.clamp(0.0, 0.05)
         } else {
@@ -329,15 +350,19 @@ impl ClothState {
             );
             self.accumulator -= STEP;
         }
+        for (i, pin) in pins.iter().enumerate() {
+            self.points[i] = *pin;
+            self.old[i] = *pin;
+        }
         self.last_pins = pins;
         self.update_normals(cloth);
-        let mut poses = base.to_vec();
+        let mut poses = bases.map(|base| base.to_vec());
         for (i, point) in self.points.iter().enumerate() {
             let point = inverse.transform_point3(*point);
             let normal = inverse
                 .transform_vector3(self.normals[i])
                 .normalize_or_zero();
-            poses[cloth.first + i] = RenderBoneTransform {
+            let pose = RenderBoneTransform {
                 translation_scale: [point.x, point.y, point.z, 1.0],
                 rotation: if normal.length_squared() > 0.5 {
                     Quat::from_rotation_arc(Vec3::Z, normal).to_array()
@@ -346,16 +371,11 @@ impl ClothState {
                 },
                 axis_scale: UNIT_AXIS_SCALE,
             };
+            poses[0][cloth.first + i] = pose;
+            poses[1][cloth.first + i] = pose;
         }
-        self.current = poses.into();
-        Some((
-            if !reset && previous.len() == self.current.len() {
-                previous
-            } else {
-                self.current.clone()
-            },
-            self.current.clone(),
-        ))
+        let [previous, current] = poses;
+        Some((previous.into(), current.into()))
     }
 
     /// Compute one smooth normal per welded fabric particle.
@@ -435,8 +455,8 @@ mod tests {
     use super::*;
     use crate::{ActorRigSurface, ActorRigVertex, EntityRigId};
 
-    #[test]
-    fn admitted_cloth_expands_all_pose_channels_and_runs_through_the_native_rig() {
+    /// Admits a small synthetic fabric through the public asset contract.
+    fn admitted_fixture() -> Item {
         use sha2::{Digest, Sha256};
         let texture = include_bytes!("bunny_ears.png");
         let image = image::load_from_memory(texture).unwrap();
@@ -471,7 +491,12 @@ mod tests {
             texture: asset(texture),
             animation: Some(asset(animation)),
         };
-        let item = crate::hats::admit(descriptor, &geometry, texture, animation).unwrap();
+        crate::hats::admit(descriptor, &geometry, texture, animation).unwrap()
+    }
+
+    #[test]
+    fn admitted_cloth_expands_all_pose_channels_and_runs_through_the_native_rig() {
+        let item = admitted_fixture();
         let model = rig(item);
         assert!(model.has_cloth());
         let root = RenderBoneTransform {
@@ -486,17 +511,86 @@ mod tests {
             let (_, pose) = state
                 .pose(
                     item,
-                    base.clone(),
+                    [base.clone(), base.clone()],
                     [
                         [1.0, 0.0, 0.0, 0.0],
                         [0.0, 1.0, 0.0, 0.0],
                         [0.0, 0.0, 1.0, 0.0],
                     ],
-                    1.0 / 20.0,
+                    (1.0 / 20.0, 0.5),
                     &[],
                 )
                 .unwrap();
             assert!(pose.iter().all(|bone| bone.is_finite()));
+        }
+    }
+
+    #[test]
+    fn scaled_rest_lengths_and_frame_poses_preserve_attachment_endpoints() {
+        let item = admitted_fixture();
+        let model = rig(item);
+        let cloth = model.cloth.as_ref().unwrap();
+        let mut state = ClothState::default();
+        for scale in [Vec3::splat(0.5), Vec3::splat(2.0), Vec3::new(0.7, 1.3, 0.9)] {
+            let root = RenderBoneTransform {
+                rotation: Quat::IDENTITY.to_array(),
+                translation_scale: [0.0, 1.5, 0.0, 1.0],
+                axis_scale: [scale.x, scale.y, scale.z, 1.0],
+            };
+            let previous = model.pose(root, super::super::Motion::default());
+            let mut current = previous.to_vec();
+            for bone in &mut current {
+                bone.translation_scale[0] += 0.1;
+            }
+            let current: Arc<[RenderBoneTransform]> = current.into();
+            let actor = [
+                [1.2, 0.0, 0.0, 2.0],
+                [0.0, 0.8, 0.0, 0.0],
+                [0.0, 0.0, 1.1, 0.0],
+            ];
+            for frame in 0..120 {
+                let alpha = (frame % 3) as f32 * 0.4;
+                let (a, b) = state
+                    .pose(
+                        item,
+                        [previous.clone(), current.clone()],
+                        actor,
+                        (1.0 / 120.0, alpha),
+                        &[],
+                    )
+                    .unwrap();
+                assert_eq!(&a[..cloth.first], &previous[..cloth.first]);
+                assert_eq!(&b[..cloth.first], &current[..cloth.first]);
+                assert_eq!(&a[cloth.first..], &b[cloth.first..]);
+                let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
+                let mut offset = cloth.rest[0] - pivot;
+                offset.x *= 0.89;
+                let pin = crate::actor::sampled_bone_offset(
+                    offset.to_array(),
+                    previous[cloth.source],
+                    current[cloth.source],
+                    actor,
+                    alpha,
+                )
+                .unwrap();
+                assert!(state.points[0].abs_diff_eq(Vec3::from_array(pin.position), 1e-5));
+                for c in &state.constraints {
+                    let expected =
+                        ((cloth.rest[c.b] - cloth.rest[c.a]) * scale * Vec3::new(1.2, 0.8, 1.1))
+                            .length();
+                    assert!((c.length - expected).abs() < 1e-5);
+                }
+            }
+            let stretch = state
+                .constraints
+                .iter()
+                .filter(|c| c.compliance < 0.001)
+                .map(|c| state.points[c.a].distance(state.points[c.b]) / c.length - 1.0)
+                .fold(0.0_f32, f32::max);
+            assert!(
+                stretch < 0.12,
+                "scaled fabric lost its dimensions: {stretch}"
+            );
         }
     }
 

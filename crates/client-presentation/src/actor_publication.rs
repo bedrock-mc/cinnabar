@@ -289,9 +289,13 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
-    state
-        .hat_state
-        .attach(&mut batch, stream, &input.remote_hats, &mut params.scene);
+    state.hat_state.attach(
+        &mut batch,
+        stream,
+        &input.remote_hats,
+        &mut params.scene,
+        step.partial_tick,
+    );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
         state

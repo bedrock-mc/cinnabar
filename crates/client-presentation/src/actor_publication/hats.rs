@@ -105,6 +105,7 @@ impl HatState {
         stream: Option<&chunk_pipeline::WorldStream>,
         items: &[RemoteHat],
         scene: &mut render_scene::ActorRenderScene,
+        partial_tick: f32,
     ) {
         self.drawn.clear();
         let Some(stream) = stream else {
@@ -210,9 +211,12 @@ impl HatState {
                         .collect();
                     if let Some((previous, current)) = attachment.cloth.pose(
                         item,
-                        submission.input.current_bones.clone(),
+                        [
+                            submission.input.previous_bones.clone(),
+                            submission.input.current_bones.clone(),
+                        ],
                         body.world_from_actor,
-                        self.seconds,
+                        (self.seconds, partial_tick),
                         &colliders,
                     ) {
                         submission.input.previous_bones = previous;

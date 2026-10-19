@@ -30,6 +30,9 @@ func TestOwnershipUsesAuthenticatedSessionAndWithdrawsRevokedGrants(t *testing.T
 }
 
 func TestMalformedOwnershipFailsClosed(t *testing.T) {
+	if got := admittedOwnership([]string{"fixture:capes/paid"}); len(got) != 1 {
+		t.Fatal("schema-valid nested path was rejected", got)
+	}
 	if got := admittedOwnership([]string{"fixture:paid", "invalid/item"}); got != nil {
 		t.Fatal(got)
 	}

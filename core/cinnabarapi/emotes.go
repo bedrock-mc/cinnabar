@@ -159,7 +159,7 @@ func admittedOwnership(ids []string) []string {
 	result := make([]string, 0, len(ids))
 	seen := make(map[string]bool)
 	for _, id := range ids {
-		if !sharedIDPattern.MatchString(id) {
+		if len(id) > 128 || !cosmeticIDPattern.MatchString(id) {
 			return nil
 		}
 		if !seen[id] {

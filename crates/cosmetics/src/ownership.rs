@@ -43,15 +43,7 @@ impl Ownership {
             || xuid.len() > 20
             || !xuid.bytes().all(|byte| byte.is_ascii_digit())
             || ids.len() > crate::MAX_ITEMS
-            || ids.iter().any(|id| {
-                id.is_empty()
-                    || id.len() > 128
-                    || !id.bytes().all(|byte| {
-                        byte.is_ascii_lowercase()
-                            || byte.is_ascii_digit()
-                            || b"_.:-".contains(&byte)
-                    })
-            })
+            || ids.iter().any(|id| !valid_item_id(id))
         {
             return Self::default();
         }
@@ -60,6 +52,20 @@ impl Ownership {
             items: ids.iter().cloned().collect(),
         }
     }
+}
+
+/// Matches the shared schema's namespace and cosmetic path, including nested paths.
+fn valid_item_id(id: &str) -> bool {
+    let Some((namespace, path)) = id.split_once(':') else {
+        return false;
+    };
+    let valid = |part: &str, punctuation: &[u8]| {
+        !part.is_empty()
+            && part.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || punctuation.contains(&byte)
+            })
+    };
+    id.len() <= 128 && valid(namespace, b"_.-") && valid(path, b"_./-")
 }
 
 #[cfg(test)]
@@ -86,5 +92,27 @@ mod tests {
                 .items
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn cosmetic_paths_follow_the_shared_id_contract() {
+        assert!(
+            Ownership::from_session("1", &["fixture:capes/paid".into()])
+                .items
+                .contains("fixture:capes/paid")
+        );
+        for invalid in [
+            "fixture",
+            ":paid",
+            "fixture:",
+            "fix/ture:paid",
+            "fixture:paid:extra",
+        ] {
+            assert!(
+                Ownership::from_session("1", &[invalid.into()])
+                    .items
+                    .is_empty()
+            );
+        }
     }
 }
