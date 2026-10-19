@@ -273,7 +273,7 @@ pub use runtime::{
     SequentialIdRemap, ServerDefinedBlock, VanillaFallback, server_defined_blocks,
     server_defined_blocks_for_registry,
 };
-pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
+pub use server_lang::ServerLangOverlay;
 pub use session_entities::SessionEntityPack;
 pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
