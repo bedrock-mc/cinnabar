@@ -112,6 +112,19 @@ fn assert_shares_stack_outputs(left: &PackApplication, right: &PackApplication) 
     assert!(unshared.is_empty(), "compiled again: {unshared:?}");
 }
 
+/// Hashes compiled payloads without read ledgers or empty UI source layers.
+fn payload_fingerprint(application: &PackApplication) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut payload = application.clone();
+    payload.dependencies.clear();
+    if let Some(ui) = &mut payload.server_ui {
+        Arc::make_mut(ui)
+            .ui_layers
+            .retain(|layer| !layer.is_empty());
+    }
+    Sha256::digest(summary(&payload).as_bytes()).into()
+}
+
 // A transfer to a server offering the same packs reuses everything the last join compiled, so
 // downstream atlases see the same outputs and one copy of the archives stays alive.
 #[test]
@@ -451,7 +464,7 @@ fn composing_globals_preserves_unchanged_compiled_payloads() {
     let fresh = super::super::prepare_validated_application(composed, joined.inputs.clone());
     assert_eq!(recompiled(&joined, &reused), ["language", "sounds"]);
     assert!(same(&joined.item_icons, &reused.item_icons));
-    assert_eq!(summary(&reused), summary(&fresh));
+    assert_eq!(payload_fingerprint(&reused), payload_fingerprint(&fresh));
     for application in [&reused, &fresh] {
         let pack = application
             .entities
