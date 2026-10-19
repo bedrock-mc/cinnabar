@@ -458,7 +458,7 @@ impl<'a> Binder<'a> {
             &mut memory,
         );
         if native.collection_length.is_none()
-            && is_collection_factory(control)
+            && is_collection_factory(control, &bindings)
             && let Some(length) = own.get("#collection_length")
         {
             native::apply(
@@ -611,7 +611,7 @@ impl<'a> Binder<'a> {
                 .to_owned();
         }
         let scope = &scope;
-        let created = if is_collection_factory(control) {
+        let created = if is_collection_factory(control, &node.bindings) {
             Some(self.expand_factory(control, node, scope))
         } else if let Some(reference) = self.screen_factory(control) {
             Some(match self.expansion_scope(scope, &reference) {

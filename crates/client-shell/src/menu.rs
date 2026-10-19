@@ -938,6 +938,16 @@ impl MenuRuntime {
         self.disconnect_message = None;
         self.show_connecting();
     }
+
+    /// Supplies one authorized test join's private cache without changing the selected account.
+    #[cfg(feature = "developer-control")]
+    pub fn use_auth_cache_for_pending_join(&mut self, auth_cache: PathBuf) {
+        if let Some(join) = self.intents.join.as_mut() {
+            join.auth_cache = Some(auth_cache.clone());
+            let address = join.address.clone();
+            self.remember_retry_target(&address, Some(&auth_cache), false);
+        }
+    }
 }
 
 impl Drop for MenuRuntime {

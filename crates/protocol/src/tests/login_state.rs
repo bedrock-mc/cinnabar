@@ -136,6 +136,7 @@ async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolE
         None,
         &protocol::LoginSettings::default(),
         None,
+        None,
         |packs, game_data| (packs, game_data),
     )
     .await;

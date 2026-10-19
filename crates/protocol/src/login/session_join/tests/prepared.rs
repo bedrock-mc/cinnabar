@@ -79,6 +79,7 @@ async fn prepared_io_accepts_a_late_radius_reply_after_spawn_without_radius_repl
             cache: None,
             skin: None,
             settings: &settings,
+            relay: None,
             tap: None,
             target: None,
         },
@@ -164,6 +165,8 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
             skin: None,
             settings: &settings,
             tap: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            relay: None,
             target: Some(target.clone()),
         },
         &preparation,
