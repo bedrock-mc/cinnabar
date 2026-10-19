@@ -11,6 +11,12 @@ use serde_json::{Map, Value};
 
 use crate::pack_textures::parse_pack_json;
 
+#[cfg(test)]
+thread_local! {
+    static PEAK_ENTITY_PAYLOAD_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PEAK_DEFINITION_DOCUMENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 const DEFINITION_FAMILIES: [(&str, &str, &str); 3] = [
     ("animations/", "animations", "animations/_pack.json"),
     (
@@ -319,29 +325,59 @@ fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
 }
 
+/// Bounds parallel JSON input by workers and one source's byte budget; larger files run alone.
+fn parse_batch_len(paths: &[&str], size: impl Fn(&str) -> Option<u64>) -> usize {
+    let mut bytes = 0u64;
+    let end = paths.len().min(rayon::current_num_threads());
+    for (index, path) in paths[..end].iter().enumerate() {
+        let length = if path.ends_with(".json") {
+            size(path).unwrap_or(0)
+        } else {
+            0
+        };
+        let next = bytes.saturating_add(length);
+        if index > 0 && next > assets::MAX_ENTITY_SOURCE_BYTES as u64 {
+            return index;
+        }
+        bytes = next;
+    }
+    end
+}
+
 /// Named definitions of `prefix` files, lowest layer first so a higher one replaces a name.
 fn merged_definitions(view: &LayeredPackView, prefix: &str, key: &str) -> Map<String, Value> {
     let mut merged = Map::new();
     for layer in view.layers() {
-        let definitions = layer
-            .files_under(prefix)
-            .into_par_iter()
-            .map(|path| {
-                if !path.ends_with(".json") {
-                    return None;
-                }
-                let bytes = layer.read_file(path).ok()??;
-                let Value::Object(mut root) = parse_pack_json(&bytes)? else {
-                    return None;
-                };
-                match root.remove(key) {
-                    Some(Value::Object(definitions)) => Some(definitions),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        for definitions in definitions.into_iter().flatten() {
-            merged.extend(definitions);
+        let paths = layer.files_under(prefix);
+        let mut paths = paths.as_ref();
+        while !paths.is_empty() {
+            let (batch, rest) =
+                paths.split_at(parse_batch_len(paths, |path| layer.file_size(path)));
+            paths = rest;
+            let definitions = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    let Value::Object(mut root) = parse_pack_json(&bytes)? else {
+                        return None;
+                    };
+                    match root.remove(key) {
+                        Some(Value::Object(definitions)) => Some(definitions),
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            #[cfg(test)]
+            PEAK_DEFINITION_DOCUMENTS.update(|peak| {
+                peak.max(definitions.iter().flatten().count() + usize::from(!merged.is_empty()))
+            });
+            for definitions in definitions.into_iter().flatten() {
+                merged.extend(definitions);
+            }
         }
     }
     merged
@@ -351,27 +387,48 @@ fn merged_definitions(view: &LayeredPackView, prefix: &str, key: &str) -> Map<St
 fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
     let mut owners = BTreeMap::new();
     for layer in view.layers() {
-        let entities = layer
-            .files_under("entity/")
-            .into_par_iter()
-            .map(|path| {
-                if !path.ends_with(".json") {
-                    return None;
-                }
-                let bytes = layer.read_file(path).ok()??;
-                let document = parse_pack_json(&bytes)?;
-                let identifier = document
-                    .pointer("/minecraft:client_entity/description/identifier")?
-                    .as_str()?
-                    .to_owned();
-                let canonical = serde_json::to_vec(&document).ok()?;
-                let mut references = References::default();
-                references.read(&document);
-                Some((identifier, (Box::<str>::from(path), canonical, references)))
-            })
-            .collect::<Vec<_>>();
-        for (identifier, file) in entities.into_iter().flatten() {
-            owners.insert(identifier, file);
+        let paths = layer.files_under("entity/");
+        let mut paths = paths.as_ref();
+        while !paths.is_empty() {
+            let (batch, rest) =
+                paths.split_at(parse_batch_len(paths, |path| layer.file_size(path)));
+            paths = rest;
+            let entities = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    let document = parse_pack_json(&bytes)?;
+                    let identifier = document
+                        .pointer("/minecraft:client_entity/description/identifier")?
+                        .as_str()?
+                        .to_owned();
+                    let canonical = serde_json::to_vec(&document).ok()?;
+                    let mut references = References::default();
+                    references.read(&document);
+                    Some((identifier, (Box::<str>::from(path), canonical, references)))
+                })
+                .collect::<Vec<_>>();
+            #[cfg(test)]
+            PEAK_ENTITY_PAYLOAD_BYTES.update(|peak| {
+                peak.max(
+                    entities
+                        .iter()
+                        .flatten()
+                        .map(|(_, (_, bytes, _))| bytes.len())
+                        .sum::<usize>()
+                        + owners
+                            .values()
+                            .map(|(_, bytes, _): &(Box<str>, Vec<u8>, References)| bytes.len())
+                            .sum::<usize>(),
+                )
+            });
+            for (identifier, file) in entities.into_iter().flatten() {
+                owners.insert(identifier, file);
+            }
         }
     }
     let mut seen = BTreeSet::new();

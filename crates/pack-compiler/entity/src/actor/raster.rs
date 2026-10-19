@@ -9,6 +9,11 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+thread_local! {
+    static PEAK_STAGED_PIXEL_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(super) struct SharedRaster {
     width: u16,
     height: u16,
@@ -56,13 +61,14 @@ impl RasterPlan {
     }
 }
 
-/// Stages unique sources up to `limit` usable rasters, shrinking between decodes to fit `budget`.
-/// The budget must hold at least one RGBA pixel per admitted raster.
+/// Stages at most `limit` usable rasters in source order, shrinking to fit `budget`.
+/// Preparation returns an RGBA byte bound and a deferred decode. Parallel batches fit
+/// the remaining pixel budget; a larger source decodes alone and shrinks immediately.
 /// Failed reads remain absent for the owning rig to retry; unusable images remain cached.
-/// Largest-first planning is prefix-monotone: added rasters cannot undo an earlier halving.
-pub(super) fn prepare_rasters(
+/// The budget must hold at least one RGBA pixel per admitted raster.
+pub(super) fn prepare_rasters<D: FnOnce() -> Option<DecodedRaster> + Send>(
     sources: impl IntoIterator<Item = u32>,
-    decode: impl Fn(u32) -> Result<Option<DecodedRaster>, AssetError> + Sync,
+    mut prepare: impl FnMut(u32) -> Result<(usize, D), AssetError>,
     budget: usize,
     limit: usize,
 ) -> BTreeMap<u32, Option<SharedRaster>> {
@@ -70,22 +76,53 @@ pub(super) fn prepare_rasters(
     let mut plan = RasterPlan::default();
     let mut usable = 0;
     let mut sources = sources.into_iter();
+    let mut pending = None;
     while usable < limit {
-        let batch = sources
-            .by_ref()
-            .take((limit - usable).min(rayon::current_num_threads().max(1)))
-            .collect::<Vec<_>>();
+        let free = budget.saturating_sub(plan.total);
+        let capacity = (limit - usable).min(rayon::current_num_threads());
+        let mut batch = Vec::new();
+        let mut bytes = 0usize;
+        while batch.len() < capacity {
+            let candidate = if let Some(candidate) = pending.take() {
+                candidate
+            } else {
+                let Some(source) = sources.next() else {
+                    break;
+                };
+                let Ok((bytes, decode)) = prepare(source) else {
+                    continue;
+                };
+                (source, bytes, decode)
+            };
+            if !batch.is_empty() && candidate.1 > free.saturating_sub(bytes) {
+                pending = Some(candidate);
+                break;
+            }
+            bytes = bytes.saturating_add(candidate.1);
+            batch.push(candidate);
+            if bytes > free {
+                break;
+            }
+        }
         if batch.is_empty() {
             break;
         }
         let decoded = batch
-            .par_iter()
-            .map(|&source| decode(source))
+            .into_par_iter()
+            .map(|(source, _, decode)| (source, decode()))
             .collect::<Vec<_>>();
-        for (source, raster) in batch.into_iter().zip(decoded) {
-            let Ok(raster) = raster else {
-                continue;
-            };
+        #[cfg(test)]
+        PEAK_STAGED_PIXEL_BYTES.update(|peak| {
+            peak.max(
+                plan.total
+                    + decoded
+                        .iter()
+                        .filter_map(|(_, raster)| raster.as_ref())
+                        .map(|raster| raster.pixels.len())
+                        .sum::<usize>(),
+            )
+        });
+        for (source, raster) in decoded {
             if let Some(raster) = &raster {
                 plan.insert(source, raster.width, raster.height);
                 usable += 1;

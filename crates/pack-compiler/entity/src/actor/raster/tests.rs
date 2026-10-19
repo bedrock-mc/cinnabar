@@ -1,5 +1,7 @@
 use super::*;
-use crate::actor::{MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, decode_raster};
+use crate::actor::{
+    MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, decode_raster, raster_decoded_bytes,
+};
 use image::{ImageFormat, Rgba, RgbaImage};
 use std::io::Cursor;
 
@@ -59,7 +61,9 @@ fn streamed_sizes_pixels_and_hashes_equal_global_planning() {
                                     .iter()
                                     .find(|&&(candidate, _, _)| candidate == source)
                                     .unwrap();
-                                Ok(Some(patterned(width, height, source)))
+                                Ok((raster_bytes(width, height), move || {
+                                    Some(patterned(width, height, source))
+                                }))
                             },
                             budget,
                             limit,
@@ -173,12 +177,17 @@ fn unusable_images_do_not_affect_planning_or_the_usable_source_cutoff() {
         0..4,
         |source| {
             calls.lock().unwrap().push(source);
-            Ok(decode_raster(
-                "fixture.png",
-                images[source as usize],
-                Some(&|width, height| Some(vec![true; usize::from(width) * usize::from(height)])),
-                false,
-            ))
+            let bytes = images[source as usize];
+            Ok((raster_decoded_bytes("fixture.png", bytes), move || {
+                decode_raster(
+                    "fixture.png",
+                    bytes,
+                    Some(&|width, height| {
+                        Some(vec![true; usize::from(width) * usize::from(height)])
+                    }),
+                    false,
+                )
+            }))
         },
         64,
         2,
@@ -206,7 +215,7 @@ fn a_failed_prepass_read_is_left_absent_for_the_rig_to_retry() {
             if source == 1 {
                 Err(crate::actor::invalid("read failed"))
             } else {
-                Ok(Some(patterned(2, 2, source)))
+                Ok((raster_bytes(2, 2), move || Some(patterned(2, 2, source))))
             }
         },
         16,
@@ -229,10 +238,14 @@ fn parallel_decode_uses_the_callers_pool_and_preserves_pixels() {
                     0..threads as u32,
                     |source| {
                         assert_eq!(rayon::current_num_threads(), threads);
-                        barrier.wait();
-                        Ok(Some(patterned(7, 9, source)))
+                        let barrier = &barrier;
+                        Ok((raster_bytes(7, 9), move || {
+                            assert_eq!(rayon::current_num_threads(), threads);
+                            barrier.wait();
+                            Some(patterned(7, 9, source))
+                        }))
                     },
-                    128,
+                    threads * raster_bytes(7, 9),
                     threads,
                 );
                 prepared
@@ -250,13 +263,91 @@ fn parallel_decode_uses_the_callers_pool_and_preserves_pixels() {
         .build()
         .unwrap()
         .install(|| {
-            prepare_rasters(0..4, |source| Ok(Some(patterned(7, 9, source))), 128, 4)
-                .into_iter()
-                .map(|(source, raster)| {
-                    let raster = raster.unwrap();
-                    (source, raster.width, raster.height, raster.pixels.to_vec())
-                })
-                .collect::<Vec<_>>()
+            prepare_rasters(
+                0..4,
+                |source| Ok((raster_bytes(7, 9), move || Some(patterned(7, 9, source)))),
+                4 * raster_bytes(7, 9),
+                4,
+            )
+            .into_iter()
+            .map(|(source, raster)| {
+                let raster = raster.unwrap();
+                (source, raster.width, raster.height, raster.pixels.to_vec())
+            })
+            .collect::<Vec<_>>()
         });
     assert_eq!(parallel, serial);
+}
+
+#[test]
+fn decoded_staging_retains_at_most_the_budget_and_one_raster() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(8)
+        .build()
+        .unwrap()
+        .install(|| {
+            let (width, height) = (8, 16);
+            let one = raster_bytes(width, height);
+            let budget = 2 * one;
+            PEAK_STAGED_PIXEL_BYTES.set(0);
+            let rasters = prepare_rasters(
+                0..8,
+                |source| {
+                    Ok((raster_bytes(width, height), move || {
+                        Some(patterned(width, height, source))
+                    }))
+                },
+                budget,
+                8,
+            );
+            assert_eq!(rasters.values().flatten().count(), 8);
+            let retained = rasters
+                .values()
+                .flatten()
+                .map(|raster| raster.pixels.len())
+                .sum::<usize>();
+            assert!(retained > 0 && retained <= budget);
+            assert!(
+                (retained..=budget + one).contains(&PEAK_STAGED_PIXEL_BYTES.get()),
+                "retained {} decoded bytes for a {budget}-byte budget and {one}-byte raster",
+                PEAK_STAGED_PIXEL_BYTES.get()
+            );
+        });
+}
+
+#[test]
+fn encoded_header_bounds_cover_decoded_png_and_tga_pixels() {
+    use image::{DynamicImage, ImageBuffer, Luma, Rgb};
+    let cases = [
+        (
+            "fixture.png",
+            ImageFormat::Png,
+            DynamicImage::ImageLuma8(ImageBuffer::from_pixel(5, 7, Luma([42]))),
+        ),
+        (
+            "fixture.tga",
+            ImageFormat::Tga,
+            DynamicImage::ImageRgb8(ImageBuffer::from_pixel(5, 7, Rgb([11, 22, 33]))),
+        ),
+        (
+            "fixture.png",
+            ImageFormat::Png,
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(5, 7, Rgba([11, 22, 33, 255]))),
+        ),
+        (
+            "fixture.png",
+            ImageFormat::Png,
+            DynamicImage::ImageRgba16(ImageBuffer::from_pixel(5, 7, Rgba([11, 22, 33, u16::MAX]))),
+        ),
+    ];
+    for (path, format, image) in cases {
+        let mut bytes = Cursor::new(Vec::new());
+        image.write_to(&mut bytes, format).unwrap();
+        let bytes = bytes.into_inner();
+        let bound = raster_decoded_bytes(path, &bytes);
+        let raster = decode_raster(path, &bytes, None, false).unwrap();
+        assert!(bound >= raster.pixels.len());
+        assert_eq!((raster.width, raster.height), (5, 7));
+        assert_eq!(raster.pixels, image.into_rgba8().into_raw());
+    }
 }

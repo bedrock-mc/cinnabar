@@ -22,6 +22,8 @@ pub(super) struct PreparedFile {
     pub(super) length: Option<Option<usize>>,
     /// Unknown until admission; an inner None records failed extraction.
     pub(super) products: Option<Option<ParsedSource>>,
+    #[cfg(test)]
+    retained_documents: Option<std::sync::Arc<memory::RetainedDocuments>>,
 }
 
 impl PreparedFile {
@@ -33,26 +35,23 @@ impl PreparedFile {
             source,
             length,
             products: None,
+            #[cfg(test)]
+            retained_documents: None,
         }
     }
 
     /// Caches final products once admitted, retaining only length for rejected geometry.
     pub(super) fn parsed(&mut self, remaining: SourceBudget) -> Result<&ParsedSource, Skip> {
-        self.parsed_with(remaining, None)
-    }
-
-    /// Extracts an admitted source, consuming a geometry document from this batch when available.
-    fn parsed_with(
-        &mut self,
-        remaining: SourceBudget,
-        normalized: Option<NormalizedGeometry>,
-    ) -> Result<&ParsedSource, Skip> {
         if let Some(length) = self.length {
             check_admission(length, remaining)?;
         }
         if self.products.is_none() {
             let (bytes, document) = if self.source.path.starts_with("models/entity/") {
-                let normalized = normalized.or_else(|| normalize_geometry(&self.source.bytes));
+                let normalized = normalize_geometry(
+                    &self.source.bytes,
+                    #[cfg(test)]
+                    self.retained_documents.clone(),
+                );
                 self.length = Some(normalized.as_ref().map(|input| input.bytes.len()));
                 check_admission(self.length.flatten(), remaining)?;
                 let normalized = normalized.unwrap();
@@ -69,35 +68,31 @@ impl PreparedFile {
     }
 }
 
-/// Normalizes independently, then extracts in parallel only when every source fits together.
-/// Tight budgets use ordered lazy extraction so rejected files are never parsed speculatively.
+/// Extracts independently only when every possible admitted size fits the remaining budget.
+/// Large input batches and tight budgets stay lazy and ordered; parser trees never queue here.
 pub(super) fn prepare_batch(files: &mut [PreparedFile], remaining: SourceBudget) {
-    let normalized = files
-        .par_iter_mut()
-        .map(|file| {
-            if file.length.is_some() {
-                return None;
-            }
-            let input = normalize_geometry(&file.source.bytes);
-            file.length = Some(input.as_ref().map(|input| input.bytes.len()));
-            input
-        })
-        .collect::<Vec<_>>();
     let bytes = files
         .iter()
-        .filter_map(|file| file.length.flatten())
+        .map(|file| match file.length {
+            Some(length) => length.unwrap_or(0),
+            None => assets::MAX_ENTITY_SOURCE_BYTES,
+        })
         .sum::<usize>();
-    if files.len() > remaining.count || bytes > remaining.bytes {
+    let input_bytes = files
+        .iter()
+        .map(|file| file.source.bytes.len())
+        .sum::<usize>();
+    if files.len() > remaining.count
+        || bytes > remaining.bytes
+        || input_bytes > assets::MAX_ENTITY_SOURCE_BYTES
+    {
         return;
     }
     #[cfg(test)]
     let before = files.iter().filter(|file| file.products.is_some()).count();
-    files
-        .par_iter_mut()
-        .zip(normalized)
-        .for_each(|(file, input)| {
-            let _ = file.parsed_with(remaining, input);
-        });
+    files.par_iter_mut().for_each(|file| {
+        let _ = file.parsed(remaining);
+    });
     #[cfg(test)]
     SOURCE_PARSES.update(|count| {
         count + files.iter().filter(|file| file.products.is_some()).count() - before
@@ -120,10 +115,15 @@ fn check_admission(length: Option<usize>, remaining: SourceBudget) -> Result<(),
 struct NormalizedGeometry {
     bytes: Box<[u8]>,
     document: Value,
+    #[cfg(test)]
+    _retained: Option<memory::RetainedDocument>,
 }
 
 /// Normalizes a geometry document once for its payload and extraction.
-fn normalize_geometry(bytes: &[u8]) -> Option<NormalizedGeometry> {
+fn normalize_geometry(
+    bytes: &[u8],
+    #[cfg(test)] retained: Option<std::sync::Arc<memory::RetainedDocuments>>,
+) -> Option<NormalizedGeometry> {
     let mut value = pack_json::parse_jsonc::<Value>(bytes).ok()?;
     if !sanitize::sanitize_geometry(&mut value) {
         return None;
@@ -131,6 +131,8 @@ fn normalize_geometry(bytes: &[u8]) -> Option<NormalizedGeometry> {
     Some(NormalizedGeometry {
         bytes: serde_json::to_vec(&value).ok()?.into_boxed_slice(),
         document: value,
+        #[cfg(test)]
+        _retained: retained.map(memory::RetainedDocument::new),
     })
 }
 
@@ -164,3 +166,6 @@ fn parse(source: &PackSource, bytes: Box<[u8]>, document: Option<Value>) -> Opti
         geometries,
     })
 }
+
+#[cfg(test)]
+mod memory;

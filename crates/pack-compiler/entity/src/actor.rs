@@ -10,7 +10,7 @@ use assets::{
     MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
     neutral_actor_geometry_uvs_are_supported,
 };
-use image::{ImageFormat, ImageReader, Limits};
+use image::{ColorType, ImageDecoder, ImageFormat, ImageReader, Limits};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -207,13 +207,13 @@ struct SourceDecoder {
 }
 
 impl SourceDecoder {
-    /// Reads and decodes one source without retaining its encoded payload.
-    fn decode<B: AsRef<[u8]>>(
+    /// Decodes a source with its owning geometry and material alpha rules.
+    fn decode(
         &self,
         entities: &CompiledEntityAssets,
         source: u32,
-        read: &(impl Fn(u32) -> Result<B, AssetError> + Sync),
-    ) -> Result<Option<DecodedRaster>, AssetError> {
+        bytes: &[u8],
+    ) -> Option<DecodedRaster> {
         let asset = &entities.sources[source as usize];
         let binary_alpha = !self.lenient
             && !self.dissolve_masks.contains(&source)
@@ -234,23 +234,17 @@ impl SourceDecoder {
             }
             Some(union)
         };
-        Ok(decode_raster(
+        decode_raster(
             asset.path.as_ref(),
-            read(source)?.as_ref(),
+            bytes,
             binary_alpha.then_some(&sampled as &dyn Fn(u16, u16) -> Option<Vec<bool>>),
             !self.lenient && self.crystal_sources.contains(&source),
-        ))
+        )
     }
 }
 
-/// Decodes actor art, baking the crystal's native point-sampled alpha test when requested.
-/// `binary_alpha` returns the texels a raster of the given size can be sampled at.
-fn decode_raster(
-    path: &str,
-    bytes: &[u8],
-    binary_alpha: Option<&dyn Fn(u16, u16) -> Option<Vec<bool>>>,
-    crystal: bool,
-) -> Option<DecodedRaster> {
+/// Creates the same bounded image reader for header inspection and full decoding.
+fn raster_reader<'a>(path: &str, bytes: &'a [u8]) -> ImageReader<Cursor<&'a [u8]>> {
     let format = if path.ends_with(".png") {
         ImageFormat::Png
     } else {
@@ -262,7 +256,35 @@ fn decode_raster(
     limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
     limits.max_alloc = Some(MAX_ACTOR_PIXEL_BYTES as u64);
     reader.limits(limits);
-    let image = reader.decode().ok()?;
+    reader
+}
+
+/// Bounds decoded pixels and any color-conversion buffer without allocating those pixels.
+fn raster_decoded_bytes(path: &str, bytes: &[u8]) -> usize {
+    let Ok(decoder) = raster_reader(path, bytes).into_decoder() else {
+        return usize::MAX;
+    };
+    let (width, height) = decoder.dimensions();
+    let rgba = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(4);
+    let staged = if decoder.color_type() == ColorType::Rgba8 {
+        rgba
+    } else {
+        rgba.saturating_add(decoder.total_bytes())
+    };
+    usize::try_from(staged).unwrap_or(usize::MAX)
+}
+
+/// Decodes actor art, baking the crystal's native point-sampled alpha test when requested.
+/// `binary_alpha` returns the texels a raster of the given size can be sampled at.
+fn decode_raster(
+    path: &str,
+    bytes: &[u8],
+    binary_alpha: Option<&dyn Fn(u16, u16) -> Option<Vec<bool>>>,
+    crystal: bool,
+) -> Option<DecodedRaster> {
+    let image = raster_reader(path, bytes).decode().ok()?;
     let (width, height) = (
         u16::try_from(image.width()).ok()?,
         u16::try_from(image.height()).ok()?,
@@ -304,7 +326,7 @@ fn decode_raster(
 }
 
 /// Builds artwork with parallel source decoding and ordered texture admission.
-fn build_artwork<B: AsRef<[u8]>>(
+fn build_artwork<B: AsRef<[u8]> + Send>(
     entities: &CompiledEntityAssets,
     _runtime_entities: &assets::RuntimeEntityAssets,
     read: &(impl Fn(u32) -> Result<B, AssetError> + Sync),
@@ -336,7 +358,15 @@ fn build_artwork<B: AsRef<[u8]>>(
         .collect::<BTreeSet<_>>();
     let mut decoded = prepare_rasters(
         layer_rasters,
-        |source| decoder.decode(entities, source, read),
+        |source| {
+            let bytes = read(source)?;
+            let size =
+                raster_decoded_bytes(&entities.sources[source as usize].path, bytes.as_ref());
+            let decoder = &decoder;
+            Ok((size, move || {
+                decoder.decode(entities, source, bytes.as_ref())
+            }))
+        },
         MAX_ACTOR_PIXEL_BYTES,
         MAX_ACTOR_TEXTURES,
     );
@@ -396,9 +426,10 @@ fn build_artwork<B: AsRef<[u8]>>(
                     continue;
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                    let bytes = read(source)?;
                     slot.insert(
                         decoder
-                            .decode(entities, source, read)?
+                            .decode(entities, source, bytes.as_ref())
                             .map(SharedRaster::from),
                     );
                 }
@@ -480,9 +511,10 @@ fn build_artwork<B: AsRef<[u8]>>(
                 continue;
             }
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                let bytes = read(source)?;
                 slot.insert(
                     decoder
-                        .decode(entities, source, read)?
+                        .decode(entities, source, bytes.as_ref())
                         .map(SharedRaster::from),
                 );
             }

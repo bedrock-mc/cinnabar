@@ -671,3 +671,71 @@ fn many_file_collection_is_identical_on_one_and_four_threads() {
     };
     assert_eq!(collect(1), collect(4));
 }
+
+#[test]
+fn superseded_definition_documents_are_released_between_batches() {
+    let files = (0..64).map(|index| (
+        format!("animations/model_{index:03}.json"),
+        json!({"animations":{"animation.fixture.shared":{"value":index,"padding":"x".repeat(1024)}}})
+            .to_string().into_bytes(),
+    )).collect::<Vec<_>>();
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_DEFINITION_DOCUMENTS.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            let merged = super::merged_definitions(&view, "animations/", "animations");
+            assert_eq!(merged["animation.fixture.shared"]["value"], 63);
+            assert!(
+                (1..=5).contains(&super::PEAK_DEFINITION_DOCUMENTS.get()),
+                "retained {} definition documents before merging",
+                super::PEAK_DEFINITION_DOCUMENTS.get()
+            );
+        });
+}
+
+#[test]
+fn entity_collection_memory_releases_superseded_payloads() {
+    let files =
+        (0..64)
+            .map(|index| {
+                (
+        format!("entity/model_{index:03}.json"),
+        json!({"minecraft:client_entity":{"description":{"identifier":"fixture:shared"}},
+            "value":index,"padding":"x".repeat(1024)}).to_string().into_bytes(),
+    )
+            })
+            .collect::<Vec<_>>();
+    let largest = files.iter().map(|(_, bytes)| bytes.len()).max().unwrap();
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_ENTITY_PAYLOAD_BYTES.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            let collected = super::unique_entities(&view);
+            assert_eq!(collected.files.len(), 1);
+            let document: serde_json::Value =
+                serde_json::from_slice(&collected.files[0].1).unwrap();
+            assert_eq!(document["value"], 63);
+            assert!(
+                (collected.files[0].1.len()..=5 * largest)
+                    .contains(&super::PEAK_ENTITY_PAYLOAD_BYTES.get()),
+                "retained {} canonical entity bytes",
+                super::PEAK_ENTITY_PAYLOAD_BYTES.get()
+            );
+        });
+}
