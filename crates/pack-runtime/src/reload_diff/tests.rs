@@ -25,6 +25,57 @@ fn stack(files: &[(&str, &[u8])]) -> Arc<ValidatedPackStack> {
     crate::test_support::stack(files)
 }
 
+#[test]
+fn memoized_fingerprints_preserve_the_original_read_framing() {
+    let source = stack(&[("ui/a.json", b"{}"), ("ui/b.json", b"null")]);
+    let inputs = BTreeSet::from([
+        PackDependency::File {
+            path: "UI/A.JSON".into(),
+            limit: 2,
+        },
+        PackDependency::File {
+            path: "ui/b.json".into(),
+            limit: 1,
+        },
+        PackDependency::File {
+            path: "missing.json".into(),
+            limit: 1,
+        },
+        PackDependency::Directory("ui/".into()),
+        PackDependency::DirectoryWithSuffixes {
+            prefix: "ui/".into(),
+            suffixes: vec![".json".into()],
+        },
+        PackDependency::Contents("ui/".into()),
+    ]);
+    let mut layer = Sha256::new();
+    // Preserve the pre-cache framing: readable file, rejected file, listings, then contents.
+    layer.update([0]);
+    hash_part(&mut layer, b"UI/A.JSON");
+    hash_part(&mut layer, &Sha256::digest(b"{}"));
+    layer.update([4]);
+    hash_part(&mut layer, b"ui/b.json");
+    for tag in [1, 3] {
+        for path in [b"ui/a.json", b"ui/b.json"] {
+            layer.update([tag]);
+            hash_part(&mut layer, b"ui/");
+            hash_part(&mut layer, path);
+        }
+    }
+    for (path, bytes) in [
+        (b"ui/a.json", b"{}".as_slice()),
+        (b"ui/b.json", b"null".as_slice()),
+    ] {
+        layer.update([2]);
+        hash_part(&mut layer, path);
+        hash_part(&mut layer, &Sha256::digest(bytes));
+    }
+    let expected: [u8; 32] = Sha256::digest(layer.finalize()).into();
+    for _ in 0..4 {
+        assert_eq!(dependency_fingerprint(&source, &inputs), expected);
+    }
+}
+
 /// Resolves the same per-pack UI order used by runtime catalog publication.
 fn control_text(stack: &ValidatedPackStack) -> String {
     let mut catalog = json_ui::Catalog::default();

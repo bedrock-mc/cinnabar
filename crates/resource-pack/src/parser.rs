@@ -19,7 +19,8 @@ use crate::{
     MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
     crypto::{ContentKey, contents_file_keys},
     manifest::read_manifest,
-    pack::{EntryIndex, ValidatedPack, read_entry},
+    pack::{ArchiveBytes, EntryIndex, ValidatedPack, read_entry},
+    read_cache::ReadCache,
 };
 #[cfg(feature = "handoff")]
 use crate::{
@@ -48,6 +49,7 @@ pub(super) fn validate_stack(
     let mut rejections = Vec::new();
     let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
     let mut seen = HashSet::with_capacity(archives.len());
+    let reads = Arc::new(ReadCache::default());
     for (stack_index, archive) in archives.into_iter().enumerate() {
         let admitted = admit_stack_entry(
             archive,
@@ -55,6 +57,7 @@ pub(super) fn validate_stack(
             packs.len(),
             archive_bytes,
             memory,
+            Arc::clone(&reads),
             |pack, declared| {
                 let entries = entry_count.saturating_add(pack.entry_count());
                 let bytes = declared_bytes.saturating_add(declared);
@@ -93,6 +96,7 @@ fn admit_stack_entry<T>(
     admitted: usize,
     archive_bytes: usize,
     memory: Option<u32>,
+    reads: Arc<ReadCache>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
 ) -> Result<(ValidatedPack, usize, T), AdmissionError> {
     if admitted >= MAX_PACKS {
@@ -114,33 +118,56 @@ fn admit_stack_entry<T>(
     } else {
         Some(ContentKey::new(key).ok_or(AdmissionError::InvalidContentKey)?)
     };
-    let (pack, declared) = validate_archive_parts(
+    let (pack, declared) = validate_archive_parts_cached(
         archive.pack_id,
         &archive.version,
         &archive.sub_pack_name,
         archive.archive,
         key,
         memory,
+        reads,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
     Ok((pack, size, bounds))
 }
 
+/// Admits one archive with its own bounded read cache.
 pub(crate) fn validate_archive_parts(
+    pack_id: Uuid,
+    version: &str,
+    sub_pack_name: &str,
+    archive_bytes: Vec<u8>,
+    key: Option<ContentKey>,
+    memory: Option<u32>,
+) -> Result<(ValidatedPack, u64), AdmissionError> {
+    validate_archive_parts_cached(
+        pack_id,
+        version,
+        sub_pack_name,
+        archive_bytes,
+        key,
+        memory,
+        Arc::default(),
+    )
+}
+
+/// Admits a pack whose plaintext storage shares the caller's byte budget.
+pub(crate) fn validate_archive_parts_cached(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
     memory: Option<u32>,
+    reads: Arc<ReadCache>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
     let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
-    let bytes: Arc<[u8]> = archive_bytes.into();
-    let mut zip = ZipArchive::new(Cursor::new(Arc::clone(&bytes)))
+    let bytes = Arc::new(archive_bytes);
+    let mut zip = ZipArchive::new(Cursor::new(ArchiveBytes(Arc::clone(&bytes))))
         .map_err(|_| AdmissionError::MalformedZip)?;
     if zip.len() != expected_entries || zip.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
@@ -178,6 +205,7 @@ pub(crate) fn validate_archive_parts(
                     archive_index,
                     uncompressed_size: file.size(),
                     key: None,
+                    cached: reads.entry(),
                 };
                 physical.insert(path, entry);
             }
@@ -207,6 +235,7 @@ pub(crate) fn validate_archive_parts(
         archive_bytes,
         declared_bytes: declared,
         zip,
+        reads,
         files: rooted,
         folded: HashMap::new(),
         file_order: Box::default(),

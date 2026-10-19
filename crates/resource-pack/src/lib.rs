@@ -2,8 +2,8 @@
 //!
 //! Each archive is admitted independently: a bad pack is dropped with a counted
 //! reason and the rest of the stack still applies. Encrypted packs are decrypted
-//! in memory per read; compiled outputs derived from any server pack, encrypted
-//! ones included, may persist in the install's local compile cache.
+//! in memory with a bounded shared read cache. Compiled outputs derived from any
+//! server pack, encrypted ones included, may persist in the install's local compile cache.
 
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ mod manifest;
 mod merge;
 mod pack;
 mod parser;
+mod read_cache;
 pub mod subpacks;
 #[cfg(all(feature = "handoff", any(test, feature = "test-support")))]
 pub mod test_support;
