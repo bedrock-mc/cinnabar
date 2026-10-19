@@ -196,3 +196,44 @@ fn oversized_sources_are_rejected_before_admission_budgets() {
     assert_eq!(compiled.skipped.unparsable, 0);
     assert_eq!(SOURCE_PARSES.get(), 1);
 }
+
+#[test]
+fn rejected_geometry_does_not_retain_expanded_documents() {
+    let mut files = budgeted_definitions();
+    files.truncate(1);
+    for index in 0..8 {
+        files.push(file(&format!("models/entity/{index}.json"), &json!({
+            "format_version":"1.12.0", "minecraft:geometry":[{
+                "description":{"identifier":format!("geometry.fixture_{index}")},
+                "bones":(0..128).map(|bone| json!({"name":format!("bone_{bone}")})).collect::<Vec<_>>()
+            }]
+        }).to_string()));
+    }
+    let mut selected = select_sources(files)
+        .into_iter()
+        .map(PreparedFile::new)
+        .collect::<Vec<_>>();
+    let mut can_isolate = true;
+    let compiled = compile_selected(
+        &mut selected,
+        None,
+        &mut can_isolate,
+        SourceBudget {
+            count: 1,
+            ..SourceBudget::default()
+        },
+        &|| false,
+        &mut SourceStore::default(),
+    )
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    assert_eq!(compiled.skipped.over_budget, 8);
+    assert_eq!(
+        selected
+            .iter()
+            .map(PreparedFile::retained_geometry_trees)
+            .sum::<usize>(),
+        0
+    );
+}

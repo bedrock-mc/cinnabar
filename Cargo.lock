@@ -6683,6 +6683,7 @@ name = "pack-entity-compiler"
 version = "0.1.21"
 dependencies = [
  "assets",
+ "ciborium",
  "image",
  "pack-compile-input",
  "pack-compiler",
