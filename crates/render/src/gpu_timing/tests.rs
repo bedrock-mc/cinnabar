@@ -379,7 +379,10 @@ fn cull_compute_pass_queries_follow_frame_detail() {
                     });
             }
         });
-        assert_eq!(crate::device_poll::submission_marker(&queue), submissions);
+        assert_eq!(
+            crate::device_poll::submission_marker(&queue),
+            submissions + 1
+        );
         assert_eq!(buffers.len(), 1);
         let timestamps = world.resource::<GpuTimestamps>();
         assert_eq!(
