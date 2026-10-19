@@ -5,7 +5,7 @@
 use super::*;
 
 mod prepared;
-use prepared::{PreparedFile, SourceStore};
+use prepared::{PreparedFile, Skip};
 
 #[cfg(test)]
 thread_local! {
@@ -219,19 +219,12 @@ fn compile_with_budget(
         .into_iter()
         .map(PreparedFile::new)
         .collect::<Vec<_>>();
-    let mut store = SourceStore::default();
     let mut can_isolate = true;
-    let first_error = match compile_selected(
-        &mut selected,
-        None,
-        &mut can_isolate,
-        budget,
-        cancelled,
-        &mut store,
-    )? {
-        Ok(compiled) => return Some(Ok(compiled)),
-        Err(error) => error,
-    };
+    let first_error =
+        match compile_selected(&mut selected, None, &mut can_isolate, budget, cancelled)? {
+            Ok(compiled) => return Some(Ok(compiled)),
+            Err(error) => error,
+        };
     if !can_isolate {
         return Some(Err(first_error));
     }
@@ -260,7 +253,6 @@ fn compile_with_budget(
             &mut can_isolate,
             budget,
             cancelled,
-            &mut store,
         )? {
             compiled.skipped.isolated += 1;
             return Some(Ok(Some(compiled)));
@@ -276,7 +268,6 @@ fn compile_selected(
     can_isolate: &mut bool,
     budget: SourceBudget,
     cancelled: &dyn Fn() -> bool,
-    store: &mut SourceStore,
 ) -> Option<Result<Option<EntityPackCompilation>, AssetError>> {
     if cancelled() {
         return None;
@@ -296,24 +287,22 @@ fn compile_selected(
         if omit == Some(index) {
             continue;
         }
-        let Some(bytes_len) = source.bytes_len(store) else {
-            skipped.unparsable += 1;
-            continue;
+        let remaining = SourceBudget {
+            count: budget.count - sources.len(),
+            bytes: budget.bytes - total,
         };
-        if bytes_len > assets::MAX_ENTITY_SOURCE_BYTES {
-            skipped.oversized += 1;
-            continue;
-        }
-        let next_total = total.saturating_add(bytes_len);
-        if sources.len() >= budget.count || next_total > budget.bytes {
-            skipped.over_budget += 1;
-            continue;
-        }
-        let Some(prepared) = source.parsed(store) else {
-            skipped.unparsable += 1;
-            continue;
+        let prepared = match source.parsed(remaining) {
+            Ok(prepared) => prepared.clone(),
+            Err(reason) => {
+                match reason {
+                    Skip::Unparsable => skipped.unparsable += 1,
+                    Skip::Oversized => skipped.oversized += 1,
+                    Skip::OverBudget => skipped.over_budget += 1,
+                }
+                continue;
+            }
         };
-        total = next_total;
+        total += prepared.bytes.len();
         symbols.extend(prepared.symbols);
         geometries.extend(prepared.geometries);
         sources.push(prepared.record);
@@ -331,9 +320,14 @@ fn compile_selected(
             .iter()
             .filter(|source| payloads.contains_key(source.source.path.as_ref()))
             .any(|source| {
-                source.contribution().is_some_and(|(symbols, geometries)| {
-                    symbols >= excess_symbols && geometries >= excess_geometries
-                })
+                source
+                    .products
+                    .as_ref()
+                    .and_then(Option::as_ref)
+                    .is_some_and(|parsed| {
+                        parsed.symbols.len() >= excess_symbols
+                            && parsed.geometries.len() >= excess_geometries
+                    })
             });
     let remaining_budget = (budget.count - sources.len(), budget.bytes - total);
     if let Err(error) = super::painting::complete_bindings(
@@ -395,7 +389,6 @@ mod tests {
 
     mod admission;
     mod preparation;
-    mod storage;
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
         (path.into(), text.as_bytes().to_vec())

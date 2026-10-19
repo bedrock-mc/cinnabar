@@ -18,11 +18,10 @@ image.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
-ciborium = "0.2.2"
-tempfile = "3"
 
 [dev-dependencies]
 pack-compiler = { path = ".." }
+tempfile = "3"
 
 [lints]
 workspace = true

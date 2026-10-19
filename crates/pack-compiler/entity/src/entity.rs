@@ -77,7 +77,7 @@ pub struct EntityAssetCompilation {
 
 const MAX_ENTITY_SOURCE_DIRECTORY_DEPTH: usize = 32;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct PendingSymbol {
     kind: EntityAssetKind,
     identifier: Box<str>,
@@ -85,7 +85,7 @@ struct PendingSymbol {
     dependencies: Box<[EntityDependency]>,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct PendingGeometry {
     identifier: Box<str>,
     inherits: Option<Box<str>>,

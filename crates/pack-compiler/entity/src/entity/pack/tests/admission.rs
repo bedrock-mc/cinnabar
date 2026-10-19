@@ -198,10 +198,14 @@ fn oversized_sources_are_rejected_before_admission_budgets() {
 }
 
 #[test]
-fn rejected_geometry_does_not_retain_expanded_documents() {
+fn byte_budget_rejected_geometry_keeps_only_lengths() {
     let mut files = budgeted_definitions();
     files.truncate(1);
-    for index in 0..8 {
+    let budget = SourceBudget {
+        bytes: files[0].1.len(),
+        ..SourceBudget::default()
+    };
+    for index in 0..32 {
         files.push(file(&format!("models/entity/{index}.json"), &json!({
             "format_version":"1.12.0", "minecraft:geometry":[{
                 "description":{"identifier":format!("geometry.fixture_{index}")},
@@ -214,26 +218,67 @@ fn rejected_geometry_does_not_retain_expanded_documents() {
         .map(PreparedFile::new)
         .collect::<Vec<_>>();
     let mut can_isolate = true;
-    let compiled = compile_selected(
-        &mut selected,
-        None,
-        &mut can_isolate,
-        SourceBudget {
-            count: 1,
-            ..SourceBudget::default()
-        },
-        &|| false,
-        &mut SourceStore::default(),
-    )
-    .unwrap()
-    .unwrap()
-    .unwrap();
-    assert_eq!(compiled.skipped.over_budget, 8);
-    assert_eq!(
-        selected
-            .iter()
-            .map(PreparedFile::retained_geometry_trees)
-            .sum::<usize>(),
-        0
+    SOURCE_PARSES.set(0);
+    let compiled = compile_selected(&mut selected, None, &mut can_isolate, budget, &|| false)
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(compiled.skipped.over_budget, 32);
+    assert_eq!(SOURCE_PARSES.get(), 1);
+    assert!(selected[0].products.as_ref().unwrap().is_some());
+    for source in &selected[1..] {
+        assert!(source.length.flatten().is_some());
+        assert!(source.products.is_none());
+    }
+}
+
+#[test]
+fn rejected_geometry_is_prepared_once_when_a_retry_admits_it() {
+    let mut files = budgeted_definitions();
+    files.truncate(1);
+    let geometry = file(
+        "models/entity/retry.json",
+        &json!({
+            "format_version":"1.12.0", "minecraft:geometry":[{
+                "description":{"identifier":"geometry.retry"},
+                "bones":[{"name":"root", "cubes":[{"origin":[0,0,0], "size":[1,2,3], "uv":[0,0]}]}]
+            }]
+        })
+        .to_string(),
     );
+    files[0].1.resize(geometry.1.len() * 2, b' ');
+    let budget = SourceBudget {
+        bytes: files[0].1.len(),
+        ..SourceBudget::default()
+    };
+    files.push(geometry);
+    let mut selected = select_sources(files)
+        .into_iter()
+        .map(PreparedFile::new)
+        .collect::<Vec<_>>();
+    SOURCE_PARSES.set(0);
+    let compiled = compile_selected(&mut selected, None, &mut true, budget, &|| false)
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(compiled.skipped.over_budget, 1);
+    assert!(selected[1].products.is_none());
+    assert_eq!(SOURCE_PARSES.get(), 1);
+    for _ in 0..2 {
+        // Geometry alone is not retained as a usable pack, but it has been admitted and parsed.
+        assert!(
+            compile_selected(&mut selected, Some(0), &mut true, budget, &|| false)
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        let parsed = selected[1].products.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(
+            parsed.geometries.values().next().unwrap().bones[0]
+                .cubes
+                .len(),
+            1
+        );
+    }
+    assert_eq!(SOURCE_PARSES.get(), 2);
 }
