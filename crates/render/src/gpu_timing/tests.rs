@@ -316,6 +316,87 @@ fn metal_owned_pass_queries_reuse_bounded_storage() {
     assert_eq!(world.resource::<GpuTimestamps>().slots.len(), SLOTS);
 }
 
+/// Late terrain uses its owned pass only in detailed frames, without changing Metal timing.
+#[test]
+fn late_terrain_pass_queries_follow_frame_detail() {
+    let stage = RuntimeStage::GPU
+        .into_iter()
+        .find(|stage| stage.name() == "gpu_terrain_late")
+        .expect("late terrain has an ordinary GPU stage");
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for detailed in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+        timestamps.begin(|_| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let writes = render_pass_timestamps(&world, stage);
+        let expected = detailed && !cfg!(target_os = "macos");
+        assert_eq!(writes.is_some(), expected);
+        if let Some(writes) = writes {
+            assert_eq!(writes.beginning_of_pass_write_index, Some(0));
+            assert_eq!(writes.end_of_pass_write_index, Some(1));
+        }
+        assert_eq!(
+            world
+                .resource::<GpuTimestamps>()
+                .frame
+                .passes
+                .load(Ordering::Relaxed),
+            u32::from(expected)
+        );
+    }
+}
+
+/// Compute timing uses one pair per existing pass, with no queries in ordinary or Metal frames.
+#[test]
+fn cull_compute_pass_queries_follow_frame_detail() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let stages = [
+        RuntimeStage::GpuCullEarly,
+        RuntimeStage::GpuCullHiz,
+        RuntimeStage::GpuCullLate,
+    ];
+    for detailed in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+        timestamps.begin(|_| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let expected = detailed && !cfg!(target_os = "macos");
+        let submissions = crate::device_poll::submission_marker(&queue);
+        let (_, buffers) = record(&mut world, &device, |world, context| {
+            for (index, stage) in stages.into_iter().enumerate() {
+                let writes = compute_pass_timestamps(world, stage);
+                assert_eq!(writes.is_some(), expected);
+                if let Some(writes) = &writes {
+                    assert_eq!(writes.beginning_of_pass_write_index, Some(index as u32 * 2));
+                    assert_eq!(writes.end_of_pass_write_index, Some(index as u32 * 2 + 1));
+                }
+                context
+                    .command_encoder()
+                    .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("cull timestamp regression"),
+                        timestamp_writes: writes,
+                    });
+            }
+        });
+        assert_eq!(crate::device_poll::submission_marker(&queue), submissions);
+        assert_eq!(buffers.len(), 1);
+        let timestamps = world.resource::<GpuTimestamps>();
+        assert_eq!(
+            timestamps.frame.passes.load(Ordering::Relaxed),
+            if expected { stages.len() as u32 } else { 0 }
+        );
+        if expected {
+            for (index, stage) in stages.into_iter().enumerate() {
+                assert_eq!(
+                    timestamps.frame.stages[index].load(Ordering::Relaxed),
+                    stage as u8
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn frame_without_spans_releases_its_slot() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
