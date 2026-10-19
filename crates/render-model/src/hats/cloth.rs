@@ -8,6 +8,9 @@ use std::sync::Arc;
 const STEP: f32 = 1.0 / 120.0;
 const ITERATIONS: usize = 9;
 
+/// Previous and current tick endpoints with identically sampled fabric particles.
+pub type ClothPose = (Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Definition {
@@ -84,7 +87,7 @@ impl ClothRig {
         }
         let mut vertices = geometry.vertices.to_vec();
         let mut triangles = Vec::new();
-        for triangle in vertices.chunks_exact_mut(3) {
+        for triangle in vertices.as_chunks_mut::<3>().0 {
             if triangle.iter().all(|v| v.bone_index as usize == source) {
                 let mut indices = [0; 3];
                 for (i, vertex) in triangle.iter_mut().enumerate() {
@@ -258,7 +261,7 @@ impl ClothState {
         actor: [[f32; 4]; 3],
         timing: (f32, f32),
         colliders: &[Collider],
-    ) -> Option<(Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>)> {
+    ) -> Option<ClothPose> {
         let model: &HatRig = rig(item);
         let cloth = model.cloth.as_ref()?;
         let (delta, alpha) = timing;
@@ -649,7 +652,7 @@ mod tests {
     fn adjacent_triangles_share_the_same_simulated_particle() {
         let (cloth, geometry) = fixture();
         assert_eq!(cloth.rest.len(), 91);
-        for pair in geometry.vertices.chunks_exact(6) {
+        for pair in geometry.vertices.as_chunks::<6>().0 {
             assert_eq!(pair[1].bone_index, pair[4].bone_index);
             assert_eq!(pair[2].bone_index, pair[3].bone_index);
         }
