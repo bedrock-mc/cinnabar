@@ -9,7 +9,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use pack_json::parse_jsonc;
 
-use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES};
+use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, parser::canonical_path};
 
 const CONTENTS_HEADER_BYTES: usize = 256;
 
@@ -131,13 +131,11 @@ pub(crate) fn contents_file_keys(
             .key
             .as_deref()
             .and_then(|key| ContentKey::new(key.as_bytes()));
-        let path = entry.path.replace('\\', "/");
-        let path = path.trim_start_matches("./");
         let Some(key) = key else {
             continue;
         };
-        if !path.is_empty() && path.len() <= MAX_PATH_BYTES {
-            keys.insert(path.into(), key);
+        if let Some(path) = canonical_path(entry.path.as_bytes()) {
+            keys.insert(path, key);
         }
     }
     Ok(keys)

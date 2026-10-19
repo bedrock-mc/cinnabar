@@ -471,6 +471,6 @@ fn compile_part_reuses_unchanged_output_and_skips_cancelled_work() {
     assert_eq!(output, 3);
     assert!(inputs.unwrap().contains(&PackDependency::File {
         path: "texts/en_US.lang".into(),
-        limit: resource_pack::MAX_FILE_BYTES,
+        limit: u64::MAX,
     }));
 }

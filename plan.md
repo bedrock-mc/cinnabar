@@ -302,8 +302,11 @@ preparation and presentation readiness remain required for a successful join. Li
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
-or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
-identity, digests and framing remain validated. Experience selections preserve service errors
+or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
+and default member reads retain complete declared content. Explicit subscriber limits and
+large-content live and performance acceptance remain open. Saved server lists retain every
+imported entry. Declared sizes, identity, digests and framing remain validated. Experience
+selections preserve service errors
 and wait for the account core result. Complete featured-server acceptance remains open:
 large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
 Local imports, decompression, UI/text expansion, language memory and other admission limits
