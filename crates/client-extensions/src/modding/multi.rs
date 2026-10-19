@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::packet_relay::PacketModSelection;
+
 use serde::Deserialize;
 use {
     mod_api::MAX_LOADED_MODS,
@@ -103,9 +105,31 @@ pub fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
         .collect()
 }
 
+/// The set's packet mod: its first component entry with the packets grant. Later ones are
+/// ignored, since a session relays through at most one.
+pub fn packet_mod_entry(mods: &[(ModSource, ModGrants)]) -> Option<PacketModSelection> {
+    let mut entries = mods.iter().filter(|(_, grants)| grants.packets);
+    let selected = entries.find_map(|(source, grants)| match source {
+        ModSource::Component(path) => Some(PacketModSelection {
+            path: path.clone(),
+            grants: grants.clone(),
+        }),
+        ModSource::Package(_) => None,
+    });
+    for (source, _) in entries {
+        let path = source.path().display();
+        tracing::warn!(
+            "Cinnabar packet mod {path} ignored: a session relays through one packet mod"
+        );
+    }
+    selected
+}
+
 /// Loads valid entries in order and reports failures without discarding the other entries.
+/// Packet mods are left to the session's relay.
 pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
     mods.into_iter()
+        .filter(|(_, grants)| !grants.packets)
         .filter_map(|(source, grants)| {
             source
                 .load(grants)

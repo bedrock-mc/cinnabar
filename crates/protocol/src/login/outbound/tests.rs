@@ -1,5 +1,6 @@
 use super::*;
 use bedrock_protocol_1_26_51::{packets, wire};
+use bytes::Bytes;
 use futures::task::noop_waker;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, DuplexStream};
@@ -155,6 +156,72 @@ async fn reset_before_acceptance_retires_only_status_and_preserves_the_ordinary_
         panic!("status")
     };
     assert_eq!(status.missing_ids, [wire::U64LE(2)]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn reset_before_acceptance_preserves_the_first_relay_replacement() {
+    use crate::packet_relay::tests::{FakeRelay, body};
+    use crate::session_transport::tests::RecordingTap;
+    use std::sync::Arc;
+
+    for replace in [false, true] {
+        let (mut session, mut peer, writer) = session();
+        let relay = Arc::new(FakeRelay::default());
+        if replace {
+            relay.state().outbound_replies = [Some(body(&[42])), Some(body(&[99]))].into();
+        }
+        let tap = Arc::new(RecordingTap::default());
+        session.transport = session.transport.with_tap(Some(tap.clone()));
+        session.transport.set_relay(relay.clone());
+        let frames = session.transport.frame_queue();
+        let mut fillers = 0;
+        loop {
+            let mut accept = std::pin::pin!(frames.accept(Bytes::from_static(b"filler")));
+            match poll_once(accept.as_mut()) {
+                Poll::Ready(Ok(_)) => fillers += 1,
+                Poll::Pending => break,
+                Poll::Ready(Err(error)) => panic!("{error}"),
+            }
+        }
+        classify(&mut session, 1, 0).await;
+        let mut outbound = session.outbound().unwrap();
+        {
+            let mut send =
+                std::pin::pin!(outbound.send_batch(vec![ordinary()], Some(Moment::default())));
+            assert!(poll_once(send.as_mut()).is_pending());
+        }
+        assert_eq!(relay.state().outbound.len(), 1);
+        session.reset_blob_cache_pending();
+        // Repeated epoch changes must neither replay the guest nor discard its replacement.
+        for _ in 0..2 {
+            {
+                let mut resume = std::pin::pin!(outbound.send_batch(Vec::new(), None));
+                assert!(poll_once(resume.as_mut()).is_pending());
+            }
+            session.reset_blob_cache_pending();
+        }
+        assert_eq!(relay.state().outbound.len(), 1);
+        let mut writer = std::pin::pin!(writer);
+        assert!(poll_once(writer.as_mut()).is_pending());
+        for _ in 0..fillers {
+            assert_eq!(read_frame(&mut peer).await, b"filler"[..]);
+        }
+        {
+            let mut resume = std::pin::pin!(outbound.send_batch(Vec::new(), None));
+            assert!(poll_once(resume.as_mut()).is_pending());
+            assert!(poll_once(writer.as_mut()).is_pending());
+            assert!(matches!(poll_once(resume.as_mut()), Poll::Ready(Ok(()))));
+        }
+        let packets = decode(read_frame(&mut peer).await);
+        assert_eq!(packets.len(), 1);
+        let expected = if replace { 42 } else { 7 };
+        assert!(
+            matches!(&*packets[0].data, packets::Packet::SetTime(time) if time.time.0 == expected)
+        );
+        assert_eq!(relay.state().outbound.len(), 1);
+        assert_eq!(tap.events().len(), 1);
+    }
 }
 
 #[tokio::test]
@@ -356,4 +423,36 @@ async fn dimension_and_terminal_boundaries_retire_queued_hit_only_status() {
         let mut send = std::pin::pin!(outbound.send_batch(Vec::new(), Some(Moment::default())));
         assert!(matches!(poll_once(send.as_mut()), Poll::Ready(Ok(()))));
     }
+}
+
+/// Detached sends must retain the reactor replacement and its single flush across cancellation.
+#[cfg(unix)]
+#[tokio::test]
+async fn relay_replacements_survive_cancelled_outbound_flushes() {
+    use crate::packet_relay::tests::{FakeRelay, body};
+    use crate::session_transport::tests::RecordingTap;
+    use std::sync::Arc;
+    let (mut session, mut peer, writer) = session();
+    let relay = Arc::new(FakeRelay::default());
+    relay.state().outbound_replies.push_back(Some(body(&[42])));
+    let tap = Arc::new(RecordingTap::default());
+    session.transport = session.transport.with_tap(Some(tap.clone()));
+    session.transport.set_relay(relay.clone());
+    let mut outbound = session.outbound().unwrap();
+    {
+        let mut send = std::pin::pin!(outbound.send_batch(vec![ordinary()], None));
+        assert!(poll_once(send.as_mut()).is_pending());
+    }
+    assert_eq!(relay.state().outbound.len(), 1);
+    let mut writer = std::pin::pin!(writer);
+    assert!(poll_once(writer.as_mut()).is_pending());
+    outbound.send_batch(Vec::new(), None).await.unwrap();
+    let packets = decode(read_frame(&mut peer).await);
+    assert!(matches!(&*packets[0].data, packets::Packet::SetTime(time) if time.time.0 == 42));
+    assert_eq!(relay.state().outbound.len(), 1);
+    assert_eq!(
+        tap.events().len(),
+        1,
+        "only the accepted replacement is recorded"
+    );
 }

@@ -35,6 +35,9 @@ pub struct SessionLogin<'a> {
     pub skin: Option<ClientSkin>,
     pub settings: &'a LoginSettings,
     pub tap: Option<Arc<dyn PacketTap>>,
+    /// Native packet reactor selected before this session starts.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub relay: Option<Arc<dyn crate::PacketRelay>>,
     pub target: Option<bridge::ConnectTarget>,
 }
 
@@ -89,6 +92,18 @@ impl LoginSequence {
             frames,
             timers,
         } = io;
+        #[cfg(not(target_arch = "wasm32"))]
+        let client_data = login.relay.as_ref().map(|_| {
+            super::client_data::login_client_data(
+                login.display_name,
+                login.client_random_id,
+                login.skin.as_ref(),
+                login.settings,
+            )
+            .to_string()
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        let relay = login.relay.clone();
         let SessionLogin {
             cache,
             settings,
@@ -102,6 +117,20 @@ impl LoginSequence {
         reader.set_trace_conn(handoff.trace_conn);
         let mut transport =
             SessionTransport::with_timers(reader, frames, &handoff.startup, timers).with_tap(tap);
+        #[cfg(not(target_arch = "wasm32"))]
+        let packs = if let Some(relay) = relay {
+            let added = crate::packet_relay::start(
+                Arc::clone(&relay),
+                handoff.identity.clone(),
+                client_data.expect("relay client data"),
+                &handoff.startup,
+            )
+            .await;
+            transport.set_relay(relay);
+            packs.with_relay_packs(added)
+        } else {
+            packs
+        };
         let mut prepared_job = None;
         let spawn_stage = profile.stage("spawn_prerequisites");
         let spawned = match super::startup::await_spawn(
@@ -125,6 +154,7 @@ impl LoginSequence {
                 return Err(error);
             }
         };
+        transport.finish_startup();
         drop(spawn_stage);
         let pack_wait = profile.stage("remaining_pack_preparation");
         let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");

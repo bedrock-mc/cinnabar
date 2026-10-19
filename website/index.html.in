@@ -22,17 +22,17 @@
     .online-count { min-height: 1.6em; margin: 28px 0 0; color: #c4cdc1; font: 400 .875rem/1.6 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
     .online-count:empty { visibility: hidden; }
     .online-count::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 9px; background: #95c783; vertical-align: .1em; }
-    .player-history { width: min(100%, 640px); margin-top: 26px; padding: 20px; border: 1px solid #505b4c; background: #141b15d9; text-align: left; }
-    .chart-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .chart-header h2 { margin: 0; color: #e1e8de; font: 600 .875rem/1.5 ui-monospace, monospace; }
+    .player-history { --chart-height: 140px; width: min(100%, 480px); margin-top: 24px; padding: 14px; border: 1px solid #505b4c; background: #141b15d9; text-align: left; }
+    .chart-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .chart-header h2 { margin: 0; color: #e1e8de; font: 600 .8125rem/1.5 ui-monospace, monospace; }
     .chart-ranges { display: flex; gap: 4px; }
-    .chart-ranges button { min-height: 36px; padding: 6px 10px; border: 1px solid transparent; background: transparent; box-shadow: none; text-shadow: none; color: #acb7a9; font: 500 .75rem/1.5 ui-monospace, monospace; }
+    .chart-ranges button { min-height: 32px; padding: 4px 8px; border: 1px solid transparent; background: transparent; box-shadow: none; text-shadow: none; color: #acb7a9; font: 500 .75rem/1.5 ui-monospace, monospace; }
     .chart-ranges button[aria-pressed="true"] { border-color: #63725c; background: #303b30; color: #fff; }
     .chart-ranges button:active { transform: none; box-shadow: none; }
     .chart-ranges button:focus-visible { outline-offset: 2px; }
-    .chart-summary { min-height: 1.5em; margin: 10px 0 0; color: #c4cdc1; font-size: .8125rem; font-variant-numeric: tabular-nums; }
-    .chart-body { position: relative; min-height: 220px; display: grid; align-items: center; }
-    #history-plot { display: block; width: 100%; height: 220px; overflow: visible; touch-action: pan-y; }
+    .chart-summary { min-height: 1.5em; margin: 8px 0 0; color: #c4cdc1; font-size: .75rem; font-variant-numeric: tabular-nums; }
+    .chart-body { position: relative; min-height: var(--chart-height); display: grid; align-items: center; }
+    #history-plot { display: block; width: 100%; height: var(--chart-height); overflow: visible; touch-action: pan-y; }
     #history-plot[hidden] { display: none; }
     #history-plot:focus-visible { outline: 2px solid #f8c1af; outline-offset: 2px; }
     #history-plot text { fill: #acb7a9; font: 11px ui-monospace, monospace; }
@@ -42,7 +42,6 @@
     .chart-cursor { stroke: #c4cdc1; stroke-width: 1; stroke-dasharray: 3 3; }
     #history-message { margin: 0; color: #acb7a9; text-align: center; font-size: .8125rem; line-height: 1.7; }
     .chart-detail { min-height: 2.8em; margin: 0; color: #acb7a9; font: .6875rem/1.5 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-    @media (max-width: 480px) { .player-history { padding: 14px; } }
     .github { --button-face: #30363d; --button-border: #101418; --button-base: #171b20; }
     .discord { --button-face: #5865f2; --button-border: #1e2458; --button-base: #323b9f; }
     .github, .discord { display: grid; place-items: center; width: 62px; height: 62px; flex: 0 0 62px; text-decoration: none; }
@@ -107,6 +106,7 @@
       </div>
     </div>
     <p class="online-count" id="online-count" role="status" aria-atomic="true"></p>
+    <p class="disclaimer" role="note">Cinnabar is a non-vanilla client and still in development. Its movement and combat may not yet match the official client exactly, so server anticheats may flag you and some servers may ban you. Play on servers at your own risk.</p>
     <section class="player-history" aria-labelledby="history-title">
       <div class="chart-header">
         <h2 id="history-title">Players online</h2>
@@ -124,7 +124,6 @@
       <p class="chart-detail" id="history-detail" aria-live="polite"></p>
       <noscript><p>Enable JavaScript to view player history.</p></noscript>
     </section>
-    <p class="disclaimer" role="note">Cinnabar is a non-vanilla client and still in development. Its movement and combat may not yet match the official client exactly, so server anticheats may flag you and some servers may ban you. Play on servers at your own risk.</p>
   </main>
   <dialog id="install-dialog" aria-labelledby="install-title">
     <button type="button" class="close" id="close-dialog" aria-label="Close">×</button>

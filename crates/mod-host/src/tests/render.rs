@@ -166,6 +166,8 @@ fn render_is_denied_by_default_even_with_other_grants() {
         inventory: true,
         block_highlights: false,
         fullbright: false,
+        packets: true,
+        wasi: true,
         ..Default::default()
     };
     let (_dir, mut host) = load(&calls, &init, &frame, grants);
