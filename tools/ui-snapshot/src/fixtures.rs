@@ -526,6 +526,16 @@ pub const STATES: &[State] = &[
         fixture: || tab_list_badges(false),
     },
     State {
+        name: "settings-session-navigation",
+        size: [1280, 1600],
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings("video_forced_index");
+            view.over_world = true;
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
