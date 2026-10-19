@@ -5,7 +5,10 @@ use pack_runtime::reload_diff::{Changes, Subscriber};
 fn global_packs_only_recompile_subscribers_with_changed_reads() {
     let server = super::super::pack_reload_tests::stack(&[("texts/en_US.lang", b"server=value")]);
     let joined = resource_packs::prepare_validated_application(server, Arc::default());
-    let globals = super::super::pack_reload_tests::stack(&[("texts/en_US.lang", b"global=value")]);
+    let globals = super::super::pack_reload_tests::stack(&[
+        ("texts/en_US.lang", b"global=value"),
+        ("extras/global.txt", b"global-only"),
+    ]);
     let mut reload = PackReload::default();
     reload.request_globals(globals.clone());
     reload.begin_session(1, &joined);
@@ -31,7 +34,7 @@ fn global_packs_only_recompile_subscribers_with_changed_reads() {
     .into_iter()
     .filter_map(|(subscriber, changed)| changed.then_some(subscriber))
     .collect();
-    assert_eq!(recompiled, [Subscriber::Language]);
+    assert_eq!(recompiled, [Subscriber::Sounds, Subscriber::Language]);
     let composed = Arc::new(composed);
     let reused = resource_packs::prepare_diffed_application(
         reload.kept,
@@ -70,8 +73,10 @@ fn first_reload_still_prepares_biomes_and_environment() {
     let stack = super::super::pack_reload_tests::stack(&[(&path, png.get_ref())]);
     let joined = resource_packs::prepare_validated_application(stack, Arc::default());
     let base = Arc::new(assets::RuntimeAssets::diagnostic());
-    let mut reload = PackReload::default();
-    reload.previous_assets = Some(base.clone());
+    let mut reload = PackReload {
+        previous_assets: Some(base.clone()),
+        ..Default::default()
+    };
     reload.begin_session(1, &joined);
     assert!(
         reload.previous_assets.is_none(),

@@ -437,8 +437,10 @@ fn composing_globals_preserves_unchanged_compiled_payloads() {
         admitted(&every_subscriber_archive(146, b"a=b")),
         every_input(),
     );
-    let globals =
-        crate::runtime::network::pack_reload_tests::stack(&[("texts/en_US.lang", b"global=value")]);
+    let globals = crate::runtime::network::pack_reload_tests::stack(&[
+        ("texts/en_US.lang", b"global=value"),
+        ("extras/global.txt", b"global-only"),
+    ]);
     let composed = Arc::new(ValidatedPackStack::compose(&globals, stack(&joined)).unwrap());
     let reused = super::super::prepare_changed_application(
         &CompiledStacks::new(),
@@ -447,7 +449,7 @@ fn composing_globals_preserves_unchanged_compiled_payloads() {
         Some(&joined),
     );
     let fresh = super::super::prepare_validated_application(composed, joined.inputs.clone());
-    assert_eq!(recompiled(&joined, &reused), ["language"]);
+    assert_eq!(recompiled(&joined, &reused), ["language", "sounds"]);
     assert!(same(&joined.item_icons, &reused.item_icons));
     assert_eq!(summary(&reused), summary(&fresh));
     for application in [&reused, &fresh] {
