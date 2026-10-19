@@ -10,6 +10,12 @@ use render_scene::PanoramaScene;
 use std::{sync::Arc, time::Instant};
 /// Uploads the faces on first sight of the carrier and shows the panorama
 /// behind launcher screens; in-world Settings retains the game beneath it.
+/// While the world shows without the panorama the faces are released, so their
+/// texture leaves the GPU, and decoded again when a launcher screen returns.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Bevy system parameters: the screen state the panorama follows"
+)]
 pub(crate) fn drive_menu_panorama(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     presentation: Res<UiPresentationResource>,
@@ -18,18 +24,20 @@ pub(crate) fn drive_menu_panorama(
     scene: Option<ResMut<PanoramaScene>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut state: Local<Option<(Instant, f32, [f32; 4])>>,
+    mut released: Local<bool>,
 ) {
     let Some(mut scene) = scene else {
         return;
     };
     // The renderer keeps the faces on the GPU; their pixels are only needed until then.
     scene.release_uploaded_faces();
-    scene.set_game_visible(client_shell::screen_policy::renders_game(
+    let renders_game = client_shell::screen_policy::renders_game(
         &player_runtime,
         runtime.as_deref().map(|runtime| &runtime.0),
         menu.as_deref(),
         Some(&presentation),
-    ));
+    );
+    scene.set_game_visible(renders_game);
     let Some(assets) = presentation.ui_assets() else {
         scene.show(None);
         return;
@@ -42,6 +50,13 @@ pub(crate) fn drive_menu_panorama(
         .loading_stage()
         .is_some_and(ui::LoadingStage::is_world_entry)
         || menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
+    if *released && shown {
+        scene.set_faces(launcher_faces(assets).map(Arc::new));
+        *released = false;
+    } else if !*released && !shown && renders_game && scene.has_faces() {
+        scene.set_faces(None);
+        *released = true;
+    }
     let aspect = windows
         .iter()
         .next()
