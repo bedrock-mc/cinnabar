@@ -6,6 +6,17 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Native Bedrock catalog facts
+
+Block hardness, ordinary-tool tags, harvest requirements and recipe item tags
+come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/cf01aa84b74df45df5fa24569e1ac358e4afbb87/generated/data).
+Its selected native 1.26.51 measurements are from
+[didntpot/bedrock-data](https://github.com/didntpot/bedrock-data), commit
+`bb896a46ba856c58383e3cfb962a38c45a0dea78`, under CC0-1.0. The source lock and
+upstream licence are retained in protocolgen. Sword/shears speed targets still
+use the provisional Prismarine input described below; complete mining parity
+remains incomplete.
+
 ## Block property and component data
 
 `crates/assets/data/block-properties-v2193.json` and
@@ -332,8 +343,7 @@ SOFTWARE.<!-- END AXOLOTL-STACK-MIT -->
 - Copyright: Copyright (c) 2019 Dragonfly Tech
 - Upstream license SHA-256:
   `9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755`
-- Item tag table: `crates/protocol/data/item_tags_dragonfly.tsv`, derived from
-  the `hashimthearab/dragonfly` fork at
+- Earlier item-tag tables were derived from the `hashimthearab/dragonfly` fork at
   `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` under the same license.
 
 <!-- BEGIN DRAGONFLY-MIT -->
