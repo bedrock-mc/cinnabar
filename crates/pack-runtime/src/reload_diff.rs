@@ -147,12 +147,17 @@ impl Changes {
             PackAdmission::Validated(stack) => Some(stack.as_ref()),
             PackAdmission::None => None,
         });
+        // The same archives in the same order replay every recorded read identically.
+        let identical = prior.is_some_and(|old| old.same_contents(stack));
         let changed = |subscriber| {
             let Some((old, inputs)) =
                 prior.zip(previous.and_then(|(_, dependencies)| dependencies.get(&subscriber)))
             else {
                 return true;
             };
+            if identical {
+                return false;
+            }
             let (before, after) = rayon::join(
                 || dependency_fingerprint(old, inputs),
                 || dependency_fingerprint(stack, inputs),

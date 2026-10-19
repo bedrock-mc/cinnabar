@@ -41,6 +41,31 @@ fn uncompiled_subscribers_skip_unused_file_reads() {
 }
 
 #[test]
+fn identical_stacks_reuse_recorded_subscribers_without_reads() {
+    let files: &[(&str, &[u8])] = &[("textures/unused.bin", b"unused payload")];
+    let before = stack(files);
+    let after = stack(files);
+    let previous = Previous {
+        admission: PackAdmission::Validated(before.clone()),
+        dependencies: [(
+            Subscriber::Ui,
+            BTreeSet::from([PackDependency::Contents("textures/".into())]),
+        )]
+        .into_iter()
+        .collect(),
+    };
+    let changes = Changes::between(&after, Some((&previous.admission, &previous.dependencies)));
+    assert!(!changes.ui);
+    assert!(changes.atmosphere && changes.entities);
+    for source in [&before, &after] {
+        assert_eq!(
+            resource_pack::test_support::file_read_count(&source.packs()[0], "textures/unused.bin"),
+            Some(0)
+        );
+    }
+}
+
+#[test]
 fn changed_blocks_skip_icon_comparison_reads() {
     let before = stack(&[
         ("blocks.json", b"old blocks"),
