@@ -6,6 +6,16 @@ use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
 
+/// Includes model alpha testing in the shading flags, matching the GPU render adapter.
+fn style_flags(vertex: &UiVertex) -> u16 {
+    vertex.style_flags
+        | if vertex.alpha_test {
+            render_model::UI_STYLE_ALPHA_TEST as u16
+        } else {
+            0
+        }
+}
+
 /// Applies the particle source bounds after triangle interpolation, as the GPU shader does.
 fn particle_uv(uv: [f32; 2], vertex: &UiVertex) -> [f32; 2] {
     if u32::from(vertex.style_flags) & render_model::UI_STYLE_PARTICLE != 0 {
@@ -156,6 +166,7 @@ impl Canvas {
         let [left, right] = span(x0.min(x1), x0.max(x1), clip[0], clip[2]);
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
+        let flags = style_flags(v[0]);
         let scale = (((u1 - u0) * (v1 - v0)) / (w * h)).abs().sqrt();
         for y in top..bottom {
             let fy = (y as f32 + 0.5 - y0) / h;
@@ -167,7 +178,7 @@ impl Canvas {
                     texture,
                     particle_uv([u0 + (u1 - u0) * fx, tv], v[0]),
                     color,
-                    v[0].style_flags,
+                    flags,
                     scale,
                 );
                 blend_styled(
@@ -175,7 +186,7 @@ impl Canvas {
                     texel,
                     color,
                     blend,
-                    v[0].style_flags,
+                    flags,
                 );
             }
         }
@@ -218,7 +229,7 @@ impl Canvas {
                         .sum::<f32>()
                         .round() as u8
                 });
-                let flags = v[0].style_flags;
+                let flags = style_flags(v[0]);
                 let (texel, tint) = if flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
                     let overlay = std::array::from_fn(|channel| {
                         (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
@@ -491,6 +502,40 @@ mod tests {
         .unwrap()
         .build_draw_list()
         .unwrap()
+    }
+
+    #[test]
+    fn particle_mesh_alpha_testing_thresholds_texture_before_node_opacity() {
+        let mut list = quad();
+        for vertex in &mut list.vertices {
+            vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+            vertex.alpha_test = true;
+            vertex.color[3] = 128;
+        }
+        for alpha in [127, 128, 192] {
+            let texture = Page {
+                width: 1,
+                height: 1,
+                rgba: [200, 80, 20, alpha].into(),
+            };
+            for draw in [&list, &triangle(list.clone())] {
+                let expected = if alpha < 128 {
+                    [0; 4]
+                } else {
+                    [199, 80, 20, 128]
+                };
+                assert_eq!(first_pixel(draw, &texture), expected);
+            }
+        }
+        for vertex in &mut list.vertices {
+            vertex.alpha_test = false;
+        }
+        let texture = Page {
+            width: 1,
+            height: 1,
+            rgba: [200, 80, 20, 192].into(),
+        };
+        assert_eq!(first_pixel(&list, &texture)[3], 96);
     }
 
     #[test]
