@@ -1,0 +1,15 @@
+[package]
+name = "shaderpack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true
