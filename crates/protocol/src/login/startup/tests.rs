@@ -171,6 +171,44 @@ mod session {
         time.time.0
     }
 
+    /// Malformed relay framing cannot consume either irreplaceable spawn prerequisite.
+    #[tokio::test]
+    async fn malformed_replacements_preserve_start_game_and_item_registry() {
+        use crate::packet_relay::tests::FakeRelay;
+        use std::sync::Arc;
+        for (name, replies) in [
+            ("invalid-start-game", vec![Some(vec![0xff])]),
+            ("invalid-item-registry", vec![None, Some(vec![0xff])]),
+        ] {
+            let relay = Arc::new(FakeRelay::default());
+            relay.state().inbound_replies = replies.into();
+            let mut pair = handed_off(
+                name,
+                &[vec![
+                    registry("minecraft:shield", 355),
+                    radius(16),
+                    player_spawn(),
+                    set_time(9),
+                ]],
+            )
+            .await;
+            pair.transport.set_relay(relay.clone());
+            await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+                .await
+                .expect("the original prerequisites still complete spawn");
+            let Inbound::Packet(radius) = pair.transport.recv().await.unwrap() else {
+                panic!("the deferred radius update arrives before SetTime")
+            };
+            assert_eq!(radius.id, PacketId::ChunkRadiusUpdated);
+            assert_eq!(next_time(&mut pair.transport).await, 9);
+            assert!(relay.state().stopped);
+            assert_eq!(
+                relay.state().inbound.len(),
+                if name == "invalid-start-game" { 1 } else { 2 }
+            );
+        }
+    }
+
     /// Options received during spawn retain their position in the play ingress stream.
     #[tokio::test]
     async fn inventory_options_survive_startup_and_reach_world_ingress() {

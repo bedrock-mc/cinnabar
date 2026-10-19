@@ -51,19 +51,20 @@ struct LoaderState {
 impl PacketModLoader {
     /// Selects the packet mod later sessions use and compiles it on a background thread; `None`
     /// clears it. Selecting the current source again keeps its compiled code.
-    pub fn select(&self, selection: Option<PacketModSelection>) {
+    /// Returns the displaced executable owner for off-thread retirement.
+    pub fn select(&self, selection: Option<PacketModSelection>) -> Option<Arc<CompiledPacketMod>> {
         let mut state = self.state();
         if state.selection == selection {
-            return;
+            return None;
         }
         state.authority.store(false, Ordering::Release);
         state.authority = Arc::new(AtomicBool::new(selection.is_some()));
         state.generation += 1;
         state.selection.clone_from(&selection);
-        state.compiled = None;
+        let retired = state.compiled.take().and_then(Result::ok);
         self.inner.ready.notify_all();
         let Some(selection) = selection else {
-            return;
+            return retired;
         };
         let generation = state.generation;
         drop(state);
@@ -91,6 +92,7 @@ impl PacketModLoader {
         {
             tracing::warn!(%error, "packet mod compile thread unavailable");
         }
+        retired
     }
 
     /// A relay for one new session, or `None` when no packet mod is selected.
@@ -105,14 +107,20 @@ impl PacketModLoader {
     }
 
     /// Publishes an already compiled source snapshot; no file is reopened on the frame thread.
-    pub fn select_prepared(&self, selection: PacketModSelection, compiled: Arc<CompiledPacketMod>) {
+    /// Returns the displaced executable owner for off-thread retirement.
+    pub fn select_prepared(
+        &self,
+        selection: PacketModSelection,
+        compiled: Arc<CompiledPacketMod>,
+    ) -> Option<Arc<CompiledPacketMod>> {
         let mut state = self.state();
         state.authority.store(false, Ordering::Release);
         state.authority = Arc::new(AtomicBool::new(true));
         state.generation += 1;
         state.selection = Some(selection);
-        state.compiled = Some(Ok(compiled));
+        let retired = state.compiled.replace(Ok(compiled)).and_then(Result::ok);
         self.inner.ready.notify_all();
+        retired
     }
 
     /// Waits up to `wait` for the selected packet mod's compiled code.

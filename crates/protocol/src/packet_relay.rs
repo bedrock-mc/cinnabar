@@ -5,7 +5,13 @@ use crate::packet_tap::PacketTap;
 use crate::session_wire::SessionIdentity;
 use bridge::{BridgeError, FrameQueue, FrameWritten};
 use bytes::{BufMut, Bytes, BytesMut};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tokio::sync::{Mutex, OwnedMutexGuard, mpsc};
 
 /// How often a relay's timed work runs: one client tick.
@@ -61,6 +67,31 @@ pub struct RelayOutput {
 struct Shared {
     relay: Arc<dyn PacketRelay>,
     gate: Arc<Mutex<()>>,
+    active: AtomicBool,
+}
+
+impl Shared {
+    /// Disables a faulty relay once; all later original batches bypass it.
+    fn disable(&self) {
+        if self.active.swap(false, Ordering::AcqRel) {
+            tracing::warn!("packet relay produced malformed data; packets now pass through");
+            self.relay.stop();
+        }
+    }
+
+    /// Checks synthetic or replacement framing using the session's packet decoder.
+    fn valid(&self, body: Bytes) -> bool {
+        if crate::raw_packet::decode_batch_body(
+            body,
+            crate::session_transport::MAX_SESSION_BATCH_BYTES,
+        )
+        .is_err()
+        {
+            self.disable();
+            return false;
+        }
+        self.active.load(Ordering::Acquire)
+    }
 }
 
 /// A relay's final frame, retaining its write-order gate until queue admission.
@@ -129,10 +160,24 @@ impl BatchWriter {
             return Some(PreparedBatch { frame, _gate: None });
         };
         let gate = Arc::clone(&shared.gate).lock_owned().await;
+        if !shared.active.load(Ordering::Acquire) {
+            return Some(PreparedBatch {
+                frame,
+                _gate: Some(gate),
+            });
+        }
         let frame = match shared.relay.outbound(&frame[1..]) {
             None => frame,
-            Some(body) if body.is_empty() => return None,
-            Some(body) => batch_frame_from_body(&body),
+            Some(body) => {
+                let body = Bytes::from(body);
+                if !shared.valid(body.clone()) {
+                    frame
+                } else if body.is_empty() {
+                    return None;
+                } else {
+                    batch_frame_from_body(&body)
+                }
+            }
         };
         Some(PreparedBatch {
             frame,
@@ -160,7 +205,7 @@ impl BatchWriter {
 
 /// The session side of a running relay: client-bound injections and the tick task.
 pub(crate) struct RelayLink {
-    relay: Arc<dyn PacketRelay>,
+    shared: Arc<Shared>,
     pub(crate) injected: mpsc::Receiver<Bytes>,
     ticker: tokio::task::JoinHandle<()>,
 }
@@ -176,6 +221,7 @@ impl RelayLink {
         let shared = Arc::new(Shared {
             relay: Arc::clone(&relay),
             gate: Arc::new(Mutex::new(())),
+            active: AtomicBool::new(true),
         });
         let writer = BatchWriter {
             frames,
@@ -183,9 +229,9 @@ impl RelayLink {
             tap,
         };
         let (inject, injected) = mpsc::channel(INJECTED_CAPACITY);
-        let ticker = tokio::spawn(run_ticks(shared, writer.clone(), inject));
+        let ticker = tokio::spawn(run_ticks(Arc::clone(&shared), writer.clone(), inject));
         let link = Self {
-            relay,
+            shared,
             injected,
             ticker,
         };
@@ -194,19 +240,24 @@ impl RelayLink {
 
     /// Lets the relay replace a server batch body; `None` keeps the original.
     pub(crate) fn inbound(&self, body: &[u8], startup: bool) -> Option<Bytes> {
-        if startup {
-            self.relay.inbound_startup(body)
-        } else {
-            self.relay.inbound(body)
+        if !self.shared.active.load(Ordering::Acquire) {
+            return None;
         }
-        .map(Bytes::from)
+        let replacement = if startup {
+            self.shared.relay.inbound_startup(body)
+        } else {
+            self.shared.relay.inbound(body)
+        };
+        replacement
+            .map(Bytes::from)
+            .filter(|body| self.shared.valid(body.clone()))
     }
 }
 
 impl Drop for RelayLink {
     fn drop(&mut self) {
         self.ticker.abort();
-        self.relay.stop();
+        self.shared.relay.stop();
     }
 }
 
@@ -217,15 +268,22 @@ async fn run_ticks(shared: Arc<Shared>, writer: BatchWriter, inject: mpsc::Sende
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
+        if !shared.active.load(Ordering::Acquire) {
+            return;
+        }
         let relay = Arc::clone(&shared.relay);
         let Ok(output) = tokio::task::spawn_blocking(move || relay.tick()).await else {
             return;
         };
-        if !output.to_client.is_empty() && inject.send(output.to_client.into()).await.is_err() {
+        let to_client = Bytes::from(output.to_client);
+        let to_server = Bytes::from(output.to_server);
+        if !shared.valid(to_client.clone()) || !shared.valid(to_server.clone()) {
             return;
         }
-        if !output.to_server.is_empty() && writer.inject(&shared, &output.to_server).await.is_err()
-        {
+        if !to_client.is_empty() && inject.send(to_client).await.is_err() {
+            return;
+        }
+        if !to_server.is_empty() && writer.inject(&shared, &to_server).await.is_err() {
             return;
         }
     }

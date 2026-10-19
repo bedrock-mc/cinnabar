@@ -24,6 +24,7 @@ pub(crate) struct PacketMods {
     selected: Option<[u8; 32]>,
     environment: Option<PacketModSelection>,
     environment_selected: bool,
+    retired: Vec<Arc<CompiledPacketMod>>,
 }
 
 /// Starts compilation for an explicitly selected developer packet mod before the first join.
@@ -45,7 +46,9 @@ impl PacketMods {
     pub(super) fn select_environment(&mut self, selection: PacketModSelection) {
         self.environment = Some(selection.clone());
         if self.selected.is_none() {
-            self.loader.select(Some(selection));
+            if let Some(old) = self.loader.select(Some(selection)) {
+                self.retired.push(old);
+            }
             self.environment_selected = true;
         }
     }
@@ -81,7 +84,7 @@ impl PacketMods {
     }
 
     /// Revokes removed grants immediately, independently of compilation and reload progress.
-    pub(super) fn authorize(&mut self, entries: &[Entry]) {
+    pub(super) fn authorize(&mut self, entries: &[Entry]) -> Vec<Arc<CompiledPacketMod>> {
         for program in self.programs.values_mut() {
             program.authorized = entries.iter().any(|entry| {
                 entry.enabled
@@ -90,6 +93,7 @@ impl PacketMods {
             });
         }
         self.select(entries);
+        std::mem::take(&mut self.retired)
     }
 
     /// Reorders accepted sources without starting or compiling a guest on the frame thread.
@@ -109,7 +113,7 @@ impl PacketMods {
             return;
         }
         self.selected = identity;
-        if let Some(program) = selected {
+        let retired = if let Some(program) = selected {
             self.environment_selected = false;
             self.loader.select_prepared(
                 PacketModSelection {
@@ -117,10 +121,13 @@ impl PacketMods {
                     grants: program.registration.entry.grants.clone(),
                 },
                 Arc::clone(&program.program),
-            );
+            )
         } else {
-            self.loader.select(self.environment.clone());
             self.environment_selected = self.environment.is_some();
+            self.loader.select(self.environment.clone())
+        };
+        if let Some(old) = retired {
+            self.retired.push(old);
         }
     }
 

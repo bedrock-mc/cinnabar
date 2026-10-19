@@ -118,8 +118,7 @@ async fn read_frame(pair: &mut Pair) -> Vec<u8> {
     frame
 }
 
-/// Server batches pass through, are replaced or dropped, and a replacement that does not decode
-/// is dropped without ending the session.
+/// Invalid replacements preserve the original and disable later relay calls.
 #[tokio::test]
 async fn server_batches_pass_through_get_replaced_or_dropped() {
     let relay = Arc::new(FakeRelay::default());
@@ -135,9 +134,10 @@ async fn server_batches_pass_through_get_replaced_or_dropped() {
     for time in 1..=5 {
         write_frame(&mut pair.peer, &batch_frame(&[set_time(time)]).unwrap()).await;
     }
-    assert_eq!(next_times(&mut pair, 3).await, [1, 7, 5]);
+    assert_eq!(next_times(&mut pair, 4).await, [1, 7, 4, 5]);
     let seen = relay.state().inbound.clone();
-    assert_eq!(seen, (1..=5).map(|time| body(&[time])).collect::<Vec<_>>());
+    assert_eq!(seen, (1..=4).map(|time| body(&[time])).collect::<Vec<_>>());
+    assert!(relay.state().stopped);
 }
 
 /// Client batches reach the core as the relay leaves them; a dropped batch writes nothing.
@@ -269,4 +269,43 @@ async fn taps_record_relay_tick_injections_in_both_directions() {
             1,
         );
     }
+}
+
+/// Invalid client replacements preserve the original write and revoke later callbacks.
+#[tokio::test]
+async fn malformed_outbound_replacement_forwards_original_and_disables_relay() {
+    let relay = Arc::new(FakeRelay::default());
+    relay.state().outbound_replies = [Some(vec![0xff]), Some(body(&[99]))].into();
+    let mut pair = relayed_pair("invalid-outbound", &relay).await;
+    for time in [1, 2] {
+        pair.transport.send(&[set_time(time)]).await.unwrap();
+        assert_eq!(
+            read_frame(&mut pair).await,
+            batch_frame(&[set_time(time)]).unwrap()
+        );
+    }
+    assert_eq!(relay.state().outbound.len(), 1);
+    assert!(relay.state().stopped);
+}
+
+/// A malformed synthetic output discards the whole tick and restores ordinary forwarding.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_tick_is_not_injected_in_either_direction() {
+    let relay = Arc::new(FakeRelay::default());
+    relay.state().ticks = [RelayOutput {
+        to_client: body(&[99]),
+        to_server: vec![0xff],
+    }]
+    .into();
+    let mut pair = relayed_pair("invalid-tick", &relay).await;
+    test_time::eventually("invalid tick disables relay", || relay.state().stopped);
+    write_frame(&mut pair.peer, &batch_frame(&[set_time(1)]).unwrap()).await;
+    assert_eq!(next_times(&mut pair, 1).await, [1]);
+    pair.transport.send(&[set_time(2)]).await.unwrap();
+    assert_eq!(
+        read_frame(&mut pair).await,
+        batch_frame(&[set_time(2)]).unwrap()
+    );
+    assert!(relay.state().inbound.is_empty());
+    assert!(relay.state().outbound.is_empty());
 }

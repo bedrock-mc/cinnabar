@@ -36,8 +36,12 @@ pub(super) fn sync_authority(world: &mut World) {
             }
         }
     }
-    if let Some(mut packets) = world.get_resource_mut::<crate::modding::packets::PacketMods>() {
-        packets.authorize(&enabled);
+    let retired = world
+        .get_resource_mut::<crate::modding::packets::PacketMods>()
+        .map(|mut packets| packets.authorize(&enabled))
+        .unwrap_or_default();
+    for program in retired {
+        world.resource::<Watcher>().retire(Retired::Packet(program));
     }
     world.resource::<Watcher>().remember_settings(
         world.get_resource::<ModRuntime>(),
@@ -379,8 +383,12 @@ pub(super) fn apply(world: &mut World, update: Update) {
         ));
     }
     reorder(world, &update.registration.mods);
-    if let Some(mut packets) = world.get_resource_mut::<crate::modding::packets::PacketMods>() {
-        packets.authorize(&update.registration.mods);
+    let retired = world
+        .get_resource_mut::<crate::modding::packets::PacketMods>()
+        .map(|mut packets| packets.authorize(&update.registration.mods))
+        .unwrap_or_default();
+    for program in retired {
+        world.resource::<Watcher>().retire(Retired::Packet(program));
     }
     refresh_presentation(world);
     // A trapped identity stays admitted but cannot execute. Only revoked identities need recovery.
