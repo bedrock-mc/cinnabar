@@ -149,7 +149,19 @@ fn combined_selected_archives_remain_available_during_import() {
     let imported = applied.state.unwrap();
     assert_eq!(imported.settings.value(SettingId::FieldOfView), 80);
     assert_eq!(imported.servers.len(), 1);
-    assert_eq!(imported.active, selected);
+    assert_eq!(
+        imported
+            .active
+            .iter()
+            .map(|pack| (pack.id, &pack.subpack))
+            .collect::<Vec<_>>(),
+        selected
+            .iter()
+            .map(|pack| (pack.id, &pack.subpack))
+            .collect::<Vec<_>>()
+    );
+    assert!(imported.active[..2].iter().all(|pack| pack.revision != 0));
+    assert_eq!(&imported.active[2..], original);
 }
 
 #[test]
