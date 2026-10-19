@@ -142,6 +142,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] `P2-CHUNK-PUBLICATION` — Qualify initial publication, steady streaming and full-view
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
+  Sparse startup can complete without a publisher update after terrain decodes, stream
+  and render work drain, and a later GPU frame completes. Empty-world initialization is
+  verified; complete server-form and gameplay acceptance remains open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.

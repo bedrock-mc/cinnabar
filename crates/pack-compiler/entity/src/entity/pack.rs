@@ -4,11 +4,42 @@
 
 use super::*;
 
+mod prepared;
+use prepared::{PreparedFile, Skip};
+
+#[cfg(test)]
+thread_local! {
+    static SOURCE_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static ASSEMBLY_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Sources one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_SOURCES: usize =
     assets::MAX_ENTITY_ASSET_SOURCES - super::policy_sources::SOURCE_COUNT;
 /// Total source bytes one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_BYTES: usize = 128 * 1024 * 1024;
+
+/// Admission limits shared by the first compile and every isolation attempt.
+#[derive(Clone, Copy)]
+struct SourceBudget {
+    count: usize,
+    bytes: usize,
+}
+
+impl Default for SourceBudget {
+    /// Reserves built-in source records before admitting pack files.
+    fn default() -> Self {
+        let policy_bytes = super::policy_sources::records()
+            .map(|source| source.source_bytes as usize)
+            .sum();
+        Self {
+            count: MAX_PACK_ENTITY_SOURCES,
+            bytes: MAX_PACK_ENTITY_BYTES
+                .min(assets::MAX_ENTITY_TOTAL_SOURCE_BYTES)
+                .saturating_sub(policy_bytes),
+        }
+    }
+}
 
 /// Counted reasons pack sources were left out of the catalog.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -90,7 +121,7 @@ fn file_identifiers_are_valid(
     })
 }
 
-/// Most recompiles spent isolating one structurally invalid file.
+/// Most assembly attempts spent isolating one structurally invalid file.
 const MAX_ISOLATION_ATTEMPTS: usize = 64;
 
 /// Virtual source keys use a colon, which pack admission forbids in authored paths.
@@ -167,118 +198,148 @@ fn select_sources(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<PackSource> {
 pub fn compile_entity_pack(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> Result<Option<EntityPackCompilation>, AssetError> {
-    let selected = select_sources(files);
-    let first_error = match compile_selected(&selected, None) {
-        Ok(compiled) => return Ok(compiled),
-        Err(error) => error,
-    };
+    compile_entity_pack_unless(files, &|| false).expect("an uncancellable compile completes")
+}
+
+/// Compiles a pack, returning `None` when cancellation stops preparation or isolation.
+pub(crate) fn compile_entity_pack_unless(
+    files: Vec<(Box<str>, Vec<u8>)>,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Result<Option<EntityPackCompilation>, AssetError>> {
+    compile_with_budget(files, cancelled, SourceBudget::default())
+}
+
+/// Applies the same source limits on every ordered isolation attempt.
+fn compile_with_budget(
+    files: Vec<(Box<str>, Vec<u8>)>,
+    cancelled: &dyn Fn() -> bool,
+    budget: SourceBudget,
+) -> Option<Result<Option<EntityPackCompilation>, AssetError>> {
+    let mut selected = select_sources(files)
+        .into_iter()
+        .map(PreparedFile::new)
+        .collect::<Vec<_>>();
+    let mut can_isolate = true;
+    let first_error =
+        match compile_selected(&mut selected, None, &mut can_isolate, budget, cancelled)? {
+            Ok(compiled) => return Some(Ok(compiled)),
+            Err(error) => error,
+        };
+    if !can_isolate {
+        return Some(Err(first_error));
+    }
     // Entity definitions are the likeliest culprits, then the files they pull in.
     let is_entity = |path: &str| path.starts_with("entity/");
     let candidates = selected
         .iter()
         .enumerate()
-        .filter(|(_, source)| is_entity(&source.path))
+        .filter(|(_, source)| is_entity(&source.source.path))
         .chain(
             selected
                 .iter()
                 .enumerate()
-                .filter(|(_, source)| !is_entity(&source.path)),
+                .filter(|(_, source)| !is_entity(&source.source.path)),
         )
         .map(|(index, _)| index)
-        .take(MAX_ISOLATION_ATTEMPTS);
+        .take(MAX_ISOLATION_ATTEMPTS)
+        .collect::<Vec<_>>();
     for index in candidates {
-        if let Ok(Some(mut compiled)) = compile_selected(&selected, Some(index)) {
+        if cancelled() {
+            return None;
+        }
+        if let Ok(Some(mut compiled)) = compile_selected(
+            &mut selected,
+            Some(index),
+            &mut can_isolate,
+            budget,
+            cancelled,
+        )? {
             compiled.skipped.isolated += 1;
-            return Ok(Some(compiled));
+            return Some(Ok(Some(compiled)));
         }
     }
-    Err(first_error)
+    Some(Err(first_error))
 }
 
 /// One compile of `selected`, leaving out the file at `omit`.
 fn compile_selected(
-    selected: &[PackSource],
+    selected: &mut [PreparedFile],
     omit: Option<usize>,
-) -> Result<Option<EntityPackCompilation>, AssetError> {
+    can_isolate: &mut bool,
+    budget: SourceBudget,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Result<Option<EntityPackCompilation>, AssetError>> {
+    if cancelled() {
+        return None;
+    }
+    #[cfg(test)]
+    ASSEMBLY_ATTEMPTS.update(|count| count + 1);
     let mut skipped = EntityPackSkips::default();
     let mut sources = Vec::new();
     let mut payloads = SourcePayloads::new();
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
     let mut total = 0usize;
-    let policy_bytes = super::policy_sources::records()
-        .map(|source| source.source_bytes as usize)
-        .sum();
-    let byte_limit = MAX_PACK_ENTITY_BYTES
-        .min(assets::MAX_ENTITY_TOTAL_SOURCE_BYTES)
-        .saturating_sub(policy_bytes);
-    for (index, source) in selected.iter().enumerate() {
+    for (index, source) in selected.iter_mut().enumerate() {
+        if cancelled() {
+            return None;
+        }
         if omit == Some(index) {
             continue;
         }
-        let path = source.path.clone();
-        let bytes = &source.bytes;
-        // Geometry is normalised to the accepted schema; a file that leaves nothing is skipped.
-        let normalised;
-        let bytes = if path.starts_with("models/entity/") {
-            let Some(text) = pack_json::parse_jsonc::<serde_json::Value>(bytes)
-                .ok()
-                .filter(|_| true)
-                .and_then(|mut value| {
-                    sanitize::sanitize_geometry(&mut value).then(|| serde_json::to_vec(&value).ok())
-                })
-                .flatten()
-            else {
-                skipped.unparsable += 1;
-                continue;
-            };
-            normalised = text;
-            normalised.as_slice()
-        } else {
-            bytes.as_slice()
+        let remaining = SourceBudget {
+            count: budget.count - sources.len(),
+            bytes: budget.bytes - total,
         };
-        if bytes.len() > assets::MAX_ENTITY_SOURCE_BYTES {
-            skipped.oversized += 1;
-            continue;
-        }
-        let next_total = total.saturating_add(bytes.len());
-        if sources.len() >= MAX_PACK_ENTITY_SOURCES || next_total > byte_limit {
-            skipped.over_budget += 1;
-            continue;
-        }
-        // Parse into scratch maps so a failing file leaves no partial symbols.
-        let mut file_symbols = BTreeMap::new();
-        let mut file_geometries = BTreeMap::new();
-        if source
-            .parse(bytes, &mut file_symbols, &mut file_geometries)
-            .is_err()
-        {
-            skipped.unparsable += 1;
-            continue;
-        }
-        if !file_identifiers_are_valid(&file_symbols, &file_geometries) {
-            skipped.unparsable += 1;
-            continue;
-        }
-        total = next_total;
-        symbols.extend(file_symbols);
-        geometries.extend(file_geometries);
-        sources.push(EntityAssetSource {
-            path: path.clone(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: Sha256::digest(bytes).into(),
-        });
-        payloads.insert(path, bytes.into());
+        let prepared = match source.parsed(remaining) {
+            Ok(prepared) => prepared.clone(),
+            Err(reason) => {
+                match reason {
+                    Skip::Unparsable => skipped.unparsable += 1,
+                    Skip::Oversized => skipped.oversized += 1,
+                    Skip::OverBudget => skipped.over_budget += 1,
+                }
+                continue;
+            }
+        };
+        total += prepared.bytes.len();
+        symbols.extend(prepared.symbols);
+        geometries.extend(prepared.geometries);
+        sources.push(prepared.record);
+        payloads.insert(source.source.path.clone(), prepared.bytes);
     }
-    let remaining_budget = (MAX_PACK_ENTITY_SOURCES - sources.len(), byte_limit - total);
-    super::painting::complete_bindings(
+    if cancelled() {
+        return None;
+    }
+    // With no budget skips, omission only removes the file's own entries. Otherwise
+    // it can admit a larger file that displaces several later sources.
+    let excess_symbols = symbols.len().saturating_sub(MAX_ENTITY_ASSET_SYMBOLS);
+    let excess_geometries = geometries.len().saturating_sub(MAX_ENTITY_GEOMETRIES);
+    *can_isolate = skipped.over_budget > 0
+        || selected
+            .iter()
+            .filter(|source| payloads.contains_key(source.source.path.as_ref()))
+            .any(|source| {
+                source
+                    .products
+                    .as_ref()
+                    .and_then(Option::as_ref)
+                    .is_some_and(|parsed| {
+                        parsed.symbols.len() >= excess_symbols
+                            && parsed.geometries.len() >= excess_geometries
+                    })
+            });
+    let remaining_budget = (budget.count - sources.len(), budget.bytes - total);
+    if let Err(error) = super::painting::complete_bindings(
         Path::new(""),
         &mut sources,
         &mut payloads,
         &mut symbols,
         &mut geometries,
         Some(remaining_budget),
-    )?;
+    ) {
+        return Some(Err(error));
+    }
     // Authored attachables and texture-only artwork each make a pack worth retaining.
     let has_attachables = sources
         .iter()
@@ -292,35 +353,42 @@ fn compile_selected(
             .keys()
             .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
     {
-        return Ok(None);
+        return Some(Ok(None));
     }
     let mut identity = Sha256::new();
     for source in &sources {
         identity.update(source.path.as_bytes());
         identity.update(source.source_sha256);
     }
-    let compilation = assemble(
-        Path::new(""),
-        sources,
-        &payloads,
-        symbols,
-        geometries,
-        identity.finalize().into(),
-        false,
-    )?;
-    Ok(Some(EntityPackCompilation {
-        assets: compilation.assets,
-        reference_outcomes: compilation.reference_outcomes,
-        equipment_bindings: compilation.equipment_bindings,
-        skipped,
-        payloads,
-    }))
+    Some(
+        assemble(
+            Path::new(""),
+            sources,
+            &payloads,
+            symbols,
+            geometries,
+            identity.finalize().into(),
+            false,
+        )
+        .map(|compilation| {
+            Some(EntityPackCompilation {
+                assets: compilation.assets,
+                reference_outcomes: compilation.reference_outcomes,
+                equipment_bindings: compilation.equipment_bindings,
+                skipped,
+                payloads,
+            })
+        }),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    mod admission;
+    mod preparation;
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
         (path.into(), text.as_bytes().to_vec())
